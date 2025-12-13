@@ -1,0 +1,42 @@
+.cloud-console-tabs.ant-tabs { margin-top: 8px; }
+.cloud-console-tabs .ant-tabs-nav { margin-bottom: 16px; position: relative; }
+.cloud-console-tabs .ant-tabs-nav::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: #1677ff; }
+.cloud-console-tabs .ant-tabs-nav::before { display: none; }
+.cloud-console-tabs .ant-tabs-tab { padding: 4px 10px; border-radius: 8px; }
+.cloud-console-tabs .ant-tabs-tab + .ant-tabs-tab { margin-left: 6px; }
+.cloud-console-tabs .ant-tabs-tab .ant-tabs-tab-btn { color: #1f2a44; }
+.cloud-console-tabs .ant-tabs-tab:hover .ant-tabs-tab-btn { color: #1f2a44; }
+.cloud-console-tabs .ant-tabs-tab-active { background: #e6f4ff; border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.cloud-console-tabs .ant-tabs-tab-active .ant-tabs-tab-btn { color: #1f2a44; font-weight: normal; }
+.cloud-console-tabs .ant-tabs-ink-bar { display: none; }
+
+.cloud-console-root { height: calc(100vh - 64px); }
+.cloud-console-sidebar { background: #EDF0F7; border: 1px solid #e6efff; border-radius: 0; padding: 0; height: calc(100vh - 64px); display: flex; flex-direction: column; overflow: hidden; }
+.cloud-console-content { height: calc(100vh - 64px); display: flex; flex-direction: column; overflow: hidden; }
+.cloud-console-content-scroll { flex: 1; overflow: auto; padding-right: 30px; }
+.vr-table { font-size: 12px; }
+.cloud-console-sidebar .ant-tree { padding: 6px 6px 0 6px; flex: 1; background: #EDF0F7; overflow: auto; }
+.cloud-console-sidebar .ant-tree-list, .cloud-console-sidebar .ant-tree-list-holder { background: #EDF0F7; }
+.cloud-console-sidebar .ant-tree-treenode { padding: 2px 0; }
+.cloud-console-sidebar .ant-tree-node-content-wrapper { border-radius: 8px; font-size: 13px; }
+.cloud-console-sidebar .ant-tree-node-content-wrapper:hover { background: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+.cloud-console-sidebar .ant-tree-node-content-wrapper:hover .ant-tree-title { color: #1677ff; }
+.cloud-console-sidebar .ant-tree-node-content-wrapper:hover .anticon { color: #1677ff; }
+.cloud-console-sidebar .ant-tree-node-selected .ant-tree-node-content-wrapper { background: #fff !important; box-shadow: 0 0 0 2px #1677ff, 0 4px 12px rgba(22, 119, 255, 0.16); border: 0; border-radius: 8px; padding: 2px 8px; }
+.cloud-console-sidebar .ant-tree-node-selected .ant-tree-node-content-wrapper::before { display: none; }
+.cloud-console-sidebar .ant-tree-node-selected .ant-tree-title { color: #165dff; }
+.cloud-console-sidebar .ant-tree-node-selected .anticon { color: #165dff; }
+.cloud-console-sidebar .region-title { color: #3c4a6b; font-weight: normal; }
+.cloud-console-sidebar .cloud-title { color: #4b5563; }
+.cloud-console-sidebar .ant-tree-indent-unit { width: 24px; }
+.cloud-console-sidebar .ant-tree-switcher { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; margin-right: 0; margin-left: 0; }
+.cloud-console-sidebar .ant-tree-node-content-wrapper { padding: 2px 8px; border-radius: 8px; transition: all 0.15s ease; }
+.sidebar-header { background: linear-gradient(270deg, #1062fe 0%, #2d7cff 50%, #62a0ff 100%); color: #fff; padding: 12px 12px 12px 20px; box-shadow: 0 6px 16px rgba(16,98,254,0.22), 0 2px 6px rgba(16,98,254,0.12); margin-top: 20px; margin-right: 10px; border-top-left-radius: 0; border-bottom-left-radius: 0; border-top-right-radius: 5px; border-bottom-right-radius: 5px; }
+.adv-toggle { color: #8c8c8c; }
+.adv-toggle:hover { color: #1677ff; }
+.sidebar-status { font-size: 12px; color: #eaf2ff; }
+.status-dot { width: 8px; height: 8px; border-radius: 8px; display: inline-block; }
+.status-dot.success { background: #52c41a; }
+.status-dot.warning { background: #fa8c16; }
+.status-dot.error { background: #ff4d4f; }
+.status-dot.unknown { background: #d9d9d9; }

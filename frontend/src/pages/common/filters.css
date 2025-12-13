@@ -1,0 +1,42 @@
+/* 通用筛选区域样式，供各页面复用 */
+.filters-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+
+/* 左侧筛选表单容器，垂直布局但横向排列多个项 */
+.filter-tools {
+  display: flex;
+  align-items: flex-end;
+  column-gap: 12px;
+}
+
+/* 居中版：统一 Select 多选与占位内容垂直居中 */
+.filter-tools--center .ant-select-selector {
+  display: flex;
+  align-items: center;
+}
+.filter-tools--center .ant-select-selection-overflow,
+.filter-tools--center .ant-select-selection-item,
+.filter-tools--center .ant-select-selection-placeholder {
+  display: flex;
+  align-items: center;
+}
+
+/* 垂直布局下移除 Form.Item 的底部间距，保证与按钮对齐 */
+.filter-tools .ant-form-item {
+  margin-bottom: 0;
+}
+
+/* 右侧操作按钮组统一间距与内边距 */
+.filter-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-actions .ant-btn {
+  padding: 0 12px;
+}

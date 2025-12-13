@@ -1,0 +1,405 @@
+html, body, #root {
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+}
+
+/* 调整侧边菜单项与其上方的间距为 4px（遵循默认紧凑间距） */
+.ant-menu .ant-menu-item {
+  margin-top: 4px;
+}
+
+/* 让图标按钮中的 SVG 垂直居中 */
+.ant-btn-icon-only .ant-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ant-btn-icon-only .anticon > svg {
+  vertical-align: middle !important;
+}
+
+/* 已彻底删除所有与.react-flow__handle、my-handle、Handle、连接点相关的自定义样式，保证无任何覆盖 */
+
+@keyframes breath {
+  from { box-shadow: 0 0 4px 1px #00b96b44; }
+  to   { box-shadow: 0 0 12px 4px #00b96b99; }
+}
+
+/* 脉冲动画 */
+@keyframes pulse {
+  0% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% { 
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+  100% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 连接线动画 */
+@keyframes dash {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 10; }
+}
+
+/* 渐变流动动画 */
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* 浮动动画 */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+/* 闪烁动画 */
+@keyframes shimmer {
+  0% { opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+/* 旋转动画 */
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 缩放动画 */
+@keyframes scale-in {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* React Flow 样式优化 */
+.react-flow__node {
+  animation: scale-in 0.3s ease-out;
+}
+
+.react-flow__edge {
+  animation: scale-in 0.5s ease-out;
+}
+
+.react-flow__controls {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid #e8e8e8 !important;
+  border-radius: 8px !important;
+  backdrop-filter: blur(10px);
+  top: 32px !important;
+  right: 32px !important;
+  bottom: auto !important;
+  left: auto !important;
+}
+
+.react-flow__controls button {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid #e8e8e8 !important;
+  color: #262626 !important;
+  backdrop-filter: blur(10px);
+}
+
+.react-flow__controls button:hover {
+  background: rgba(var(--primary-rgb), 0.1) !important;
+  border-color: var(--primary-hex) !important;
+  transform: scale(1.05);
+}
+
+
+
+/* 滚动条样式保持默认 */
+
+/* 选择文本样式 */
+::selection {
+  background: rgba(var(--primary-rgb), 0.2);
+  color: #262626;
+}
+
+/* 组织树操作按钮紧凑样式 */
+.org-tree .org-action-btn .anticon + span {
+  margin-inline-start: 4px;
+}
+.org-tree .ant-btn-link.org-action-btn {
+  padding: 0 4px;
+}
+.org-tree .ant-divider-vertical {
+  margin: 0 6px;
+}
+
+.org-tree-scroll {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 8px;
+  overflow-x: auto;
+  overflow-y: auto;
+  height: 96%;
+}
+
+.org-tree {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* 工具提示样式 */
+.tooltip {
+  background: rgba(255, 255, 255, 0.95);
+  color: #262626;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  backdrop-filter: blur(10px);
+  border: 1px solid #e8e8e8;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* LinedTextArea styles */
+.lined-textarea {
+  display: flex;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+.lined-textarea-gutter {
+  width: 48px;
+  background: #f0f0f0; /* 深灰背景 */
+  border-right: 1px solid #e5e5e5;
+  color: #666; /* 深灰文字 */
+  text-align: right;
+  padding: 4px 8px 4px 4px;
+  font-family: Menlo, Consolas, monospace;
+  line-height: 20px;
+  overflow: hidden;
+}
+.lined-textarea-line {
+  height: 20px;
+}
+.lined-textarea-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  resize: vertical;
+  padding: 4px 8px;
+  font-family: Menlo, Consolas, monospace;
+  line-height: 20px;
+  background: #fafafa; /* 浅灰背景 */
+}
+
+/* VR 配置模板：停用时压缩 Form.Item 的控件区域空白 */
+.vr-form-item-compact .ant-form-item-control-input {
+  min-height: 0;
+}
+.vr-form-item-compact {
+  margin-bottom: 8px;
+}
+/* SRv6 topology edge dynamic animation */
+.edge-comm .react-flow__edge-path {
+  stroke-dasharray: 6 6;
+  animation: flowLine 1.6s linear infinite;
+  filter: drop-shadow(0 0 1px rgba(105, 177, 255, 0.35));
+}
+
+@keyframes flowLine {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -24; }
+}
+/* SRv6 Topology Select typography alignment */
+.srv6-select .ant-select-selector {
+  padding: 0 8px;
+  height: 24px;
+}
+
+.srv6-select .ant-select-selection-item,
+.srv6-select .ant-select-selection-placeholder {
+  font-size: 12px;
+  line-height: 24px;
+  text-align: center;
+}
+
+.srv6-select .ant-select-selection-item {
+  color: #334155;
+}
+
+.srv6-select .ant-select-selection-placeholder {
+  color: #94a3b8;
+}
+
+/* Dropdown options font alignment */
+.srv6-select-dropdown .ant-select-item-option-content {
+  font-size: 12px;
+  color: #334155;
+}
+
+/* Design tokens: industrial dashboard theme */
+:root {
+  /* Base colors */
+  --color-surface: #ffffff;
+  --color-bg-soft: #f7f9fb;
+  --color-border: #d9d9d9;
+  --color-text-strong: #1f1f1f;
+  --color-text: #434343;
+  --color-text-secondary: #595959;
+
+  /* Primary and status */
+  --primary-hex: #1677FF;
+  --primary-rgb: 22, 119, 255;
+  --success-hex: #52c41a;
+  --warning-hex: #faad14;
+  --error-hex: #ff4d4f;
+  /* Muted/industrial status palette (avoid traffic-light saturation) */
+  --status-online: rgba(var(--primary-rgb), 0.85);       /* 主色系、偏克制 */
+  --status-maintenance: rgba(99, 114, 130, 0.85);        /* 冷灰蓝，强调中性维护 */
+  --status-offline: rgba(255, 77, 79, 0.75);             /* 仅错误保留红色，降低饱和度 */
+
+  /* Typography */
+  --font-size-title-1: 18px; /* Default card title (global) */
+  --font-size-title-2: 15px; /* Subsection header */
+  --font-size-body: 13px;    /* Card body */
+  /* Dashboard fine-tuned header typography */
+  --card-title-size: 15px;    /* Smaller card title for dashboard */
+  --card-subtitle-size: 12.5px; /* Subtle subtitle size */
+  --card-actions-icon-size: 14px; /* Smaller header action icon */
+  --card-head-padding-x: 12px;
+  --card-head-padding-y: 8px;
+
+  /* Spacing & Radius */
+  --spacing-xs: 8px;
+  --spacing-sm: 12px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadow */
+  --shadow-soft: 0 1px 3px rgba(0,0,0,.06), 0 4px 12px rgba(0,0,0,.04);
+
+  /* Intensity ramp for chips/legend */
+  --intensity-0: rgba(var(--primary-rgb), 0.08);
+  --intensity-1: rgba(var(--primary-rgb), 0.15);
+  --intensity-2: rgba(var(--primary-rgb), 0.28);
+  --intensity-3: rgba(var(--primary-rgb), 0.45);
+  --intensity-4: rgba(var(--primary-rgb), 0.68);
+}
+
+.status-badge { display: inline-block; padding: 6px 12px; font-size: 14px; text-align: center; font-weight: normal; transition: all 0.3s ease; }
+.status-badge.success { background-color: #e6f4ea; color: #2e7d32; border: none; }
+.status-badge.warning { background-color: #fff8e1; color: #f9a825; border: none; }
+.status-badge.error { background-color: #ffebee; color: #c62828; border: none; }
+.status-badge.unknown { background-color: #f5f5f5; color: #616161; border: none; }
+.status-badge:hover { transform: scale(1.05); }
+
+.vr-table .ant-table-container { overflow: hidden; }
+.vr-table.vr-table--middle .ant-table-tbody > tr > td { padding: 12px 16px; line-height: 28px; }
+.vr-table.vr-table--middle .ant-table-thead > tr > th { padding: 12px 16px; line-height: 28px; }
+
+/* Dark Mode tokens */
+:root[data-theme="dark"] {
+  /* Base colors (dark) */
+  --color-surface: #0b0e11;           /* card/background surface */
+  --color-bg-soft: #0f131a;           /* dashboard soft background */
+  --color-border: #30363d;            /* subtle borders */
+  --color-text-strong: #e6e6e6;       /* strong text on dark */
+  --color-text: #d0d7de;              /* primary text */
+  --color-text-secondary: #9da7b3;    /* secondary text */
+
+  /* Primary and status keep brand but adapt perception if needed */
+  --primary-hex: #1677ff;
+  --primary-rgb: 22, 119, 255;
+  --success-hex: #3ba55d;
+  --warning-hex: #d89614;
+  --error-hex: #ff4d4f;
+  --status-online: rgba(var(--primary-rgb), 0.9);
+  --status-maintenance: rgba(144, 156, 170, 0.95);
+  --status-offline: rgba(255, 99, 100, 0.85);
+
+  /* Typography scales unchanged */
+  --font-size-title-1: 18px;
+  --font-size-title-2: 15px;
+  --font-size-body: 13px;
+  /* Dashboard fine-tuned header typography */
+  --card-title-size: 15px;
+  --card-subtitle-size: 12.5px;
+  --card-actions-icon-size: 14px;
+  --card-head-padding-x: 12px;
+  --card-head-padding-y: 8px;
+
+  /* Spacing & Radius unchanged */
+  --spacing-xs: 8px;
+  --spacing-sm: 12px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Softer shadow for dark surfaces */
+  --shadow-soft: 0 1px 3px rgba(0,0,0,.45), 0 8px 24px rgba(0,0,0,.32);
+
+  /* Intensity ramp tuned for dark background */
+  --intensity-0: rgba(var(--primary-rgb), 0.18);
+  --intensity-1: rgba(var(--primary-rgb), 0.28);
+  --intensity-2: rgba(var(--primary-rgb), 0.42);
+  --intensity-3: rgba(var(--primary-rgb), 0.62);
+  --intensity-4: rgba(var(--primary-rgb), 0.78);
+}
+
+/* Utility: screen-reader only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Dashboard base background helper */
+.dashboard {
+  background: var(--color-bg-soft);
+}
+/* 链接式菜单项（复制 a 的点击/悬停效果用于操作菜单） */
+.menu-link {
+  color: #1677ff;
+  cursor: pointer;
+}
+.menu-link:hover {
+  text-decoration: underline;
+}
+.menu-link-danger {
+  color: #ff4d4f;
+  cursor: pointer;
+}
+.menu-link-danger:hover {
+  text-decoration: underline;
+}
+.
+.org-tree-container { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 8px; background: var(--color-surface); max-height: 480px; overflow: auto; }
+.org-tree .ant-tree-treenode { padding: 4px 0; }
+.org-tree .ant-tree-node-content-wrapper { padding: 4px 8px; border-radius: 6px; }
+.org-tree .ant-tree-node-content-wrapper:hover { background: rgba(var(--primary-rgb), 0.06); }
+.org-tree .ant-tree-title { font-size: 13px; color: var(--color-text-strong); }
+.org-tree .ant-tree-switcher { color: #94a3b8; }
+.tenant-table .ant-table,
+.tenant-table .ant-table-cell {
+  font-size: 14px;
+}
+
+/* Section tables: remove bold header font */
+.kv-section-table .ant-table-thead > tr > th {
+  font-weight: normal;
+}

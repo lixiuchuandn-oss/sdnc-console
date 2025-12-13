@@ -1,0 +1,85 @@
+.wizard-container { padding: 24px; background: #fff; position: relative; padding-bottom: 80px; min-height: calc(80vh - 80px); font-size: 14px; }
+.wizard-inner { max-width: 100%; margin: 0 auto; }
+.wizard-title { text-align: left; margin: 0 0 12px 0; font-size: 14px; }
+.wizard-sidebar { background: transparent; border: 0; border-radius: 0; padding: 0 8px 0 0; min-height: calc(70vh); }
+.wizard-sidebar-title { display: none; }
+.wizard-step { display: flex; align-items: center; padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 6px; border-left: 0; background: #fafafa; }
+.wizard-step.active { background: #e6f4ff; }
+.wizard-step.completed { color: #1677ff; }
+.wizard-step-icon { width: 24px; height: 24px; border-radius: 4px; background: #f0f0f0; color: #000; display: flex; align-items: center; justify-content: center; margin-right: 8px; font-size: 14px; }
+.wizard-step.active .wizard-step-icon { background: #1677ff; color: #fff; }
+.wizard-step.completed .wizard-step-icon { background: #e6f4ff; color: #1677ff; }
+.wizard-step-text { font-size: 14px; color: #000; }
+.wizard-section-title { font-size: 14px; color: #000; font-weight: 400; }
+.wizard-section { padding-left: 30px; padding-right: 30px; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.wizard-section .ant-form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.wizard-preview { background: #fafafa; border: 1px solid #eaeaea; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.wizard-preview-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid #f0f0f0; }
+.wizard-summary-scroll { margin-top: 10px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; }
+.wizard-step-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.wizard-summary-list { display: flex; flex-direction: column; gap: 6px; }
+.wizard-summary-item { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); align-items: center; padding: 6px 8px; border-bottom: 1px dashed #d9d9d9; border-radius: 0; }
+.wizard-summary-item:last-child { border-bottom: none; }
+.wizard-summary-label { color: #8c8c8c; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wizard-summary-value { color: #1f1f1f; font-weight: 500; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; justify-self: end; display: inline-block; max-width: 60ch; }
+.wizard-preview-title { font-size: 14px; color: #000; font-weight: 400; }
+.wizard-disk-card.active { border-color: #91caff; }
+.wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
+.wizard-bottombar { position: absolute; left: 24px; right: 24px; bottom: 0; background: #f5f7fa; border-top: 1px solid #f0f0f0; padding: 12px 24px; }
+.wizard-bottombar-inner { display: flex; justify-content: center; }
+
+.wizard-preview-actions { margin-top: auto; display: flex; justify-content: flex-end; }
+
+.wizard-container .ant-card { box-shadow: none; border: 1px solid #d9d9d9; border-radius: 6px; }
+.wizard-container .ant-card-head { background: transparent; border-bottom: 1px solid #d9d9d9; }
+.wizard-container .ant-input, 
+.wizard-container .ant-select .ant-select-selector, 
+.wizard-container .ant-input-number, 
+.wizard-container .ant-textarea {
+  border-radius: 6px;
+  box-shadow: none;
+}
+.wizard-container .ant-btn { border-radius: 6px; box-shadow: none; }
+.wizard-container .ant-form-item-label > label { color: #8c8c8c; }
+.wizard-container .ant-divider-horizontal { margin: 12px 0; }
+.wizard-container .ant-form-vertical .ant-form-item { margin-bottom: 12px; }
+
+.wizard-group-title { font-size: 14px; font-weight: 600; color: #1f1f1f; padding-bottom: 6px; border-bottom: 1px solid #eaeaea; margin: 16px 0 12px; }
+
+.wizard-container .ant-radio-group .ant-radio-button-wrapper {
+  height: 28px;
+  line-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.wizard-node-option { display: flex; flex-direction: column; }
+.wizard-node-line { font-size: 13px; color: #1f1f1f; }
+.wizard-node-name { font-weight: 600; }
+.wizard-node-ip { margin-left: 6px; color: #8c8c8c; }
+.wizard-node-sub { font-size: 12px; color: #8c8c8c; display: flex; gap: 12px; }
+.wizard-node-ready { color: #52c41a; }
+.wizard-node-notready { color: #ff4d4f; }
+
+.wizard-top-spacer { height: 45px; }
+
+.wizard-node-table .ant-table-thead .ant-table-cell,
+.wizard-node-table .ant-table-tbody .ant-table-cell {
+  font-size: 12px;
+}
+
+.wizard-node-table .wizard-node-select-col {
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  text-align: center;
+}
+
+/* 去除 高级CPU 折叠面板内容左右内边距 */
+.wizard-collapse-nopad .ant-collapse-content > .ant-collapse-content-box { padding-left: 0; padding-right: 0; border-top: 1px solid #eaeaea; }
+
+/* 去除 高级CPU 折叠面板标题左右内边距 */
+.wizard-collapse-nopad .ant-collapse-header { padding-left: 0 !important; padding-right: 0 !important; padding-bottom: 6px !important; }
+
+/* 统一 高级CPU 面板内的垂直表单项间距与标签样式 */
+.wizard-collapse-nopad .ant-form-vertical .ant-form-item { margin-bottom: 16px; }
+.wizard-collapse-nopad .ant-form-item-label > label { color: #8c8c8c; }

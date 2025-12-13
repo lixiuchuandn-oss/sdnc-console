@@ -1,0 +1,59 @@
+{
+  "name": "compute-tower-frontend",
+  "version": "1.0.0",
+  "description": "Compute Tower 多云管理平台前端",
+  "private": true,
+  "dependencies": {
+    "@ant-design/icons": "^5.6.1",
+    "@novnc/novnc": "^1.6.0",
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "antd": "^5.26.3",
+    "axios": "^1.6.2",
+    "buffer": "^6.0.3",
+    "crypto-js": "^4.2.0",
+    "echarts": "^5.6.0",
+    "echarts-for-react": "^3.0.2",
+    "http-proxy-middleware": "^3.0.5",
+    "novnc-core": "^0.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-flow-renderer": "^10.3.17",
+    "react-router-dom": "^6.20.1",
+    "react-scripts": "5.0.1",
+    "typescript": "^4.9.5",
+    "web-vitals": "^3.5.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0"
+  },
+  "scripts": {
+    "start": "set \"HOST=0.0.0.0\" && set \"PORT=3003\" && set \"REACT_APP_API_URL=http://127.0.0.1:3001\" && set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-app-rewired start",
+    "build": "set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-app-rewired build",
+    "test": "set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-app-rewired test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.8",
+    "react-app-rewired": "^2.2.1"
+  },
+  "proxy": "http://localhost:3001"
+}
