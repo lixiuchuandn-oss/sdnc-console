@@ -333,7 +333,7 @@ const VmCreateWizardModal: React.FC = () => {
             </Form>
             </div>
           </Col>
-        <Col span={7}>
+        <Col span={7} style={{ height: '100%' }}>
           <WizardSummary
             formSnapshot={formSnapshot}
             currentCloudId={currentCloudId}

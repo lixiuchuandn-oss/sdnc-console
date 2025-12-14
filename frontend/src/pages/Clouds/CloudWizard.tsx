@@ -427,24 +427,31 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     setLoading(true);
     try {
       const values = formData || form.getFieldsValue();
-      
-      // 模拟连接测试
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // 90%成功率的模拟
-      const success = Math.random() > 0.1;
-      
-      if (success) {
-        setTestResult({
-          success: true,
-          message: '连接测试成功！云平台配置正确。'
-        });
-      } else {
-        setTestResult({
-          success: false,
-          message: '连接测试失败，请检查配置信息。'
-        });
-      }
+      const endpoint =
+        selectedProvider?.id === 'aliyun'
+          ? 'https://ecs.aliyuncs.com'
+          : selectedProvider?.id === 'huaweicloud'
+            ? `https://ecs.${values.region}.myhuaweicloud.com`
+            : (selectedProvider?.id === 'harvester' || selectedProvider?.id === 'cloudmap')
+              ? (values.endpoint || '')
+              : (values.endpoint || values.authUrl || values.vcenterHost || '');
+      const payload = {
+        provider: selectedProvider?.id,
+        region: values.region || 'default',
+        endpoint,
+        accessKey: values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '',
+        secretKey: values.secretKey || values.accessKeySecret || values.secretAccessKey ||
+                   values.privateKey || values.clientSecret || values.password || values.apiToken || '',
+        config: { provider: selectedProvider?.id, ...values }
+      };
+      const token = localStorage.getItem('token');
+      const resp = await fetch('/api/clouds/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+        body: JSON.stringify(payload)
+      });
+      const json = await resp.json();
+      setTestResult({ success: !!json?.ok, message: json?.message || (json?.ok ? '连接成功' : '连接失败') });
     } catch (error) {
       setTestResult({
         success: false,

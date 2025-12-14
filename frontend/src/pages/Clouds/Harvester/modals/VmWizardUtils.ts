@@ -101,7 +101,7 @@ export const buildHarvesterVmPayload = (params: {
     tpmPersistent: !!v.tpmPersistent,
     useUsbTablet: !!v.useUsbTablet,
     installGuestAgent: !!v.installGuestAgent,
-    gpuMode: v.gpuMode || undefined,
+    gpuMode: (v.gpuMode && v.gpuMode !== 'none') ? v.gpuMode : undefined,
     gpuResourceName: finalGpuResName || undefined,
     gpuCount: (finalGpuResName ? (typeof v.gpuCount === 'number' ? v.gpuCount : 1) : undefined),
     usbDevices: Array.isArray(v.usbDevices) ? v.usbDevices : undefined,
@@ -146,7 +146,7 @@ export const parseSizeToGi = (raw: any) => {
 
 export const initialWizardValues = (memGi: number, initialVmName: string) => ({
   name: initialVmName,
-  cpu: 1,
+  cpu: 2,
   memory: `${memGi}Gi`,
   rootSourceType: 'image',
   rootName: initialVmName,
@@ -156,7 +156,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string) => ({
   extraDisks: [],
   hostMode: 'auto',
   netMode: 'flat',
-  gpuMode: 'passthrough',
+  gpuMode: 'none',
   gpuCount: 0,
   hotExpandEnabled: false,
   bootUseEfi: false,

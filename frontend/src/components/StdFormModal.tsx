@@ -33,6 +33,7 @@ const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = 'ä¿å
       width={width}
       styles={{
         header: { marginBottom: 16 },
+        body: { maxHeight: '80vh', overflowY: 'auto' }
       }}
     >
       <style>{`.stdform-modal .ant-form-item { margin-bottom: 16px; }`}</style>

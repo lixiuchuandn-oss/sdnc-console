@@ -1,6 +1,8 @@
+/* Instance Wizard styles */
 .wizard-container { padding: 24px; background: #fff; position: relative; padding-bottom: 80px; min-height: calc(80vh - 80px); font-size: 14px; }
 .wizard-inner { max-width: 100%; margin: 0 auto; }
 .wizard-title { text-align: left; margin: 0 0 12px 0; font-size: 14px; }
+/* 左侧列（Sidebar） */
 .wizard-sidebar { background: transparent; border: 0; border-radius: 0; padding: 0 8px 0 0; min-height: calc(70vh); }
 .wizard-sidebar-title { display: none; }
 .wizard-step { display: flex; align-items: center; padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 6px; border-left: 0; background: #fafafa; }
@@ -11,25 +13,41 @@
 .wizard-step.completed .wizard-step-icon { background: #e6f4ff; color: #1677ff; }
 .wizard-step-text { font-size: 14px; color: #000; }
 .wizard-section-title { font-size: 14px; color: #000; font-weight: 400; }
-.wizard-section { padding-left: 30px; padding-right: 30px; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* 中间列（Form） */
+.wizard-section {  height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .wizard-section .ant-form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.wizard-preview { background: #fafafa; border: 1px solid #eaeaea; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-.wizard-preview-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid #f0f0f0; }
-.wizard-summary-scroll { margin-top: 10px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; }
-.wizard-step-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* 中间列滚动区域（Form） */
+.wizard-step-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 30px; scrollbar-gutter: stable; }
+/* 分组标题与表单间距（中间列） */
+.wizard-group-title { font-size: 14px; font-weight: 600; color: #1f1f1f; padding-bottom: 6px; border-bottom: 1px solid #eaeaea; margin: 16px 0 12px; }
+/* Radio 外观（中间列） */
+.wizard-container .ant-radio-group .ant-radio-button-wrapper { height: 28px; line-height: 26px; padding: 0 10px; font-size: 12px; }
+/* 中间列磁盘卡片状态 */
+.wizard-disk-card.active { border-color: #91caff; }
+.wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
+/* 右侧列（Preview） */
+.wizard-preview { background: #fafafa; border: 1px solid #eaeaea; border-radius: 8px; padding: 16px; display: flex; flex-direction: column;  height: 100%; min-height: 0; overflow: hidden; }
+.wizard-preview-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid #f0f0f0; flex: 0 0 var(--preview-header-h, 52px); }
+/* 右侧列滚动区域（Preview） */
+.wizard-summary-scroll { margin-top: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 0; }
+/* 预览摘要列表 */
 .wizard-summary-list { display: flex; flex-direction: column; gap: 6px; }
-.wizard-summary-item { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); align-items: center; padding: 6px 8px; border-bottom: 1px dashed #d9d9d9; border-radius: 0; }
+.wizard-summary-item { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); align-items: center; padding: 6px 0px; border-bottom: 1px dashed #d9d9d9; border-radius: 0; }
 .wizard-summary-item:last-child { border-bottom: none; }
-.wizard-summary-label { color: #8c8c8c; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wizard-summary-value { color: #1f1f1f; font-weight: 500; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; justify-self: end; display: inline-block; max-width: 60ch; }
+.wizard-summary-label { color: #888888; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wizard-summary-value { color: #555555; display: block; min-width: 0; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; justify-self: stretch; }
 .wizard-preview-title { font-size: 14px; color: #000; font-weight: 400; }
+/* 右侧列底部操作（Preview） */
+.wizard-preview-actions { margin-top: auto; display: flex; justify-content: flex-end; flex: 0 0 var(--preview-actions-h, 44px); }
+/* 中间列磁盘卡片状态 */
 .wizard-disk-card.active { border-color: #91caff; }
 .wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
 .wizard-bottombar { position: absolute; left: 24px; right: 24px; bottom: 0; background: #f5f7fa; border-top: 1px solid #f0f0f0; padding: 12px 24px; }
 .wizard-bottombar-inner { display: flex; justify-content: center; }
 
-.wizard-preview-actions { margin-top: auto; display: flex; justify-content: flex-end; }
+ 
 
+/* Ant 组件外观统一 */
 .wizard-container .ant-card { box-shadow: none; border: 1px solid #d9d9d9; border-radius: 6px; }
 .wizard-container .ant-card-head { background: transparent; border-bottom: 1px solid #d9d9d9; }
 .wizard-container .ant-input, 
@@ -44,15 +62,9 @@
 .wizard-container .ant-divider-horizontal { margin: 12px 0; }
 .wizard-container .ant-form-vertical .ant-form-item { margin-bottom: 12px; }
 
-.wizard-group-title { font-size: 14px; font-weight: 600; color: #1f1f1f; padding-bottom: 6px; border-bottom: 1px solid #eaeaea; margin: 16px 0 12px; }
+ 
 
-.wizard-container .ant-radio-group .ant-radio-button-wrapper {
-  height: 28px;
-  line-height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
+/* 节点列表与状态 */
 .wizard-node-option { display: flex; flex-direction: column; }
 .wizard-node-line { font-size: 13px; color: #1f1f1f; }
 .wizard-node-name { font-weight: 600; }
@@ -61,8 +73,7 @@
 .wizard-node-ready { color: #52c41a; }
 .wizard-node-notready { color: #ff4d4f; }
 
-.wizard-top-spacer { height: 45px; }
-
+/* 节点表格 */
 .wizard-node-table .ant-table-thead .ant-table-cell,
 .wizard-node-table .ant-table-tbody .ant-table-cell {
   font-size: 12px;
@@ -74,6 +85,7 @@
   text-align: center;
 }
 
+/* 折叠面板调整 */
 /* 去除 高级CPU 折叠面板内容左右内边距 */
 .wizard-collapse-nopad .ant-collapse-content > .ant-collapse-content-box { padding-left: 0; padding-right: 0; border-top: 1px solid #eaeaea; }
 
@@ -83,3 +95,8 @@
 /* 统一 高级CPU 面板内的垂直表单项间距与标签样式 */
 .wizard-collapse-nopad .ant-form-vertical .ant-form-item { margin-bottom: 16px; }
 .wizard-collapse-nopad .ant-form-item-label > label { color: #8c8c8c; }
+
+/* 滚动条样式 */
+.wizard-summary-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.wizard-summary-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.wizard-step-scroll { scrollbar-width: thin; scrollbar-color: #f7f9fb transparent; }

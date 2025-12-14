@@ -74,8 +74,8 @@ const AdminLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const isProConsole = location.pathname.startsWith('/admin/clouds/console');
 
-  
-
+  const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
+ 
   const canAccessPath = (p: string): boolean => {
     const pure = String(p || '').split('?')[0];
     if (!user) return false;
@@ -92,7 +92,7 @@ const AdminLayout: React.FC = () => {
   };
 
   const StandardHeader: React.FC = () => (
-    <Header style={{ background:'linear-gradient(90deg, #0A4CC0 0%, #1B64ED 100%)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 64, lineHeight:'64px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)' }}>
+    <Header style={{ background:'linear-gradient(90deg, #0A4CC0 0%, #1B64ED 100%)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 64, lineHeight:'64px', boxShadow:'0 4px 16px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
       <div style={{ display:'flex', alignItems:'center', height:64 }}>
         <Button type="text" icon={(navOpen ? <DatabaseOutlined style={{color:'#fff',fontSize:20}} /> : <DatabaseFilled style={{color:'#fff',fontSize:20}} />)} onClick={()=> {
           setNavOpen(v => {
@@ -131,7 +131,7 @@ const AdminLayout: React.FC = () => {
   );
 
   const ProHeader: React.FC = () => (
-    <Header style={{ background:'#fff', color:'#1f2a44', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 50, lineHeight:'50px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)', borderBottom:'1px solid #f0f0f0' }}>
+    <Header style={{ background:'#fff', color:'#1f2a44', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 50, lineHeight:'50px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
       <div style={{display:'inline-flex', alignItems:'center', gap:4}}>
           <AppstoreOutlined style={{color:'#1062fe',fontSize:18}} />
           <span style={{ fontSize:14, color:'#1062fe', marginTop:-2 }}><span style={{ fontWeight:700 }}>Compute</span>.Tower Pro</span>
@@ -248,23 +248,49 @@ const AdminLayout: React.FC = () => {
   return (
     <Layout style={{ height:'100vh', overflow:'hidden' }}>
       {isProConsole ? <ProHeader /> : <StandardHeader />}
-      {navOpen && (
-        <>
-        <div onClick={()=> setNavOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.12)', zIndex:1999 }} />
-        <div style={{ position:'fixed', top: isProConsole ? 50 : 64, left:0, bottom:0, width:960, zIndex:2000, background:'#fff', borderRight:'1px solid #f0f0f0', boxShadow:'0 6px 16px rgba(0,0,0,0.12)', display:'flex', flexDirection:'column' }}>
+      <>
+        <div
+          onClick={()=> setNavOpen(false)}
+          style={{
+            position:'fixed',
+            inset:0,
+            background:'rgba(0,0,0,0.12)',
+            zIndex:1999,
+            opacity: navOpen ? 1 : 0,
+            transition: 'opacity 200ms ease',
+            pointerEvents: navOpen ? 'auto' : 'none',
+          }}
+        />
+        <div
+          style={{
+            position:'fixed',
+            top: isProConsole ? 50 : 64,
+            left:0,
+            bottom:0,
+            width:960,
+            zIndex:2000,
+            background:'#fff',
+            borderRight:'1px solid ' + NAV_DIVIDER_COLOR,
+            boxShadow:'0 6px 16px rgba(0,0,0,0.12)',
+            display:'flex',
+            flexDirection:'column',
+            transform: navOpen ? 'translateX(0)' : 'translateX(-100%)',
+            transition: 'transform 220ms ease',
+          }}
+        >
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 20px' }}>
             <Space size={12}>
               <AppstoreOutlined style={{ fontSize:18, color:'#1062fe' }} />
-              <Typography.Text style={{ fontSize:16 }}>全部导航</Typography.Text>
+              <Typography.Text style={{ fontSize:16, color:'#1f2a44' }}>全部导航</Typography.Text>
             </Space>
             <Space size={12}>
-              <Input.Search allowClear placeholder="搜索功能" style={{ width: 280 }} onSearch={(v)=> setNavKeyword(v)} onChange={(e)=> setNavKeyword(e.target.value)} />
-              <Button type="text" onClick={()=> setNavOpen(false)}>收起</Button>
+              <Input.Search allowClear placeholder="搜索功能" style={{ width: 300 }} onSearch={(v)=> setNavKeyword(v)} onChange={(e)=> setNavKeyword(e.target.value)} />
+              <Button type="default" style={{ borderColor: NAV_DIVIDER_COLOR }} onClick={()=> setNavOpen(false)}>收起</Button>
             </Space>
           </div>
-          <Divider style={{ margin: 0 }} />
+          <Divider style={{ margin: 0, borderColor: NAV_DIVIDER_COLOR }} />
           <div style={{ display:'flex', flex:1, minHeight:0 }}>
-            <div style={{ width: 260, borderRight:'1px solid #f0f0f0', padding:'12px 12px', height:'100%', overflow:'auto' }}>
+            <div style={{ width: 260, borderRight:'1px solid ' + NAV_DIVIDER_COLOR, padding:'12px 12px', height:'100%', overflow:'auto' }}>
               <Menu
                 mode="inline"
                 selectedKeys={[navSection]}
@@ -281,7 +307,7 @@ const AdminLayout: React.FC = () => {
                 const items = [{ key:'全部', label:'全部' }, ...platformLabels.map((l:string)=> ({ key:l, label:l }))];
                 return (
                   <>
-                    <Divider style={{ margin: '12px 0' }} />
+                    <Divider style={{ margin: '12px 0', borderColor: NAV_DIVIDER_COLOR }} />
                     <Menu
                       mode="inline"
                       selectedKeys={[activeTab]}
@@ -293,7 +319,7 @@ const AdminLayout: React.FC = () => {
                 );
               })()}
             </div>
-            <div style={{ flex:1, padding:'20px 24px', overflow:'auto' }}>
+            <div style={{ flex:1, padding:'20px 24px', overflow:'auto', background:'#fafcff' }}>
               {(() => {
                 const kw = navKeyword.toLowerCase();
                 if (navSection === 'resources') {
@@ -366,23 +392,23 @@ const AdminLayout: React.FC = () => {
                 return (
                   <>
                     {displayPlatforms.map((p:any) => (
-                      <div key={p.key} style={{ marginBottom:16, border:'1px solid #f0f0f0', borderRadius:8, overflow:'hidden' }}>
-                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'#fafafa', borderBottom:'1px solid #f5f5f5' }}>
+                      <div key={p.key} style={{ marginBottom:16, border:'1px solid #f0f0f0', borderRadius:10, overflow:'hidden', background:'#fff', boxShadow:'0 2px 8px rgba(0,0,0,0.04)' }}>
+                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', background:'#f7f9fc', borderBottom:'1px solid #f0f0f0' }}>
                           <Space size={8}>
-                            <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:24, height:24, borderRadius:6, background:'#f0f5ff' }}>{p.icon}</span>
-                            <Typography.Text style={{ fontSize:14 }}>{p.label}</Typography.Text>
+                            <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:24, height:24, borderRadius:6, background:'#edf3ff' }}>{p.icon}</span>
+                            <Typography.Text style={{ fontSize:14, color:'#1f2a44' }}>{p.label}</Typography.Text>
                           </Space>
                           <RightOutlined style={{ color:'#bfbfbf' }} />
                         </div>
-                        <div style={{ padding:'12px' }}>
+                        <div style={{ padding:'12px 14px' }}>
                           <Space size={8} wrap>
                             {(p.children || []).map((item:any)=> {
                               const fav = favorites.includes(item.key);
                               return (
-                                <Tag key={item.key} onClick={()=> { pushRecent(item); if (item.key === '/admin/clouds/console') { window.open(item.key, '_blank'); } else { navigate(item.key); setActiveSidebarKey(sidebarForPath(item.key)); } setNavOpen(false); }} style={{ cursor:'pointer', padding:'2px 8px', borderRadius:16 }}>
+                                <Tag key={item.key} onClick={()=> { pushRecent(item); if (item.key === '/admin/clouds/console') { window.open(item.key, '_blank'); } else { navigate(item.key); setActiveSidebarKey(sidebarForPath(item.key)); } setNavOpen(false); }} style={{ cursor:'pointer', padding:'2px 10px', borderRadius:16, background:'#f7faff', border:'1px solid #e9edf3' }}>
                                   <Space size={6}>
-                                    <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#f0f5ff' }}>{item.icon}</span>
-                                    <span style={{ fontSize:13 }}>{item.label}</span>
+                                    <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#edf3ff' }}>{item.icon}</span>
+                                    <span style={{ fontSize:13, color:'#1f2a44' }}>{item.label}</span>
                                     <span onClick={(e)=> { e.stopPropagation(); toggleFavorite(item); }} style={{ display:'inline-flex', alignItems:'center', marginLeft:6 }}>
                                       {fav ? <StarFilled style={{ color:'#faad14' }} /> : <StarOutlined style={{ color:'#bfbfbf' }} />}
                                     </span>
@@ -400,16 +426,15 @@ const AdminLayout: React.FC = () => {
             </div>
           </div>
         </div>
-        </>
-      )}
+      </>
       <Layout>
         {!(location.pathname.includes('/admin/clouds/ecs') || location.pathname.includes('/admin/clouds/console')) && (
-          <Sider collapsible collapsed={collapsed} trigger={null} style={{background:'#F9F9FA', borderRight:'1px solid #f0f0f0', position:'sticky', top: isProConsole ? 50 : 64, height:`calc(100vh - ${isProConsole ? 50 : 64}px)`}}>
+          <Sider collapsible collapsed={collapsed} trigger={null} style={{background:'#F9F9FA', borderRight:'1px solid ' + NAV_DIVIDER_COLOR, position:'sticky', top: isProConsole ? 50 : 64, height:`calc(100vh - ${isProConsole ? 50 : 64}px)`, transition:'all 200ms ease'}}>
             {(() => {
               const center = (visibleCenters.find(c => c.key === activeSidebarKey) || (visibleCenters || [])[0]);
               return (
                 <>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent: collapsed ? 'center' : 'space-between', padding: collapsed ? '12px' : '12px', borderBottom:'1px solid #f0f0f0' }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent: collapsed ? 'center' : 'space-between', padding: collapsed ? '12px' : '12px', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
                     {!collapsed && (
                       <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                         <Typography.Text>{center.label}</Typography.Text>

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown } from 'antd';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
 import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, EllipsisOutlined } from '@ant-design/icons';
@@ -10,6 +10,7 @@ export interface PageContainerProps {
   breadcrumb?: Array<{ label: React.ReactNode; href?: string }>;
   extra?: React.ReactNode;
   children?: React.ReactNode;
+  collapsibleChildren?: React.ReactNode;
   bordered?: boolean;
   elevated?: boolean;
   contentPadding?: number | string;
@@ -37,6 +38,7 @@ const PageContainer: React.FC<PageContainerProps> = ({
   breadcrumb,
   extra,
   children,
+  collapsibleChildren,
   bordered = true,
   elevated = true,
   contentPadding = 16,
@@ -57,6 +59,7 @@ const PageContainer: React.FC<PageContainerProps> = ({
 }) => {
   const loc = useLocation();
   const { token } = theme.useToken();
+  const [collapsed, setCollapsed] = useState(false);
   const iconOf = (key?: string) => {
     const m: Record<string, React.ReactNode> = {
       AppstoreOutlined: <AppstoreOutlined />,
@@ -151,7 +154,7 @@ const PageContainer: React.FC<PageContainerProps> = ({
   );
 
   return (
-    <div style={{ padding: pagePadding !== undefined ? pagePadding : '24px 36px' }}>
+    <div style={{ padding: pagePadding !== undefined ? pagePadding : '24px 36px', maxHeight: '100%' }}>
       {!hideHeader && (
         <Breadcrumb
           style={{ marginBottom: 12 }}
@@ -173,9 +176,37 @@ const PageContainer: React.FC<PageContainerProps> = ({
       )}
 
       {!hideHeader && displaySubtitle && (
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16, cursor: 'pointer' }} onClick={() => setCollapsed(!collapsed)}>
           {displaySubtitle}
         </Typography.Text>
+      )}
+      {!hideHeader && collapsibleChildren && (
+        <div
+          style={{
+            marginBottom: collapsed ? 0 : 16,
+            height: collapsed ? 0 : undefined,
+            overflow: 'hidden',
+            transition: 'height 200ms ease, opacity 200ms ease, margin 200ms ease',
+            opacity: collapsed ? 0 : 1,
+          }}
+        >
+          <div
+            ref={(el) => {
+              if (!el) return;
+              const h = el.scrollHeight;
+              const parent = el.parentElement;
+              if (!parent) return;
+              if (!collapsed) {
+                parent.style.height = h ? h + 'px' : 'auto';
+              }
+            }}
+          >
+            {collapsibleChildren}
+          </div>
+        </div>
+      )}
+      {!hideHeader && collapsibleChildren && collapsed && (
+        <Divider style={{ margin: '0 0 16px 0' }} />
       )}
 
       {(toolbarLeft || actionsNode) && (

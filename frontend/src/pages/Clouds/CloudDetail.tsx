@@ -734,7 +734,7 @@ const CloudDetail: React.FC = () => {
                   {provider !== 'harvester' && (
                   <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><ClusterOutlined style={{ color:'#1677ff', marginRight:8 }} />VPC 数量</span>}
                           value={vpcs.length}
@@ -743,7 +743,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><CloudServerOutlined style={{ color:'#1677ff', marginRight:8 }} />ECS 实例数</span>}
                           value={ecs.length}
@@ -752,7 +752,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />子网(VSwitch)</span>}
                           value={vswitches.length}
@@ -761,7 +761,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><SafetyCertificateOutlined style={{ color:'#1677ff', marginRight:8 }} />安全组</span>}
                           value={secGroups.length}
@@ -770,7 +770,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><GlobalOutlined style={{ color:'#1677ff', marginRight:8 }} />弹性公网IP</span>}
                           value={eips.length}
@@ -779,7 +779,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />负载均衡</span>}
                           value={slbs.length}
@@ -788,7 +788,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><SwapOutlined style={{ color:'#1677ff', marginRight:8 }} />NAT 网关</span>}
                           value={natGateways.length}
@@ -797,7 +797,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><BranchesOutlined style={{ color:'#1677ff', marginRight:8 }} />路由表</span>}
                           value={routeTables.length}
@@ -806,7 +806,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><HddOutlined style={{ color:'#1677ff', marginRight:8 }} />云盘</span>}
                           value={disks.length}
@@ -815,7 +815,7 @@ const CloudDetail: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} md={6}>
-                      <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                      <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                         <Statistic
                           title={<span style={{ display:'flex', alignItems:'center' }}><CameraOutlined style={{ color:'#1677ff', marginRight:8 }} />快照</span>}
                           value={snapshots.length}
@@ -829,39 +829,39 @@ const CloudDetail: React.FC = () => {
                     <>
                       <Row gutter={[16, 16]} style={{ marginTop: 12 }}>
                         <Col xs={24} sm={12} md={6}>
-                          <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                          <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                             <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CloudServerOutlined style={{ color:'#1677ff', marginRight:8 }} />云主机（VM）</span>} value={ecs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
                           </Card>
                         </Col>
                         <Col xs={24} sm={12} md={6}>
-                          <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                          <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                             <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><GlobalOutlined style={{ color:'#1677ff', marginRight:8 }} />NAD 网络</span>} value={harvesterNads.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
                           </Card>
                         </Col>
                         <Col xs={24} sm={12} md={6}>
-                          <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                          <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                             <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CameraOutlined style={{ color:'#1677ff', marginRight:8 }} />镜像</span>} value={harvesterImages.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
                           </Card>
                         </Col>
                         <Col xs={24} sm={12} md={6}>
-                          <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                          <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                             <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><HddOutlined style={{ color:'#1677ff', marginRight:8 }} />卷</span>} value={harvesterVolumes.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
                           </Card>
                         </Col>
                       </Row>
                       <Row gutter={[16, 16]} style={{ marginTop: 12 }}>
                         <Col xs={24} sm={12} md={6}>
-                          <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                          <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                             <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />节点</span>} value={harvesterNodes.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
                           </Card>
                         </Col>
                         <Col xs={24} sm={12} md={6}>
-                          <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                          <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                             <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><ClusterOutlined style={{ color:'#1677ff', marginRight:8 }} />VPC（Kube-OVN）</span>} value={kubeOvnVpcs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
                           </Card>
                         </Col>
                         <Col xs={24} sm={12} md={6}>
-                          <Card size="small" variant="outlined" style={{ borderRadius: 8 }}>
+                          <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
                             <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />子网（Kube-OVN）</span>} value={kubeOvnSubnets.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
                           </Card>
                         </Col>

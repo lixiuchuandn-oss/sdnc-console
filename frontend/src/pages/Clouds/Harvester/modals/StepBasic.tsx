@@ -63,7 +63,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
             <Select 
               options={cloudOptions} 
               placeholder="选择资源池"
-              onChange={(v) => { setCurrentCloudId(v); }}
+              onChange={(v) => { setCurrentCloudId(v); try { reloadNamespaces(); form.setFieldsValue({ namespace: 'default' }); } catch {} }}
               disabled={cloudId !== 'all'}
             />
           </Form.Item>

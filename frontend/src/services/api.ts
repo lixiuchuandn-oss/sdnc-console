@@ -900,6 +900,10 @@ export const createHarvesterVm = async (
     bootUseEfi?: boolean;
     efiPersistent?: boolean;
     efiSecureBoot?: boolean;
+    tpmEnabled?: boolean;
+    tpmPersistent?: boolean;
+    useUsbTablet?: boolean;
+    installGuestAgent?: boolean;
     gpuMode?: 'passthrough'|'vgpu'|'sriov';
     gpuResourceName?: string;
     gpuCount?: number;
@@ -914,6 +918,9 @@ export const createHarvesterVm = async (
     cpuRequest?: number;
     cpuLimit?: number;
     memoryLimit?: string;
+    memoryRequestGi?: number;
+    hotExpandEnabled?: boolean;
+    sshNames?: string[];
     extraDisks?: Array<{ name: string; size?: string; bus?: string; storageClassName?: string; type?: 'disk'; image?: string; sourceType?: 'new'|'existing'; pvc?: string }>;
     netIfaces?: Array<{ name: string; type?: string; model?: string }>;
     rootSourceType?: 'image'|'existing';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Card, Row, Col, Button, Tag, Modal, Form, Input, Select, 
+  Card, Row, Col, Button, Tag, Modal, Form, Input, Select, Switch,
   message, Space, Tooltip, Typography, Table, Dropdown, Badge
 } from 'antd';
 import { 
@@ -304,6 +304,9 @@ const Clouds: React.FC = () => {
         return { akLabel: '访问密钥（Access Key）', skLabel: '私有密钥（Secret Key）', akPlaceholder: '请输入访问密钥（Access Key）', skPlaceholder: '请输入私有密钥（Secret Key）' };
       case 'tencentcloud':
         return { akLabel: '密钥ID（SecretId）', skLabel: '私有密钥（SecretKey）', akPlaceholder: '请输入密钥ID（SecretId）', skPlaceholder: '请输入私有密钥（SecretKey）' };
+      case 'harvester':
+      case 'cloudmap':
+        return { akLabel: '访问密钥（可选）', skLabel: 'API令牌（Token）', akPlaceholder: 'Harvester通常无需 Access Key', skPlaceholder: '请输入 API 令牌（Bearer Token）' };
       default:
         return { akLabel: '访问密钥 (Access Key)', skLabel: '私有密钥 (Secret Key)', akPlaceholder: '请输入访问密钥', skPlaceholder: '请输入私有密钥' };
     }
@@ -333,7 +336,14 @@ const Clouds: React.FC = () => {
       region: cloud.region,
       endpoint: cloud.endpoint,
       accessKey: '', // 不预填敏感信息
-      secretKey: ''
+      secretKey: '',
+      // 高级参数（从 config 预填）
+      autoSync: !!cloud?.config?.autoSync,
+      enableSSO: !!cloud?.config?.enableSSO,
+      ignoreTls: !!cloud?.config?.ignoreTls,
+      proxyType: cloud?.config?.proxyType || 'direct',
+      resourceProject: cloud?.config?.resourceProject || 'system',
+      harvesterVersion: cloud?.config?.harvesterVersion || 'auto'
     });
     setEditModalVisible(true);
   };
@@ -369,9 +379,26 @@ const Clouds: React.FC = () => {
       const token = localStorage.getItem('token');
       
       // 过滤掉空的accessKey和secretKey
-      const submitData = { ...values };
-      if (!submitData.accessKey) delete submitData.accessKey;
-      if (!submitData.secretKey) delete submitData.secretKey;
+      const submitData: any = {
+        name: values.name,
+        description: values.description,
+        region: values.region,
+        endpoint: values.endpoint,
+      };
+      if (values.accessKey) submitData.accessKey = values.accessKey;
+      if (values.secretKey) submitData.secretKey = values.secretKey;
+      // 合并更新 config（保持 provider 不变）
+      const prevCfg = (editingCloud as any)?.config || {};
+      submitData.config = {
+        ...prevCfg,
+        autoSync: !!values.autoSync,
+        enableSSO: !!values.enableSSO,
+        ignoreTls: !!values.ignoreTls,
+        proxyType: values.proxyType || prevCfg.proxyType || 'direct',
+        resourceProject: values.resourceProject || prevCfg.resourceProject || 'system',
+        harvesterVersion: values.harvesterVersion || prevCfg.harvesterVersion || 'auto',
+        provider: prevCfg.provider
+      };
       
       await axios.put(`/api/clouds/${editingCloud?.id}`, submitData, {
         headers: { Authorization: `Bearer ${token}` }
@@ -534,6 +561,14 @@ const Clouds: React.FC = () => {
       title="资源池管理"
       titleLevel={3}
       subtitle="统一管理各云资源池的状态与资源，支持监控与运维。"
+      collapsibleChildren={(
+        <Row gutter={[12,12]} style={{ marginBottom:16 }}>
+          <Col xs={24} sm={12} md={6}><MetricCard title="资源池数量" total={totalCnt} unit="个" used={onlineCnt} midLabel="离线" midValue={offlineCnt} usedLabel="在线" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="云主机数量" total={vmCounts.total} unit="个" used={vmCounts.online} midLabel="离线" midValue={vmCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="容器集群数量" total={containerCounts.total} unit="个" used={containerCounts.online} midLabel="离线" midValue={containerCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="VPC 网络数量" total={vpcCounts.total} unit="个" used={vpcCounts.online} midLabel="离线" midValue={vpcCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
+        </Row>
+      )}
       asCard={false}
       toolbarLeft={(
         <Form
@@ -620,32 +655,20 @@ const Clouds: React.FC = () => {
       ]}
       actionsSize="middle"
     >
-      {/* 统计卡片 */}
-      <Row gutter={[12,12]} style={{ marginBottom:16 }}>
-        <Col xs={24} sm={12} md={6}><MetricCard title="资源池数量" total={totalCnt} unit="个" used={onlineCnt} midLabel="离线" midValue={offlineCnt} usedLabel="在线" mainColor="#1677ff" /></Col>
-        <Col xs={24} sm={12} md={6}><MetricCard title="云主机数量" total={vmCounts.total} unit="个" used={vmCounts.online} midLabel="离线" midValue={vmCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
-        <Col xs={24} sm={12} md={6}><MetricCard title="容器集群数量" total={containerCounts.total} unit="个" used={containerCounts.online} midLabel="离线" midValue={containerCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
-        <Col xs={24} sm={12} md={6}><MetricCard title="VPC 网络数量" total={vpcCounts.total} unit="个" used={vpcCounts.online} midLabel="离线" midValue={vpcCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
-      </Row>
-      <div>
-        <Space direction="vertical" size={0} style={{ width:'100%' }}>
-            <Table
-              columns={tableColumns}
-              dataSource={filteredClouds}
-              rowKey="id"
-              rowSelection={{
-                selectedRowKeys,
-                onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
-              }}
-              pagination={{ pageSize:10 }}
-              scroll={{ x:'max-content' }}
-              tableLayout="auto"
-              bordered
-              // 移除配额展开内容
-              expandable={undefined}
-            />
-        </Space>
-      </div>
+      <Table
+        columns={tableColumns}
+        dataSource={filteredClouds}
+        rowKey="id"
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
+        }}
+        pagination={{ pageSize:10 }}
+        scroll={{ x:'max-content' }}
+        tableLayout="auto"
+        bordered
+        expandable={undefined}
+      />
 
       {/* 多云接入向导 */}
       <CloudWizard
@@ -693,21 +716,8 @@ const Clouds: React.FC = () => {
               <Input.TextArea placeholder="请输入描述" rows={3} style={inputStyle} />
             </Form.Item>
 
-            <Form.Item
-              name="type"
-              label={<span style={titleLabelStyle}>资源类型</span>}
-              initialValue={editingCloud?.type}
-              rules={[{ required: true, message: '请选择资源类型' }]}
-            >
-              <Select placeholder="请选择资源类型">
-                <Select.Option value="central">公有云</Select.Option>
-                <Select.Option value="private">私有云</Select.Option>
-                <Select.Option value="edge">边缘计算</Select.Option>
-                <Select.Option value="virtualization">虚拟化</Select.Option>
-                <Select.Option value="object_storage">对象存储</Select.Option>
-                <Select.Option value="security_pool">云安全资源池</Select.Option>
-                <Select.Option value="sase_gateway">SASE网关</Select.Option>
-              </Select>
+            <Form.Item label={<span style={titleLabelStyle}>资源类型</span>}>
+              <Tag color="blue">{getTypeText(String(editingCloud?.type || ''))}</Tag>
             </Form.Item>
 
 
@@ -737,13 +747,15 @@ const Clouds: React.FC = () => {
             return (
               <>
                 <div style={groupTitleStyle}>认证配置</div>
-                <Form.Item
-                  name="accessKey"
-                  label={<span style={titleLabelStyle}>{akLabel}</span>}
-                  extra="留空表示不修改"
-                >
-                  <Input.Password placeholder={akPlaceholder} style={inputStyle} />
-                </Form.Item>
+                {!(provider === 'harvester' || provider === 'cloudmap') && (
+                  <Form.Item
+                    name="accessKey"
+                    label={<span style={titleLabelStyle}>{akLabel}</span>}
+                    extra="留空表示不修改"
+                  >
+                    <Input.Password placeholder={akPlaceholder} style={inputStyle} />
+                  </Form.Item>
+                )}
 
                 <Form.Item
                   name="secretKey"
@@ -754,6 +766,60 @@ const Clouds: React.FC = () => {
                 </Form.Item>
               </>
             );
+          })()}
+
+          {/* 分组：高级选项（与创建向导一致） */}
+          <div style={groupTitleStyle}>高级选项</div>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="autoSync" label="自动同步" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="enableSSO" label="开启免密登录" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="proxyType" label="代理">
+            <Select placeholder="DIRECT（直连）" defaultValue="direct" style={{ width: 240 }}>
+              <Select.Option value="direct">DIRECT（直连）</Select.Option>
+              <Select.Option value="http">HTTP代理</Select.Option>
+              <Select.Option value="socks">SOCKS代理</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="resourceProject" label="资源归属项目">
+            <Select placeholder="system" defaultValue="system" style={{ width: 240 }}>
+              <Select.Option value="system">system</Select.Option>
+              <Select.Option value="default">default</Select.Option>
+            </Select>
+          </Form.Item>
+
+          {(() => {
+            const provider = editingCloud?.config?.provider as string | undefined;
+            if (provider === 'harvester' || provider === 'cloudmap') {
+              return (
+                <Form.Item name="harvesterVersion" label="Harvester版本">
+                  <Select placeholder="自动识别" defaultValue="auto" style={{ width: 240 }}>
+                    <Select.Option value="auto">自动</Select.Option>
+                    <Select.Option value="1.5">1.5</Select.Option>
+                    <Select.Option value="1.6">1.6</Select.Option>
+                  </Select>
+                </Form.Item>
+              );
+            }
+            return null;
           })()}
 
           <Form.Item>
