@@ -33,6 +33,44 @@ const StepOthers: React.FC<StepOthersProps> = ({
       <Form.Item>
         <Checkbox checked={autoStart} onChange={(e) => setAutoStart(!!e.target?.checked)}>创建后自动开机</Checkbox>
       </Form.Item>
+      <div className="wizard-group-title">固件与TPM</div>
+      <Form.Item label="固件">
+        <Space direction="vertical">
+          <Form.Item name="bootUseEfi" valuePropName="checked" noStyle>
+            <Checkbox>使用 EFI 固件</Checkbox>
+          </Form.Item>
+          {(!!form.getFieldValue('bootUseEfi')) ? (
+            <Space>
+              <Form.Item name="efiPersistent" valuePropName="checked" noStyle>
+                <Checkbox>持久化变量</Checkbox>
+              </Form.Item>
+              <Form.Item name="efiSecureBoot" valuePropName="checked" noStyle>
+                <Checkbox>启用安全启动</Checkbox>
+              </Form.Item>
+            </Space>
+          ) : null}
+        </Space>
+      </Form.Item>
+      <Form.Item label="TPM">
+        <Space>
+          <Form.Item name="tpmEnabled" valuePropName="checked" noStyle>
+            <Checkbox>启用</Checkbox>
+          </Form.Item>
+          <Form.Item name="tpmPersistent" valuePropName="checked" noStyle>
+            <Checkbox>持久化状态</Checkbox>
+          </Form.Item>
+        </Space>
+      </Form.Item>
+      <Form.Item label="输入设备" name="useUsbTablet" valuePropName="checked">
+        <Space>
+          <Checkbox>USB Tablet</Checkbox>
+        </Space>
+      </Form.Item>
+      <Form.Item label="Guest Agent" name="installGuestAgent" valuePropName="checked">
+        <Space>
+          <Checkbox>安装 QEMU Guest Agent（无 Cloud-Init 时自动生成）</Checkbox>
+        </Space>
+      </Form.Item>
       <Form.Item label="SSH 公钥标识" name="sshNames">
         <Select mode="tags" placeholder="输入或选择SSH key名称" options={[]} />
       </Form.Item>

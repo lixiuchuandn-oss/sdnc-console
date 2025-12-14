@@ -259,24 +259,24 @@ const RoleWizard: React.FC = () => {
       .map((s: string) => normalizeIPv4Cidr(s))
       .filter((s: string | undefined) => !!s);
 
-    if (v?.bgpAsn || v?.bgpRouterId || netsV6.length || netsV4.length) {
-      const item: any = {
-        asn: Number(v.bgpAsn),
-        router_id: v.bgpRouterId,
-        bgp_ebgp_requires_policy: 'disable',
-      };
-      item.timer_bgp_KA = 2;
-      item.timer_bgp_HA = 8;
-      item.bgp_fast_convergence = 'enable';
-      if (r !== 'CE') {
-        item.address_family = [
-          { address_family: 'ipv6', modifiler: 'unicast', network: netsV6 },
-          { address_family: 'ipv4', modifiler: 'vpn', network: netsV4Valid },
-        ];
-      }
-      if (r === 'PE' && v?.locatorName) {
-        item.segment_routing_srv6 = { locator: v.locatorName };
-      }
+      if (v?.bgpAsn || v?.bgpRouterId || netsV6.length || netsV4.length) {
+        const item: any = {
+          asn: Number(v.bgpAsn),
+          router_id: v.bgpRouterId,
+          bgp_ebgp_requires_policy: 'disable',
+        };
+        item.timer_bgp_KA = 2;
+        item.timer_bgp_HA = 8;
+        item.bgp_fast_convergence = 'enable';
+        if (r !== 'CE') {
+          item.address_family = [
+            { address_family: 'ipv6', modifiler: 'unicast', network: netsV6 },
+            { address_family: 'ipv4', modifiler: 'unicast', network: netsV4Valid },
+          ];
+        }
+        if (r === 'PE' && v?.locatorName) {
+          item.segment_routing_srv6 = { locator: v.locatorName };
+        }
       bgp.push(item);
     }
 
@@ -870,7 +870,7 @@ const RoleWizard: React.FC = () => {
         const wanDev = String(values?.wanDev || '').trim();
         const hasTopIpv4Route = Array.isArray((versionCfg as any)?.ipv4_route) && (versionCfg as any).ipv4_route.length > 0;
         if (wanDev && !hasTopIpv4Route) {
-          const dest = '0.0.0.0/24';
+          const dest = '0.0.0.0/0';
           const prio = Number(values?.wanRoutePriority ?? 100);
           (versionCfg as any).ipv4_route = [
             { destination: dest, dev: wanDev, priority: prio },
@@ -1374,9 +1374,9 @@ const RoleWizard: React.FC = () => {
               {/* CE 第2步：设定BGP路由(CE to PE) */}
               <div style={{ height: 12 }} />
               <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定BGP路由(CE to PE)</div>
-              <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}> 
-                <InputNumber style={{ width: '100%' }} placeholder="例如：100" min={1} max={232} />
-              </Form.Item>
+          <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}> 
+            <InputNumber style={{ width: '100%' }} placeholder="例如：100" min={1} />
+          </Form.Item>
               <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={[{ required: true, message: '请输入 Router-ID' }, { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入合法的 IPv4 地址' }]}> 
                 <Input placeholder="例如：200.1.1.2" />
               </Form.Item>

@@ -30,14 +30,22 @@ const StepCompute: React.FC<StepComputeProps> = ({
   const [cpuPreset, setCpuPreset] = React.useState<string>(() => {
     const v = Number(form.getFieldValue('cpu') || 0);
     if (v === 2 || v === 4 || v === 8) return String(v);
-    return '2';
+    return 'custom';
+  });
+  const [cpuValue, setCpuValue] = React.useState<number>(() => {
+    const v = Number(form.getFieldValue('cpu') || 0);
+    return (typeof v === 'number' && v > 0) ? v : 2;
   });
   React.useEffect(() => {
     const raw = form.getFieldValue('cpu');
     const v = Number(raw);
     if (!(typeof v === 'number' && v > 0)) {
       try { form.setFieldsValue({ cpu: 2 }); } catch {}
+      setCpuValue(2);
+    } else {
+      setCpuValue(v);
     }
+    try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
   }, []);
   const [gpuKeyword, setGpuKeyword] = React.useState<string>('');
   const [gpuLoading, setGpuLoading] = React.useState<boolean>(false);
@@ -55,8 +63,10 @@ const StepCompute: React.FC<StepComputeProps> = ({
               setCpuPreset(v);
               if (v !== 'custom') {
                 const n = Number(v);
+                setCpuValue(n);
                 form.setFieldsValue({ cpu: n });
               }
+              try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
             }}
           >
             <Radio.Button value="2">2 核</Radio.Button>
@@ -67,13 +77,15 @@ const StepCompute: React.FC<StepComputeProps> = ({
           <InputNumber
             min={1}
             max={512}
-            value={Number(form.getFieldValue('cpu') || 2)}
+            value={cpuValue}
             addonAfter="核"
             style={{ width: 160 }}
             onChange={(val) => {
               const n = Number(val || 1);
+              setCpuValue(n);
               form.setFieldsValue({ cpu: n });
               setCpuPreset('custom');
+              try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
             }}
           />
         </Space>

@@ -64,7 +64,21 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
     const rootDetail = (function () { if (rootSrc === 'image') { return v.image ? `镜像：${v.image}` : '镜像：-'; } if (rootSrc === 'existing') { return v.rootPvc ? `磁盘：${v.rootPvc}` : '磁盘：-'; } return '-'; })();
     const installTarget = undefined;
     const cloudInit = (function () { const txt = String(v.userData || '').trim(); return txt ? '启用' : '未配置'; })();
-    const gpuSummary = (function () { const mode = String(v.gpuMode || '').trim(); const res = String(v.gpuResourceName || '').trim(); const cnt = typeof v.gpuCount === 'number' ? v.gpuCount : 0; if (!mode && !res && !cnt) return '未配置'; const modeTxt = mode ? (mode === 'passthrough' ? '直通' : '虚拟') : '-'; return `${modeTxt} · ${res || '-'} · 数量 ${cnt}`; })();
+    const gpuSummary = (function () { 
+      const mode = String(v.gpuMode || '').trim(); 
+      const res = String(v.gpuResourceName || '').trim(); 
+      const cnt = typeof v.gpuCount === 'number' ? v.gpuCount : 0; 
+      if (mode === 'none') return '未配置';
+      if (!mode && !res && !cnt) return '未配置'; 
+      const modeTxt = (function () { 
+        if (mode === 'passthrough') return '直通'; 
+        if (mode === 'vgpu') return 'vGPU'; 
+        if (mode === 'sriov') return 'SR-IOV'; 
+        return '-'; 
+      })(); 
+      const cntTxt = cnt > 0 ? ` · 数量 ${cnt}` : ''; 
+      return `${modeTxt} · ${res || '-'}` + cntTxt; 
+    })();
     const usbSummary = (function () { const arr: any[] = Array.isArray(v.usbDevices) ? v.usbDevices : []; return arr.length ? `${arr.length} 个` : '未配置'; })();
     const runStrategy = String(v.runStrategy || 'RerunOnFailure');
     const poolId = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);

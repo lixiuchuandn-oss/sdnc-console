@@ -205,6 +205,17 @@ router.post('/', checkAdminPermission, validateCloudInput, async (req: AuthReque
   }
 });
 
+// 预创建连接测试（不保存云资源）
+router.post('/test-connection', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+  try {
+    const { provider, accessKey, secretKey, region, endpoint, config } = (req.body || {}) as any;
+    const r = await testCloudConnectionUnified({ provider, accessKey, secretKey, region, endpoint, config });
+    res.json({ ok: !!r.ok, message: r.message || (r.ok ? '连接成功' : '连接失败') });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, message: error?.message || '连接测试失败' });
+  }
+});
+
 // 测试云资源连接
 router.post('/:id/test', checkAdminPermission, async (req: AuthRequest, res: Response) => {
   try {

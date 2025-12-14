@@ -11,7 +11,7 @@
 .cloud-console-tabs .ant-tabs-ink-bar { display: none; }
 
 .cloud-console-root { height: calc(100vh - 64px); }
-.cloud-console-sidebar { background: #EDF0F7; border: 1px solid #e6efff; border-radius: 0; padding: 0; height: calc(100vh - 64px); display: flex; flex-direction: column; overflow: hidden; }
+.cloud-console-sidebar { background: #EDF0F7; border: 1px solid rgb(200, 207, 218); border-radius: 0; padding: 0; height: calc(100vh - 64px); display: flex; flex-direction: column; overflow: hidden; }
 .cloud-console-content { height: calc(100vh - 64px); display: flex; flex-direction: column; overflow: hidden; }
 .cloud-console-content-scroll { flex: 1; overflow: auto; padding-right: 30px; }
 .vr-table { font-size: 12px; }
