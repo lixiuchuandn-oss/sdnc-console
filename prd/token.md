@@ -1,0 +1,16 @@
+# 阿里云test
+AccessKey ID：LTAI5tNMWMoBFZVcnqTZuY9W
+AccessKey Secret：ghdUwyzvkJjP4LKcZTaLGHNthkUq7c
+
+# 华为云test
+项目ID 0d3618b58b00f3072f54c014b473b366
+User Name	hid_woxhc-wq2wdzm78
+Access Key Id	HPUACKW7MR3GG9288O57
+Secret Access Key	JcETvOI3DPoemA2K0CrQybr5rJl0SpFdufl2FjsU
+
+# git
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOYodDr7o5PM2KieQf7Edsf3u/JIyYqOkEu1C4AJjap1 compute.tower
+
+#harvester
+持有者令牌
+token-vdcgh:l5xb67v2l7fmh6hz8x4nsb4774hh9cmb87lwmszntq9k9p5jczwrgc

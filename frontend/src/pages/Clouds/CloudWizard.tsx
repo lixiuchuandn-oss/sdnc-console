@@ -122,8 +122,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           { value: 'cn-south-1', label: '华南-广州' }
         ]},
         { key: 'projectId', label: '项目ID', type: 'input', required: true, placeholder: '请输入项目ID' },
-        { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
-        { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
+        { key: 'accessKey', label: 'Access Key Id', type: 'input', required: true, placeholder: 'Enter Access Key Id' },
+        { key: 'secretKey', label: 'Secret Access Key', type: 'password', required: true, placeholder: 'Enter Secret Access Key' }
       ]
     },
     {
