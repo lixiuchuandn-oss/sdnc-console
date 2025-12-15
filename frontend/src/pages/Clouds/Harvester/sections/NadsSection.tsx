@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag } from 'antd';
-import SharedToolbar from '../../../../components/SharedToolbar';
+import PageDetailSection from '../../../../components/PageDetailSection';
 
 type Props = {
   nads: any[];
@@ -32,16 +32,16 @@ const NadsSection: React.FC<Props> = ({ nads, loading }) => {
   const nsOptions = Array.from(new Set((nads||[]).map((r:any)=>String(r?.namespace||'').trim()).filter(Boolean)));
   const ipamOptions = Array.from(new Set((nads||[]).map((r:any)=>getIpamType(r)).filter(Boolean)));
   return (
-    <>
-      <SharedToolbar
-        left={(
-          <>
-            <Input.Search allowClear placeholder="关键字" onSearch={(v)=>setKeyword(v||'')} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
-            <Select allowClear placeholder="命名空间" value={nsFilter || undefined} onChange={(v)=>setNsFilter(v||'')} style={{ width: 180 }} options={[{ value: '', label: '全部' }, ...nsOptions.map(s=>({ value: s.toLowerCase(), label: s }))]} />
-            <Select allowClear placeholder="IPAM类型" value={ipamFilter || undefined} onChange={(v)=>setIpamFilter(v||'')} style={{ width: 180 }} options={[{ value: '', label: '全部' }, ...ipamOptions.map(s=>({ value: s.toLowerCase(), label: netTypeText(s) }))]} />
-          </>
-        )}
-      />
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={(
+        <>
+          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
+          <Select allowClear placeholder="命名空间" value={nsFilter || undefined} onChange={(v)=>setNsFilter(v||'')} style={{ width: 200 }} options={[{ value: '', label: '全部' }, ...nsOptions.map(s=>({ value: s.toLowerCase(), label: s }))]} />
+          <Select allowClear placeholder="IPAM类型" value={ipamFilter || undefined} onChange={(v)=>setIpamFilter(v||'')} style={{ width: 200 }} options={[{ value: '', label: '全部' }, ...ipamOptions.map(s=>({ value: s.toLowerCase(), label: netTypeText(s) }))]} />
+        </>
+      )}
+    >
       <Table
         className="kv-section-table"
         bordered
@@ -59,7 +59,7 @@ const NadsSection: React.FC<Props> = ({ nads, loading }) => {
         loading={loading}
         pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
-    </>
+    </PageDetailSection>
   );
 };
 

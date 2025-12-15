@@ -26,7 +26,7 @@ import {
   NotificationOutlined,
 } from '@ant-design/icons';
 import './Dashboard.css';
-import { fetchDashboardStats, fetchDashboardRecentActivities, fetchDashboardCloudUsage, fetchClouds, fetchCens, fetchCloudProviderVpcs } from '../../services/api';
+import { fetchDashboardStats, fetchDashboardRecentActivities, fetchDashboardCloudUsage, fetchClouds, fetchCens, fetchCloudProviderVpcs, refreshInventoryInstances, fetchInventoryInstancesByCloud } from '../../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import MiniSparkline from '../../components/MiniSparkline';
 
@@ -45,6 +45,8 @@ const Dashboard: React.FC = () => {
   const [vpcs, setVpcs] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | undefined>();
+  const [resInstanceStats, setResInstanceStats] = useState<Record<string, { running: number; stopped: number; total: number }>>({});
+  const [resMatrixCols, setResMatrixCols] = useState<Record<string, number>>({});
 
   // 全局筛选
   const [filterForm] = Form.useForm();
@@ -145,6 +147,58 @@ const Dashboard: React.FC = () => {
       else localStorage.removeItem('dashboard.cen.selectedId');
     } catch {}
   }, [selectedCenId]);
+
+  // 资源池概览：刷新库存并统计运行/停止/总数
+  useEffect(() => {
+    if (!clouds || clouds.length === 0) {
+      setResInstanceStats({});
+      return;
+    }
+    Promise.allSettled(clouds.slice(0, 20).map((c:any)=> 
+      refreshInventoryInstances(String(c.id || '')).then((json:any)=> {
+        const list = Array.isArray((json||{})?.list) ? (json||{}).list : (Array.isArray(json) ? json : []);
+        const norm = Array.isArray(list) ? list : [];
+        const isRunning = (it:any) => {
+          const s = String(it?.Status || it?.status || it?.State || it?.state || it?.power_state || it?.PowerState || it?.instanceState || it?.InstanceState?.Name || it?.statusName || '').toLowerCase();
+          return s.includes('running') || s === 'active' || s === 'on';
+        };
+        const isStopped = (it:any) => {
+          const s = String(it?.Status || it?.status || it?.State || it?.state || it?.power_state || it?.PowerState || it?.instanceState || it?.InstanceState?.Name || it?.statusName || '').toLowerCase();
+          return s.includes('stopped') || s.includes('stop') || s.includes('shut') || s.includes('terminated') || s.includes('off') || s === 'inactive';
+        };
+        const running = norm.filter(isRunning).length;
+        const stopped = norm.filter(isStopped).length;
+        const total = norm.length;
+        return { id: c.id, running, stopped, total };
+      }).catch(async () => {
+        const json = await fetchInventoryInstancesByCloud(String(c.id || ''));
+        const list = Array.isArray((json||{})?.list) ? (json||{}).list : (Array.isArray(json) ? json : []);
+        const norm = Array.isArray(list) ? list : [];
+        const isRunning = (it:any) => {
+          const s = String(it?.Status || it?.status || it?.State || it?.state || it?.power_state || it?.PowerState || it?.instanceState || it?.InstanceState?.Name || it?.statusName || '').toLowerCase();
+          return s.includes('running') || s === 'active' || s === 'on';
+        };
+        const isStopped = (it:any) => {
+          const s = String(it?.Status || it?.status || it?.State || it?.state || it?.power_state || it?.PowerState || it?.instanceState || it?.InstanceState?.Name || it?.statusName || '').toLowerCase();
+          return s.includes('stopped') || s.includes('stop') || s.includes('shut') || s.includes('terminated') || s.includes('off') || s === 'inactive';
+        };
+        const running = norm.filter(isRunning).length;
+        const stopped = norm.filter(isStopped).length;
+        const total = norm.length;
+        return { id: c.id, running, stopped, total };
+      })
+    )).then((results)=> {
+      const map: Record<string, { running:number; stopped:number; total:number }> = {};
+      results.forEach((r:any)=> {
+        if (r.status === 'fulfilled' && r.value) map[String(r.value.id)] = {
+          running: Number(r.value.running || 0),
+          stopped: Number(r.value.stopped || 0),
+          total: Number(r.value.total || 0),
+        };
+      });
+      setResInstanceStats(map);
+    }).catch(()=>{});
+  }, [clouds]);
 
   const columns = [
     {
@@ -766,6 +820,131 @@ const Dashboard: React.FC = () => {
       </Row>
       )}
 
+      {/* 资源池概览（多云） */}
+      {activeTab === 'multi' && (
+        <div style={{ marginTop: 4 }}>
+          <Card
+            variant="outlined"
+            title={<Space><CloudOutlined />资源池概览</Space>}
+            className="cloud-subcard"
+          >
+            {(()=>{
+              const colors: Record<string,string> = { aliyun:'#1677ff', huaweicloud:'#5e72e4', tencentcloud:'#2f88ff', harvester:'#00b96b', cloudmap:'#1062fe', aws:'#f57c00', azure:'#0078d4' };
+              const iconOfProvider = (p?:string) => {
+                const s = String(p||'').toLowerCase();
+                if (s==='aliyun') return <CloudOutlined />;
+                if (s==='huaweicloud') return <CloudOutlined />;
+                if (s==='tencentcloud') return <DesktopOutlined />;
+                if (s==='harvester') return <RobotOutlined />;
+                if (s==='cloudmap') return <ApartmentOutlined />;
+                if (s==='aws') return <CloudOutlined />;
+                if (s==='azure') return <CloudOutlined />;
+                return <CloudOutlined />;
+              };
+              const pools = (clouds || []).filter(c => {
+                const okProvider = providerFilter ? String(c?.config?.provider||'').toLowerCase() === String(providerFilter||'').toLowerCase() : true;
+                const okRegion = regionFilter ? String(c?.region||'') === regionFilter : true;
+                return okProvider && okRegion;
+              });
+              if (loading) return <div style={{ padding: 16 }}><Text type="secondary">加载中…</Text></div>;
+              if (!loading && pools.length === 0) return <Text type="secondary">暂无已接入的资源池</Text>;
+              return (
+                <Row gutter={[16,16]}>
+                  {pools.map((c:any)=> (
+                    <Col key={c.id} xs={24} sm={12} md={8} lg={8} xl={8}>
+                      <Card
+                        size="small"
+                        bordered
+                        hoverable
+                        style={{ borderRadius:10 }}
+                        onClick={()=> { const path = `/admin/clouds/${c.id}`; navigate(path); }}
+                      >
+                        <>
+                          <div style={{ display:'flex', flexDirection:'column', gap:4, minHeight:48 }}>
+                            <div style={{ display:'inline-flex', alignItems:'center', gap:8, width:'100%' }}>
+                              <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:26, height:26, borderRadius:6, background:'#f0f5ff', color: colors[String(c?.config?.provider||'').toLowerCase()] || '#1062fe' }}>{iconOfProvider(c?.config?.provider)}</span>
+                              <Text style={{ fontSize:14, fontWeight:500, maxWidth:'100%' }} ellipsis={{ tooltip: c.name }}>
+                                {c.name || '-'}
+                              </Text>
+                            </div>
+                            <div>
+                              <Tag color="blue">{(() => {
+                                const s = String(c?.config?.provider||'').toLowerCase();
+                                if (s==='aliyun') return '阿里云';
+                                if (s==='huaweicloud') return '华为云';
+                                if (s==='tencentcloud') return '腾讯云';
+                                if (s==='harvester') return 'Harvester';
+                                if (s==='cloudmap') return 'Cloudmap';
+                                if (s==='aws') return 'AWS';
+                                if (s==='azure') return 'Azure';
+                                return String(c?.config?.provider||'').toUpperCase() || 'POOL';
+                              })()}</Tag>
+                            </div>
+                          </div>
+                          <Divider style={{ margin:'10px 0' }} />
+                          <style>{`.res-matrix .sq{border:1px solid #cfd8dc;border-radius:2px;transition:transform 0.2s ease;will-change:transform,box-shadow,filter;width:12px;height:12px}.res-matrix .sq.run{background:#00c853;animation:pulseRun 1600ms ease-in-out infinite;animation-fill-mode:both;z-index:1}.res-matrix .sq.used{background:#fb8c00}.res-matrix .sq.empty{background:#eceff1}@keyframes pulseRun{0%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,200,83,0);filter:drop-shadow(0 0 0 rgba(0,200,83,0));border-color:#cfd8dc}50%{transform:scale(1.08);box-shadow:0 0 8px 2px rgba(0,200,83,0.55);filter:drop-shadow(0 0 6px rgba(0,200,83,0.5));border-color:#69f0ae}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,200,83,0);filter:drop-shadow(0 0 0 rgba(0,200,83,0));border-color:#cfd8dc}}`}</style>
+                          <div
+                            className="res-matrix"
+                            style={{ display:'grid', gridTemplateColumns: `repeat(${resMatrixCols[String(c.id||'')]||7}, 12px)`, gap:4 }}
+                            ref={(el) => {
+                              if (!el) return;
+                              const width = el.clientWidth || 0;
+                              const size = 12;
+                              const gap = 4;
+                              const cols = Math.max(7, Math.floor((width + gap) / (size + gap)));
+                              setResMatrixCols(prev => (prev[String(c.id||'')] === cols ? prev : { ...prev, [String(c.id||'')]: cols }));
+                            }}
+                          >
+                            {(() => {
+                              const stats = resInstanceStats[String(c.id||'')] || { running:0, stopped:0, total:0 };
+                              const cols = resMatrixCols[String(c.id||'')] || 7;
+                              const cells = cols * 3;
+                              const total = Math.min(cells, Number(stats.total || 0));
+                              let running = Math.min(cells, Number(stats.running || 0));
+                              let used = Math.min(cells - running, Math.max(0, total - running));
+                              if (total === 0) {
+                                running = 3;
+                                used = 0;
+                              } else if (running === 0 && total > 0) {
+                                running = Math.min(3, total);
+                              }
+                              const arr = Array.from({length:cells}).map((_,i)=> 'empty');
+                              for (let i=0; i<used; i++) arr[i] = 'used';
+                              const step = used > 0 ? Math.max(1, Math.floor(used / Math.max(1, running))) : 1;
+                              let placed = 0, pos = 0;
+                              while (placed < running && pos < cells) {
+                                arr[pos] = 'run';
+                                placed++; pos += step;
+                              }
+                              return arr.map((cls, idx) => {
+                                const col = idx % cols;
+                                const row = Math.floor(idx / cols);
+                                const delay = (col * 220) + (row * 140);
+                                const anim = 'pulseRun 1700ms ease-in-out infinite';
+                                return <div
+                                  key={idx}
+                                  className={`sq ${cls}`}
+                                  style={{
+                                    ...(cls==='run' ? { animation: anim, animationDelay: `${delay}ms` } : {})
+                                  }}
+                                />;
+                              });
+                            })()}
+                          </div>
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:10 }}>
+                            <Text type="secondary">区域</Text>
+                            <Text>{c.region || '-'}</Text>
+                          </div>
+                        </>
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
+              );
+            })()}
+          </Card>
+        </div>
+      )}
       {/* 网络态势区（CEN） — 分拆为多个独立小卡片，单卡仅展示一个内容；每行列等高对齐 */}
       {activeTab === 'cen' && (
       <Row gutter={[16,16]} align="stretch">

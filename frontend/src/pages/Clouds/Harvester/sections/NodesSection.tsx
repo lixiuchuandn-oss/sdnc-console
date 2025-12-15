@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Tag, Input, Select } from 'antd';
-import SharedToolbar from '../../../../components/SharedToolbar';
+import PageDetailSection from '../../../../components/PageDetailSection';
 
 type Props = {
   nodes: any[];
@@ -89,16 +89,16 @@ const NodesSection: React.FC<Props> = ({ nodes, loading }) => {
     return '-';
   };
   return (
-    <>
-      <SharedToolbar
-        left={(
-          <>
-            <Input.Search allowClear placeholder="关键字" onSearch={(v)=>setKeyword(v || '')} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
-            <Select allowClear placeholder="角色" value={roleFilter || undefined} onChange={(v)=> setRoleFilter(v || '')} style={{ width: 180 }} options={[{ value: '', label: '全部' }, ...roleOptions]} />
-            <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> setReadyFilter(v || '')} style={{ width: 160 }} options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
-          </>
-        )}
-      />
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={(
+        <>
+          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
+          <Select allowClear placeholder="角色" value={roleFilter || undefined} onChange={(v)=> setRoleFilter(v || '')} style={{ width: 200 }} options={[{ value: '', label: '全部' }, ...roleOptions]} />
+          <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> setReadyFilter(v || '')} style={{ width: 200 }} options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
+        </>
+      )}
+    >
     <Table
       className="kv-section-table"
       bordered
@@ -117,7 +117,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading }) => {
       loading={loading}
       pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
     />
-    </>
+    </PageDetailSection>
   );
 };
 

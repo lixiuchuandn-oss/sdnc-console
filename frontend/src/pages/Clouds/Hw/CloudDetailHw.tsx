@@ -296,12 +296,12 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       icon={<CloudUploadOutlined />}
       title={`华为云 ${cloud?.name || '-'}`}
       titleLevel={3}
-      extra={
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/admin/clouds')}>返回列表</Button>
-          <Button icon={<ReloadOutlined />} onClick={loadAll} loading={loading}>刷新</Button>
-        </Space>
-      }
+      onBack={() => navigate('/admin/clouds')}
+      backTooltip="返回列表"
+      moreMenuItems={[
+        { key: 'refresh', label: '刷新' },
+      ]}
+      onMoreMenuClick={({ key }) => { if (key === 'refresh') loadAll(); }}
       asCard={false}
     >
       <div style={{ marginBottom: 16 }}>

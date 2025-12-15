@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Space, Tag, Button, message, Modal, Form, Dropdown } from 'antd';
-import { MoreOutlined } from '@ant-design/icons';
-import SharedToolbar from '../../../../components/SharedToolbar';
+import { MoreOutlined, EllipsisOutlined } from '@ant-design/icons';
+import PageDetailSection from '../../../../components/PageDetailSection';
 import { deleteHarvesterImage, createHarvesterImage, updateHarvesterImage } from '../../../../services/api';
 
 type Props = {
@@ -91,38 +91,38 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
     });
   };
   return (
-    <>
-      <SharedToolbar
-        left={(
-          <>
-            <Input.Search allowClear placeholder="关键字" onSearch={(v)=>setKeyword(v || '')} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
-            <Select
-              allowClear
-              placeholder="镜像状态"
-              value={statusFilter || undefined}
-              onChange={(v)=> setStatusFilter(v || '')}
-              style={{ width: 180 }}
-              options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
-            />
-          </>
-        )}
-        right={(
-          <>
-            <Button type="primary" onClick={()=> { form.resetFields(); setCreating(true); }}>新增镜像</Button>
-            <Dropdown
-              menu={{
-                items: [
-                  { key: 'refresh', label: '刷新' },
-                  { key: 'batchDelete', label: '批量删除', disabled: selectedKeys.length === 0 },
-                ],
-                onClick: ({ key }) => { if (key === 'batchDelete') batchDelete(); if (key === 'refresh') onRefresh?.(); },
-              }}
-            >
-              <Button icon={<MoreOutlined />}>更多</Button>
-            </Dropdown>
-          </>
-        )}
-      />
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={(
+        <>
+          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
+          <Select
+            allowClear
+            placeholder="镜像状态"
+            value={statusFilter || undefined}
+            onChange={(v)=> setStatusFilter(v || '')}
+            style={{ width: 200 }}
+            options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
+          />
+        </>
+      )}
+      toolbarRight={(
+        <>
+          <Button type="primary" onClick={()=> { form.resetFields(); setCreating(true); }}>新增镜像</Button>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'refresh', label: '刷新' },
+                { key: 'batchDelete', label: '批量删除', disabled: selectedKeys.length === 0 },
+              ],
+              onClick: ({ key }) => { if (key === 'batchDelete') batchDelete(); if (key === 'refresh') onRefresh?.(); },
+            }}
+          >
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
+        </>
+      )}
+    >
       <Modal open={creating} onCancel={()=> setCreating(false)} onOk={async()=>{ try { const v = await form.validateFields(); await createHarvesterImage(cloudId, { namespace: v.namespace || 'default', name: v.name || undefined, displayName: v.displayName || undefined, sourceType: v.sourceType || undefined, url: v.url || undefined, targetStorageClassName: v.storageClassName || undefined, storageClassParameters: v.storageClassParameters || {} }); message.success('创建成功'); setCreating(false); onRefresh?.(); } catch(e:any){ message.error(e?.message || '创建失败'); } }} okText="提交" cancelText="取消" title="新增镜像" destroyOnClose>
         <Form form={form} layout="vertical" initialValues={{ namespace: 'default', sourceType: 'download' }}>
           <Form.Item label="命名空间" name="namespace" rules={[{ required: true }]}>
@@ -196,7 +196,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
         loading={loading}
         pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
-    </>
+    </PageDetailSection>
   );
 };
 

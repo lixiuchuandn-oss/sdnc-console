@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Table, Select, Button, Tag, Dropdown, Modal, Input, Badge, message, Checkbox } from 'antd';
-import { MoreOutlined } from '@ant-design/icons';
-import SharedToolbar from '../../../../components/SharedToolbar';
+import { EllipsisOutlined,MoreOutlined } from '@ant-design/icons';
+import PageDetailSection from '../../../../components/PageDetailSection';
 import { fetchCloudProviderEcsVncUrl, fetchHarvesterVmVncUrl } from '../../../../services/api';
 
 type Props = {
@@ -101,56 +101,56 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     } });
   };
   return (
-    <>
-      <SharedToolbar
-        left={(
-          <>
-            <Input.Search allowClear placeholder="关键字" style={{ width: 240 }} onSearch={(v)=> setKeyword(v || '')} onChange={(e)=> setKeyword(e.target.value)} />
-            <Select
-              style={{ width: 200 }}
-              placeholder="命名空间"
-              value={nsValue || undefined}
-              onChange={(v)=> onNsChange(v || undefined)}
-              allowClear
-              options={namespacesOptions.map(ns=> ({ value: ns, label: ns }))}
-            />
-            <Select
-              style={{ width: 200 }}
-              placeholder="节点"
-              value={nodeValue || undefined}
-              onChange={(v)=> onNodeChange(v || undefined)}
-              allowClear
-              options={nodesOptions.map(n=> ({ value: n, label: n }))}
-            />
-            <Select
-              style={{ width: 200 }}
-              placeholder="云主机状态"
-              value={statusFilter || undefined}
-              onChange={(v)=> setStatusFilter(v || '')}
-              allowClear
-              options={[{ value: '', label: '全部' }, ...['Running','Starting','Stopping','Stopped','Terminated','Error','Unknown'].map(k=> ({ value: k.toLowerCase(), label: (function(){ const m:any={ running:'运行中', starting:'启动中', stopping:'停止中', stopped:'已停止', terminated:'已删除', error:'错误', unknown:'未知' }; return m[k.toLowerCase()] || k; })() }))]}
-            />
-          </>
-        )}
-        right={(
-          <>
-            <Button type="primary" onClick={() => navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location } })}>创建实例</Button>
-            <Dropdown
-              menu={{
-                items: [
-                  { key:'refresh', label:'刷新' },
-                  { key:'batchStop', label:'批量停止', disabled: selectedKeys.length===0 },
-                  { key:'batchReboot', label:'批量重启', disabled: selectedKeys.length===0 },
-                  { key:'batchDelete', label:<span style={{ color:'#ff4d4f' }}>批量删除</span>, disabled: selectedKeys.length===0 },
-                ],
-                onClick: ({ key }) => { if (key==='refresh') onRefresh(); if (key==='batchStop') batchStop(); if (key==='batchReboot') batchReboot(); if (key==='batchDelete') batchDelete(); },
-              }}
-            >
-              <Button icon={<MoreOutlined />}>更多</Button>
-            </Dropdown>
-          </>
-        )}
-      />
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={(
+        <>
+          <Input allowClear placeholder="关键字" style={{ width: 240 }} value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+          <Select
+            style={{ width: 200 }}
+            placeholder="命名空间"
+            value={nsValue || undefined}
+            onChange={(v)=> onNsChange(v || undefined)}
+            allowClear
+            options={namespacesOptions.map(ns=> ({ value: ns, label: ns }))}
+          />
+          <Select
+            style={{ width: 200 }}
+            placeholder="节点"
+            value={nodeValue || undefined}
+            onChange={(v)=> onNodeChange(v || undefined)}
+            allowClear
+            options={nodesOptions.map(n=> ({ value: n, label: n }))}
+          />
+          <Select
+            style={{ width: 200 }}
+            placeholder="云主机状态"
+            value={statusFilter || undefined}
+            onChange={(v)=> setStatusFilter(v || '')}
+            allowClear
+            options={[{ value: '', label: '全部' }, ...['Running','Starting','Stopping','Stopped','Terminated','Error','Unknown'].map(k=> ({ value: k.toLowerCase(), label: (function(){ const m:any={ running:'运行中', starting:'启动中', stopping:'停止中', stopped:'已停止', terminated:'已删除', error:'错误', unknown:'未知' }; return m[k.toLowerCase()] || k; })() }))]}
+          />
+        </>
+      )}
+      toolbarRight={(
+        <>
+          <Button type="primary" onClick={() => navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location } })}>创建实例</Button>
+          <Dropdown
+            menu={{
+              items: [
+                { key:'refresh', label:'刷新' },
+                { key:'batchStop', label:'批量停止', disabled: selectedKeys.length===0 },
+                { key:'batchReboot', label:'批量重启', disabled: selectedKeys.length===0 },
+                { key:'batchDelete', label:<span style={{ color:'#ff4d4f' }}>批量删除</span>, disabled: selectedKeys.length===0 },
+              ],
+              onClick: ({ key }) => { if (key==='refresh') onRefresh(); if (key==='batchStop') batchStop(); if (key==='batchReboot') batchReboot(); if (key==='batchDelete') batchDelete(); },
+            }}
+          >
+            <Button icon={<EllipsisOutlined />}></Button>
+          </Dropdown>
+        </>
+      )}
+    >
       <Table
         className="kv-section-table"
         bordered
@@ -291,8 +291,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         loading={loading}
         pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
-      
-    </>
+    </PageDetailSection>
   );
 };
 

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Space, Input, Select } from 'antd';
+import PageDetailSection from '../../../../components/PageDetailSection';
 
 type Props = {
   vpcs: any[];
@@ -41,12 +42,16 @@ const KubeOvnVpcsSection: React.FC<Props> = ({ vpcs, loading }) => {
   }, [vpcs, keyword, ns, standalone]);
 
   return (
-    <>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input allowClear placeholder="搜索名称" value={keyword} onChange={(e)=> setKeyword(e.target.value)} style={{ width: 200 }} />
-        <Select allowClear placeholder="命名空间" options={nsOptions} value={ns} onChange={(v)=> setNs(v)} style={{ width: 200 }} />
-        <Select allowClear placeholder="独立模式" options={[{ label:'是', value:'yes' }, { label:'否', value:'no' }]} value={standalone} onChange={(v)=> setStandalone(v)} style={{ width: 160 }} />
-      </Space>
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={(
+        <>
+          <Input allowClear placeholder="搜索名称" value={keyword} onChange={(e)=> setKeyword(e.target.value)} style={{ width: 240 }} />
+          <Select allowClear placeholder="命名空间" options={nsOptions} value={ns} onChange={(v)=> setNs(v)} style={{ width: 200 }} />
+          <Select allowClear placeholder="独立模式" options={[{ label:'是', value:'yes' }, { label:'否', value:'no' }]} value={standalone} onChange={(v)=> setStandalone(v)} style={{ width: 200 }} />
+        </>
+      )}
+    >
       <Table
         className="kv-section-table"
         bordered
@@ -62,7 +67,7 @@ const KubeOvnVpcsSection: React.FC<Props> = ({ vpcs, loading }) => {
         loading={loading}
         pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
-    </>
+    </PageDetailSection>
   );
 };
 

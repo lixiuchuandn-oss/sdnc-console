@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Table, Tag, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Switch } from 'antd';
 import { EllipsisOutlined } from '@ant-design/icons';
-import SharedToolbar from '../../../../components/SharedToolbar';
+import PageDetailSection from '../../../../components/PageDetailSection';
 import { attachHarvesterVolumeToVm, attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, fetchHarvesterStorageClasses, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume } from '../../../../services/api';
 
 type Props = {
@@ -138,98 +138,96 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, onRef
     } catch {}
   }, [storageClasses, createForm]);
   return (
-    <>
-      <SharedToolbar
-        left={(
-          <>
-            <Input.Search allowClear placeholder="关键字" onSearch={(v)=>setKeyword(v || '')} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
-            <Select
-              allowClear
-              showSearch
-              placeholder="命名空间"
-              value={nsFilter || undefined}
-              onChange={(v)=> setNsFilter(v || '')}
-              style={{ width: 180 }}
-              options={[{ value: '', label: '全部' }, ...nsOptions]}
-            />
-            <Select
-              allowClear
-              placeholder="虚拟卷状态"
-              value={statusFilter || undefined}
-              onChange={(v)=> setStatusFilter(v || '')}
-              style={{ width: 180 }}
-              options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
-            />
-            <Select
-              allowClear
-              showSearch
-              placeholder="存储类"
-              value={scFilter || undefined}
-              onChange={(v)=> setScFilter(v || '')}
-              style={{ width: 200 }}
-              options={[{ value: '', label: '全部' }, ...((Array.isArray(storageClasses)?storageClasses:[]).map((s:any)=> ({ value: String(s?.name||''), label: String(s?.name||'') })).filter(x=> x.value))]}
-            />
-            
-            <span style={{ marginLeft: 12 }}>
-              <Switch checked={showSystemVolumes} onChange={(v)=> setShowSystemVolumes(v)} />
-              <span style={{ marginLeft: 6 }}>显示系统卷</span>
-            </span>
-            
-          </>
-        )}
-        right={(
-          <>
-            <Button type="primary" onClick={() => { createForm.resetFields(); createForm.setFieldsValue({ namespace: 'default', accessModes: ['ReadWriteOnce'], volumeMode: 'Block' }); setCreateOpen(true); }}>创建卷</Button>
-            <Dropdown
-              trigger={["click"]}
-              menu={{
-                items: [
-                  { key: 'refresh', label: '刷新' },
-                  { key: 'batchDelete', label: '批量删除', disabled: selectedRowKeys.length === 0, danger: true },
-                ],
-                onClick: async ({ key }) => {
-                  try {
-                    if (key === 'refresh') { onRefresh?.(); return; }
-                    if (key === 'batchDelete') {
-                      const targets = (Array.isArray(volumes) ? volumes : []).filter((r:any)=> selectedRowKeys.includes(r?.name || r?.metadata?.name));
-                      if (targets.length === 0) { message.info('请先选择要删除的卷'); return; }
-                      Modal.confirm({
-                        title: '批量删除确认',
-                        content: `即将删除 ${targets.length} 个卷：` + targets.map((t:any)=> String(t?.name || t?.metadata?.name || '')).join(', '),
-                        okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
-                        onOk: async () => {
-                          try {
-                            const results = await Promise.allSettled(targets.map(async (r:any)=>{
-                              const rawName = String(r?.name || '');
-                              let delNs = String(r?.namespace || '') || 'longhorn-system';
-                              let delName = rawName;
-                              if (rawName.includes('/')) { const parts = rawName.split('/'); delNs = parts[0] || delNs; delName = parts.slice(1).join('/'); }
-                              await deleteHarvesterVolume(cloudId, delNs, delName);
-                            }));
-                            const ok = results.filter(x=> x.status==='fulfilled').length;
-                            const fail = results.length - ok;
-                            if (ok>0) message.success(`成功删除 ${ok} 个卷`);
-                            if (fail>0) message.error(`有 ${fail} 个卷删除失败`);
-                            setSelectedRowKeys([]);
-                            onRefresh?.();
-                          } catch (e:any) {
-                            message.error(e?.message || '批量删除失败');
-                          }
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={(
+        <>
+          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
+          <Select
+            allowClear
+            showSearch
+            placeholder="命名空间"
+            value={nsFilter || undefined}
+            onChange={(v)=> setNsFilter(v || '')}
+            style={{ width: 180 }}
+            options={[{ value: '', label: '全部' }, ...nsOptions]}
+          />
+          <Select
+            allowClear
+            placeholder="虚拟卷状态"
+            value={statusFilter || undefined}
+            onChange={(v)=> setStatusFilter(v || '')}
+            style={{ width: 180 }}
+            options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
+          />
+          <Select
+            allowClear
+            showSearch
+            placeholder="存储类"
+            value={scFilter || undefined}
+            onChange={(v)=> setScFilter(v || '')}
+            style={{ width: 200 }}
+            options={[{ value: '', label: '全部' }, ...((Array.isArray(storageClasses)?storageClasses:[]).map((s:any)=> ({ value: String(s?.name||''), label: String(s?.name||'') })).filter(x=> x.value))]}
+          />
+          
+          <span style={{ marginLeft: 12 }}>
+            <Switch checked={showSystemVolumes} onChange={(v)=> setShowSystemVolumes(v)} />
+            <span style={{ marginLeft: 6 }}>显示系统卷</span>
+          </span>
+          
+        </>
+      )}
+      toolbarRight={(
+        <>
+          <Button type="primary" onClick={() => { createForm.resetFields(); createForm.setFieldsValue({ namespace: 'default', accessModes: ['ReadWriteOnce'], volumeMode: 'Block' }); setCreateOpen(true); }}>创建卷</Button>
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                { key: 'refresh', label: '刷新' },
+                { key: 'batchDelete', label: '批量删除', disabled: selectedRowKeys.length === 0, danger: true },
+              ],
+              onClick: async ({ key }) => {
+                try {
+                  if (key === 'refresh') { onRefresh?.(); return; }
+                  if (key === 'batchDelete') {
+                    const targets = (Array.isArray(volumes) ? volumes : []).filter((r:any)=> selectedRowKeys.includes(r?.name || r?.metadata?.name));
+                    if (targets.length === 0) { message.info('请先选择要删除的卷'); return; }
+                    Modal.confirm({
+                      title: '批量删除确认',
+                      content: `即将删除 ${targets.length} 个卷：` + targets.map((t:any)=> String(t?.name || t?.metadata?.name || '')).join(', '),
+                      okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
+                      onOk: async () => {
+                        try {
+                          const results = await Promise.allSettled(targets.map(async (r:any)=>{
+                            const rawName = String(r?.name || '');
+                            let delNs = String(r?.namespace || '') || 'longhorn-system';
+                            let delName = rawName;
+                            if (rawName.includes('/')) { const parts = rawName.split('/'); delNs = parts[0] || delNs; delName = parts.slice(1).join('/'); }
+                            await deleteHarvesterVolume(cloudId, delNs, delName);
+                          }));
+                          const ok = results.filter(x=> x.status==='fulfilled').length;
+                          const fail = results.length - ok;
+                          if (ok>0) message.success(`成功删除 ${ok} 个卷`);
+                          if (fail>0) message.error(`有 ${fail} 个卷删除失败`);
+                          setSelectedRowKeys([]);
+                          onRefresh?.();
+                        } catch (e:any) {
+                          message.error(e?.message || '批量删除失败');
                         }
-                      });
-                      return;
-                    }
-                  } catch (e:any) { message.error(e?.message || '操作失败'); }
-                }
-              }}
-            >
-              <Button icon={<EllipsisOutlined style={{ transform: 'rotate(90deg)' }} />}>
-                更多
-              </Button>
-            </Dropdown>
-          </>
-        )}
-      />
+                      }
+                    });
+                    return;
+                  }
+                } catch (e:any) { message.error(e?.message || '操作失败'); }
+              }
+            }}
+          >
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
+        </>
+      )}
+    >
       <Modal
         open={attachOpen}
         onCancel={() => setAttachOpen(false)}
@@ -340,7 +338,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, onRef
       loading={loading}
       pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
     />
-    </>
+    </PageDetailSection>
   );
 };
 

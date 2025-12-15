@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Tag, Space, Input, Select } from 'antd';
+import PageDetailSection from '../../../../components/PageDetailSection';
 
 type Props = {
   subnets: any[];
@@ -57,14 +58,18 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, loading }) => {
   }, [subnets, keyword, vpc, protocol, nat, dhcp]);
 
   return (
-    <>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input allowClear placeholder="搜索名称" value={keyword} onChange={(e)=> setKeyword(e.target.value)} style={{ width: 200 }} />
-        <Select allowClear placeholder="VPC" options={vpcOptions} value={vpc} onChange={(v)=> setVpc(v)} style={{ width: 200 }} />
-        <Select allowClear placeholder="协议" options={protocolOptions} value={protocol} onChange={(v)=> setProtocol(v)} style={{ width: 160 }} />
-        <Select allowClear placeholder="NAT" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={nat} onChange={(v)=> setNat(v)} style={{ width: 140 }} />
-        <Select allowClear placeholder="DHCP" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={dhcp} onChange={(v)=> setDhcp(v)} style={{ width: 140 }} />
-      </Space>
+    <PageDetailSection
+      asCard={false}
+      toolbarLeft={(
+        <>
+          <Input allowClear placeholder="搜索名称" value={keyword} onChange={(e)=> setKeyword(e.target.value)} style={{ width: 240 }} />
+          <Select allowClear placeholder="VPC" options={vpcOptions} value={vpc} onChange={(v)=> setVpc(v)} style={{ width: 200 }} />
+          <Select allowClear placeholder="协议" options={protocolOptions} value={protocol} onChange={(v)=> setProtocol(v)} style={{ width: 200 }} />
+          <Select allowClear placeholder="NAT" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={nat} onChange={(v)=> setNat(v)} style={{ width: 200 }} />
+          <Select allowClear placeholder="DHCP" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={dhcp} onChange={(v)=> setDhcp(v)} style={{ width: 200 }} />
+        </>
+      )}
+    >
       <Table
         className="kv-section-table"
         bordered
@@ -83,7 +88,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, loading }) => {
         loading={loading}
         pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
-    </>
+    </PageDetailSection>
   );
 };
 

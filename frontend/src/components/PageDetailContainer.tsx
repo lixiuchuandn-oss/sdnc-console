@@ -1,13 +1,19 @@
 import React, { useMemo } from 'react';
-import { Breadcrumb, Card, Space, Typography, theme } from 'antd';
+import { Breadcrumb, Card, Space, Typography, theme, Tooltip, Button, Dropdown } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, UnorderedListOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 
 export interface PageDetailContainerProps {
   title?: React.ReactNode;
   icon?: React.ReactNode;
   extra?: React.ReactNode;
+  actions?: Array<{ key: string; icon: React.ReactNode; onClick?: () => void; loading?: boolean; disabled?: boolean; tooltip?: React.ReactNode }>;
+  onBack?: () => void;
+  backTooltip?: React.ReactNode;
+  moreMenuItems?: Array<{ key: string; label: React.ReactNode }>;
+  onMoreMenuClick?: (info: { key: string }) => void;
+  moreIcon?: React.ReactNode;
   children?: React.ReactNode;
   bordered?: boolean;
   elevated?: boolean;
@@ -16,12 +22,19 @@ export interface PageDetailContainerProps {
   asCard?: boolean;
   pagePadding?: number | string;
   hideHeader?: boolean;
+  actionsGap?: number | string;
 }
 
 const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
   title,
   icon,
   extra,
+  actions,
+  onBack,
+  backTooltip,
+  moreMenuItems,
+  onMoreMenuClick,
+  moreIcon,
   children,
   bordered = true,
   elevated = true,
@@ -30,6 +43,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
   asCard = true,
   pagePadding,
   hideHeader = false,
+  actionsGap = 8,
 }) => {
   const loc = useLocation();
   const { token } = theme.useToken();
@@ -85,7 +99,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
   }, [loc.pathname, currentSpec]);
 
   const displayTitle = title ?? currentSpec?.title ?? currentSpec?.breadcrumbLabel ?? '';
-  const displayIcon = styledIcon(iconOf(currentSpec?.icon), 22, token.colorPrimary);
+  const displayIcon = styledIcon(icon ?? iconOf(currentSpec?.icon), 22, token.colorPrimary);
 
   const cardStyle: React.CSSProperties = {
     marginBottom: 16,
@@ -106,13 +120,45 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
             <Typography.Title level={titleLevel} style={{ margin: 0, lineHeight: 1, display: 'inline-flex', alignItems: 'center' }}>
               {displayTitle}
             </Typography.Title>
-          </Space>
-          {extra}
+        </Space>
+          <div style={{ display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap', gap: actionsGap }}>
+            {onBack || (Array.isArray(moreMenuItems) && moreMenuItems.length > 0) ? (
+              <>
+                {onBack && (
+                  backTooltip ? (
+                    <Tooltip title={backTooltip}>
+                      <Button icon={<ArrowLeftOutlined />} onClick={onBack} />
+                    </Tooltip>
+                  ) : (
+                    <Button icon={<ArrowLeftOutlined />} onClick={onBack} />
+                  )
+                )}
+                {(Array.isArray(moreMenuItems) && moreMenuItems.length > 0) && (
+                  <Dropdown
+                    menu={{ items: moreMenuItems, onClick: ({ key }) => onMoreMenuClick && onMoreMenuClick({ key }) }}
+                  >
+                    <Button icon={moreIcon || <UnorderedListOutlined />} />
+                  </Dropdown>
+                )}
+              </>
+            ) : Array.isArray(actions) && actions.length > 0 ? actions.map(act => {
+              const btn = (
+                <Button
+                  key={act.key}
+                  icon={act.icon}
+                  onClick={act.onClick}
+                  loading={!!act.loading}
+                  disabled={!!act.disabled}
+                />
+              );
+              return act.tooltip ? (<Tooltip key={`${act.key}.tt`} title={act.tooltip}>{btn}</Tooltip>) : btn;
+            }) : extra}
+          </div>
         </div>
       )}
       
       {asCard ? (
-        <Card size="small" variant="outlined" style={cardStyle} styles={{ body: { padding: contentPadding } }}>
+        <Card size="small" variant="outlined" bordered={bordered} style={cardStyle} styles={{ body: { padding: contentPadding } }}>
           {children}
         </Card>
       ) : (

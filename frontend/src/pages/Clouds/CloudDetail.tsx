@@ -686,12 +686,12 @@ const CloudDetail: React.FC = () => {
       title={`${providerName} ${cloud?.name || '-'}`}
       titleLevel={3}
       
-      extra={
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/admin/clouds')}>返回列表</Button>
-          <Button icon={<ReloadOutlined />} onClick={loadVpcs} loading={loading}>刷新</Button>
-        </Space>
-      }
+      onBack={() => navigate('/admin/clouds')}
+      backTooltip="返回列表"
+      moreMenuItems={[
+        { key: 'refresh', label: '刷新' },
+      ]}
+      onMoreMenuClick={({ key }) => { if (key === 'refresh') loadVpcs(); }}
       asCard={false}
     >
       {error && (

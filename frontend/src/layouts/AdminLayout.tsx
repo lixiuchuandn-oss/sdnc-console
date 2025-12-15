@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Input, Divider, Typography, Row, Col, Card, Space, Tag } from 'antd';
+import { Layout, Menu, Button, Input, Divider, Typography, Row, Col, Card, Space, Tag, AutoComplete, Badge, App, Select } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   SlidersOutlined,ProjectOutlined,CodeOutlined,CloudOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, RightOutlined,
   ClusterOutlined, TeamOutlined, CodepenOutlined, DesktopOutlined, HddOutlined, GatewayOutlined,
   AppstoreAddOutlined, ApiOutlined, DatabaseOutlined, BellOutlined, RobotOutlined, EditOutlined, PlayCircleOutlined,
-  BulbOutlined, CloudUploadOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled
+  BulbOutlined, CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled, SearchOutlined, PoweroffOutlined, ReloadOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../utils/accessMapping';
 import { ROUTE_CATALOG, RouteItem } from '../catalogs/navCatalog';
 import { routeSpecs } from '../routes/RouteSpec';
+import { fetchClouds, fetchInventoryInstancesByCloud, refreshInventoryInstances, fetchAllInstances, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, fetchAliyunEcsVncUrl } from '../services/api';
 
 const { Header, Sider, Content } = Layout;
 
@@ -30,6 +31,10 @@ const AdminLayout: React.FC = () => {
   const [recents, setRecents] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('ct_recent')||'[]'); } catch { return []; }
   });
+  const [resourceClouds, setResourceClouds] = useState<any[]>([]);
+  const [resourceLoading, setResourceLoading] = useState<boolean>(false);
+  const [resInstanceStats, setResInstanceStats] = useState<Record<string, { running: number; stopped: number; total: number }>>({});
+  const [resMatrixCols, setResMatrixCols] = useState<Record<string, number>>({});
   
 
   const getItemMeta = (k: string): any => {
@@ -76,6 +81,14 @@ const AdminLayout: React.FC = () => {
 
   const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
  
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
+  const { message } = App.useApp();
+  const [navEcs, setNavEcs] = useState<any[]>([]);
+  const [navEcsLoading, setNavEcsLoading] = useState<boolean>(false);
+  const [navStatusMode, setNavStatusMode] = useState<'all'|'prefer_running'|'only_running'|'only_non_running'>('prefer_running');
+
   const canAccessPath = (p: string): boolean => {
     const pure = String(p || '').split('?')[0];
     if (!user) return false;
@@ -101,6 +114,7 @@ const AdminLayout: React.FC = () => {
               const first = (centers || [])[0]?.key;
               if (first) setSelectedGroupKey(first);
             }
+            if (next) setNavSection('resources');
             return next;
           });
         }} style={{height:40,width:40,display:'flex',alignItems:'center',justifyContent:'center'}} />
@@ -110,6 +124,33 @@ const AdminLayout: React.FC = () => {
         <Button type="default" ghost size="small" style={{ marginLeft:8, height:28, padding:'0 10px' }} icon={<DesktopOutlined />} onClick={()=> window.open('/admin/clouds/console','_blank')}>
           控制台
         </Button>
+      </div>
+      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 20px' }}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={()=> setSearchOpen(true)}
+          onKeyDown={(e)=> { if (e.key === 'Enter' || e.key === ' ') setSearchOpen(true); }}
+          style={{
+            width: 520,
+            height: 36,
+            borderRadius: 10,
+            border: '1px solid rgba(255,255,255,0.6)',
+            background: '#1062fe',
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'space-between',
+            padding:'0 10px',
+            color:'#fff',
+            boxShadow:'inset 0 0 0 1px rgba(255,255,255,0.25)'
+          }}
+        >
+          <Space size={8} style={{ color:'#fff' }}>
+            <SearchOutlined />
+            <span>Search</span>
+          </Space>
+          <span style={{ border:'1px solid rgba(255,255,255,0.8)', color:'#fff', borderRadius:6, padding:'2px 8px', fontSize:12, lineHeight:'16px' }}>Ctrl+K</span>
+        </div>
       </div>
       <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
         <BellOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/alarms')} />
@@ -216,6 +257,76 @@ const AdminLayout: React.FC = () => {
     }))
     .filter((c:any) => (c.items || []).length > 0);
 
+  const pageSearchOptions = React.useMemo(() => {
+    const opts: any[] = [];
+    (visibleCenters || []).forEach((c:any) => {
+      (c.items || []).forEach((p:any) => {
+        (p.children || []).forEach((it:any) => {
+          const title = `${String(it.label || '')} ${String(p.label || '')} ${String(c.label || '')}`;
+          opts.push({
+            value: String(it.key || ''),
+            title,
+            label: (
+              <Space size={8}>
+                <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#f0f5ff' }}>{it.icon}</span>
+                <span style={{ fontSize:13 }}>{it.label}</span>
+                <Typography.Text type="secondary" style={{ marginLeft:8 }}>{p.label}</Typography.Text>
+              </Space>
+            ),
+          });
+        });
+      });
+    });
+    return opts;
+  }, [visibleCenters]);
+
+  const filteredSearchList = React.useMemo(() => {
+    const kw = String(searchText || '').toLowerCase();
+    const base = pageSearchOptions.map((o:any)=> ({ path: o.value, title: o.title, icon: o.label?.props?.children?.[0], label: o.label?.props?.children?.[1]?.props?.children, group: o.label?.props?.children?.[2]?.props?.children }));
+    const list = kw ? base.filter((it:any)=> String(it.title||'').toLowerCase().includes(kw)) : base.slice(0, 12);
+    return list;
+  }, [pageSearchOptions, searchText]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+        setSearchText('');
+        setSearchActiveIndex(0);
+      }
+      if (searchOpen) {
+        if (e.key === 'Escape') {
+          setSearchOpen(false);
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSearchActiveIndex(i => Math.min(i + 1, Math.max(filteredSearchList.length - 1, 0)));
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSearchActiveIndex(i => Math.max(i - 1, 0));
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const sel = filteredSearchList[searchActiveIndex];
+          if (sel) {
+            const path = sel.path;
+            if (path === '/admin/clouds/console') {
+              window.open(path, '_blank');
+            } else {
+              navigate(path);
+              setActiveSidebarKey(sidebarForPath(path));
+            }
+            setSearchOpen(false);
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [searchOpen, filteredSearchList]);
+
   useEffect(() => {}, [user, location.pathname]);
 
   const sidebarForPath = (p: string) => {
@@ -245,10 +356,230 @@ const AdminLayout: React.FC = () => {
     }
   }, [navSection]);
 
+  useEffect(() => {
+    if (navOpen) {
+      setResourceLoading(true);
+      setNavEcsLoading(true);
+      fetchClouds().then((list:any[]) => {
+        const arr = Array.isArray(list) ? list : [];
+        setResourceClouds(arr);
+      }).catch(() => {}).finally(() => setResourceLoading(false));
+      fetchAllInstances().then((json:any) => {
+        const list = Array.isArray(json?.data) ? json.data : [];
+        setNavEcs(list);
+      }).catch(()=> setNavEcs([])).finally(()=> setNavEcsLoading(false));
+    }
+  }, [navOpen, navSection]);
+
+  const providerLabel = (p:string): string => {
+    const s = String(p || '').toLowerCase();
+    return (s === 'aliyun' && '阿里云') || (s === 'huaweicloud' && '华为云') || (s === 'tencentcloud' && '腾讯云') || (s === 'harvester' && 'Harvester') || (s === 'cloudmap' && 'Cloudmap') || (p || '-');
+  };
+  const statusBadge = (raw:any) => {
+    const v = String(raw || '').toLowerCase();
+    if (['running','healthy','ok','active','on'].includes(v)) return <Badge status="success" text="运行中" />;
+    if (['warning','degraded','maintenance'].includes(v)) return <Badge status="warning" text="维护/告警" />;
+    if (['error','failed','unhealthy','offline','stopped','stop','inactive','terminated','off'].includes(v)) return <Badge status="error" text="异常/停止" />;
+    return <Badge status="default" text="未知" />;
+  };
+  const isRunningRec = (r:any): boolean => {
+    const s = String(r?.status || r?.Status || r?.State || r?.state || r?.power_state || r?.PowerState || r?.InstanceState?.Name || r?.statusName || '').toLowerCase();
+    return s.includes('running') || s === 'active' || s === 'on';
+  };
+  const isStoppedRec = (r:any): boolean => {
+    const s = String(r?.status || r?.Status || r?.State || r?.state || r?.power_state || r?.PowerState || r?.InstanceState?.Name || r?.statusName || '').toLowerCase();
+    return s.includes('stopped') || s.includes('stop') || s.includes('shut') || s.includes('terminated') || s.includes('off') || s === 'inactive';
+  };
+  const isBusyRec = (r:any): boolean => {
+    const s = String(r?.status || r?.Status || r?.State || r?.state || r?.statusName || '').toLowerCase();
+    return s.includes('sched') || s.includes('pending') || s.includes('reboot') || s.includes('provision') || s.includes('creat') || s.includes('delet');
+  };
+  const parseMem = (v:any): number => {
+    const s = String(v || '').trim().toLowerCase();
+    if (!s) return 0;
+    if (/^\d+$/.test(s)) return Number(s);
+    const m = s.match(/^(\d+(?:\.\d+)?)(?:\s*)(gib?|gi|gb?|g|mib?|mi|mb?|m|kib?|ki|kb?|k|tib?|ti|tb?|t|b)$/);
+    if (!m) return 0;
+    const val = Number(m[1]);
+    const unit = m[2];
+    if (unit === 'gib' || unit === 'gi' || unit === 'gb' || unit === 'g') return val * 1024;
+    if (unit === 'mib' || unit === 'mi' || unit === 'mb' || unit === 'm') return val;
+    if (unit === 'kib' || unit === 'ki' || unit === 'kb' || unit === 'k') return val / 1024;
+    if (unit === 'tib' || unit === 'ti' || unit === 'tb' || unit === 't') return val * 1024 * 1024;
+    if (unit === 'b') return val / (1024 * 1024);
+    return 0;
+  };
+  const specTextOf = (r:any): string => {
+    const cpu = r?.cpu ?? r?.Extra?.CPU;
+    const providerKey = String(r?.provider || '').toLowerCase();
+    let memGi: number | undefined;
+    if (providerKey === 'harvester' || providerKey === 'cloudmap') {
+      const memMi = parseMem(r?.extra?.memory ?? r?.Extra?.Memory ?? r?.Memory ?? r?.memory);
+      memGi = memMi && memMi > 0 ? Math.round(memMi / 1024) : undefined;
+      if (memGi == null) {
+        const memGbRaw = r?.memoryGb ?? r?.memoryGB ?? r?.memory;
+        const gb = parseFloat(String(memGbRaw));
+        if (Number.isFinite(gb)) {
+          memGi = gb > 1024 && gb < 65536 ? Math.round((gb * 2) / 1024) : Math.round(gb);
+        }
+      }
+    } else {
+      const memGbRaw = r?.memoryGb ?? r?.memoryGB ?? r?.memory;
+      const val = parseFloat(String(memGbRaw));
+      memGi = Number.isFinite(val) ? Math.round(val) : undefined;
+    }
+    const base = (typeof cpu === 'number' || typeof memGi === 'number')
+      ? `CPU ${cpu ?? '-'}核 / 内存 ${typeof memGi === 'number' ? memGi : '-'}G`
+      : '-';
+    return base;
+  };
+  const openVnc = async (r:any) => {
+    const provider = String(r?.provider || '').toLowerCase();
+    const cloudId = String(r?.cloudId || '');
+    const iid = String(r?.id || r?.InstanceId || '');
+    if (!cloudId || !iid) return;
+    const isAliyun = provider.includes('aliyun');
+    const isHuawei = provider.includes('huawei');
+    if (isAliyun || isHuawei) {
+      try {
+        const json = await fetchAliyunEcsVncUrl(cloudId, iid);
+        const url = json?.data?.VncUrl || json?.data?.vncUrl;
+        if (url) {
+          const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
+          const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
+          const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
+          if (isAliyun) {
+            const osRaw = String(r?.os || r?.image || '').toLowerCase();
+            const isWindows = osRaw.includes('win');
+            const page = 'https://g.alicdn.com/aliyun/ecs-console-vnc2/0.0.8/index.html';
+            const web = `${page}?vncUrl=${encodeURIComponent(url)}&instanceId=${encodeURIComponent(iid)}&isWindows=${isWindows ? 'true' : 'false'}`;
+            window.open(web, 'webvnc', features);
+          } else {
+            window.open(url, 'webvnc', features);
+          }
+        } else {
+          message.warning('未获取到VNC地址');
+        }
+      } catch (e:any) {
+        message.error(e?.message || '获取VNC地址失败');
+      }
+      return;
+    }
+    const pub = Array.isArray(r?.publicIps) && r.publicIps.length > 0 ? r.publicIps[0] : null;
+    const pri = Array.isArray(r?.privateIps) && r.privateIps.length > 0 ? r.privateIps[0] : null;
+    const host = pub || pri || '';
+    navigate(`/admin/clouds/${cloudId}/webvnc?host=${encodeURIComponent(host)}&port=5900`);
+  };
+  const lifecycleOp = async (r:any, op:'start'|'stop'|'reboot') => {
+    try {
+      const cloudId = String(r?.cloudId || '');
+      const iid = String(r?.id || r?.InstanceId || '');
+      const providerKey = String(r?.provider || '').toLowerCase();
+      if (!cloudId || !iid) return;
+      if (op === 'start') {
+        if (providerKey.includes('aliyun') || providerKey.includes('huawei') || providerKey.includes('tencent') || providerKey.includes('harvester') || providerKey.includes('cloudmap')) {
+          await startCloudProviderEcs(cloudId, iid);
+        }
+        message.success('启动指令已下发');
+      } else if (op === 'stop') {
+        if (providerKey.includes('aliyun') || providerKey.includes('huawei') || providerKey.includes('tencent') || providerKey.includes('harvester') || providerKey.includes('cloudmap')) {
+          await stopCloudProviderEcs(cloudId, iid, true);
+        }
+        message.success('停止指令已下发');
+      } else if (op === 'reboot') {
+        if (providerKey.includes('aliyun') || providerKey.includes('huawei') || providerKey.includes('tencent') || providerKey.includes('harvester') || providerKey.includes('cloudmap')) {
+          await rebootCloudProviderEcs(cloudId, iid, true);
+        }
+        message.success('重启指令已下发');
+      }
+    } catch(e:any) {
+      message.error(e?.message || '操作失败');
+    }
+  };
+
   return (
     <Layout style={{ height:'100vh', overflow:'hidden' }}>
       {isProConsole ? <ProHeader /> : <StandardHeader />}
       <>
+        {searchOpen && (
+          <div
+            onClick={()=> setSearchOpen(false)}
+            style={{
+              position:'fixed',
+              inset:0,
+              background:'rgba(0,0,0,0.25)',
+              zIndex:3000
+            }}
+          >
+            <div
+              onClick={(e)=> e.stopPropagation()}
+              style={{
+                position:'absolute',
+                top:'10%',
+                left:'50%',
+                transform:'translateX(-50%)',
+                width:720,
+                background:'#fff',
+                borderRadius:12,
+                boxShadow:'0 20px 40px rgba(0,0,0,0.2)',
+                overflow:'hidden'
+              }}
+            >
+              <div style={{ padding:16, borderBottom:'1px solid #f0f0f0' }}>
+                <Input
+                  autoFocus
+                  value={searchText}
+                  onChange={(e)=> { setSearchText(e.target.value); setSearchActiveIndex(0); }}
+                  placeholder="搜索页面…  Ctrl+K 打开 / Esc 关闭"
+                  size="large"
+                />
+              </div>
+              <div style={{ maxHeight:360, overflow:'auto' }}>
+                {filteredSearchList.length === 0 ? (
+                  <div style={{ padding:16 }}>
+                    <Typography.Text type="secondary">无匹配结果</Typography.Text>
+                  </div>
+                ) : (
+                  filteredSearchList.map((it:any, idx:number) => (
+                    <div
+                      key={it.path}
+                      onMouseEnter={()=> setSearchActiveIndex(idx)}
+                      onClick={()=> {
+                        const path = it.path;
+                        if (path === '/admin/clouds/console') {
+                          window.open(path, '_blank');
+                        } else {
+                          navigate(path);
+                          setActiveSidebarKey(sidebarForPath(path));
+                        }
+                        setSearchOpen(false);
+                      }}
+                      style={{
+                        padding:'12px 16px',
+                        display:'flex',
+                        alignItems:'center',
+                        justifyContent:'space-between',
+                        cursor:'pointer',
+                        background: idx === searchActiveIndex ? '#f0f7ff' : '#fff',
+                        borderBottom:'1px solid #f5f5f5'
+                      }}
+                    >
+                      <Space size={10}>
+                        <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:24, height:24, borderRadius:6, background:'#f0f5ff' }}>{it.icon}</span>
+                        <span style={{ fontSize:14 }}>{it.label}</span>
+                      </Space>
+                      <Typography.Text type="secondary">{it.group}</Typography.Text>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div style={{ padding:'10px 16px', background:'#fafafa', borderTop:'1px solid #f0f0f0', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <Typography.Text type="secondary">Enter 打开 · ESC 关闭 · SCROLL 查看更多</Typography.Text>
+                <Button type="text" onClick={()=> setSearchOpen(false)}>关闭</Button>
+              </div>
+            </div>
+          </div>
+        )}
         <div
           onClick={()=> setNavOpen(false)}
           style={{
@@ -267,7 +598,7 @@ const AdminLayout: React.FC = () => {
             top: isProConsole ? 50 : 64,
             left:0,
             bottom:0,
-            width:960,
+            width:720,
             zIndex:2000,
             background:'#fff',
             borderRight:'1px solid ' + NAV_DIVIDER_COLOR,
@@ -280,147 +611,86 @@ const AdminLayout: React.FC = () => {
         >
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 20px' }}>
             <Space size={12}>
-              <AppstoreOutlined style={{ fontSize:18, color:'#1062fe' }} />
-              <Typography.Text style={{ fontSize:16, color:'#1f2a44' }}>全部导航</Typography.Text>
+              <Typography.Text style={{ fontSize:16, color:'#1f2a44' }}>云主机快速预览</Typography.Text>
             </Space>
             <Space size={12}>
-              <Input.Search allowClear placeholder="搜索功能" style={{ width: 300 }} onSearch={(v)=> setNavKeyword(v)} onChange={(e)=> setNavKeyword(e.target.value)} />
+              <Input.Search allowClear placeholder="按名称过滤" style={{ width: 300 }} onSearch={(v)=> setNavKeyword(v)} onChange={(e)=> setNavKeyword(e.target.value)} />
+              <Select
+                size="middle"
+                value={navStatusMode}
+                onChange={(v)=> setNavStatusMode(v)}
+                style={{ width: 110 }}
+                popupMatchSelectWidth={false}
+                getPopupContainer={(trigger)=> trigger?.parentElement as HTMLElement}
+              >
+                <Select.Option value="prefer_running">运行优先</Select.Option>
+                <Select.Option value="only_running">仅运行中</Select.Option>
+                <Select.Option value="only_non_running">仅非运行</Select.Option>
+              </Select>
               <Button type="default" style={{ borderColor: NAV_DIVIDER_COLOR }} onClick={()=> setNavOpen(false)}>收起</Button>
             </Space>
           </div>
           <Divider style={{ margin: 0, borderColor: NAV_DIVIDER_COLOR }} />
           <div style={{ display:'flex', flex:1, minHeight:0 }}>
-            <div style={{ width: 260, borderRight:'1px solid ' + NAV_DIVIDER_COLOR, padding:'12px 12px', height:'100%', overflow:'auto' }}>
-              <Menu
-                mode="inline"
-                selectedKeys={[navSection]}
-                onClick={({ key }) => setNavSection(String(key) as any)}
-                style={{ borderRight: '0' }}
-                items={[
-                  { key: 'resources', icon: <HddOutlined />, label: '我的资源' },
-                  { key: 'favorites', icon: <StarOutlined />, label: '我的收藏' },
-                  { key: 'products', icon: <AppstoreOutlined />, label: '产品与服务' },
-                ]}
-              />
-              {(() => {
-                const platformLabels = Array.from(new Set((visibleCenters || []).flatMap((c:any)=> (c.items||[]).map((p:any)=> p.label))));
-                const items = [{ key:'全部', label:'全部' }, ...platformLabels.map((l:string)=> ({ key:l, label:l }))];
-                return (
-                  <>
-                    <Divider style={{ margin: '12px 0', borderColor: NAV_DIVIDER_COLOR }} />
-                    <Menu
-                      mode="inline"
-                      selectedKeys={[activeTab]}
-                      onClick={({ key }) => setActiveTab(String(key))}
-                      style={{ borderRight: '0' }}
-                      items={items}
-                    />
-                  </>
-                );
-              })()}
-            </div>
-            <div style={{ flex:1, padding:'20px 24px', overflow:'auto', background:'#fafcff' }}>
+            <div style={{ flex:1, padding:'20px 24px', overflow:'auto', backgroundColor:'#fbfdff', backgroundImage:'radial-gradient(#eaeffb 1px, transparent 1px)', backgroundSize:'12px 12px' }}>
               {(() => {
                 const kw = navKeyword.toLowerCase();
-                if (navSection === 'resources') {
-                  let list = (recents || []).map(k => getItemMeta(k)).filter((m:any)=> m && String(m.label||'').toLowerCase().includes(kw));
-                  if (activeTab !== '全部') list = list.filter((m:any)=> m.platformLabel === activeTab);
-                  if (list.length === 0) return <Typography.Text type="secondary">暂无最近访问</Typography.Text>;
-                  return (
-                    <>
-                      <Typography.Text style={{ fontSize:16, display:'block', marginBottom:12 }}>最近访问</Typography.Text>
-                      <Space size={8} wrap>
-                        {list.map((item:any)=> (
-                          <Tag key={item.key} onClick={()=> { pushRecent(item); if (item.key === '/admin/clouds/console') { window.open(item.key, '_blank'); } else { navigate(item.key); setActiveSidebarKey(sidebarForPath(item.key)); } setNavOpen(false); }} style={{ cursor:'pointer', padding:'2px 8px', borderRadius:16 }}>
-                            <Space size={6}>
-                              <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#f0f5ff' }}>{item.icon}</span>
-                              <span style={{ fontSize:13 }}>{item.label}</span>
-                            </Space>
-                          </Tag>
-                        ))}
-                      </Space>
-                    </>
-                  );
+                const clouds = Array.isArray(resourceClouds) ? resourceClouds : [];
+                const cloudMap: Record<string, any> = {};
+                clouds.forEach(c => { cloudMap[String(c.id)] = c; });
+                let list = (Array.isArray(navEcs) ? navEcs : []).filter((r:any)=> String(r?.name || r?.InstanceName || '').toLowerCase().includes(kw));
+                if (navStatusMode === 'only_running') list = list.filter((r:any)=> isRunningRec(r));
+                else if (navStatusMode === 'only_non_running') list = list.filter((r:any)=> !isRunningRec(r));
+                else if (navStatusMode === 'prefer_running') list = list.slice().sort((a:any,b:any)=> (isRunningRec(b)?1:0) - (isRunningRec(a)?1:0));
+                if (navEcsLoading) {
+                  return <Typography.Text type="secondary">加载中…</Typography.Text>;
                 }
-                if (navSection === 'favorites') {
-                  let list = (favorites || []).map(k => getItemMeta(k)).filter((m:any)=> m && String(m.label||'').toLowerCase().includes(kw));
-                  if (activeTab !== '全部') list = list.filter((m:any)=> m.platformLabel === activeTab);
-                  if (list.length === 0) {
-                    return (
-                      <div style={{ padding:'40px 24px' }}>
-                        <Typography.Text style={{ fontSize:16, display:'block', marginBottom:12 }}>我的收藏({(favorites||[]).length} / 50)</Typography.Text>
-                        <div style={{ background:'#fafafa', border:'1px solid #f5f5f5', borderRadius:8, padding:'40px 0', textAlign:'center' }}>
-                          <InboxOutlined style={{ fontSize:36, color:'#bfbfbf', marginBottom:8 }} />
-                          <div style={{ color:'#8c8c8c' }}>收藏列表为空 您可以点击产品名称旁边的星号，将常用云产品添加到收藏</div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <>
-                      <Typography.Text style={{ fontSize:16, display:'block', marginBottom:12 }}>我的收藏({(favorites||[]).length} / 50)</Typography.Text>
-                      <Space size={8} wrap>
-                        {list.map((item:any)=> (
-                          <Tag key={item.key} onClick={()=> { pushRecent(item); navigate(item.key); setActiveSidebarKey(sidebarForPath(item.key)); setNavOpen(false); }} style={{ cursor:'pointer', padding:'2px 8px', borderRadius:16 }}>
-                            <Space size={6}>
-                              <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#f0f5ff' }}>{item.icon}</span>
-                              <span style={{ fontSize:13 }}>{item.label}</span>
-                            </Space>
-                          </Tag>
-                        ))}
-                      </Space>
-                    </>
-                  );
+                if (list.length === 0) {
+                  return <Typography.Text type="secondary">暂无云主机</Typography.Text>;
                 }
-                const platformMap = new Map<string, any>();
-                (visibleCenters || []).forEach((c:any)=> {
-                  (c.items || []).forEach((p:any)=> {
-                    const existed = platformMap.get(p.label);
-                    if (!existed) platformMap.set(p.label, { key: p.key, label: p.label, icon: p.icon, children: [] });
-                    const tgt = platformMap.get(p.label);
-                    (p.children || []).forEach((it:any)=> tgt.children.push(it));
-                  });
-                });
-                let platforms = Array.from(platformMap.values()).map((p:any)=> ({
-                  key: p.key,
-                  label: p.label,
-                  icon: p.icon,
-                  children: (p.children || []).filter((it:any)=> String(it.label || '').toLowerCase().includes(kw))
-                })).filter((p:any)=> (p.children || []).length > 0);
-                if (platforms.length === 0) return <Typography.Text type="secondary">无匹配的功能项</Typography.Text>;
-                const displayPlatforms = activeTab === '全部' ? platforms : platforms.filter((p:any)=> p.label === activeTab);
                 return (
-                  <>
-                    {displayPlatforms.map((p:any) => (
-                      <div key={p.key} style={{ marginBottom:16, border:'1px solid #f0f0f0', borderRadius:10, overflow:'hidden', background:'#fff', boxShadow:'0 2px 8px rgba(0,0,0,0.04)' }}>
-                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', background:'#f7f9fc', borderBottom:'1px solid #f0f0f0' }}>
-                          <Space size={8}>
-                            <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:24, height:24, borderRadius:6, background:'#edf3ff' }}>{p.icon}</span>
-                            <Typography.Text style={{ fontSize:14, color:'#1f2a44' }}>{p.label}</Typography.Text>
-                          </Space>
-                          <RightOutlined style={{ color:'#bfbfbf' }} />
-                        </div>
-                        <div style={{ padding:'12px 14px' }}>
-                          <Space size={8} wrap>
-                            {(p.children || []).map((item:any)=> {
-                              const fav = favorites.includes(item.key);
-                              return (
-                                <Tag key={item.key} onClick={()=> { pushRecent(item); if (item.key === '/admin/clouds/console') { window.open(item.key, '_blank'); } else { navigate(item.key); setActiveSidebarKey(sidebarForPath(item.key)); } setNavOpen(false); }} style={{ cursor:'pointer', padding:'2px 10px', borderRadius:16, background:'#f7faff', border:'1px solid #e9edf3' }}>
-                                  <Space size={6}>
-                                    <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#edf3ff' }}>{item.icon}</span>
-                                    <span style={{ fontSize:13, color:'#1f2a44' }}>{item.label}</span>
-                                    <span onClick={(e)=> { e.stopPropagation(); toggleFavorite(item); }} style={{ display:'inline-flex', alignItems:'center', marginLeft:6 }}>
-                                      {fav ? <StarFilled style={{ color:'#faad14' }} /> : <StarOutlined style={{ color:'#bfbfbf' }} />}
-                                    </span>
-                                  </Space>
-                                </Tag>
-                              );
-                            })}
-                          </Space>
-                        </div>
-                      </div>
-                    ))}
-                  </>
+                  <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                    {list.map((r:any) => {
+                      const name = r?.name || r?.InstanceName || '-';
+                      const provider = String(r?.provider || '').toLowerCase();
+                      const cloudId = String(r?.cloudId || '');
+                      const cloudName = cloudMap[cloudId]?.name || '-';
+                      const vendor = providerLabel(provider);
+                      const spec = specTextOf(r);
+                      const pri = Array.isArray(r?.privateIps) && r.privateIps.length > 0 ? r.privateIps[0] : (Array.isArray(r?.VpcAttributes?.PrivateIpAddress?.IpAddress) ? r?.VpcAttributes?.PrivateIpAddress?.IpAddress[0] : undefined);
+                      const ipText = pri ? String(pri) : 'IP待配置';
+                      return (
+                        <Card key={String(r?.id || r?.InstanceId || name)} size="small" variant="outlined" hoverable style={{ borderRadius:12, border:'1px solid #e9edf3', boxShadow:'0 2px 10px rgba(16,98,254,0.06)', background:'#fff' }}>
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                            <Space size={8}>
+                              {statusBadge(r?.status || r?.Status)}
+                              <Typography.Text style={{ fontSize:14 }}>{name}</Typography.Text>
+                            </Space>
+                            <Button type="link" size="small" onClick={()=> { if (!cloudId || !(r?.id || r?.InstanceId)) return; navigate(`/admin/clouds/${cloudId}/instances/${encodeURIComponent(String(r?.id || r?.InstanceId))}`); }} style={{ padding:0 }}>详情</Button>
+                          </div>
+                          <div style={{ marginTop:6, color:'#8c8c8c' }}>
+                            <Space size={8} wrap>
+                              <span>{vendor}</span>
+                              <span>·</span>
+                              <span>{cloudName}</span>
+                              <span>·</span>
+                              <span>{spec}</span>
+                              <span>·</span>
+                              <span>{ipText}</span>
+                            </Space>
+                          </div>
+                          <div style={{ marginTop:8 }}>
+                            <Space size={8} wrap>
+                              <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={isRunningRec(r) || isBusyRec(r)} icon={<PlayCircleOutlined style={{ fontSize: 12, color: 'var(--primary-hex)' }} />} onClick={()=> lifecycleOp(r, 'start')}>启动</Button>
+                              <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={isStoppedRec(r) || isBusyRec(r)} icon={<PoweroffOutlined style={{ fontSize: 12, color: '#f5222d' }} />} onClick={()=> lifecycleOp(r, 'stop')}>停止</Button>
+                              <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={!isRunningRec(r) || isBusyRec(r)} icon={<ReloadOutlined style={{ fontSize: 12, color: 'var(--primary-hex)' }} />} onClick={()=> lifecycleOp(r, 'reboot')}>重启</Button>
+                              <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} icon={<DesktopOutlined style={{ fontSize: 12, color: 'var(--primary-hex)' }} />} onClick={()=> openVnc(r)}>VNC</Button>
+                            </Space>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
                 );
               })()}
             </div>

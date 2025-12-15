@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Button, Space, Select, Tag, Input } from 'antd';
-import SharedToolbar from '../../../../components/SharedToolbar';
+import PageDetailSection from '../../../../components/PageDetailSection';
 
 interface Props {
   cloudId: string;
@@ -75,48 +75,47 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
 
   return (
     <>
-      <div>
-        <SharedToolbar
-
-          left={(
-            <Space>
-              <Select
-                value={typeFilter}
-                style={{ width: 160 }}
-                options={[
-                  { value: 'all', label: '全部' },
-                  { value: 'passthrough', label: '直通 GPU' },
-                  { value: 'vgpu', label: 'vGPU' },
-                  { value: 'sriov', label: 'SR-IOV GPU' }
-                ]}
-                onChange={(v) => setTypeFilter(v)}
-              />
-              <Select
-                value={statusFilter}
-                style={{ width: 160 }}
-                options={[
-                  { value: 'all', label: '全部状态' },
-                  { value: 'active', label: '活跃' },
-                  { value: 'inactive', label: '非活跃' },
-                  { value: 'transitioning', label: '变更中' },
-                  { value: 'error', label: '异常/错误' }
-                ]}
-                onChange={(v) => setStatusFilter(v)}
-              />
-              <Input allowClear placeholder="关键字" style={{ width: 220 }} value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
-            </Space>
-          )}
-          right={(
-            <Button
-              size="small"
-              loading={refreshing}
-              onClick={async () => {
-                try { setRefreshing(true); await Promise.resolve(onRefresh()); }
-                finally { setRefreshing(false); }
-              }}
-            >刷新</Button>
-          )}
-        />
+      <PageDetailSection
+        asCard={false}
+        toolbarLeft={(
+          <>
+            <Input allowClear placeholder="关键字" style={{ width: 240 }} value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+            <Select
+              value={typeFilter}
+              style={{ width: 200 }}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'passthrough', label: '直通 GPU' },
+                { value: 'vgpu', label: 'vGPU' },
+                { value: 'sriov', label: 'SR-IOV GPU' }
+              ]}
+              onChange={(v) => setTypeFilter(v)}
+            />
+            <Select
+              value={statusFilter}
+              style={{ width: 200 }}
+              options={[
+                { value: 'all', label: '全部状态' },
+                { value: 'active', label: '活跃' },
+                { value: 'inactive', label: '非活跃' },
+                { value: 'transitioning', label: '变更中' },
+                { value: 'error', label: '异常/错误' }
+              ]}
+              onChange={(v) => setStatusFilter(v)}
+            />
+          </>
+        )}
+        toolbarRight={(
+          <Button
+            size="small"
+            loading={refreshing}
+            onClick={async () => {
+              try { setRefreshing(true); await Promise.resolve(onRefresh()); }
+              finally { setRefreshing(false); }
+            }}
+          >刷新</Button>
+        )}
+      >
         <Table
           className="kv-section-table"
           bordered
@@ -157,7 +156,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
           ]}
           locale={{ emptyText: '暂无数据' }}
         />
-      </div>
+      </PageDetailSection>
       {showLog && (
         <div>
           <pre style={{ background: '#f7f7f7', padding: 12, borderRadius: 8, maxHeight: 300, overflow: 'auto' }}>{JSON.stringify(raw, null, 2)}</pre>
