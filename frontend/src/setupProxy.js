@@ -15,7 +15,7 @@ module.exports = function(app) {
   app.use(
     '/ws/ssh',
     createProxyMiddleware({
-      target: 'http://localhost:3001',
+      target: 'http://localhost:5001',
       changeOrigin: true,
       ws: true,
       secure: false,
@@ -24,7 +24,7 @@ module.exports = function(app) {
   app.use(
     '/ws/vnc',
     createProxyMiddleware({
-      target: 'http://localhost:3001',
+      target: 'http://localhost:5001',
       changeOrigin: true,
       ws: true,
       secure: false,

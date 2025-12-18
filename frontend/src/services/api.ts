@@ -8,17 +8,15 @@ const defaultApiBase = (() => {
       const isPageLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const envIsLocalhost = /localhost|127\.0\.0\.1/.test(envUrl);
       if (!isPageLocalhost && envIsLocalhost) {
-        // 页面是远端访问，但 env 指向 localhost → 使用同主机 3001 端口
-        return `${window.location.protocol}//${window.location.hostname}:3001`;
+        return `${window.location.protocol}//${window.location.hostname}:5001`;
       }
     }
     return envUrl;
   }
   if (typeof window !== 'undefined') {
-    // 没有配置 env 时，默认同主机 3001（开发后端端口）
-    return `${window.location.protocol}//${window.location.hostname}:3001`;
+    return `${window.location.protocol}//${window.location.hostname}:5001`;
   }
-  return 'http://localhost:3001';
+  return 'http://localhost:5001';
 })();
 
 export const API_BASE_URL = defaultApiBase;
@@ -490,6 +488,58 @@ export const fetchHuaweiEcsAuditTraces = async (cloudId: string, instanceId: str
   if (params?.traceName != null && String(params.traceName).trim()) qs.push(`trace_name=${encodeURIComponent(String(params.traceName))}`);
   const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/audit-traces${qs.length ? ('?' + qs.join('&')) : ''}`;
   const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchAliyunEcsMetrics = async (cloudId: string, instanceId: string, params?: { metric?: string; period?: number; start?: number; end?: number }) => {
+  const token = localStorage.getItem('token');
+  const qs: string[] = [];
+  if (params?.metric) qs.push(`metric=${encodeURIComponent(params.metric)}`);
+  if (params?.period != null) qs.push(`period=${encodeURIComponent(String(params.period))}`);
+  if (params?.start != null) qs.push(`start=${encodeURIComponent(String(params.start))}`);
+  if (params?.end != null) qs.push(`end=${encodeURIComponent(String(params.end))}`);
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/metrics${qs.length ? ('?' + qs.join('&')) : ''}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const attachCloudProviderEni = async (cloudId: string, eniId: string, instanceId: string, options?: { trunkNetworkInstanceId?: string; networkCardIndex?: number; waitForNetworkConfigurationReady?: boolean }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/enis/${encodeURIComponent(eniId)}/attach`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify({ instanceId, ...options }),
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const detachCloudProviderEni = async (cloudId: string, eniId: string, instanceId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/enis/${encodeURIComponent(eniId)}/detach`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify({ instanceId }),
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchAliyunEcsHistoryEvents = async (cloudId: string, instanceId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/history-events`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -1170,10 +1220,11 @@ export const deleteCloudProviderSecurityGroup = async (cloudId: string, sgId: st
   return await res.json();
 };
 
-// 云资源池：查询阿里云 弹性网卡（ENI）列表（支持按 VSwitch 或 ECS 过滤）
-export const fetchCloudProviderEnis = async (cloudId: string, params?: { vSwitchId?: string; instanceId?: string }) => {
+// 云资源池：查询阿里云 弹性网卡（ENI）列表（支持按 VPC/VSwitch/ECS 过滤）
+export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?: string; vSwitchId?: string; instanceId?: string }) => {
   const qs = (() => {
     const p: string[] = [];
+    if (params?.vpcId) p.push(`vpcId=${encodeURIComponent(params.vpcId)}`);
     if (params?.vSwitchId) p.push(`vSwitchId=${encodeURIComponent(params.vSwitchId)}`);
     if (params?.instanceId) p.push(`instanceId=${encodeURIComponent(params.instanceId)}`);
     return p.length ? `?${p.join('&')}` : '';
@@ -1241,6 +1292,28 @@ export const fetchCloudProviderEips = async (cloudId: string) => {
   if (!res.ok) {
     throw new Error(await res.text());
   }
+  return await res.json();
+};
+export const associateAliyunEip = async (cloudId: string, allocationId: string, payload: { InstanceId?: string; NetworkInterfaceId?: string; PrivateIpAddress?: string }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(allocationId)}/associate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload || {}),
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+export const unassociateAliyunEip = async (cloudId: string, allocationId: string, payload?: { InstanceId?: string; NetworkInterfaceId?: string; PrivateIpAddress?: string }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(allocationId)}/unassociate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload || {}),
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
   return await res.json();
 };
 

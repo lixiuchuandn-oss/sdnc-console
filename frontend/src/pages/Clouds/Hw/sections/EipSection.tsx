@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { MoreOutlined, ReloadOutlined, GlobalOutlined } from '@ant-design/icons';
 import { fetchCloudProviderEips } from '../../../../services/api';
 import { statusTag } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
@@ -87,4 +87,7 @@ const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, onSetEips, onOpe
   );
 };
 
+
+export const Icon = <GlobalOutlined />;
+export const Label = 'EIP';
 export default EipSection;

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Breadcrumb, Card, Space, Typography, theme, Tooltip, Button, Dropdown } from 'antd';
+// PageDetailContainer with collapsible overview support
+import { Breadcrumb, Card, Space, Typography, theme, Tooltip, Button, Dropdown, Collapse, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
 import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, UnorderedListOutlined, ArrowLeftOutlined } from '@ant-design/icons';
@@ -23,6 +24,14 @@ export interface PageDetailContainerProps {
   pagePadding?: number | string;
   hideHeader?: boolean;
   actionsGap?: number | string;
+  subtitle?: React.ReactNode;
+  overviewContent?: React.ReactNode;
+  defaultOverviewCollapsed?: boolean;
+  tabs?: Array<{ key: string; label: React.ReactNode; icon?: React.ReactNode; count?: number | React.ReactNode; children: React.ReactNode }>;
+  activeTabKey?: string;
+  defaultActiveTabKey?: string;
+  onTabChange?: (key: string) => void;
+  tabBarExtraContent?: React.ReactNode;
 }
 
 const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
@@ -44,6 +53,14 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
   pagePadding,
   hideHeader = false,
   actionsGap = 8,
+  subtitle,
+  overviewContent,
+  defaultOverviewCollapsed = false,
+  tabs,
+  activeTabKey,
+  defaultActiveTabKey,
+  onTabChange,
+  tabBarExtraContent,
 }) => {
   const loc = useLocation();
   const { token } = theme.useToken();
@@ -157,7 +174,51 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
         </div>
       )}
       
-      {asCard ? (
+      {overviewContent && (
+        <div style={{ marginBottom: 16 }}>
+           <style>{`.pdc-overview-collapse .ant-collapse-content > .ant-collapse-content-box{padding-top:12px !important;padding-left:0 !important;padding-right:0 !important;padding-bottom:0 !important;background:transparent}.pdc-overview-collapse .ant-collapse-item > .ant-collapse-header{background:transparent !important;padding:0 !important;align-items:center !important}.pdc-overview-collapse .ant-collapse-header-text{flex:none !important}`}</style>
+           <Collapse
+             className="pdc-overview-collapse"
+             ghost
+             bordered={false}
+             defaultActiveKey={defaultOverviewCollapsed ? [] : ['overview']}
+           >
+             <Collapse.Panel
+               header={subtitle || <span style={{ color: token.colorTextSecondary }}>概览</span>}
+               key="overview"
+               showArrow={false}
+             >
+               {overviewContent}
+             </Collapse.Panel>
+           </Collapse>
+        </div>
+      )}
+
+      {tabs && tabs.length > 0 ? (
+        <div style={{ marginTop: 16 }}>
+          <Tabs
+            activeKey={activeTabKey}
+            defaultActiveKey={defaultActiveTabKey}
+            onChange={onTabChange}
+            tabBarExtraContent={tabBarExtraContent}
+            items={tabs.map(t => ({
+              key: t.key,
+              label: (
+                <Space size={4}>
+                  {t.icon}
+                  {t.label}
+                  {t.count !== undefined && (
+                    React.isValidElement(t.count)
+                      ? t.count
+                      : (Number(t.count) > 0 ? <span style={{ color: token.colorTextSecondary, fontSize: 12 }}>{t.count}</span> : null)
+                  )}
+                </Space>
+              ),
+              children: t.children
+            }))}
+          />
+        </div>
+      ) : asCard ? (
         <Card size="small" variant="outlined" bordered={bordered} style={cardStyle} styles={{ body: { padding: contentPadding } }}>
           {children}
         </Card>

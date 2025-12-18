@@ -304,6 +304,19 @@ html, body, #root {
 .vr-table.vr-table--middle .ant-table-tbody > tr > td { padding: 12px 16px; line-height: 28px; }
 .vr-table.vr-table--middle .ant-table-thead > tr > th { padding: 12px 16px; line-height: 28px; }
 
+/* Global table conventions: unify default table typography and paddings */
+.ant-table {
+  font-size: 13px;
+}
+.ant-table:not(.ant-table-small) .ant-table-tbody > tr > td {
+  padding: 12px 16px;
+  line-height: 28px;
+}
+.ant-table:not(.ant-table-small) .ant-table-thead > tr > th {
+  padding: 12px 16px;
+  line-height: 28px;
+}
+
 /* Dark Mode tokens */
 :root[data-theme="dark"] {
   /* Base colors (dark) */

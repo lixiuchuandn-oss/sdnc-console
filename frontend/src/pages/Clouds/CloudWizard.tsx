@@ -48,7 +48,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [formData, setFormData] = useState<any>(null);
 
   const isOpenProvider = (id: string) => {
-    return ['aliyun', 'huaweicloud', 'tencentcloud', 'cloudmap', 'harvester'].includes(id);
+    return ['aliyun', 'huaweicloud', 'cloudmap', 'harvester'].includes(id);
   };
 
   // 云平台配置
@@ -565,7 +565,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         <div className="wizard-group-title">{title}</div>
         {category === 'public' && (
           <Alert
-            message="已开放阿里云、华为云与腾讯云资源接入，其他云平台暂未开放。"
+            message="已开放阿里云与华为云资源接入，其他云平台暂未开放。"
             type="info"
             showIcon
             style={{ marginBottom: 16 }}

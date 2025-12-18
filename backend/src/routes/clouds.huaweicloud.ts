@@ -34,6 +34,60 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
       res.json({ message: '查询成功', data, capabilities });
     } catch (error: any) { if (res.headersSent) return; return res.status(500).json({ message: '查询ECS失败', error: error.message }); }
   });
+  router.get('/:id/resources/ecs/stream', checkAdminPermission, async (req: any, res: Response, next: any) => {
+    try {
+      const { id } = req.params;
+      const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
+      if (!isHuawei(cloud)) return next();
+      const projectId = (cloud.config as any)?.projectId; if (!cloud.accessKey || !cloud.secretKey || !projectId) return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+      let closed = false;
+      let prev = new Map<string, any>();
+      req.on('close', () => { closed = true; });
+      const send = (event: string, payload: any) => {
+        try {
+          res.write(`event: ${event}\n`);
+          res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        } catch {}
+      };
+      const tick = async () => {
+        if (closed) return;
+        try {
+          const data: any = await huaweiListServers({ ak: cloud.accessKey!, sk: cloud.secretKey!, region: String(cloud.region || ''), projectId });
+          const items: any[] = Array.isArray(data?.servers) ? data.servers
+            : Array.isArray(data?.data?.servers) ? data.data.servers
+            : Array.isArray(data) ? data : [];
+          const cur = new Map<string, any>();
+          for (const r of items) {
+            const iid = String(r?.id || r?.InstanceId || '');
+            if (!iid) continue;
+            cur.set(iid, r);
+            const prevItem = prev.get(iid);
+            const prevStatus = String(prevItem?.status || prevItem?.Status || '');
+            const curStatus = String(r?.status || r?.Status || '');
+            if (!prevItem) send('vm_created', { item: r });
+            else if (prevStatus !== curStatus) send('vm_status', { iid, status: curStatus });
+          }
+          for (const [iid] of prev.entries()) {
+            if (!cur.has(iid)) send('vm_deleted', { iid });
+          }
+          prev = cur;
+          send('vms', { items });
+        } catch (e: any) {
+          send('error', { message: e?.message || '拉取失败' });
+        } finally {
+          if (!closed) setTimeout(tick, 3000);
+        }
+      };
+      send('hello', { ok: true });
+      tick();
+    } catch (error: any) {
+      try { res.status(500).end(); } catch {}
+    }
+  });
 
   router.get('/:id/resources/ecs/:instanceId/metrics', checkAdminPermission, async (req: any, res: Response, next: any) => {
     try {

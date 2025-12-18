@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Space, Typography, theme, Button, Dropdown, Tooltip } from 'antd';
+import { Card, Space, Typography, theme, Button, Dropdown, Tooltip, Switch } from 'antd';
 import { EllipsisOutlined } from '@ant-design/icons';
 import SharedToolbar from './SharedToolbar';
 import { AppstoreOutlined } from '@ant-design/icons';
@@ -28,6 +28,7 @@ export type PageDetailSectionProps = {
   keywordWidth?: number;
   selectWidth?: number;
   inputSize?: 'small' | 'middle' | 'large';
+  showHeaderTitle?: boolean;
 };
 
 const PageDetailSection: React.FC<PageDetailSectionProps> = ({
@@ -54,6 +55,7 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
   keywordWidth = 240,
   selectWidth = 200,
   inputSize = 'middle',
+  showHeaderTitle = false,
 }) => {
   const { token } = theme.useToken();
   const styledIcon = (node: React.ReactNode, size: number, color: string) => {
@@ -89,6 +91,15 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
       if (name === 'search' && nextProps.enterButton !== undefined) nextProps.enterButton = false;
     }
     else if (name === 'select') { setWidth(selectWidth); setSize(); }
+    if (name.includes('table')) {
+      if (nextProps.size === undefined) nextProps.size = 'middle';
+      if (nextProps.bordered === undefined) nextProps.bordered = true;
+      if (nextProps.tableLayout === undefined) nextProps.tableLayout = 'auto';
+      const cls: string = String(props.className || '').trim();
+      const wantMiddle = String(nextProps.size || '').toLowerCase() !== 'small';
+      const classes = [cls, wantMiddle ? 'vr-table vr-table--middle' : ''].filter(Boolean).join(' ');
+      nextProps.className = classes;
+    }
     if (props.children) {
       const origArr = React.Children.toArray(props.children);
       const newArr = origArr.map((child) => normalizeNode(child));
@@ -100,12 +111,14 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
     return React.Children.map(children as any, normalizeNode);
   };
 
-  const header = (title || extra || (Array.isArray(actions) && actions.length > 0) || (Array.isArray(moreMenuItems) && moreMenuItems.length > 0)) ? (
+  const header = ((showHeaderTitle && title) || extra || (Array.isArray(actions) && actions.length > 0) || (Array.isArray(moreMenuItems) && moreMenuItems.length > 0)) ? (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-      <Space size={8} style={{ display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
-        {icon ? displayIcon : null}
-        {title ? (<Typography.Title level={titleLevel} style={{ margin: 0, lineHeight: 1 }}>{title}</Typography.Title>) : null}
-      </Space>
+      {showHeaderTitle && title ? (
+        <Space size={8} style={{ display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
+          {icon ? displayIcon : null}
+          <Typography.Title level={titleLevel} style={{ margin: 0, lineHeight: 1 }}>{title}</Typography.Title>
+        </Space>
+      ) : <span />}
       <div style={{ display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap', gap: 8 }}>
         {Array.isArray(actions) && actions.length > 0 ? actions.map(act => {
           const btn = (
@@ -168,3 +181,10 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
 };
 
 export default PageDetailSection;
+export const LiveSwitch: React.FC<{ checked?: boolean; onChange?: (v: boolean) => void; label?: React.ReactNode }> = ({ checked, onChange, label }) => {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #d9d9d9', borderRadius: 6, height: 32, padding: '0 10px' }}>
+      <Switch size="small" checked={!!checked} onChange={() => onChange && onChange(!checked)} /> <span style={{ marginLeft: 8, color: '#555' }}>{label ?? '实时刷新'}</span>
+    </span>
+  );
+};

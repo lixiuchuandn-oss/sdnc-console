@@ -373,7 +373,7 @@ const AdminLayout: React.FC = () => {
 
   const providerLabel = (p:string): string => {
     const s = String(p || '').toLowerCase();
-    return (s === 'aliyun' && '阿里云') || (s === 'huaweicloud' && '华为云') || (s === 'tencentcloud' && '腾讯云') || (s === 'harvester' && 'Harvester') || (s === 'cloudmap' && 'Cloudmap') || (p || '-');
+    return (s === 'aliyun' && '阿里云') || (s === 'huaweicloud' && '华为云') || (s === 'harvester' && 'Harvester') || (s === 'cloudmap' && 'Cloudmap') || (p || '-');
   };
   const statusBadge = (raw:any) => {
     const v = String(raw || '').toLowerCase();
@@ -465,10 +465,19 @@ const AdminLayout: React.FC = () => {
       }
       return;
     }
-    const pub = Array.isArray(r?.publicIps) && r.publicIps.length > 0 ? r.publicIps[0] : null;
-    const pri = Array.isArray(r?.privateIps) && r.privateIps.length > 0 ? r.privateIps[0] : null;
-    const host = pub || pri || '';
-    navigate(`/admin/clouds/${cloudId}/webvnc?host=${encodeURIComponent(host)}&port=5900`);
+    const isHarvester = provider.includes('harvester') || provider.includes('cloudmap');
+    if (isHarvester) {
+      const s = String(iid || '');
+      const ns = s.includes('/') ? s.split('/')[0] : '';
+      const nm = s.includes('/') ? s.split('/')[1] : s;
+      const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
+      const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
+      const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
+      const url = `/admin/clouds/${encodeURIComponent(cloudId)}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(nm)}`;
+      window.open(url, 'harvester-vnc', features);
+      return;
+    }
+    message.warning('WebVNC 已移除');
   };
   const lifecycleOp = async (r:any, op:'start'|'stop'|'reboot') => {
     try {
@@ -609,26 +618,31 @@ const AdminLayout: React.FC = () => {
             transition: 'transform 220ms ease',
           }}
         >
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 20px' }}>
-            <Space size={12}>
+          <div style={{ padding:'12px 20px' }}>
+            <div>
               <Typography.Text style={{ fontSize:16, color:'#1f2a44' }}>云主机快速预览</Typography.Text>
-            </Space>
-            <Space size={12}>
-              <Input.Search allowClear placeholder="按名称过滤" style={{ width: 300 }} onSearch={(v)=> setNavKeyword(v)} onChange={(e)=> setNavKeyword(e.target.value)} />
-              <Select
-                size="middle"
-                value={navStatusMode}
-                onChange={(v)=> setNavStatusMode(v)}
-                style={{ width: 110 }}
-                popupMatchSelectWidth={false}
-                getPopupContainer={(trigger)=> trigger?.parentElement as HTMLElement}
-              >
-                <Select.Option value="prefer_running">运行优先</Select.Option>
-                <Select.Option value="only_running">仅运行中</Select.Option>
-                <Select.Option value="only_non_running">仅非运行</Select.Option>
-              </Select>
-              <Button type="default" style={{ borderColor: NAV_DIVIDER_COLOR }} onClick={()=> setNavOpen(false)}>收起</Button>
-            </Space>
+            </div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:8 }}>
+              <Space size={12}>
+                <Input.Search allowClear placeholder="按名称过滤" style={{ width: 300 }} onSearch={(v)=> setNavKeyword(v)} onChange={(e)=> setNavKeyword(e.target.value)} />
+                <Select
+                  size="middle"
+                  value={navStatusMode}
+                  onChange={(v)=> setNavStatusMode(v)}
+                  style={{ width: 110 }}
+                  popupMatchSelectWidth={false}
+                  getPopupContainer={(trigger)=> trigger?.parentElement as HTMLElement}
+                >
+                  <Select.Option value="prefer_running">运行优先</Select.Option>
+                  <Select.Option value="only_running">仅运行中</Select.Option>
+                  <Select.Option value="only_non_running">仅非运行</Select.Option>
+                </Select>
+                <Button type="primary" onClick={()=> window.open('/admin/clouds/console','_blank')}>资源控制台pro</Button>
+              </Space>
+              <Space size={12}>
+                <Button type="default" style={{ borderColor: NAV_DIVIDER_COLOR }} onClick={()=> setNavOpen(false)}>收起</Button>
+              </Space>
+            </div>
           </div>
           <Divider style={{ margin: 0, borderColor: NAV_DIVIDER_COLOR }} />
           <div style={{ display:'flex', flex:1, minHeight:0 }}>

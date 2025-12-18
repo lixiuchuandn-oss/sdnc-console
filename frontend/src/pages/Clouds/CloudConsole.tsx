@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Divider, Form, Input, Select, Space, Table, Dropdown, Modal, Alert, InputNumber, Tree, Row, Col, Tabs, Typography, Tooltip, Radio, Badge, App } from 'antd';
 import { DesktopOutlined, ReloadOutlined, MoreOutlined, GlobalOutlined, PlusOutlined, CloudUploadOutlined, CloudServerOutlined, ClusterOutlined, HddOutlined, DatabaseOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
@@ -8,7 +8,7 @@ import '../common/filters.css';
 import './CloudConsole.css';
 
 type CloudItem = { id: string; name: string; region?: string; type?: string; config?: any; status?: string };
-const SUPPORTED_PROVIDERS = ['aliyun','huaweicloud','tencentcloud','harvester','cloudmap'];
+const SUPPORTED_PROVIDERS = ['aliyun','huaweicloud','harvester','cloudmap'];
 
 const statusMark = (raw: any) => {
   const v = String(raw || '').toLowerCase();
@@ -58,6 +58,7 @@ const CloudConsolePage: React.FC = () => {
   const [cloudFilterIds, setCloudFilterIds] = useState<string[]>([]);
   const [useAggColumns, setUseAggColumns] = useState<boolean>(false);
   
+  const ecsEventSourceRef = useRef<EventSource | null>(null);
 
   const loadClouds = async () => {
     try {
@@ -172,10 +173,72 @@ const CloudConsolePage: React.FC = () => {
     loadClouds();
   }, []);
 
+  const currentCloud = useMemo(() => clouds.find(c => c.id === currentCloudId), [clouds, currentCloudId]);
+  const provider = useMemo(() => String(currentCloud?.config?.provider || '').toLowerCase(), [currentCloud]);
+
   useEffect(() => {
     if (currentCloudId) loadEcs(currentCloudId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCloudId]);
+
+  useEffect(() => {
+    try { if (ecsEventSourceRef.current) { ecsEventSourceRef.current.close(); ecsEventSourceRef.current = null; } } catch {}
+    const cid = currentCloudId;
+    const pv = provider;
+    if (!cid || cid === 'all') return;
+    if (!(pv.includes('harvester') || pv.includes('cloudmap') || pv.includes('aliyun') || pv.includes('huaweicloud'))) return;
+    try {
+      const url = `/api/clouds/${encodeURIComponent(cid)}/resources/ecs/stream${(() => { const t = localStorage.getItem('token'); return t ? `?token=${encodeURIComponent(t)}` : ''; })()}`;
+      const es = new EventSource(url);
+      ecsEventSourceRef.current = es;
+      es.addEventListener('vms', (ev: MessageEvent) => {
+        try {
+          const json = JSON.parse(String(ev.data || '{}'));
+          const list: any[] = Array.isArray(json?.items) ? json.items : [];
+          setEcs(list);
+          setPagination(prev => ({ ...prev, total: list.length }));
+        } catch {}
+      });
+      es.addEventListener('vm_created', (ev: MessageEvent) => {
+        try {
+          const r = JSON.parse(String(ev.data || '{}'));
+          const iid = String(r?.InstanceId || r?.id || '');
+          if (!iid) return;
+          setEcs(prev => {
+            const exists = (prev || []).some((x: any) => String(x?.InstanceId || x?.id || '') === iid);
+            if (exists) return prev;
+            return [r, ...(prev || [])];
+          });
+          setPagination(prev => ({ ...prev, total: (prev.total || 0) + 1 }));
+        } catch {}
+      });
+      es.addEventListener('vm_deleted', (ev: MessageEvent) => {
+        try {
+          const json = JSON.parse(String(ev.data || '{}'));
+          const iid = String(json?.iid || '');
+          if (!iid) return;
+          setEcs(prev => (prev || []).filter((x: any) => String(x?.InstanceId || x?.id || '') !== iid));
+          setPagination(prev => ({ ...prev, total: Math.max(0, (prev.total || 0) - 1) }));
+        } catch {}
+      });
+      es.addEventListener('vm_status', (ev: MessageEvent) => {
+        try {
+          const json = JSON.parse(String(ev.data || '{}'));
+          const iid = String(json?.iid || '');
+          const status = String(json?.status || '');
+          if (!iid) return;
+          setEcs(prev => (prev || []).map((x: any) => {
+            const xiid = String(x?.InstanceId || x?.id || '');
+            if (xiid === iid) return { ...x, Status: status, status };
+            return x;
+          }));
+        } catch {}
+      });
+      es.onerror = () => { try { es.close(); } catch {}; ecsEventSourceRef.current = null; };
+    } catch {}
+    return () => { try { ecsEventSourceRef.current?.close(); ecsEventSourceRef.current = null; } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCloudId, provider]);
 
   const treeData = useMemo(() => {
     const groups: Record<string, any[]> = {};
@@ -229,7 +292,6 @@ const CloudConsolePage: React.FC = () => {
     setExpandedKeys(keys);
   }, [treeData]);
 
-  const currentCloud = useMemo(() => clouds.find(c => c.id === currentCloudId), [clouds, currentCloudId]);
   const cloudMap = useMemo(() => {
     const m: Record<string, CloudItem> = {};
     (clouds || []).forEach(c => { m[c.id] = c; });
@@ -238,7 +300,6 @@ const CloudConsolePage: React.FC = () => {
   const providerLabel = (p: string): string => (
     (p === 'aliyun' && '阿里云') ||
     (p === 'huaweicloud' && '华为云') ||
-    (p === 'tencentcloud' && '腾讯云') ||
     (p === 'harvester' && 'Harvester') ||
     (p === 'cloudmap' && 'Cloudmap') ||
     p || '-'
@@ -248,7 +309,6 @@ const CloudConsolePage: React.FC = () => {
     if (currentCloudId === 'all') return '全部区域';
     return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || p || '-';
   }, [currentCloud]);
-  const provider = useMemo(() => String(currentCloud?.config?.provider || '').toLowerCase(), [currentCloud]);
 
   const statusStats = useMemo(() => {
     const arr = Array.isArray(clouds) ? clouds : [];
@@ -495,12 +555,19 @@ const CloudConsolePage: React.FC = () => {
                 }
                 return;
               }
-              const pubArr = r?.PublicIpAddress?.IpAddress;
-              const pub = Array.isArray(pubArr) && pubArr.length > 0 ? pubArr[0] : (r?.EipAddress?.IpAddress || r?.publicIpAddress || (Array.isArray(r?.PublicIpAddress?.IpAddress) ? r?.PublicIpAddress?.IpAddress[0] : null));
-              const priArr = r?.VpcAttributes?.PrivateIpAddress?.IpAddress;
-              const pri = Array.isArray(priArr) && priArr.length > 0 ? priArr[0] : r?.privateIpAddress;
-              const host = pub || pri || '';
-              navigate(`${basePrefix}/clouds/${currentCloudId}/webvnc?host=${encodeURIComponent(host)}&port=5900`);
+              const isHarvester = providerNowRaw.includes('harvester') || providerNowRaw.includes('cloudmap');
+              if (isHarvester && currentCloudId && iid) {
+                const s = String(iid || '');
+                const ns = s.includes('/') ? s.split('/')[0] : '';
+                const nm = s.includes('/') ? s.split('/')[1] : s;
+                const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
+                const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
+                const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
+                const url = `${basePrefix}/clouds/${encodeURIComponent(currentCloudId!)}/harvester/vnc?cloudId=${encodeURIComponent(currentCloudId!)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(nm)}`;
+                window.open(url, 'harvester-vnc', features);
+                return;
+              }
+              message.warning('WebVNC 已移除');
               return;
             }
             if (key === 'webssh') {
@@ -949,23 +1016,23 @@ const CloudConsolePage: React.FC = () => {
                                 }
                                 try {
                                   if (!cloudId || !iid) return;
-                                  const providerKey2 = String(r?.provider || '').toLowerCase();
-                                  if (key === 'start') {
-                                    if (providerKey2.includes('aliyun') || providerKey2.includes('huawei') || providerKey2.includes('tencent') || providerKey2.includes('harvester') || providerKey2.includes('cloudmap')) {
-                                      await startCloudProviderEcs(cloudId, iid);
-                                    }
-                                    message.success('启动指令已下发');
-                                  } else if (key === 'stop') {
-                                    if (providerKey2.includes('aliyun') || providerKey2.includes('huawei') || providerKey2.includes('tencent') || providerKey2.includes('harvester') || providerKey2.includes('cloudmap')) {
-                                      await stopCloudProviderEcs(cloudId, iid, true);
-                                    }
-                                    message.success('停止指令已下发');
-                                  } else if (key === 'reboot') {
-                                    if (providerKey2.includes('aliyun') || providerKey2.includes('huawei') || providerKey2.includes('tencent') || providerKey2.includes('harvester') || providerKey2.includes('cloudmap')) {
-                                      await rebootCloudProviderEcs(cloudId, iid, true);
-                                    }
-                                    message.success('重启指令已下发');
-                                  } else if (key === 'delete') {
+      const providerKey2 = String(r?.provider || '').toLowerCase();
+      if (key === 'start') {
+        if (providerKey2.includes('aliyun') || providerKey2.includes('huawei') || providerKey2.includes('harvester') || providerKey2.includes('cloudmap')) {
+          await startCloudProviderEcs(cloudId, iid);
+        }
+        message.success('启动指令已下发');
+      } else if (key === 'stop') {
+        if (providerKey2.includes('aliyun') || providerKey2.includes('huawei') || providerKey2.includes('harvester') || providerKey2.includes('cloudmap')) {
+          await stopCloudProviderEcs(cloudId, iid, true);
+        }
+        message.success('停止指令已下发');
+      } else if (key === 'reboot') {
+        if (providerKey2.includes('aliyun') || providerKey2.includes('huawei') || providerKey2.includes('harvester') || providerKey2.includes('cloudmap')) {
+          await rebootCloudProviderEcs(cloudId, iid, true);
+        }
+        message.success('重启指令已下发');
+      } else if (key === 'delete') {
                                     Modal.confirm({ title: '确认删除该云主机？', content: '删除后不可恢复，请确保已停止实例且无重要数据。', okText: '删除', okType: 'danger', cancelText: '取消', onOk: async () => {
                                       try {
                                         if (providerKey2.includes('aliyun') || providerKey2.includes('huawei') || providerKey2.includes('tencent') || providerKey2.includes('harvester') || providerKey2.includes('cloudmap')) {

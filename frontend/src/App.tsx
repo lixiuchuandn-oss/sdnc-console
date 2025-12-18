@@ -37,7 +37,7 @@ import AccessActionsPage from './pages/Access/Actions/index';
 import AccessUsersPage from './pages/Access/Users/index';
 import WebSSHPage from './pages/Clouds/WebSSH';
 import CloudConsolePage from './pages/Clouds/CloudConsole';
-import WebVNCPage from './pages/Clouds/WebVNC';
+import HarvesterVNCPage from './pages/Clouds/Harvester/HarvesterVNC';
 import TenantLeasedLinesPage from './pages/Tenants/LeasedLines';
 import { routeSpecs } from './routes/RouteSpec';
 import VmCreateWizardModal from './pages/Clouds/Harvester/modals/VmCreateWizardModal';
@@ -82,7 +82,7 @@ const AppRoutes: React.FC = () => {
           <Route path="clouds/:id" element={<CloudDetail />} />
           
           <Route path="clouds/:id/webssh" element={<WebSSHPage />} />
-          <Route path="clouds/:id/webvnc" element={<WebVNCPage />} />
+          <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
           <Route path="clouds/ecs" element={<Navigate to="/admin/clouds/console" replace />} />
           <Route path="clouds/console" element={<CloudConsolePage />} />
           <Route path="tenants" element={<Tenants />} />
@@ -117,7 +117,7 @@ const AppRoutes: React.FC = () => {
             InstanceDetail: <InstanceDetail />,
             CloudConsolePage: <CloudConsolePage />,
             WebSSHPage: <WebSSHPage />,
-            WebVNCPage: <WebVNCPage />,
+            HarvesterVNCPage: <HarvesterVNCPage />,
           };
           const el = elements[s.element];
           const wrapped = s.guard === 'private' ? (<PrivateRoute>{el}</PrivateRoute>) : el;

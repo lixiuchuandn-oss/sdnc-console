@@ -238,7 +238,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                       if (iid.includes('/')) {
                         const ns = iid.split('/')[0];
                         const name = iid.split('/')[1];
-                        navigate(`/clouds/${cloudId}/webvnc?kvCloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`);
+                        navigate(`/clouds/${cloudId}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`);
                         return;
                       }
                       const j = await fetchCloudProviderEcsVncUrl(cloudId, iid);

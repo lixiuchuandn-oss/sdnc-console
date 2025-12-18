@@ -45,7 +45,6 @@ const InfoDomainWizardPage: React.FC = () => {
     const key = (p || type || '').toLowerCase();
     if (key.includes('aliyun') || key === 'aliyun') return '阿里云';
     if (key.includes('huaweicloud') || key === 'huaweicloud') return '华为云';
-    if (key.includes('tencent') || key === 'tencentcloud') return '腾讯云';
     if (key.includes('aws')) return 'AWS';
     if (key.includes('gcp')) return 'GCP';
     return type || p || '未知云';

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Table, Tag, Dropdown, Card, Space, Button, Input, Select, Tabs, Descriptions, Row, Col, Statistic, Form, Drawer, Modal, InputNumber, App, Tooltip, Alert, DatePicker, Divider, Collapse } from 'antd';
+import { Table, Tag, Dropdown, Card, Space, Button, Input, Select, Tabs, Descriptions, Row, Col, Statistic, Form, Drawer, Modal, InputNumber, App, Tooltip, Alert, DatePicker, Divider } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { CloudUploadOutlined, ReloadOutlined, ArrowLeftOutlined, MoreOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CloseOutlined, PlayCircleOutlined, PoweroffOutlined, CopyOutlined, EyeOutlined, DesktopOutlined, LineChartOutlined, WindowsOutlined, CodeOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, ReloadOutlined, ArrowLeftOutlined, MoreOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CloseOutlined, PlayCircleOutlined, PoweroffOutlined, CopyOutlined, EyeOutlined, DashboardOutlined, LineChartOutlined, WindowsOutlined, CodeOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchAliyunEcsVncUrl, createCloudProviderRouteTable, updateCloudProviderRouteTable, associateCloudProviderRouteTable, deleteCloudProviderRouteTable, fetchCloudProviderRouteEntries, modCloudProviderRouteEntry, deleteCloudProviderRouteEntry, deleteCloudProviderVpc, deleteCloudProviderSubnet, showCloudProviderVpc, fetchCloudProviderEnis, showCloudProviderSecurityGroup, deleteHuaweiCloudSecurityGroup, createHuaweiCloudSecurityGroupRule, deleteHuaweiCloudSecurityGroupRule, updateHuaweiCloudSecurityGroupRule, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchHuaweiEcsMetrics, fetchHuaweiEcsAuditLogs, fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, bindHuaweiEip, unbindHuaweiEip, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup } from '../../../services/api';
 import StdFormModal from '../../../components/StdFormModal';
@@ -10,6 +10,7 @@ import StdSideDrawer from '../../../components/StdSideDrawer';
 import '../../common/filters.css';
 import { statusTag, EllipsisText, SubResourceCard, collectIpv4FromAddresses, collectInstanceIpv4 } from './components/Common';
 import { normalizeErr } from './utils/net';
+// force update
 import VpcCreateModal from './modals/VpcCreateModal';
 import SubnetCreateModal from './modals/SubnetCreateModal';
 import SubnetEditModal from './modals/SubnetEditModal';
@@ -23,16 +24,16 @@ import SecurityGroupRuleManageDrawer from './drawers/SecurityGroupRuleManageDraw
 import SecurityGroupRefsModal from './modals/SecurityGroupRefsModal';
 import SecurityGroupCreateModal from './modals/SecurityGroupCreateModal';
 import RouteTableAssociateModal from './modals/RouteTableAssociateModal';
-import EcsSection from './sections/EcsSection';
-import VpcSection from './sections/VpcSection';
-import SubnetSection from './sections/SubnetSection';
-import SecurityGroupSection from './sections/SecurityGroupSection';
-import RouteTableSection from './sections/RouteTableSection';
-import EipSection from './sections/EipSection';
-import LoadBalancerSection from './sections/LoadBalancerSection';
-import NatGatewaySection from './sections/NatGatewaySection';
-import DiskSection from './sections/DiskSection';
-import SnapshotSection from './sections/SnapshotSection';
+import EcsSection, { Icon as EcsIcon, Label as EcsLabel } from './sections/EcsSection';
+import VpcSection, { Icon as VpcIcon, Label as VpcLabel } from './sections/VpcSection';
+import SubnetSection, { Icon as SubnetIcon, Label as SubnetLabel } from './sections/SubnetSection';
+import SecurityGroupSection, { Icon as SgIcon, Label as SgLabel } from './sections/SecurityGroupSection';
+import RouteTableSection, { Icon as RtIcon, Label as RtLabel } from './sections/RouteTableSection';
+import EipSection, { Icon as EipIcon, Label as EipLabel } from './sections/EipSection';
+import LoadBalancerSection, { Icon as SlbIcon, Label as SlbLabel } from './sections/LoadBalancerSection';
+import NatGatewaySection, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySection';
+import DiskSection, { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
+import SnapshotSection, { Icon as SnapshotIcon, Label as SnapshotLabel } from './sections/SnapshotSection';
 import VmDetailModal from './modals/VmDetailModal';
 import ResourceDetailModal from './modals/ResourceDetailModal';
 import RouteTableSubnetsViewModal from './modals/RouteTableSubnetsViewModal';
@@ -67,7 +68,6 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [vmCesAvailable, setVmCesAvailable] = useState<string[]>([]);
 
   const [snapshots, setSnapshots] = useState<any[]>([]);
-  const [overviewCollapsed, setOverviewCollapsed] = useState<boolean>(false);
 
   const [detailOpen, setDetailOpen] = useState<boolean>(false);
   const [detailData, setDetailData] = useState<any>(null);
@@ -303,240 +303,257 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       ]}
       onMoreMenuClick={({ key }) => { if (key === 'refresh') loadAll(); }}
       asCard={false}
+      subtitle={<span style={{ color: 'rgba(0,0,0,0.45)' }}>集中展示云资源池信息，提供多种资源类型的生命周期管理能力</span>}
+      overviewContent={(
+        <Descriptions bordered size="small" column={4}>
+          <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="资源供应商">{(cloud?.config?.provider === 'huaweicloud' ? '华为云' : (cloud?.config?.provider || cloud?.type || '-'))}</Descriptions.Item>
+          <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
+          <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
+          <Descriptions.Item label="资源状态">
+            {cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}
+          </Descriptions.Item>
+          <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
+          <Descriptions.Item label="项目ID">{cloud?.config?.projectId || '-'}</Descriptions.Item>
+          <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{cloud?.createdAt || '-'}</Descriptions.Item>
+          <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
+        </Descriptions>
+      )}
+      defaultActiveTabKey={(location.state as any)?.tabKey || 'overview'}
+      tabs={[
+        {
+          key: 'overview',
+          label: '资源总览',
+          icon: <DashboardOutlined />,
+          children: (
+            <>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><ClusterOutlined style={{ color:'#1677ff', marginRight:8 }} />VPC 数量</span>} value={vpcs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CloudServerOutlined style={{ color:'#1677ff', marginRight:8 }} />ECS 实例数</span>} value={ecs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />子网</span>} value={subnets.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SafetyCertificateOutlined style={{ color:'#1677ff', marginRight:8 }} />安全组</span>} value={secGroups.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><GlobalOutlined style={{ color:'#1677ff', marginRight:8 }} />EIP</span>} value={eips.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />负载均衡</span>} value={slbs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SwapOutlined style={{ color:'#1677ff', marginRight:8 }} />NAT 网关</span>} value={natGateways.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><BranchesOutlined style={{ color:'#1677ff', marginRight:8 }} />路由表</span>} value={routeTables.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><HddOutlined style={{ color:'#1677ff', marginRight:8 }} />云盘</span>} value={disks.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CameraOutlined style={{ color:'#1677ff', marginRight:8 }} />快照</span>} value={snapshots.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                  </Card>
+                </Col>
+              </Row>
+            </>
+          )
+        },
+        {
+          key: 'ecs',
+          label: EcsLabel,
+          icon: EcsIcon,
+          count: ecs.length,
+          children: (
+            <EcsSection
+              cloudId={cloudId}
+              ecs={ecs}
+              onRefreshAll={loadAll}
+              onOpenVmDetail={async (r:any) => {
+                const iid = r?.id || r?.InstanceId; if (!iid) return;
+                setVmDetail(r);
+                setVmDetailOpen(true);
+                try {
+                  const jsonPorts: any = await fetchHuaweiPorts(cloudId, { deviceId: String(iid||'') });
+                  const listPorts: any[] = jsonPorts?.data?.ports || jsonPorts?.ports || [];
+                  setVmPorts(Array.isArray(listPorts) ? listPorts : []);
+                } catch {}
+              }}
+            />
+          )
+        },
+        {
+          key: 'vpc',
+          label: VpcLabel,
+          icon: VpcIcon,
+          count: vpcs.length,
+          children: (
+            <VpcSection
+              cloudId={cloudId}
+              vpcs={vpcs}
+              onSetVpcs={(list)=> setVpcs(list)}
+              onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
+              onOpenCreate={()=> { setVpcCreateOpen(true); }}
+            />
+          )
+        },
+        {
+          key: 'subnets',
+          label: SubnetLabel,
+          icon: SubnetIcon,
+          count: subnets.length,
+          children: (
+            <SubnetSection
+              cloudId={cloudId}
+              subnets={subnets}
+              vpcs={vpcs}
+              onSetSubnets={(list)=> setSubnets(list)}
+              onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
+              onOpenCreate={()=> { setSubnetCreateOpen(true); }}
+            />
+          )
+        },
+        {
+          key: 'securityGroups',
+          label: SgLabel,
+          icon: SgIcon,
+          count: secGroups.length,
+          children: (
+            <SecurityGroupSection
+              cloudId={cloudId}
+              secGroups={secGroups}
+              ecs={ecs}
+              onSetSecGroups={(list)=> setSecGroups(list)}
+              onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
+              onOpenRuleDrawer={(sg)=> { setSgRuleTarget(sg); setSgRuleDrawerOpen(true); }}
+              onOpenRefsDrawer={(sg)=> { setSgRefsTarget(sg); setSgRefsDrawerOpen(true); }}
+            />
+          )
+        },
+        {
+          key: 'eips',
+          label: EipLabel,
+          icon: EipIcon,
+          count: eips.length,
+          children: (
+            <EipSection
+              cloudId={cloudId}
+              eips={eips}
+              onSetEips={(list)=> setEips(list)}
+              onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
+            />
+          )
+        },
+        {
+          key: 'loadBalancers',
+          label: SlbLabel,
+          icon: SlbIcon,
+          count: slbs.length,
+          children: (
+            <LoadBalancerSection
+              cloudId={cloudId}
+              slbs={slbs}
+              vpcs={vpcs}
+              subnets={subnets}
+              onSetSlbs={(list)=> setSlbs(list)}
+              onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
+            />
+          )
+        },
+        {
+          key: 'natGateways',
+          label: NatLabel,
+          icon: NatIcon,
+          count: natGateways.length,
+          children: (
+            <NatGatewaySection
+              cloudId={cloudId}
+              natGateways={natGateways}
+              eips={eips}
+              vpcs={vpcs}
+              subnets={subnets}
+              onSetNatGateways={(list)=> setNatGateways(list)}
+              onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
+            />
+          )
+        },
+        {
+          key: 'routeTables',
+          label: RtLabel,
+          icon: RtIcon,
+          count: routeTables.length,
+          children: (
+            <RouteTableSection
+              cloudId={cloudId}
+              routeTables={routeTables}
+              vpcs={vpcs}
+              subnets={subnets}
+              onSetRouteTables={(list)=> setRouteTables(list)}
+              onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
+              onOpenCreate={()=> { setRtCreateOpen(true); }}
+              onOpenAssoc={(rt)=> { setRtAssocTarget(rt); setRtAssocOpen(true); }}
+              onManageRoutes={async (rt)=> { try { setRtEntryTarget(rt); setRouteDrawerOpen(true); const id0 = rt?.id || rt?.RouteTableId; if (!id0) return; const list = await loadRtEntriesWithFallback(id0); setRtEntryList(list); } catch(e:any){ message.error(e?.message || '加载路由条目失败'); } }}
+              onOpenSubnetsView={(rt)=> { setRtSubnetsViewTarget(rt); setRtSubnetsViewOpen(true); }}
+            />
+          )
+        },
+        {
+          key: 'disks',
+          label: DiskLabel,
+          icon: DiskIcon,
+          count: disks.length,
+          children: (
+            <>
+              <Table
+                bordered
+                tableLayout="auto"
+                size="middle"
+                className="vr-table vr-table--middle"
+                rowKey={(r:any)=> r?.id || r?.VolumeId || r?.volume_id || ''}
+                columns={diskColumns as ColumnsType<any>}
+                dataSource={disks}
+                pagination={{ pageSize: 10 }}
+              />
+              <Divider />
+              <Table
+                bordered
+                tableLayout="auto"
+                size="middle"
+                className="vr-table vr-table--middle"
+                rowKey={(r:any)=> r?.id || r?.SnapshotId || ''}
+                columns={snapshotColumns as ColumnsType<any>}
+                dataSource={snapshots}
+                pagination={{ pageSize: 10 }}
+              />
+            </>
+          )
+        },
+      ]}
     >
-      <div style={{ marginBottom: 16 }}>
-        <style>{`.overview-collapse .ant-collapse-content > .ant-collapse-content-box{padding-top:12px !important;padding-left:0 !important;padding-right:0 !important;padding-bottom:0 !important;background:transparent}.overview-collapse .ant-collapse-item > .ant-collapse-header{background:transparent;padding:0}`}</style>
-        <Collapse
-          className="overview-collapse"
-          ghost
-          bordered={false}
-          activeKey={overviewCollapsed ? [] : ['overview']}
-          onChange={(keys) => {
-            const arr = Array.isArray(keys) ? keys : [keys as any];
-            setOverviewCollapsed(!(arr as any).includes('overview'));
-          }}
-        >
-          <Collapse.Panel
-            header={<span style={{ color: 'rgba(0,0,0,0.45)' }}>集中展示云资源池信息，提供多种资源类型的生命周期管理能力</span>}
-            showArrow={false}
-            key="overview"
-          >
-            <Descriptions bordered size="small" column={4}>
-              <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="资源供应商">{(cloud?.config?.provider === 'huaweicloud' ? '华为云' : (cloud?.config?.provider || cloud?.type || '-'))}</Descriptions.Item>
-              <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
-              <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
-              <Descriptions.Item label="资源状态">
-                {cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}
-              </Descriptions.Item>
-              <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
-              <Descriptions.Item label="项目ID">{cloud?.config?.projectId || '-'}</Descriptions.Item>
-              <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
-              <Descriptions.Item label="创建时间">{cloud?.createdAt || '-'}</Descriptions.Item>
-              <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
-            </Descriptions>
-          </Collapse.Panel>
-        </Collapse>
-      </div>
-
-      <Tabs
-        defaultActiveKey={(location.state as any)?.tabKey || 'overview'}
-        items={[
-          {
-            key: 'overview',
-            label: '资源总览',
-            children: (
-              <>
-                <Row gutter={[16, 16]}>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><ClusterOutlined style={{ color:'#1677ff', marginRight:8 }} />VPC 数量</span>} value={vpcs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CloudServerOutlined style={{ color:'#1677ff', marginRight:8 }} />ECS 实例数</span>} value={ecs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />子网</span>} value={subnets.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SafetyCertificateOutlined style={{ color:'#1677ff', marginRight:8 }} />安全组</span>} value={secGroups.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><GlobalOutlined style={{ color:'#1677ff', marginRight:8 }} />EIP</span>} value={eips.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />负载均衡</span>} value={slbs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SwapOutlined style={{ color:'#1677ff', marginRight:8 }} />NAT 网关</span>} value={natGateways.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><BranchesOutlined style={{ color:'#1677ff', marginRight:8 }} />路由表</span>} value={routeTables.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><HddOutlined style={{ color:'#1677ff', marginRight:8 }} />云盘</span>} value={disks.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} md={6}>
-                    <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                      <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CameraOutlined style={{ color:'#1677ff', marginRight:8 }} />快照</span>} value={snapshots.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                    </Card>
-                  </Col>
-                </Row>
-              </>
-            )
-          },
-          {
-            key: 'ecs',
-            label: '云主机',
-            children: (
-              <EcsSection
-                cloudId={cloudId}
-                ecs={ecs}
-                onRefreshAll={loadAll}
-                onOpenVmDetail={async (r:any) => {
-                  const iid = r?.id || r?.InstanceId; if (!iid) return;
-                  setVmDetail(r);
-                  setVmDetailOpen(true);
-                  try {
-                    const jsonPorts: any = await fetchHuaweiPorts(cloudId, { deviceId: String(iid||'') });
-                    const listPorts: any[] = jsonPorts?.data?.ports || jsonPorts?.ports || [];
-                    setVmPorts(Array.isArray(listPorts) ? listPorts : []);
-                  } catch {}
-                }}
-              />
-            )
-          },
-          {
-            key: 'vpc',
-            label: 'VPC',
-            children: (
-              <VpcSection
-                cloudId={cloudId}
-                vpcs={vpcs}
-                onSetVpcs={(list)=> setVpcs(list)}
-                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
-                onOpenCreate={()=> { setVpcCreateOpen(true); }}
-              />
-            )
-          },
-          {
-            key: 'subnets',
-            label: '子网',
-            children: (
-              <SubnetSection
-                cloudId={cloudId}
-                subnets={subnets}
-                vpcs={vpcs}
-                onSetSubnets={(list)=> setSubnets(list)}
-                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
-                onOpenCreate={()=> { setSubnetCreateOpen(true); }}
-              />
-            )
-          },
-          {
-            key: 'securityGroups',
-            label: '安全组',
-            children: (
-              <SecurityGroupSection
-                cloudId={cloudId}
-                secGroups={secGroups}
-                ecs={ecs}
-                onSetSecGroups={(list)=> setSecGroups(list)}
-                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
-                onOpenRuleDrawer={(sg)=> { setSgRuleTarget(sg); setSgRuleDrawerOpen(true); }}
-                onOpenRefsDrawer={(sg)=> { setSgRefsTarget(sg); setSgRefsDrawerOpen(true); }}
-              />
-            )
-          },
-          {
-            key: 'eips',
-            label: 'EIP',
-            children: (
-              <EipSection
-                cloudId={cloudId}
-                eips={eips}
-                onSetEips={(list)=> setEips(list)}
-                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
-              />
-            )
-          },
-          {
-            key: 'loadBalancers',
-            label: '负载均衡',
-            children: (
-              <LoadBalancerSection
-                cloudId={cloudId}
-                slbs={slbs}
-                vpcs={vpcs}
-                subnets={subnets}
-                onSetSlbs={(list)=> setSlbs(list)}
-                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
-              />
-            )
-          },
-          {
-            key: 'natGateways',
-            label: 'NAT 网关',
-            children: (
-              <NatGatewaySection
-                cloudId={cloudId}
-                natGateways={natGateways}
-                eips={eips}
-                vpcs={vpcs}
-                subnets={subnets}
-                onSetNatGateways={(list)=> setNatGateways(list)}
-                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
-              />
-            )
-          },
-          {
-            key: 'routeTables',
-            label: '路由表',
-            children: (
-              <RouteTableSection
-                cloudId={cloudId}
-                routeTables={routeTables}
-                vpcs={vpcs}
-                subnets={subnets}
-                onSetRouteTables={(list)=> setRouteTables(list)}
-                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
-                onOpenCreate={()=> { setRtCreateOpen(true); }}
-                onOpenAssoc={(rt)=> { setRtAssocTarget(rt); setRtAssocOpen(true); }}
-                onManageRoutes={async (rt)=> { try { setRtEntryTarget(rt); setRouteDrawerOpen(true); const id0 = rt?.id || rt?.RouteTableId; if (!id0) return; const list = await loadRtEntriesWithFallback(id0); setRtEntryList(list); } catch(e:any){ message.error(e?.message || '加载路由条目失败'); } }}
-                onOpenSubnetsView={(rt)=> { setRtSubnetsViewTarget(rt); setRtSubnetsViewOpen(true); }}
-              />
-            )
-          },
-          {
-            key: 'disks',
-            label: '云盘',
-            children: (
-              <>
-                <Table bordered tableLayout="auto" size="small" rowKey={(r:any)=> r?.id || r?.VolumeId || r?.volume_id || ''} columns={diskColumns as ColumnsType<any>} dataSource={disks} pagination={{ pageSize: 10 }} />
-                <Divider />
-                <Table bordered tableLayout="auto" size="small" rowKey={(r:any)=> r?.id || r?.SnapshotId || ''} columns={snapshotColumns as ColumnsType<any>} dataSource={snapshots} pagination={{ pageSize: 10 }} />
-              </>
-            )
-          },
-        ]}
-      />
 
       <SecurityGroupRuleManageDrawer
         open={sgRuleDrawerOpen}

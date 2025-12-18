@@ -236,12 +236,6 @@ router.patch('/:id', async (req, res) => {
               vpcCidr = String(one?.cidr || one?.CidrBlock || '').trim();
               vpcCloudId = cloud.id;
             }
-          } else if (provider === 'tencentcloud' && cloud?.accessKey && cloud?.secretKey && region) {
-            const resp: any = await tencentListVpcs({ secretId: cloud.accessKey, secretKey: cloud.secretKey, region });
-            const list: any[] = (resp as any)?.VpcSet || [];
-            const one = (Array.isArray(list) ? list : []).find((v:any)=> String(v?.VpcId).trim() === String(existing.vpcId).trim());
-            vpcCidr = String(one?.CidrBlock || '').trim();
-            vpcCloudId = cloud.id;
           }
         }
         (existing as any).cidr = vpcCidr || (existing as any).cidr;

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
 import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { HddOutlined } from '@ant-design/icons';
 import { fetchCloudProviderDisks } from '../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
@@ -86,4 +87,7 @@ const DiskSection: React.FC<DiskSectionProps> = ({ cloudId, disks, onSetDisks, o
   );
 };
 
+
+export const Icon = <HddOutlined />;
+export const Label = '云盘';
 export default DiskSection;

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { MoreOutlined, ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSecurityGroups, deleteHuaweiCloudSecurityGroup } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
 
@@ -129,4 +129,7 @@ const SecurityGroupSection: React.FC<SecurityGroupSectionProps> = ({ cloudId, se
   );
 };
 
+
+export const Icon = <SafetyCertificateOutlined />;
+export const Label = '安全组';
 export default SecurityGroupSection;

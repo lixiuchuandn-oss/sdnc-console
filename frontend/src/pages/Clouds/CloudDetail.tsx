@@ -7,6 +7,7 @@ import { bc, build } from '../../components/Breadcrumbs';
 import { normalizeVpcs } from '../../utils/cloudNormalize';
 import CloudDetailHw from './Hw/CloudDetailHw';
 import CloudDetailHarvester from './Harvester/CloudDetailHarvester';
+import CloudDetailAliyun from './Aliyun/CloudDetailAliyun';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderSubnets, fetchCloudProviderRouteEntries, createCloudProviderVpc, createCloudProviderVSwitch, fetchCloudProviderSubnetsByVpc, deleteCloudProviderVpc, updateCloudProviderVpc, deleteCloudProviderVSwitch, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEnis, createCloudProviderEni, updateCloudProviderEni, deleteCloudProviderEni, fetchCloudProviderNetworkAcls, createCloudProviderNetworkAcl, updateCloudProviderNetworkAcl, deleteCloudProviderNetworkAcl, createCloudProviderSecurityGroup, updateCloudProviderSecurityGroup, deleteCloudProviderSecurityGroup, fetchHarvesterNads, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchHarvesterHealth, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchAliyunEcsVncUrl } from '../../services/api';
 
 interface AliyunVpc {
@@ -105,7 +106,6 @@ const CloudDetail: React.FC = () => {
   const providerName = useMemo(() => (
     (provider === 'aliyun' && '阿里云') ||
     (provider === 'huaweicloud' && '华为云') ||
-    (provider === 'tencentcloud' && '腾讯云') ||
     (provider === 'harvester' && 'Harvester') ||
     (provider === 'cloudmap' && 'Cloudmap') ||
     provider || '-'
@@ -677,8 +677,40 @@ const CloudDetail: React.FC = () => {
   if (provider.includes('huawei') && id) {
     return (<CloudDetailHw cloudId={id} />);
   }
+  if (provider.includes('aliyun') && id) {
+    return (<CloudDetailAliyun cloudId={id} />);
+  }
   if ((provider === 'harvester' || provider === 'cloudmap') && id) {
     return (<CloudDetailHarvester cloudId={id} defaultProvider={provider} />);
+  }
+  // 避免闪屏：在 provider 未解析前不渲染回退页面
+  if (!cloud || !provider) {
+    return null;
+  }
+  // 已解析但不受支持的供应商时，显示轻量提示
+  if (id) {
+    return (
+      <PageDetailContainer
+        icon={<CloudUploadOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
+        title={`${providerName} ${cloud?.name || '-'}`}
+        titleLevel={3}
+        onBack={() => navigate('/admin/clouds')}
+        backTooltip="返回列表"
+        moreMenuItems={[
+          { key: 'refresh', label: '刷新' },
+        ]}
+        onMoreMenuClick={({ key }) => { /* 保留刷新入口以便后续扩展 */ }}
+        asCard={false}
+      >
+        <Alert
+          type="info"
+          message="该供应商暂未提供专属详情视图"
+          description="请返回列表或稍后再试"
+          style={{ marginBottom: 16 }}
+          showIcon
+        />
+      </PageDetailContainer>
+    );
   }
   return (
     <PageDetailContainer
@@ -892,6 +924,8 @@ const CloudDetail: React.FC = () => {
                   </div>
                   <Table
                     bordered
+                    size="middle"
+                    className="vr-table vr-table--middle"
                     rowKey="id"
                     columns={columns as any}
                     dataSource={vpcs}
@@ -901,8 +935,9 @@ const CloudDetail: React.FC = () => {
                         const list = subnetsByVpc[record.id];
                         return (
                           <Table
-                            size="small"
+                            size="middle"
                             bordered={false}
+                            className="vr-table vr-table--middle"
                             rowKey={(r:any)=> r.VSwitchId || r.id || r.SubnetId}
                           columns={[
                             { title: '子网名称', dataIndex: 'VSwitchName', key: 'name', render:(t:any, r:any)=> t || r.Name || r.SubnetName || '-' },
@@ -1231,6 +1266,7 @@ const CloudDetail: React.FC = () => {
                               if (key === 'webvnc') {
                                 const isAliyun = String(provider || '').toLowerCase().includes('aliyun');
                                 const isHuawei = String(provider || '').toLowerCase().includes('huawei');
+                                const isHarvester = String(provider || '').toLowerCase().includes('harvester') || String(provider || '').toLowerCase().includes('cloudmap');
                                 if ((isAliyun || isHuawei) && id && iid) {
                                   try {
                                     const json = await fetchAliyunEcsVncUrl(id!, iid);
@@ -1256,12 +1292,18 @@ const CloudDetail: React.FC = () => {
                                   }
                                   return;
                                 }
-                                const pubArr = r?.PublicIpAddress?.IpAddress;
-                                const pub = Array.isArray(pubArr) && pubArr.length > 0 ? pubArr[0] : (r?.EipAddress?.IpAddress || r?.publicIpAddress || (Array.isArray(r?.PublicIpAddress?.IpAddress) ? r?.PublicIpAddress?.IpAddress[0] : null));
-                                const priArr = r?.VpcAttributes?.PrivateIpAddress?.IpAddress;
-                                const pri = Array.isArray(priArr) && priArr.length > 0 ? priArr[0] : r?.privateIpAddress;
-                                const host = pub || pri || '';
-                                navigate(`/admin/clouds/${id}/webvnc?host=${encodeURIComponent(host)}&port=5900`);
+                                if (isHarvester && id && iid) {
+                                  const s = String(iid || '');
+                                  const ns = s.includes('/') ? s.split('/')[0] : '';
+                                  const nm = s.includes('/') ? s.split('/')[1] : s;
+                                  const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
+                                  const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
+                                  const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
+                                  const url = `/admin/clouds/${encodeURIComponent(id!)}/harvester/vnc?cloudId=${encodeURIComponent(id!)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(nm)}`;
+                                  window.open(url, 'harvester-vnc', features);
+                                  return;
+                                }
+                                message.warning('WebVNC 已移除');
                                 return;
                               }
                               if (key === 'webssh') {

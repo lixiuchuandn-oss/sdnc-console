@@ -77,7 +77,7 @@ const Settings: React.FC = () => {
       </Card>
 
       <Card title={<span><GlobalOutlined /> 网络配置</span>} style={{ marginBottom: 24 }}>
-        <Form layout="vertical" style={{ maxWidth: 360 }} initialValues={{ apiBaseUrl: 'http://localhost:3001', enableProxy: false, timeout: 5000 }} onFinish={handleSave}>
+        <Form layout="vertical" style={{ maxWidth: 360 }} initialValues={{ apiBaseUrl: 'http://localhost:5001', enableProxy: false, timeout: 5000 }} onFinish={handleSave}>
           <Form.Item label="API 基础 URL" name="apiBaseUrl" rules={[{ required: true, message: '请输入 API 地址' }]}> <Input placeholder="http://api.example.com" style={{ width: 260 }} /> </Form.Item>
           <Form.Item label="启用代理" name="enableProxy" valuePropName="checked"> <Switch /> </Form.Item>
           <Form.Item label="请求超时 (毫秒)" name="timeout"> <InputNumber min={1000} step={500} style={{ width: 260 }} /> </Form.Item>

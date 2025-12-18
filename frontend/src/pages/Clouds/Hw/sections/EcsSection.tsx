@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Modal, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Button, Dropdown, Input, Modal, Select, Space, Table, Typography } from 'antd';
+import { MoreOutlined, ReloadOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { statusTag, collectIpv4FromAddresses } from '../components/Common';
 import { fetchAliyunEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
@@ -30,7 +30,12 @@ const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onO
 
   const columns = useMemo(() => [
     { title: '实例', key: 'inst', render: (_: any, r: any) => (
-      <span>{r?.name || '-'}<br />{r?.id || '-'}</span>
+      <span>
+        <Typography.Link onClick={() => { const iid = r?.id || r?.InstanceId; if (!iid) return; onOpenVmDetail(r); }} style={{ padding: 0 }}>
+          {r?.name || r?.InstanceName || '-'}
+        </Typography.Link>
+        <br />{r?.id || r?.InstanceId || '-'}
+      </span>
     ) },
     { title: '状态', key: 'status', render: (_: any, r: any) => statusTag(r?.status) },
     { title: '实例规格', key: 'spec', render: (_: any, r: any) => {
@@ -164,4 +169,7 @@ const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onO
   );
 };
 
+
+export const Icon = <CloudServerOutlined />;
+export const Label = '云主机';
 export default EcsSection;

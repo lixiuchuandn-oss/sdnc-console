@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { MoreOutlined, ReloadOutlined, BranchesOutlined } from '@ant-design/icons';
 import { fetchCloudProviderRouteTables, deleteCloudProviderRouteTable } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
 
@@ -97,9 +97,21 @@ const RouteTableSection: React.FC<RouteTableSectionProps> = ({ cloudId, routeTab
           </>
         )}
       />
-      <Table bordered tableLayout="auto" rowKey={(r: any) => r.id || r.RouteTableId} dataSource={filteredRouteTables} columns={columns as any} pagination={{ pageSize: 10 }} />
+      <Table
+        bordered
+        tableLayout="auto"
+        size="middle"
+        className="vr-table vr-table--middle"
+        rowKey={(r: any) => r.id || r.RouteTableId}
+        dataSource={filteredRouteTables}
+        columns={columns as any}
+        pagination={{ pageSize: 10 }}
+      />
     </>
   );
 };
 
+
+export const Icon = <BranchesOutlined />;
+export const Label = '路由表';
 export default RouteTableSection;

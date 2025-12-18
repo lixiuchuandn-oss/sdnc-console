@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Modal, Select, Popconfirm, message, Collapse, Dropdown, Typography } from 'antd';
+import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Modal, Select, Popconfirm, message, Dropdown, Typography } from 'antd';
 import NodesSection from './sections/NodesSection';
 import ImagesSection from './sections/ImagesSection';
 import VolumesSection from './sections/VolumesSection';
@@ -52,7 +52,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [rawSubnets, setRawSubnets] = useState<any | null>(null);
   const [harvesterGpuResources, setHarvesterGpuResources] = useState<any[]>([]);
   const [rawGpu, setRawGpu] = useState<any | null>(null);
-  const [overviewCollapsed, setOverviewCollapsed] = useState<boolean>(false);
 
   const loadAll = async () => {
     setLoading(true);
@@ -253,44 +252,26 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       </Space>
       }
       asCard={false}
+      subtitle={<span style={{ color: 'rgba(0,0,0,0.45)' }}>集中展示云资源池信息，提供多种资源类型的生命周期管理能力</span>}
+      overviewContent={(
+        <Descriptions bordered size="small" column={4}>
+          <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="资源供应商">{providerName}</Descriptions.Item>
+          <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
+          <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
+          <Descriptions.Item label="资源状态">{cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
+          <Descriptions.Item label="版本">{versionText}</Descriptions.Item>
+          <Descriptions.Item label="TLS 忽略">{tlsIgnored ? <Tag color="orange">是</Tag> : <Tag>否</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="网络插件">{hasKubeOvn ? <Tag color="blue">Kube-OVN</Tag> : <Tag>未知/未启用</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
+          <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
+        </Descriptions>
+      )}
     >
       {error && (
         <Alert type="error" message="查询失败" description={error} style={{ marginBottom: 16 }} showIcon />
       )}
-      <div style={{ marginBottom: 16 }}>
-        <style>{`.overview-collapse .ant-collapse-content > .ant-collapse-content-box{padding-top:12px !important;padding-left:0 !important;padding-right:0 !important;padding-bottom:0 !important;background:transparent}.overview-collapse .ant-collapse-item > .ant-collapse-header{background:transparent;padding:0}`}</style>
-        <Collapse
-          className="overview-collapse"
-          ghost
-          bordered={false}
-          activeKey={overviewCollapsed ? [] : ['overview']}
-          onChange={(keys) => {
-            const arr = Array.isArray(keys) ? keys : [keys as any];
-            setOverviewCollapsed(!(arr as any).includes('overview'));
-          }}
-        >
-          <Collapse.Panel
-            header={<span style={{ color: 'rgba(0,0,0,0.45)' }}>集中展示云资源池信息，提供多种资源类型的生命周期管理能力</span>}
-            showArrow={false}
-            key="overview"
-          >
-            <Descriptions bordered size="small" column={4}>
-              <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="资源供应商">{providerName}</Descriptions.Item>
-              <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
-              <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
-              <Descriptions.Item label="资源状态">{cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}</Descriptions.Item>
-              <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
-              <Descriptions.Item label="版本">{versionText}</Descriptions.Item>
-              <Descriptions.Item label="TLS 忽略">{tlsIgnored ? <Tag color="orange">是</Tag> : <Tag>否</Tag>}</Descriptions.Item>
-              <Descriptions.Item label="网络插件">{hasKubeOvn ? <Tag color="blue">Kube-OVN</Tag> : <Tag>未知/未启用</Tag>}</Descriptions.Item>
-              <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
-              <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
-            </Descriptions>
-          </Collapse.Panel>
-        </Collapse>
-      </div>
-
       <Tabs
           defaultActiveKey="overview"
           items={[

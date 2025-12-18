@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { MoreOutlined, ReloadOutlined, SwapOutlined } from '@ant-design/icons';
 import { fetchCloudProviderNatGateways } from '../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
@@ -101,4 +101,7 @@ const NatGatewaySection: React.FC<NatGatewaySectionProps> = ({ cloudId, natGatew
   );
 };
 
+
+export const Icon = <SwapOutlined />;
+export const Label = 'NAT 网关';
 export default NatGatewaySection;

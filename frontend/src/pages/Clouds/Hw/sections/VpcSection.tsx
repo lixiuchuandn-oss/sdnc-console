@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table, Tag } from 'antd';
 import { CheckOutlined, CloseOutlined, EditOutlined, MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ClusterOutlined } from '@ant-design/icons';
 import { fetchCloudProviderVpcs, updateHuaweiCloudVpc, deleteCloudProviderVpc } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
 
@@ -194,4 +195,7 @@ const VpcSection: React.FC<VpcSectionProps> = ({ cloudId, vpcs, onSetVpcs, onOpe
   );
 };
 
+
+export const Icon = <ClusterOutlined />;
+export const Label = 'VPC';
 export default VpcSection;

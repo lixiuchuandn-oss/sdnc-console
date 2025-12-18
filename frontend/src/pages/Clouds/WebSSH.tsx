@@ -130,7 +130,7 @@ const WebSSHPage: React.FC = () => {
     const bases: string[] = [];
     bases.push(override || origin);
     bases.push(`${scheme}//${hostOnly}:4002`);
-    bases.push(`${scheme}//${hostOnly}:3001`);
+    bases.push(`${scheme}//${hostOnly}:5001`);
     if (!bases.includes(API_BASE_URL)) bases.push(API_BASE_URL);
     let idx = 0;
 

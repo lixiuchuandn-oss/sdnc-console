@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
 import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DeploymentUnitOutlined } from '@ant-design/icons';
 import { fetchCloudProviderLoadBalancers } from '../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
@@ -95,4 +96,7 @@ const LoadBalancerSection: React.FC<LoadBalancerSectionProps> = ({ cloudId, slbs
   );
 };
 
+
+export const Icon = <DeploymentUnitOutlined />;
+export const Label = '负载均衡';
 export default LoadBalancerSection;

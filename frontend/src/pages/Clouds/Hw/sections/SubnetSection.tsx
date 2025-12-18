@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
 import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { NodeIndexOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSubnets, deleteCloudProviderSubnet } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
 
@@ -99,4 +100,7 @@ const SubnetSection: React.FC<SubnetSectionProps> = ({ cloudId, subnets, vpcs, o
   );
 };
 
+
+export const Icon = <NodeIndexOutlined />;
+export const Label = '子网';
 export default SubnetSection;

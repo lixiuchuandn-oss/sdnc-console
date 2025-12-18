@@ -4,9 +4,9 @@
   "description": "Compute Tower 多云管理平台后端API",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon --exec ts-node --transpile-only src/index.ts",
+    "dev": "set \"PORT=5001\" && nodemon --exec ts-node --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "set \"PORT=5001\" && node dist/index.js",
     "test": "jest"
   },
   "dependencies": {

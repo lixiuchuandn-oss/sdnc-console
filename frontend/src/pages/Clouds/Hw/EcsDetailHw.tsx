@@ -39,10 +39,14 @@ type EcsDetailHwProps = {
   setVmCesFilter: (v: string) => void;
   setVmCesMetrics: (v: string[]) => void;
   onOpenDetail: (type: string, title: string, data: any) => void;
+  visibleTabs?: string[];
+  overviewNode?: React.ReactNode;
 };
 
-const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subnets, secGroups, eips, vmEnis, vmPorts, disks, snapshots, tabKey, onChangeTab, onRefreshAll, onCloseModal, onOpenEipManage, onSetVmPorts, onSetEips, onSetVmDetail, onRefreshMonitor, vmCes, vmCesAvailable, vmMonitorError, vmCesError, vmCesRange, vmCesPeriod, vmCesFilter, vmCesMetrics, setVmCesRange, setVmCesPeriod, setVmCesFilter, setVmCesMetrics, onOpenDetail }) => {
+const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subnets, secGroups, eips, vmEnis, vmPorts, disks, snapshots, tabKey, onChangeTab, onRefreshAll, onCloseModal, onOpenEipManage, onSetVmPorts, onSetEips, onSetVmDetail, onRefreshMonitor, vmCes, vmCesAvailable, vmMonitorError, vmCesError, vmCesRange, vmCesPeriod, vmCesFilter, vmCesMetrics, setVmCesRange, setVmCesPeriod, setVmCesFilter, setVmCesMetrics, onOpenDetail, visibleTabs, overviewNode }) => {
   const { message } = App.useApp();
+  const vmCesAvail: string[] = Array.isArray(vmCesAvailable) ? vmCesAvailable : [];
+  const vmCesMetricsSafe: string[] = Array.isArray(vmCesMetrics) ? vmCesMetrics : [];
   const [vmAuditTraces, setVmAuditTraces] = React.useState<any[]>([]);
   const [vmAuditStart, setVmAuditStart] = React.useState<number | null>(null);
   const [vmAuditEnd, setVmAuditEnd] = React.useState<number | null>(null);
@@ -97,33 +101,35 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
   return (
     <>
       <div style={{ marginBottom: 12 }}>
-        <Descriptions bordered column={2} size="small" style={{ width: '100%' }}>
-          <Descriptions.Item label="实例ID">{vmDetail?.id || vmDetail?.InstanceId || '-'}</Descriptions.Item>
-          <Descriptions.Item label="实例名">{vmDetail?.name || vmDetail?.InstanceName || '-'}</Descriptions.Item>
-          <Descriptions.Item label="状态">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              {statusTag(vmDetail?.status || vmDetail?.Status)}
-              <Space size={4}>
-                <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={isRunning || isBusy} icon={<PlayCircleOutlined style={{ fontSize: 12, color: '#1890ff' }} />} onClick={async () => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; try { await startCloudProviderEcs(cloudId, iid); message.success('启动指令已下发'); await onRefreshAll(); } catch (e: any) { message.error(e?.message || '启动失败'); } }}>启动</Button>
-                <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={isStopped || isBusy} icon={<PoweroffOutlined style={{ fontSize: 12, color: '#f5222d' }} />} onClick={async () => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; try { await stopCloudProviderEcs(cloudId, iid, false); message.success('停止指令已下发'); await onRefreshAll(); } catch (e: any) { message.error(e?.message || '停止失败'); } }}>停止</Button>
-                <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={!isRunning || isBusy} icon={<ReloadOutlined style={{ fontSize: 12, color: '#1890ff' }} />} onClick={async () => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; try { await rebootCloudProviderEcs(cloudId, iid, false); message.success('重启指令已下发'); await onRefreshAll(); } catch (e: any) { message.error(e?.message || '重启失败'); } }}>重启</Button>
-                <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} icon={<DesktopOutlined style={{ fontSize: 12, color: '#1890ff' }} />} onClick={async () => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; try { const json = await fetchCloudProviderEcsVncUrl(cloudId, iid); const url = json?.data?.VncUrl || json?.data?.vncUrl; if (url) { const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40); const h = Math.max(800, (window.screen?.availHeight || 900) - 80); const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`; window.open(url, 'webvnc', features); } else { message.warning('未获取到VNC地址'); } } catch (e: any) { message.error(e?.message || '获取VNC地址失败'); } }}>VNC</Button>
-                <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} danger disabled={isBusy} icon={<DeleteOutlined style={{ fontSize: 12, color: '#f5222d' }} />} onClick={() => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; Modal.confirm({ title: '确认删除该实例？', onOk: async () => { try { await deleteCloudProviderEcs(cloudId, iid); message.success('删除成功'); onCloseModal(); await onRefreshAll(); } catch (e: any) { message.error(e?.message || '删除失败'); } } }); }}>删除</Button>
-              </Space>
-            </div>
-          </Descriptions.Item>
-          <Descriptions.Item label="规格">{(() => { const f = vmDetail?.flavor || {}; const id = f?.id || vmDetail?.InstanceType || '-'; const v = (parseInt(String(f?.vcpus ?? vmDetail?.vcpus ?? 0)) || 0); const r = (parseInt(String(f?.ram ?? vmDetail?.ram ?? 0)) || 0); const mem = r ? `${Math.round(r / 1024)}GB` : ''; return [id, v ? `${v}vCPU` : '', mem].filter(Boolean).join(' / '); })()}</Descriptions.Item>
-          <Descriptions.Item label="可用区">{vmDetail?.['OS-EXT-AZ:availability_zone'] || vmDetail?.availability_zone || vmDetail?.zoneId || vmDetail?.ZoneId || '-'}</Descriptions.Item>
-          <Descriptions.Item label="VPC">{(() => { const nic = Array.isArray(vmEnis) && vmEnis.length ? vmEnis[0] : null; const vid = nic?.VpcId || vmDetail?.metadata?.vpc_id || vmDetail?.vpc_id || vmDetail?.VpcId || ''; const vn = (vpcs || []).find((v: any) => String(v?.id || v?.VpcId || '') === String(vid || '')); return vn?.name || vid || '-'; })()}</Descriptions.Item>
-          <Descriptions.Item label="子网">{(() => { const sids: string[] = Array.isArray(vmDetail?.network_interfaces) ? vmDetail!.network_interfaces.map((ni: any) => ni?.subnet_id).filter(Boolean) : []; const names = sids.map(sid => { const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(sid || '')); return sn?.name || sid; }); return names.length ? names.join('；') : '-'; })()}</Descriptions.Item>
-          <Descriptions.Item label="私网IP">{(() => { const { fixed } = collectIpv4FromAddresses(vmDetail?.addresses); return fixed.length ? fixed.join(', ') : '-'; })()}</Descriptions.Item>
-          <Descriptions.Item label="公网IP">{(() => { const { floating } = collectIpv4FromAddresses(vmDetail?.addresses); const assoc = Array.isArray(vmDetail?.network_interfaces) ? vmDetail!.network_interfaces.map((ni: any) => ni?.association?.public_ip_address).filter(Boolean) : []; const ips = [...floating, ...assoc]; return ips.length ? ips.join(', ') : '-'; })()}</Descriptions.Item>
-          <Descriptions.Item label="镜像">{(() => { const nm = vmDetail?.metadata?.image_name || vmDetail?.image?.id || '-'; const osRaw = String(vmDetail?.metadata?.os_type || vmDetail?.OSName || vmDetail?.OSType || '').toLowerCase(); const isWin = osRaw.includes('win'); const icon = isWin ? <WindowsOutlined style={{ color: '#1677ff', marginRight: 6 }} /> : <CodeOutlined style={{ color: '#1677ff', marginRight: 6 }} />; return (<span>{icon}{nm}</span>); })()}</Descriptions.Item>
-          <Descriptions.Item label="安全组">{(() => { const sgs: any[] = Array.isArray(vmDetail?.security_groups) ? vmDetail!.security_groups : []; const names = sgs.map((g: any) => g?.name || g?.id).filter(Boolean); return names.length ? names.join('；') : '-'; })()}</Descriptions.Item>
-          <Descriptions.Item label="标签" span={2}>{(() => { const tags: any[] = Array.isArray(vmDetail?.tags) ? vmDetail!.tags : []; const values = tags.map((t: any) => (typeof t === 'string' ? t : (t?.value ?? t?.Value ?? t?.key ?? t?.Key))).filter(Boolean); return values.length ? values.join('；') : '-'; })()}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{vmDetail?.created || vmDetail?.create_time || vmDetail?.CreationTime || '-'}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{vmDetail?.updated || vmDetail?.update_time || vmDetail?.Updated || '-'}</Descriptions.Item>
-        </Descriptions>
+        {overviewNode || (
+          <Descriptions bordered column={2} size="small" style={{ width: '100%' }}>
+            <Descriptions.Item label="实例ID">{vmDetail?.id || vmDetail?.InstanceId || '-'}</Descriptions.Item>
+            <Descriptions.Item label="实例名">{vmDetail?.name || vmDetail?.InstanceName || '-'}</Descriptions.Item>
+            <Descriptions.Item label="状态">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {statusTag(vmDetail?.status || vmDetail?.Status)}
+                <Space size={4}>
+                  <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={isRunning || isBusy} icon={<PlayCircleOutlined style={{ fontSize: 12, color: '#1890ff' }} />} onClick={async () => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; try { await startCloudProviderEcs(cloudId, iid); message.success('启动指令已下发'); await onRefreshAll(); } catch (e: any) { message.error(e?.message || '启动失败'); } }}>启动</Button>
+                  <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={isStopped || isBusy} icon={<PoweroffOutlined style={{ fontSize: 12, color: '#f5222d' }} />} onClick={async () => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; try { await stopCloudProviderEcs(cloudId, iid, false); message.success('停止指令已下发'); await onRefreshAll(); } catch (e: any) { message.error(e?.message || '停止失败'); } }}>停止</Button>
+                  <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={!isRunning || isBusy} icon={<ReloadOutlined style={{ fontSize: 12, color: '#1890ff' }} />} onClick={async () => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; try { await rebootCloudProviderEcs(cloudId, iid, false); message.success('重启指令已下发'); await onRefreshAll(); } catch (e: any) { message.error(e?.message || '重启失败'); } }}>重启</Button>
+                  <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} icon={<DesktopOutlined style={{ fontSize: 12, color: '#1890ff' }} />} onClick={async () => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; try { const json = await fetchCloudProviderEcsVncUrl(cloudId, iid); const url = json?.data?.VncUrl || json?.data?.vncUrl; if (url) { const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40); const h = Math.max(800, (window.screen?.availHeight || 900) - 80); const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`; window.open(url, 'webvnc', features); } else { message.warning('未获取到VNC地址'); } } catch (e: any) { message.error(e?.message || '获取VNC地址失败'); } }}>VNC</Button>
+                  <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} danger disabled={isBusy} icon={<DeleteOutlined style={{ fontSize: 12, color: '#f5222d' }} />} onClick={() => { const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return; Modal.confirm({ title: '确认删除该实例？', onOk: async () => { try { await deleteCloudProviderEcs(cloudId, iid); message.success('删除成功'); onCloseModal(); await onRefreshAll(); } catch (e: any) { message.error(e?.message || '删除失败'); } } }); }}>删除</Button>
+                </Space>
+              </div>
+            </Descriptions.Item>
+            <Descriptions.Item label="规格">{(() => { const f = vmDetail?.flavor || {}; const id = f?.id || vmDetail?.InstanceType || '-'; const v = (parseInt(String(f?.vcpus ?? vmDetail?.vcpus ?? 0)) || 0); const r = (parseInt(String(f?.ram ?? vmDetail?.ram ?? 0)) || 0); const mem = r ? `${Math.round(r / 1024)}GB` : ''; return [id, v ? `${v}vCPU` : '', mem].filter(Boolean).join(' / '); })()}</Descriptions.Item>
+            <Descriptions.Item label="可用区">{vmDetail?.['OS-EXT-AZ:availability_zone'] || vmDetail?.availability_zone || vmDetail?.zoneId || vmDetail?.ZoneId || '-'}</Descriptions.Item>
+            <Descriptions.Item label="VPC">{(() => { const nic = Array.isArray(vmEnis) && vmEnis.length ? vmEnis[0] : null; const vid = nic?.VpcId || vmDetail?.metadata?.vpc_id || vmDetail?.vpc_id || vmDetail?.VpcId || ''; const vn = (vpcs || []).find((v: any) => String(v?.id || v?.VpcId || '') === String(vid || '')); return vn?.name || vid || '-'; })()}</Descriptions.Item>
+            <Descriptions.Item label="子网">{(() => { const sids: string[] = Array.isArray(vmDetail?.network_interfaces) ? vmDetail!.network_interfaces.map((ni: any) => ni?.subnet_id).filter(Boolean) : []; const names = sids.map(sid => { const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(sid || '')); return sn?.name || sid; }); return names.length ? names.join('；') : '-'; })()}</Descriptions.Item>
+            <Descriptions.Item label="私网IP">{(() => { const { fixed } = collectIpv4FromAddresses(vmDetail?.addresses); return fixed.length ? fixed.join(', ') : '-'; })()}</Descriptions.Item>
+            <Descriptions.Item label="公网IP">{(() => { const { floating } = collectIpv4FromAddresses(vmDetail?.addresses); const assoc = Array.isArray(vmDetail?.network_interfaces) ? vmDetail!.network_interfaces.map((ni: any) => ni?.association?.public_ip_address).filter(Boolean) : []; const ips = [...floating, ...assoc]; return ips.length ? ips.join(', ') : '-'; })()}</Descriptions.Item>
+            <Descriptions.Item label="镜像">{(() => { const nm = vmDetail?.metadata?.image_name || vmDetail?.image?.id || '-'; const osRaw = String(vmDetail?.metadata?.os_type || vmDetail?.OSName || vmDetail?.OSType || '').toLowerCase(); const isWin = osRaw.includes('win'); const icon = isWin ? <WindowsOutlined style={{ color: '#1677ff', marginRight: 6 }} /> : <CodeOutlined style={{ color: '#1677ff', marginRight: 6 }} />; return (<span>{icon}{nm}</span>); })()}</Descriptions.Item>
+            <Descriptions.Item label="安全组">{(() => { const sgs: any[] = Array.isArray(vmDetail?.security_groups) ? vmDetail!.security_groups : []; const names = sgs.map((g: any) => g?.name || g?.id).filter(Boolean); return names.length ? names.join('；') : '-'; })()}</Descriptions.Item>
+            <Descriptions.Item label="标签" span={2}>{(() => { const tags: any[] = Array.isArray(vmDetail?.tags) ? vmDetail!.tags : []; const values = tags.map((t: any) => (typeof t === 'string' ? t : (t?.value ?? t?.Value ?? t?.key ?? t?.Key))).filter(Boolean); return values.length ? values.join('；') : '-'; })()}</Descriptions.Item>
+            <Descriptions.Item label="创建时间">{vmDetail?.created || vmDetail?.create_time || vmDetail?.CreationTime || '-'}</Descriptions.Item>
+            <Descriptions.Item label="更新时间">{vmDetail?.updated || vmDetail?.update_time || vmDetail?.Updated || '-'}</Descriptions.Item>
+          </Descriptions>
+        )}
       </div>
 
       <Tabs
@@ -153,7 +159,8 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
             }
           }} />
         ) : null}
-        items={[
+        items={(function(){
+          const arr = [
           {
             key: 'network',
             label: (<span><NodeIndexOutlined style={{ marginRight: 6 }} />弹性网卡</span>),
@@ -295,52 +302,6 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
             )
           },
           {
-            key: 'eips',
-            label: (<span><GlobalOutlined style={{ marginRight: 6 }} />弹性公网IP</span>),
-            children: (
-              <div>
-                {(() => {
-                  const iid = vmDetail?.id || vmDetail?.InstanceId || '';
-                  const ports:string[] = Array.isArray(vmDetail?.network_interfaces)? vmDetail!.network_interfaces.map((ni:any)=> ni?.port_id).filter(Boolean) : [];
-                  const list:any[] = Array.isArray(eips)? eips : [];
-                  const myEips = list.filter((r:any)=> { const ai=r?.associate_instance||{}; const rid=ai?.id||ai?.instance_id||''; const ridMatch = rid && (rid===iid || ports.includes(rid)); const portMatch = ports.includes(r?.port_id); return ridMatch || portMatch; });
-                  return myEips.length ? (
-                    <Row gutter={[12,12]}>
-                      {myEips.map((r:any)=> {
-                        const ip = r?.public_ip_address || r?.publicip_address || r?.ip_address || '-';
-                        const id = r?.id || r?.publicip_id || '-';
-                        const bw = r?.bandwidth; const name = (typeof bw==='object' ? bw?.name : r?.bandwidth_name) || '-'; const size = (typeof bw==='object' ? bw?.size : r?.bandwidth_size); const share = (typeof bw==='object' ? bw?.share_type : r?.share_type); const st = String(share||'').toUpperCase()==='PER' ? '独享' : (share ? '共享' : ''); const sizeTxt = (size!=null && size!=='') ? `${size}Mbps` : '-'; const bwText = `${name}（${sizeTxt}${st?` / ${st}`:''}）`;
-                        const ai=r?.associate_instance; let assocText = '-'; if (ai && typeof ai==='object') { const tp=String(ai?.type||'').toLowerCase(); const map:any={ port:'网卡', eni:'网卡', elb:'负载均衡', nat:'NAT网关' }; const label = map[tp] || (ai?.type || '资源'); assocText = ai?.id ? `${label} ${ai?.id}` : label; } else if (r?.port_id) { assocText = `网卡 ${r?.port_id}`; }
-                        const statusText = r?.status || '-';
-                        return (
-                          <Col span={12} key={id}>
-                            <SubResourceCard
-                              title={<span><GlobalOutlined style={{ color: '#1677ff', marginRight: 6 }} />{ip}</span>}
-                              extra={<Tag color="blue">{statusText}</Tag>}
-                              actions={[
-                                <Button type="link" size="small" danger onClick={async ()=>{ try { const eid = String(r?.id || r?.publicip_id || ''); if (!eid) return; await unbindHuaweiEip(cloudId, eid); const eipJson = await fetchCloudProviderEips(cloudId); const eipList: any[] = (eipJson?.data?.publicips) || (eipJson?.publicips) || (eipJson?.data?.publicIps) || (eipJson?.publicIps) || []; onSetEips(Array.isArray(eipList) ? eipList : []); const jsonPorts: any = await fetchHuaweiPorts(cloudId, { deviceId: String(vmDetail?.id || vmDetail?.InstanceId || '') }); const listPorts: any[] = jsonPorts?.data?.ports || jsonPorts?.ports || []; onSetVmPorts(Array.isArray(listPorts) ? listPorts : []); message.success('解绑成功'); } catch(e:any){ message.error(e?.message || '解绑失败'); } }}>解绑</Button>
-                              ]}
-                            >
-                              <Descriptions column={2} size="small">
-                                <Descriptions.Item label="ID" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>
-                                  <Button type="link" size="small" onClick={async ()=>{ try { await navigator.clipboard.writeText(String(id||'')); message.success('已复制EIP ID'); } catch(e:any){ message.error(e?.message || '复制失败'); } }}>
-                                    {id}
-                                  </Button>
-                                </Descriptions.Item>
-                                <Descriptions.Item label="带宽" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{bwText}</Descriptions.Item>
-                                <Descriptions.Item label="绑定资源" span={2} labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{assocText}</Descriptions.Item>
-                              </Descriptions>
-                            </SubResourceCard>
-                          </Col>
-                        );
-                      })}
-                    </Row>
-                  ) : (<Alert type="info" message="暂无弹性公网IP数据" />);
-                })()}
-              </div>
-            )
-          },
-          {
             key: 'secgroups',
             label: (<span><SafetyCertificateOutlined style={{ marginRight: 6 }} />安全组</span>),
             children: (
@@ -395,6 +356,52 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
             )
           },
           {
+            key: 'eips',
+            label: (<span><GlobalOutlined style={{ marginRight: 6 }} />弹性公网IP</span>),
+            children: (
+              <div>
+                {(() => {
+                  const iid = vmDetail?.id || vmDetail?.InstanceId || '';
+                  const ports:string[] = Array.isArray(vmDetail?.network_interfaces)? vmDetail!.network_interfaces.map((ni:any)=> ni?.port_id).filter(Boolean) : [];
+                  const list:any[] = Array.isArray(eips)? eips : [];
+                  const myEips = list.filter((r:any)=> { const ai=r?.associate_instance||{}; const rid=ai?.id||ai?.instance_id||''; const ridMatch = rid && (rid===iid || ports.includes(rid)); const portMatch = ports.includes(r?.port_id); return ridMatch || portMatch; });
+                  return myEips.length ? (
+                    <Row gutter={[12,12]}>
+                      {myEips.map((r:any)=> {
+                        const ip = r?.public_ip_address || r?.publicip_address || r?.ip_address || '-';
+                        const id = r?.id || r?.publicip_id || '-';
+                        const bw = r?.bandwidth; const name = (typeof bw==='object' ? bw?.name : r?.bandwidth_name) || '-'; const size = (typeof bw==='object' ? bw?.size : r?.bandwidth_size); const share = (typeof bw==='object' ? bw?.share_type : r?.share_type); const st = String(share||'').toUpperCase()==='PER' ? '独享' : (share ? '共享' : ''); const sizeTxt = (size!=null && size!=='') ? `${size}Mbps` : '-'; const bwText = `${name}（${sizeTxt}${st?` / ${st}`:''}）`;
+                        const ai=r?.associate_instance; let assocText = '-'; if (ai && typeof ai==='object') { const tp=String(ai?.type||'').toLowerCase(); const map:any={ port:'网卡', eni:'网卡', elb:'负载均衡', nat:'NAT网关' }; const label = map[tp] || (ai?.type || '资源'); assocText = ai?.id ? `${label} ${ai?.id}` : label; } else if (r?.port_id) { assocText = `网卡 ${r?.port_id}`; }
+                        const statusText = r?.status || '-';
+                        return (
+                          <Col span={12} key={id}>
+                            <SubResourceCard
+                              title={<span><GlobalOutlined style={{ color: '#1677ff', marginRight: 6 }} />{ip}</span>}
+                              extra={<Tag color="blue">{statusText}</Tag>}
+                              actions={[
+                                <Button type="link" size="small" danger onClick={async ()=>{ try { const eid = String(r?.id || r?.publicip_id || ''); if (!eid) return; await unbindHuaweiEip(cloudId, eid); const eipJson = await fetchCloudProviderEips(cloudId); const eipList: any[] = (eipJson?.data?.publicips) || (eipJson?.publicips) || (eipJson?.data?.publicIps) || (eipJson?.publicIps) || []; onSetEips(Array.isArray(eipList) ? eipList : []); const jsonPorts: any = await fetchHuaweiPorts(cloudId, { deviceId: String(vmDetail?.id || vmDetail?.InstanceId || '') }); const listPorts: any[] = jsonPorts?.data?.ports || jsonPorts?.ports || []; onSetVmPorts(Array.isArray(listPorts) ? listPorts : []); message.success('解绑成功'); } catch(e:any){ message.error(e?.message || '解绑失败'); } }}>解绑</Button>
+                              ]}
+                            >
+                              <Descriptions column={2} size="small">
+                                <Descriptions.Item label="ID" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>
+                                  <Button type="link" size="small" onClick={async ()=>{ try { await navigator.clipboard.writeText(String(id||'')); message.success('已复制EIP ID'); } catch(e:any){ message.error(e?.message || '复制失败'); } }}>
+                                    {id}
+                                  </Button>
+                                </Descriptions.Item>
+                                <Descriptions.Item label="带宽" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{bwText}</Descriptions.Item>
+                                <Descriptions.Item label="绑定资源" span={2} labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{assocText}</Descriptions.Item>
+                              </Descriptions>
+                            </SubResourceCard>
+                          </Col>
+                        );
+                      })}
+                    </Row>
+                  ) : (<Alert type="info" message="暂无弹性公网IP数据" />);
+                })()}
+              </div>
+            )
+          },
+          {
             key: 'monitor',
             label: (<span><LineChartOutlined style={{ marginRight: 6 }} />监控</span>),
             children: (
@@ -405,14 +412,14 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                   <Select size="small" value={vmCesFilter} style={{ width: 120 }} options={[{ label:'平均值', value:'average' }, { label:'最大值', value:'max' }, { label:'最小值', value:'min' }]} onChange={(v)=> setVmCesFilter(String(v))} />
                   <Select size="small" mode="multiple" maxTagCount={3} value={vmCesMetrics} style={{ width: 360 }} options={[
                     { label:'CPU利用率', value:'cpu_util', disabled: false },
-                    { label:'CPU空闲', value:'cpu_usage_idle', disabled: !vmCesAvailable.includes('cpu_usage_idle') },
-                    { label:'CPU iowait', value:'cpu_usage_iowait', disabled: !vmCesAvailable.includes('cpu_usage_iowait') },
-                    { label:'CPU用户态', value:'cpu_usage_user', disabled: !vmCesAvailable.includes('cpu_usage_user') },
-                    { label:'CPU内核态', value:'cpu_usage_system', disabled: !vmCesAvailable.includes('cpu_usage_system') },
-                    { label:'CPU其他', value:'cpu_usage_other', disabled: !vmCesAvailable.includes('cpu_usage_other') },
-                    { label:'内存可用(GB)', value:'mem_available', disabled: !vmCesAvailable.includes('mem_available') },
-                    { label:'内存使用率(Agent)', value:'mem_usedPercent', disabled: !vmCesAvailable.includes('mem_usedPercent') },
-                    { label:'内存使用率(基础)', value:'mem_util', disabled: !vmCesAvailable.includes('mem_util') }
+                    { label:'CPU空闲', value:'cpu_usage_idle', disabled: !vmCesAvail.includes('cpu_usage_idle') },
+                    { label:'CPU iowait', value:'cpu_usage_iowait', disabled: !vmCesAvail.includes('cpu_usage_iowait') },
+                    { label:'CPU用户态', value:'cpu_usage_user', disabled: !vmCesAvail.includes('cpu_usage_user') },
+                    { label:'CPU内核态', value:'cpu_usage_system', disabled: !vmCesAvail.includes('cpu_usage_system') },
+                    { label:'CPU其他', value:'cpu_usage_other', disabled: !vmCesAvail.includes('cpu_usage_other') },
+                    { label:'内存可用(GB)', value:'mem_available', disabled: !vmCesAvail.includes('mem_available') },
+                    { label:'内存使用率(Agent)', value:'mem_usedPercent', disabled: !vmCesAvail.includes('mem_usedPercent') },
+                    { label:'内存使用率(基础)', value:'mem_util', disabled: !vmCesAvail.includes('mem_util') }
                   ]} onChange={(v)=> setVmCesMetrics(v as any)} />
                   <Button size="small" icon={<ReloadOutlined />} onClick={async ()=>{ await onRefreshMonitor(); }}>刷新</Button>
                 </Space>
@@ -434,7 +441,7 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                         const name = it?.metric_name || it?.metric?.metricName || '';
                         if (name) byName.set(String(name), it);
                       }
-                      const want = Array.from(new Set(['cpu_util', ...vmCesMetrics]));
+                      const want = Array.from(new Set(['cpu_util', ...vmCesMetricsSafe]));
                       const items = want.map((n)=> byName.get(n) || { metric_name: n, datapoints: [] });
                       const charts = items.map((item: any, idx: number) => {
                         const name = item?.metric_name || item?.metric?.metricName || '-';
@@ -506,7 +513,25 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
               />
             )
           }
-        ]}
+        ] as any[];
+          const hasNetwork = (vmEnis !== undefined) || (vmPorts !== undefined) || (eips !== undefined) || Array.isArray(vmDetail?.network_interfaces);
+          const hasDisks = (disks !== undefined);
+          const hasEips = (eips !== undefined);
+          const hasSecurity = (secGroups !== undefined) || (vmPorts !== undefined);
+          const hasMonitor = (vmCes !== undefined) || (vmCesAvailable !== undefined);
+          const hasAudit = true;
+          const hasBackup = (snapshots !== undefined);
+          const def = new Set<string>();
+          if (hasNetwork) def.add('network');
+          if (hasDisks) def.add('disks');
+          if (hasSecurity) def.add('secgroups');
+          if (hasEips) def.add('eips');
+          if (hasMonitor) def.add('monitor');
+          if (hasAudit) def.add('audit');
+          if (hasBackup) def.add('backup');
+          const show = Array.isArray(visibleTabs) && visibleTabs.length ? new Set(visibleTabs.map(String)) : def;
+          return arr.filter(it => show.has(String((it as any).key)));
+        })()}
       />
     </>
   );

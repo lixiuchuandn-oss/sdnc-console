@@ -29,8 +29,7 @@ const testCloudConnectionUnified = async (args: { provider?: string; accessKey?:
     return { ok: !!t.ok, message: t.message || '' };
   }
   if (provider === 'tencentcloud') {
-    const t = await testTencentConnection({ secretId: args.accessKey || '', secretKey: args.secretKey || '', region: args.region || '' });
-    return { ok: !!t.ok, message: t.message || '' };
+    return { ok: false, message: '已不支持腾讯云接入' };
   }
   if (provider === 'harvester' || provider === 'cloudmap' || provider.startsWith('cloudmap')) {
     const t = await testHarvesterConnection({ endpoint: args.endpoint || '', token: args.secretKey || '', insecure: !!args.config?.ignoreTls });
@@ -132,17 +131,14 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
 import { testAliyunConnection, callAliyunEcs, callAliyunSlb, callAliyunVpc, callAliyunCms } from '../services/aliyun';
 // 引入华为云SDK调用
 import { testHuaweiConnection, huaweiListVpcs, huaweiListServers, huaweiListSnapshots, huaweiListSubnets, huaweiListRouteTables } from '../services/huaweicloud';
-import { testTencentConnection, tencentListVpcs, tencentListInstances } from '../services/tencentcloud';
 import { testHarvesterConnection, listHarvesterVMsStandard, harvesterStartVM, harvesterStopVM, harvesterRebootVM, harvesterDeleteVM, listKubeOvnVpcs, listKubeOvnSubnets } from '../services/harvester';
 import { registerHarvesterRoutes } from './clouds.harvester';
 import { registerAliyunRoutes } from './clouds.aliyun';
 import { registerHuaweiRoutes } from './clouds.huaweicloud';
-import { registerTencentRoutes } from './clouds.tencentcloud';
 
 registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
-registerTencentRoutes(router, checkAdminPermission);
 
 // 获取云资源列表
 router.get('/', checkAdminPermission, async (req: AuthRequest, res: Response) => {
@@ -313,7 +309,7 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
   try {
     const cloudRepository = AppDataSource.getRepository(Cloud);
     const clouds = await cloudRepository.find();
-    const supported = ['aliyun','huaweicloud','tencentcloud','harvester','cloudmap'];
+    const supported = ['aliyun','huaweicloud','harvester','cloudmap'];
     const items: any[] = [];
     for (const cloud of clouds) {
       const provider = String((cloud as any)?.config?.provider || '').toLowerCase();
@@ -348,17 +344,6 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
           for (const v of (Array.isArray(vpcs) ? vpcs : [])) {
             const vid = v?.id || v?.VpcId;
             if (vid) vpcInfoMap.set(vid, { name: v?.name || v?.VpcName, cidr: v?.cidr || v?.CidrBlock });
-          }
-        } catch {}
-      } else if (provider === 'tencentcloud') {
-        if (!cloud.accessKey || !cloud.secretKey || !cloud.region) continue;
-        const resp: any = await tencentListInstances({ secretId: cloud.accessKey, secretKey: cloud.secretKey, region: cloud.region });
-        list = resp?.InstanceSet || [];
-        try {
-          const vpcResp: any = await tencentListVpcs({ secretId: cloud.accessKey, secretKey: cloud.secretKey, region: cloud.region });
-          const vpcs: any[] = vpcResp?.VpcSet || [];
-          for (const v of (Array.isArray(vpcs) ? vpcs : [])) {
-            if (v?.VpcId) vpcInfoMap.set(v.VpcId, { name: v?.VpcName, cidr: v?.CidrBlock });
           }
         } catch {}
       } else if (provider === 'harvester' || provider === 'cloudmap') {
@@ -616,10 +601,6 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
               if (vid) vpcInfoMap.set(String(vid), { name, cidr });
             }
           } catch {}
-        } else if (provider === 'tencentcloud') {
-          if (!cloud.accessKey || !cloud.secretKey || !cloud.region) continue;
-          const resp: any = await tencentListInstances({ secretId: cloud.accessKey, secretKey: cloud.secretKey, region: cloud.region });
-          list = resp?.InstanceSet || [];
         } else if (provider === 'harvester' || provider === 'cloudmap') {
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const version = String((cloud.config as any)?.harvesterVersion || '').trim();

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
 import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CameraOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSnapshots } from '../../../../services/api';
 import { statusTag } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
@@ -83,4 +84,7 @@ const SnapshotSection: React.FC<SnapshotSectionProps> = ({ cloudId, snapshots, o
   );
 };
 
+
+export const Icon = <CameraOutlined />;
+export const Label = '快照';
 export default SnapshotSection;
