@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Dropdown, Input, Modal, Select, Table, Switch, Space, Typography } from 'antd';
 import { MoreOutlined, ReloadOutlined, EllipsisOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { API_BASE_URL, fetchAliyunEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
-import PageDetailSection, { LiveSwitch } from '../../../../components/PageDetailSection';
+import PageDetailSection, { LiveSwitch, RowActionsButton } from '../../../../components/PageDetailSection';
 import EcsDetailModal from '../modals/EcsDetailModal';
 import { statusTag, collectIpv4FromAddresses } from '../../Hw/components/Common';
 
@@ -212,8 +212,9 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
         { key: 'delete', label: '删除', danger: true },
       ];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }) => {
             if (key === 'detail') { if (!cloudId || !iid) return; onOpenVmDetail(r); return; }
             if (key === 'webvnc') {
               try {
@@ -236,10 +237,8 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
             if (key === 'stop') { try { await stopCloudProviderEcs(cloudId, iid, false); message.success('停止指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '停止失败'); } return; }
             if (key === 'reboot') { try { await rebootCloudProviderEcs(cloudId, iid, false); message.success('重启指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '重启失败'); } return; }
             if (key === 'delete') { Modal.confirm({ title: '确认删除该实例？', onOk: async ()=> { try { await deleteCloudProviderEcs(cloudId, iid); message.success('删除成功'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '删除失败'); } } }); return; }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ], [cloudId]);
@@ -273,34 +272,31 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
           <Space size={8}>
             <Button icon={<ReloadOutlined />} onClick={async ()=> { await onRefreshAll(); }}>刷新</Button>
             <LiveSwitch checked={!!live} onChange={() => toggleLive()} />
-            <Dropdown
-              menu={{
-                items: [
-                  { key: 'batch_start', label: '批量启动' },
-                  { key: 'batch_stop', label: '批量停止' },
-                  { key: 'batch_reboot', label: '批量重启' },
-                  { key: 'batch_delete', label: '批量删除', danger: true },
-                ],
-                onClick: async ({ key }) => {
-                  const targets = (ecs || []).filter((r:any)=> selectedKeys.includes(r?.InstanceId || r?.id));
-                  if (!targets.length) { message.info('请先勾选实例'); return; }
-                  try {
-                    for (const r of targets) {
-                      const iid = r?.InstanceId || r?.id;
-                      if (!iid) continue;
-                      if (key === 'batch_start') await startCloudProviderEcs(cloudId, iid);
-                      else if (key === 'batch_stop') await stopCloudProviderEcs(cloudId, iid, false);
-                      else if (key === 'batch_reboot') await rebootCloudProviderEcs(cloudId, iid, false);
-                      else if (key === 'batch_delete') await deleteCloudProviderEcs(cloudId, iid);
-                    }
-                    message.success('批量操作已下发');
-                    await onRefreshAll();
-                  } catch(e:any){ message.error(e?.message || '批量操作失败'); }
-                }
+            <RowActionsButton
+              items={[
+                { key: 'batch_start', label: '批量启动' },
+                { key: 'batch_stop', label: '批量停止' },
+                { key: 'batch_reboot', label: '批量重启' },
+                { key: 'batch_delete', label: '批量删除', danger: true },
+              ]}
+              onClick={async ({ key }: { key: string }) => {
+                const targets = (ecs || []).filter((r:any)=> selectedKeys.includes(r?.InstanceId || r?.id));
+                if (!targets.length) { message.info('请先勾选实例'); return; }
+                try {
+                  for (const r of targets) {
+                    const iid = r?.InstanceId || r?.id;
+                    if (!iid) continue;
+                    if (key === 'batch_start') await startCloudProviderEcs(cloudId, iid);
+                    else if (key === 'batch_stop') await stopCloudProviderEcs(cloudId, iid, false);
+                    else if (key === 'batch_reboot') await rebootCloudProviderEcs(cloudId, iid, false);
+                    else if (key === 'batch_delete') await deleteCloudProviderEcs(cloudId, iid);
+                  }
+                  message.success('批量操作已下发');
+                  await onRefreshAll();
+                } catch(e:any){ message.error(e?.message || '批量操作失败'); }
               }}
-            >
-              <Button icon={<EllipsisOutlined />} />
-            </Dropdown>
+              buttonProps={{ icon: <EllipsisOutlined />, type: 'default' }}
+            />
           </Space>
         )}
         asCard={false}

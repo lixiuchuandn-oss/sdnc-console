@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Table } from 'antd';
 import { MoreOutlined, NodeIndexOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import { fetchCloudProviderVSwitches, deleteCloudProviderVSwitch } from '../../../../services/api';
 import { statusTag } from '../../Hw/components/Common';
 
@@ -44,8 +44,9 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
         { key: 'del', label: '删除' },
       ];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
             if (key === 'detail') {
               const name = r?.VSwitchName || r?.name || '-';
               const id = r?.VSwitchId || r?.id || '-';
@@ -62,10 +63,8 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
                 message.success('删除成功');
               } catch (e: any) { message.error(e?.message || '删除失败'); }
             }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [cloudId, vpcs, onOpenDetail, onSetVSwitches]);
@@ -83,22 +82,23 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
       toolbarRight={(
         <>
           {onOpenCreate && (<Button type="primary" onClick={onOpenCreate}>创建交换机</Button>)}
-          <Dropdown
-            menu={{
-              items: [{ key: 'refresh', label: '刷新' }],
-              onClick: async ({ key }) => {
-                if (key === 'refresh') {
-                  try {
-                    const json = await fetchCloudProviderVSwitches(cloudId);
-                    const vswList: any[] = (json?.data?.vswitches) || (json?.vswitches) || (json?.data?.subnets) || (json?.subnets) || [];
-                    onSetVSwitches(Array.isArray(vswList) ? vswList : []);
-                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                }
+          <RowActionsButton
+            items={[{ key: 'refresh', label: '刷新' }]}
+            onClick={async ({ key }) => {
+              if (key === 'refresh') {
+                try {
+                  const json = await fetchCloudProviderVSwitches(cloudId);
+                  const vswList: any[] = (json?.data?.vswitches) || (json?.vswitches) || (json?.data?.subnets) || (json?.subnets) || [];
+                  onSetVSwitches(Array.isArray(vswList) ? vswList : []);
+                } catch (e: any) { message.error(e?.message || '刷新失败'); }
               }
             }}
-          >
-            <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-          </Dropdown>
+            buttonProps={{
+              type: 'default',
+              icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
+              children: '更多'
+            }}
+          />
         </>
       )}
       asCard={false}

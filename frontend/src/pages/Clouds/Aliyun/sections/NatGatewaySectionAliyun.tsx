@@ -3,7 +3,7 @@ import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
 import { MoreOutlined, SwapOutlined } from '@ant-design/icons';
 import { fetchCloudProviderNatGateways } from '../../../../services/api';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type NatGatewaySectionAliyunProps = {
   cloudId: string;
@@ -43,13 +43,12 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
       const items = [{ key: 'detail', label: '详情' }];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
             if (key === 'detail') { const name = r?.Name || r?.name || '-'; const id = r?.NatGatewayId || r?.id || '-'; onOpenDetail('nat', `NAT网关 ${name}（${id}）`, r); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [vpcs, onOpenDetail]);
@@ -65,22 +64,23 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
         </Space>
       )}
       toolbarRight={(
-        <Dropdown
-          menu={{
-            items: [{ key: 'refresh', label: '刷新' }],
-            onClick: async ({ key }) => {
-              if (key === 'refresh') {
-                try {
-                  const json = await fetchCloudProviderNatGateways(cloudId).catch(() => null);
-                  const natList: any[] = (json?.NatGateways?.NatGateway) || (json?.data?.nat_gateways) || (json?.nat_gateways) || [];
-                  onSetNatGateways(Array.isArray(natList) ? natList : []);
-                } catch (e: any) { message.error(e?.message || '刷新失败'); }
-              }
+        <RowActionsButton
+          items={[{ key: 'refresh', label: '刷新' }]}
+          onClick={async ({ key }) => {
+            if (key === 'refresh') {
+              try {
+                const json = await fetchCloudProviderNatGateways(cloudId).catch(() => null);
+                const natList: any[] = (json?.NatGateways?.NatGateway) || (json?.data?.nat_gateways) || (json?.nat_gateways) || [];
+                onSetNatGateways(Array.isArray(natList) ? natList : []);
+              } catch (e: any) { message.error(e?.message || '刷新失败'); }
             }
           }}
-        >
-          <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-        </Dropdown>
+          buttonProps={{
+            type: 'default',
+            icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
+            children: '更多'
+          }}
+        />
       )}
       asCard={false}
     >

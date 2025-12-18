@@ -4,6 +4,7 @@ import { MoreOutlined, ReloadOutlined, GlobalOutlined } from '@ant-design/icons'
 import { fetchCloudProviderEips } from '../../../../services/api';
 import { statusTag } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type EipSectionProps = {
   cloudId: string;
@@ -41,13 +42,12 @@ const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, onSetEips, onOpe
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
       const items = [{ key: 'detail', label: '详情' }];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }) => {
             if (key === 'detail') { const ip = r?.public_ip_address || r?.publicip_address || r?.ip_address || '-'; const id = r?.id || r?.publicip_id || '-'; onOpenDetail('eip', `EIP ${ip}（${id}）`, r); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [onOpenDetail]);

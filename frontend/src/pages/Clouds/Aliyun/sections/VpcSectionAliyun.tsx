@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Table, Space } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, ClusterOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import { fetchCloudProviderVpcs, deleteCloudProviderVpc } from '../../../../services/api';
 import { statusTag } from '../../Hw/components/Common';
 
@@ -140,8 +140,9 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
         { key: 'del', label: '删除' },
       ];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
             if (key === 'detail') {
               const name = r?.VpcName || r?.name || '-';
               const id = r?.VpcId || r?.id || '-';
@@ -158,10 +159,8 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
                 message.success('删除成功');
               } catch (e: any) { message.error(e?.message || '删除失败'); }
             }
-          } }}
-        >
-          <Button type="link" icon={<EllipsisOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [cloudId, onOpenDetail, onSetVpcs]);

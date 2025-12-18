@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Space, Table } from 'antd';
 import { MoreOutlined, BranchesOutlined } from '@ant-design/icons';
 import { fetchCloudProviderRouteTables, deleteCloudProviderRouteTable } from '../../../../services/api';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type RouteTableSectionAliyunProps = {
   cloudId: string;
@@ -58,8 +58,9 @@ const RouteTableSectionAliyun: React.FC<RouteTableSectionAliyunProps> = ({ cloud
         { key: 'del', label: '删除' },
       ];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }) => {
             if (key === 'detail') { const name = r?.RouteTableName || r?.name || '-'; const id = r?.RouteTableId || r?.id || '-'; onOpenDetail('rt', `路由表 ${name}（${id}）`, r); return; }
             if (key === 'assoc') { onOpenAssoc(r); }
             if (key === 'routes') { onManageRoutes(r); }
@@ -72,10 +73,8 @@ const RouteTableSectionAliyun: React.FC<RouteTableSectionAliyunProps> = ({ cloud
                 onSetRouteTables(Array.isArray(rtList) ? rtList : []);
               } catch (e: any) { message.error(e?.message || '删除失败'); }
             }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [cloudId, vpcs, subnets, onOpenDetail, onOpenAssoc, onManageRoutes, onOpenSubnetsView]);
@@ -91,22 +90,23 @@ const RouteTableSectionAliyun: React.FC<RouteTableSectionAliyunProps> = ({ cloud
         </Space>
       )}
       toolbarRight={(
-        <Dropdown
-          menu={{
-            items: [{ key: 'refresh', label: '刷新' }],
-            onClick: async ({ key }) => {
-              if (key === 'refresh') {
-                try {
-                  const json = await fetchCloudProviderRouteTables(cloudId);
-                  const rtList: any[] = (json?.RouteTables?.RouteTable) || (json?.data?.route_tables) || (json?.route_tables) || (json?.data?.routetables) || (json?.routetables) || [];
-                  onSetRouteTables(Array.isArray(rtList) ? rtList : []);
-                } catch (e: any) { message.error(e?.message || '刷新失败'); }
-              }
+        <RowActionsButton
+          items={[{ key: 'refresh', label: '刷新' }]}
+          onClick={async ({ key }) => {
+            if (key === 'refresh') {
+              try {
+                const json = await fetchCloudProviderRouteTables(cloudId);
+                const rtList: any[] = (json?.RouteTables?.RouteTable) || (json?.data?.route_tables) || (json?.route_tables) || (json?.data?.routetables) || (json?.routetables) || [];
+                onSetRouteTables(Array.isArray(rtList) ? rtList : []);
+              } catch (e: any) { message.error(e?.message || '刷新失败'); }
             }
           }}
-        >
-          <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-        </Dropdown>
+          buttonProps={{
+            type: 'default',
+            icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
+            children: '更多'
+          }}
+        />
       )}
       asCard={false}
     >

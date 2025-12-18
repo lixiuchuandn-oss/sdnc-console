@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Table, Select, Button, Tag, Dropdown, Modal, Input, Badge, message, Checkbox } from 'antd';
-import { EllipsisOutlined,MoreOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import { fetchCloudProviderEcsVncUrl, fetchHarvesterVmVncUrl } from '../../../../services/api';
+import { EllipsisOutlined } from '@ant-design/icons';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import { fetchCloudProviderEcsVncUrl } from '../../../../services/api';
 
 type Props = {
   vms: any[];
@@ -60,9 +60,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     });
   }, [vms, nsValue, nodeValue, keyword, statusFilter]);
 
-  
-
-  
   const getIid = (r: any): string => String(r?.InstanceId || r?.id || '');
   const batchStop = async () => {
     if (selectedKeys.length === 0) return;
@@ -228,9 +225,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
               { key: 'delete', label: '删除', danger: true },
             ];
             return (
-              <Dropdown
-                trigger={['click']}
-                menu={{ items, onClick: async ({ key }) => {
+              <RowActionsButton
+                items={items}
+                onClick={async ({ key }: { key: string }) => {
                   if (key === 'detail') { onOpenDetail(r); return; }
                   if (key === 'reconf') { onOpenReconfigure(r); return; }
                   if (key === 'webvnc') {
@@ -280,10 +277,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                     });
                     return;
                   }
-                } }}
-              >
-                <Button type="text" icon={<MoreOutlined />} />
-              </Dropdown>
+                }}
+              />
             );
           } },
         ] as any}

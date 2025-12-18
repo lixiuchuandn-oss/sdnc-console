@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Table } from 'antd';
+import { App, Button, Input, Table, Modal } from 'antd';
 import { ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { fetchCloudProviderSecurityGroups } from '../../../../services/api';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import { fetchCloudProviderSecurityGroups, deleteCloudProviderSecurityGroup } from '../../../../services/api';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type Props = {
   cloudId: string;
@@ -54,6 +54,42 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSet
           { title: '名称/ID', key: 'name_id', render: (_: any, r: any) => (<span>{r?.SecurityGroupName || r?.name || '-'}<br />{r?.SecurityGroupId || r?.id || '-'}</span>) },
           { title: '所属VPC', key: 'vpc', render: (_: any, r: any) => r?.VpcId || r?.vpc_id || '-' },
           { title: '描述', dataIndex: 'Description', key: 'desc', render: (_: any, r: any) => r?.Description || r?.description || '-' },
+          { title: '操作', key: 'actions', render: (_: any, r: any) => {
+            const items = [
+              { key: 'detail', label: '详情' },
+              { key: 'del', label: '删除' },
+            ];
+            return (
+              <RowActionsButton
+                items={items}
+                onClick={async ({ key }: { key: string }) => {
+                  if (key === 'detail') {
+                    const name = r?.SecurityGroupName || r?.name || '-';
+                    const id = r?.SecurityGroupId || r?.id || '-';
+                    onOpenDetail('security_group', `安全组 ${name}（${id}）`, r);
+                    return;
+                  }
+                  if (key === 'del') {
+                    const id0 = r?.SecurityGroupId || r?.id;
+                    if (!id0) return;
+                    Modal.confirm({
+                      title: '确定删除该安全组?',
+                      content: `ID: ${id0}`,
+                      onOk: async () => {
+                        try {
+                          await deleteCloudProviderSecurityGroup(cloudId, id0);
+                          message.success('删除成功');
+                          await refresh();
+                        } catch (e: any) {
+                          message.error(e?.message || '删除失败');
+                        }
+                      }
+                    });
+                  }
+                }}
+              />
+            );
+          } },
         ] as any}
         dataSource={filtered}
         pagination={{ pageSize: 10 }}

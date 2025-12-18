@@ -4,6 +4,7 @@ import { MoreOutlined, ReloadOutlined, CloudServerOutlined } from '@ant-design/i
 import { statusTag, collectIpv4FromAddresses } from '../components/Common';
 import { fetchAliyunEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type EcsSectionProps = {
   cloudId: string;
@@ -110,9 +111,14 @@ const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onO
         { key: 'delete', label: '删除', danger: true },
       ];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
-            if (key === 'detail') { if (!cloudId || !iid) return; onOpenVmDetail(r); return; }
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }) => {
+            if (key === 'detail') {
+              if (!cloudId || !iid) return;
+              onOpenVmDetail(r);
+              return;
+            }
             if (key === 'webvnc') {
               try {
                 const json = await fetchAliyunEcsVncUrl(cloudId, iid);
@@ -130,13 +136,11 @@ const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onO
             if (key === 'stop') { try { await stopCloudProviderEcs(cloudId, iid, false); message.success('停止指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '停止失败'); } return; }
             if (key === 'reboot') { try { await rebootCloudProviderEcs(cloudId, iid, false); message.success('重启指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '重启失败'); } return; }
             if (key === 'delete') { Modal.confirm({ title: '确认删除该实例？', onOk: async ()=> { try { await deleteCloudProviderEcs(cloudId, iid); message.success('删除成功'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '删除失败'); } } }); return; }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
-  ], [cloudId]);
+  ], [cloudId, onOpenVmDetail, onRefreshAll]);
 
   return (
     <>

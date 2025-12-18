@@ -185,7 +185,6 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
       onRefreshAll={async ()=> { await Promise.all([loadInstance(), loadEnis(), loadEips(), loadSecGroups(), loadDisks(), loadSnapshots(), loadMetrics(), loadAuditEvents()]); message.success('实例与资源已刷新'); }}
       onCloseModal={onClose}
       visibleTabs={visibleTabs}
-      width="80vw"
       titlePrefix={prefixText}
       overviewNode={instance ? (<EcsInsDetSection cloudId={cloudId} instance={instance} eips={eips} onRefreshAll={async ()=> { await Promise.all([loadInstance(), loadEnis(), loadEips(), loadSecGroups(), loadDisks(), loadSnapshots()]); }} />) : null}
       tabsItems={(() => {

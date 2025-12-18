@@ -111,7 +111,7 @@ const ResourceDetailContainer: React.FC<Props> = ({
     <Modal
       open={open}
       onCancel={onCloseModal}
-      width={width ?? '80vw'}
+      width={width ?? '95vw'}
       destroyOnHidden
       footer={null}
       centered

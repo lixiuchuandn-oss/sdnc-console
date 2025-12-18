@@ -217,6 +217,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
               children: t.children
             }))}
           />
+          {children}
         </div>
       ) : asCard ? (
         <Card size="small" variant="outlined" bordered={bordered} style={cardStyle} styles={{ body: { padding: contentPadding } }}>

@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Select, Space, Tag, Button, message, Modal, Form, Dropdown } from 'antd';
-import { MoreOutlined, EllipsisOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import { deleteHarvesterImage, createHarvesterImage, updateHarvesterImage } from '../../../../services/api';
+import { Table, Input, Select, Tag, Button, message, Modal, Form, Dropdown } from 'antd';
+import { EllipsisOutlined } from '@ant-design/icons';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import { deleteHarvesterImage, createHarvesterImage } from '../../../../services/api';
 
 type Props = {
   cloudId: string;
@@ -172,23 +172,18 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
               { key: 'delete', label: <span style={{ color: '#ff4d4f' }}>删除</span>, disabled: !name },
             ];
             return (
-              <Dropdown
-                trigger={["click"]}
-                menu={{
-                  items,
-                  onClick: async ({ key }) => {
-                    try {
-                      if (key === 'view' && view) { window.open(view, '_blank'); return; }
-                      if (key === 'download' && download) { window.open(download, '_blank'); return; }
-                      if (key === 'delete' && name) { await deleteHarvesterImage(cloudId, ns, name); message.success('删除成功'); onRefresh?.(); return; }
-                    } catch (e: any) {
-                      message.error(e?.message || '操作失败');
-                    }
+              <RowActionsButton
+                items={items}
+                onClick={async ({ key }: { key: string }) => {
+                  try {
+                    if (key === 'view' && view) { window.open(view, '_blank'); return; }
+                    if (key === 'download' && download) { window.open(download, '_blank'); return; }
+                    if (key === 'delete' && name) { await deleteHarvesterImage(cloudId, ns, name); message.success('删除成功'); onRefresh?.(); return; }
+                  } catch (e: any) {
+                    message.error(e?.message || '操作失败');
                   }
                 }}
-              >
-                <Button type="text" icon={<MoreOutlined />} />
-              </Dropdown>
+              />
             );
           } },
         ] as any}

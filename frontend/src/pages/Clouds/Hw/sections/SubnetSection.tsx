@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
-import { NodeIndexOutlined } from '@ant-design/icons';
+import { MoreOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSubnets, deleteCloudProviderSubnet } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type SubnetSectionProps = {
   cloudId: string;
@@ -39,29 +39,28 @@ const SubnetSection: React.FC<SubnetSectionProps> = ({ cloudId, subnets, vpcs, o
     { title: '可用IP数', dataIndex: 'available_ip_address_count', key: 'avail_ips', render: (t: any) => (t != null ? `可用 ${t} 个` : '-'), sorter: (a: any, b: any) => Number(a?.available_ip_address_count || 0) - Number(b?.available_ip_address_count || 0) },
     { title: '创建时间', key: 'ctime', render: (_: any, r: any) => { const c = r?.created_at || r?.createdAt || ''; try { if (!c) return '-'; const d = new Date(c); if (!isNaN(d.getTime())) { const txt = d.toLocaleString('zh-CN', { hour12: false }); return txt; } } catch { } return c || '-'; }, sorter: (a: any, b: any) => String(a?.created_at || a?.createdAt || '').localeCompare(String(b?.created_at || b?.createdAt || '')) },
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
-      const items = [
-        { key: 'detail', label: '详情' },
-        { key: 'del', label: '删除' },
-      ];
-      return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
-            if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || r?.SubnetId || '-'; onOpenDetail('subnet', `子网 ${name}（${id}）`, r); return; }
-            if (key === 'del') {
-              try {
-                const id0 = r?.id || r?.SubnetId; if (!id0) return;
-                await deleteCloudProviderSubnet(cloudId, id0);
-                const json = await fetchCloudProviderSubnets(cloudId);
-                const subnetList: any[] = (json?.data?.subnets) || (json?.subnets) || [];
-                onSetSubnets(Array.isArray(subnetList) ? subnetList : []);
-              } catch (e: any) { message.error(e?.message || '删除失败'); }
-            }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
-      );
-    } },
+        const items = [
+          { key: 'detail', label: '详情' },
+          { key: 'del', label: '删除' },
+        ];
+        return (
+          <RowActionsButton
+            items={items}
+            onClick={async ({ key }: { key: string }) => {
+              if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || r?.SubnetId || '-'; onOpenDetail('subnet', `子网 ${name}（${id}）`, r); return; }
+              if (key === 'del') {
+                try {
+                  const id0 = r?.id || r?.SubnetId; if (!id0) return;
+                  await deleteCloudProviderSubnet(cloudId, id0);
+                  const json = await fetchCloudProviderSubnets(cloudId);
+                  const subnetList: any[] = (json?.data?.subnets) || (json?.subnets) || [];
+                  onSetSubnets(Array.isArray(subnetList) ? subnetList : []);
+                } catch (e: any) { message.error(e?.message || '删除失败'); }
+              }
+            }}
+          />
+        );
+      } },
   ]), [cloudId, vpcs, onOpenDetail]);
 
   return (

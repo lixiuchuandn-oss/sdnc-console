@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Table } from 'antd';
+import { App, Button, Input, Select, Table } from 'antd';
 import { MoreOutlined, CameraOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSnapshots } from '../../../../services/api';
 import { statusTag } from '../../Hw/components/Common';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type SnapshotSectionAliyunProps = {
   cloudId: string;
@@ -38,13 +38,12 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
       const items = [{ key: 'detail', label: '详情' }];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
             if (key === 'detail') { const name = r?.SnapshotName || r?.name || '-'; const id = r?.SnapshotId || r?.id || '-'; onOpenDetail('snapshot', `快照 ${name}（${id}）`, r); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [onOpenDetail]);
@@ -60,22 +59,23 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
         </>
       )}
       toolbarRight={(
-        <Dropdown
-          menu={{
-            items: [{ key: 'refresh', label: '刷新' }],
-            onClick: async ({ key }) => {
-              if (key === 'refresh') {
-                try {
-                  const json = await fetchCloudProviderSnapshots(cloudId).catch(() => null);
-                  const list: any[] = (json?.Snapshots?.Snapshot) || (json?.data?.snapshots) || (json?.snapshots) || [];
-                  onSetSnapshots(Array.isArray(list) ? list : []);
-                } catch (e: any) { message.error(e?.message || '刷新失败'); }
-              }
+        <RowActionsButton
+          items={[{ key: 'refresh', label: '刷新' }]}
+          onClick={async ({ key }) => {
+            if (key === 'refresh') {
+              try {
+                const json = await fetchCloudProviderSnapshots(cloudId).catch(() => null);
+                const list: any[] = (json?.Snapshots?.Snapshot) || (json?.data?.snapshots) || (json?.snapshots) || [];
+                onSetSnapshots(Array.isArray(list) ? list : []);
+              } catch (e: any) { message.error(e?.message || '刷新失败'); }
             }
           }}
-        >
-          <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-        </Dropdown>
+          buttonProps={{
+            type: 'default',
+            icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
+            children: '更多'
+          }}
+        />
       )}
       asCard={false}
     >

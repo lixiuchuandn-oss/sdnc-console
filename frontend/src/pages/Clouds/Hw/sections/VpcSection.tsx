@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table, Tag } from 'antd';
-import { CheckOutlined, CloseOutlined, EditOutlined, MoreOutlined, ReloadOutlined } from '@ant-design/icons';
-import { ClusterOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, EditOutlined, MoreOutlined, ClusterOutlined } from '@ant-design/icons';
 import { fetchCloudProviderVpcs, updateHuaweiCloudVpc, deleteCloudProviderVpc } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type VpcSectionProps = {
   cloudId: string;
@@ -133,8 +133,9 @@ const VpcSection: React.FC<VpcSectionProps> = ({ cloudId, vpcs, onSetVpcs, onOpe
         { key: 'del', label: '删除' },
       ];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
             if (key === 'detail') {
               const name = r?.name || r?.VpcName || r?.vpcName || '-';
               const id = r?.id || r?.VpcId || '-';
@@ -151,10 +152,8 @@ const VpcSection: React.FC<VpcSectionProps> = ({ cloudId, vpcs, onSetVpcs, onOpe
                 message.success('删除成功');
               } catch (e: any) { message.error(e?.message || '删除失败'); }
             }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [cloudId, nameEditingId, nameEditingValue, descEditingId, descEditingValue, onOpenDetail]);

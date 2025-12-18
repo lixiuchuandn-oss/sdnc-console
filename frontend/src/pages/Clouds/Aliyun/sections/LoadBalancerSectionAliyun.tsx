@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
+import { App, Button, Input, Select, Space, Table } from 'antd';
 import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
 import { DeploymentUnitOutlined } from '@ant-design/icons';
 import { fetchCloudProviderLoadBalancers } from '../../../../services/api';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type LoadBalancerSectionAliyunProps = {
   cloudId: string;
@@ -43,13 +43,12 @@ const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ c
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
       const items = [{ key: 'detail', label: '详情' }];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
             if (key === 'detail') { const name = r?.LoadBalancerName || r?.name || '-'; const id = r?.LoadBalancerId || r?.id || '-'; onOpenDetail('slb', `负载均衡 ${name}（${id}）`, r); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [vpcs, onOpenDetail]);
@@ -65,22 +64,23 @@ const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ c
         </Space>
       )}
       toolbarRight={(
-        <Dropdown
-          menu={{
-            items: [{ key: 'refresh', label: '刷新' }],
-            onClick: async ({ key }) => {
-              if (key === 'refresh') {
-                try {
-                  const json = await fetchCloudProviderLoadBalancers(cloudId).catch(() => null);
-                  const slbList: any[] = (json?.LoadBalancers?.LoadBalancer) || (json?.data?.loadbalancers) || (json?.loadbalancers) || [];
-                  onSetSlbs(Array.isArray(slbList) ? slbList : []);
-                } catch (e: any) { message.error(e?.message || '刷新失败'); }
-              }
+        <RowActionsButton
+          items={[{ key: 'refresh', label: '刷新' }]}
+          onClick={async ({ key }) => {
+            if (key === 'refresh') {
+              try {
+                const json = await fetchCloudProviderLoadBalancers(cloudId).catch(() => null);
+                const slbList: any[] = (json?.LoadBalancers?.LoadBalancer) || (json?.data?.loadbalancers) || (json?.loadbalancers) || [];
+                onSetSlbs(Array.isArray(slbList) ? slbList : []);
+              } catch (e: any) { message.error(e?.message || '刷新失败'); }
             }
           }}
-        >
-          <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-        </Dropdown>
+          buttonProps={{
+            type: 'default',
+            icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
+            children: '更多'
+          }}
+        />
       )}
       asCard={false}
     >

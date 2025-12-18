@@ -5,6 +5,7 @@ import { HddOutlined } from '@ant-design/icons';
 import { fetchCloudProviderDisks } from '../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type DiskSectionProps = {
   cloudId: string;
@@ -41,13 +42,12 @@ const DiskSection: React.FC<DiskSectionProps> = ({ cloudId, disks, onSetDisks, o
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
       const items = [{ key: 'detail', label: '详情' }];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }) => {
             if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || '-'; onOpenDetail('disk', `云盘 ${name}（${id}）`, r); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [onOpenDetail]);

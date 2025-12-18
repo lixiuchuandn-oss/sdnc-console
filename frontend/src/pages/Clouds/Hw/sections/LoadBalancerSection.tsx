@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { MoreOutlined } from '@ant-design/icons';
 import { DeploymentUnitOutlined } from '@ant-design/icons';
 import { fetchCloudProviderLoadBalancers } from '../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type LoadBalancerSectionProps = {
   cloudId: string;
@@ -50,13 +51,12 @@ const LoadBalancerSection: React.FC<LoadBalancerSectionProps> = ({ cloudId, slbs
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
       const items = [{ key: 'detail', label: '详情' }];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
             if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || '-'; onOpenDetail('slb', `负载均衡 ${name}（${id}）`, r); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [vpcs, subnets, onOpenDetail]);

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { App, Button, Space, Table } from 'antd';
+import { App, Button, Space, Table, Modal } from 'antd';
 import { ReloadOutlined, HddOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import { fetchCloudProviderDisks } from '../../../../services/api';
 
 type Props = {
@@ -70,6 +70,30 @@ const DiskSectionAliyun: React.FC<Props> = ({ cloudId, instance, disks, onSetDis
             return att?.Device || att?.device || '-';
           } },
           { title: '状态', dataIndex: 'Status', key: 'status', render: (_: any, r: any) => r?.Status || r?.status || '-' },
+          { title: '操作', key: 'actions', render: (_: any, r: any) => {
+            const items = [
+              { key: 'detail', label: '详情' },
+            ];
+            return (
+              <RowActionsButton
+                items={items}
+                onClick={async ({ key }) => {
+                  if (key === 'detail') {
+                    Modal.info({
+                      title: '磁盘详情',
+                      width: 600,
+                      content: (
+                        <pre style={{ maxHeight: 400, overflow: 'auto', background: '#f5f5f5', padding: 10 }}>
+                          {JSON.stringify(r, null, 2)}
+                        </pre>
+                      ),
+                      maskClosable: true,
+                    });
+                  }
+                }}
+              />
+            );
+          } },
         ] as any}
         dataSource={myDisks}
         pagination={{ pageSize: 10 }}

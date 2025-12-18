@@ -400,7 +400,6 @@ html, body, #root {
 .menu-link-danger:hover {
   text-decoration: underline;
 }
-.
 .org-tree-container { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 8px; background: var(--color-surface); max-height: 480px; overflow: auto; }
 .org-tree .ant-tree-treenode { padding: 4px 0; }
 .org-tree .ant-tree-node-content-wrapper { padding: 4px 8px; border-radius: 6px; }

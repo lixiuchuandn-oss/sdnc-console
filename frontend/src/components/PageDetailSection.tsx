@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, Space, Typography, theme, Button, Dropdown, Tooltip, Switch } from 'antd';
-import { EllipsisOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, MoreOutlined } from '@ant-design/icons';
 import SharedToolbar from './SharedToolbar';
 import { AppstoreOutlined } from '@ant-design/icons';
 
@@ -163,12 +163,13 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
     <SharedToolbar left={leftContent} right={rightContent} leftGap={toolbarGapLeft} rightGap={toolbarGapRight} style={toolbarStyle} />
   ) : null;
 
+  const contentChildren = autoStyleInputs && children ? normalizeChildren(children) : children;
   const content = asCard ? (
     <Card size="small" variant="outlined" bordered={bordered} style={cardStyle} styles={{ body: { padding: contentPadding } }}>
-      {children}
+      {contentChildren}
     </Card>
   ) : (
-    <div style={{ margin: 0 }}>{children}</div>
+    <div style={{ margin: 0 }}>{contentChildren}</div>
   );
 
   return (
@@ -186,5 +187,19 @@ export const LiveSwitch: React.FC<{ checked?: boolean; onChange?: (v: boolean) =
     <span style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #d9d9d9', borderRadius: 6, height: 32, padding: '0 10px' }}>
       <Switch size="small" checked={!!checked} onChange={() => onChange && onChange(!checked)} /> <span style={{ marginLeft: 8, color: '#555' }}>{label ?? '实时刷新'}</span>
     </span>
+  );
+};
+export const RowActionsButton: React.FC<{ items: any[]; onClick?: (info: { key: string }) => void; buttonProps?: any }> = ({ items, onClick, buttonProps }) => {
+  return (
+    <Dropdown
+      menu={{
+        items,
+        onClick: ({ key }) => {
+          if (onClick) onClick({ key });
+        },
+      }}
+    >
+      <Button type="link" icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />} {...buttonProps} />
+    </Dropdown>
   );
 };

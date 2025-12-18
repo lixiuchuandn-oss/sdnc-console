@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Table } from 'antd';
+import { App, Button, Input, Table, Modal } from 'antd';
 import { MoreOutlined, GlobalOutlined } from '@ant-design/icons';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import { fetchCloudProviderEips } from '../../../../services/api';
 import { statusTag } from '../../Hw/components/Common';
 
@@ -30,6 +30,30 @@ const EipSectionAliyun: React.FC<EipSectionAliyunProps> = ({ cloudId, eips, onSe
     { title: '公网IP/ID', key: 'ip_id', render: (_: any, r: any) => (<span>{r?.IpAddress || r?.public_ip_address || '-'}<br />{r?.AllocationId || r?.id || '-'}</span>) },
     { title: '绑定实例/端口', key: 'bind', render: (_: any, r: any) => { const inst = r?.InstanceId || r?.instance_id || ''; const port = r?.PortId || r?.port_id || ''; return (<span>{inst || '-'}<br />{port || '-'}</span>); } },
     { title: '状态', key: 'status', render: (_: any, r: any) => statusTag(r?.Status || r?.status) },
+    { title: '操作', key: 'actions', render: (_: any, r: any) => {
+      const items = [
+        { key: 'detail', label: '详情' },
+      ];
+      return (
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
+            if (key === 'detail') {
+              Modal.info({
+                title: 'EIP详情',
+                width: 600,
+                content: (
+                  <pre style={{ maxHeight: 400, overflow: 'auto', background: '#f5f5f5', padding: 10 }}>
+                    {JSON.stringify(r, null, 2)}
+                  </pre>
+                ),
+                maskClosable: true,
+              });
+            }
+          }}
+        />
+      );
+    } },
   ]), []);
 
   return (
@@ -43,22 +67,23 @@ const EipSectionAliyun: React.FC<EipSectionAliyunProps> = ({ cloudId, eips, onSe
       )}
       toolbarRight={(
         <>
-          <Dropdown
-            menu={{
-              items: [{ key: 'refresh', label: '刷新' }],
-              onClick: async ({ key }) => {
-                if (key === 'refresh') {
-                  try {
-                    const json = await fetchCloudProviderEips(cloudId);
-                    const eipList: any[] = (json?.data?.publicIps) || (json?.publicIps) || (json?.data?.publicips) || (json?.publicips) || [];
-                    onSetEips(Array.isArray(eipList) ? eipList : []);
-                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                }
+          <RowActionsButton
+            items={[{ key: 'refresh', label: '刷新' }]}
+            onClick={async ({ key }) => {
+              if (key === 'refresh') {
+                try {
+                  const json = await fetchCloudProviderEips(cloudId);
+                  const eipList: any[] = (json?.data?.publicIps) || (json?.publicIps) || (json?.data?.publicips) || (json?.publicips) || [];
+                  onSetEips(Array.isArray(eipList) ? eipList : []);
+                } catch (e: any) { message.error(e?.message || '刷新失败'); }
               }
             }}
-          >
-            <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-          </Dropdown>
+            buttonProps={{
+              type: 'default',
+              icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
+              children: '更多'
+            }}
+          />
         </>
       )}
       asCard={false}

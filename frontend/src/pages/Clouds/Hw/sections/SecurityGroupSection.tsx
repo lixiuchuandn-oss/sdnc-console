@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { MoreOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSecurityGroups, deleteHuaweiCloudSecurityGroup } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type SecurityGroupSectionProps = {
   cloudId: string;
@@ -72,8 +73,9 @@ const SecurityGroupSection: React.FC<SecurityGroupSectionProps> = ({ cloudId, se
       { title: '操作', key: 'actions', render: (_: any, r: any) => {
         const items = [ { key: 'detail', label: '详情' }, { key: 'delete', label: '删除', danger: true } ];
         return (
-          <Dropdown
-            menu={{ items, onClick: async ({ key }) => {
+          <RowActionsButton
+            items={items}
+            onClick={async ({ key }: { key: string }) => {
               if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || r?.SecurityGroupId || '-'; onOpenDetail('sg', `安全组 ${name}（${id}）`, r); }
               if (key === 'delete') {
                 try {
@@ -86,10 +88,8 @@ const SecurityGroupSection: React.FC<SecurityGroupSectionProps> = ({ cloudId, se
                   message.success('删除成功');
                 } catch (e: any) { message.error(e?.message || '删除失败'); }
               }
-            } }}
-          >
-            <Button type="link" icon={<MoreOutlined />} />
-          </Dropdown>
+            }}
+          />
         );
       } },
     ]);

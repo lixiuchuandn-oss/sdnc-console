@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Modal, Select, Space, Table, Tooltip, Form, Checkbox, InputNumber } from 'antd';
 import { ReloadOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import { associateAliyunEip, unassociateAliyunEip, createCloudProviderEni, attachCloudProviderEni, detachCloudProviderEni, fetchCloudProviderEnis } from '../../../../services/api';
-import PageDetailSection from '../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import StdFormModal from '../../../../components/StdFormModal';
 
 type Props = {
@@ -255,49 +255,48 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
         const target = String(niId || '');
         return String(eniByField || '') === target || String(eniByType || '') === target;
       });
-      const bindBtn = (
-        <Button
-          type="primary"
-          size="small"
-          disabled={!availableEips.length}
-          onClick={() => { setActiveNiId(niId); setActivePriIp(priIp); setBindEipId(''); setBindOpen(true); }}
-        >
-          绑定EIP
-        </Button>
-      );
-      const unbindBtn = (
-        <Button
-          danger
-          size="small"
-          disabled={!boundEips.length}
-          onClick={() => { setActiveNiId(niId); setActivePriIp(priIp); setUnbindEipId(''); setUnbindOpen(true); }}
-        >
-          解绑EIP
-        </Button>
-      );
       const isPrimary = String(r?.Type || '').toLowerCase() === 'primary';
-      const detachBtn = (
-        <Button
-          danger
-          size="small"
-          disabled={isPrimary}
-          onClick={() => {
-            Modal.confirm({
-              title: '确定卸载该网卡?',
-              content: `网卡ID: ${niId}`,
-              onOk: () => handleDetachEni(niId)
-            });
-          }}
-        >
-          卸载
-        </Button>
-      );
       return (
-        <Space size={8}>
-          {availableEips.length ? bindBtn : (<Tooltip title="当前地域无可用EIP">{bindBtn}</Tooltip>)}
-          {boundEips.length ? unbindBtn : (<Tooltip title="该网卡当前没有已绑定的EIP">{unbindBtn}</Tooltip>)}
-          {isPrimary ? (<Tooltip title="主网卡无法卸载">{detachBtn}</Tooltip>) : detachBtn}
-        </Space>
+        <RowActionsButton
+          items={[
+            {
+              key: 'bind',
+              label: availableEips.length ? '绑定EIP' : <Tooltip title="当前地域无可用EIP">绑定EIP</Tooltip>,
+              disabled: !availableEips.length,
+            },
+            {
+              key: 'unbind',
+              label: boundEips.length ? '解绑EIP' : <Tooltip title="该网卡当前没有已绑定的EIP">解绑EIP</Tooltip>,
+              disabled: !boundEips.length,
+              danger: true,
+            },
+            {
+              key: 'detach',
+              label: isPrimary ? <Tooltip title="主网卡无法卸载">卸载</Tooltip> : '卸载',
+              disabled: isPrimary,
+              danger: true,
+            }
+          ]}
+          onClick={({ key }) => {
+            if (key === 'bind') {
+              setActiveNiId(niId);
+              setActivePriIp(priIp);
+              setBindEipId('');
+              setBindOpen(true);
+            } else if (key === 'unbind') {
+              setActiveNiId(niId);
+              setActivePriIp(priIp);
+              setUnbindEipId('');
+              setUnbindOpen(true);
+            } else if (key === 'detach') {
+              Modal.confirm({
+                title: '确定卸载该网卡?',
+                content: `网卡ID: ${niId}`,
+                onOk: () => handleDetachEni(niId)
+              });
+            }
+          }}
+        />
       );
     }
   });

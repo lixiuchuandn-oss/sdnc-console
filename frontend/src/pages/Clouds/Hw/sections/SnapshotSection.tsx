@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Button, Input, Select, Table } from 'antd';
 import { CameraOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSnapshots } from '../../../../services/api';
 import { statusTag } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type SnapshotSectionProps = {
   cloudId: string;
@@ -38,13 +38,12 @@ const SnapshotSection: React.FC<SnapshotSectionProps> = ({ cloudId, snapshots, o
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
       const items = [{ key: 'detail', label: '详情' }];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }: { key: string }) => {
             if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || '-'; onOpenDetail('snapshot', `快照 ${name}（${id}）`, r); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [onOpenDetail]);
@@ -60,22 +59,19 @@ const SnapshotSection: React.FC<SnapshotSectionProps> = ({ cloudId, snapshots, o
         )}
         right={(
           <>
-            <Dropdown
-              menu={{
-                items: [{ key: 'refresh', label: '刷新' }],
-                onClick: async ({ key }) => {
-                  if (key === 'refresh') {
-                    try {
-                      const json = await fetchCloudProviderSnapshots(cloudId).catch(() => null);
-                      const list: any[] = (json?.data?.snapshots) || (json?.snapshots) || [];
-                      onSetSnapshots(Array.isArray(list) ? list : []);
-                    } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                  }
+            <RowActionsButton
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }: { key: string }) => {
+                if (key === 'refresh') {
+                  try {
+                    const json = await fetchCloudProviderSnapshots(cloudId).catch(() => null);
+                    const list: any[] = (json?.data?.snapshots) || (json?.snapshots) || [];
+                    onSetSnapshots(Array.isArray(list) ? list : []);
+                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
                 }
               }}
-            >
-              <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-            </Dropdown>
+              buttonProps={{ children: '更多' }}
+            />
           </>
         )}
       />

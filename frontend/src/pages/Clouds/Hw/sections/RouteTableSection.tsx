@@ -3,6 +3,7 @@ import { App, Button, Dropdown, Input, Space, Table } from 'antd';
 import { MoreOutlined, ReloadOutlined, BranchesOutlined } from '@ant-design/icons';
 import { fetchCloudProviderRouteTables, deleteCloudProviderRouteTable } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type RouteTableSectionProps = {
   cloudId: string;
@@ -45,8 +46,9 @@ const RouteTableSection: React.FC<RouteTableSectionProps> = ({ cloudId, routeTab
         { key: 'del', label: '删除' },
       ];
       return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
+        <RowActionsButton
+          items={items}
+          onClick={async ({ key }) => {
             if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || r?.RouteTableId || '-'; onOpenDetail('rt', `路由表 ${name}（${id}）`, r); return; }
             if (key === 'assoc') { onOpenAssoc(r); }
             if (key === 'routes') { onManageRoutes(r); }
@@ -59,10 +61,8 @@ const RouteTableSection: React.FC<RouteTableSectionProps> = ({ cloudId, routeTab
                 onSetRouteTables(Array.isArray(rtList) ? rtList : []);
               } catch (e: any) { message.error(e?.message || '删除失败'); }
             }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
+          }}
+        />
       );
     } },
   ]), [cloudId, vpcs, subnets, onOpenDetail, onOpenAssoc, onManageRoutes, onOpenSubnetsView]);
