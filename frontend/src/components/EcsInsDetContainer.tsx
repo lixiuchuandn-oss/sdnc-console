@@ -92,6 +92,27 @@ const EcsInsDetContainer: React.FC<Props> = ({
   const vmCesAvail: string[] = Array.isArray(vmCesAvailable) ? vmCesAvailable as string[] : [];
   const vmCesMetricsSafe: string[] = Array.isArray(vmCesMetrics) ? vmCesMetrics as string[] : [];
   const [secSetPortId, setSecSetPortId] = React.useState<string>('');
+  const monitorRefreshTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (monitorRefreshTimerRef.current != null) {
+      window.clearTimeout(monitorRefreshTimerRef.current);
+      monitorRefreshTimerRef.current = null;
+    }
+
+    if (!open || tabKey !== 'monitor' || vmCes || !onRefreshMonitor) return;
+
+    monitorRefreshTimerRef.current = window.setTimeout(() => {
+      onRefreshMonitor();
+    }, 300);
+
+    return () => {
+      if (monitorRefreshTimerRef.current != null) {
+        window.clearTimeout(monitorRefreshTimerRef.current);
+        monitorRefreshTimerRef.current = null;
+      }
+    };
+  }, [open, tabKey, vmCes, onRefreshMonitor]);
 
   const secPorts: any[] = Array.isArray(vmPorts) ? vmPorts as any[] : [];
 
@@ -118,7 +139,6 @@ const EcsInsDetContainer: React.FC<Props> = ({
       styles={{ content: { height: '90vh' }, body: { paddingTop: 12, height: 'calc(80vh - 64px)', overflowY: 'auto' } }}
       title={`${titlePrefix ?? '实例详情'} · ${vmDetail?.name || vmDetail?.InstanceName || vmDetail?.id || vmDetail?.InstanceId || '-'}`}
     >
-      {(() => { if (open && tabKey === 'monitor' && !vmCes && onRefreshMonitor) { setTimeout(() => { onRefreshMonitor(); }, 300); } return null; })()}
       <div style={{ marginBottom: 12 }}>
         {overviewNode ? overviewNode : (
           <Alert

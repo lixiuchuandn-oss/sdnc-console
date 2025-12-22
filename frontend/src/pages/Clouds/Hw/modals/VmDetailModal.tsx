@@ -39,6 +39,28 @@ type Props = {
 };
 
 const VmDetailModal: React.FC<Props> = ({ open, cloudId, vmDetail, vpcs, subnets, secGroups, eips, vmEnis, vmPorts, disks, snapshots, tabKey, onChangeTab, onRefreshAll, onCloseModal, onOpenEipManage, onSetVmPorts, onSetEips, onSetVmDetail, onRefreshMonitor, vmCes, vmCesAvailable, vmMonitorError, vmCesError, vmCesRange, vmCesPeriod, vmCesFilter, vmCesMetrics, setVmCesRange, setVmCesPeriod, setVmCesFilter, setVmCesMetrics, onOpenDetail }) => {
+  const monitorRefreshTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (monitorRefreshTimerRef.current != null) {
+      window.clearTimeout(monitorRefreshTimerRef.current);
+      monitorRefreshTimerRef.current = null;
+    }
+
+    if (!open || tabKey !== 'monitor' || vmCes) return;
+
+    monitorRefreshTimerRef.current = window.setTimeout(() => {
+      onRefreshMonitor();
+    }, 300);
+
+    return () => {
+      if (monitorRefreshTimerRef.current != null) {
+        window.clearTimeout(monitorRefreshTimerRef.current);
+        monitorRefreshTimerRef.current = null;
+      }
+    };
+  }, [open, tabKey, vmCes, onRefreshMonitor]);
+
   return (
     <Modal
       open={open}
@@ -50,7 +72,6 @@ const VmDetailModal: React.FC<Props> = ({ open, cloudId, vmDetail, vpcs, subnets
       styles={{ content: { height: '80vh' }, body: { padding: 12, height: 'calc(80vh - 64px)', overflowY: 'auto' } }}
       title={`实例详情 · ${vmDetail?.name || vmDetail?.InstanceName || vmDetail?.id || vmDetail?.InstanceId || '-'}`}
     >
-      {(() => { if (open && tabKey==='monitor' && !vmCes) { setTimeout(()=>{ onRefreshMonitor(); }, 300); } return null; })()}
       <EcsDetailHw
         cloudId={cloudId}
         vmDetail={vmDetail}

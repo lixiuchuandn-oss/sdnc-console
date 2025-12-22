@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { App, Table } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { App, Table, Spin } from 'antd';
 import { DeploymentUnitOutlined, GlobalOutlined, HddOutlined, SafetyOutlined, LineChartOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderEips, fetchCloudProviderSecurityGroups, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchAliyunEcsMetrics, fetchAliyunEcsHistoryEvents } from '../../../../services/api';
 import ResourceDetailContainer from '../../../../components/ResourceDetailContainer';
@@ -22,7 +22,7 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
   const { message } = App.useApp();
   const navigate = useNavigate();
   const [clouds, setClouds] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [instance, setInstance] = useState<any | null>(null);
   const [enis, setEnis] = useState<any[]>([]);
@@ -136,7 +136,7 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
       setSnapshots(Array.isArray(list) ? list : []);
     } catch {}
   };
-  const loadMetrics = async () => {
+  const loadMetrics = useCallback(async () => {
     if (!cloudId || !instanceId) return;
     try {
       const json: any = await fetchAliyunEcsMetrics(cloudId, instanceId, { metric: 'CPUUtilization', period: 60 });
@@ -145,7 +145,7 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
       try { arr = typeof dpRaw === 'string' ? JSON.parse(dpRaw || '[]') : (Array.isArray(dpRaw) ? dpRaw : []); } catch {}
       setMetrics(arr);
     } catch {}
-  };
+  }, [cloudId, instanceId]);
   const loadAuditEvents = async () => {
     if (!cloudId || !instanceId) return;
     try {
@@ -155,8 +155,15 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
     } catch {}
   };
 
+  useEffect(() => {
+    if (!open) {
+      setLoading(true);
+      setInstance(null);
+    }
+  }, [open]);
+
   useEffect(() => { if (open) loadInstance(); }, [cloudId, instanceId, provider, open]);
-  useEffect(() => { if (open) { loadEnis(); loadEips(); loadSecGroups(); loadDisks(); loadSnapshots(); loadMetrics(); loadAuditEvents(); } }, [cloudId, instanceId, open]);
+  useEffect(() => { if (open) { loadEnis(); loadEips(); loadSecGroups(); loadDisks(); loadSnapshots(); loadMetrics(); loadAuditEvents(); } }, [cloudId, instanceId, open, loadMetrics]);
 
   const prefixText = useMemo(() => {
     const cloud = clouds.find((c:any)=> c.id === cloudId);
@@ -170,6 +177,7 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
   return (
     <ResourceDetailContainer
       open={open}
+      loading={loading}
       cloudId={cloudId}
       vmDetail={instance}
       vpcs={[]}
@@ -267,7 +275,8 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
             count: snapCount,
             children: (
               <Table
-                size="small"
+                size="middle"
+                bordered
                 rowKey={(r:any)=> r?.id}
                 columns={[
                   { title: '快照名称', dataIndex: 'name', key: 'name' },
@@ -286,7 +295,8 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
             count: sgCount,
             children: (
               <Table
-                size="small"
+                size="middle"
+                bordered
                 rowKey={(r:any)=> `${r.id}`}
                 columns={[
                   { title: '安全组ID', dataIndex: 'id', key: 'id' },
@@ -301,7 +311,7 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
             key: 'monitor',
             labelMeta: monMeta,
             count: countMonitor,
-            children: (<MonitorSectionAliyun cloudId={cloudId} instance={instance} metrics={metrics} onRefresh={async ()=> { await loadMetrics(); }} />)
+            children: (<MonitorSectionAliyun cloudId={cloudId} instance={instance} metrics={metrics} onRefresh={loadMetrics} />)
           },
           {
             key: 'audit',

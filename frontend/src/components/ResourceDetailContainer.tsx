@@ -1,7 +1,8 @@
 import React from 'react';
-import { App, Modal, Alert, Tabs, theme } from 'antd';
+import { Modal, Alert, Tabs, Spin } from 'antd';
 type Props = {
   open: boolean;
+  loading?: boolean;
   cloudId: string;
   vmDetail: any;
   vpcs?: any[];
@@ -44,6 +45,7 @@ type Props = {
 const ResourceDetailContainer: React.FC<Props> = ({
   // props
   open,
+  loading,
   cloudId,
   vmDetail,
   vpcs,
@@ -83,8 +85,29 @@ const ResourceDetailContainer: React.FC<Props> = ({
   tabsItems,
   tabBarExtraContentNode,
 }) => {
-  const { message } = App.useApp();
-  const { token } = theme.useToken();
+  const monitorRefreshTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (monitorRefreshTimerRef.current != null) {
+      window.clearTimeout(monitorRefreshTimerRef.current);
+      monitorRefreshTimerRef.current = null;
+    }
+
+    if (!open || tabKey !== 'monitor' || vmCes || !onRefreshMonitor) {
+      return;
+    }
+
+    monitorRefreshTimerRef.current = window.setTimeout(() => {
+      onRefreshMonitor();
+    }, 300);
+
+    return () => {
+      if (monitorRefreshTimerRef.current != null) {
+        window.clearTimeout(monitorRefreshTimerRef.current);
+        monitorRefreshTimerRef.current = null;
+      }
+    };
+  }, [open, tabKey, vmCes, onRefreshMonitor]);
   const finalItems = Array.isArray(tabsItems) ? (tabsItems as any[]).map((it: any) => {
     const meta = it?.labelMeta || it?.meta;
     const cnt = it?.count;
@@ -93,16 +116,16 @@ const ResourceDetailContainer: React.FC<Props> = ({
       ? React.cloneElement(meta.icon as any, {
           style: {
             ...((meta.icon as any).props?.style || {}),
-            marginRight: 8,
-            color: isActive ? token.colorPrimary : token.colorTextSecondary,
+            marginRight: 4,
+            color: 'inherit',
           },
         })
       : meta?.icon;
     const label = meta ? (
       <span style={{ display: 'flex', alignItems: 'center' }}>
         {icon}
-        {meta.title}
-        {(typeof cnt === 'number' && cnt > 0) ? (<span style={{ marginLeft: 8, color: '#999' }}>{cnt}</span>) : null}
+        <span>{meta.title}</span>
+        {(typeof cnt === 'number' && cnt > 0) ? (<span style={{ marginLeft: 4, fontSize: 12, color: 'inherit', opacity: isActive ? 1 : 0.75 }}>{cnt}</span>) : null}
       </span>
     ) : it?.label;
     return { ...it, label };
@@ -118,18 +141,25 @@ const ResourceDetailContainer: React.FC<Props> = ({
       styles={{ content: { height: '90vh' }, body: { paddingTop: 12, height: 'calc(80vh - 64px)', overflowY: 'auto' } }}
       title={`${titlePrefix ?? '详情'} · ${vmDetail?.name || vmDetail?.InstanceName || vmDetail?.id || vmDetail?.InstanceId || '-'}`}
     >
-      {(() => { if (open && tabKey === 'monitor' && !vmCes && onRefreshMonitor) { setTimeout(() => { onRefreshMonitor(); }, 300); } return null; })()}
-      <div style={{ marginBottom: 12 }}>
-        {overviewNode ? overviewNode : (
-          <Alert
-            type="info"
-            message="该资源暂未提供专属详情视图"
-            description="请返回列表或稍后再试"
-            showIcon
-          />
-        )}
-      </div>
-      <Tabs activeKey={tabKey} onChange={(k) => { onChangeTab(String(k)); }} tabBarExtraContent={tabBarExtraContentNode} items={finalItems} />
+      {loading ? (
+        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Spin size="large" />
+        </div>
+      ) : (
+        <>
+          <div style={{ marginBottom: 12 }}>
+            {overviewNode ? overviewNode : (
+              <Alert
+                type="info"
+                message="该资源暂未提供专属详情视图"
+                description="请返回列表或稍后再试"
+                showIcon
+              />
+            )}
+          </div>
+          <Tabs activeKey={tabKey} onChange={(k) => { onChangeTab(String(k)); }} tabBarExtraContent={tabBarExtraContentNode} items={finalItems} />
+        </>
+      )}
     </Modal>
   );
 };

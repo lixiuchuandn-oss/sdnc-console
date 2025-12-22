@@ -204,15 +204,24 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
             items={tabs.map(t => ({
               key: t.key,
               label: (
-                <Space size={4}>
-                  {t.icon}
-                  {t.label}
-                  {t.count !== undefined && (
-                    React.isValidElement(t.count)
-                      ? t.count
-                      : (Number(t.count) > 0 ? <span style={{ color: token.colorTextSecondary, fontSize: 12 }}>{t.count}</span> : null)
-                  )}
-                </Space>
+                (() => {
+                  const iconNode = React.isValidElement(t.icon)
+                    ? React.cloneElement(t.icon as any, {
+                        style: { ...((t.icon as any)?.props?.style || {}), color: 'inherit', marginRight: 4, display: 'inline-flex', alignItems: 'center', lineHeight: 1 },
+                      })
+                    : t.icon;
+                  return (
+                    <span style={{ display: 'flex', alignItems: 'center' }}>
+                      {iconNode}
+                      <span>{t.label}</span>
+                      {t.count !== undefined && (
+                        React.isValidElement(t.count)
+                          ? t.count
+                          : (Number(t.count) > 0 ? <span style={{ marginLeft: 4, color: 'inherit', fontSize: 12, opacity: 0.8 }}>{t.count}</span> : null)
+                      )}
+                    </span>
+                  );
+                })()
               ),
               children: t.children
             }))}

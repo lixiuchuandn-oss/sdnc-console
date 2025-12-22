@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Input, Divider, Typography, Row, Col, Card, Space, Tag, AutoComplete, Badge, App, Select } from 'antd';
+import { Layout, Menu, Button, Input, Divider, Typography, Row, Col, Card, Space, Tag, AutoComplete, Badge, App, Select, Dropdown } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
-  SlidersOutlined,ProjectOutlined,CodeOutlined,CloudOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, RightOutlined,
+  SlidersOutlined,ProjectOutlined,CodeOutlined,CloudOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, RightOutlined, CaretDownOutlined,
   ClusterOutlined, TeamOutlined, CodepenOutlined, DesktopOutlined, HddOutlined, GatewayOutlined,
   AppstoreAddOutlined, ApiOutlined, DatabaseOutlined, BellOutlined, RobotOutlined, EditOutlined, PlayCircleOutlined,
   BulbOutlined, CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled, SearchOutlined, PoweroffOutlined, ReloadOutlined
@@ -121,9 +121,60 @@ const AdminLayout: React.FC = () => {
         <Space size={8} style={{ height:'100%', alignItems:'center' }}>
           <span style={{ fontSize:18, color:'#fff' }}><span style={{ fontWeight:700 }}>Compute</span>.Tower</span>
         </Space>
-        <Button type="default" ghost size="small" style={{ marginLeft:8, height:28, padding:'0 10px' }} icon={<DesktopOutlined />} onClick={()=> window.open('/admin/clouds/console','_blank')}>
-          控制台
-        </Button>
+         <Dropdown
+             menu={{
+               items: visibleCenters.map((c: any) => ({
+                 key: c.key,
+                 label: (
+                  <Space>
+                    {c.icon}
+                    <span style={{ fontWeight: 500 }}>{c.label}</span>
+                  </Space>
+                ),
+                onClick: () => {
+                  const firstGroup = (c.items || [])[0];
+                  const firstPage = (firstGroup?.children || [])[0];
+                  if (firstPage?.key) {
+                    navigate(firstPage.key);
+                  }
+                },
+              })),
+              selectable: true,
+              selectedKeys: [visibleCenters.find(c => c.key === activeSidebarKey)?.key || ''],
+            }}
+            trigger={['click']}
+          >
+           <div
+              style={{
+                marginLeft: 16,
+                padding: '4px 12px',
+                background: 'transparent',
+                borderRadius: 0,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                border: 'none',
+                borderBottom: '1px solid rgba(255,255,255,0.6)',
+                transition: 'all 0.3s ease',
+                height: 32,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.9)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.6)';
+              }}
+            >
+              <span style={{ color: '#fff', fontSize: 16, display: 'flex', alignItems: 'center' }}>
+                {visibleCenters.find(c => c.key === activeSidebarKey)?.icon || <AppstoreOutlined />}
+              </span>
+              <span style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>
+                {visibleCenters.find(c => c.key === activeSidebarKey)?.label || '选择控制台'}
+              </span>
+              <CaretDownOutlined style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }} />
+            </div>
+          </Dropdown>
       </div>
       <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 20px' }}>
         <div
