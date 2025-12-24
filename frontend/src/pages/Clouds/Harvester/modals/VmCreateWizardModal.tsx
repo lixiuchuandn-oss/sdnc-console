@@ -210,7 +210,7 @@ const VmCreateWizardModal: React.FC = () => {
       footer={null}
       width={'65vw'}
       centered
-      bodyStyle={{ height: '75vh', maxHeight: '75vh', overflow: 'hidden', paddingTop: 12 }}
+      styles={{ body: { height: '75vh', maxHeight: '75vh', overflow: 'hidden', paddingTop: 12 } }}
       onCancel={() => navigate(-1)}
     >
       <Row gutter={[0, 0]} style={{ height: '100%' }}>

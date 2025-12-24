@@ -150,7 +150,7 @@ const VmReconfigureModal: React.FC<Props> = ({ open, cloudId, record, onClose, o
       okText="提交"
       destroyOnClose
       width={'60vw'}
-      bodyStyle={{ height: '60vh', maxHeight: '60vh', overflowY: 'auto' }}
+      styles={{ body: { height: '60vh', maxHeight: '60vh', overflowY: 'auto' } }}
     >
       <Tabs activeKey={tab} onChange={setTab} items={[
         { key:'inst', label:'实例配置', children:(

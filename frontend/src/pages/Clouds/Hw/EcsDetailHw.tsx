@@ -3,7 +3,7 @@ import { App, Button, Descriptions, Divider, Modal, Row, Col, Space, Table, Tabs
 import ReactECharts from 'echarts-for-react';
 import { DesktopOutlined, LineChartOutlined, NodeIndexOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DeleteOutlined, WindowsOutlined, CodeOutlined, SafetyCertificateOutlined, GlobalOutlined, CloudServerOutlined, HddOutlined, CopyOutlined, EyeOutlined, AuditOutlined } from '@ant-design/icons';
 import SecurityGroupRuleManageDrawer from './drawers/SecurityGroupRuleManageDrawer';
-import { statusTag, EllipsisText, collectIpv4FromAddresses, SubResourceCard } from './components/Common';
+import { statusTag, EllipsisText, collectIpv4FromAddresses } from './components/Common';
 import { startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl, fetchHuaweiPorts, fetchCloudProviderEips, fetchCloudProviderEcs, updateHuaweiPortSourceDestCheck, unbindHuaweiEip, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup, setHuaweiPortSecurityGroups, showCloudProviderSecurityGroup } from '../../../services/api';
 
 type EcsDetailHwProps = {
@@ -171,86 +171,46 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                   const addrsRaw = vmDetail?.addresses;
                   const addrItems: any[] = Array.isArray(addrsRaw) ? addrsRaw : Object.values(addrsRaw || {}).reduce((acc: any[], v: any) => acc.concat(Array.isArray(v) ? v : [v]), []);
                   const findMacForPort = (pid: string) => { const it = addrItems.find((a: any) => String(a?.['OS-EXT-IPS:port_id'] || '') === String(pid || '')); return it?.['OS-EXT-IPS-MAC:mac_addr'] || it?.mac || '-'; };
-                  const findSubnetName = (sid: string) => { const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(sid || '')); const name = sn?.name || sid || '-'; const cidr = sn?.cidr || sn?.CidrBlock || ''; return cidr ? `${name} (${cidr})` : name; };
-                  return list.length ? (
-                    <Row gutter={[12, 12]}>
-                      {list.map((ni: any) => {
-                        const portId = ni?.PortId || ni?.port_id || ni?.NetworkInterfaceId || ni?.id || '';
-                        const pri = (() => { const arr1 = Array.isArray(ni?.PrivateIpAddress?.IpAddress) ? ni.PrivateIpAddress.IpAddress : (Array.isArray(ni?.fixed_ips) ? ni.fixed_ips.map((x: any) => x?.ip_address).filter(Boolean) : (Array.isArray(ni?.ip_addresses) ? ni.ip_addresses : [])); if (arr1 && arr1.length) return arr1; const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const ips = Array.isArray(p?.fixed_ips) ? p.fixed_ips.map((x: any) => x?.ip_address).filter(Boolean) : []; return ips; })();
-                        const pub = (() => { const pid = portId; const list: any[] = Array.isArray(eips) ? eips : []; return list.filter((e: any) => String(e?.port_id || '') === String(pid || '')).map((e: any) => e?.public_ip_address || e?.publicip_address || e?.ip_address).filter(Boolean); })();
-                        const nicName = (() => { const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const nm = p?.name || ni?.NetworkInterfaceName || ni?.name; if (nm) return nm; const sid0 = ni?.VSwitchId || ni?.SubnetId || ni?.subnet_id || ''; const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(sid0 || '')); return sn?.name || ((ni?.primary === true) ? '主网卡' : '辅助网卡'); })();
-                        const subnetId = (() => { const s0 = ni?.VSwitchId || ni?.SubnetId || ni?.subnet_id || ''; if (s0) return s0; const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const sid = Array.isArray(p?.fixed_ips) ? (p.fixed_ips[0]?.subnet_id || '') : ''; return sid; })();
-                        const vpcId = ni?.VpcId || (() => { const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(subnetId || '')); return sn?.vpc_id || sn?.VpcId || ''; })();
-                        const sgs = (() => { const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const ids: string[] = Array.isArray(p?.security_groups) ? p.security_groups : []; return ids.map((gid: string) => { const g = (secGroups || []).find((x: any) => String(x?.id || x?.SecurityGroupId || '') === String(gid || '')); return g?.name || gid; }).filter(Boolean); })();
-                        const statusText = ni?.Status || ni?.status || '-';
-                        const mac = findMacForPort(portId);
-                        return (
-                          <Col span={12} key={portId || subnetId}>
-                            <SubResourceCard
-                              title={<span><NodeIndexOutlined style={{ color: '#1677ff', marginRight: 6 }} />{nicName || '-'}</span>}
-                              extra={<Tag color="blue">{statusText}</Tag>}
-                              actions={[
-                                <Button
-                                  type="link"
-                                  size="small"
-                                  icon={<SafetyCertificateOutlined />}
-                                  onClick={async () => {
-                                    try {
-                                      const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || ''));
-                                      const on = !!p?.port_security_enabled;
-                                      await updateHuaweiPortSourceDestCheck(cloudId, String(portId || ''), { enabled: !on });
-                                      const jsonPorts: any = await fetchHuaweiPorts(cloudId, { deviceId: String(vmDetail?.id || vmDetail?.InstanceId || '') });
-                                      const listPorts: any[] = jsonPorts?.data?.ports || jsonPorts?.ports || [];
-                                      onSetVmPorts(Array.isArray(listPorts) ? listPorts : []);
-                                      message.success(`安全检查已${on ? '禁用' : '启用'}`);
-                                    } catch (e: any) {
-                                      message.error(e?.message || '变更失败');
-                                    }
-                                  }}
-                                >
-                                  变更安全检查
-                                </Button>,
-                                <Button
-                                  type="link"
-                                  size="small"
-                                  icon={<GlobalOutlined />}
-                                  onClick={() => { onOpenEipManage(String(portId || '')); }}
-                                >
-                                  变更EIP
-                                </Button>
-                              ]}
-                            >
-                              <Row gutter={12}>
-                                <Col span={12}>
-                                  <Descriptions column={1} size="small">
-                                    <Descriptions.Item label="网卡ID" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>
-                                      {portId ? (
-                                        <Button type="link" size="small" onClick={async ()=>{ try { await navigator.clipboard.writeText(String(portId||'')); message.success('已复制网卡ID'); } catch(e:any){ message.error(e?.message || '复制失败'); } }}>
-                                          {portId}
-                                        </Button>
-                                      ) : '-'}
-                                    </Descriptions.Item>
-                                    <Descriptions.Item label="私有IP地址" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{pri && pri.length ? pri.join(', ') : '-'}</Descriptions.Item>
-                                    <Descriptions.Item label="弹性公网IP" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{pub && pub.length ? pub.join(', ') : '-'}</Descriptions.Item>
-                                    <Descriptions.Item label="MAC地址" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{mac || '-'}</Descriptions.Item>
-                                  </Descriptions>
-                                </Col>
-                                <Col span={12}>
-                                  <Descriptions column={1} size="small">
-                                    <Descriptions.Item label="VPC网络" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}><EllipsisText value={(() => { const v = (vpcs || []).find((x: any) => String(x?.id || x?.VpcId || '') === String(vpcId || '')); return v?.name || vpcId || '-'; })()} /></Descriptions.Item>
-                                    <Descriptions.Item label="子网信息" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{(() => { if (!subnetId) return '-'; const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(subnetId || '')); const nm = sn?.name || subnetId; const cidr = sn?.cidr || sn?.CidrBlock || ''; return (<span>{nm}{cidr ? ` (${cidr})` : ''}</span>); })()}</Descriptions.Item>
-                                    <Descriptions.Item label="安全组" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{sgs && sgs.length ? sgs.join('；') : '-'}</Descriptions.Item>
-                                    <Descriptions.Item label="源/目的检查" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{(() => { const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const on = !!p?.port_security_enabled; return on ? '启用' : '禁用'; })()}</Descriptions.Item>
-                                  </Descriptions>
-                                </Col>
-                              </Row>
-                            </SubResourceCard>
-                          </Col>
-                        );
-                      })}
-                    </Row>
-                  ) : (
-                    <div />
+                  const rows = list.map((ni: any) => {
+                    const portId = ni?.PortId || ni?.port_id || ni?.NetworkInterfaceId || ni?.id || '';
+                    const pri = (() => { const arr1 = Array.isArray(ni?.PrivateIpAddress?.IpAddress) ? ni.PrivateIpAddress.IpAddress : (Array.isArray(ni?.fixed_ips) ? ni.fixed_ips.map((x: any) => x?.ip_address).filter(Boolean) : (Array.isArray(ni?.ip_addresses) ? ni.ip_addresses : [])); if (arr1 && arr1.length) return arr1; const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const ips = Array.isArray(p?.fixed_ips) ? p.fixed_ips.map((x: any) => x?.ip_address).filter(Boolean) : []; return ips; })();
+                    const pub = (() => { const pid = portId; const list2: any[] = Array.isArray(eips) ? eips : []; return list2.filter((e: any) => String(e?.port_id || '') === String(pid || '')).map((e: any) => e?.public_ip_address || e?.publicip_address || e?.ip_address).filter(Boolean); })();
+                    const nicName = (() => { const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const nm = p?.name || ni?.NetworkInterfaceName || ni?.name; if (nm) return nm; const sid0 = ni?.VSwitchId || ni?.SubnetId || ni?.subnet_id || ''; const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(sid0 || '')); return sn?.name || ((ni?.primary === true) ? '主网卡' : '辅助网卡'); })();
+                    const subnetId = (() => { const s0 = ni?.VSwitchId || ni?.SubnetId || ni?.subnet_id || ''; if (s0) return s0; const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const sid = Array.isArray(p?.fixed_ips) ? (p.fixed_ips[0]?.subnet_id || '') : ''; return sid; })();
+                    const vpcId = ni?.VpcId || (() => { const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(subnetId || '')); return sn?.vpc_id || sn?.VpcId || ''; })();
+                    const sgs = (() => { const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); const ids: string[] = Array.isArray(p?.security_groups) ? p.security_groups : []; return ids.map((gid: string) => { const g = (secGroups || []).find((x: any) => String(x?.id || x?.SecurityGroupId || '') === String(gid || '')); return g?.name || gid; }).filter(Boolean); })();
+                    const statusText = ni?.Status || ni?.status || '-';
+                    const mac = findMacForPort(portId);
+                    const portSecOn = (() => { const p = (vmPorts || []).find((x: any) => String(x?.id || '') === String(portId || '')); return !!p?.port_security_enabled; })();
+                    const subnetName = (() => { if (!subnetId) return '-'; const sn = (subnets || []).find((s: any) => String(s?.id || s?.SubnetId || '') === String(subnetId || '')); const nm = sn?.name || subnetId; const cidr = sn?.cidr || sn?.CidrBlock || ''; return cidr ? `${nm} (${cidr})` : nm; })();
+                    const vpcName = (() => { const v = (vpcs || []).find((x: any) => String(x?.id || x?.VpcId || '') === String(vpcId || '')); return v?.name || vpcId || '-'; })();
+                    return { portId, nicName, pri, pub, mac, vpcName, subnetName, sgs, statusText, portSecOn };
+                  });
+                  return (
+                    <Table
+                      size="small"
+                      rowKey={(r: any) => r.portId || r.nicName}
+                      pagination={false}
+                      dataSource={rows}
+                      columns={[
+                        { title: '网卡名称', dataIndex: 'nicName', key: 'name' },
+                        { title: '网卡ID', dataIndex: 'portId', key: 'id', render: (id: string) => (id ? (<Button type="link" size="small" onClick={async ()=>{ try { await navigator.clipboard.writeText(String(id||'')); message.success('已复制网卡ID'); } catch(e:any){ message.error(e?.message || '复制失败'); } }}>{id}</Button>) : '-') },
+                        { title: '私有IP地址', dataIndex: 'pri', key: 'pri', render: (arr: string[]) => (arr && arr.length ? arr.join(', ') : '-') },
+                        { title: '弹性公网IP', dataIndex: 'pub', key: 'pub', render: (arr: string[]) => (arr && arr.length ? arr.join(', ') : '-') },
+                        { title: 'MAC地址', dataIndex: 'mac', key: 'mac' },
+                        { title: 'VPC网络', dataIndex: 'vpcName', key: 'vpc', render: (v: string) => (<EllipsisText value={v} />) },
+                        { title: '子网信息', dataIndex: 'subnetName', key: 'subnet' },
+                        { title: '安全组', dataIndex: 'sgs', key: 'sgs', render: (arr: string[]) => (arr && arr.length ? arr.join('；') : '-') },
+                        { title: '源/目的检查', dataIndex: 'portSecOn', key: 'sec', render: (on: boolean) => (on ? '启用' : '禁用') },
+                        { title: '状态', dataIndex: 'statusText', key: 'status', render: (s: string) => statusTag(s) },
+                        { title: '操作', key: 'actions', render: (_: any, r: any) => (
+                          <Space size={4}>
+                            <Button type="link" size="small" icon={<SafetyCertificateOutlined />} onClick={async () => { try { await updateHuaweiPortSourceDestCheck(cloudId, String(r.portId || ''), { enabled: !r.portSecOn }); const jsonPorts: any = await fetchHuaweiPorts(cloudId, { deviceId: String(vmDetail?.id || vmDetail?.InstanceId || '') }); const listPorts: any[] = jsonPorts?.data?.ports || jsonPorts?.ports || []; onSetVmPorts(Array.isArray(listPorts) ? listPorts : []); message.success(`安全检查已${r.portSecOn ? '禁用' : '启用'}`); } catch (e: any) { message.error(e?.message || '变更失败'); } }}>变更安全检查</Button>
+                            <Button type="link" size="small" icon={<GlobalOutlined />} onClick={() => { onOpenEipManage(String(r.portId || '')); }}>变更EIP</Button>
+                          </Space>
+                        ) },
+                      ] as any}
+                    />
                   );
                 })()}
               </div>
@@ -265,38 +225,24 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                   const vid = vmDetail?.id || vmDetail?.InstanceId || '';
                   const list:any[] = Array.isArray(disks) ? disks : [];
                   const myDisks = list.filter((d:any)=> { const atts:any[] = Array.isArray(d?.attachments) ? d.attachments : []; return atts.some((a:any)=> String(a?.server_id||a?.instance_id||'')===String(vid||'')); });
-                  return myDisks.length ? (
-                    <Row gutter={[12,12]}>
-                      {myDisks.map((d:any)=> {
-                        const name = d?.name || d?.Name || '-';
-                        const id = d?.id || '-';
-                        const size = d?.size != null ? `${d.size}GB` : (d?.Size != null ? `${d.Size}GB` : '-');
-                        const vtype = d?.volume_type || d?.VolumeType || '-';
-                        const statusText = d?.status || d?.Status || '-';
-                        const atts:any[] = Array.isArray(d?.attachments) ? d.attachments : [];
-                        const att = atts.find((a:any)=> String(a?.server_id||a?.instance_id||'')===String(vid||''));
-                        const device = att?.device || att?.Device || '-';
-                        return (
-                          <Col span={12} key={id}>
-                            <SubResourceCard title={<span><HddOutlined style={{ color: '#1677ff', marginRight: 6 }} />{name}</span>} extra={<Tag color="blue">{statusText}</Tag>} actions={[]}>
-                              <Descriptions column={2} size="small">
-                                <Descriptions.Item label="ID" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>
-                                  <Button type="link" size="small" onClick={async ()=>{ try { await navigator.clipboard.writeText(String(id||'')); message.success('已复制云盘ID'); } catch(e:any){ message.error(e?.message || '复制失败'); } }}>
-                                    <EllipsisText value={id} />
-                                  </Button>
-                                </Descriptions.Item>
-                                <Descriptions.Item label="容量" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{size}</Descriptions.Item>
-                                <Descriptions.Item label="类型" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{vtype}</Descriptions.Item>
-                                <Descriptions.Item label="挂载点" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{device}</Descriptions.Item>
-                                <Descriptions.Item label="可启动" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{(d?.bootable===true || String(d?.bootable||'').toLowerCase()==='true') ? '是' : '否'}</Descriptions.Item>
-                                <Descriptions.Item label="创建时间" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{d?.created_at || d?.CreationTime || '-'}</Descriptions.Item>
-                              </Descriptions>
-                            </SubResourceCard>
-                          </Col>
-                        );
-                      })}
-                    </Row>
-                  ) : (<Alert type="info" message="暂无云硬盘数据" />);
+                  return (
+                    <Table
+                      size="small"
+                      rowKey={(d:any)=> d?.id || d?.Name || ''}
+                      pagination={false}
+                      dataSource={myDisks}
+                      columns={[
+                        { title: '名称', dataIndex: 'name', key: 'name', render: (t:any, r:any)=> (r?.name || r?.Name || '-') },
+                        { title: 'ID', dataIndex: 'id', key: 'id', render: (id:any)=> (<Button type="link" size="small" onClick={async ()=>{ try { await navigator.clipboard.writeText(String(id||'')); message.success('已复制云盘ID'); } catch(e:any){ message.error(e?.message || '复制失败'); } }}><EllipsisText value={id} /></Button>) },
+                        { title: '容量', key: 'size', render: (_:any, r:any)=> (r?.size!=null ? `${r.size}GB` : (r?.Size!=null ? `${r.Size}GB` : '-')) },
+                        { title: '类型', key: 'type', render: (_:any, r:any)=> (r?.volume_type || r?.VolumeType || '-') },
+                        { title: '挂载点', key: 'device', render: (_:any, r:any)=> { const atts:any[] = Array.isArray(r?.attachments) ? r.attachments : []; const att = atts.find((a:any)=> String(a?.server_id||a?.instance_id||'')===String(vid||'')); return att?.device || att?.Device || '-'; } },
+                        { title: '状态', dataIndex: 'status', key: 'status', render: (s:string)=> statusTag(s || (s as any)) },
+                        { title: '可启动', key: 'bootable', render: (_:any, r:any)=> ((r?.bootable===true || String(r?.bootable||'').toLowerCase()==='true') ? '是' : '否') },
+                        { title: '创建时间', key: 'created_at', render: (_:any, r:any)=> (r?.created_at || r?.CreationTime || '-') },
+                      ] as any}
+                    />
+                  );
                 })()}
               </div>
             )
@@ -365,38 +311,30 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                   const ports:string[] = Array.isArray(vmDetail?.network_interfaces)? vmDetail!.network_interfaces.map((ni:any)=> ni?.port_id).filter(Boolean) : [];
                   const list:any[] = Array.isArray(eips)? eips : [];
                   const myEips = list.filter((r:any)=> { const ai=r?.associate_instance||{}; const rid=ai?.id||ai?.instance_id||''; const ridMatch = rid && (rid===iid || ports.includes(rid)); const portMatch = ports.includes(r?.port_id); return ridMatch || portMatch; });
-                  return myEips.length ? (
-                    <Row gutter={[12,12]}>
-                      {myEips.map((r:any)=> {
-                        const ip = r?.public_ip_address || r?.publicip_address || r?.ip_address || '-';
-                        const id = r?.id || r?.publicip_id || '-';
-                        const bw = r?.bandwidth; const name = (typeof bw==='object' ? bw?.name : r?.bandwidth_name) || '-'; const size = (typeof bw==='object' ? bw?.size : r?.bandwidth_size); const share = (typeof bw==='object' ? bw?.share_type : r?.share_type); const st = String(share||'').toUpperCase()==='PER' ? '独享' : (share ? '共享' : ''); const sizeTxt = (size!=null && size!=='') ? `${size}Mbps` : '-'; const bwText = `${name}（${sizeTxt}${st?` / ${st}`:''}）`;
-                        const ai=r?.associate_instance; let assocText = '-'; if (ai && typeof ai==='object') { const tp=String(ai?.type||'').toLowerCase(); const map:any={ port:'网卡', eni:'网卡', elb:'负载均衡', nat:'NAT网关' }; const label = map[tp] || (ai?.type || '资源'); assocText = ai?.id ? `${label} ${ai?.id}` : label; } else if (r?.port_id) { assocText = `网卡 ${r?.port_id}`; }
-                        const statusText = r?.status || '-';
-                        return (
-                          <Col span={12} key={id}>
-                            <SubResourceCard
-                              title={<span><GlobalOutlined style={{ color: '#1677ff', marginRight: 6 }} />{ip}</span>}
-                              extra={<Tag color="blue">{statusText}</Tag>}
-                              actions={[
-                                <Button type="link" size="small" danger onClick={async ()=>{ try { const eid = String(r?.id || r?.publicip_id || ''); if (!eid) return; await unbindHuaweiEip(cloudId, eid); const eipJson = await fetchCloudProviderEips(cloudId); const eipList: any[] = (eipJson?.data?.publicips) || (eipJson?.publicips) || (eipJson?.data?.publicIps) || (eipJson?.publicIps) || []; onSetEips(Array.isArray(eipList) ? eipList : []); const jsonPorts: any = await fetchHuaweiPorts(cloudId, { deviceId: String(vmDetail?.id || vmDetail?.InstanceId || '') }); const listPorts: any[] = jsonPorts?.data?.ports || jsonPorts?.ports || []; onSetVmPorts(Array.isArray(listPorts) ? listPorts : []); message.success('解绑成功'); } catch(e:any){ message.error(e?.message || '解绑失败'); } }}>解绑</Button>
-                              ]}
-                            >
-                              <Descriptions column={2} size="small">
-                                <Descriptions.Item label="ID" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>
-                                  <Button type="link" size="small" onClick={async ()=>{ try { await navigator.clipboard.writeText(String(id||'')); message.success('已复制EIP ID'); } catch(e:any){ message.error(e?.message || '复制失败'); } }}>
-                                    {id}
-                                  </Button>
-                                </Descriptions.Item>
-                                <Descriptions.Item label="带宽" labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{bwText}</Descriptions.Item>
-                                <Descriptions.Item label="绑定资源" span={2} labelStyle={{ paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>{assocText}</Descriptions.Item>
-                              </Descriptions>
-                            </SubResourceCard>
-                          </Col>
-                        );
-                      })}
-                    </Row>
-                  ) : (<Alert type="info" message="暂无弹性公网IP数据" />);
+                  const rows = myEips.map((r:any)=> {
+                    const ip = r?.public_ip_address || r?.publicip_address || r?.ip_address || '-';
+                    const id = r?.id || r?.publicip_id || '-';
+                    const bw = r?.bandwidth; const name = (typeof bw==='object' ? bw?.name : r?.bandwidth_name) || '-'; const size = (typeof bw==='object' ? bw?.size : r?.bandwidth_size); const share = (typeof bw==='object' ? bw?.share_type : r?.share_type); const st = String(share||'').toUpperCase()==='PER' ? '独享' : (share ? '共享' : ''); const sizeTxt = (size!=null && size!=='') ? `${size}Mbps` : '-'; const bwText = `${name}（${sizeTxt}${st?` / ${st}`:''}）`;
+                    const ai=r?.associate_instance; let assocText = '-'; if (ai && typeof ai==='object') { const tp=String(ai?.type||'').toLowerCase(); const map:any={ port:'网卡', eni:'网卡', elb:'负载均衡', nat:'NAT网关' }; const label = map[tp] || (ai?.type || '资源'); assocText = ai?.id ? `${label} ${ai?.id}` : label; } else if (r?.port_id) { assocText = `网卡 ${r?.port_id}`; }
+                    const statusText = r?.status || '-';
+                    return { ip, id, bwText, assocText, statusText, raw: r };
+                  });
+                  return (
+                    <Table
+                      size="small"
+                      rowKey={(r:any)=> r.id || r.ip}
+                      pagination={false}
+                      dataSource={rows}
+                      columns={[
+                        { title: '公网IP', dataIndex: 'ip', key: 'ip' },
+                        { title: 'ID', dataIndex: 'id', key: 'id', render: (id:string)=> (<Button type="link" size="small" onClick={async ()=>{ try { await navigator.clipboard.writeText(String(id||'')); message.success('已复制EIP ID'); } catch(e:any){ message.error(e?.message || '复制失败'); } }}>{id}</Button>) },
+                        { title: '带宽', dataIndex: 'bwText', key: 'bw' },
+                        { title: '绑定资源', dataIndex: 'assocText', key: 'assoc' },
+                        { title: '状态', dataIndex: 'statusText', key: 'status', render: (s:string)=> statusTag(s) },
+                        { title: '操作', key: 'actions', render: (_:any, r:any)=> (<Button type="link" size="small" danger onClick={async ()=>{ try { const eid = String(r?.id || ''); if (!eid) return; await unbindHuaweiEip(cloudId, eid); const eipJson = await fetchCloudProviderEips(cloudId); const eipList: any[] = (eipJson?.data?.publicips) || (eipJson?.publicips) || (eipJson?.data?.publicIps) || (eipJson?.publicIps) || []; onSetEips(Array.isArray(eipList) ? eipList : []); const jsonPorts: any = await fetchHuaweiPorts(cloudId, { deviceId: String(vmDetail?.id || vmDetail?.InstanceId || '') }); const listPorts: any[] = jsonPorts?.data?.ports || jsonPorts?.ports || []; onSetVmPorts(Array.isArray(listPorts) ? listPorts : []); message.success('解绑成功'); } catch(e:any){ message.error(e?.message || '解绑失败'); } }}>解绑</Button>) },
+                      ] as any}
+                    />
+                  );
                 })()}
               </div>
             )

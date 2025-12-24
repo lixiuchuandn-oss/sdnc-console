@@ -17,6 +17,12 @@ import SnapshotSectionAliyun, { Icon as SnapshotIcon, Label as SnapshotLabel } f
 import { statusTag, collectIpv4FromAddresses } from '../Hw/components/Common';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots } from '../../../services/api';
 import EcsInsDetSection from './sections/EcsInsDetSection';
+import SecurityGroupDetailModalAliyun from './modals/SecurityGroupDetailModalAliyun';
+import RouteTableCreateModalAliyun from './modals/RouteTableCreateModalAliyun';
+import RouteTableAssociateModalAliyun from './modals/RouteTableAssociateModalAliyun';
+import RouteEntryManageDrawerAliyun from './drawers/RouteEntryManageDrawerAliyun';
+import RouteEntryCreateDrawerAliyun from './drawers/RouteEntryCreateDrawerAliyun';
+import RouteEntryEditDrawerAliyun from './drawers/RouteEntryEditDrawerAliyun';
 
 type CloudDetailAliyunProps = {
   cloudId: string;
@@ -40,12 +46,24 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
 
   const [vmDetailOpen, setVmDetailOpen] = useState<boolean>(false);
   const [vmDetail, setVmDetail] = useState<any | null>(null);
+  const [sgDetailOpen, setSgDetailOpen] = useState<boolean>(false);
+  const [sgDetailData, setSgDetailData] = useState<any | null>(null);
+  const [sgDetailTab, setSgDetailTab] = useState<string | undefined>(undefined);
   const [showLog, setShowLog] = useState<boolean>(false);
   const [rawEcs, setRawEcs] = useState<any | null>(null);
   const [rawVpcs, setRawVpcs] = useState<any | null>(null);
   const [rawVSwitches, setRawVSwitches] = useState<any | null>(null);
   const [rawSecGroups, setRawSecGroups] = useState<any | null>(null);
   const [rawEips, setRawEips] = useState<any | null>(null);
+  const [rtCreateOpen, setRtCreateOpen] = useState<boolean>(false);
+  const [rtAssocOpen, setRtAssocOpen] = useState<boolean>(false);
+  const [rtAssocTarget, setRtAssocTarget] = useState<any | null>(null);
+  const [reManageOpen, setReManageOpen] = useState<boolean>(false);
+  const [reCreateOpen, setReCreateOpen] = useState<boolean>(false);
+  const [reEditOpen, setReEditOpen] = useState<boolean>(false);
+  const [reEditTarget, setReEditTarget] = useState<any | null>(null);
+  const [curRtTarget, setCurRtTarget] = useState<any | null>(null);
+  const [curRtEntries, setCurRtEntries] = useState<any[]>([]);
 
   const loadAll = useCallback(async () => {
     setError('');
@@ -80,7 +98,13 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
       const diskList: any[] = (diskJson?.data?.Disks?.Disk) || (diskJson?.disks) || [];
       const slbList: any[] = (slbJson?.LoadBalancers?.LoadBalancer) || (slbJson?.data?.loadbalancers) || (slbJson?.loadbalancers) || [];
       const natList: any[] = (natJson?.NatGateways?.NatGateway) || (natJson?.data?.nat_gateways) || (natJson?.nat_gateways) || [];
-      const rtList: any[] = (rtJson?.RouteTables?.RouteTable) || (rtJson?.data?.route_tables) || (rtJson?.route_tables) || (rtJson?.data?.routetables) || (rtJson?.routetables) || [];
+      const rtList: any[] =
+        (rtJson?.RouteTables?.RouteTable) ||
+        (rtJson?.data?.route_tables) ||
+        (rtJson?.route_tables) ||
+        (rtJson?.data?.routetables) ||
+        (rtJson?.routetables) ||
+        (Array.isArray(rtJson?.data) ? rtJson?.data : (Array.isArray(rtJson) ? rtJson : []));
       const snapList: any[] = (snapJson?.Snapshots?.Snapshot) || (snapJson?.data?.snapshots) || (snapJson?.snapshots) || [];
 
       setVpcs(Array.isArray(vpcList) ? vpcList : []);
@@ -241,8 +265,14 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
             <SecurityGroupSectionAliyun
               cloudId={cloudId}
               secGroups={secGroups}
+              vpcs={vpcs}
+              ecs={ecs}
               onSetSecGroups={(list)=> setSecGroups(list)}
-              onOpenDetail={(type, title, data)=> openDetail(type, title, data)}
+              onOpenDetail={(type, title, data, tab) => {
+                setSgDetailData(data);
+                setSgDetailTab(tab);
+                setSgDetailOpen(true);
+              }}
               showLog={showLog}
               raw={rawSecGroups}
             />
@@ -324,10 +354,14 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               subnets={vswitches}
               onSetRouteTables={(list) => setRouteTables(list)}
               onOpenDetail={(type, title, data) => openDetail(type, title, data)}
-              onOpenCreate={() => message.info('功能开发中')}
-              onOpenAssoc={() => message.info('功能开发中')}
-              onManageRoutes={() => message.info('功能开发中')}
-              onOpenSubnetsView={() => message.info('功能开发中')}
+              onOpenCreate={() => setRtCreateOpen(true)}
+              onOpenAssoc={(rt: any) => { setRtAssocTarget(rt); setRtAssocOpen(true); }}
+              onManageRoutes={(rt: any) => { setCurRtTarget(rt); setReManageOpen(true); setCurRtEntries([]); }}
+              onOpenSubnetsView={(rt: any) => {
+                const ids: string[] = Array.isArray(rt?.VSwitchIds?.VSwitchId) ? rt.VSwitchIds.VSwitchId : [];
+                const names = ids.map(id => (vswitches || []).find((s:any)=> String(s?.VSwitchId||s?.id||'')===String(id))?.VSwitchName || id);
+                Modal.info({ title: '关联子网', content: (<div style={{ maxHeight: 360, overflow: 'auto' }}><ul>{names.map((n,i)=> (<li key={i}>{n}</li>))}</ul></div>) });
+              }}
             />
           ),
         },
@@ -346,6 +380,58 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
       >
         {vmDetail && (<EcsInsDetSection cloudId={cloudId} instance={vmDetail} eips={eips} onRefreshAll={loadAll} />)}
       </Modal>
+
+      <SecurityGroupDetailModalAliyun
+        open={sgDetailOpen}
+        onCancel={() => { setSgDetailOpen(false); setSgDetailTab(undefined); }}
+        cloudId={cloudId}
+        securityGroup={sgDetailData}
+        ecs={ecs}
+        defaultTab={sgDetailTab}
+      />
+      <RouteTableCreateModalAliyun
+        open={rtCreateOpen}
+        cloudId={cloudId}
+        vpcs={vpcs}
+        onClose={() => setRtCreateOpen(false)}
+        onSuccess={(list)=> setRouteTables(list)}
+      />
+      <RouteTableAssociateModalAliyun
+        open={rtAssocOpen}
+        cloudId={cloudId}
+        target={rtAssocTarget}
+        subnets={vswitches}
+        onClose={() => { setRtAssocOpen(false); setRtAssocTarget(null); }}
+        onSuccess={(list)=> setRouteTables(list)}
+      />
+      <RouteEntryManageDrawerAliyun
+        open={reManageOpen}
+        cloudId={cloudId}
+        ecs={ecs}
+        routeTableTarget={curRtTarget}
+        entries={curRtEntries}
+        onClose={()=> { setReManageOpen(false); setCurRtTarget(null); setCurRtEntries([]); }}
+        onUpdated={(list)=> setCurRtEntries(list)}
+        onOpenCreate={()=> setReCreateOpen(true)}
+        onOpenEdit={(entry)=> { setReEditTarget(entry); setReEditOpen(true); }}
+      />
+      <RouteEntryCreateDrawerAliyun
+        open={reCreateOpen}
+        cloudId={cloudId}
+        ecs={ecs}
+        routeTableTarget={curRtTarget}
+        onClose={()=> setReCreateOpen(false)}
+        onUpdated={(list)=> setCurRtEntries(list)}
+      />
+      <RouteEntryEditDrawerAliyun
+        open={reEditOpen}
+        cloudId={cloudId}
+        ecs={ecs}
+        routeTableTarget={curRtTarget}
+        editTarget={reEditTarget}
+        onClose={()=> { setReEditOpen(false); setReEditTarget(null); }}
+        onUpdated={(list)=> setCurRtEntries(list)}
+      />
 
     </PageDetailContainer>
   );

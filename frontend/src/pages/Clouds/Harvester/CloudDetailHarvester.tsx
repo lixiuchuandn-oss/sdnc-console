@@ -110,7 +110,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
     try {
       const token = localStorage.getItem('token') || '';
       const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-      const es = new EventSource(url, { withCredentials: true } as any);
+      const es = new EventSource(url);
       es.addEventListener('vms', (ev: MessageEvent) => {
         try {
           const json = JSON.parse(String(ev.data || '{}'));

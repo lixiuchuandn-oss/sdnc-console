@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined, BranchesOutlined } from '@ant-design/icons';
+import { App, Button, Input, Space, Table } from 'antd';
+import { BranchesOutlined } from '@ant-design/icons';
 import { fetchCloudProviderRouteTables, deleteCloudProviderRouteTable } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type RouteTableSectionProps = {
@@ -78,22 +79,18 @@ const RouteTableSection: React.FC<RouteTableSectionProps> = ({ cloudId, routeTab
         )}
         right={(
           <>
-            <Dropdown
-              menu={{
-                items: [{ key: 'refresh', label: '刷新' }],
-                onClick: async ({ key }) => {
-                  if (key === 'refresh') {
-                    try {
-                      const json = await fetchCloudProviderRouteTables(cloudId);
-                      const rtList: any[] = (json?.data?.route_tables) || (json?.route_tables) || (json?.data?.routetables) || (json?.routetables) || [];
-                      onSetRouteTables(Array.isArray(rtList) ? rtList : []);
-                    } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                  }
+            <ResourceActionsDropdown
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }) => {
+                if (key === 'refresh') {
+                  try {
+                    const json = await fetchCloudProviderRouteTables(cloudId);
+                    const rtList: any[] = (json?.data?.route_tables) || (json?.route_tables) || (json?.data?.routetables) || (json?.routetables) || [];
+                    onSetRouteTables(Array.isArray(rtList) ? rtList : []);
+                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
                 }
               }}
-            >
-              <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-            </Dropdown>
+            />
           </>
         )}
       />

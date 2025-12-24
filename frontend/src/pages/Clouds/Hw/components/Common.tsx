@@ -101,6 +101,13 @@ export const collectIpv4FromAddresses = (addrs: any): { fixed: string[]; floatin
 };
 
 export const collectInstanceIpv4 = (addrs: any): string[] => {
+  if (Array.isArray(addrs) && addrs.every((x) => typeof x === 'string')) {
+    const ips = addrs.filter((x) => /\./.test(String(x || ''))).map((x) => String(x));
+    return Array.from(new Set(ips));
+  }
+  if (typeof addrs === 'string') {
+    return /\./.test(addrs) ? [addrs] : [];
+  }
   const nodes = flattenAddrs(addrs);
   const acc: string[] = [];
   for (const n of nodes) {

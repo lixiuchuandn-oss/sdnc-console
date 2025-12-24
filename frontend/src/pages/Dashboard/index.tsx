@@ -19,7 +19,7 @@ import {
   PlusOutlined,
   LinkOutlined,
   ReloadOutlined,
-  EllipsisOutlined,
+  CodeOutlined,
   QuestionCircleOutlined,
   RiseOutlined,
   FallOutlined,
@@ -372,7 +372,7 @@ const Dashboard: React.FC = () => {
         extra={
           <div className="card-actions">
             <Tooltip title="刷新数据"><ReloadOutlined onClick={loadData} /></Tooltip>
-            <Tooltip title="更多"><EllipsisOutlined /></Tooltip>
+            <Tooltip title="更多"><CodeOutlined /></Tooltip>
           </div>
         }
       >
@@ -762,7 +762,7 @@ const Dashboard: React.FC = () => {
               <div className="card-actions">
                 <Tag color="#1677ff">{timeRange==='24h'?'近24小时':'近7天'}</Tag>
                 <Tooltip title="刷新"><ReloadOutlined onClick={loadData} /></Tooltip>
-                <Tooltip title="更多"><EllipsisOutlined /></Tooltip>
+                <Tooltip title="更多"><CodeOutlined /></Tooltip>
               </div>
             }
           >
@@ -1169,7 +1169,7 @@ const Dashboard: React.FC = () => {
             title={renderCardTitle('快捷操作','常用任务与入口')}
             extra={
               <div className="card-actions">
-                <Tooltip title="更多"><EllipsisOutlined /></Tooltip>
+                <Tooltip title="更多"><CodeOutlined /></Tooltip>
               </div>
             }
           >

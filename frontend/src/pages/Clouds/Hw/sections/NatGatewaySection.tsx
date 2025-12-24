@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, SwapOutlined } from '@ant-design/icons';
+import { SwapOutlined } from '@ant-design/icons';
 import { fetchCloudProviderNatGateways } from '../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type NatGatewaySectionProps = {
@@ -77,7 +78,7 @@ const NatGatewaySection: React.FC<NatGatewaySectionProps> = ({ cloudId, natGatew
         )}
         right={(
           <>
-            <RowActionsButton
+            <ResourceActionsDropdown
               items={[{ key: 'refresh', label: '刷新' }]}
               onClick={async ({ key }: { key: string }) => {
                 if (key === 'refresh') {
@@ -87,11 +88,6 @@ const NatGatewaySection: React.FC<NatGatewaySectionProps> = ({ cloudId, natGatew
                     onSetNatGateways(Array.isArray(natList) ? natList : []);
                   } catch (e: any) { message.error(e?.message || '刷新失败'); }
                 }
-              }}
-              buttonProps={{
-                type: 'default',
-                icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
-                children: '更多'
               }}
             />
           </>

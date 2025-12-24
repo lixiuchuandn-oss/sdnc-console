@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal } from 'antd';
+import ResourceDetailContainer from '../../../../components/ResourceDetailContainer';
 import EcsDetailHw from '../EcsDetailHw';
 
 type Props = {
@@ -62,15 +62,40 @@ const VmDetailModal: React.FC<Props> = ({ open, cloudId, vmDetail, vpcs, subnets
   }, [open, tabKey, vmCes, onRefreshMonitor]);
 
   return (
-    <Modal
+    <ResourceDetailContainer
       open={open}
-      onCancel={onCloseModal}
-      width="80vw"
-      destroyOnHidden
-      footer={null}
-      centered
-      styles={{ content: { height: '80vh' }, body: { padding: 12, height: 'calc(80vh - 64px)', overflowY: 'auto' } }}
-      title={`实例详情 · ${vmDetail?.name || vmDetail?.InstanceName || vmDetail?.id || vmDetail?.InstanceId || '-'}`}
+      cloudId={cloudId}
+      vmDetail={vmDetail}
+      vpcs={vpcs}
+      subnets={subnets}
+      secGroups={secGroups}
+      eips={eips}
+      vmEnis={vmEnis}
+      vmPorts={vmPorts}
+      disks={disks}
+      snapshots={snapshots}
+      tabKey={tabKey}
+      onChangeTab={onChangeTab}
+      onRefreshAll={onRefreshAll}
+      onCloseModal={onCloseModal}
+      onOpenEipManage={onOpenEipManage}
+      onSetVmPorts={onSetVmPorts}
+      onSetEips={onSetEips}
+      onSetVmDetail={onSetVmDetail}
+      onRefreshMonitor={onRefreshMonitor}
+      vmCes={vmCes}
+      vmCesAvailable={vmCesAvailable}
+      vmMonitorError={vmMonitorError}
+      vmCesError={vmCesError}
+      vmCesRange={vmCesRange}
+      vmCesPeriod={vmCesPeriod}
+      vmCesFilter={vmCesFilter}
+      vmCesMetrics={vmCesMetrics}
+      setVmCesRange={setVmCesRange}
+      setVmCesPeriod={setVmCesPeriod}
+      setVmCesFilter={setVmCesFilter}
+      setVmCesMetrics={setVmCesMetrics}
+      titlePrefix="实例详情"
     >
       <EcsDetailHw
         cloudId={cloudId}
@@ -106,7 +131,7 @@ const VmDetailModal: React.FC<Props> = ({ open, cloudId, vmDetail, vpcs, subnets
         setVmCesMetrics={setVmCesMetrics}
         onOpenDetail={onOpenDetail}
       />
-    </Modal>
+    </ResourceDetailContainer>
   );
 };
 

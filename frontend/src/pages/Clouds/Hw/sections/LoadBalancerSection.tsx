@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined } from '@ant-design/icons';
+import { App, Button, Input, Select, Space, Table } from 'antd';
 import { DeploymentUnitOutlined } from '@ant-design/icons';
 import { fetchCloudProviderLoadBalancers } from '../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type LoadBalancerSectionProps = {
@@ -72,22 +72,18 @@ const LoadBalancerSection: React.FC<LoadBalancerSectionProps> = ({ cloudId, slbs
         )}
         right={(
           <>
-            <Dropdown
-              menu={{
-                items: [{ key: 'refresh', label: '刷新' }],
-                onClick: async ({ key }) => {
-                  if (key === 'refresh') {
-                    try {
-                      const json = await fetchCloudProviderLoadBalancers(cloudId).catch(() => null);
-                      const slbList: any[] = (json?.data?.loadbalancers) || (json?.loadbalancers) || [];
-                      onSetSlbs(Array.isArray(slbList) ? slbList : []);
-                    } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                  }
+            <ResourceActionsDropdown
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }) => {
+                if (key === 'refresh') {
+                  try {
+                    const json = await fetchCloudProviderLoadBalancers(cloudId).catch(() => null);
+                    const slbList: any[] = (json?.data?.loadbalancers) || (json?.loadbalancers) || [];
+                    onSetSlbs(Array.isArray(slbList) ? slbList : []);
+                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
                 }
               }}
-            >
-              <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-            </Dropdown>
+            />
           </>
         )}
       />

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, Space, Typography, theme, Button, Dropdown, Tooltip, Switch } from 'antd';
-import { EllipsisOutlined, MoreOutlined } from '@ant-design/icons';
+import { EllipsisOutlined } from '@ant-design/icons';
 import SharedToolbar from './SharedToolbar';
 import { AppstoreOutlined } from '@ant-design/icons';
 
@@ -199,7 +199,7 @@ export const RowActionsButton: React.FC<{ items: any[]; onClick?: (info: { key: 
         },
       }}
     >
-      <Button type="link" icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />} {...buttonProps} />
+      <Button type="link" icon={<EllipsisOutlined />} {...buttonProps} />
     </Dropdown>
   );
 };

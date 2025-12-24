@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Table, Space } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, ClusterOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchCloudProviderVpcs, deleteCloudProviderVpc } from '../../../../services/api';
 import { statusTag } from '../../Hw/components/Common';
 
@@ -173,10 +174,8 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
         toolbarLeft={(
           <Space size={8}>
             <Input placeholder="请输入关键词" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />
-            <span style={{ color:'rgba(0,0,0,0.45)' }}>状态</span>
-            <Select allowClear value={statusFilter} onChange={setStatusFilter} style={{ width: 160 }} options={[...Array.from(new Set((vpcs || []).map((r: any) => String(r?.Status || r?.status || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s }))]} />
-            <span style={{ color:'rgba(0,0,0,0.45)' }}>地域</span>
-            <Select allowClear value={regionFilter} onChange={setRegionFilter} style={{ width: 160 }} options={[...Array.from(new Set((vpcs || []).map((r: any) => String(r?.RegionId || r?.region || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s }))]} />
+            <Select placeholder="选择状态" allowClear value={statusFilter} onChange={setStatusFilter} style={{ width: 160 }} options={[...Array.from(new Set((vpcs || []).map((r: any) => String(r?.Status || r?.status || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s }))]} />
+            <Select placeholder="地域" allowClear value={regionFilter} onChange={setRegionFilter} style={{ width: 160 }} options={[...Array.from(new Set((vpcs || []).map((r: any) => String(r?.RegionId || r?.region || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s }))]} />
           </Space>
         )}
         toolbarRight={(

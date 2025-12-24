@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Table } from 'antd';
 import { MoreOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchCloudProviderVSwitches, deleteCloudProviderVSwitch } from '../../../../services/api';
 import { statusTag } from '../../Hw/components/Common';
 
@@ -82,7 +83,7 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
       toolbarRight={(
         <>
           {onOpenCreate && (<Button type="primary" onClick={onOpenCreate}>创建交换机</Button>)}
-          <RowActionsButton
+          <ResourceActionsDropdown
             items={[{ key: 'refresh', label: '刷新' }]}
             onClick={async ({ key }) => {
               if (key === 'refresh') {
@@ -92,11 +93,6 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
                   onSetVSwitches(Array.isArray(vswList) ? vswList : []);
                 } catch (e: any) { message.error(e?.message || '刷新失败'); }
               }
-            }}
-            buttonProps={{
-              type: 'default',
-              icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
-              children: '更多'
             }}
           />
         </>

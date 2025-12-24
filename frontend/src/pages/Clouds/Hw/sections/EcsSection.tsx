@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Modal, Select, Space, Table, Typography } from 'antd';
-import { MoreOutlined, ReloadOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { App, Button, Input, Modal, Select, Space, Table, Typography } from 'antd';
+import { CloudServerOutlined } from '@ant-design/icons';
 import { statusTag, collectIpv4FromAddresses } from '../components/Common';
 import { fetchAliyunEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type EcsSectionProps = {
@@ -155,16 +156,12 @@ const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onO
         )}
         right={(
           <>
-            <Dropdown
-              menu={{
-                items: [{ key: 'refresh', label: '刷新' }],
-                onClick: async ({ key }) => {
-                  if (key === 'refresh') { await onRefreshAll(); }
-                }
+            <ResourceActionsDropdown
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }) => {
+                if (key === 'refresh') { await onRefreshAll(); }
               }}
-            >
-              <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-            </Dropdown>
+            />
           </>
         )}
       />

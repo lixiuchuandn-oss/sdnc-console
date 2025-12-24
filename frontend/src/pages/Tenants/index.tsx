@@ -583,7 +583,7 @@ const TenantsPage: React.FC = () => {
             }
           }}
         >
-          <Button type="link" size="small" icon={<MoreOutlined />} />
+          <Button type="link" size="small" icon={<EllipsisOutlined />} />
         </Dropdown>
       ),
     },
@@ -672,7 +672,7 @@ const TenantsPage: React.FC = () => {
             }
           }}
         >
-          <Button type="link" size="small" icon={<MoreOutlined />} />
+          <Button type="link" size="small" icon={<EllipsisOutlined />} />
         </Dropdown>
       ),
     },
@@ -735,7 +735,7 @@ const TenantsPage: React.FC = () => {
             }
           }}
         >
-          <Button type="link" size="small" icon={<MoreOutlined />} />
+          <Button type="link" size="small" icon={<EllipsisOutlined />} />
         </Dropdown>
       ),
     }

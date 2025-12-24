@@ -4,7 +4,6 @@ import {
   message, Space, Tooltip, Typography, Table, Dropdown, Badge
 } from 'antd';
 import { 
-  MoreOutlined,
   UnorderedListOutlined,
   EllipsisOutlined,
   CloudUploadOutlined,
@@ -499,7 +498,7 @@ const Clouds: React.FC = () => {
         };
         return (
           <Dropdown menu={{ items, onClick: onMenuClick }} trigger={["click"]}>
-            <Button type="link" icon={<MoreOutlined />} />
+            <Button type="link" icon={<EllipsisOutlined />} />
           </Dropdown>
         );
       }

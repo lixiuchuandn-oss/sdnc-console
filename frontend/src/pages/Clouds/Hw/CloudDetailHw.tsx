@@ -139,7 +139,6 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [rtEntryTarget, setRtEntryTarget] = useState<any | null>(null);
   const [rtEntryList, setRtEntryList] = useState<any[]>([]);
 
-  const [rtEntryEditForm] = Form.useForm();
   const [rtEntryEditTarget, setRtEntryEditTarget] = useState<any | null>(null);
 
   const [vpcEditInitial, setVpcEditInitial] = useState<any>({});

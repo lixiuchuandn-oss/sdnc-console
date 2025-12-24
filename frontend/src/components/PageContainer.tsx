@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined } from '@ant-design/icons';
 
 export interface PageContainerProps {
   title?: React.ReactNode;
@@ -146,7 +146,7 @@ const PageContainer: React.FC<PageContainerProps> = ({
               })),
             }}
           >
-            <Button size={actionsSize} icon={<EllipsisOutlined />} />
+            <Button size={actionsSize} icon={<CodeOutlined />} />
           </Dropdown>
         )}
       </Space>

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Divider, Form, Input, Select, Space, Table, Dropdown, Modal, Alert, InputNumber, Tree, Row, Col, Tabs, Typography, Tooltip, Radio, Badge, App } from 'antd';
-import { DesktopOutlined, ReloadOutlined, MoreOutlined, GlobalOutlined, PlusOutlined, CloudUploadOutlined, CloudServerOutlined, ClusterOutlined, HddOutlined, DatabaseOutlined } from '@ant-design/icons';
+import { DesktopOutlined, ReloadOutlined, EllipsisOutlined, GlobalOutlined, PlusOutlined, CloudUploadOutlined, CloudServerOutlined, ClusterOutlined, HddOutlined, DatabaseOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderVpcs, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderEnis, fetchAllInstances, fetchInventoryInstancesByCloud, refreshInventoryInstances, refreshInventoryInstancesSlow, fetchAliyunEcsVncUrl } from '../../services/api';
+import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderVpcs, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderEnis, fetchAllInstances, fetchInventoryInstancesByCloud, refreshInventoryInstances, refreshInventoryInstancesSlow, fetchAliyunEcsVncUrl } from '../../services/api';
 import '../common/filters.css';
 import './CloudConsole.css';
 
@@ -188,7 +188,7 @@ const CloudConsolePage: React.FC = () => {
     if (!cid || cid === 'all') return;
     if (!(pv.includes('harvester') || pv.includes('cloudmap') || pv.includes('aliyun') || pv.includes('huaweicloud'))) return;
     try {
-      const url = `/api/clouds/${encodeURIComponent(cid)}/resources/ecs/stream${(() => { const t = localStorage.getItem('token'); return t ? `?token=${encodeURIComponent(t)}` : ''; })()}`;
+      const url = `${API_BASE_URL}/api/clouds/${encodeURIComponent(cid)}/resources/ecs/stream${(() => { const t = localStorage.getItem('token'); return t ? `?token=${encodeURIComponent(t)}` : ''; })()}`;
       const es = new EventSource(url);
       ecsEventSourceRef.current = es;
       es.addEventListener('vms', (ev: MessageEvent) => {
@@ -621,7 +621,7 @@ const CloudConsolePage: React.FC = () => {
           }}}
           trigger={["click"]}
         >
-          <Button type="link" icon={<MoreOutlined />} />
+          <Button type="link" icon={<EllipsisOutlined />} />
         </Dropdown>
       );
     } },
@@ -1048,7 +1048,7 @@ const CloudConsolePage: React.FC = () => {
                               } }}
                               trigger={["click"]}
                             >
-                              <Button type="link" icon={<MoreOutlined />} />
+                              <Button type="link" icon={<EllipsisOutlined />} />
                             </Dropdown>
                           );
                         } },

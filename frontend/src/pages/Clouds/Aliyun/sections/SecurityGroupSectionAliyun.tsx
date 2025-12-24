@@ -1,14 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Table, Modal, Space, Typography, Tag, Select } from 'antd';
-import { ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons';
-import { fetchCloudProviderSecurityGroups, deleteCloudProviderSecurityGroup } from '../../../../services/api';
+import { ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { fetchCloudProviderSecurityGroups, deleteCloudProviderSecurityGroup } from '../../../../services/securityGroups';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import SecurityGroupCreateModalAliyun from '../modals/SecurityGroupCreateModalAliyun';
+import SecurityGroupUpdateModalAliyun from '../modals/SecurityGroupUpdateModalAliyun';
 
 type Props = {
   cloudId: string;
   secGroups: any[];
+  vpcs: any[];
+  ecs?: any[];
   onSetSecGroups: (list: any[]) => void;
-  onOpenDetail: (type: string, title: string, data: any) => void;
+  onOpenDetail: (type: string, title: string, data: any, tab?: string) => void;
   onOpenCreate?: () => void;
   showLog?: boolean;
   raw?: any;
@@ -19,12 +24,15 @@ const securityGroupTypeMap: Record<string, string> = {
   enterprise: '企业级安全组',
 };
 
-const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSetSecGroups, onOpenDetail, showLog, raw }) => {
+const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs, ecs, onSetSecGroups, onOpenDetail, showLog, raw }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const [vpcFilter, setVpcFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
+  const [createModalOpen, setCreateModalOpen] = useState<boolean>(false);
+  const [updateModalOpen, setUpdateModalOpen] = useState<boolean>(false);
+  const [updateData, setUpdateData] = useState<any>(null);
 
   const filtered = useMemo(() => {
     const kn = keyword.trim().toLowerCase();
@@ -63,7 +71,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSet
 
   const columns = useMemo(() => [
     { 
-      title: '安全组信息', 
+      title: '名称/ID', 
       key: 'info', 
       width: 240,
       sorter: (a: any, b: any) => {
@@ -85,6 +93,42 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSet
           </Space>
         );
       } 
+    },
+    {
+      title: '安全组规则',
+      key: 'rules',
+      width: 100,
+      render: (_: any, r: any) => {
+        const name = r?.SecurityGroupName || r?.name || '-';
+        const id = r?.SecurityGroupId || r?.id || '-';
+        return (
+          <Button type="link" size="small" onClick={() => onOpenDetail('security_group', `安全组 ${name}（${id}）`, r, 'ingress')}>
+            查看规则
+          </Button>
+        );
+      }
+    },
+    {
+      title: '关联实例',
+      key: 'instance_count',
+      width: 100,
+      render: (_: any, r: any) => {
+        if (!ecs) return '-';
+        const sgId = r?.SecurityGroupId || r?.id;
+        const count = ecs.filter((inst: any) => {
+          const sgIds = inst?.SecurityGroupIds?.SecurityGroupId;
+          return Array.isArray(sgIds) && sgIds.includes(sgId);
+        }).length;
+        
+        const name = r?.SecurityGroupName || r?.name || '-';
+        const id = r?.SecurityGroupId || r?.id || '-';
+        
+        return (
+          <Button type="link" size="small" onClick={() => onOpenDetail('security_group', `安全组 ${name}（${id}）`, r, 'instances')}>
+            {count}
+          </Button>
+        );
+      }
     },
     { 
       title: '类型', 
@@ -138,6 +182,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSet
       render: (_: any, r: any) => {
         const items = [
           { key: 'detail', label: '详情' },
+          { key: 'edit', label: '编辑' },
           { key: 'del', label: '删除', danger: true },
         ];
         return (
@@ -148,6 +193,11 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSet
                 const name = r?.SecurityGroupName || r?.name || '-';
                 const id = r?.SecurityGroupId || r?.id || '-';
                 onOpenDetail('security_group', `安全组 ${name}（${id}）`, r);
+                return;
+              }
+              if (key === 'edit') {
+                setUpdateData(r);
+                setUpdateModalOpen(true);
                 return;
               }
               if (key === 'del') {
@@ -175,7 +225,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSet
         );
       } 
     },
-  ], []);
+  ], [cloudId, ecs]);
 
   const vpcOptions = useMemo(() => {
     const all = new Set<string>();
@@ -225,6 +275,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSet
       )}
       toolbarRight={(
         <Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>新建</Button>
           <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading} />
         </Space>
       )}
@@ -243,6 +294,32 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, onSet
           <pre style={{ background: '#f7f7f7', padding: 12, borderRadius: 8, maxHeight: 300, overflow: 'auto' }}>{JSON.stringify(raw, null, 2)}</pre>
         </div>
       )}
+
+      <SecurityGroupCreateModalAliyun
+        open={createModalOpen}
+        onCancel={() => setCreateModalOpen(false)}
+        onOk={() => {
+          setCreateModalOpen(false);
+          refresh();
+        }}
+        cloudId={cloudId}
+        vpcs={vpcs}
+      />
+
+      <SecurityGroupUpdateModalAliyun
+        open={updateModalOpen}
+        onCancel={() => {
+          setUpdateModalOpen(false);
+          setUpdateData(null);
+        }}
+        onOk={() => {
+          setUpdateModalOpen(false);
+          setUpdateData(null);
+          refresh();
+        }}
+        cloudId={cloudId}
+        securityGroup={updateData}
+      />
     </PageDetailSection>
   );
 };

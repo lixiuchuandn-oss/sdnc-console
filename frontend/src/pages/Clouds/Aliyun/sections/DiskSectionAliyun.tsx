@@ -2,6 +2,7 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } fr
 import { App, Button, Space, Table, Modal, Input, Select, Tag, Badge, Typography } from 'antd';
 import { ReloadOutlined, HddOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchCloudProviderDisks } from '../../../../services/api';
 
 type Props = {
@@ -377,6 +378,9 @@ const DiskSectionAliyun: React.FC<Props> = ({ cloudId, instance, disks, onSetDis
       )}
     >
       <Table
+        size="small"
+        bordered={false}
+        tableLayout="auto"
         loading={loading}
         rowKey={(r: any, idx: number | undefined) => String(getDiskId(r) || idx || 0)}
         columns={columns as any}

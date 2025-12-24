@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { Breadcrumb, Card, Space, Typography, theme, Tooltip, Button, Dropdown, Collapse, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, UnorderedListOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 
 export interface PageDetailContainerProps {
   title?: React.ReactNode;
@@ -154,7 +154,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
                   <Dropdown
                     menu={{ items: moreMenuItems, onClick: ({ key }) => onMoreMenuClick && onMoreMenuClick({ key }) }}
                   >
-                    <Button icon={moreIcon || <UnorderedListOutlined />} />
+                    <Button icon={moreIcon || <CodeOutlined />} />
                   </Dropdown>
                 )}
               </>
@@ -182,15 +182,14 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
              ghost
              bordered={false}
              defaultActiveKey={defaultOverviewCollapsed ? [] : ['overview']}
-           >
-             <Collapse.Panel
-               header={subtitle || <span style={{ color: token.colorTextSecondary }}>概览</span>}
-               key="overview"
-               showArrow={false}
-             >
-               {overviewContent}
-             </Collapse.Panel>
-           </Collapse>
+             items={[
+               {
+                 key: 'overview',
+                 label: (subtitle || <span style={{ color: token.colorTextSecondary }}>概览</span>),
+                 children: overviewContent,
+               }
+             ]}
+           />
         </div>
       )}
 

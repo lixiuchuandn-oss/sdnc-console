@@ -3,6 +3,7 @@ import { App, Button, Dropdown, Input, Modal, Select, Table, Switch, Space, Typo
 import { MoreOutlined, ReloadOutlined, EllipsisOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { API_BASE_URL, fetchAliyunEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
 import PageDetailSection, { LiveSwitch, RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import EcsDetailModal from '../modals/EcsDetailModal';
 import { statusTag, collectIpv4FromAddresses } from '../../Hw/components/Common';
 
@@ -41,7 +42,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
       } else {
         const token = localStorage.getItem('token') || '';
         const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-        const es = new EventSource(url, { withCredentials: true } as any);
+        const es = new EventSource(url);
         esRef.current = es;
         es.addEventListener('vms', (ev: MessageEvent) => {
           try {
@@ -272,7 +273,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
           <Space size={8}>
             <Button icon={<ReloadOutlined />} onClick={async ()=> { await onRefreshAll(); }}>刷新</Button>
             <LiveSwitch checked={!!live} onChange={() => toggleLive()} />
-            <RowActionsButton
+            <ResourceActionsDropdown
               items={[
                 { key: 'batch_start', label: '批量启动' },
                 { key: 'batch_stop', label: '批量停止' },
@@ -295,7 +296,6 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
                   await onRefreshAll();
                 } catch(e:any){ message.error(e?.message || '批量操作失败'); }
               }}
-              buttonProps={{ icon: <EllipsisOutlined />, type: 'default' }}
             />
           </Space>
         )}

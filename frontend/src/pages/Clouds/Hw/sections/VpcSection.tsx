@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Space, Table, Tag } from 'antd';
-import { CheckOutlined, CloseOutlined, EditOutlined, MoreOutlined, ClusterOutlined } from '@ant-design/icons';
+import { App, Button, Input, Select, Space, Table, Tag } from 'antd';
+import { CheckOutlined, CloseOutlined, EditOutlined, ClusterOutlined } from '@ant-design/icons';
 import { fetchCloudProviderVpcs, updateHuaweiCloudVpc, deleteCloudProviderVpc } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type VpcSectionProps = {
@@ -170,22 +171,18 @@ const VpcSection: React.FC<VpcSectionProps> = ({ cloudId, vpcs, onSetVpcs, onOpe
         right={(
           <>
             <Button type="primary" onClick={onOpenCreate}>创建VPC</Button>
-            <Dropdown
-              menu={{
-                items: [{ key: 'refresh', label: '刷新' }],
-                onClick: async ({ key }) => {
-                  if (key === 'refresh') {
-                    try {
-                      const json = await fetchCloudProviderVpcs(cloudId);
-                      const vpcList: any[] = (json?.data?.vpcs) || (json?.vpcs) || [];
-                      onSetVpcs(Array.isArray(vpcList) ? vpcList : []);
-                    } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                  }
+            <ResourceActionsDropdown
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }) => {
+                if (key === 'refresh') {
+                  try {
+                    const json = await fetchCloudProviderVpcs(cloudId);
+                    const vpcList: any[] = (json?.data?.vpcs) || (json?.vpcs) || [];
+                    onSetVpcs(Array.isArray(vpcList) ? vpcList : []);
+                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
                 }
               }}
-            >
-              <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-            </Dropdown>
+            />
           </>
         )}
       />

@@ -4,6 +4,7 @@ import { MoreOutlined, SwapOutlined } from '@ant-design/icons';
 import { fetchCloudProviderNatGateways } from '../../../../services/api';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 
 type NatGatewaySectionAliyunProps = {
   cloudId: string;
@@ -64,7 +65,7 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
         </Space>
       )}
       toolbarRight={(
-        <RowActionsButton
+        <ResourceActionsDropdown
           items={[{ key: 'refresh', label: '刷新' }]}
           onClick={async ({ key }) => {
             if (key === 'refresh') {
@@ -74,11 +75,6 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
                 onSetNatGateways(Array.isArray(natList) ? natList : []);
               } catch (e: any) { message.error(e?.message || '刷新失败'); }
             }
-          }}
-          buttonProps={{
-            type: 'default',
-            icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
-            children: '更多'
           }}
         />
       )}

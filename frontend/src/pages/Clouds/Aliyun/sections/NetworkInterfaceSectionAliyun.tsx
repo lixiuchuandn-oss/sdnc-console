@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Modal, Select, Space, Table, Tooltip, Form, Checkbox, InputNumber } from 'antd';
+import { App, Button, Input, Modal, Select, Space, Table, Tooltip, Form, Checkbox, InputNumber, Switch } from 'antd';
 import { ReloadOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
-import { associateAliyunEip, unassociateAliyunEip, createCloudProviderEni, attachCloudProviderEni, detachCloudProviderEni, fetchCloudProviderEnis } from '../../../../services/api';
+import { associateAliyunEip, unassociateAliyunEip, createCloudProviderEni, attachCloudProviderEni, detachCloudProviderEni, fetchCloudProviderEnis, updateCloudProviderEni } from '../../../../services/api';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import StdFormModal from '../../../../components/StdFormModal';
 
 type Props = {
@@ -17,13 +18,11 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
   const { message } = App.useApp();
   const iid = String(instance?.InstanceId || instance?.id || '');
   const eniList: any[] = useMemo(() => {
+    // 优先使用从 API 实时获取并过滤后的 enis
     const fromApi: any[] = Array.isArray(enis) ? enis : [];
-    const attached = fromApi.filter((ni: any) => {
-      const att: any = ni?.Attachment || ni?.attachment || {};
-      const aid = att?.InstanceId || att?.instance_id || ni?.AttachedInstanceId || '';
-      return String(aid || '') === iid;
-    });
-    if (attached && attached.length) return attached;
+    if (fromApi.length > 0) return fromApi;
+
+    // 只有当 API 数据为空时，才回退到实例详情中的网卡数据（可能是旧数据）
     const fromInst1: any[] = Array.isArray((instance as any)?.NetworkInterfaces?.NetworkInterface) ? (instance as any)!.NetworkInterfaces!.NetworkInterface : [];
     const fromInst2: any[] = Array.isArray((instance as any)?.network_interfaces) ? (instance as any)!.network_interfaces : [];
     if (fromInst1 && fromInst1.length) return fromInst1;
@@ -128,6 +127,19 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
   if (hasAny(r => r?.ServiceManaged !== undefined)) {
     cols.push({ title: '托管', key: 'svc', render: (_: any, r: any) => (r?.ServiceManaged ? '是' : '否') });
   }
+  if (hasAny(r => r?.SourceDestCheck !== undefined || r?.sourceDestCheck !== undefined)) {
+    cols.push({
+      title: '源/目的检查',
+      key: 'sdc',
+      render: (_: any, r: any) => {
+        const niId = r?.NetworkInterfaceId || r?.id || r?.Id;
+        const raw = r?.SourceDestCheck !== undefined ? r?.SourceDestCheck : r?.sourceDestCheck;
+        const serverVal = raw === true || String(raw).toLowerCase() === 'true';
+        const val = optimisticStates[niId] !== undefined ? optimisticStates[niId] : serverVal;
+        return <Switch size="small" checked={val} onChange={(checked) => handleUpdateSourceDestCheck(niId, checked)} />;
+      }
+    });
+  }
   if (hasAny(r => r?.Status)) {
     cols.push({ title: '状态', key: 'status', render: (_: any, r: any) => r?.Status || '-' });
   }
@@ -170,7 +182,8 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
   const [bindNetworkCardIndex, setBindNetworkCardIndex] = useState<number | undefined>(undefined);
   const [bindWaitForNetworkReady, setBindWaitForNetworkReady] = useState<boolean>(false);
   const [createForm] = Form.useForm();
-  
+  const [optimisticStates, setOptimisticStates] = useState<Record<string, boolean>>({});
+
   const handleOpenBindModal = async () => {
     setBindNiOpen(true);
     setBindNiId('');
@@ -230,6 +243,24 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       if (onRefreshAll) await onRefreshAll();
     } catch (e: any) {
       message.error(e?.message || '卸载网卡失败');
+    }
+  };
+
+  const handleUpdateSourceDestCheck = async (niId: string, checked: boolean) => {
+    try {
+      // Optimistic update
+      setOptimisticStates(prev => ({ ...prev, [niId]: checked }));
+      await updateCloudProviderEni(cloudId, niId, { sourceDestCheck: checked });
+      message.success(`源/目的检查已${checked ? '开启' : '关闭'}`);
+      if (onRefreshAll) await onRefreshAll();
+    } catch (e: any) {
+      // Revert optimistic update on failure
+      setOptimisticStates(prev => {
+        const next = { ...prev };
+        delete next[niId];
+        return next;
+      });
+      message.error(e?.message || '更新源/目的检查失败');
     }
   };
 
@@ -354,6 +385,9 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       )}
     >
       <Table
+        size="small"
+        bordered={false}
+        tableLayout="auto"
         rowKey={rowKeyFn}
         columns={cols as any}
         dataSource={filteredEniList}

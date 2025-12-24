@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Table, Modal } from 'antd';
 import { MoreOutlined, GlobalOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchCloudProviderEips } from '../../../../services/api';
 import { statusTag } from '../../Hw/components/Common';
 
@@ -67,7 +68,7 @@ const EipSectionAliyun: React.FC<EipSectionAliyunProps> = ({ cloudId, eips, onSe
       )}
       toolbarRight={(
         <>
-          <RowActionsButton
+          <ResourceActionsDropdown
             items={[{ key: 'refresh', label: '刷新' }]}
             onClick={async ({ key }) => {
               if (key === 'refresh') {
@@ -77,11 +78,6 @@ const EipSectionAliyun: React.FC<EipSectionAliyunProps> = ({ cloudId, eips, onSe
                   onSetEips(Array.isArray(eipList) ? eipList : []);
                 } catch (e: any) { message.error(e?.message || '刷新失败'); }
               }
-            }}
-            buttonProps={{
-              type: 'default',
-              icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
-              children: '更多'
             }}
           />
         </>

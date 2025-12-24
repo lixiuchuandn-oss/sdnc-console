@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Space, Table } from 'antd';
-import { MoreOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { fetchCloudProviderSecurityGroups, deleteHuaweiCloudSecurityGroup } from '../../../../services/api';
+import { App, Button, Input, Space, Table } from 'antd';
+import { SafetyCertificateOutlined } from '@ant-design/icons';
+import { fetchCloudProviderSecurityGroups } from '../../../../services/securityGroups';
+import { deleteHuaweiCloudSecurityGroup } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type SecurityGroupSectionProps = {
@@ -105,22 +107,18 @@ const SecurityGroupSection: React.FC<SecurityGroupSectionProps> = ({ cloudId, se
         )}
         right={(
           <>
-            <Dropdown
-              menu={{
-                items: [{ key: 'refresh', label: '刷新' }],
-                onClick: async ({ key }) => {
-                  if (key === 'refresh') {
-                    try {
-                      const json = await fetchCloudProviderSecurityGroups(cloudId).catch(() => null);
-                      const sgList: any[] = (json?.data?.security_groups) || (json?.security_groups) || (json?.data?.securityGroups) || (json?.securityGroups) || [];
-                      onSetSecGroups(Array.isArray(sgList) ? sgList : []);
-                    } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                  }
+            <ResourceActionsDropdown
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }) => {
+                if (key === 'refresh') {
+                  try {
+                    const json = await fetchCloudProviderSecurityGroups(cloudId).catch(() => null);
+                    const sgList: any[] = (json?.data?.security_groups) || (json?.security_groups) || (json?.data?.securityGroups) || (json?.securityGroups) || [];
+                    onSetSecGroups(Array.isArray(sgList) ? sgList : []);
+                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
                 }
               }}
-            >
-              <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-            </Dropdown>
+            />
           </>
         )}
       />

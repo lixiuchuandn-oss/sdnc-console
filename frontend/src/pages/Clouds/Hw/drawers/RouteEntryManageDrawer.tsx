@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { App, Button, Dropdown, Form, Input, Select, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import StdSideDrawer from '../../../../components/StdSideDrawer';
 import { fetchCloudProviderRouteEntries, deleteCloudProviderRouteEntry } from '../../../../services/api';
 import { normalizeErr } from '../utils/net';
@@ -122,7 +122,7 @@ const RouteEntryManageDrawer: React.FC<Props> = ({ open, cloudId, ecs, routeTabl
                   }
                 }}}
               >
-                <Button type="link" icon={<MoreOutlined />} />
+                <Button type="link" icon={<EllipsisOutlined />} />
               </Dropdown>
             );
           } }

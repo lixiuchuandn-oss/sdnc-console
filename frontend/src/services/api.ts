@@ -1220,13 +1220,70 @@ export const deleteCloudProviderSecurityGroup = async (cloudId: string, sgId: st
   return await res.json();
 };
 
+export const fetchCloudProviderSecurityGroupDetail = async (cloudId: string, sgId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+export const createCloudProviderSecurityGroupRule = async (cloudId: string, sgId: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}/rules`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+export const deleteCloudProviderSecurityGroupRule = async (cloudId: string, sgId: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}/rules`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
 // 云资源池：查询阿里云 弹性网卡（ENI）列表（支持按 VPC/VSwitch/ECS 过滤）
-export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?: string; vSwitchId?: string; instanceId?: string }) => {
+export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?: string; vSwitchId?: string; instanceId?: string } & Record<string, any>) => {
   const qs = (() => {
     const p: string[] = [];
     if (params?.vpcId) p.push(`vpcId=${encodeURIComponent(params.vpcId)}`);
     if (params?.vSwitchId) p.push(`vSwitchId=${encodeURIComponent(params.vSwitchId)}`);
     if (params?.instanceId) p.push(`instanceId=${encodeURIComponent(params.instanceId)}`);
+    if (params) {
+      Object.keys(params).forEach(k => {
+        if (k !== 'vpcId' && k !== 'vSwitchId' && k !== 'instanceId' && params[k] !== undefined) {
+          p.push(`${k}=${encodeURIComponent(String(params[k]))}`);
+        }
+      });
+    }
     return p.length ? `?${p.join('&')}` : '';
   })();
   const token = localStorage.getItem('token');
@@ -1269,7 +1326,7 @@ export const createCloudProviderEni = async (
 export const updateCloudProviderEni = async (
   cloudId: string,
   eniId: string,
-  payload: { name?: string; description?: string }
+  payload: { name?: string; description?: string; sourceDestCheck?: boolean }
 ) => {
   return await apiPatch(`/api/clouds/${cloudId}/resources/enis/${encodeURIComponent(eniId)}`, payload);
 };

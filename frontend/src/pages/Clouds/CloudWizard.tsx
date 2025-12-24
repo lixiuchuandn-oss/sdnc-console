@@ -674,7 +674,13 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               <div style={{ color: '#8c8c8c', marginTop: 6 }}>{selectedProvider.description}</div>
             </div>
 
-            <Form form={form} layout="vertical">
+            <Form
+              form={form}
+              layout="vertical"
+              onValuesChange={(_, all) => {
+                try { setFormData(all); } catch {}
+              }}
+            >
               <Form.Item name="type" label="资源类型" initialValue={poolType} rules={[{ required:true }]}> 
                 <Select>
                   <Option value="central">公有云</Option>
@@ -716,45 +722,55 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 </Form.Item>
               ))}
 
-              <Collapse className="wizard-collapse-nopad" bordered={false} expandIconPosition="end" defaultActiveKey={[] } ghost>
-                <Collapse.Panel header={<div className="wizard-section-title">高级选项</div>} key="advanced">
-                  <Row gutter={16}>
-                    <Col span={12}>
-                      <Form.Item name="autoSync" label="自动同步" valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item name="enableSSO" label="开启免密登录" valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  <Row gutter={16}>
-                    <Col span={12}>
-                      <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  <Form.Item name="proxyType" label="代理">
-                    <Select placeholder="DIRECT（直连）" defaultValue="direct">
-                      <Option value="direct">DIRECT（直连）</Option>
-                      <Option value="http">HTTP代理</Option>
-                      <Option value="socks">SOCKS代理</Option>
-                    </Select>
-                  </Form.Item>
-
-                  <Form.Item name="resourceProject" label="资源归属项目">
-                    <Select placeholder="system" defaultValue="system">
-                      <Option value="system">system</Option>
-                      <Option value="default">default</Option>
-                    </Select>
-                  </Form.Item>
-                </Collapse.Panel>
-              </Collapse>
+              <Collapse
+                className="wizard-collapse-nopad"
+                bordered={false}
+                expandIconPosition="end"
+                defaultActiveKey={[]}
+                ghost
+                items={[
+                  {
+                    key: 'advanced',
+                    label: (<div className="wizard-section-title">高级选项</div>),
+                    children: (
+                      <>
+                        <Row gutter={16}>
+                          <Col span={12}>
+                            <Form.Item name="autoSync" label="自动同步" valuePropName="checked">
+                              <Switch />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item name="enableSSO" label="开启免密登录" valuePropName="checked">
+                              <Switch />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Row gutter={16}>
+                          <Col span={12}>
+                            <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">
+                              <Switch />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Form.Item name="proxyType" label="代理">
+                          <Select placeholder="DIRECT（直连）" defaultValue="direct">
+                            <Option value="direct">DIRECT（直连）</Option>
+                            <Option value="http">HTTP代理</Option>
+                            <Option value="socks">SOCKS代理</Option>
+                          </Select>
+                        </Form.Item>
+                        <Form.Item name="resourceProject" label="资源归属项目">
+                          <Select placeholder="system" defaultValue="system">
+                            <Option value="system">system</Option>
+                            <Option value="default">default</Option>
+                          </Select>
+                        </Form.Item>
+                      </>
+                    ),
+                  }
+                ]}
+              />
             </Form>
           </div>
         );
@@ -844,7 +860,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   };
 
   const summary = useMemo(() => {
-    const v = formData || form.getFieldsValue();
+    const v = formData || {};
     const providerName = selectedProvider?.name || '-';
     const typeTxt = v?.type || '-';
     const regionTxt = v?.region || '-';
@@ -866,10 +882,10 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       footer={null}
       width={'70vw'}
       centered
-      bodyStyle={{ height: '80vh', maxHeight: '80vh', overflowY: 'auto', paddingTop: 12 }}
+      styles={{ body: { height: '80vh', maxHeight: '80vh', overflow: 'hidden', paddingTop: 12 } }}
       destroyOnHidden
     >
-      <Row gutter={[0, 0]}>
+      <Row gutter={[0, 0]} style={{ height: '100%' }}>
         <Col span={5}>
           <div className="wizard-sidebar">
             <div>
@@ -888,9 +904,11 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             </div>
           </div>
         </Col>
-        <Col span={12}>
+        <Col span={12} style={{ height: '100%' }}>
           <div className="wizard-section">
-            {renderStepContent()}
+            <div className="wizard-step-scroll">
+              {renderStepContent()}
+            </div>
           </div>
         </Col>
         <Col span={7}>
@@ -898,19 +916,21 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             <div className="wizard-preview-header">
               <div className="wizard-preview-title">配置预览</div>
             </div>
-            <div className="wizard-summary-list">
-              <div className="wizard-summary-item"><span className="wizard-summary-label">云平台</span><span className="wizard-summary-value" title={summary.providerName}>{summary.providerName}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">资源类型</span><span className="wizard-summary-value" title={summary.typeTxt}>{summary.typeTxt}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">Region</span><span className="wizard-summary-value" title={summary.regionTxt}>{summary.regionTxt}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">端点</span><span className="wizard-summary-value" title={summary.endpointTxt}>{summary.endpointTxt}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">代理</span><span className="wizard-summary-value" title={summary.proxyTxt}>{summary.proxyTxt}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">TLS</span><span className="wizard-summary-value" title={summary.tlsTxt}>{summary.tlsTxt}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">自动同步</span><span className="wizard-summary-value" title={summary.syncTxt}>{summary.syncTxt}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">免密登录</span><span className="wizard-summary-value" title={summary.ssoTxt}>{summary.ssoTxt}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">归属项目</span><span className="wizard-summary-value" title={summary.projTxt}>{summary.projTxt}</span></div>
-              <div className="wizard-summary-item"><span className="wizard-summary-label">测试状态</span><span className="wizard-summary-value" title={summary.testTxt}>{summary.testTxt}</span></div>
+            <div className="wizard-summary-scroll">
+              <div className="wizard-summary-list">
+                <div className="wizard-summary-item"><span className="wizard-summary-label">云平台</span><span className="wizard-summary-value" title={summary.providerName}>{summary.providerName}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">资源类型</span><span className="wizard-summary-value" title={summary.typeTxt}>{summary.typeTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">Region</span><span className="wizard-summary-value" title={summary.regionTxt}>{summary.regionTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">端点</span><span className="wizard-summary-value" title={summary.endpointTxt}>{summary.endpointTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">代理</span><span className="wizard-summary-value" title={summary.proxyTxt}>{summary.proxyTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">TLS</span><span className="wizard-summary-value" title={summary.tlsTxt}>{summary.tlsTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">自动同步</span><span className="wizard-summary-value" title={summary.syncTxt}>{summary.syncTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">免密登录</span><span className="wizard-summary-value" title={summary.ssoTxt}>{summary.ssoTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">归属项目</span><span className="wizard-summary-value" title={summary.projTxt}>{summary.projTxt}</span></div>
+                <div className="wizard-summary-item"><span className="wizard-summary-label">测试状态</span><span className="wizard-summary-value" title={summary.testTxt}>{summary.testTxt}</span></div>
+              </div>
+              <Divider style={{ margin: '12px 0' }} />
             </div>
-            <Divider style={{ margin: '12px 0' }} />
             <div className="wizard-preview-actions">
               <Space>
                 <Button onClick={handleCancel}>取消</Button>

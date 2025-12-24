@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Space, Table } from 'antd';
-import { MoreOutlined, BranchesOutlined } from '@ant-design/icons';
+import { App, Button, Input, Space, Table } from 'antd';
+import { BranchesOutlined } from '@ant-design/icons';
 import { fetchCloudProviderRouteTables, deleteCloudProviderRouteTable } from '../../../../services/api';
-import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import SharedToolbar from '../../../../components/SharedToolbar';
+import { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 
 type RouteTableSectionAliyunProps = {
   cloudId: string;
@@ -80,43 +82,48 @@ const RouteTableSectionAliyun: React.FC<RouteTableSectionAliyunProps> = ({ cloud
   ]), [cloudId, vpcs, subnets, onOpenDetail, onOpenAssoc, onManageRoutes, onOpenSubnetsView]);
 
   return (
-    <PageDetailSection
-      title={Label}
-      icon={Icon}
-      toolbarLeft={(
-        <Space size={8}>
-          <Button type="primary" onClick={onOpenCreate}>创建路由表</Button>
-          <Input placeholder="请输入关键词" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />
-        </Space>
-      )}
-      toolbarRight={(
-        <RowActionsButton
-          items={[{ key: 'refresh', label: '刷新' }]}
-          onClick={async ({ key }) => {
-            if (key === 'refresh') {
-              try {
-                const json = await fetchCloudProviderRouteTables(cloudId);
-                const rtList: any[] = (json?.RouteTables?.RouteTable) || (json?.data?.route_tables) || (json?.route_tables) || (json?.data?.routetables) || (json?.routetables) || [];
-                onSetRouteTables(Array.isArray(rtList) ? rtList : []);
-              } catch (e: any) { message.error(e?.message || '刷新失败'); }
-            }
-          }}
-          buttonProps={{
-            type: 'default',
-            icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
-            children: '更多'
-          }}
-        />
-      )}
-      asCard={false}
-    >
+    <>
+      <SharedToolbar
+        left={(
+          <Space size={8}>
+            <Input placeholder="请输入关键词" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />
+          </Space>
+        )}
+        right={(
+          <Space size={8}>
+            <Button type="primary" onClick={onOpenCreate}>创建路由表</Button>
+            <ResourceActionsDropdown
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }) => {
+                if (key === 'refresh') {
+                  try {
+                    const json = await fetchCloudProviderRouteTables(cloudId);
+                    const rtList: any[] =
+                      (json?.RouteTables?.RouteTable) ||
+                      (json?.data?.route_tables) ||
+                      (json?.route_tables) ||
+                      (json?.data?.routetables) ||
+                      (json?.routetables) ||
+                      (Array.isArray(json?.data) ? json?.data : (Array.isArray(json) ? json : []));
+                    onSetRouteTables(Array.isArray(rtList) ? rtList : (rtList ? [rtList] : []));
+                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
+                }
+              }}
+            />
+          </Space>
+        )}
+      />
       <Table
+        bordered
+        tableLayout="auto"
+        size="middle"
+        className="vr-table vr-table--middle"
         rowKey={(r: any) => r.RouteTableId || r.id}
         dataSource={filteredRouteTables}
         columns={columns as any}
         pagination={{ pageSize: 10 }}
       />
-    </PageDetailSection>
+    </>
   );
 };
 

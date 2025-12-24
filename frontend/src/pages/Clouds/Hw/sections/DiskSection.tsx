@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Button, Input, Select, Space, Table } from 'antd';
 import { HddOutlined } from '@ant-design/icons';
 import { fetchCloudProviderDisks } from '../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type DiskSectionProps = {
@@ -63,22 +63,18 @@ const DiskSection: React.FC<DiskSectionProps> = ({ cloudId, disks, onSetDisks, o
         )}
         right={(
           <>
-            <Dropdown
-              menu={{
-                items: [{ key: 'refresh', label: '刷新' }],
-                onClick: async ({ key }) => {
-                  if (key === 'refresh') {
-                    try {
-                      const json = await fetchCloudProviderDisks(cloudId).catch(() => null);
-                      const list: any[] = (json?.data?.volumes) || (json?.volumes) || [];
-                      onSetDisks(Array.isArray(list) ? list : []);
-                    } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                  }
+            <ResourceActionsDropdown
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }) => {
+                if (key === 'refresh') {
+                  try {
+                    const json = await fetchCloudProviderDisks(cloudId).catch(() => null);
+                    const list: any[] = (json?.data?.volumes) || (json?.volumes) || [];
+                    onSetDisks(Array.isArray(list) ? list : []);
+                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
                 }
               }}
-            >
-              <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-            </Dropdown>
+            />
           </>
         )}
       />

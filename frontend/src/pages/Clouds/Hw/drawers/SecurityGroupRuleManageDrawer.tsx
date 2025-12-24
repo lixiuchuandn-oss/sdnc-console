@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Space, Table, Tabs } from 'antd';
-import { MoreOutlined } from '@ant-design/icons';
+import { EllipsisOutlined } from '@ant-design/icons';
 import StdSideDrawer from '../../../../components/StdSideDrawer';
 import { showCloudProviderSecurityGroup, createHuaweiCloudSecurityGroupRule, deleteHuaweiCloudSecurityGroupRule } from '../../../../services/api';
 import { normalizeErr } from '../utils/net';
@@ -108,7 +108,7 @@ const SecurityGroupRuleManageDrawer: React.FC<Props> = ({ open, cloudId, secGrou
             }
           } }}
         >
-          <Button type="link" icon={<MoreOutlined />} />
+          <Button type="link" icon={<EllipsisOutlined />} />
         </Dropdown>
       );
     } }

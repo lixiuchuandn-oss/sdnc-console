@@ -955,53 +955,59 @@ const EditVRConfig: React.FC = () => {
                     <Button type="default" onClick={expandAll}>展开全部</Button>
                     <Button type="default" onClick={collapseAll}>折叠全部</Button>
                   </Space>
-                  <Collapse activeKey={activePanels} onChange={(keys) => setActivePanels(Array.isArray(keys) ? (keys as string[]) : [String(keys)])}>
-                    {GROUPS.map((group) => (
-                      <Collapse.Panel header={group.title} key={group.title}>
-                        {group.keys.map((key) => (
-                          <Form.Item
-                            key={key}
-                            className={!enabledSections[key] ? 'vr-form-item-compact' : undefined}
-                            label={
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ fontWeight: 600, fontSize: 14 }}>{key}</span>
-                                  <span style={{ fontSize: 12, color: '#8c8c8c' }}>{SECTION_DESC[key]}</span>
+                  <Collapse
+                    activeKey={activePanels}
+                    onChange={(keys) => setActivePanels(Array.isArray(keys) ? (keys as string[]) : [String(keys)])}
+                    items={GROUPS.map((group) => ({
+                      key: group.title,
+                      label: group.title,
+                      children: (
+                        <>
+                          {group.keys.map((key) => (
+                            <Form.Item
+                              key={key}
+                              className={!enabledSections[key] ? 'vr-form-item-compact' : undefined}
+                              label={
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ fontWeight: 600, fontSize: 14 }}>{key}</span>
+                                    <span style={{ fontSize: 12, color: '#8c8c8c' }}>{SECTION_DESC[key]}</span>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 4 }}>
+                                    <Switch
+                                      size="small"
+                                      checked={!!enabledSections[key]}
+                                      onChange={(checked) => setEnabledSections((prev) => ({ ...prev, [key]: checked }))}
+                                      checkedChildren="启用"
+                                      unCheckedChildren="停用"
+                                    />
+                                    <Button
+                                      size="small"
+                                      type="default"
+                                      icon={<CopyOutlined />}
+                                      disabled={!enabledSections[key]}
+                                      style={{ height: 22, lineHeight: '22px', padding: '0 10px' }}
+                                      onClick={() => copyText(sections[key], `${key} JSON`)}
+                                    >复制</Button>
+                                  </div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 4 }}>
-                                  <Switch
-                                    size="small"
-                                    checked={!!enabledSections[key]}
-                                    onChange={(checked) => setEnabledSections((prev) => ({ ...prev, [key]: checked }))}
-                                    checkedChildren="启用"
-                                    unCheckedChildren="停用"
-                                  />
-                                  <Button
-                                    size="small"
-                                    type="default"
-                                    icon={<CopyOutlined />}
-                                    disabled={!enabledSections[key]}
-                                    style={{ height: 22, lineHeight: '22px', padding: '0 10px' }}
-                                    onClick={() => copyText(sections[key], `${key} JSON`)}
-                                  >复制</Button>
-                                </div>
-                              </div>
-                            }
-                          >
-                      {enabledSections[key] && (
-                        <LinedTextArea
-                          value={sections[key]}
-                          onChange={(val) => setSectionText(key, val)}
-                          minRows={6}
-                          maxRows={24}
-                          placeholder={`填写 ${key} 的 JSON 结构（只要标识符和结构，不要具体的值）`}
-                        />
-                      )}
-                    </Form.Item>
-                        ))}
-                      </Collapse.Panel>
-                    ))}
-                  </Collapse>
+                              }
+                            >
+                              {enabledSections[key] && (
+                                <LinedTextArea
+                                  value={sections[key]}
+                                  onChange={(val) => setSectionText(key, val)}
+                                  minRows={6}
+                                  maxRows={24}
+                                  placeholder={`填写 ${key} 的 JSON 结构（只要标识符和结构，不要具体的值）`}
+                                />
+                              )}
+                            </Form.Item>
+                          ))}
+                        </>
+                      ),
+                    }))}
+                  />
                 </>
               )}
 

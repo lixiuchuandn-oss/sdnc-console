@@ -55,7 +55,7 @@ const InstanceDetailModal: React.FC = () => {
       width={'75vw'}
       centered={false}
       style={{ top: '10vh' }}
-      bodyStyle={{ height: '80vh', maxHeight: '80vh', overflowY: 'auto', padding: 0 }}
+      styles={{ body: { height: '80vh', maxHeight: '80vh', overflowY: 'auto', padding: 0 } }}
       onCancel={() => navigate(-1)}
     >
       <InstanceDetail />

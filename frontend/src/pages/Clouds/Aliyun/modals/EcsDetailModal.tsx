@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Table, Spin } from 'antd';
 import { DeploymentUnitOutlined, GlobalOutlined, HddOutlined, SafetyOutlined, LineChartOutlined, FileSearchOutlined } from '@ant-design/icons';
-import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderEips, fetchCloudProviderSecurityGroups, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchAliyunEcsMetrics, fetchAliyunEcsHistoryEvents } from '../../../../services/api';
+import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchAliyunEcsMetrics, fetchAliyunEcsHistoryEvents } from '../../../../services/api';
+import { fetchCloudProviderSecurityGroups } from '../../../../services/securityGroups';
 import ResourceDetailContainer from '../../../../components/ResourceDetailContainer';
 import EcsInsDetSection from '../sections/EcsInsDetSection';
 import NetworkInterfaceSectionAliyun from '../sections/NetworkInterfaceSectionAliyun';
@@ -34,6 +35,7 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
   const [metrics, setMetrics] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [tabKey, setTabKey] = useState<string>('network');
+  const [enisFiltered, setEnisFiltered] = useState<boolean>(false);
 
   useEffect(() => {
     const initClouds = async () => {
@@ -86,15 +88,22 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
     try {
       // 先按实例过滤查询，若返回为空则回退到全量查询
       let list: any[] = [];
+      let isFiltered = false;
       try {
-        const filtered: any = await fetchCloudProviderEnis(cloudId, { instanceId });
+        const filtered: any = await fetchCloudProviderEnis(cloudId, { instanceId, _t: Date.now() });
         list = filtered?.data?.NetworkInterfaces?.NetworkInterface || filtered?.data?.enis || [];
+        if (Array.isArray(list) && list.length > 0) {
+           isFiltered = true;
+        }
       } catch {}
-      if (!Array.isArray(list) || list.length === 0) {
-        const all: any = await fetchCloudProviderEnis(cloudId);
+      
+      if (!isFiltered && (!Array.isArray(list) || list.length === 0)) {
+        const all: any = await fetchCloudProviderEnis(cloudId, { _t: Date.now() });
         list = all?.data?.NetworkInterfaces?.NetworkInterface || all?.data?.enis || [];
+        isFiltered = false;
       }
       setEnis(Array.isArray(list) ? list : []);
+      setEnisFiltered(isFiltered);
     } catch {}
   };
   const loadEips = async () => {
@@ -200,6 +209,8 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
         const ports:string[] = Array.isArray((instance as any)?.network_interfaces)? (instance as any)!.network_interfaces.map((ni:any)=> ni?.port_id).filter(Boolean) : [];
         const eniList:any[] = (() => {
           const fromApi:any[] = Array.isArray(enis) ? enis : [];
+          if (enisFiltered && fromApi.length > 0) return fromApi;
+
           const attached = fromApi.filter((ni:any) => {
             const att:any = ni?.Attachment || ni?.attachment || {};
             const aid = att?.InstanceId || att?.instance_id || ni?.AttachedInstanceId || '';
@@ -255,7 +266,7 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
             key: 'network',
             labelMeta: niMeta,
             count: countNetwork,
-            children: (<NetworkInterfaceSectionAliyun cloudId={cloudId} instance={instance} enis={eniData} eips={eips} onRefreshAll={async ()=> { await Promise.all([loadEnis(), loadEips()]); }} />)
+            children: (<NetworkInterfaceSectionAliyun cloudId={cloudId} instance={instance} enis={eniData} eips={eips} onRefreshAll={async ()=> { await Promise.all([loadInstance(), loadEnis(), loadEips()]); }} />)
           },
           {
             key: 'eips',
@@ -275,8 +286,9 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
             count: snapCount,
             children: (
               <Table
-                size="middle"
-                bordered
+                size="small"
+                bordered={false}
+                tableLayout="auto"
                 rowKey={(r:any)=> r?.id}
                 columns={[
                   { title: '快照名称', dataIndex: 'name', key: 'name' },
@@ -295,8 +307,9 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
             count: sgCount,
             children: (
               <Table
-                size="middle"
-                bordered
+                size="small"
+                bordered={false}
+                tableLayout="auto"
                 rowKey={(r:any)=> `${r.id}`}
                 columns={[
                   { title: '安全组ID', dataIndex: 'id', key: 'id' },

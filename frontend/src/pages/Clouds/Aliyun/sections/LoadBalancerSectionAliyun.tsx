@@ -5,6 +5,7 @@ import { DeploymentUnitOutlined } from '@ant-design/icons';
 import { fetchCloudProviderLoadBalancers } from '../../../../services/api';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 
 type LoadBalancerSectionAliyunProps = {
   cloudId: string;
@@ -64,7 +65,7 @@ const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ c
         </Space>
       )}
       toolbarRight={(
-        <RowActionsButton
+        <ResourceActionsDropdown
           items={[{ key: 'refresh', label: '刷新' }]}
           onClick={async ({ key }) => {
             if (key === 'refresh') {
@@ -74,11 +75,6 @@ const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ c
                 onSetSlbs(Array.isArray(slbList) ? slbList : []);
               } catch (e: any) { message.error(e?.message || '刷新失败'); }
             }
-          }}
-          buttonProps={{
-            type: 'default',
-            icon: <MoreOutlined style={{ transform: 'rotate(90deg)' }} />,
-            children: '更多'
           }}
         />
       )}

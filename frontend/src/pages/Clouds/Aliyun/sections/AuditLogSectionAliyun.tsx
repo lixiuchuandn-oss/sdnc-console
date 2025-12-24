@@ -6,6 +6,9 @@ const AuditLogSectionAliyun: React.FC<Props> = ({ cloudId, instance, events }) =
   const data = Array.isArray(events) ? events : [];
   return (
     <Table
+      size="small"
+      bordered={false}
+      tableLayout="auto"
       rowKey={(r: any) => r?.EventId || r?.eventId || `${r?.EventTime || r?.time}-${r?.EventType || r?.type || ''}`}
       columns={[
         { title: '时间', dataIndex: 'EventTime', key: 'time', render: (_: any, r: any) => r?.EventTime || r?.time || '-' },

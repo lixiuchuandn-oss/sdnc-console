@@ -200,6 +200,9 @@ const EipAddressSectionAliyun: React.FC<Props> = ({ cloudId, instance, eips, eni
       )}
     >
       <Table
+        size="small"
+        bordered={false}
+        tableLayout="auto"
         rowKey={rowKeyFn}
         columns={cols as any}
         dataSource={filteredEips}

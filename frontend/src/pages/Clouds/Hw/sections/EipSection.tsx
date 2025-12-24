@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined, GlobalOutlined } from '@ant-design/icons';
+import { App, Button, Input, Select, Space, Table } from 'antd';
+import { GlobalOutlined } from '@ant-design/icons';
 import { fetchCloudProviderEips } from '../../../../services/api';
 import { statusTag } from '../components/Common';
 import SharedToolbar from '../../../../components/SharedToolbar';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 
 type EipSectionProps = {
@@ -63,22 +64,18 @@ const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, onSetEips, onOpe
         )}
         right={(
           <>
-            <Dropdown
-              menu={{
-                items: [{ key: 'refresh', label: '刷新' }],
-                onClick: async ({ key }) => {
-                  if (key === 'refresh') {
-                    try {
-                      const json = await fetchCloudProviderEips(cloudId).catch(() => null);
-                      const eipList: any[] = (json?.data?.publicips) || (json?.publicips) || (json?.data?.publicIps) || (json?.publicIps) || [];
-                      onSetEips(Array.isArray(eipList) ? eipList : []);
-                    } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                  }
+            <ResourceActionsDropdown
+              items={[{ key: 'refresh', label: '刷新' }]}
+              onClick={async ({ key }) => {
+                if (key === 'refresh') {
+                  try {
+                    const json = await fetchCloudProviderEips(cloudId).catch(() => null);
+                    const eipList: any[] = (json?.data?.publicips) || (json?.publicips) || (json?.data?.publicIps) || (json?.publicIps) || [];
+                    onSetEips(Array.isArray(eipList) ? eipList : []);
+                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
                 }
               }}
-            >
-              <Button icon={<MoreOutlined style={{ transform: 'rotate(90deg)' }} />}>更多</Button>
-            </Dropdown>
+            />
           </>
         )}
       />

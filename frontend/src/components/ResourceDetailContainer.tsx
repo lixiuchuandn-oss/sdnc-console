@@ -41,6 +41,7 @@ type Props = {
   overviewNode?: React.ReactNode;
   tabsItems?: any[];
   tabBarExtraContentNode?: React.ReactNode;
+  children?: React.ReactNode;
 };
 const ResourceDetailContainer: React.FC<Props> = ({
   // props
@@ -84,6 +85,7 @@ const ResourceDetailContainer: React.FC<Props> = ({
   overviewNode,
   tabsItems,
   tabBarExtraContentNode,
+  children,
 }) => {
   const monitorRefreshTimerRef = React.useRef<number | null>(null);
 
@@ -147,17 +149,23 @@ const ResourceDetailContainer: React.FC<Props> = ({
         </div>
       ) : (
         <>
-          <div style={{ marginBottom: 12 }}>
-            {overviewNode ? overviewNode : (
-              <Alert
-                type="info"
-                message="该资源暂未提供专属详情视图"
-                description="请返回列表或稍后再试"
-                showIcon
-              />
-            )}
-          </div>
-          <Tabs activeKey={tabKey} onChange={(k) => { onChangeTab(String(k)); }} tabBarExtraContent={tabBarExtraContentNode} items={finalItems} />
+          {children ? (
+            <div>{children}</div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 12 }}>
+                {overviewNode ? overviewNode : (
+                  <Alert
+                    type="info"
+                    message="该资源暂未提供专属详情视图"
+                    description="请返回列表或稍后再试"
+                    showIcon
+                  />
+                )}
+              </div>
+              <Tabs activeKey={tabKey} onChange={(k) => { onChangeTab(String(k)); }} tabBarExtraContent={tabBarExtraContentNode} items={finalItems} />
+            </>
+          )}
         </>
       )}
     </Modal>
