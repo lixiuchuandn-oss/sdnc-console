@@ -500,7 +500,28 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
   router.get('/:id/resources/disks', checkAdminPermission, async (req: any, res: Response, next: any) => {
     try { const { id } = req.params; const cloud = await fetchCloudOr404(id, res); if (!cloud) return; if (!isAliyun(cloud)) return next();
       if (!cloud.accessKey || !cloud.secretKey) return res.status(400).json({ message: '本期仅支持阿里云资源查询' });
-      const data = await callAliyunEcs({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeDisks', extraParams: { PageNumber: 1, PageSize: 50 } } as any);
+      const { instanceId } = (req.query || {}) as { instanceId?: string };
+      const pageSize = 50; let page = 1; let all: any[] = [];
+      while (true) {
+        const resp: any = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DescribeDisks',
+          extraParams: { PageNumber: page, PageSize: pageSize, ...(instanceId ? { InstanceId: String(instanceId) } : {}) }
+        } as any);
+        const chunk = resp?.Disks?.Disk
+          || resp?.DiskSets?.DiskSet
+          || resp?.data?.Disks?.Disk
+          || resp?.data?.DiskSets?.DiskSet
+          || [];
+        const arr = Array.isArray(chunk) ? chunk : (chunk ? [chunk] : []);
+        all = all.concat(arr);
+        if (!Array.isArray(chunk) || arr.length < pageSize) break;
+        page += 1;
+        if (page > 50) break;
+      }
+      const data = { Disks: { Disk: all } };
       const capabilities = { isHarvester: false, supportsSnapshots: true };
       res.json({ message: '查询成功', data, capabilities });
     } catch (error: any) { if (res.headersSent) return; return res.status(500).json({ message: '查询云盘失败', error: error.message }); }

@@ -436,9 +436,9 @@ const Clouds: React.FC = () => {
             <div style={{ whiteSpace:'nowrap' }}>
               <span style={{ display:'inline-flex', alignItems:'center', lineHeight:1 }}>
                 <span style={{ fontSize: 16, marginRight: 6, display:'inline-flex', alignItems:'center', color:'#1677ff' }}>{getTypeIcon(record.type)}</span>
-                <Button type="link" style={{ padding:0, height:'auto', lineHeight:1 }} onClick={()=>navigate(`/admin/clouds/${record.id}`)}>{record.name}</Button>
+                <Button type="link" style={{ padding:0, height:'auto', lineHeight:1, fontSize: 13 }} onClick={()=>navigate(`/admin/clouds/${record.id}`)}>{record.name}</Button>
               </span><br/>
-              <Text type="secondary" style={{ fontSize: 12 }}>{provider.name}</Text>
+              <Text type="secondary" style={{ fontSize: 13 }}>{provider.name}</Text>
             </div>
           </Tooltip>
         );
@@ -451,7 +451,7 @@ const Clouds: React.FC = () => {
       render: (status: string) => (
         <Badge
           status={status==='online' ? 'processing' : status==='offline' ? 'error' : 'warning'}
-          text={getStatusText(status)}
+          text={<span style={{ fontSize: 13 }}>{getStatusText(status)}</span>}
         />
       )
     },
@@ -459,7 +459,7 @@ const Clouds: React.FC = () => {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      render: (type: string) => <Tag color="blue">{getTypeText(type)}</Tag>
+      render: (type: string) => <Tag color="blue" style={{ fontSize: 13 }}>{getTypeText(type)}</Tag>
     },
     {
       title: '地域',
@@ -467,7 +467,7 @@ const Clouds: React.FC = () => {
       key: 'region',
       width: 400,
       render: (_: any, record: Cloud) => (
-        <div>
+        <div style={{ fontSize: 13 }}>
           <div>地域信息：{record?.region || '-'}</div>
           <div>端点信息：{record?.endpoint || '-'}</div>
         </div>
@@ -478,7 +478,7 @@ const Clouds: React.FC = () => {
       title: '最后测试',
       dataIndex: 'lastTestAt',
       key: 'lastTestAt',
-      render: (lastTestAt: string) => <Text style={{ fontSize: 12 }}>{formatLastTestTime(lastTestAt)}</Text>
+      render: (lastTestAt: string) => <Text style={{ fontSize: 13 }}>{formatLastTestTime(lastTestAt)}</Text>
     },
   {
       title: '操作',
@@ -659,6 +659,7 @@ const Clouds: React.FC = () => {
         columns={tableColumns}
         dataSource={filteredClouds}
         rowKey="id"
+        style={{ fontSize: 13 }}
         rowSelection={{
           selectedRowKeys,
           onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
