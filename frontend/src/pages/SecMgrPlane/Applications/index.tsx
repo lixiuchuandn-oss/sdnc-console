@@ -242,7 +242,6 @@ const SecurityApps: React.FC = () => {
 
   return (
     <PageContainer
-      icon={<AppstoreOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       title="服务目录管理"
       titleLevel={3}
       subtitle="服务目录是信息域内由若干虚机或容器实例组合而成的业务单元，可对其进行 IBAC、RBAC、ABAC 授权策略管理。"

@@ -5,7 +5,7 @@ import {
   SlidersOutlined,ProjectOutlined,CodeOutlined,CloudOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, RightOutlined, CaretDownOutlined,
   ClusterOutlined, TeamOutlined, CodepenOutlined, DesktopOutlined, HddOutlined, GatewayOutlined,
   AppstoreAddOutlined, ApiOutlined, DatabaseOutlined, BellOutlined, RobotOutlined, EditOutlined, PlayCircleOutlined,
-  BulbOutlined, CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled, SearchOutlined, PoweroffOutlined, ReloadOutlined
+  BulbOutlined, CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled, SearchOutlined, PoweroffOutlined, ReloadOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../utils/accessMapping';
@@ -267,10 +267,14 @@ const AdminLayout: React.FC = () => {
       LockOutlined: <LockOutlined />,
       ApiOutlined: <ApiOutlined />,
       BranchesOutlined: <BranchesOutlined />,
+      ShareAltOutlined: <ShareAltOutlined />,
+      NodeIndexOutlined: <NodeIndexOutlined />,
       GlobalOutlined: <GlobalOutlined />,
       EnvironmentOutlined: <EnvironmentOutlined />,
       BellOutlined: <BellOutlined />,
       DatabaseOutlined: <DatabaseOutlined />,
+      SecurityScanOutlined: <SecurityScanOutlined />,
+      SwapOutlined: <SwapOutlined />,
     };
     return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
   };

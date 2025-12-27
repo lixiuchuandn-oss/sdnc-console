@@ -33,7 +33,7 @@ CE设置向导
 (二) JSON拼接
         "interfaces_GigabitEthernet": [ 
         {
-            "name": "GigabitEthernet 0/3/0",  ##通过下拉框选择网卡
+            "name": "GigabitEthernet 0/3/1",  ##通过下拉框选择网卡
             "ipv4_static": "",   ##通过输入框输入IPv4地址，非必填
             "ipv6_static": "",   ##通过输入框输入IPv6地址，非必填
             "status": "up"  ##固定参数

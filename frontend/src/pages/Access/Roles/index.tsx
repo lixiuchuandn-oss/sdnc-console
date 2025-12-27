@@ -251,7 +251,6 @@ const AccessRolesPage: React.FC = () => {
 
   return (
     <PageContainer
-      icon={<LockOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       title="角色管理"
       titleLevel={3}
       subtitle="角色用于将权限策略批量授权给用户或租户，便于统一管理与快速复用。"

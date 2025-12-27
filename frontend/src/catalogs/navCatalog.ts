@@ -48,9 +48,11 @@ export const FEATURE_CATALOG: FeatureCatalogItem[] = [
   { prefix:'networks.cen.attachments', label:'CEN连接', group:'跨地域互联', platform:'SDNCC' },
 
   { prefix:'networks.srv6', label:'SRv6隧道管理', group:'跨地域互联', platform:'SDNCC' },
+  { prefix:'networks.ipsec', label:'IPsecVPN管理', group:'跨地域互联', platform:'SDNCC' },
   { prefix:'networks.route-tables', label:'路由表', group:'跨地域互联', platform:'SDNCC' },
   { prefix:'networks.vswitches', label:'交换机', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.acl', label:'网络ACL', group:'流量编排', platform:'SDNCC' },
+  { prefix:'networks.acl', label:'网络ACL', group:'跨地域互联', platform:'SDNCC' },
+  { prefix:'networks.nat', label:'NAT管理', group:'跨地域互联', platform:'SDNCC' },
   { prefix:'networks.info-domain', label:'信息域', group:'安全管理面', platform:'SDNCC' },
   { prefix:'security.services', label:'服务目录管理', group:'安全管理面', platform:'SDNCC' },
   { prefix:'security.policies', label:'授权策略', group:'安全管理面', platform:'SDNCC' },
@@ -99,11 +101,14 @@ export const ROUTE_CATALOG: RouteItem[] = [
   { path: '/admin/access/users', label: '用户管理', platform: 'CNMC', group: '访问控制', icon: 'UserOutlined' },
 
   { path: '/admin/interconnect/vr', label: 'VR实例管理', platform: 'SDNCC', group: '跨地域互联', icon: 'GatewayOutlined' },
-  { path: '/admin/interconnect/srv6', label: 'SRv6隧道管理', platform: 'SDNCC', group: '跨地域互联', icon: 'BranchesOutlined' },
+  { path: '/admin/interconnect/srv6', label: 'SRv6隧道管理', platform: 'SDNCC', group: '跨地域互联', icon: 'ShareAltOutlined' },
+  { path: '/admin/interconnect/ipsec', label: 'IPsecVPN管理', platform: 'SDNCC', group: '跨地域互联', icon: 'NodeIndexOutlined' },
+  { path: '/admin/interconnect/acl', label: '网络ACL', platform: 'SDNCC', group: '跨地域互联', icon: 'SecurityScanOutlined' },
+  { path: '/admin/interconnect/nat', label: 'NAT管理', platform: 'SDNCC', group: '跨地域互联', icon: 'SwapOutlined' },
   
   
-  { path: '/admin/sec-mgr-plane/smpinstances', label: '实例管理', platform: 'SDNCC', group: '安全管理面', icon: 'GlobalOutlined' },
-  { path: '/admin/sec-mgr-plane/infodomain', label: '信息域管理', platform: 'SDNCC', group: '安全管理面', icon: 'EnvironmentOutlined' },
+  { path: '/admin/sec-mgr-plane/instances', label: '实例管理', platform: 'SDNCC', group: '安全管理面', icon: 'GlobalOutlined' },
+  { path: '/admin/sec-mgr-plane/info-domain', label: '信息域管理', platform: 'SDNCC', group: '安全管理面', icon: 'EnvironmentOutlined' },
   { path: '/admin/sec-mgr-plane/apps', label: '服务目录管理', platform: 'SDNCC', group: '安全管理面', icon: 'AppstoreOutlined' },
 ];
 

@@ -471,7 +471,6 @@ const CenPage: React.FC = () => {
 
   return (
     <PageContainer
-      icon={<GlobalOutlined style={{ fontSize:24, color:'#1890ff' }} />}
       title="实例管理"
       titleLevel={3}
       subtitle="跨地域互联的中心网实例（CEN），支持挂载信息域并抽象为安全管理面用于统一治理。"

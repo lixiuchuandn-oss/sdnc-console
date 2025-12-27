@@ -24,6 +24,10 @@ const EditVRConfig: React.FC = () => {
 
   // PRD: 按配置点拆分的模板文本框（每个键一个文本框，内容为该键对应的JSON片段）
   type SectionKey =
+    | 'role'
+    | 'ce'
+    | 'pe'
+    | 'ipsec_preset'
     | 'vrf'
     | 'acl'
     | 'ipsec'
@@ -46,6 +50,10 @@ const EditVRConfig: React.FC = () => {
     | 'vrrp';
 
   const SECTION_DEFS: { key: SectionKey; label: string }[] = [
+    { key: 'role', label: 'role' },
+    { key: 'ce', label: 'ce' },
+    { key: 'pe', label: 'pe' },
+    { key: 'ipsec_preset', label: 'ipsec_preset' },
     { key: 'vrf', label: 'vrf' },
     { key: 'acl', label: 'acl' },
     { key: 'ipsec', label: 'ipsec' },
@@ -70,6 +78,10 @@ const EditVRConfig: React.FC = () => {
 
   // 每个标识符的作用说明（副标题）
   const SECTION_DESC: Record<SectionKey, string> = {
+    role: 'VR 角色标识 (CE/PE)',
+    ce: 'CE 模式向导元数据',
+    pe: 'PE 模式向导元数据',
+    ipsec_preset: '标准模式向导元数据',
     vrf: 'VRF 实例定义与路由隔离',
     acl: '访问控制列表规则、匹配条件与方向',
     ipsec: 'IPsec/IKE 隧道与安全关联配置',
@@ -94,6 +106,10 @@ const EditVRConfig: React.FC = () => {
 
   // 仅包含标识符和结构，不包含具体值的默认模板
   const DEFAULT_TEMPLATE: Record<SectionKey, any> = {
+    role: 'CE',
+    ce: {},
+    pe: {},
+    ipsec_preset: {},
     vrf: [0],
     acl: [
       {
@@ -484,7 +500,7 @@ const EditVRConfig: React.FC = () => {
         address_family: [
           {
             address_family: '',
-            modifiler: '',
+            modifier: '',
             activate_address_family: [''],
             export_route: '',
             import_route: '',
@@ -556,6 +572,7 @@ const EditVRConfig: React.FC = () => {
 
   // 折叠分组定义
   const GROUPS: { title: string; keys: SectionKey[] }[] = [
+    { title: '元数据与角色', keys: ['role', 'ce', 'pe', 'ipsec_preset'] },
     { title: '基础配置', keys: ['vrf', 'segment_routing_srv6'] },
     { title: '安全与NAT', keys: ['acl', 'ipsec', 'nat_address_group'] },
     {
@@ -774,6 +791,70 @@ const EditVRConfig: React.FC = () => {
         const { msg, code, report_config_status, updateDate, createDate, _id, requestId, ...rest } = obj as any;
         return rest;
       };
+      
+      // 辅助：对 CE 元数据进行特定排序，对整体键进行排序
+      const sortJsonKeys = (obj: any): any => {
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+        
+        // 如果包含 ce 对象，先对其内部进行排序
+        const copy = { ...obj };
+        if (copy.ce && typeof copy.ce === 'object') {
+          const ceOrder = ['wanName', 'wanIpv4', 'wanIpv6', 'bgpAsn', 'bgpRouterId', 'lanName', 'lanIpv4', 'lanIpv6'];
+          const newCe: any = {};
+          // 先按顺序放入已知字段
+          ceOrder.forEach(k => {
+            if (k in copy.ce) newCe[k] = copy.ce[k];
+          });
+          // 放入剩余字段
+          Object.keys(copy.ce).forEach(k => {
+            if (!ceOrder.includes(k)) newCe[k] = copy.ce[k];
+          });
+          copy.ce = newCe;
+        }
+
+        // 如果包含 pe 对象，先对其内部进行排序
+        if (copy.pe && typeof copy.pe === 'object') {
+          const peOrder = [
+            'locatorName', 'sidPrefix', 
+            'wanName', 'wanIpv4', 'wanIpv6', 'wanRouteDest', 'wanRoutePriority', 
+            'ipv6Dest', 'ipv6Via', 
+            'lanConfigs'
+          ];
+          const newPe: any = {};
+          peOrder.forEach(k => {
+            if (k in copy.pe) newPe[k] = copy.pe[k];
+          });
+          Object.keys(copy.pe).forEach(k => {
+            if (!peOrder.includes(k)) newPe[k] = copy.pe[k];
+          });
+          copy.pe = newPe;
+        }
+
+        // 对最外层进行排序：role, ce, pe, uuid 放最后，interfaces_ 放中间
+        const keys = Object.keys(copy).sort((a, b) => {
+           // role, ce, pe 优先
+           const prio = (k: string) => {
+              if (k === 'uuid') return -1;
+              if (k === 'role') return 0;
+              if (k === 'ce') return 1;
+              if (k === 'pe') return 2;
+              if (k === 'ipsec_preset') return 3;
+              if (k.startsWith('interfaces_')) return 10;
+             if (k.startsWith('subinterfaces_')) return 11;
+             if (k === 'bgp') return 20;
+             return 50;
+           };
+           const pa = prio(a);
+           const pb = prio(b);
+           if (pa !== pb) return pa - pb;
+           return a.localeCompare(b);
+        });
+        
+        const sorted: any = {};
+        keys.forEach(k => sorted[k] = copy[k]);
+        return sorted;
+      };
+
       const unwrapped = unwrapData(raw);
       const cleaned = stripMeta(unwrapped);
 
@@ -864,7 +945,8 @@ const EditVRConfig: React.FC = () => {
       })();
 
       // 展示标准化后的 JSON，便于与模板一一对应
-      setCleanedResponseText(JSON.stringify(expanded ?? {}, null, 2));
+      const sortedExpanded = sortJsonKeys(expanded ?? {});
+      setCleanedResponseText(JSON.stringify(sortedExpanded, null, 2));
 
       // 将远端配置（已标准化）分发到各个模板片段
       const next: Record<SectionKey, string> = { ...sections } as any;

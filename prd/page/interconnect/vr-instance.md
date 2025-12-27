@@ -15,8 +15,8 @@ prd\page\interconnect\vr-CE.md
 - PE角色prd路径
 prd\page\interconnect\vr-PE公网口.md
 prd\page\interconnect\vr-PE内网口.md
-- Local角色prd路径
-prd\page\interconnect\vr-Local.md（还没写）
+- 标准角色prd路径
+prd\page\interconnect\vr-标准.md（还没写）
 
 
 ## 列表行操作：专家模式（模态框）

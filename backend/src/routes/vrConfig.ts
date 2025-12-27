@@ -56,8 +56,9 @@ vrConfigRoutes.post('/set-role', async (req, res) => {
       return res.status(400).json({ code: 400, msg: '缺少必要参数: uuid' });
     }
     const normalized = String(role || '').toUpperCase();
-    if (!['PE', 'CE'].includes(normalized)) {
-      return res.status(400).json({ code: 400, msg: '角色仅支持 PE 或 CE' });
+    // 允许 PE, CE, SASE, 标准
+    if (!['PE', 'CE', 'SASE', '标准'].includes(normalized)) {
+      return res.status(400).json({ code: 400, msg: '角色仅支持 PE, CE, SASE 或 标准' });
     }
 
     const repo = AppDataSource.getRepository(VRConfig);

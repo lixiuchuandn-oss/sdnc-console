@@ -224,5 +224,22 @@ export const vrApi = {
       }
       throw error;
     }
+  },
+
+  getAll: async () => {
+    try {
+      // Fetch a large page to emulate "get all"
+      const res = await vrApi.getVRInstances(1000, 1);
+      // Handle various response structures
+      const data = res?.data ?? res;
+      const list = Array.isArray(data?.page) ? data.page : 
+                   Array.isArray(data?.list) ? data.list : 
+                   Array.isArray(data?.rows) ? data.rows :
+                   Array.isArray(data) ? data : [];
+      return list;
+    } catch (e: any) {
+      logError(`获取所有VR实例失败: ${e.message}`);
+      return [];
+    }
   }
 }

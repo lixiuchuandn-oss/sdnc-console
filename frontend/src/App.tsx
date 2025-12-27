@@ -22,10 +22,16 @@ import Settings from './pages/Settings/index';
 import Alarms from './pages/Alarms/index';
 import SRv6Page from './pages/InterConnect/SRv6/index';
 import SRv6CreatePage from './pages/InterConnect/SRv6/Create';
+import IPsecVPNPage from './pages/InterConnect/IPsecVPN/index';
+import IPsecVPNWizard from './pages/InterConnect/IPsecVPN/IPsecVPNWizard';
 import VRPage from './pages/InterConnect/VR/index';
 import AddVRInstance from './pages/InterConnect/VR/AddVRInstance';
 import EditVRConfig from './pages/InterConnect/VR/EditVRConfig';
-import RoleWizard from './pages/InterConnect/VR/RoleWizard';
+import PEWizard from './pages/InterConnect/VR/PEWizard';
+import CEWizard from './pages/InterConnect/VR/CEWizard';
+import StandardWizard from './pages/InterConnect/VR/StandardWizard';
+import ACLPage from './pages/InterConnect/ACL/index';
+import NATPage from './pages/InterConnect/NAT/index';
 import InfoDomainPage from './pages/SecMgrPlane/InfoDomain/index';
 import InfoDomainWizardPage from './pages/SecMgrPlane/InfoDomain/Wizard';
 import CENPage from './pages/SecMgrPlane/SmpInstance/index';
@@ -94,10 +100,16 @@ const AppRoutes: React.FC = () => {
           <Route path="topology" element={<Topology />} />
           <Route path="interconnect/srv6" element={<SRv6Page />} />
           <Route path="interconnect/srv6/create" element={<SRv6CreatePage />} />
+          <Route path="interconnect/ipsec" element={<IPsecVPNPage />} />
+          <Route path="interconnect/ipsec/create" element={<IPsecVPNWizard />} />
           <Route path="interconnect/vr" element={<VRPage />} />
           <Route path="interconnect/vr/add" element={<AddVRInstance />} />
           <Route path="interconnect/vr/:uuid/config" element={<EditVRConfig />} />
-          <Route path="interconnect/vr/:uuid/role" element={<RoleWizard />} />
+          <Route path="interconnect/vr/:uuid/role-pe" element={<PEWizard />} />
+          <Route path="interconnect/vr/:uuid/role-ce" element={<CEWizard />} />
+          <Route path="interconnect/vr/:uuid/role-standard" element={<StandardWizard />} />
+          <Route path="interconnect/acl" element={<ACLPage />} />
+          <Route path="interconnect/nat" element={<NATPage />} />
           <Route path="sec-mgr-plane/info-domain" element={<InfoDomainPage />} />
           <Route path="sec-mgr-plane/info-domain/new" element={<InfoDomainWizardPage />} />
           <Route path="sec-mgr-plane/instances" element={<CENPage />} />

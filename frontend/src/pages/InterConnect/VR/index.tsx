@@ -1,16 +1,17 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag } from 'antd';
-import type { MenuProps } from 'antd';
-import { PlusOutlined, ReloadOutlined, EllipsisOutlined, CheckCircleFilled, ExclamationCircleFilled, CloseCircleFilled, QuestionCircleFilled, ApiOutlined } from '@ant-design/icons';
+import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag, Tooltip, Badge, Progress, Popover, Checkbox } from 'antd';
+import type { MenuProps, CheckboxOptionType } from 'antd';
+import { ReloadOutlined, EllipsisOutlined, CheckCircleFilled, ExclamationCircleFilled, CloseCircleFilled, QuestionCircleFilled, ApiOutlined, SettingOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { vrApi } from '../../../services/vrApi';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
 import { getVRRoles, setVRRole, getVRConfig, saveVRConfig } from '../../../services/vrConfigApi';
-import { listInfoDomains } from '../../../services/infoDomainApi';
+import { listInfoDomains, updateInfoDomain } from '../../../services/infoDomainApi';
 import { netClassLabel, netClassColor } from '../../../utils/netClass';
 import '../../common/filters.css';
-
+import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
+import StdFormModal from '../../../components/StdFormModal';
 
 interface VRRow {
   id?: string;
@@ -53,6 +54,9 @@ const VRPage: React.FC = () => {
   const navigate = useNavigate();
   const [vrs, setVrs] = useState<VRRow[]>([]);
   const [columns, setColumns] = useState<ColumnsType<VRRow>>([]);
+  const fullColumnsRef = useRef<ColumnsType<VRRow>>([]);
+  const [visibleColKeys, setVisibleColKeys] = useState<string[]>([]);
+
   const [loading, setLoading] = useState<boolean>(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
   const [filterForm] = Form.useForm();
@@ -62,8 +66,8 @@ const VRPage: React.FC = () => {
   const [netClassFilter, setNetClassFilter] = useState<'vpc' | 'flat' | 'unbound' | undefined>();
   const [rolesMap, setRolesMap] = useState<Record<string, string>>({});
   const rolesMapRef = useRef<Record<string, string>>({});
-  const [netClassMap, setNetClassMap] = useState<Record<string, 'vpc' | 'flat' | 'unbound'>>({});
-  const netClassMapRef = useRef<Record<string, 'vpc' | 'flat' | 'unbound'>>({});
+  const [netClassMap, setNetClassMap] = useState<Record<string, any>>({});
+  const netClassMapRef = useRef<Record<string, any>>({});
 
   const [currentVrId, setCurrentVrId] = useState<string | null>(null);
   // CE配置弹窗
@@ -78,12 +82,63 @@ const VRPage: React.FC = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editForm] = Form.useForm();
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+  
+  // CSMCTL Settings Modal
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsForm] = Form.useForm();
+  const [settingsLoading, setSettingsLoading] = useState(false);
+
+  // 监听可见列变化，更新 columns
+  useEffect(() => {
+    if (fullColumnsRef.current.length > 0 && visibleColKeys.length > 0) {
+       setColumns(fullColumnsRef.current.filter(c => visibleColKeys.includes(String(c.key))));
+    }
+  }, [visibleColKeys]);
+
   const getActionMenu = (row: VRRow): MenuProps['items'] => ([
     { key: 'detail', label: '查看设备详情' },
     { key: 'editDevice', label: '编辑设备信息' },
-    { key: 'roleWizard', label: '设置角色' },
+    { key: 'role', label: '设置角色', children: [
+      { key: 'roleStandard', label: '设为标准模式' },
+      { key: 'rolePE', label: '设为PE模式' },
+      { key: 'roleCE', label: '设为CE模式' },
+    ]},
     { key: 'editConfig', label: '专家模式' },
   ]);
+
+  const handleSettingsOpen = async () => {
+    setSettingsModalOpen(true);
+    setSettingsLoading(true);
+    try {
+      const res = await getSystemSetting('CSMCTL_ADDRESS');
+      if (res && res.value) {
+        settingsForm.setFieldsValue({ address: res.value });
+      } else {
+         // Default value
+         settingsForm.setFieldsValue({ address: 'https://10.20.255.93:8016' });
+      }
+    } catch (e) {
+      console.error('Failed to load settings', e);
+      // Fallback default
+      settingsForm.setFieldsValue({ address: 'https://10.20.255.93:8016' });
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const handleSettingsSave = async () => {
+    try {
+      const values = await settingsForm.validateFields();
+      setSettingsLoading(true);
+      await updateSystemSetting('CSMCTL_ADDRESS', values.address);
+      message.success('设置已保存');
+      setSettingsModalOpen(false);
+    } catch (e: any) {
+      message.error(`保存失败: ${e.message || e}`);
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
 
   const handleRowActionClick = (row: VRRow): MenuProps['onClick'] => ({ key, domEvent }) => {
     domEvent.stopPropagation();
@@ -96,10 +151,12 @@ const VRPage: React.FC = () => {
       }
     } else if (key === 'detail') {
       message.info('查看设备详情（功能待设计）');
-    } else if (key === 'roleWizard') {
+    } else if (key === 'roleStandard' || key === 'rolePE' || key === 'roleCE') {
       const id = row.uuid || row.id || row.vm_id;
       if (!id) return message.warning('该行缺少可识别的UUID/ID');
-      navigate(`/admin/interconnect/vr/${id}/role`);
+      if (key === 'roleStandard') navigate(`/admin/interconnect/vr/${id}/role-standard`);
+      if (key === 'rolePE') navigate(`/admin/interconnect/vr/${id}/role-pe`);
+      if (key === 'roleCE') navigate(`/admin/interconnect/vr/${id}/role-ce`);
     } else if (key === 'editDevice') {
       // 仅展示接口返回的设备 ID（与 uuid 区分开）
       const onlyId = row.id;
@@ -205,13 +262,19 @@ const VRPage: React.FC = () => {
         if(idx>=0) cols.splice(idx,1);
       });
 
-      // 自定义状态列（图标 + 中文标签），从 health_status/healthStatus/status 读取
-      const renderStatus = (raw:any)=>{
-        const v = String(raw||'').toLowerCase();
-        if(['healthy','running','ok','online'].includes(v)) return <div className="status-badge success">Success</div>;
-        if(['warning','degraded'].includes(v)) return <div className="status-badge warning">Pending</div>;
-        if(['error','failed','unhealthy','offline','stopped'].includes(v)) return <div className="status-badge error">Pending</div>;
-        return <div className="status-badge unknown">Unknown</div>;
+      // 自定义状态列（Antd Badge），从 health_status/healthStatus/status 读取
+      const renderStatus = (raw: any) => {
+        const v = String(raw || '').toLowerCase();
+        if (['healthy', 'running', 'ok', 'online'].includes(v)) {
+          return <Badge status="success" text="Running" />;
+        }
+        if (['warning', 'degraded'].includes(v)) {
+          return <Badge status="warning" text="Warning" />;
+        }
+        if (['error', 'failed', 'unhealthy', 'offline', 'stopped'].includes(v)) {
+          return <Badge status="error" text="Stopped" />;
+        }
+        return <Badge status="default" text="Unknown" />;
       };
       const statusCol = {
         title: '状态',
@@ -244,52 +307,162 @@ const VRPage: React.FC = () => {
         render: (_: any, row: VRRow) => {
           const id = row.uuid || row.id || row.vm_id;
           const m = rolesMapRef.current;
-          return (id && m[id]) ? m[id] : '未设置';
+          const role = (id && m[id]) ? m[id] : '未设置';
+          let color = 'default';
+          let style: React.CSSProperties = {};
+
+          if (role === 'PE') color = 'volcano';
+          else if (role === 'CE') color = 'cyan';
+          else if (role === '标准') color = 'blue';
+          else if (role === 'SASE') color = 'geekblue';
+          else {
+            style = { color: 'rgba(0, 0, 0, 0.45)' };
+          }
+          return <Tag color={color} style={style}>{role}</Tag>;
         }
       } as any;
 
       // 追加信息域网络分类列（基于信息域绑定）
       const netClassCol = {
-        title: '信息域分类',
+        title: '信息域',
         key: 'netClass',
         dataIndex: 'netClass',
         render: (_: any, row: VRRow) => {
           const id = row.uuid || row.id || row.vm_id;
-          const cls = id ? netClassMapRef.current[id] || 'unbound' : 'unbound';
-          const label = cls === 'unbound' ? '未绑定' : netClassLabel(cls as any);
-          const color = cls === 'unbound' ? 'default' : netClassColor(cls as any);
-          return <Tag color={color}>{label}</Tag>;
+          const domain = id ? netClassMapRef.current[id] : null;
+          
+          // 只有未绑定时显示 Link，已绑定显示纯文本（信息域名称）
+          if (!domain) {
+             return (
+               <Button 
+                 type="link" 
+                 size="small" 
+                 style={{ padding: 0 }} 
+                 onClick={() => {
+                   if (!id) return message.warning('无法识别VR ID');
+                   // 携带 VR 信息跳转到信息域创建页面
+                   const vrName = row.name || id;
+                   navigate(`/admin/sec-mgr-plane/info-domain/new?vrUuid=${encodeURIComponent(id)}&vrName=${encodeURIComponent(vrName)}`);
+                 }}
+               >
+                 点击绑定
+               </Button>
+             );
+          }
+          return <span>{domain.name || '未知信息域'}</span>;
         }
       } as any;
 
-      // 重新排列列顺序：将“状态”、“名称”、“角色”放到“MAC”列之前（状态在名称前）
-      let macIdx = cols.findIndex((c: any) => c.dataIndex === 'mac' || c.key === 'mac');
-      if (macIdx < 0) macIdx = 0;
+      // 提取并移除特定列以便重新排序
+      const extractCol = (key: string) => {
+        const idx = cols.findIndex((c: any) => c.dataIndex === key || c.key === key);
+        if (idx >= 0) return cols.splice(idx, 1)[0];
+        return null;
+      };
 
-      // 提取并移除名称列（如果存在）
-      const nameIdx = cols.findIndex((c: any) => c.dataIndex === 'name' || c.key === 'name');
-      let nameCol: any | null = null;
-      if (nameIdx >= 0) {
-        [nameCol] = cols.splice(nameIdx, 1);
-      }
+      const indexColObj = extractCol('id'); // 序号列
+      const nameColObj = extractCol('name');
+      const uuidColObj = extractCol('uuid');
+      const poolIdColObj = extractCol('pool_id') || extractCol('poolId');
+      const typeColObj = extractCol('type');
+      const versionColObj = extractCol('version');
 
-      // 插入状态列、名称列与角色列到 MAC 前
-      // 重新定位 MAC 索引（因为数组可能已改变）
-      macIdx = cols.findIndex((c: any) => c.dataIndex === 'mac' || c.key === 'mac');
-      if (macIdx < 0) macIdx = cols.length;
-      // 依次插入：状态 -> 名称 -> 角色
-      cols.splice(macIdx, 0, statusCol);
-      macIdx = macIdx + 1;
-      if (nameCol) {
-        cols.splice(macIdx, 0, nameCol);
-        macIdx = macIdx + 1;
-      }
-      cols.splice(macIdx, 0, roleCol);
-      macIdx = macIdx + 1;
-      cols.splice(macIdx, 0, netClassCol);
+      const macColObj = extractCol('mac');
+      const poolNameColObj = extractCol('pool_name');
+      const vmIdColObj = extractCol('vm_id');
+
+      // 假列定义
+      const cpuCol = {
+        title: 'CPU',
+        key: 'cpu',
+        width: 180,
+        render: () => {
+          const total = [2, 4, 8, 16][Math.floor(Math.random() * 4)];
+          const percent = Math.floor(Math.random() * 60) + 10; // 10-70% random
+          const used = (total * percent / 100).toFixed(1);
+          
+          let color = '#1890ff'; // blue
+          if (percent > 80) color = '#ff4d4f'; // red
+          else if (percent > 60) color = '#fa541c'; // volcano
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', fontSize: '12px' }}>
+              <span>{used} / {total} 核</span>
+              <Progress percent={percent} size="small" strokeColor={color} showInfo={false} />
+            </div>
+          );
+        }
+      };
+      const memCol = {
+        title: '内存',
+        key: 'mem',
+        width: 180,
+        render: () => {
+          const total = [4, 8, 16, 32][Math.floor(Math.random() * 4)];
+          const percent = Math.floor(Math.random() * 60) + 20; // 20-80% random
+          const used = (total * percent / 100).toFixed(1);
+
+          let color = '#1890ff'; // blue
+          if (percent > 80) color = '#ff4d4f'; // red
+          else if (percent > 60) color = '#fa541c'; // volcano
+          
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', fontSize: '12px' }}>
+              <span>{used} / {total} GB</span>
+              <Progress percent={percent} size="small" strokeColor={color} showInfo={false} />
+            </div>
+          );
+        }
+      };
+      const upCol = {
+        title: '上行速率',
+        key: 'up',
+        width: 100,
+        render: () => {
+          const val = (Math.random() * 5).toFixed(1);
+          return <span>{val} Mbps</span>;
+        }
+      };
+      const downCol = {
+        title: '下行速率',
+        key: 'down',
+        width: 100,
+        render: () => {
+          const val = (Math.random() * 10).toFixed(1);
+          return <span>{val} Mbps</span>;
+        }
+      };
+
+      // 构建新的列顺序：序号 -> 名称 -> 状态 -> UUID -> 角色 -> 监控指标 -> MAC -> 版本 -> 类型 -> 信息域 -> 资源池ID -> 其他 -> 操作
+      const newCols: any[] = [];
+      if (indexColObj) newCols.push(indexColObj);
+      if (nameColObj) newCols.push(nameColObj);
+      newCols.push(statusCol);
+      if (uuidColObj) newCols.push(uuidColObj);
+      newCols.push(roleCol);
+      
+      // 添加监控指标列
+      newCols.push(cpuCol);
+      newCols.push(memCol);
+      newCols.push(upCol);
+      newCols.push(downCol);
+      
+      // MAC地址放在下行速率右侧
+      if (macColObj) newCols.push(macColObj);
+
+      // 版本及跟随列
+      if (versionColObj) newCols.push(versionColObj);
+      if (typeColObj) newCols.push(typeColObj);
+      newCols.push(netClassCol);
+      if (poolIdColObj) newCols.push(poolIdColObj);
+      if (poolNameColObj) newCols.push(poolNameColObj);
+      if (vmIdColObj) newCols.push(vmIdColObj);
+
+      // 添加剩余列
+      newCols.push(...cols);
 
       // 追加操作列
-      cols.push({
+      newCols.push({
         title: '操作',
         key: 'actions',
         fixed: 'right',
@@ -300,7 +473,17 @@ const VRPage: React.FC = () => {
           </Dropdown>
         )
       });
-      setColumns(cols);
+      
+      fullColumnsRef.current = newCols;
+      // 默认显示列：去掉 UUID、版本、类型、资源池ID、资源池、虚拟机ID
+      const defaultHidden = ['uuid', 'version', 'type', 'pool_id', 'pool_name', 'vm_id'];
+      if (visibleColKeys.length === 0) {
+        const keys = newCols.map(c => String(c.key)).filter(k => !defaultHidden.includes(k));
+        setVisibleColKeys(keys);
+        setColumns(newCols.filter(c => keys.includes(String(c.key))));
+      } else {
+        setColumns(newCols.filter(c => visibleColKeys.includes(String(c.key))));
+      }
 
       // 拉取角色映射
       const ids = list.map(r => r.uuid || r.id || r.vm_id).filter(Boolean) as string[];
@@ -482,16 +665,17 @@ const VRPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 加载信息域并构建 VR → 网络分类 映射
+  // 加载信息域并构建 VR → 信息域对象 映射
   useEffect(() => {
     (async () => {
       try {
         const domains: any[] = await listInfoDomains();
-        const map: Record<string, 'vpc' | 'flat' | 'unbound'> = {};
+        const map: Record<string, any> = {};
         (domains || []).forEach((d: any) => {
           const uuid = d?.vrUuid || d?.vr_id || d?.vrId || d?.vrUUID;
           if (uuid) {
-            map[uuid] = d?.type === 'VPC' ? 'vpc' : 'flat';
+            // 存储完整的信息域对象，以便展示名称等
+            map[uuid] = d;
           }
         });
         setNetClassMap(map);
@@ -540,7 +724,9 @@ const VRPage: React.FC = () => {
       // 信息域网络分类筛选
       if (netClassFilter) {
         const id = (v.uuid || v.id || v.vm_id) as string;
-        const cls = netClassMap[id] || 'unbound';
+        const domain = netClassMap[id];
+        // domain 存在则判断其类型（vpc/flat），不存在则为 unbound
+        const cls = domain ? (domain.type === 'VPC' ? 'vpc' : 'flat') : 'unbound';
         if (netClassFilter === 'unbound') {
           if (cls !== 'unbound') return false;
         } else {
@@ -596,14 +782,48 @@ const VRPage: React.FC = () => {
     }
   };
 
+  // 列设置内容
+  const columnSettingContent = (
+    <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+       <Checkbox.Group 
+          value={visibleColKeys} 
+          onChange={(checkedValues) => setVisibleColKeys(checkedValues as string[])}
+       >
+         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+           {fullColumnsRef.current.map(col => (
+             <Checkbox key={col.key} value={String(col.key)} disabled={col.key === 'actions'}>
+               {col.title as string || String(col.key)}
+             </Checkbox>
+           ))}
+         </div>
+       </Checkbox.Group>
+    </div>
+  );
+
+  const moreMenu: MenuProps = {
+    items: [
+      {
+        key: 'refresh',
+        label: '刷新列表',
+        onClick: () => forceRefresh()
+      },
+      {
+        key: 'csmctl',
+        label: '配置 CSMCTL 地址',
+        onClick: handleSettingsOpen
+      }
+    ]
+  };
+
   return (
     <PageContainer
-      icon={<ApiOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       title="VR实例管理"
       titleLevel={3}
       subtitle="VR（Virtual Router）实例用于在多云与异构网络之间提供路由与互联能力，支持跨区域连通、BGP/静态路由、策略与监控，帮助实现稳定、安全、高效的网络连接。"
       asCard={false}
-      toolbarLeft={(
+    >
+      <Divider style={{ margin: '0 0 20px 0' }} />
+      <div className="filters-row filters-row--compact">
         <Form
           className="filter-tools filter-tools--center"
           form={filterForm}
@@ -642,17 +862,19 @@ const VRPage: React.FC = () => {
             </Select>
           </Form.Item>
         </Form>
-      )}
-      primaryAction={{ text: '新增VR实例', onClick: () => setAddModalOpen(true) }}
-      moreMenuItems={[
-        { key: 'refresh', label: '刷新', onClick: () => forceRefresh() },
-      ]}
-      actionsSize="middle"
-    >
-      
-
-      
-
+        <Space className="filter-actions">
+          <Button type="primary" size="middle" onClick={() => setAddModalOpen(true)}>新增VR实例</Button>
+          
+          <Dropdown menu={moreMenu} trigger={['click']}>
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
+          
+          <Popover content={columnSettingContent} title="列设置" trigger="click" placement="bottomRight">
+            <Button icon={<SettingOutlined />} />
+          </Popover>
+        </Space>
+      </div>
+ 
        <Table
          className="vr-table"
          columns={columns}
@@ -670,6 +892,26 @@ const VRPage: React.FC = () => {
          scroll={{ x: 'max-content' }}
          bordered
        />
+
+      {/* CSMCTL Settings Modal */}
+      <Modal
+        title="CSMCTL 服务地址设置"
+        open={settingsModalOpen}
+        onOk={handleSettingsSave}
+        onCancel={() => setSettingsModalOpen(false)}
+        confirmLoading={settingsLoading}
+      >
+        <Form form={settingsForm} layout="vertical">
+          <Form.Item
+            name="address"
+            label="CSMCTL 服务地址"
+            rules={[{ required: true, message: '请输入 CSMCTL 地址' }]}
+            extra="例如: https://10.20.255.93:8016"
+          >
+            <Input placeholder="https://ip:port" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title="创建 SRv6 隧道"
@@ -805,79 +1047,48 @@ const VRPage: React.FC = () => {
       </Modal>
 
       {/* 设备信息编辑弹窗 */}
-      <Modal
+      <StdFormModal
         title="设备信息编辑"
         open={editModalOpen}
-        onOk={submitEditVR}
+        form={editForm}
+        onFinish={submitEditVR}
         onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
         confirmLoading={loading}
         destroyOnClose
-        width={640}
+        width={480}
       >
-        <Form form={editForm} layout="vertical">
-          <Row gutter={16}>
-            <Col span={24}>
-              <Form.Item label="ID">
-                <Input value={currentEditId || ''} disabled placeholder="当前设备ID" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}
-                extra="名称需唯一，用于区分资源池">
-                <Input placeholder="例如：VR1" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="uuid" label="UUID" rules={[{ required: true, message: '请输入UUID' }]}>
-                <Input placeholder="例如：54060500FFFB8B0F-5254004a4161" addonAfter={<Button size="small" onClick={() => editForm.setFieldsValue({ uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).slice(2)) })}>生成</Button>} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="mac" label="MAC地址" rules={[
-                { required: true, message: '请输入MAC地址' },
-                { pattern: /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}$/,
-                  message: '格式示例：00:50:56:C0:00:08 或 00-50-56-C0-00-08' }
-              ]}>
-                <Input placeholder="例如：00-50-56-C0-00-08" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="version" label="设备版本号" rules={[{ required: true, message: '请输入设备版本号' }]}> 
-                <Input placeholder="例如：V1.0" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="type" label="类型" initialValue="VR">
-                <Select options={[{ value: 'VR', label: 'VR' }]} disabled />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Divider orientation="left">资源池（可选）</Divider>
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item name="pool_id" label="资源池ID">
-                <Input placeholder="例如：f1c3dc08-..." />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="pool_name" label="资源池名称">
-                <Input placeholder="例如：资源池名称" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="vm_id" label="虚机ID">
-                <Input placeholder="例如：e1c3dc08-..." />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
+          <Form.Item label="ID">
+            <Input value={currentEditId || ''} disabled placeholder="当前设备ID" />
+          </Form.Item>
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="例如：VR1" />
+          </Form.Item>
+          <Form.Item name="uuid" label="UUID" rules={[{ required: true, message: '请输入UUID' }]}>
+            <Input placeholder="例如：54060500FFFB8B0F-5254004a4161" addonAfter={<Button size="small" onClick={() => editForm.setFieldsValue({ uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).slice(2)) })}>生成</Button>} />
+          </Form.Item>
+          <Form.Item name="mac" label="MAC地址" rules={[
+            { required: true, message: '请输入MAC地址' },
+            { pattern: /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}$/,
+              message: '格式示例：00:50:56:C0:00:08 或 00-50-56-C0-00-08' }
+          ]}>
+            <Input placeholder="例如：00-50-56-C0-00-08" />
+          </Form.Item>
+          <Form.Item name="version" label="设备版本号" rules={[{ required: true, message: '请输入设备版本号' }]}> 
+            <Input placeholder="例如：V1.0" />
+          </Form.Item>
+          <Form.Item name="type" label="类型" initialValue="VR">
+            <Select options={[{ value: 'VR', label: 'VR' }]} disabled />
+          </Form.Item>
+          <Form.Item name="pool_id" label="资源池ID">
+            <Input placeholder="例如：f1c3dc08-..." />
+          </Form.Item>
+          <Form.Item name="pool_name" label="资源池名称">
+            <Input placeholder="例如：资源池名称" />
+          </Form.Item>
+          <Form.Item name="vm_id" label="虚机ID">
+            <Input placeholder="例如：e1c3dc08-..." />
+          </Form.Item>
+      </StdFormModal>
 
 
       {/* CE配置弹窗 */}

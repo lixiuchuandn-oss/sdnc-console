@@ -295,7 +295,7 @@ const SRv6CreatePage: React.FC = () => {
       const afV6Idx = afArr.findIndex((af: any) => String(af?.address_family).toLowerCase() === 'ipv6');
       if (afV6Idx >= 0) {
         const af = afArr[afV6Idx];
-        af.modifiler = 'unicast';
+        af.modifier = 'unicast';
         const act = Array.isArray(af.activate_address_family) ? af.activate_address_family : [];
         if (!act.includes(peerPublicIp)) act.push(peerPublicIp);
         af.activate_address_family = act;
@@ -306,7 +306,7 @@ const SRv6CreatePage: React.FC = () => {
       } else {
         afArr.push({
           address_family: 'ipv6',
-          modifiler: 'unicast',
+          modifier: 'unicast',
           activate_address_family: peerPublicIp ? [peerPublicIp] : [],
           network: interconnectV6Net ? [interconnectV6Net] : [],
         });
@@ -315,7 +315,7 @@ const SRv6CreatePage: React.FC = () => {
       const afV4Idx = afArr.findIndex((af: any) => String(af?.address_family).toLowerCase() === 'ipv4');
       if (afV4Idx >= 0) {
         const af = afArr[afV4Idx];
-        af.modifiler = 'vpn';
+        af.modifier = 'vpn';
         const act = Array.isArray(af.activate_address_family) ? af.activate_address_family : [];
         if (!act.includes(peerPublicIp)) act.push(peerPublicIp);
         af.activate_address_family = act;
@@ -323,7 +323,7 @@ const SRv6CreatePage: React.FC = () => {
       } else {
         afArr.push({
           address_family: 'ipv4',
-          modifiler: 'vpn',
+          modifier: 'vpn',
           activate_address_family: peerPublicIp ? [peerPublicIp] : [],
         });
       }
@@ -400,7 +400,7 @@ const SRv6CreatePage: React.FC = () => {
         const nextAaf = Array.from(new Set([...(aaf || []).filter(Boolean), 'ipv6']));
         return {
           ...af,
-          modifiler: af.modifiler || 'unicast',
+          modifier: af.modifier || 'unicast',
           activate_address_family: nextAaf,
           export_route: af.export_route || 'enable',
           import_route: af.import_route || 'enable',
@@ -452,7 +452,7 @@ const SRv6CreatePage: React.FC = () => {
         const item = { ...(neighbors[policyIdx] || {}) };
         const afLabel = String(item.address_family || '').toLowerCase();
         item.address_family = afLabel || 'ipv4';
-        item.modifiler = 'unicast';
+        item.modifier = 'unicast';
         item.route_distinguisher = rd;
         item.route_target = rt;
         item.export_route = 'enable';
@@ -462,7 +462,7 @@ const SRv6CreatePage: React.FC = () => {
       } else {
         neighbors.push({
           address_family: 'ipv4',
-          modifiler: 'unicast',
+          modifier: 'unicast',
           route_distinguisher: rd,
           route_target: rt,
           export_route: 'enable',
@@ -1032,7 +1032,9 @@ const SRv6CreatePage: React.FC = () => {
       return;
     }
     const role = target.startsWith('pe') ? 'PE' : 'CE';
-    const url = `/admin/interconnect/vr/${uuid}/role?role=${role}&version=latest`;
+    const url = role === 'PE'
+      ? `/admin/interconnect/vr/${uuid}/role-pe`
+      : `/admin/interconnect/vr/${uuid}/role-ce`;
     window.open(url, '_blank');
   };
 

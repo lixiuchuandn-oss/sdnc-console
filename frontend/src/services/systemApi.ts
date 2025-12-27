@@ -47,3 +47,19 @@ export async function listSecurityLogs(): Promise<{ logs: { fileName: string; si
   });
   return res.data as any;
 }
+
+export async function getSystemSetting(key: string): Promise<{ key: string; value: string }> {
+  const token = localStorage.getItem('token');
+  const res = await axios.get(`${API_BASE}/settings/${key}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  return res.data?.data || res.data;
+}
+
+export async function updateSystemSetting(key: string, value: string): Promise<{ key: string; value: string }> {
+  const token = localStorage.getItem('token');
+  const res = await axios.patch(`${API_BASE}/settings/${key}`, { value }, {
+    headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
+  });
+  return res.data?.data || res.data;
+}

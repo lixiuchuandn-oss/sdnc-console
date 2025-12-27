@@ -3,6 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { getDifyConfig, setDifyConfig } from '../config/runtimeConfig';
+import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
 import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
@@ -21,6 +22,19 @@ router.patch('/dify-config', async (req, res) => {
   const next = setDifyConfig({ baseUrl, apiKey, workflowId, logsDir, reportsDir, mode, fileVarName });
   const safe = { ...next } as any;
   res.json({ config: { ...safe, apiKey: !!next.apiKey ? '****' : '' } });
+});
+
+router.get('/settings/:key', (req, res) => {
+  const key = req.params.key;
+  const value = getSystemSetting(key);
+  res.json({ data: { key, value: value || '' } });
+});
+
+router.patch('/settings/:key', (req, res) => {
+  const key = req.params.key;
+  const { value } = req.body;
+  setSystemSetting(key, String(value || ''));
+  res.json({ data: { key, value: String(value || '') } });
 });
 
 router.get('/rbac/actions', async (_req, res) => {

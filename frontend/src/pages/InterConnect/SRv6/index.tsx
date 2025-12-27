@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Table, Tag, Modal, Row, Col, message, Dropdown, Steps, Descriptions, Badge } from 'antd';
+import { Button, Divider, Form, Input, Select, Space, Table, Tag, Modal, Row, Col, message, Dropdown, Steps, Descriptions, Badge, Popover, Checkbox } from 'antd';
 import type { MenuProps } from 'antd';
-import { ReloadOutlined, NodeIndexOutlined, PlusOutlined, EllipsisOutlined, ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined, ShareAltOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
@@ -42,7 +42,27 @@ const SRv6Page: React.FC = () => {
   const [vrs, setVrs] = useState<any[]>([]);
   const [rolesMap, setRolesMap] = useState<Record<string, string>>({});
   const rolesMapRef = useRef<Record<string, string>>({});
-  const [columns, setColumns] = useState<ColumnsType<Srv6TunnelRow>>([]);
+
+  // Columns control
+  const defaultCheckedColumns = ['name', 'peA', 'peB', 'ceA', 'ceB', 'status', 'time', 'actions'];
+  const [checkedColumns, setCheckedColumns] = useState<any[]>(defaultCheckedColumns);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('srv6_columns_settings');
+    if (saved) {
+      try {
+        setCheckedColumns(JSON.parse(saved));
+      } catch (e) {
+        console.warn('Failed to parse saved columns settings', e);
+      }
+    }
+  }, []);
+
+  const onColumnCheckChange = (checkedValues: any[]) => {
+    setCheckedColumns(checkedValues);
+    localStorage.setItem('srv6_columns_settings', JSON.stringify(checkedValues));
+  };
+
   const [loading, setLoading] = useState<boolean>(false);
   const [filterForm] = Form.useForm();
   const [keyword, setKeyword] = useState('');
@@ -119,29 +139,47 @@ const SRv6Page: React.FC = () => {
   };
 
   // 初始列
-  useEffect(() => {
-    const cols: ColumnsType<Srv6TunnelRow> = [
-      { title: '名称', dataIndex: 'name', key: 'name' },
-      { title: 'PE-A', dataIndex: 'peA', key: 'peA' },
-      { title: 'PE-B', dataIndex: 'peB', key: 'peB' },
-      { title: 'CE-A', dataIndex: 'ceA', key: 'ceA' },
-      { title: 'CE-B', dataIndex: 'ceB', key: 'ceB' },
-      { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => (<Tag color={s === 'available' ? 'green' : 'blue'}>{s === 'available' ? '可用' : '创建中'}</Tag>) },
-      { title: '创建时间', dataIndex: 'createdAt', key: 'time', render: (d: string) => new Date(d).toLocaleString() },
-      {
-        title: '操作',
-        key: 'actions',
-        fixed: 'right',
-        width: 160,
-        render: (_: any, row: Srv6TunnelRow) => (
-          <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
-            <Button type="text" icon={<EllipsisOutlined />} />
-          </Dropdown>
-        )
-      }
-    ];
-    setColumns(cols);
-  }, []);
+  const fullColumns: ColumnsType<Srv6TunnelRow> = [
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: 'PE-A', dataIndex: 'peA', key: 'peA' },
+    { title: 'PE-B', dataIndex: 'peB', key: 'peB' },
+    { title: 'CE-A', dataIndex: 'ceA', key: 'ceA' },
+    { title: 'CE-B', dataIndex: 'ceB', key: 'ceB' },
+    { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => (<Tag color={s === 'available' ? 'green' : 'blue'}>{s === 'available' ? '可用' : '创建中'}</Tag>) },
+    { title: '创建时间', dataIndex: 'createdAt', key: 'time', render: (d: string) => new Date(d).toLocaleString() },
+    {
+      title: '操作',
+      key: 'actions',
+      fixed: 'right',
+      width: 160,
+      render: (_: any, row: Srv6TunnelRow) => (
+        <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
+          <Button type="text" icon={<EllipsisOutlined />} />
+        </Dropdown>
+      )
+    }
+  ];
+
+  const columns = useMemo(() => {
+    return fullColumns.filter(col => checkedColumns.includes(col.key as string));
+  }, [checkedColumns, fullColumns]);
+
+  const columnSettingContent = (
+    <Checkbox.Group
+      style={{ display: 'flex', flexDirection: 'column' }}
+      value={checkedColumns}
+      onChange={onColumnCheckChange}
+    >
+      <Checkbox value="name">名称</Checkbox>
+      <Checkbox value="peA">PE-A</Checkbox>
+      <Checkbox value="peB">PE-B</Checkbox>
+      <Checkbox value="ceA">CE-A</Checkbox>
+      <Checkbox value="ceB">CE-B</Checkbox>
+      <Checkbox value="status">状态</Checkbox>
+      <Checkbox value="time">创建时间</Checkbox>
+      <Checkbox value="actions" disabled>操作</Checkbox>
+    </Checkbox.Group>
+  );
 
   // 加载VR列表与角色映射（用于PE/CE选项）
   const fetchVRsAndRoles = async (pageSize: number = 100, pageNum: number = 1) => {
@@ -243,6 +281,15 @@ const SRv6Page: React.FC = () => {
     loadSrv6Tunnels();
   };
 
+  const moreMenu: MenuProps = {
+    items: [
+      {
+        key: 'refresh',
+        label: '刷新列表',
+        onClick: forceRefresh
+      }
+    ]
+  };
 
   // 开始健康巡检（占位逻辑：依次推进步骤状态）
   const startHealthCheck = () => {
@@ -280,7 +327,6 @@ const SRv6Page: React.FC = () => {
 
   return (
     <PageContainer
-      icon={<BranchesOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       title="SRv6 隧道管理"
       titleLevel={3}
       subtitle="SRv6（Segment Routing over IPv6）用于在 IPv6 网络中实现基于段的路由，支持灵活的流量工程与业务编排。"
@@ -310,8 +356,13 @@ const SRv6Page: React.FC = () => {
         </Form>
 
         <Space className="filter-actions">
-          <Button type="primary" size="middle" icon={<NodeIndexOutlined />} onClick={() => navigate('/admin/interconnect/srv6/create')} style={{ borderRadius: 4 }}>创建SRv6隧道</Button>
-          <Button size="middle" icon={<ReloadOutlined />} onClick={forceRefresh} style={{ borderRadius: 4 }}>刷新</Button>
+          <Button type="primary" size="middle" onClick={() => navigate('/admin/interconnect/srv6/create')}>创建SRv6隧道</Button>
+          <Dropdown menu={moreMenu} trigger={['click']}>
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
+          <Popover content={columnSettingContent} title="列设置" trigger="click" placement="bottomRight">
+            <Button icon={<SettingOutlined />} />
+          </Popover>
         </Space>
       </div>
 

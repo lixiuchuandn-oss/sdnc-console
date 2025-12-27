@@ -396,7 +396,6 @@ const InfoDomainPage: React.FC = () => {
 
   return (
     <PageContainer
-      icon={<EnvironmentOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       title="信息域管理"
       titleLevel={3}
       subtitle="信息域代表用户私有网络（IDC/VPC/办公网络）。通过 VR 实例之间建立的 SRv6 隧道或 IPsec 隧道，实现不同信息域之间的互联通信。"

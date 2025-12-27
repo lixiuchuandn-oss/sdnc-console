@@ -15,15 +15,17 @@ type StdFormModalProps = {
   destroyOnHidden?: boolean;
   forceRender?: boolean;
   initialValues?: any;
+  centered?: boolean;
 };
 
-const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = '保存', width = 600, confirmLoading, form, onCancel, onFinish, children, destroyOnClose = true, destroyOnHidden, forceRender, initialValues }) => {
+const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = '保存', width = 600, confirmLoading, form, onCancel, onFinish, children, destroyOnClose = true, destroyOnHidden, forceRender, initialValues, centered = true }) => {
   const shouldDestroyOnHidden = typeof destroyOnHidden !== 'undefined' ? destroyOnHidden : destroyOnClose;
   return (
     <Modal
       className="stdform-modal"
       title={typeof title === 'string' ? (<span style={{ fontWeight: 400 }}>{title}</span>) : title}
       open={open}
+      centered={centered}
       onCancel={onCancel}
       onOk={() => form?.submit?.()}
       okText={okText}

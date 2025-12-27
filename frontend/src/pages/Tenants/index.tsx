@@ -776,7 +776,6 @@ const TenantsPage: React.FC = () => {
 
   return (
     <PageContainer
-      icon={<TeamOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       title="租户管理"
       titleLevel={3}
       subtitle="租户（Tenant）用于隔离不同组织或项目的资源与权限，支持组织架构、用户与角色管理、资源池分配等。"

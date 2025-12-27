@@ -9,6 +9,7 @@ export const PATH_PERMISSION_MAPPING = [
   { path: '/admin/tenants', action: 'tenants:read' },
   { path: '/admin/tenants/users', action: 'tenants.users:read' },
   { path: '/admin/interconnect/nat', action: 'networks.nat:read' },
+  { path: '/admin/interconnect/acl', action: 'networks.acl:read' },
   { path: '/admin/interconnect/ipsec', action: 'networks.ipsec:read' },
   { path: '/admin/interconnect/srv6', action: 'networks.srv6:read' },
   { path: '/admin/interconnect/vr', action: 'networks.vr-config:read' },

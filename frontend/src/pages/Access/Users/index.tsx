@@ -135,7 +135,6 @@ const AccessUsersPage: React.FC = () => {
 
   return (
     <PageContainer
-      icon={<UserOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       title="用户管理"
       titleLevel={3}
       subtitle="管理系统用户并为其赋予访问控制角色"

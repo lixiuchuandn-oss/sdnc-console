@@ -31,7 +31,7 @@ const getAuthHeaders = () => {
 };
 
 // 通用请求函数
-const apiRequest = async (endpoint: string) => {
+export const apiRequest = async (endpoint: string) => {
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'GET',
@@ -46,12 +46,12 @@ const apiRequest = async (endpoint: string) => {
     return await response.json();
   } catch (error) {
     console.error(`API请求失败 ${endpoint}:`, error);
-    return [];
+    throw error;
   }
 };
 
 // 通用 POST 请求
-const apiPost = async (endpoint: string, body: any = {}) => {
+export const apiPost = async (endpoint: string, body: any = {}) => {
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'POST',
@@ -71,7 +71,7 @@ const apiPost = async (endpoint: string, body: any = {}) => {
   }
 };
 
-const apiDelete = async (endpoint: string) => {
+export const apiDelete = async (endpoint: string) => {
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'DELETE',
@@ -89,7 +89,7 @@ const apiDelete = async (endpoint: string) => {
 };
 
 // 通用 PATCH 请求
-const apiPatch = async (endpoint: string, body: any = {}) => {
+export const apiPatch = async (endpoint: string, body: any = {}) => {
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'PATCH',
@@ -1722,19 +1722,39 @@ export const fetchDashboardCloudUsage = async () => {
 
 // ===== SRv6 隧道 =====
 export const fetchSrv6Tunnels = async () => {
-  return await apiRequest('/api/srv6-tunnels');
+  return await apiRequest('/api/networks/srv6');
 };
 
 export const createSrv6Tunnel = async (payload: { name: string; peA: string; peB: string; ceA: string; ceB: string }) => {
-  return await apiPost('/api/srv6-tunnels', payload);
+  return await apiPost('/api/networks/srv6', payload);
 };
 
 export const fetchSrv6Tunnel = async (id: string) => {
-  return await apiRequest(`/api/srv6-tunnels/${id}`);
+  return await apiRequest(`/api/networks/srv6/${id}`);
 };
 
 export const deleteSrv6Tunnel = async (id: string) => {
-  return await apiDelete(`/api/srv6-tunnels/${id}`);
+  return await apiDelete(`/api/networks/srv6/${id}`);
+};
+
+// ===== IPsec VPN =====
+export const fetchIPsecVPNs = async () => {
+  return await apiRequest('/api/networks/ipsec');
+};
+
+export const fetchIPsecVPNsMerged = async (params?: { vrId?: string }) => {
+  const qs: string[] = ['includeDevice=1'];
+  if (params?.vrId) qs.push(`vrId=${encodeURIComponent(params.vrId)}`);
+  const url = `/api/networks/ipsec${qs.length ? ('?' + qs.join('&')) : ''}`;
+  return await apiRequest(url);
+};
+
+export const createIPsecVPN = async (payload: any) => {
+  return await apiPost('/api/networks/ipsec', payload);
+};
+
+export const deleteIPsecVPN = async (id: string) => {
+  return await apiDelete(`/api/networks/ipsec/${id}`);
 };
 
 // ===== 服务目录（Service Catalog）=====

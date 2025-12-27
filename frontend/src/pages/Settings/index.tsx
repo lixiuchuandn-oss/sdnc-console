@@ -36,7 +36,6 @@ const Settings: React.FC = () => {
   return (
     <PageContainer
       title="系统设置"
-      icon={<SettingOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       asCard={false}
       titleLevel={3}
     >

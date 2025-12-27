@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined } from '@ant-design/icons';
 
 export interface PageContainerProps {
   title?: React.ReactNode;
@@ -30,6 +30,7 @@ export interface PageContainerProps {
   primaryAction?: { text: string; onClick: () => void; disabled?: boolean; type?: 'primary' | 'default'; icon?: React.ReactNode };
   moreMenuItems?: Array<{ key: string; label: React.ReactNode; danger?: boolean; disabled?: boolean; onClick?: () => void }>;
   actionsSize?: 'small' | 'middle' | 'large';
+  onBack?: () => void;
 }
 
 const PageContainer: React.FC<PageContainerProps> = ({
@@ -56,6 +57,7 @@ const PageContainer: React.FC<PageContainerProps> = ({
   primaryAction,
   moreMenuItems,
   actionsSize = 'middle',
+  onBack,
 }) => {
   const loc = useLocation();
   const { token } = theme.useToken();
@@ -75,6 +77,10 @@ const PageContainer: React.FC<PageContainerProps> = ({
       BranchesOutlined: <BranchesOutlined />,
       GlobalOutlined: <GlobalOutlined />,
       EnvironmentOutlined: <EnvironmentOutlined />,
+      ShareAltOutlined: <ShareAltOutlined />,
+      NodeIndexOutlined: <NodeIndexOutlined />,
+      SecurityScanOutlined: <SecurityScanOutlined />,
+      SwapOutlined: <SwapOutlined />,
     };
     return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
   };
@@ -171,7 +177,10 @@ const PageContainer: React.FC<PageContainerProps> = ({
               {displayTitle}
             </Typography.Title>
           </Space>
-          {extra}
+          <Space>
+            {extra}
+            {onBack && <Button icon={<ArrowLeftOutlined />} onClick={onBack} />}
+          </Space>
         </div>
       )}
 
