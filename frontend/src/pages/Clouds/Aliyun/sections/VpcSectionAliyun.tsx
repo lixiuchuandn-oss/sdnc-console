@@ -199,7 +199,7 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
         rowKey={(r: any) => r.VpcId || r.id}
         dataSource={filteredVpcs}
         columns={columns as any}
-        pagination={{ pageSize: 10 }}
+        pagination={{ pageSize: 10, size: 'default' }}
         rowClassName={(r: any) => {
           const id = String(r?.VpcId || r?.id || '');
           return changedIds.has(id) ? 'vpc-row-updated' : '';

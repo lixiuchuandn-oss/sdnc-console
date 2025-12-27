@@ -99,7 +99,7 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
       )}
       asCard={false}
     >
-      <Table rowKey={(r: any) => r.VSwitchId || r.id} dataSource={filteredVsw} columns={columns as any} pagination={{ pageSize: 10 }} />
+      <Table rowKey={(r: any) => r.VSwitchId || r.id} dataSource={filteredVsw} columns={columns as any} pagination={{ pageSize: 10, size: 'default' }} />
       {!!showLog && (
         <div style={{ marginTop: 12 }}>
           <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(raw, null, 2)}</pre>

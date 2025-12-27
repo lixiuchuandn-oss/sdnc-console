@@ -22,25 +22,8 @@ const NATPage: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<'snat' | 'dnat' | 'static' | undefined>();
   const [filterForm] = Form.useForm();
   
-  // Columns control
-  const defaultCheckedColumns = ['name', 'vrId', 'type', 'interface', 'original', 'translated', 'action'];
-  const [checkedColumns, setCheckedColumns] = useState<any[]>(defaultCheckedColumns);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('nat_columns_settings');
-    if (saved) {
-      try {
-        setCheckedColumns(JSON.parse(saved));
-      } catch (e) {
-        console.warn('Failed to parse saved columns settings', e);
-      }
-    }
-  }, []);
-
-  const onColumnCheckChange = (checkedValues: any[]) => {
-    setCheckedColumns(checkedValues);
-    localStorage.setItem('nat_columns_settings', JSON.stringify(checkedValues));
-  };
+  // PageContainer handles column visibility
+  const defaultHiddenColumns: string[] = [];
   
   // Create Drawer State
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -227,25 +210,7 @@ const NATPage: React.FC = () => {
     },
   ];
 
-  const columns = useMemo(() => {
-    return fullColumns.filter(col => checkedColumns.includes(col.key as string));
-  }, [checkedColumns, fullColumns]);
-
-  const columnSettingContent = (
-    <Checkbox.Group
-      style={{ display: 'flex', flexDirection: 'column' }}
-      value={checkedColumns}
-      onChange={onColumnCheckChange}
-    >
-      <Checkbox value="name">规则名称</Checkbox>
-      <Checkbox value="vrId">VR 实例</Checkbox>
-      <Checkbox value="type">类型</Checkbox>
-      <Checkbox value="interface">接口</Checkbox>
-      <Checkbox value="original">原始地址/端口</Checkbox>
-      <Checkbox value="translated">转换后地址/端口</Checkbox>
-      <Checkbox value="action" disabled>操作</Checkbox>
-    </Checkbox.Group>
-  );
+  const columns = fullColumns;
 
   const filteredData = data.filter((r) => {
     if (keyword && !String(r.name || '').toLowerCase().includes(keyword.toLowerCase())) return false;
@@ -281,9 +246,17 @@ const NATPage: React.FC = () => {
       titleLevel={3}
       subtitle="创建 SNAT/DNAT/静态 NAT 规则，实现私网地址与公网地址的转换，支持接口绑定和地址段映射，解决内网主机访问公网需求。"
       asCard={false}
-    >
-      <Divider style={{ margin: '0 0 20px 0' }} />
-      <div className="filters-row filters-row--compact">
+      primaryAction={{
+        text: '新建 NAT',
+        onClick: () => setDrawerOpen(true),
+        type: 'primary',
+      }}
+      moreMenuItems={[
+        { key: 'refresh', label: '刷新列表', onClick: fetchData },
+        { key: 'reset', label: '重置筛选', onClick: resetFilters }
+      ]}
+      defaultHiddenColumns={[]}
+      toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"
           form={filterForm}
@@ -311,25 +284,17 @@ const NATPage: React.FC = () => {
             </Select>
           </Form.Item>
         </Form>
-        <Space className="filter-actions">
-          <Button type="primary" onClick={() => setDrawerOpen(true)}>新建 NAT</Button>
-          <Dropdown menu={moreMenu} trigger={['click']}>
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
-          <Popover content={columnSettingContent} title="列设置" trigger="click" placement="bottomRight">
-            <Button icon={<SettingOutlined />} />
-          </Popover>
-        </Space>
-      </div>
-      <Table 
-        dataSource={filteredData} 
-        columns={columns} 
-        rowKey="id"
-        loading={loading}
-        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'] }}
-        scroll={{ x: 'max-content' }}
-        bordered
-      />
+      )}
+      tableProps={{
+        dataSource: filteredData,
+        columns: columns,
+        rowKey: "id",
+        loading: loading,
+        pagination: { pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'] },
+        scroll: { x: 'max-content' },
+        bordered: true
+      }}
+    >
 
       <StdSideDrawer
         title="新建 NAT 规则"

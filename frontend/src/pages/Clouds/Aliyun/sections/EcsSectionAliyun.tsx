@@ -308,7 +308,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
         rowKey={(r:any)=> r.InstanceId || r.id}
         dataSource={filteredEcs}
         columns={columns as any}
-        pagination={{ pageSize: 10 }}
+        pagination={{ pageSize: 10, size: 'default' }}
         rowClassName={(r:any)=> {
           const xiid = String(r?.InstanceId || r?.id || '');
           return changedIds.has(xiid) ? 'ecs-row-updated' : '';

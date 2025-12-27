@@ -386,7 +386,7 @@ const AdminLayout: React.FC = () => {
 
   const sidebarForPath = (p: string) => {
     const s = p.toLowerCase();
-    if (s.includes('/interconnect') || s.includes('/sec-mgr-plane')) return '/admin/cen_sdn';
+    if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security')) return '/admin/cen_sdn';
     if (s.includes('/alarms')) return '/admin/cen_secops';
     return '/admin/cen_compute';
   };

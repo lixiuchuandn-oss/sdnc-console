@@ -41,6 +41,12 @@ import AccessPoliciesPage from './pages/Access/Policies/index';
 import AccessRolesPage from './pages/Access/Roles/index';
 import AccessActionsPage from './pages/Access/Actions/index';
 import AccessUsersPage from './pages/Access/Users/index';
+import VSWCluster from './pages/Security/TrafficOrchestration/VSWCluster';
+import SecurityZones from './pages/Security/TrafficOrchestration/SecurityZones';
+import ProtectedObjects from './pages/Security/TrafficOrchestration/ProtectedObjects';
+import ServiceChains from './pages/Security/TrafficOrchestration/ServiceChains';
+import CreateServiceChainWizard from './pages/Security/TrafficOrchestration/ServiceChains/CreateWizard';
+import Policies from './pages/Security/TrafficOrchestration/Policies';
 import WebSSHPage from './pages/Clouds/WebSSH';
 import CloudConsolePage from './pages/Clouds/CloudConsole';
 import HarvesterVNCPage from './pages/Clouds/Harvester/HarvesterVNC';
@@ -121,6 +127,15 @@ const AppRoutes: React.FC = () => {
           <Route path="access/actions" element={<AccessActionsPage />} />
           <Route path="access/roles" element={<AccessRolesPage />} />
           <Route path="access/users" element={<AccessUsersPage />} />
+          
+          {/* SSLO Traffic Orchestration */}
+          <Route path="security/traffic/vsw" element={<VSWCluster />} />
+          <Route path="security/traffic/security-zones" element={<SecurityZones />} />
+          <Route path="security/traffic/protected-objects" element={<ProtectedObjects />} />
+          <Route path="security/traffic/service-chains" element={<ServiceChains />} />
+          <Route path="security/traffic/service-chains/create" element={<CreateServiceChainWizard />} />
+          <Route path="security/traffic/policies" element={<Policies />} />
+
           {/* other admin routes ... reuse components */}
         </Route>
         {routeSpecs.filter(s => s.layout === 'default').map(s => {

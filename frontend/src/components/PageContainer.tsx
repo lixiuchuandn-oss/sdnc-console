@@ -1,10 +1,10 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider } from 'antd';
+import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider, Table, TableProps, Popover, Checkbox, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined } from '@ant-design/icons';
 
-export interface PageContainerProps {
+export interface PageContainerProps<T = any> {
   title?: React.ReactNode;
   icon?: React.ReactNode;
   breadcrumb?: Array<{ label: React.ReactNode; href?: string }>;
@@ -28,12 +28,25 @@ export interface PageContainerProps {
   toolbarStyle?: React.CSSProperties;
   toolbarSticky?: boolean;
   primaryAction?: { text: string; onClick: () => void; disabled?: boolean; type?: 'primary' | 'default'; icon?: React.ReactNode };
+  secondaryActions?: React.ReactNode;
   moreMenuItems?: Array<{ key: string; label: React.ReactNode; danger?: boolean; disabled?: boolean; onClick?: () => void }>;
   actionsSize?: 'small' | 'middle' | 'large';
   onBack?: () => void;
+  /** 标准表格属性，传入此属性将自动渲染标准样式的表格 */
+  tableProps?: TableProps<T>;
+  /** Tab 列表 */
+  tabList?: Array<{ key: string; tab: React.ReactNode }>;
+  /** 当前激活的 Tab key */
+  tabActiveKey?: string;
+  /** Tab 切换回调 */
+  onTabChange?: (key: string) => void;
+  /** Tab 栏右侧内容 */
+  tabBarExtraContent?: React.ReactNode;
+  /** 默认隐藏的列 keys */
+  defaultHiddenColumns?: string[];
 }
 
-const PageContainer: React.FC<PageContainerProps> = ({
+const PageContainer = <T extends Record<string, any> = any>({
   title,
   icon,
   breadcrumb,
@@ -45,7 +58,7 @@ const PageContainer: React.FC<PageContainerProps> = ({
   contentPadding = 16,
   titleLevel = 4,
   subtitle,
-  asCard = true,
+  asCard: propsAsCard,
   pagePadding,
   hideHeader = false,
   toolbarLeft,
@@ -55,13 +68,61 @@ const PageContainer: React.FC<PageContainerProps> = ({
   toolbarStyle,
   toolbarSticky = false,
   primaryAction,
+  secondaryActions,
   moreMenuItems,
   actionsSize = 'middle',
   onBack,
-}) => {
+  tableProps,
+  tabList,
+  tabActiveKey,
+  onTabChange,
+  tabBarExtraContent,
+  defaultHiddenColumns,
+}: PageContainerProps<T>) => {
   const loc = useLocation();
   const { token } = theme.useToken();
   const [collapsed, setCollapsed] = useState(false);
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>(defaultHiddenColumns || []);
+
+  // 如果使用了 tableProps，默认 asCard 为 false，除非显式设置为 true
+  const asCard = propsAsCard !== undefined ? propsAsCard : (tableProps ? false : true);
+
+  const filteredColumns = useMemo(() => {
+    if (!tableProps?.columns) return undefined;
+    return tableProps.columns.filter((c: any) => {
+      const k = String(c.key || c.dataIndex || '');
+      return !hiddenColumns.includes(k);
+    });
+  }, [tableProps?.columns, hiddenColumns]);
+
+  const columnControllerContent = useMemo(() => (
+    <div style={{ padding: '4px 0', minWidth: 150 }}>
+      <div style={{ marginBottom: 8, padding: '0 12px', fontWeight: 600 }}>列展示</div>
+      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        {tableProps?.columns?.map((c: any, idx) => {
+          const k = String(c.key || c.dataIndex || '');
+          const title = typeof c.title === 'string' ? c.title : (k || `列 ${idx + 1}`);
+          return (
+            <div key={k || idx} style={{ padding: '4px 12px' }}>
+              <Checkbox
+                checked={!hiddenColumns.includes(k)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setHiddenColumns(prev => prev.filter(x => x !== k));
+                  } else {
+                    setHiddenColumns(prev => [...prev, k]);
+                  }
+                }}
+              >
+                {title}
+              </Checkbox>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  ), [tableProps?.columns, hiddenColumns]);
+
   const iconOf = (key?: string) => {
     const m: Record<string, React.ReactNode> = {
       AppstoreOutlined: <AppstoreOutlined />,
@@ -115,9 +176,9 @@ const PageContainer: React.FC<PageContainerProps> = ({
     return items;
   }, [loc.pathname, currentSpec]);
 
-  const displayTitle = currentSpec?.title || currentSpec?.breadcrumbLabel || '';
-  const displaySubtitle = currentSpec?.subtitle || '';
-  const displayIcon = styledIcon(iconOf(currentSpec?.icon), 22, token.colorPrimary);
+  const displayTitle = title || currentSpec?.title || currentSpec?.breadcrumbLabel || '';
+  const displaySubtitle = subtitle || currentSpec?.subtitle || '';
+  const displayIcon = icon || styledIcon(iconOf(currentSpec?.icon), 22, token.colorPrimary);
 
   const cardStyle: React.CSSProperties = {
     marginBottom: 16,
@@ -127,8 +188,9 @@ const PageContainer: React.FC<PageContainerProps> = ({
   };
 
   const actionsNode = toolbarRight ?? (
-    (primaryAction || (moreMenuItems && moreMenuItems.length > 0)) ? (
+    (primaryAction || (moreMenuItems && moreMenuItems.length > 0) || tableProps || secondaryActions) ? (
       <Space>
+        {secondaryActions}
         {primaryAction && (
           <Button
             type={primaryAction.type || 'primary'}
@@ -152,15 +214,20 @@ const PageContainer: React.FC<PageContainerProps> = ({
               })),
             }}
           >
-            <Button size={actionsSize} icon={<CodeOutlined />} />
+            <Button size={actionsSize} icon={<EllipsisOutlined />} />
           </Dropdown>
+        )}
+        {tableProps && (
+          <Popover trigger="click" placement="bottomRight" content={columnControllerContent}>
+            <Button size={actionsSize} icon={<SettingOutlined />} />
+          </Popover>
         )}
       </Space>
     ) : null
   );
 
   return (
-    <div style={{ padding: pagePadding !== undefined ? pagePadding : '24px 36px', maxHeight: '100%' }}>
+    <div style={{ padding: pagePadding !== undefined ? pagePadding : '24px 36px', maxHeight: '100%', display: 'flex', flexDirection: 'column' }}>
       {!hideHeader && (
         <Breadcrumb
           style={{ marginBottom: 12 }}
@@ -173,7 +240,7 @@ const PageContainer: React.FC<PageContainerProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <Space size={8} style={{ display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
             {displayIcon}
-            <Typography.Title level={titleLevel} style={{ margin: 0, lineHeight: 1, display: 'inline-flex', alignItems: 'center' }}>
+            <Typography.Title level={titleLevel} style={{ margin: 0, lineHeight: 1, display: 'inline-flex', alignItems: 'center', fontSize: 24 }}>
               {displayTitle}
             </Typography.Title>
           </Space>
@@ -185,7 +252,7 @@ const PageContainer: React.FC<PageContainerProps> = ({
       )}
 
       {!hideHeader && displaySubtitle && (
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16, cursor: 'pointer' }} onClick={() => setCollapsed(!collapsed)}>
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: tabList ? 12 : 16, cursor: 'pointer' }} onClick={() => setCollapsed(!collapsed)}>
           {displaySubtitle}
         </Typography.Text>
       )}
@@ -214,8 +281,19 @@ const PageContainer: React.FC<PageContainerProps> = ({
           </div>
         </div>
       )}
-      {!hideHeader && collapsibleChildren && collapsed && (
+      
+      {!hideHeader && !tabList && (
         <Divider style={{ margin: '0 0 16px 0' }} />
+      )}
+
+      {/* Tabs 如果存在，替换 Divider */}
+      {tabList && tabList.length > 0 && (
+        <Tabs
+          activeKey={tabActiveKey}
+          onChange={onTabChange}
+          tabBarExtraContent={tabBarExtraContent}
+          items={tabList.map(t => ({ key: t.key, label: t.tab }))}
+        />
       )}
 
       {(toolbarLeft || actionsNode) && (
@@ -244,7 +322,24 @@ const PageContainer: React.FC<PageContainerProps> = ({
           {children}
         </Card>
       ) : (
-        <div style={{ margin: 0 }}>{children}</div>
+        <div style={{ margin: 0, flex: 1 }}>
+          {tableProps && (
+            <Table
+              bordered
+              size="middle"
+              {...tableProps}
+              columns={filteredColumns || tableProps.columns}
+              pagination={tableProps.pagination !== false ? {
+                 size: 'default',
+                 showSizeChanger: true,
+                 showQuickJumper: true,
+                 showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+                 ...(typeof tableProps.pagination === 'object' ? tableProps.pagination : {})
+              } : false}
+            />
+          )}
+          {children}
+        </div>
       )}
     </div>
   );

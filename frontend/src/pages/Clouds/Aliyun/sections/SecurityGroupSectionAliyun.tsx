@@ -286,7 +286,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
         rowKey={(r: any) => r?.SecurityGroupId || r?.id}
         columns={columns as any}
         dataSource={filtered}
-        pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
+        pagination={{ pageSize: 10, size: 'default', showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
         scroll={{ x: 1000 }}
       />
       {!!showLog && (

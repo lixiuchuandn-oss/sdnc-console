@@ -121,7 +121,7 @@ const RouteTableSectionAliyun: React.FC<RouteTableSectionAliyunProps> = ({ cloud
         rowKey={(r: any) => r.RouteTableId || r.id}
         dataSource={filteredRouteTables}
         columns={columns as any}
-        pagination={{ pageSize: 10 }}
+        pagination={{ pageSize: 10, size: 'default' }}
       />
     </>
   );

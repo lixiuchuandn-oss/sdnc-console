@@ -54,8 +54,6 @@ const VRPage: React.FC = () => {
   const navigate = useNavigate();
   const [vrs, setVrs] = useState<VRRow[]>([]);
   const [columns, setColumns] = useState<ColumnsType<VRRow>>([]);
-  const fullColumnsRef = useRef<ColumnsType<VRRow>>([]);
-  const [visibleColKeys, setVisibleColKeys] = useState<string[]>([]);
 
   const [loading, setLoading] = useState<boolean>(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
@@ -87,13 +85,6 @@ const VRPage: React.FC = () => {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsForm] = Form.useForm();
   const [settingsLoading, setSettingsLoading] = useState(false);
-
-  // 监听可见列变化，更新 columns
-  useEffect(() => {
-    if (fullColumnsRef.current.length > 0 && visibleColKeys.length > 0) {
-       setColumns(fullColumnsRef.current.filter(c => visibleColKeys.includes(String(c.key))));
-    }
-  }, [visibleColKeys]);
 
   const getActionMenu = (row: VRRow): MenuProps['items'] => ([
     { key: 'detail', label: '查看设备详情' },
@@ -474,16 +465,7 @@ const VRPage: React.FC = () => {
         )
       });
       
-      fullColumnsRef.current = newCols;
-      // 默认显示列：去掉 UUID、版本、类型、资源池ID、资源池、虚拟机ID
-      const defaultHidden = ['uuid', 'version', 'type', 'pool_id', 'pool_name', 'vm_id'];
-      if (visibleColKeys.length === 0) {
-        const keys = newCols.map(c => String(c.key)).filter(k => !defaultHidden.includes(k));
-        setVisibleColKeys(keys);
-        setColumns(newCols.filter(c => keys.includes(String(c.key))));
-      } else {
-        setColumns(newCols.filter(c => visibleColKeys.includes(String(c.key))));
-      }
+      setColumns(newCols);
 
       // 拉取角色映射
       const ids = list.map(r => r.uuid || r.id || r.vm_id).filter(Boolean) as string[];
@@ -782,48 +764,24 @@ const VRPage: React.FC = () => {
     }
   };
 
-  // 列设置内容
-  const columnSettingContent = (
-    <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-       <Checkbox.Group 
-          value={visibleColKeys} 
-          onChange={(checkedValues) => setVisibleColKeys(checkedValues as string[])}
-       >
-         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-           {fullColumnsRef.current.map(col => (
-             <Checkbox key={col.key} value={String(col.key)} disabled={col.key === 'actions'}>
-               {col.title as string || String(col.key)}
-             </Checkbox>
-           ))}
-         </div>
-       </Checkbox.Group>
-    </div>
-  );
-
-  const moreMenu: MenuProps = {
-    items: [
-      {
-        key: 'refresh',
-        label: '刷新列表',
-        onClick: () => forceRefresh()
-      },
-      {
-        key: 'csmctl',
-        label: '配置 CSMCTL 地址',
-        onClick: handleSettingsOpen
-      }
-    ]
-  };
+  // 列设置内容 (Removed)
 
   return (
     <PageContainer
       title="VR实例管理"
       titleLevel={3}
       subtitle="VR（Virtual Router）实例用于在多云与异构网络之间提供路由与互联能力，支持跨区域连通、BGP/静态路由、策略与监控，帮助实现稳定、安全、高效的网络连接。"
-      asCard={false}
-    >
-      <Divider style={{ margin: '0 0 20px 0' }} />
-      <div className="filters-row filters-row--compact">
+      primaryAction={{
+        text: '新增VR实例',
+        onClick: () => setAddModalOpen(true),
+        type: 'primary',
+      }}
+      moreMenuItems={[
+        { key: 'refresh', label: '刷新列表', onClick: () => forceRefresh() },
+        { key: 'csmctl', label: '配置 CSMCTL 地址', onClick: handleSettingsOpen }
+      ]}
+      defaultHiddenColumns={['uuid', 'version', 'type', 'pool_id', 'pool_name', 'vm_id']}
+      toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"
           form={filterForm}
@@ -862,36 +820,25 @@ const VRPage: React.FC = () => {
             </Select>
           </Form.Item>
         </Form>
-        <Space className="filter-actions">
-          <Button type="primary" size="middle" onClick={() => setAddModalOpen(true)}>新增VR实例</Button>
-          
-          <Dropdown menu={moreMenu} trigger={['click']}>
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
-          
-          <Popover content={columnSettingContent} title="列设置" trigger="click" placement="bottomRight">
-            <Button icon={<SettingOutlined />} />
-          </Popover>
-        </Space>
-      </div>
- 
-       <Table
-         className="vr-table"
-         columns={columns}
-         dataSource={filteredVRs}
-         rowKey={(r: VRRow) => r.uuid || r.id || r.vm_id || Math.random().toString(36).slice(2)}
-         pagination={{
-           current: pagination.current,
-           pageSize: pagination.pageSize,
-           total: pagination.total,
-           showSizeChanger: true,
-           pageSizeOptions: ['10', '20', '50'],
-         }}
-         loading={loading}
-         onChange={handleTableChange}
-         scroll={{ x: 'max-content' }}
-         bordered
-       />
+      )}
+      tableProps={{
+        className: "vr-table",
+        columns: columns,
+        dataSource: filteredVRs,
+        rowKey: (r: VRRow) => r.uuid || r.id || r.vm_id || Math.random().toString(36).slice(2),
+        pagination: {
+          current: pagination.current,
+          pageSize: pagination.pageSize,
+          total: pagination.total,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '20', '50'],
+        },
+        loading: loading,
+        onChange: handleTableChange,
+        scroll: { x: 'max-content' },
+        bordered: true
+      }}
+    >
 
       {/* CSMCTL Settings Modal */}
       <Modal

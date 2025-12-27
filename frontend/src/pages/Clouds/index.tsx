@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Card, Row, Col, Button, Tag, Modal, Form, Input, Select, Switch,
-  message, Space, Tooltip, Typography, Table, Dropdown, Badge
+  message, Space, Tooltip, Typography, Dropdown, Badge
 } from 'antd';
 import { 
   UnorderedListOutlined,
@@ -653,23 +653,21 @@ const Clouds: React.FC = () => {
         } },
       ]}
       actionsSize="middle"
-    >
-      <Table
-        columns={tableColumns}
-        dataSource={filteredClouds}
-        rowKey="id"
-        style={{ fontSize: 13 }}
-        rowSelection={{
+      tableProps={{
+        columns: tableColumns,
+        dataSource: filteredClouds,
+        rowKey: "id",
+        style: { fontSize: 13 },
+        rowSelection: {
           selectedRowKeys,
           onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
-        }}
-        pagination={{ pageSize:10 }}
-        scroll={{ x:'max-content' }}
-        tableLayout="auto"
-        bordered
-        expandable={undefined}
-      />
-
+        },
+        pagination: { pageSize: 10 },
+        scroll: { x: 'max-content' },
+        tableLayout: "auto",
+        expandable: undefined,
+      }}
+    >
       {/* 多云接入向导 */}
       <CloudWizard
         visible={wizardVisible}

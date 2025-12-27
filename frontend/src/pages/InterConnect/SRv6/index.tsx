@@ -43,25 +43,8 @@ const SRv6Page: React.FC = () => {
   const [rolesMap, setRolesMap] = useState<Record<string, string>>({});
   const rolesMapRef = useRef<Record<string, string>>({});
 
-  // Columns control
-  const defaultCheckedColumns = ['name', 'peA', 'peB', 'ceA', 'ceB', 'status', 'time', 'actions'];
-  const [checkedColumns, setCheckedColumns] = useState<any[]>(defaultCheckedColumns);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('srv6_columns_settings');
-    if (saved) {
-      try {
-        setCheckedColumns(JSON.parse(saved));
-      } catch (e) {
-        console.warn('Failed to parse saved columns settings', e);
-      }
-    }
-  }, []);
-
-  const onColumnCheckChange = (checkedValues: any[]) => {
-    setCheckedColumns(checkedValues);
-    localStorage.setItem('srv6_columns_settings', JSON.stringify(checkedValues));
-  };
+  // PageContainer handles column visibility
+  const defaultHiddenColumns: string[] = [];
 
   const [loading, setLoading] = useState<boolean>(false);
   const [filterForm] = Form.useForm();
@@ -160,26 +143,7 @@ const SRv6Page: React.FC = () => {
     }
   ];
 
-  const columns = useMemo(() => {
-    return fullColumns.filter(col => checkedColumns.includes(col.key as string));
-  }, [checkedColumns, fullColumns]);
-
-  const columnSettingContent = (
-    <Checkbox.Group
-      style={{ display: 'flex', flexDirection: 'column' }}
-      value={checkedColumns}
-      onChange={onColumnCheckChange}
-    >
-      <Checkbox value="name">名称</Checkbox>
-      <Checkbox value="peA">PE-A</Checkbox>
-      <Checkbox value="peB">PE-B</Checkbox>
-      <Checkbox value="ceA">CE-A</Checkbox>
-      <Checkbox value="ceB">CE-B</Checkbox>
-      <Checkbox value="status">状态</Checkbox>
-      <Checkbox value="time">创建时间</Checkbox>
-      <Checkbox value="actions" disabled>操作</Checkbox>
-    </Checkbox.Group>
-  );
+  const columns = fullColumns;
 
   // 加载VR列表与角色映射（用于PE/CE选项）
   const fetchVRsAndRoles = async (pageSize: number = 100, pageNum: number = 1) => {
@@ -331,9 +295,16 @@ const SRv6Page: React.FC = () => {
       titleLevel={3}
       subtitle="SRv6（Segment Routing over IPv6）用于在 IPv6 网络中实现基于段的路由，支持灵活的流量工程与业务编排。"
       asCard={false}
-    >
-      <Divider style={{ margin: '0 0 20px 0' }} />
-      <div className="filters-row filters-row--compact">
+      primaryAction={{
+        text: '创建SRv6隧道',
+        onClick: () => navigate('/admin/interconnect/srv6/create'),
+        type: 'primary',
+      }}
+      moreMenuItems={[
+        { key: 'refresh', label: '刷新列表', onClick: forceRefresh }
+      ]}
+      defaultHiddenColumns={[]} // Display all columns by default
+      toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"
           form={filterForm}
@@ -354,31 +325,18 @@ const SRv6Page: React.FC = () => {
             </Select>
           </Form.Item>
         </Form>
-
-        <Space className="filter-actions">
-          <Button type="primary" size="middle" onClick={() => navigate('/admin/interconnect/srv6/create')}>创建SRv6隧道</Button>
-          <Dropdown menu={moreMenu} trigger={['click']}>
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
-          <Popover content={columnSettingContent} title="列设置" trigger="click" placement="bottomRight">
-            <Button icon={<SettingOutlined />} />
-          </Popover>
-        </Space>
-      </div>
-
-      <>
-        <Table
-          className="vr-table"
-          columns={columns}
-          dataSource={filteredTunnels}
-          rowKey={(r: Srv6TunnelRow) => r.id}
-          pagination={{ pageSize: 10 }}
-          loading={loading}
-          scroll={{ x: 'max-content' }}
-          bordered
-        />
-      </>
-
+      )}
+      tableProps={{
+        className: "vr-table",
+        columns: columns,
+        dataSource: filteredTunnels,
+        rowKey: (r: Srv6TunnelRow) => r.id,
+        pagination: { pageSize: 10 },
+        loading: loading,
+        scroll: { x: 'max-content' },
+        bordered: true
+      }}
+    >
       <Modal
         title={`健康巡检${healthRow ? ` - ${healthRow.name}` : ''}`}
         open={healthModalOpen}

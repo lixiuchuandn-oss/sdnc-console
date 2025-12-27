@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { Divider, Tabs } from 'antd';
 import PageContainer from '../../../components/PageContainer';
 import { useSearchParams } from 'react-router-dom';
 import ListPage from './List';
@@ -25,13 +24,14 @@ const TenantLeasedLinesPage: React.FC = () => {
       titleLevel={3}
       subtitle="一站式管理租户专线IP；支持多维筛选/全列排序与批量操作；联动安全报告任务（进度跟踪、下载/取消/删除）；提供CSV导入与日志文件管理。"
       asCard={false}
+      tabList={[
+        { key: 'list', tab: '租户专线列表' },
+        { key: 'tasks', tab: '安全报告任务' },
+        { key: 'logs', tab: '告警日志文件' }
+      ]}
+      tabActiveKey={activeTab}
+      onTabChange={(key) => { setActiveTab(key); setSearchParams({ tab: key }); }}
     >
-      <Tabs activeKey={activeTab} onChange={(key) => { setActiveTab(key); setSearchParams({ tab: key }); }}>
-        <Tabs.TabPane tab="租户专线列表" key="list" />
-        <Tabs.TabPane tab="安全报告任务" key="tasks" />
-        <Tabs.TabPane tab="告警日志文件" key="logs" />
-      </Tabs>
-
       {activeTab === 'list' && (
         <ListPage onStartTask={(id) => { setStartedTaskId(id); }} />
       )}

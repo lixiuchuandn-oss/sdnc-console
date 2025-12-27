@@ -80,7 +80,7 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
       )}
       asCard={false}
     >
-      <Table rowKey={(r: any) => r?.NatGatewayId || r?.id} dataSource={filtered} columns={columns as any} pagination={{ pageSize: 10 }} />
+      <Table rowKey={(r: any) => r?.NatGatewayId || r?.id} dataSource={filtered} columns={columns as any} pagination={{ pageSize: 10, size: 'default' }} />
     </PageDetailSection>
   );
 };

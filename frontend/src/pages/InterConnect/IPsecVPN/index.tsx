@@ -60,7 +60,9 @@ const IPsecVPNPage: React.FC = () => {
   const [topoLocalCfg, setTopoLocalCfg] = useState<any>(null);
   const [topoPeerCfg, setTopoPeerCfg] = useState<any>(null);
   const [topoLoading, setTopoLoading] = useState<boolean>(false);
-  const [visibleColKeys, setVisibleColKeys] = useState<string[]>([]);
+  
+  // PageContainer handles column visibility
+  const defaultHiddenColumns = ['ikeVersion', 'encryption', 'authentication', 'dhGroup', 'pfs', 'mode', 'natTraversal', 'dpd', 'description', 'createdAt'];
 
   const handleDelete = (row: IPsecVPNRow) => {
     Modal.confirm({
@@ -198,7 +200,7 @@ const IPsecVPNPage: React.FC = () => {
       )
     }
   ];
-  const columns: ColumnsType<IPsecVPNRow> = allColumns.filter(c => (c.key === 'actions') || visibleColKeys.includes(String(c.key)));
+  const columns = allColumns;
 
   const fetchData = async () => {
     setLoading(true);
@@ -216,7 +218,6 @@ const IPsecVPNPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    // Build VR name map
     (async () => {
       try {
         const resp: any = await vrApi.getVRInstances(100, 1);
@@ -243,28 +244,6 @@ const IPsecVPNPage: React.FC = () => {
     })();
   }, []);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('ipsecvpn.columns');
-    if (saved) {
-      try {
-        const arr = JSON.parse(saved);
-        if (Array.isArray(arr)) setVisibleColKeys(arr);
-      } catch {}
-    } else {
-      // Default visible columns
-      const defaultKeys = ['name', 'status', 'localVrId', 'localPublic', 'localPrivateSubnet', 'peerVrId', 'peerPublic', 'peerPrivateSubnet'];
-      setVisibleColKeys(defaultKeys);
-    }
-  }, []);
-  const toggleColumn = (key: string, checked: boolean) => {
-    const set = new Set(visibleColKeys);
-    if (checked) set.add(key); else set.delete(key);
-    const next = Array.from(set);
-    setVisibleColKeys(next);
-    localStorage.setItem('ipsecvpn.columns', JSON.stringify(next));
-  };
-
-
   const moreMenu: MenuProps = {
     items: [
       {
@@ -275,31 +254,22 @@ const IPsecVPNPage: React.FC = () => {
     ]
   };
 
-  const columnSettingContent = (
-    <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 8, minWidth: 220 }}>
-      {allColumns.filter(c => c.key !== 'actions').map(c => (
-        <div key={String(c.key)} style={{ display: 'flex', alignItems: 'center', padding: '4px 0' }}>
-          <Checkbox
-            checked={visibleColKeys.includes(String(c.key))}
-            onChange={(e) => toggleColumn(String(c.key), e.target.checked)}
-          >
-            {String(c.title)}
-          </Checkbox>
-        </div>
-      ))}
-    </div>
-  );
-
   return (
     <PageContainer
       title="IPsecVPN管理"
       titleLevel={3}
       subtitle="通过 IKEv1/IKEv2 协议创建加密虚拟专用网络，支持拓扑查看、配置审计和状态监控，保障跨网络数据传输安全。"
       asCard={false}
-    >
-      <Divider style={{ margin: '0 0 20px 0' }} />
-      
-      <div className="filters-row filters-row--compact">
+      primaryAction={{
+        text: '新建连接',
+        onClick: () => navigate('/admin/interconnect/ipsec/create'),
+        type: 'primary',
+      }}
+      moreMenuItems={[
+        { key: 'refresh', label: '刷新列表', onClick: fetchData }
+      ]}
+      defaultHiddenColumns={defaultHiddenColumns}
+      toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"
           form={filterForm}
@@ -342,30 +312,10 @@ const IPsecVPNPage: React.FC = () => {
             <Input allowClear placeholder="输入IP" style={{ width: 150 }} />
           </Form.Item>
         </Form>
-
-        <Space className="filter-actions">
-          <Button type="primary" size="middle" onClick={() => navigate('/admin/interconnect/ipsec/create')}>
-            新建连接
-          </Button>
-          
-          <Popover
-            trigger="click"
-            placement="bottomRight"
-            title="列设置"
-            content={columnSettingContent}
-          >
-            <Button icon={<SettingOutlined />} />
-          </Popover>
-
-          <Dropdown menu={moreMenu} trigger={['click']}>
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
-        </Space>
-      </div>
-
-      <Table
-        columns={columns}
-        dataSource={data.filter(d => {
+      )}
+      tableProps={{
+        columns: columns,
+        dataSource: data.filter(d => {
           // Keyword filter
           const kw = keyword.trim().toLowerCase();
           let matchKw = true;
@@ -404,13 +354,14 @@ const IPsecVPNPage: React.FC = () => {
           }
 
           return matchKw && matchStatus && matchIke && matchLocalIp && matchPeerGw;
-        })}
-        rowKey="id"
-        pagination={{ pageSize: 10, showSizeChanger: true }}
-        loading={loading}
-        bordered
-        scroll={{ x: 'max-content' }}
-      />
+        }),
+        rowKey: "id",
+        pagination: { pageSize: 10, showSizeChanger: true },
+        loading: loading,
+        bordered: true,
+        scroll: { x: 'max-content' }
+      }}
+    >
       
       <Modal
         title={detailRow ? `VPN详情 - ${detailRow.name}` : 'VPN详情'}

@@ -22,6 +22,9 @@ const ACLPage: React.FC = () => {
   const [protocolFilter, setProtocolFilter] = useState<'tcp' | 'udp' | 'icmp' | 'any' | undefined>();
   const [filterForm] = Form.useForm();
   
+  // PageContainer handles column visibility
+  const defaultHiddenColumns: string[] = [];
+
   // Columns control
   const defaultCheckedColumns = ['priority', 'name', 'vrId', 'action', 'protocol', 'sourceIp', 'destinationIp', 'sourcePort', 'destinationPort', 'ops'];
   const [checkedColumns, setCheckedColumns] = useState<any[]>(defaultCheckedColumns);
@@ -180,28 +183,7 @@ const ACLPage: React.FC = () => {
     )}
   ];
 
-  const columns = useMemo(() => {
-    return fullColumns.filter(col => checkedColumns.includes(col.key as string));
-  }, [checkedColumns, fullColumns]);
-
-  const columnSettingContent = (
-    <Checkbox.Group
-      style={{ display: 'flex', flexDirection: 'column' }}
-      value={checkedColumns}
-      onChange={onColumnCheckChange}
-    >
-      <Checkbox value="priority">优先级</Checkbox>
-      <Checkbox value="name">名称</Checkbox>
-      <Checkbox value="vrId">所属VR</Checkbox>
-      <Checkbox value="action">动作</Checkbox>
-      <Checkbox value="protocol">协议</Checkbox>
-      <Checkbox value="sourceIp">源IP</Checkbox>
-      <Checkbox value="destinationIp">目的IP</Checkbox>
-      <Checkbox value="sourcePort">源端口</Checkbox>
-      <Checkbox value="destinationPort">目的端口</Checkbox>
-      <Checkbox value="ops" disabled>操作</Checkbox>
-    </Checkbox.Group>
-  );
+  const columns = fullColumns;
 
   const filteredData = data.filter((r) => {
     if (keyword && !String(r.name || '').toLowerCase().includes(keyword.toLowerCase())) return false;
@@ -239,9 +221,17 @@ const ACLPage: React.FC = () => {
       titleLevel={3}
       subtitle="配置基于优先级的访问控制规则，支持 TCP/UDP/ICMP 协议过滤和源/目的地址匹配，实现网络流量的精细化管控。"
       asCard={false}
-    >
-      <Divider style={{ margin: '0 0 20px 0' }} />
-      <div className="filters-row filters-row--compact">
+      primaryAction={{
+        text: '新建 ACL',
+        onClick: () => setDrawerOpen(true),
+        type: 'primary',
+      }}
+      moreMenuItems={[
+        { key: 'refresh', label: '刷新列表', onClick: fetchData },
+        { key: 'reset', label: '重置筛选', onClick: resetFilters }
+      ]}
+      defaultHiddenColumns={[]} // ACL columns seem to be all visible by default in previous code (defaultCheckedColumns had all)
+      toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"
           form={filterForm}
@@ -281,25 +271,17 @@ const ACLPage: React.FC = () => {
             </Select>
           </Form.Item>
         </Form>
-        <Space className="filter-actions">
-          <Button type="primary" onClick={() => setDrawerOpen(true)}>新建 ACL</Button>
-          <Dropdown menu={moreMenu} trigger={['click']}>
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
-          <Popover content={columnSettingContent} title="列设置" trigger="click" placement="bottomRight">
-            <Button icon={<SettingOutlined />} />
-          </Popover>
-        </Space>
-      </div>
-      <Table 
-        dataSource={filteredData} 
-        columns={columns} 
-        rowKey="id" 
-        loading={loading}
-        pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'] }}
-        scroll={{ x: 'max-content' }}
-        bordered
-      />
+      )}
+      tableProps={{
+        dataSource: filteredData,
+        columns: columns,
+        rowKey: "id",
+        loading: loading,
+        pagination: { defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'] },
+        scroll: { x: 'max-content' },
+        bordered: true
+      }}
+    >
 
       <StdSideDrawer
         title="新建 ACL 规则"
