@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Progress, Space as AntSpace, Table, Tag, Modal, Timeline, Popover, message, Dropdown, Form, Input, DatePicker, Select, Tabs, Descriptions, Alert, Switch, Drawer } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, DeleteOutlined, DownloadOutlined, SettingOutlined, UndoOutlined, EyeOutlined, StopOutlined } from '@ant-design/icons';
+import { Button, Progress, Space as AntSpace, Table, Tag, Modal, Timeline, Popover, message, Dropdown, Form, Input, DatePicker, Select, Tabs, Descriptions, Alert, Switch, Drawer, Radio, Checkbox } from 'antd';
+import { ReloadOutlined, EllipsisOutlined, DeleteOutlined, DownloadOutlined, SettingOutlined, UndoOutlined, EyeOutlined, StopOutlined, DownOutlined, FilePdfOutlined, FileWordOutlined, FileOutlined } from '@ant-design/icons';
 import { listSecurityReportTasks, getSecurityReportTask, cancelSecurityReportTask, getSecurityReportTaskOutputs, removeSecurityReportTask, batchRemoveSecurityReportTasks } from '../../../services/leasedLineApi';
 import { listLeasedLines } from '../../../services/leasedLineApi';
 import { getDifyConfig as apiGetDifyConfig, updateDifyConfig as apiUpdateDifyConfig } from '../../../services/systemApi';
+import { API_BASE_URL } from '../../../services/api';
 
 type Props = {
   startedTaskId?: string;
@@ -37,11 +38,12 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
   const [logDrawerTitle, setLogDrawerTitle] = useState<string>('');
   const [logDrawerContent, setLogDrawerContent] = useState<string>('');
 
-  const [taskModalOpen, setTaskModalOpen] = useState(false);
-  const [taskId, setTaskId] = useState<string | undefined>(undefined);
-  const [taskInfo, setTaskInfo] = useState<any | undefined>(undefined);
-  const [taskStreamLines, setTaskStreamLines] = useState<string[]>([]);
-  const taskEventSourceRef = useRef<EventSource | null>(null);
+  const [dlModalOpen, setDlModalOpen] = useState(false);
+  const [dlIsBatch, setDlIsBatch] = useState(false);
+  const [dlTargetTask, setDlTargetTask] = useState<any>(undefined);
+  const [dlFormats, setDlFormats] = useState<string[]>(['docx']);
+
+
 
   const fetchTasks = async () => {
     try {
@@ -96,21 +98,30 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
     return name ? String(name) : '-';
   };
 
-  const downloadReport = async (r: any) => {
+  const downloadReport = async (r: any, type?: 'pdf' | 'docx') => {
     try {
       const meta = r?.fileMeta || {};
       let url = String(meta?.folderDownloadEndpoint || meta?.downloadEndpoint || '');
       if (!url) { message.warning('暂无可下载链接'); return; }
+      
       const token = localStorage.getItem('token');
       if (token && !/[?&]token=/.test(url)) {
         url = url + (url.includes('?') ? `&token=${encodeURIComponent(token)}` : `?token=${encodeURIComponent(token)}`);
       }
+      
+      if (type) {
+        url = url + (url.includes('?') ? `&type=${type}` : `?type=${type}`);
+      }
+      
       const res = await fetch(url, { method: 'GET' });
       if (!res.ok) { message.error('下载失败'); return; }
       const blob = await res.blob();
       const tn = tenantNameByLineId(r.lineId);
-      const computedName = (tn && tn !== '-') ? `${tn}安全报告.docx` : undefined;
-      const name = String(computedName || meta?.name || '安全报告.docx').trim();
+      const computedName = (tn && tn !== '-') ? `${tn}安全报告` : undefined;
+      const baseName = String(meta?.name || computedName || '安全报告').trim().replace(/\.(docx|pdf)$/i, '');
+      const ext = type ? `.${type}` : (meta?.format ? `.${meta.format}` : '.docx');
+      const name = baseName.endsWith(ext) ? baseName : `${baseName}${ext}`;
+      
       const a = document.createElement('a');
       const objectUrl = URL.createObjectURL(blob);
       a.href = objectUrl;
@@ -124,7 +135,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
     }
   };
 
-  const downloadSelectedReports = async () => {
+  const downloadSelectedReports = async (type: 'pdf' | 'docx') => {
     try {
       if (!selectedRowKeys.length) { message.warning('请先选择任务'); return; }
       const map = new Map<string, any>(tasks.map((t) => [t.id, t]));
@@ -136,7 +147,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
         const meta = r?.fileMeta || {};
         const has = !!(meta?.folderDownloadEndpoint || meta?.downloadEndpoint);
         if (!has) { skipped++; continue; }
-        await downloadReport(r);
+        await downloadReport(r, type);
         success++;
         await new Promise(res => setTimeout(res, 300));
       }
@@ -145,6 +156,25 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
     } catch {
       message.error('批量下载失败');
     }
+  };
+
+  const handleDownloadClick = (isBatch: boolean, task?: any) => {
+    setDlIsBatch(isBatch);
+    setDlTargetTask(task);
+    
+    // Determine default format
+    let defaultFormats: string[] = ['docx'];
+    if (!isBatch && task) {
+        const reportFiles = task.reportFiles || [];
+        const hasPdf = reportFiles.some((f: any) => f.type === 'pdf');
+        const hasDocx = reportFiles.some((f: any) => f.type === 'docx');
+        
+        if (hasPdf && !hasDocx) defaultFormats = ['pdf'];
+        else if (!hasPdf && hasDocx) defaultFormats = ['docx'];
+        else if (hasPdf && hasDocx) defaultFormats = ['pdf', 'docx'];
+    }
+    setDlFormats(defaultFormats);
+    setDlModalOpen(true);
   };
 
   // moved below derive helpers to avoid "Cannot access 'deriveStatus' before initialization"
@@ -182,19 +212,55 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
   };
 
   const deriveStatus = (r: any): string => {
+    if (r?.status === 'succeeded' || r?.status === 'failed' || r?.status === 'canceled') return r.status;
     const node = latestStreamNode(r);
     const s = node?.data?.status || node?.status;
     if (node?.event === 'workflow_finished') return String(s || 'succeeded');
-    return 'running';
+    return String(r?.status || 'running');
   };
 
   const derivePercent = (r: any): number => {
-    const node = latestStreamNode(r);
-    const total = Number(node?.data?.total_steps || node?.total_steps || 0);
-    const seq = Number(node?.data?.sequence_number || node?.sequence_number || 0);
-    if (total > 0 && seq >= 0) return Math.max(0, Math.min(100, Math.round(seq * 100 / total)));
-    if (node?.event === 'workflow_finished') return 100;
+    if (r?.status === 'succeeded' || deriveStatus(r) === 'succeeded') return 100;
+    
+    // 1. 尝试直接查找 workflow_finished 事件
+    const arr = r?.streamLines || [];
+    if (Array.isArray(arr)) {
+      for (let i = arr.length - 1; i >= 0; i--) {
+         const node = parseNode(arr[i]);
+         if (node?.event === 'workflow_finished') return 100;
+      }
+    }
+
+    // 2. 倒序查找包含有效步骤信息的节点（解决"中间日志无进度信息导致闪烁"的问题）
+    let validNode: any = undefined;
+    if (Array.isArray(arr)) {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const node = parseNode(arr[i]);
+        const t = Number(node?.data?.total_steps || node?.total_steps || 0);
+        const s = Number(node?.data?.sequence_number || node?.sequence_number || -1);
+        if (t > 0 && s >= 0) {
+          validNode = node;
+          break;
+        }
+      }
+    }
+    
+    if (validNode) {
+       const total = Number(validNode?.data?.total_steps || validNode?.total_steps || 0);
+       const seq = Number(validNode?.data?.sequence_number || validNode?.sequence_number || 0);
+       if (total > 0) return Math.max(0, Math.min(100, Math.round(seq * 100 / total)));
+    }
+    
     return Number(r?.percent || 0);
+  };
+
+  const parseNode = (it: any) => {
+      if (typeof it === 'string') {
+        let t = it.trim();
+        if (t.startsWith('data:')) t = t.slice(5).trim();
+        try { return JSON.parse(t); } catch { return null; }
+      }
+      return it;
   };
 
   const deriveNodeIndex = (r: any): number | undefined => {
@@ -202,7 +268,18 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
     const seq = node?.data?.sequence_number ?? node?.sequence_number;
     if (typeof seq === 'number') return seq;
     const arr = Array.isArray(r?.streamLines) ? r.streamLines : [];
-    if (arr.length) return arr.length;
+    if (arr.length) {
+      const finished = arr.filter((it: any) => {
+        let obj: any = it;
+        if (typeof it === 'string') {
+           let t = it.trim();
+           if (t.startsWith('data:')) t = t.slice(5).trim();
+           try { obj = JSON.parse(t); } catch {}
+        }
+        return obj?.event === 'node_finished';
+      }).length;
+      return finished || arr.length;
+    }
     return undefined;
   };
 
@@ -232,7 +309,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
   const openDetailStream = (id: string) => {
     try {
       if (detailEventSourceRef.current) { detailEventSourceRef.current.close(); detailEventSourceRef.current = null; }
-      const es = new EventSource(`/api/leased-lines/security-report/tasks/${encodeURIComponent(id)}/stream${(() => { const t = localStorage.getItem('token'); return t ? `?token=${encodeURIComponent(t)}` : ''; })()}`);
+      const es = new EventSource(`${API_BASE_URL}/api/leased-lines/security-report/tasks/${encodeURIComponent(id)}/stream${(() => { const t = localStorage.getItem('token'); return t ? `?token=${encodeURIComponent(t)}` : ''; })()}`);
       detailEventSourceRef.current = es;
       es.onmessage = (ev) => {
         try {
@@ -246,12 +323,11 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
             const last = arr.length ? arr[arr.length - 1] : undefined;
             const url = (() => {
               const o = obj?.task?.data?.outputs || obj?.task?.outputs || {};
-              const u = o?.report_url || undefined;
-              if (u) return String(u);
-              const files = obj?.task?.files || obj?.task?.data?.files || o?.files || [];
-              const f0 = Array.isArray(files) ? files[0] : undefined;
-              const fu = f0?.url || f0?.download_url || f0?.file_url;
-              return fu ? String(fu) : undefined;
+              const rawDoc = String(o?.doc || '').replace(/[`]/g, '').trim();
+              const rawPdf = String(o?.pdf || '').replace(/[`]/g, '').trim();
+              if (rawDoc) return rawDoc;
+              if (rawPdf) return rawPdf;
+              return undefined;
             })();
             if (url) setDetailUrl(url);
             const outsInit = obj?.task?.data?.outputs || obj?.task?.outputs || undefined;
@@ -262,12 +338,11 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
             setDetailObjs(prev => [...prev, obj.line]);
             const url = (() => {
               const o = obj?.line?.data?.outputs || obj?.line?.outputs || {};
-              const u = o?.report_url || undefined;
-              if (u) return String(u);
-              const files = obj?.line?.files || obj?.line?.data?.files || o?.files || [];
-              const f0 = Array.isArray(files) ? files[0] : undefined;
-              const fu = f0?.url || f0?.download_url || f0?.file_url;
-              return fu ? String(fu) : undefined;
+              const rawDoc = String(o?.doc || '').replace(/[`]/g, '').trim();
+              const rawPdf = String(o?.pdf || '').replace(/[`]/g, '').trim();
+              if (rawDoc) return rawDoc;
+              if (rawPdf) return rawPdf;
+              return undefined;
             })();
             if (url) setDetailUrl(url);
             const outs = obj?.line?.data?.outputs || obj?.line?.outputs || undefined;
@@ -297,12 +372,11 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
       const last = arr.length ? arr[arr.length - 1] : undefined;
       const url = (() => {
         const o = t?.data?.outputs || t?.outputs || {};
-        const u = o?.report_url || undefined;
-        if (u) return String(u);
-        const files = t?.files || t?.data?.files || o?.files || [];
-        const f0 = Array.isArray(files) ? files[0] : undefined;
-        const fu = f0?.url || f0?.download_url || f0?.file_url;
-        return fu ? String(fu) : undefined;
+        const rawDoc = String(o?.doc || '').replace(/[`]/g, '').trim();
+        const rawPdf = String(o?.pdf || '').replace(/[`]/g, '').trim();
+        if (rawDoc) return rawDoc;
+        if (rawPdf) return rawPdf;
+        return undefined;
       })();
       if (url) setDetailUrl(url);
       try {
@@ -315,33 +389,9 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
     }
   };
 
-  const openTaskStream = (id: string) => {
-    try {
-      if (taskEventSourceRef.current) { taskEventSourceRef.current.close(); taskEventSourceRef.current = null; }
-      const es = new EventSource(`/api/leased-lines/security-report/tasks/${encodeURIComponent(id)}/stream${(() => { const t = localStorage.getItem('token'); return t ? `?token=${encodeURIComponent(t)}` : ''; })()}`);
-      taskEventSourceRef.current = es;
-      es.onmessage = (ev) => {
-        try {
-          const obj = JSON.parse(String(ev.data || '{}'));
-          if (obj?.type === 'init' && obj?.task) {
-            setTaskInfo(obj.task);
-          } else if (obj?.type === 'stream') {
-            const lineText = (() => { try { return JSON.stringify(obj.line); } catch { return String(obj.line); } })();
-            setTaskStreamLines(prev => [...prev, lineText].slice(-500));
-          }
-        } catch {}
-      };
-      es.onerror = () => { try { es.close(); } catch {} };
-    } catch {}
-  };
-
   useEffect(() => {
     if (startedTaskId) {
-      setTaskModalOpen(true);
-      setTaskId(startedTaskId);
-      setTaskInfo(undefined);
-      setTaskStreamLines([]);
-      openTaskStream(startedTaskId);
+      fetchTasks();
       if (onClearStartedTaskId) onClearStartedTaskId();
     }
   }, [startedTaskId]);
@@ -396,7 +446,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
               onClick: async ({ key }) => {
                 if (key === 'refresh') { fetchTasks(); return; }
                 if (key === 'config') { openWorkflowConfig(); return; }
-                if (key === 'download') { if (!selectedRowKeys.length) { message.info('请先选择任务'); return; } await downloadSelectedReports(); return; }
+                if (key === 'download') { if (!selectedRowKeys.length) { message.info('请先选择任务'); return; } handleDownloadClick(true); return; }
                 if (key === 'delete') {
                   if (!selectedRowKeys.length) { message.info('请先选择任务'); return; }
                   Modal.confirm({
@@ -456,22 +506,43 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
           }, sorter: (a: any, b: any) => Number(derivePercent(a)) - Number(derivePercent(b)), sortDirections: ['ascend','descend'] },
           { title: '文件名', key: 'fileinfo', render: (_: any, r: any) => {
             const meta = r?.fileMeta || {};
-            let url = String(meta?.url || '');
-            let finalUrl = url;
-            if (finalUrl && !/^https?:\/\//.test(finalUrl) && finalUrl.startsWith('/')) {
-              finalUrl = (difyRootBase || '') + finalUrl;
-            }
+            const reportFiles = r?.reportFiles || [];
             const tn = tenantNameByLineId(r.lineId);
             const computedName = (tn && tn !== '-') ? `${tn}安全报告.docx` : undefined;
-            const name = String(computedName || meta?.name || '安全报告.docx').trim();
-            const format = String(meta?.format || (name.includes('.') ? name.split('.').pop() : 'docx') || 'docx');
+            const name = String(meta?.name || computedName || '安全报告.docx').trim();
             const sizeBytes = (typeof meta?.sizeBytes === 'number') ? meta.sizeBytes : undefined;
+            
+            const formatSize = (bytes: number) => {
+                 if (!bytes) return '0 B';
+                 const k = 1024;
+                 const sizes = ['B', 'KB', 'MB', 'GB'];
+                 const i = Math.floor(Math.log(bytes) / Math.log(k));
+                 return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            };
+
+            if (reportFiles && reportFiles.length > 0) {
+                return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {reportFiles.map((f: any, idx: number) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {String(f.type).toLowerCase() === 'pdf' ? <FilePdfOutlined style={{ color: '#ff4d4f' }} /> : 
+                                 String(f.type).toLowerCase() === 'docx' ? <FileWordOutlined style={{ color: '#1677ff' }} /> : 
+                                 <FileOutlined />}
+                                <span style={{ fontSize: 13 }}>{f.filename || f.name}</span>
+                                <span style={{ color: '#999', fontSize: 12 }}>
+                                  {f.size ? formatSize(f.size) : ''}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                );
+            }
+              
             return (
-              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                <div>文件名称：{name}</div>
-                <div>文件格式：{format}</div>
-                <div>文件大小(Byte)：{typeof sizeBytes === 'number' ? sizeBytes : '-'}</div>
-                <div>文件路径：{meta?.localPath || '-'}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                 <FileWordOutlined style={{ color: '#1677ff' }} />
+                 <span style={{ fontSize: 13 }}>{name}</span>
+                 {typeof sizeBytes === 'number' ? <span style={{ color: '#999', fontSize: 12 }}>{formatSize(sizeBytes)}</span> : null}
               </div>
             );
           } },
@@ -480,6 +551,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
             const meta = r?.fileMeta || {};
             const downloadUrl = String(meta?.folderDownloadEndpoint || meta?.downloadEndpoint || '');
             const canDownload = !!downloadUrl;
+            
             const items = [
               { key: 'detail', label: '查看详情', icon: <EyeOutlined /> },
               canDownload ? { key: 'download', label: '下载报告', icon: <DownloadOutlined /> } : null,
@@ -490,7 +562,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
               items,
               onClick: async ({ key }: any) => {
                 if (key === 'detail') { openTaskDetail(r.id); return; }
-                if (key === 'download') { await downloadReport(r); return; }
+                if (key === 'download') { handleDownloadClick(false, r); return; }
                 if (key === 'cancel') { try { await cancelSecurityReportTask(r.id); fetchTasks(); } catch {} return; }
                 if (key === 'remove') {
                   Modal.confirm({
@@ -570,43 +642,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
         </Form>
       </Modal>
 
-      <Modal
-        title="生成安全报告任务"
-        open={taskModalOpen}
-        onCancel={() => { setTaskModalOpen(false); if (taskEventSourceRef.current) { taskEventSourceRef.current.close(); taskEventSourceRef.current = null; } setTaskId(undefined); setTaskInfo(undefined); setTaskStreamLines([]); }}
-        footer={(() => { const modalStatus = taskInfo ? deriveStatus(taskInfo) : 'pending'; return [
-          (modalStatus === 'running') ? <Button key="cancel" danger onClick={async () => { if (taskId) { try { await cancelSecurityReportTask(taskId); } catch {} } }}>
-            取消任务
-          </Button> : null,
-          <Button key="close" onClick={() => { setTaskModalOpen(false); }}>
-            关闭
-          </Button>,
-          (modalStatus === 'succeeded') ? <Button key="ok" type="primary" onClick={() => { setTaskModalOpen(false); }}>
-            完成
-          </Button> : null,
-        ].filter(Boolean); })()}
-        destroyOnHidden
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          {(() => { const ms = taskInfo ? deriveStatus(taskInfo) : 'pending'; return (
-            <>
-              <Progress percent={Number(taskInfo?.percent || 0)} status={ms === 'failed' ? 'exception' : (ms === 'succeeded' ? 'success' : 'active')} style={{ width: 280 }} />
-              <Tag color={ms === 'succeeded' ? 'green' : (ms === 'failed' ? 'red' : (ms === 'canceled' ? 'orange' : 'blue'))}>{ms}</Tag>
-            </>
-          ); })()}
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div>任务ID：{taskId}</div>
-          {taskInfo?.difyTaskId ? <div>Dify任务：{taskInfo?.difyTaskId}</div> : null}
-          {taskInfo?.message ? <div>信息：{taskInfo?.message}</div> : null}
-          {taskInfo?.fileName ? <div>输出：{taskInfo?.fileName}</div> : null}
-          {taskInfo?.filePath ? <div>路径：{taskInfo?.filePath}</div> : null}
-          <div style={{ marginTop: 8 }}>Streaming：</div>
-          <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid #eee', padding: 8, borderRadius: 4 }}>
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{taskStreamLines.join('\n')}</pre>
-          </div>
-        </div>
-      </Modal>
+
 
       <Modal
         title="任务详情"
@@ -619,12 +655,22 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
         <Tabs defaultActiveKey="overview">
           <Tabs.TabPane tab="总览" key="overview">
             {(() => {
+              const formatSize = (bytes: number) => {
+                if (!bytes) return '0 B';
+                const k = 1024;
+                const sizes = ['B', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+              };
               const s = (() => { try { return deriveStatus(detailTask || {}); } catch { return detailTask?.status; } })();
               const color = s==='succeeded'?'green':s==='failed'?'red':s==='canceled'?'orange':'blue';
               const listItem = tasks.find((x:any) => x.id === detailTask?.id);
               const meta = listItem?.fileMeta || {};
+              const reportFiles = listItem?.reportFiles || [];
               const tn = tenantNameByLineId(detailTask?.lineId || '');
-              const name = tn && tn !== '-' ? `${tn}安全报告.docx` : (meta?.name || '安全报告.docx');
+              const computedName = tn && tn !== '-' ? `${tn}安全报告` : undefined;
+              const name = meta?.name || (computedName ? `${computedName}.docx` : '安全报告.docx');
+              
               return (
                 <div>
                   <div style={{ display:'flex', alignItems:'center', gap:16 }}>
@@ -635,15 +681,34 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
                   <Descriptions style={{ marginTop: 12 }} column={2} size="small" bordered>
                     <Descriptions.Item label="任务ID">{detailTask?.id || '-'}</Descriptions.Item>
                     <Descriptions.Item label="租户">{tn || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="Dify任务">{detailTask?.difyTaskId || '-'}</Descriptions.Item>
                     <Descriptions.Item label="更新时间">{detailTask?.updatedAt ? new Date(detailTask.updatedAt).toLocaleString() : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="报告文件名">{String(name || '-')}</Descriptions.Item>
-                    <Descriptions.Item label="报告大小">{typeof meta?.sizeBytes === 'number' ? meta.sizeBytes : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="报告路径" span={2}>{meta?.localPath || detailTask?.filePath || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="生成报告" span={2}>
+                      {reportFiles && reportFiles.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0' }}>
+                          {reportFiles.map((f: any, idx: number) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                {String(f.type).toLowerCase() === 'pdf' ? <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 16 }} /> : 
+                                 String(f.type).toLowerCase() === 'docx' ? <FileWordOutlined style={{ color: '#1677ff', fontSize: 16 }} /> : 
+                                 <FileOutlined style={{ fontSize: 16 }} />}
+                                <span style={{ fontWeight: 500 }}>{f.filename || f.name}</span>
+                                <span style={{ color: '#888', fontSize: 12, marginLeft: 8 }}>
+                                  {f.size ? formatSize(f.size) : '-'}
+                                </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                           <FileWordOutlined style={{ color: '#1677ff', fontSize: 16 }} />
+                           <span>{String(name || '-')}</span>
+                           {typeof meta?.sizeBytes === 'number' ? <span style={{ color: '#888', fontSize: 12 }}>{formatSize(meta.sizeBytes)}</span> : null}
+                        </div>
+                      )}
+                    </Descriptions.Item>
                   </Descriptions>
                   <div style={{ marginTop: 12 }}>
                     {meta?.downloadEndpoint || meta?.folderDownloadEndpoint ? (
-                      <Button type="primary" onClick={() => downloadReport(listItem || detailTask)} style={{ marginRight: 8 }}>下载报告</Button>
+                        <Button type="primary" onClick={() => handleDownloadClick(false, listItem || detailTask)} style={{ marginRight: 8 }}>下载报告</Button>
                     ) : null}
                     {detailUrl ? <a href={detailUrl} target="_blank" rel="noreferrer"><Button>打开报告URL</Button></a> : null}
                   </div>
@@ -664,6 +729,12 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
               <Input.Search allowClear placeholder="搜索日志" style={{ width: 240 }} value={streamFilter} onChange={(e) => setStreamFilter(e.target.value)} />
               <span>自动滚动</span>
               <Switch checked={streamAutoScroll} onChange={setStreamAutoScroll} />
+              <Button 
+                icon={<ReloadOutlined />} 
+                onClick={() => { if (detailTask?.id) openTaskDetail(detailTask.id); }}
+              >
+                刷新
+              </Button>
             </div>
             <div style={{ maxHeight: 520, overflow: 'auto', border: '1px solid #eee', padding: 8, borderRadius: 4 }} id="stream-box">
               <Timeline
@@ -677,33 +748,12 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
                   return {
                     color: idx === (detailObjs.length - 1) ? 'green' : 'blue',
                     children: (
-                      <Popover
-                        content={
-                          <div style={{ width: 780, maxWidth: '45vw', height: 360, overflow: 'auto' }}>
-                            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{content}</pre>
-                            <div style={{ textAlign: 'right', marginTop: 8 }}>
-                              <Button size="small" onClick={() => { try { navigator.clipboard.writeText(content); message.success('已复制'); } catch {} }}>复制</Button>
-                            </div>
-                          </div>
-                        }
-                        title={label}
-                        placement="right"
-                        mouseEnterDelay={0.1}
-                        overlayStyle={{ width: 800, maxWidth: '45vw', zIndex: 3000 }}
-                        autoAdjustOverflow={false}
-                        align={{ offset: [-600, 0] }}
-                        getPopupContainer={() => document.body}
-                        trigger="hover"
-                      >
                         <div
-                          onMouseEnter={() => setHoveredIndex(idx)}
-                          onMouseLeave={() => setHoveredIndex(undefined)}
                           onClick={() => { setLogDrawerTitle(label); setLogDrawerContent(content); setLogDrawerOpen(true); }}
-                          style={{ cursor: 'pointer', padding: 6, borderRadius: 4, transition: 'all 0.2s', backgroundColor: hoveredIndex===idx ? '#f5faff' : undefined }}
+                          style={{ cursor: 'pointer', padding: 6, borderRadius: 4, transition: 'all 0.2s' }}
                         >
                           {label}
                         </div>
-                      </Popover>
                     )
                   };
                 }).filter(Boolean) as any}
@@ -723,12 +773,56 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
         open={logDrawerOpen}
         onClose={() => setLogDrawerOpen(false)}
         width={720}
+        zIndex={1050}
         extra={<Button onClick={() => { try { navigator.clipboard.writeText(logDrawerContent); message.success('已复制'); } catch {} }}>复制</Button>}
       >
         <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid #eee', padding: 8, borderRadius: 4 }}>
           <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{logDrawerContent}</pre>
         </div>
       </Drawer>
+
+      <Modal
+        title="选择下载格式"
+        open={dlModalOpen}
+        onCancel={() => setDlModalOpen(false)}
+        onOk={async () => {
+            setDlModalOpen(false);
+            if (dlIsBatch) {
+                for (const fmt of dlFormats) {
+                    await downloadSelectedReports(fmt as any);
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            } else if (dlTargetTask) {
+                for (const fmt of dlFormats) {
+                    await downloadReport(dlTargetTask, fmt as any);
+                    await new Promise(r => setTimeout(r, 500));
+                }
+            }
+        }}
+        okText="确认下载"
+        cancelText="取消"
+        width={400}
+        destroyOnHidden
+      >
+        <div style={{ padding: '20px 0' }}>
+            <p style={{ marginBottom: 12 }}>请选择要下载的报告文件格式（可多选）：</p>
+            <Checkbox.Group value={dlFormats} onChange={(vals) => setDlFormats(vals as string[])}>
+                <AntSpace direction="vertical">
+                    <Checkbox value="pdf" disabled={!dlIsBatch && dlTargetTask && dlTargetTask.reportFiles?.length > 0 && !dlTargetTask.reportFiles.some((f:any)=>f.type==='pdf')}>
+                        PDF 格式 (.pdf)
+                    </Checkbox>
+                    <Checkbox value="docx" disabled={!dlIsBatch && dlTargetTask && dlTargetTask.reportFiles?.length > 0 && !dlTargetTask.reportFiles.some((f:any)=>f.type==='docx')}>
+                        Word 格式 (.docx)
+                    </Checkbox>
+                </AntSpace>
+            </Checkbox.Group>
+            {dlIsBatch && (
+                <div style={{ marginTop: 16, color: '#888', fontSize: 12 }}>
+                    注意：如果选定格式的文件不存在，部分任务可能会下载失败。
+                </div>
+            )}
+        </div>
+      </Modal>
     </div>
   );
 };

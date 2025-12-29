@@ -12,6 +12,19 @@ import { Like, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { SecurityReportTask } from '../entities/SecurityReportTask';
 
+function logDebug(msg: string) {
+  try {
+    const logDir = path.join(process.cwd(), 'data', 'security-logs');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const logFile = path.join(logDir, 'debug_tasks.log');
+    const time = new Date().toISOString();
+    const line = `[${time}] ${msg}\n`;
+    fs.appendFileSync(logFile, line);
+  } catch (e) {
+    console.error('Failed to write debug log:', e);
+  }
+}
+
 export const leasedLineRoutes = Router();
 
 // 仅允许超级管理员或租户专线管理员访问
@@ -32,7 +45,45 @@ leasedLineRoutes.use((req: any, res: any, next: any) => {
   }
 });
 
+function extractOutputUrl(outs: any, safeName: string, difyBase: string) {
+  let url = '';
+  let filename = '';
+  
+  // 1. 优先检查 pdf，其次 doc
+  const rawDoc = String(outs?.doc || '').replace(/[`]/g, '').trim();
+  const rawPdf = String(outs?.pdf || '').replace(/[`]/g, '').trim();
+  
+  if (rawPdf) {
+    url = rawPdf;
+    try { filename = decodeURIComponent(url.split('/').pop() || ''); } catch {}
+  } else if (rawDoc) {
+    url = rawDoc;
+    try { filename = decodeURIComponent(url.split('/').pop() || ''); } catch {}
+  }
+  
+  // 2. 确定文件名
+  if (!filename) {
+    filename = String((outs as any)?.file_name || (outs as any)?.filename || '').trim();
+  }
+  if (!filename) {
+    if (rawPdf && !rawDoc) {
+      filename = `${safeName}安全报告.pdf`;
+    } else {
+      filename = `${safeName}安全报告.docx`;
+    }
+  }
+  
+  // 3. 处理相对路径
+  if (url && !/^https?:\/\//.test(url) && url.startsWith('/')) {
+    const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
+    url = rootBase + url;
+  }
+  
+  return { url, filename };
+}
+
 async function persistTaskSnapshot(t: ReportTask) {
+  if (t.deleted) return;
   try {
     const repo = AppDataSource.getRepository(SecurityReportTask);
     const row = new SecurityReportTask();
@@ -49,8 +100,12 @@ async function persistTaskSnapshot(t: ReportTask) {
     row.createdAt = t.createdAt;
     row.updatedAt = t.updatedAt;
     row.canceled = t.canceled ? 1 : 0;
+    row.reportFiles = t.reportFiles;
     await repo.save(row);
-  } catch {}
+    sseEmit(t.id, { type: 'init', task: t });
+  } catch (err) {
+    logDebug(`[DEBUG] persistTaskSnapshot failed for ${t.id} (${t.status}): ${err}`);
+  }
 }
 
  
@@ -152,7 +207,15 @@ leasedLineRoutes.delete('/security-report/tasks/batch/remove', async (req: any, 
     if (!ids.length) return res.status(400).json({ message: '缺少要删除的任务ID列表' });
     let deleted = 0;
     for (const taskId of ids) {
-      try { reportTasks.delete(taskId); } catch {}
+      try {
+        const t = reportTasks.get(taskId);
+        if (t) {
+          t.canceled = true;
+          t.deleted = true;
+          try { t.abortCtl?.abort(); } catch {}
+          reportTasks.delete(taskId);
+        }
+      } catch {}
       try {
         const set = taskSubscribers.get(taskId);
         if (set) { for (const s of Array.from(set)) { try { s.end?.(); } catch {} } taskSubscribers.delete(taskId); }
@@ -320,195 +383,7 @@ leasedLineRoutes.delete('/:id', async (req: any, res) => {
 
  
 export default leasedLineRoutes;
-leasedLineRoutes.post('/:id/security-report', async (req: any, res) => {
-  try {
-    const { id } = req.params;
-    const perms: string[] = Array.isArray((req.user as any)?.permissions) ? (req.user as any).permissions : [];
-    const role = (req.user as any)?.role;
-    if (!(role === 'super_admin' || role === 'leased_lines_admin' || perms.includes('tenants.leased-lines.reports:write'))) {
-      return res.status(403).json({ message: '权限不足：需要写入权限 tenants.leased-lines.reports:write' });
-    }
-    const repo = AppDataSource.getRepository(TenantLeasedLine);
-    const line = await repo.findOne({ where: { id } });
-    if (!line) return res.status(404).json({ message: '记录不存在' });
 
-    const cfg = getDifyConfig();
-    const difyBase = cfg.baseUrl || 'http://127.0.0.1/v1';
-    const difyKey = cfg.apiKey;
-    const workflowId = cfg.workflowId || 'security-report';
-    if (!difyKey) return res.status(400).json({ message: '后端未配置 DIFY_API_KEY（可在系统设置中配置）' });
-
-    const logsDir = cfg.logsDir || path.join(process.cwd(), 'data', 'security-logs');
-    const reportsDir = cfg.reportsDir || path.join(process.cwd(), 'data', 'security-reports');
-    const safeName = String(line.tenantName || id).replace(/[^\u4e00-\u9fa5\w\-]+/g, '_');
-    const candidates = [
-      path.join(logsDir, `${safeName}.csv`),
-    ];
-    const logPath = candidates.find(p => fs.existsSync(p));
-    if (!logPath) {
-      return res.status(404).json({ message: '未找到专线告警日志文件', expectedPaths: candidates });
-    }
-
-    const fileBuf = await fs.promises.readFile(logPath);
-    const ext = path.extname(logPath).toLowerCase();
-    const BlobCtor = (globalThis as any).Blob;
-    const FormDataCtor = (globalThis as any).FormData;
-    if (!BlobCtor || !FormDataCtor) {
-      return res.status(500).json({ message: '当前运行环境不支持文件上传（缺少 Blob/FormData）' });
-    }
-    const mime = ext === '.csv' ? 'text/csv' : (ext === '.xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/vnd.ms-excel');
-    const fileBlob = new BlobCtor([fileBuf], { type: mime });
-    const form = new FormDataCtor();
-    form.append('file', fileBlob, path.basename(logPath));
-
-    const uploadResp = await fetch(`${difyBase}/files/upload`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${difyKey}` },
-      body: form as any,
-    });
-    const uploadText = await uploadResp.text();
-    let uploadJson: any;
-    try { uploadJson = JSON.parse(uploadText); } catch { uploadJson = { raw: uploadText }; }
-    if (!uploadResp.ok) {
-      return res.status(500).json({ message: '上传日志文件到Dify失败', detail: uploadJson });
-    }
-    const fileId = (uploadJson?.data?.id) || uploadJson?.id || uploadJson?.data?.file_id;
-    if (!fileId) return res.status(500).json({ message: 'Dify未返回文件ID', detail: uploadJson });
-
-    const fileVar = (cfg.fileVarName || 'csv').trim();
-    const inputs: any = {
-      leased_ips: String(line.ips || ''),
-      tenant_name: String(line.tenantName || ''),
-      province: String(line.province || ''),
-      city: String(line.city || ''),
-      cip: String(line.ips || ''),
-      name: String(line.tenantName || '')
-    };
-    inputs[fileVar] = [
-      { type: 'document', transfer_method: 'local_file', file_id: fileId, upload_file_id: fileId }
-    ];
-    const commonBody = {
-      inputs,
-      response_mode: 'blocking',
-      user: 'system'
-    };
-
-    let runJson: any;
-    let taskId: string | undefined;
-    async function tryRun(url: string, body: any) {
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${difyKey}`
-        },
-        body: JSON.stringify(body)
-      });
-      const text = await resp.text();
-      let json: any;
-      try { json = JSON.parse(text); } catch { json = { raw: text }; }
-      return { ok: resp.ok, json };
-    }
-
-    let first, second;
-    {
-      first = await tryRun(`${difyBase}/workflows/run`, { workflow_id: workflowId, ...commonBody });
-      if (first.ok) {
-        runJson = first.json;
-      } else {
-        const msg = String(first?.json?.message || '').toLowerCase();
-        const needUploadId = msg.includes('invalid upload file id') || msg.includes('upload_file_id');
-        if (needUploadId) {
-          const altInputs: any = { ...inputs };
-          altInputs[fileVar] = { type: 'document', transfer_method: 'local_file', upload_file_id: fileId };
-          const altBody = { workflow_id: workflowId, inputs: altInputs, response_mode: 'blocking', user: 'system' };
-          const altFirst = await tryRun(`${difyBase}/workflows/run`, altBody);
-          if (altFirst.ok) {
-            runJson = altFirst.json;
-          } else {
-            const altSecond = await tryRun(`${difyBase}/workflows/${workflowId}/run`, { inputs: altInputs, response_mode: 'blocking', user: 'system' });
-            if (altSecond.ok) {
-              runJson = altSecond.json;
-            } else {
-              return res.status(500).json({ message: '触发Dify工作流失败', detail: { first: first.json, second: altSecond.json } });
-            }
-          }
-        } else {
-          second = await tryRun(`${difyBase}/workflows/${workflowId}/run`, commonBody);
-          if (second.ok) {
-            runJson = second.json;
-          } else {
-            return res.status(500).json({ message: '触发Dify工作流失败', detail: { first: first.json, second: second.json } });
-          }
-        }
-      }
-    }
-    taskId = runJson?.data?.task_id || runJson?.task_id || runJson?.id;
-    if (!taskId) return res.status(500).json({ message: 'Dify未返回任务ID', detail: runJson });
-
-    const startedAt = Date.now();
-    let reportUrl: string | undefined;
-    let reportFileId: string | undefined;
-    while (true) {
-      if (Date.now() - startedAt > 5 * 60 * 1000) {
-        return res.status(504).json({ message: '等待Dify工作流超时（>5分钟）', taskId });
-      }
-      await new Promise(r => setTimeout(r, 2000));
-      const statResp = await fetch(`${difyBase}/workflows/tasks/${taskId}`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${difyKey}` }
-      });
-      const statText = await statResp.text();
-      let statJson: any;
-      try { statJson = JSON.parse(statText); } catch { statJson = { raw: statText }; }
-      if (!statResp.ok) continue;
-      {
-        const outs = statJson?.data?.outputs || statJson?.outputs || {};
-        const filesArr: any[] = Array.isArray((outs as any)?.files) ? (outs as any).files : [];
-        const f0: any = filesArr.length ? filesArr[0] : undefined;
-        let url = String(outs?.report_url || outs?.url || f0?.url || f0?.download_url || f0?.file_url || '');
-        let filename = String((outs as any)?.file_name || (outs as any)?.filename || f0?.name || `${safeName}安全报告.docx`).trim();
-        if (url && !/^https?:\/\//.test(url) && url.startsWith('/')) {
-          const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
-          url = rootBase + url;
-        }
-        if (url) {
-          const savePath = await saveRemoteReport(url, reportsDir, taskId || 'sync', safeName, difyKey, filename);
-          if (savePath) {
-            await streamSavedDocx(savePath, res, safeName, filename);
-            return;
-          }
-        }
-      }
-      const status = statJson?.data?.status || statJson?.status;
-      if (status === 'succeeded' || status === 'success' || status === 'done') {
-        reportUrl = statJson?.data?.outputs?.report_url || statJson?.outputs?.report_url;
-        reportFileId = statJson?.data?.outputs?.report_file_id || statJson?.outputs?.report_file_id;
-        break;
-      }
-      if (status === 'failed' || status === 'error') {
-        return res.status(500).json({ message: 'Dify工作流执行失败', detail: statJson });
-      }
-    }
-
-    if (reportUrl) {
-      let url = reportUrl;
-      let filename = `${safeName}安全报告.docx`;
-      if (url && !/^https?:\/\//.test(url) && url.startsWith('/')) {
-        const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
-        url = rootBase + url;
-      }
-      const savePath = await saveRemoteReport(url, reportsDir, taskId || 'sync', safeName, difyKey, filename);
-      if (savePath) {
-        await streamSavedDocx(savePath, res, safeName, filename);
-        return;
-      }
-    }
-    return res.status(404).json({ message: '未获得可下载的报告链接或文件', outputs: { reportUrl, reportFileId } });
-  } catch (err: any) {
-    res.status(500).json({ message: '生成安全报告失败', error: String(err) });
-  }
-});
 
 // 异步任务：生成安全报告
 type ReportTask = {
@@ -525,7 +400,10 @@ type ReportTask = {
   createdAt: number;
   updatedAt: number;
   canceled?: boolean;
+  deleted?: boolean;
   streamLines?: any[];
+  abortCtl?: any;
+  reportFiles?: Array<{ name: string; path: string; type: string; size?: number }>;
 };
 const reportTasks = new Map<string, ReportTask>();
 let queueProcessing = false;
@@ -544,7 +422,19 @@ function sseEmit(taskId: string, payload: any) {
 
 function hasActiveTask(lineId: string) {
   for (const t of reportTasks.values()) {
-    if (t.lineId === lineId && (t.status === 'pending' || t.status === 'running')) return t;
+    if (t.lineId === lineId && (t.status === 'pending' || t.status === 'running') && !t.deleted) {
+      // Lazy cleanup: if task is stuck for > 30 mins, fail it
+      if (Date.now() - t.updatedAt > 30 * 60 * 1000) {
+        logDebug(`[DEBUG] Found stale task ${t.id} (status=${t.status}, lastUpdate=${new Date(t.updatedAt).toISOString()}). Marking as failed.`);
+        t.status = 'failed';
+        t.message = '任务长时间未响应，自动标记为失败';
+        t.updatedAt = Date.now();
+        persistTaskSnapshot(t).catch(console.error);
+        sseEmit(t.id, { type: 'init', task: t });
+        continue;
+      }
+      return t;
+    }
   }
   return undefined;
 }
@@ -559,12 +449,163 @@ async function processQueue() {
   setImmediate(processQueue);
 }
 
+async function handleTaskOutputs(outs: any, task: ReportTask, safeName: string, difyBase: string, reportsDir: string, difyKey?: string) {
+    if (!outs) return;
+    
+    // 尝试智能提取所有文件下载链接
+    const downloads: Array<{ url: string, suffix: string }> = [];
+    const seenUrls = new Set<string>();
+
+    const addDl = (u: any, typeHint?: string) => {
+        if (!u) return;
+        let url = String(u).replace(/[`]/g, '').trim();
+        // Handle markdown link: [name](url)
+        const mdMatch = url.match(/\]\((https?:\/\/[^)]+)\)/) || url.match(/\]\(([^)]+)\)/);
+        if (mdMatch) url = mdMatch[1];
+        
+        if (!url) return;
+        // Basic normalization
+        if (!/^https?:\/\//.test(url) && url.startsWith('/')) {
+            const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
+            url = rootBase + url;
+        }
+        
+        if (seenUrls.has(url)) return;
+
+        let suffix = '';
+        if (typeHint) suffix = typeHint;
+        else {
+            const lower = url.toLowerCase();
+            // 简单判断后缀
+            if (lower.includes('.pdf')) suffix = '.pdf';
+            else if (lower.includes('.docx') || lower.includes('.doc')) suffix = '.docx';
+        }
+        
+        if (url && suffix) {
+            seenUrls.add(url);
+            downloads.push({ url, suffix });
+        }
+    };
+
+    // 1. 显式常见Key
+    if (outs?.pdf) addDl(outs.pdf, '.pdf');
+    if (outs?.doc) addDl(outs.doc, '.docx');
+    if (outs?.docx) addDl(outs.docx, '.docx');
+    if (outs?.word) addDl(outs.word, '.docx');
+
+    // 2. 遍历所有Key寻找可能的链接
+    if (outs && typeof outs === 'object') {
+        for (const k of Object.keys(outs)) {
+            const v = outs[k];
+            
+            // 尝试根据Key名推断类型
+            const kLower = k.toLowerCase();
+            let hint: string | undefined = undefined;
+            if (kLower.includes('pdf')) hint = '.pdf';
+            else if (kLower.includes('doc') || kLower.includes('word')) hint = '.docx';
+
+            if (typeof v === 'string') {
+                // 忽略太短的字符串
+                if (v.length > 5) addDl(v, hint);
+            } else if (v && typeof v === 'object') {
+                    const u = v.url || v.download_url || v.file_url;
+                    const n = v.name || v.filename || v.file_name;
+                    
+                    let objHint = hint;
+                    if (!objHint && n) {
+                        const nLower = String(n).toLowerCase();
+                        if (nLower.endsWith('.pdf')) objHint = '.pdf';
+                        else if (nLower.endsWith('.docx') || nLower.endsWith('.doc')) objHint = '.docx';
+                    }
+                    
+                    if (u) addDl(u, objHint);
+            }
+        }
+    }
+    
+    // 3. 检查 'files' 数组
+    const files = outs?.files || [];
+    if (Array.isArray(files)) {
+        for (const f of files) {
+            const u = f.url || f.download_url || f.file_url;
+            const n = f.name || f.filename || f.file_name;
+            let objHint = undefined;
+            if (n) {
+                    const nLower = String(n).toLowerCase();
+                    if (nLower.endsWith('.pdf')) objHint = '.pdf';
+                    else if (nLower.endsWith('.docx') || nLower.endsWith('.doc')) objHint = '.docx';
+            }
+            if (u) addDl(u, objHint);
+        }
+    }
+
+    console.log('[DEBUG] Identified downloads (streaming):', JSON.stringify(downloads, null, 2));
+    logDebug(`[DEBUG] Identified downloads (streaming): ${JSON.stringify(downloads)}`);
+
+    if (downloads.length === 0) {
+        // Fallback to old logic
+        const { url, filename: fileNameFromOuts } = extractOutputUrl(outs, safeName, difyBase);
+        if (url) {
+            const ext = path.extname(fileNameFromOuts) || '.docx';
+            downloads.push({ url, suffix: ext });
+        }
+    }
+
+    const savedFiles: Array<{ name: string; path: string; type: string; size?: number }> = task.reportFiles || [];
+    let hasChanges = false;
+    for (const item of downloads) {
+        // Avoid re-downloading if already in savedFiles
+        if (savedFiles.some(f => f.type === item.suffix.replace('.', '').toUpperCase())) {
+            // Check if we should skip? Maybe not, maybe URL changed.
+            // For now, let's just download.
+        }
+
+        try {
+            const fname = `${safeName}安全报告${item.suffix}`;
+            logDebug(`[DEBUG] Downloading (streaming): ${item.url} -> ${fname}`);
+            const saved = await saveRemoteReport(item.url, reportsDir, task.id, safeName, difyKey, fname, task.abortCtl?.signal);
+            if (saved) {
+                let size = 0;
+                try { size = fs.statSync(saved).size; } catch {}
+                
+                // Remove existing entry for this type if any
+                const existingIdx = savedFiles.findIndex(f => f.type === item.suffix.replace('.', '').toUpperCase());
+                if (existingIdx !== -1) {
+                    savedFiles.splice(existingIdx, 1);
+                }
+                
+                savedFiles.push({ name: fname, path: saved, type: item.suffix.replace('.', '').toUpperCase(), size });
+                hasChanges = true;
+                
+                // Backward compatibility: set filePath to the first one or prioritize docx?
+                // Old logic prioritized PDF if present? No, actually docx is usually default.
+                // Let's just set filePath to the most recent one.
+                task.filePath = saved;
+            } else {
+                logDebug(`[DEBUG] Failed to save (streaming): ${item.url}`);
+            }
+        } catch (err) {
+            logDebug(`[DEBUG] Error downloading (streaming) ${item.url}: ${err}`);
+        }
+    }
+
+    if (hasChanges) {
+        task.reportFiles = savedFiles;
+        task.updatedAt = Date.now();
+        await persistTaskSnapshot(task);
+    }
+}
+
 async function runReportTask(task: ReportTask) {
+  let finishedNodeCount = 0;
+  task.abortCtl = new AbortController();
   try {
+    if (task.deleted) return;
     task.status = 'running';
-    task.percent = 5;
+    task.percent = 1;
     task.updatedAt = Date.now();
     await persistTaskSnapshot(task);
+    if (task.deleted) return;
     const repo = AppDataSource.getRepository(TenantLeasedLine);
     const line = await repo.findOne({ where: { id: task.lineId } });
     if (!line) { task.status = 'failed'; task.message = '记录不存在'; return; }
@@ -592,7 +633,7 @@ async function runReportTask(task: ReportTask) {
     ];
     const logPath = candidates.find(p => fs.existsSync(p));
     if (!logPath) { task.status = 'failed'; task.message = '未找到专线告警日志文件'; return; }
-    task.percent = 15;
+    task.percent = 1;
     task.updatedAt = Date.now();
 
     const fileBuf = await fs.promises.readFile(logPath);
@@ -605,13 +646,14 @@ async function runReportTask(task: ReportTask) {
     const form = new FormDataCtor();
     form.append('file', fileBlob, path.basename(logPath));
 
-    const uploadResp = await fetch(`${difyBase}/files/upload`, { method: 'POST', headers: { 'Authorization': `Bearer ${difyKey}` }, body: form as any });
+    const uploadResp = await fetch(`${difyBase}/files/upload`, { method: 'POST', headers: { 'Authorization': `Bearer ${difyKey}` }, body: form as any, signal: task.abortCtl?.signal });
+    if (task.deleted) return;
     const uploadText = await uploadResp.text();
     let uploadJson: any; try { uploadJson = JSON.parse(uploadText); } catch { uploadJson = { raw: uploadText }; }
     if (!uploadResp.ok) { task.status = 'failed'; task.message = '上传日志文件到Dify失败'; return; }
     const fileId = (uploadJson?.data?.id) || uploadJson?.id || uploadJson?.data?.file_id;
     if (!fileId) { task.status = 'failed'; task.message = 'Dify未返回文件ID'; return; }
-    task.percent = 30;
+    task.percent = 1;
 
     const fileVar = (cfg.fileVarName || 'csv').trim();
     if (!cipText) { task.status = 'failed'; task.message = '缺少专线IP（cip），请在专线记录中填写'; return; }
@@ -631,7 +673,7 @@ async function runReportTask(task: ReportTask) {
     const commonBody = { inputs, response_mode: 'blocking', user: 'system' };
 
     async function tryRun(url: string, body: any) {
-      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${difyKey}` }, body: JSON.stringify(body) });
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${difyKey}` }, body: JSON.stringify(body), signal: task.abortCtl?.signal });
       const text = await resp.text();
       let json: any; try { json = JSON.parse(text); } catch { json = { raw: text }; }
       return { ok: resp.ok, json };
@@ -639,13 +681,14 @@ async function runReportTask(task: ReportTask) {
 
     // streaming 模式读取
     async function streamRun(url: string, body: any): Promise<{ ok: boolean; lastJson?: any }> {
-      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${difyKey}` }, body: JSON.stringify(body) });
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${difyKey}` }, body: JSON.stringify(body), signal: task.abortCtl?.signal });
       if (!resp.ok) return { ok: false };
       const reader = (resp as any).body?.getReader ? (resp as any).body.getReader() : null;
       let lastJson: any = undefined;
       let buf = '';
       if (reader) {
         while (true) {
+          if (task.deleted) { try { reader.cancel(); } catch {} break; }
           const { done, value } = await reader.read();
           if (done) break;
           try { buf += Buffer.from(value).toString('utf-8'); } catch { buf += String(value); }
@@ -657,6 +700,27 @@ async function runReportTask(task: ReportTask) {
           const sline = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed;
           let obj: any = sline;
           try { obj = JSON.parse(sline); } catch {}
+          
+          if (obj && typeof obj === 'object') {
+            const evt = obj.event;
+            let changed = false;
+            if (evt === 'workflow_started') {
+              // task.percent = Math.max(task.percent, 35);
+              changed = true;
+            } else if (evt === 'node_started') {
+              // task.percent = Math.min(98, (task.percent || 35) + 1);
+              // changed = true;
+            } else if (evt === 'node_finished') {
+              finishedNodeCount++;
+              task.percent = Math.min(99, task.percent + 1);
+              changed = true;
+            } else if (evt === 'workflow_finished' || evt === 'workflow_succeeded') {
+              task.percent = 99;
+              changed = true;
+            }
+            if (changed) sseEmit(task.id, { type: 'init', task });
+          }
+
           task.message = `流: ${trimmed}`;
           task.response = obj;
           task.updatedAt = Date.now();
@@ -669,18 +733,7 @@ async function runReportTask(task: ReportTask) {
           sseEmit(task.id, { type: 'stream', line: obj });
           try {
             const outs = obj?.data?.outputs || obj?.outputs || {};
-            const filesArr: any[] = Array.isArray((outs as any)?.files) ? (outs as any).files : [];
-            const f0: any = filesArr.length ? filesArr[0] : undefined;
-            let u = String(outs?.report_url || outs?.url || f0?.url || f0?.download_url || f0?.file_url || '');
-            const fname = String((outs as any)?.file_name || (outs as any)?.filename || f0?.name || `${safeName}安全报告.docx`).trim();
-            if (u && !/^https?:\/\//.test(u) && u.startsWith('/')) {
-              const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
-              u = rootBase + u;
-            }
-            if (u) {
-              const saved = await saveRemoteReport(u, reportsDir, task.id, safeName, difyKey, fname);
-              if (saved) { task.filePath = saved; task.updatedAt = Date.now(); await persistTaskSnapshot(task); }
-            }
+            await handleTaskOutputs(outs, task, safeName, difyBase, reportsDir, difyKey);
           } catch {}
         }
         }
@@ -688,6 +741,15 @@ async function runReportTask(task: ReportTask) {
         if (leftover) {
           const sline = leftover.startsWith('data:') ? leftover.slice(5).trim() : leftover;
           try { lastJson = JSON.parse(sline); } catch { lastJson = { raw: sline }; }
+          
+          if (lastJson && typeof lastJson === 'object') {
+             const evt = lastJson.event;
+             if (evt === 'workflow_finished' || evt === 'workflow_succeeded') {
+                 task.percent = 99;
+                 sseEmit(task.id, { type: 'init', task });
+             }
+          }
+
           task.message = `流: ${leftover}`;
           task.response = lastJson;
           task.updatedAt = Date.now();
@@ -700,18 +762,7 @@ async function runReportTask(task: ReportTask) {
           sseEmit(task.id, { type: 'stream', line: lastJson });
           try {
             const outs = lastJson?.data?.outputs || lastJson?.outputs || {};
-            const filesArr: any[] = Array.isArray((outs as any)?.files) ? (outs as any).files : [];
-            const f0: any = filesArr.length ? filesArr[0] : undefined;
-            let u = String(outs?.report_url || outs?.url || f0?.url || f0?.download_url || f0?.file_url || '');
-            const fname = String((outs as any)?.file_name || (outs as any)?.filename || f0?.name || `${safeName}安全报告.docx`).trim();
-            if (u && !/^https?:\/\//.test(u) && u.startsWith('/')) {
-              const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
-              u = rootBase + u;
-            }
-            if (u) {
-              const saved = await saveRemoteReport(u, reportsDir, task.id, safeName, difyKey, fname);
-              if (saved) { task.filePath = saved; task.updatedAt = Date.now(); }
-            }
+            await handleTaskOutputs(outs, task, safeName, difyBase, reportsDir, difyKey);
           } catch {}
         }
       } else {
@@ -729,30 +780,37 @@ async function runReportTask(task: ReportTask) {
         }
         sseEmit(task.id, { type: 'stream', line: lastJson });
         try {
-          const outs = lastJson?.data?.outputs || lastJson?.outputs || {};
-          const filesArr: any[] = Array.isArray((outs as any)?.files) ? (outs as any).files : [];
-          const f0: any = filesArr.length ? filesArr[0] : undefined;
-          let u = String(outs?.report_url || outs?.url || f0?.url || f0?.download_url || f0?.file_url || '');
-          const fname = String((outs as any)?.file_name || (outs as any)?.filename || f0?.name || `${safeName}安全报告.docx`).trim();
-          if (u && !/^https?:\/\//.test(u) && u.startsWith('/')) {
-            const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
-            u = rootBase + u;
-          }
-          if (u) {
-            const saved = await saveRemoteReport(u, reportsDir, task.id, safeName, difyKey, fname);
-            if (saved) { task.filePath = saved; task.updatedAt = Date.now(); }
-          }
-        } catch {}
+            const outs = lastJson?.data?.outputs || lastJson?.outputs || {};
+            await handleTaskOutputs(outs, task, safeName, difyBase, reportsDir, difyKey);
+          } catch {}
       }
       return { ok: true, lastJson };
     }
 
+    // 尝试从流日志历史中提取 task_id，作为兜底
+    const extractTaskIdFromStream = () => {
+       const arr = task.streamLines || [];
+       for (let i = arr.length - 1; i >= 0; i--) {
+          const it = arr[i];
+          const tid = it?.task_id || it?.data?.task_id;
+          if (tid) return tid;
+       }
+       return undefined;
+    };
+
     let runJson: any;
     let taskId: string | undefined;
     const first = await streamRun(`${difyBase}/workflows/run`, { workflow_id: workflowId, inputs, response_mode: 'streaming', user: 'system' });
+    if (task.deleted) return;
+    
+    // 优先从返回值取，取不到则从历史流日志中找
     if (first.ok && first.lastJson) {
       runJson = first.lastJson;
-    } else {
+    } 
+    taskId = runJson?.data?.task_id || runJson?.task_id || runJson?.id || extractTaskIdFromStream();
+
+    // 如果第一次尝试失败且没有拿到 taskId，才尝试第二次
+    if (!taskId) {
       const msg = String((first as any)?.json?.message || '').toLowerCase();
       const needUploadId = msg.includes('invalid upload file id') || msg.includes('upload_file_id');
       if (needUploadId) {
@@ -760,52 +818,102 @@ async function runReportTask(task: ReportTask) {
         altInputs[fileVar] = { type: 'document', transfer_method: 'local_file', upload_file_id: fileId };
         const altBody = { workflow_id: workflowId, inputs: altInputs, response_mode: 'streaming', user: 'system' };
         const altFirst = await streamRun(`${difyBase}/workflows/run`, altBody);
-        if (altFirst.ok && altFirst.lastJson) {
-          runJson = altFirst.lastJson;
-        } else {
+        if (task.deleted) return;
+        
+        if (altFirst.ok && altFirst.lastJson) { runJson = altFirst.lastJson; }
+        taskId = runJson?.data?.task_id || runJson?.task_id || runJson?.id || extractTaskIdFromStream();
+
+        if (!taskId) {
           const altSecond = await streamRun(`${difyBase}/workflows/${workflowId}/run`, { inputs: altInputs, response_mode: 'streaming', user: 'system' });
-          if (altSecond.ok && altSecond.lastJson) {
-            runJson = altSecond.lastJson;
-          } else {
+          if (task.deleted) return;
+          if (altSecond.ok && altSecond.lastJson) { runJson = altSecond.lastJson; }
+          taskId = runJson?.data?.task_id || runJson?.task_id || runJson?.id || extractTaskIdFromStream();
+          
+          if (!taskId) {
             task.status = 'failed'; task.message = `触发Dify工作流失败: ${JSON.stringify({ first: altFirst, second: altSecond })}`; return;
           }
         }
       } else {
         const second = await streamRun(`${difyBase}/workflows/${workflowId}/run`, { inputs, response_mode: 'streaming', user: 'system' });
-        if (second.ok && second.lastJson) {
-          runJson = second.lastJson;
-        } else {
+        if (task.deleted) return;
+        if (second.ok && second.lastJson) { runJson = second.lastJson; }
+        taskId = runJson?.data?.task_id || runJson?.task_id || runJson?.id || extractTaskIdFromStream();
+        
+        if (!taskId) {
           task.status = 'failed'; task.message = `触发Dify工作流失败: ${JSON.stringify({ first, second })}`; return;
         }
       }
     }
     {
-      const text0 = JSON.stringify(runJson);
+      const text0 = JSON.stringify(runJson || {});
       task.message = `响应: ${text0}`;
       task.response = runJson;
       task.updatedAt = Date.now();
     }
     
-    taskId = runJson?.data?.task_id || runJson?.task_id || runJson?.id;
-    if (!taskId) { task.status = 'failed'; task.message = '工作流未返回任务ID或输出'; return; }
+    // taskId = runJson?.data?.task_id || runJson?.task_id || runJson?.id; // 已在上方提取
+    if (!taskId) {
+       logDebug(`[DEBUG] Task Failed: No Task ID returned from Dify. RunJson: ${JSON.stringify(runJson)}`);
+       task.status = 'failed'; task.message = '工作流未返回任务ID或输出'; sseEmit(task.id, { type: 'init', task }); await persistTaskSnapshot(task); return; 
+    }
     task.difyTaskId = taskId;
-    task.percent = 40;
+    task.percent = Math.max(task.percent, 40);
+    task.updatedAt = Date.now();
+    sseEmit(task.id, { type: 'init', task });
     const startedAt = Date.now();
     let pollFailCount = 0;
+    
+    logDebug(`[DEBUG] Task ${task.id} (Dify: ${taskId}) entering polling loop.`);
+
     while (true) {
-      if (task.canceled) { task.status = 'canceled'; return; }
-      if (Date.now() - startedAt > 15 * 60 * 1000) { task.status = 'failed'; task.message = '等待Dify工作流超时'; return; }
+      if (task.deleted) return;
+
+      // 如果已经成功下载了文件，直接标记为成功，不再等待Dify状态
+      if (task.reportFiles && task.reportFiles.length > 0) {
+          logDebug(`[DEBUG] Task ${task.id} succeeded via file detection in polling loop.`);
+          task.status = 'succeeded';
+          task.percent = 100;
+          task.updatedAt = Date.now();
+          sseEmit(task.id, { type: 'init', task });
+          await persistTaskSnapshot(task);
+          return;
+      }
+
+      if (task.canceled) { task.status = 'canceled'; sseEmit(task.id, { type: 'init', task }); await persistTaskSnapshot(task); return; }
+      
+      // Check for timeout (15 mins)
+      if (Date.now() - startedAt > 15 * 60 * 1000) { 
+          // 超时前再次检查是否已有文件
+          if (task.reportFiles && task.reportFiles.length > 0) {
+              task.status = 'succeeded';
+              task.percent = 100;
+              task.message = '任务已完成（Dify状态查询超时，但文件已下载）';
+              sseEmit(task.id, { type: 'init', task });
+              await persistTaskSnapshot(task);
+              return;
+          }
+          logDebug(`[DEBUG] Task ${task.id} timed out after 15 mins.`);
+          task.status = 'failed'; task.message = '等待Dify工作流超时'; sseEmit(task.id, { type: 'init', task }); await persistTaskSnapshot(task); return; 
+      }
+      
       await new Promise(r => setTimeout(r, 2000));
-      const statResp = await fetch(`${difyBase}/workflows/tasks/${taskId}`, { method: 'GET', headers: { 'Authorization': `Bearer ${difyKey}` } });
+      if (task.deleted) return;
+      
+      const statResp = await fetch(`${difyBase}/workflows/tasks/${taskId}`, { method: 'GET', headers: { 'Authorization': `Bearer ${difyKey}` }, signal: task.abortCtl?.signal });
+      if (task.deleted) return;
       const statText = await statResp.text();
       let statJson: any; try { statJson = JSON.parse(statText); } catch { statJson = { raw: statText }; }
+      
       if (!statResp.ok) {
+        logDebug(`[DEBUG] Task ${task.id} Dify status check failed: ${statResp.status}`);
         task.message = `Dify任务状态查询失败: HTTP ${statResp.status}`;
         task.percent = Math.min(60, task.percent + 1);
         task.updatedAt = Date.now();
         pollFailCount++;
+        sseEmit(task.id, { type: 'init', task });
         continue;
       }
+      
       {
         const text = JSON.stringify(statJson);
         task.message = `响应: ${text}`;
@@ -815,36 +923,37 @@ async function runReportTask(task: ReportTask) {
       
         const status = statJson?.data?.status || statJson?.status;
         if (status === 'succeeded' || status === 'success' || status === 'done') {
+          logDebug(`[DEBUG] Task ${task.id} Dify status succeeded.`);
           task.status = 'succeeded';
           task.percent = 100;
           task.updatedAt = Date.now();
+          sseEmit(task.id, { type: 'init', task });
           try {
             const outs = statJson?.data?.outputs || statJson?.outputs || {};
-            const filesArr: any[] = Array.isArray((outs as any)?.files) ? (outs as any).files : [];
-            const f0: any = filesArr.length ? filesArr[0] : undefined;
-            let url = String(outs?.report_url || outs?.url || f0?.url || f0?.download_url || f0?.file_url || '');
-            const fileNameFromOuts = String((outs as any)?.file_name || (outs as any)?.filename || f0?.name || `${safeName}安全报告.docx`).trim();
-            if (url && !/^https?:\/\//.test(url) && url.startsWith('/')) {
-              const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
-              url = rootBase + url;
-            }
-            if (url) {
-              const reportsDirS = cfg.reportsDir || path.join(process.cwd(), 'data', 'security-reports');
-              const saved = await saveRemoteReport(url, reportsDirS, task.id, safeName, difyKey, fileNameFromOuts);
-              if (saved) {
-                task.filePath = saved;
-                task.updatedAt = Date.now();
-              }
-            }
-          } catch {}
+            logDebug(`[DEBUG] Dify Outputs (Final): ${JSON.stringify(outs)}`);
+            const reportsDirS = cfg.reportsDir || path.join(process.cwd(), 'data', 'security-reports');
+            
+            // 尝试智能提取所有文件下载链接
+            await handleTaskOutputs(outs, task, safeName, difyBase, reportsDirS, difyKey);
+          } catch (e) {
+             logDebug(`[DEBUG] handleTaskOutputs error in final block: ${e}`);
+          }
+          sseEmit(task.id, { type: 'init', task });
+          await persistTaskSnapshot(task);
           return;
         }
-      if (status === 'failed' || status === 'error') { task.status = 'failed'; task.message = 'Dify工作流执行失败'; return; }
+      if (status === 'failed' || status === 'error') { 
+          logDebug(`[DEBUG] Task ${task.id} Dify reported failure: ${status}`);
+          task.status = 'failed'; task.message = 'Dify工作流执行失败'; sseEmit(task.id, { type: 'init', task }); await persistTaskSnapshot(task); return; 
+      }
+      
       task.message = `Dify任务执行中: ${String(status || 'running')}`;
       task.percent = Math.min(95, task.percent + 1);
       task.updatedAt = Date.now();
+      sseEmit(task.id, { type: 'init', task });
     }
   } catch (e: any) {
+    logDebug(`[DEBUG] Task ${task.id} Exception in runReportTask: ${e}`);
     const msg = String(e?.message || e);
     const t = reportTasks.get(task.id);
     if (t) { t.status = 'failed'; t.message = msg; t.updatedAt = Date.now(); await persistTaskSnapshot(t); }
@@ -889,7 +998,7 @@ leasedLineRoutes.get('/security-report/tasks/:taskId', async (req: any, res) => 
     const row = await repo.findOne({ where: { id: taskId } });
     if (!row) return res.status(404).json({ message: '任务不存在' });
     const resp = row.response ? (() => { try { return JSON.parse(row.response as any); } catch { return undefined; } })() : undefined;
-    return res.json({ task: { id: row.id, lineId: row.lineId, status: row.status, percent: row.percent, message: row.message, response: resp, difyTaskId: row.difyTaskId, filePath: row.filePath, fileName: row.fileName, reportFolderId: row.reportFolderId, createdAt: row.createdAt, updatedAt: row.updatedAt, canceled: !!row.canceled } });
+    return res.json({ task: { id: row.id, lineId: row.lineId, status: row.status, percent: row.percent, message: row.message, response: resp, difyTaskId: row.difyTaskId, filePath: row.filePath, fileName: row.fileName, reportFolderId: row.reportFolderId, createdAt: row.createdAt, updatedAt: row.updatedAt, canceled: !!row.canceled, reportFiles: row.reportFiles } });
   } catch {
     return res.status(404).json({ message: '任务不存在' });
   }
@@ -909,7 +1018,7 @@ leasedLineRoutes.get('/security-report/tasks/:taskId/outputs', async (req: any, 
         const repo = AppDataSource.getRepository(SecurityReportTask);
         const row = await repo.findOne({ where: { id: taskId } });
         if (row) {
-          t = { id: row.id, lineId: row.lineId, status: row.status as any, percent: row.percent, message: row.message, response: (row.response ? (() => { try { return JSON.parse(row.response as any); } catch { return undefined; } })() : undefined), difyTaskId: row.difyTaskId, filePath: row.filePath, fileName: row.fileName, reportFolderId: row.reportFolderId, createdAt: row.createdAt, updatedAt: row.updatedAt } as any;
+          t = { id: row.id, lineId: row.lineId, status: row.status as any, percent: row.percent, message: row.message, response: (row.response ? (() => { try { return JSON.parse(row.response as any); } catch { return undefined; } })() : undefined), difyTaskId: row.difyTaskId, filePath: row.filePath, fileName: row.fileName, reportFolderId: row.reportFolderId, createdAt: row.createdAt, updatedAt: row.updatedAt, reportFiles: row.reportFiles } as any;
         }
       } catch {}
     }
@@ -940,10 +1049,50 @@ leasedLineRoutes.get('/security-report/tasks/:taskId/outputs', async (req: any, 
         return res.status(403).json({ message: '权限不足：需要读取权限 tenants.leased-lines.reports:read' });
       }
       const { taskId } = req.params;
-      const t = reportTasks.get(taskId);
+      const { type } = req.query;
+
+      let t: ReportTask | undefined = reportTasks.get(taskId);
+      if (!t) {
+        try {
+          const taskRepo = AppDataSource.getRepository(SecurityReportTask);
+          const r = await taskRepo.findOne({ where: { id: taskId } });
+          if (r) {
+            t = {
+              id: r.id,
+              lineId: r.lineId,
+              status: r.status as any,
+              percent: r.percent,
+              message: r.message,
+              response: (r.response ? (() => { try { return JSON.parse(r.response as any); } catch { return undefined; } })() : undefined),
+              difyTaskId: r.difyTaskId,
+              filePath: r.filePath,
+              fileName: r.fileName,
+              reportFolderId: r.reportFolderId,
+              reportFiles: r.reportFiles,
+              createdAt: r.createdAt,
+              updatedAt: r.updatedAt
+            } as any;
+          }
+        } catch (e) { console.error('DB fetch error', e); }
+      }
+
       if (!t) return res.status(404).json({ message: '任务不存在' });
+      
       let filePath = t.filePath;
-    if (!filePath || !fs.existsSync(filePath)) {
+      
+      if (t.reportFiles && Array.isArray(t.reportFiles) && t.reportFiles.length > 0) {
+        if (type && typeof type === 'string') {
+          const target = type.toLowerCase();
+          const found = t.reportFiles.find(f => f.type.toLowerCase() === target);
+          if (found) {
+            filePath = found.path;
+          }
+        } else if (!filePath) {
+           filePath = t.reportFiles[0].path;
+        }
+      }
+
+      if (!filePath || !fs.existsSync(filePath)) {
       try {
         const cfg = getDifyConfig();
         const difyBase = cfg.baseUrl || 'http://127.0.0.1/v1';
@@ -978,7 +1127,7 @@ leasedLineRoutes.get('/security-report/tasks/:taskId/outputs', async (req: any, 
         }
         if (node) {
           const outs = node?.data?.outputs || node?.outputs || {};
-          const url = String(outs?.report_url || outs?.url || '');
+          const { url } = extractOutputUrl(outs, safeName, difyBase);
           if (url) {
             const tryAuth = difyKey ? await fetch(url, { method: 'GET', headers: { 'Authorization': `Bearer ${difyKey}` } }) : undefined;
             if (tryAuth && tryAuth.ok) {
@@ -1026,13 +1175,7 @@ leasedLineRoutes.get('/security-report/tasks/:taskId/outputs', async (req: any, 
           }
         }
         const outs = node?.data?.outputs || node?.outputs || {};
-        const files = node?.files || node?.data?.files || outs?.files || [];
-        const f0: any = Array.isArray(files) && files.length ? files[0] : undefined;
-        const fileNameFromOuts = String((outs as any)?.file_name || (outs as any)?.filename || f0?.name || `${safe}安全报告.docx`).trim();
-        let remoteUrl: string = String(f0?.url || f0?.download_url || f0?.file_url || outs?.report_url || outs?.url || '');
-        if (remoteUrl && !/^https?:\/\//.test(remoteUrl) && remoteUrl.startsWith('/')) {
-          remoteUrl = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '') + remoteUrl;
-        }
+        const { url: remoteUrl, filename: fileNameFromOuts } = extractOutputUrl(outs, safe, difyBase);
         if (remoteUrl) {
           const cfgR = getDifyConfig();
           const reportsDirR = cfgR.reportsDir || path.join(process.cwd(), 'data', 'security-reports');
@@ -1049,12 +1192,20 @@ leasedLineRoutes.get('/security-report/tasks/:taskId/outputs', async (req: any, 
     const line = await repo.findOne({ where: { id: t.lineId } });
     const tn = String(line?.tenantName || '').trim();
     const safe = (tn || path.basename(filePath, path.extname(filePath))).replace(/[<>:"/\\|?*]+/g, '_');
-    const filename = `${safe}安全报告.docx`;
+    const ext = path.extname(filePath).toLowerCase();
+    const isPdf = ext === '.pdf';
+    const filename = `${safe}安全报告${ext || '.docx'}`;
     const stat = await fs.promises.stat(filePath);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    
+    if (isPdf) {
+      res.setHeader('Content-Type', 'application/pdf');
+    } else {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    }
+    
     res.setHeader('Content-Length', String(stat.size));
-    const asciiName = `${safe.replace(/[^\x20-\x7E]+/g, '_')}-security-report.docx`;
-    res.setHeader('Content-Disposition', `attachment; filename=${asciiName}`);
+    const asciiName = `${safe.replace(/[^\x20-\x7E]+/g, '_')}-security-report${ext || '.docx'}`;
+    res.setHeader('Content-Disposition', `attachment; filename=${asciiName}; filename*=UTF-8''${encodeURIComponent(filename)}`);
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
   } catch (err: any) {
@@ -1073,10 +1224,13 @@ leasedLineRoutes.get('/security-report/lines/:lineId/download', async (req: any,
     const repo = AppDataSource.getRepository(TenantLeasedLine);
     const line = await repo.findOne({ where: { id: lineId } });
     if (!line) return res.status(404).json({ message: '专线不存在' });
+    const { type } = req.query as any;
     const cfg = getDifyConfig();
     const safe = String(line.tenantName || lineId).replace(/[^\u4e00-\u9fa5\w\-]+/g, '_');
     const difyBase = cfg.baseUrl || 'http://127.0.0.1/v1';
     const difyKey = cfg.apiKey;
+    const reportsDir = cfg.reportsDir || path.join(process.cwd(), 'data', 'security-reports');
+
     {
       try {
         let t: ReportTask | undefined = undefined;
@@ -1088,10 +1242,73 @@ leasedLineRoutes.get('/security-report/lines/:lineId/download', async (req: any,
             const dbTask = await taskRepo.find({ where: { lineId }, order: { updatedAt: 'DESC' }, take: 1 });
             if (dbTask && dbTask.length) {
               const r = dbTask[0];
-              t = { id: r.id, lineId: r.lineId, status: r.status as any, percent: r.percent, message: r.message, response: (r.response ? (() => { try { return JSON.parse(r.response as any); } catch { return undefined; } })() : undefined), difyTaskId: r.difyTaskId, filePath: r.filePath, fileName: r.fileName, reportFolderId: r.reportFolderId, createdAt: r.createdAt, updatedAt: r.updatedAt } as any;
+              t = { id: r.id, lineId: r.lineId, status: r.status as any, percent: r.percent, message: r.message, response: (r.response ? (() => { try { return JSON.parse(r.response as any); } catch { return undefined; } })() : undefined), difyTaskId: r.difyTaskId, filePath: r.filePath, fileName: r.fileName, reportFolderId: r.reportFolderId, reportFiles: r.reportFiles, createdAt: r.createdAt, updatedAt: r.updatedAt } as any;
             }
           } catch {}
         }
+        
+        // Check reportFiles first
+        if (t && t.reportFiles && Array.isArray(t.reportFiles) && t.reportFiles.length > 0) {
+           let targetFile: any = undefined;
+           if (type) {
+             targetFile = t.reportFiles.find(f => f.type.toLowerCase() === String(type).toLowerCase());
+           } else {
+             targetFile = t.reportFiles.find(f => f.type.toLowerCase() === 'pdf') || t.reportFiles[0];
+           }
+           
+           if (targetFile && fs.existsSync(targetFile.path)) {
+              const full = targetFile.path;
+              const stat = await fs.promises.stat(full);
+              const ext = path.extname(full).toLowerCase();
+              if (ext === '.pdf') {
+                  res.setHeader('Content-Type', 'application/pdf');
+              } else {
+                  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+              }
+              res.setHeader('Content-Length', String(stat.size));
+              const filename = `${safe}安全报告${ext}`;
+              const asciiName = `${String(safe).replace(/[^\x20-\x7E]+/g, '_')}${ext}`;
+              res.setHeader('Content-Disposition', `attachment; filename=${asciiName}; filename*=UTF-8''${encodeURIComponent(filename)}`);
+              const stream = fs.createReadStream(full);
+              stream.pipe(res);
+              return;
+           }
+        }
+
+        // If we have a task with a report folder, try to serve from there first based on type
+        if (t && t.reportFolderId) {
+          const folderPath = path.join(reportsDir, t.reportFolderId);
+          if (fs.existsSync(folderPath)) {
+            try {
+              const files = await fs.promises.readdir(folderPath);
+              let target: string | undefined = undefined;
+              if (type) {
+                target = files.find(f => f.toLowerCase().endsWith(`.${type}`));
+              } else {
+                target = files.find(f => f.toLowerCase().endsWith('.pdf')) || files.find(f => f.toLowerCase().endsWith('.docx'));
+              }
+              
+              if (target) {
+                const full = path.join(folderPath, target);
+                const stat = await fs.promises.stat(full);
+                const ext = path.extname(full).toLowerCase();
+                if (ext === '.pdf') {
+                  res.setHeader('Content-Type', 'application/pdf');
+                } else {
+                  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+                }
+                res.setHeader('Content-Length', String(stat.size));
+                const filename = `${safe}安全报告${ext}`;
+                const asciiName = `${String(safe).replace(/[^\x20-\x7E]+/g, '_')}${ext}`;
+                res.setHeader('Content-Disposition', `attachment; filename=${asciiName}; filename*=UTF-8''${encodeURIComponent(filename)}`);
+                const stream = fs.createReadStream(full);
+                stream.pipe(res);
+                return;
+              }
+            } catch {}
+          }
+        }
+
         if (t) {
           const node = (() => {
             const arr = t!.streamLines || [];
@@ -1108,16 +1325,12 @@ leasedLineRoutes.get('/security-report/lines/:lineId/download', async (req: any,
             return n;
           })();
           const outs = node?.data?.outputs || node?.outputs || {};
-          let url = String(outs?.report_url || outs?.url || '');
-          if (url && !/^https?:\/\//.test(url) && url.startsWith('/')) {
-            const rootBase = (difyBase || 'http://127.0.0.1/v1').replace(/\/v1$/, '');
-            url = rootBase + url;
-          }
+          const { url } = extractOutputUrl(outs, safe, difyBase);
           if (url) {
-            const reportsDir = cfg.reportsDir || path.join(process.cwd(), 'data', 'security-reports');
             const savePath = await saveRemoteReport(url, reportsDir, t.id, safe, difyKey);
             if (savePath) {
-              const filename = `${safe}安全报告.docx`;
+              const ext = path.extname(savePath).toLowerCase();
+              const filename = `${safe}安全报告${ext || '.docx'}`;
               await streamSavedDocx(savePath, res, safe, filename);
               return;
             }
@@ -1179,24 +1392,78 @@ leasedLineRoutes.get('/security-report/tasks', async (req: any, res) => {
       filePath?: string;
       fileName?: string;
       reportFolderId?: string;
+      reportFiles?: any[];
       createdAt: number;
       updatedAt: number;
       streamLines?: any[];
-    }> = rows.map(r => ({
-      id: r.id,
-      lineId: r.lineId,
-      status: r.status as any,
-      percent: r.percent,
-      message: r.message,
-      response: (r.response ? (() => { try { return JSON.parse(r.response as any); } catch { return undefined; } })() : undefined),
-      difyTaskId: r.difyTaskId,
-      filePath: r.filePath,
-      fileName: r.fileName,
-      reportFolderId: r.reportFolderId,
-      createdAt: r.createdAt as any,
-      updatedAt: r.updatedAt as any,
-      streamLines: undefined,
-    }));
+    }> = [];
+
+    // 1. Convert DB rows
+    for (const r of rows) {
+      // 优先使用内存中的状态（包含实时进度），无论状态如何
+      const mem = reportTasks.get(r.id);
+      if (mem) {
+        items.push({
+          id: mem.id,
+          lineId: mem.lineId,
+          status: mem.status as any,
+          percent: mem.percent,
+          message: mem.message,
+          response: (mem.response ? (() => { try { return JSON.parse(mem.response as any); } catch { return undefined; } })() : undefined),
+          difyTaskId: mem.difyTaskId,
+          filePath: mem.filePath,
+          fileName: mem.fileName,
+          reportFolderId: mem.reportFolderId,
+          reportFiles: mem.reportFiles,
+          createdAt: mem.createdAt as any,
+          updatedAt: mem.updatedAt as any,
+          streamLines: mem.streamLines, // Include streamLines for running tasks to allow progress calculation
+        });
+      } else {
+        items.push({
+          id: r.id,
+          lineId: r.lineId,
+          status: r.status as any,
+          percent: r.percent,
+          message: r.message,
+          response: (r.response ? (() => { try { return JSON.parse(r.response as any); } catch { return undefined; } })() : undefined),
+          difyTaskId: r.difyTaskId,
+          filePath: r.filePath,
+          fileName: r.fileName,
+          reportFolderId: r.reportFolderId,
+          reportFiles: r.reportFiles,
+          createdAt: r.createdAt as any,
+          updatedAt: r.updatedAt as any,
+          streamLines: undefined,
+        });
+      }
+    }
+
+    // 2. Merge memory-only tasks (ghost tasks that failed to persist)
+    const dbIds = new Set(rows.map(r => r.id));
+    for (const t of reportTasks.values()) {
+        if (!dbIds.has(t.id)) {
+            items.push({
+                id: t.id,
+                lineId: t.lineId,
+                status: t.status as any,
+                percent: t.percent,
+                message: t.message,
+                response: t.response,
+                difyTaskId: t.difyTaskId,
+                filePath: t.filePath,
+                fileName: t.fileName,
+                reportFolderId: t.reportFolderId,
+                reportFiles: t.reportFiles,
+                createdAt: t.createdAt as any,
+                updatedAt: t.updatedAt as any,
+                streamLines: t.streamLines,
+            });
+        }
+    }
+    
+    // Sort by updatedAt desc
+    items.sort((a, b) => b.updatedAt - a.updatedAt);
     const augmented = await Promise.all(items.map(async (t) => {
       let url: string | undefined = undefined;
       const arr = t.streamLines || [];
@@ -1234,15 +1501,36 @@ leasedLineRoutes.get('/security-report/tasks', async (req: any, res) => {
         if (url && !/^https?:\/\//.test(url) && url.startsWith('/')) url = rootBase + url;
       }
       let filePath = t.filePath;
-      if ((!filePath || !fs.existsSync(filePath)) && t.reportFolderId) {
+      const reportFiles: Array<{ type: 'pdf' | 'docx', filename: string, size: number }> = [];
+      if (t.reportFiles && Array.isArray(t.reportFiles)) {
+        t.reportFiles.forEach((f: any) => {
+           reportFiles.push({ type: String(f.type).toLowerCase() as any, filename: f.name, size: f.size || 0 });
+        });
+      }
+      if (reportFiles.length === 0 && t.reportFolderId) {
         const folderPath = path.join(reportsDir, t.reportFolderId);
         if (fs.existsSync(folderPath)) {
           try {
             const files = await fs.promises.readdir(folderPath);
+            for (const f of files) {
+              const lower = f.toLowerCase();
+              if (lower.endsWith('.pdf')) {
+                const st = await fs.promises.stat(path.join(folderPath, f));
+                reportFiles.push({ type: 'pdf', filename: f, size: st.size });
+              } else if (lower.endsWith('.docx')) {
+                const st = await fs.promises.stat(path.join(folderPath, f));
+                reportFiles.push({ type: 'docx', filename: f, size: st.size });
+              }
+            }
+            const pdf = files.find(f => f.toLowerCase().endsWith('.pdf'));
             const docx = files.find(f => f.toLowerCase().endsWith('.docx'));
-            if (docx) filePath = path.join(folderPath, docx);
+            const found = pdf || docx;
+            if (found && (!filePath || !fs.existsSync(filePath))) filePath = path.join(folderPath, found);
           } catch {}
         }
+      }
+      if ((!filePath || !fs.existsSync(filePath)) && t.reportFolderId && !reportFiles.length) {
+        // Fallback logic if needed, but the loop above handles it
       }
       let sizeBytes: number | undefined = undefined;
       let name: string | undefined = undefined;
@@ -1307,7 +1595,7 @@ leasedLineRoutes.get('/security-report/tasks', async (req: any, res) => {
       const token = (req.query?.token && typeof req.query.token === 'string') ? req.query.token : undefined;
       const downloadEndpoint = `/api/leased-lines/security-report/lines/${encodeURIComponent(t.lineId)}/download${token?`?token=${encodeURIComponent(token)}`:''}`;
       const folderDownloadEndpoint = t.reportFolderId ? `/api/leased-lines/security-report/folders/${encodeURIComponent(t.reportFolderId)}/download${token?`?token=${encodeURIComponent(token)}`:''}` : undefined;
-      return { ...t, fileMeta: { name, format, sizeBytes, url, localPath, downloadEndpoint, folderDownloadEndpoint }, reportFolderId: t.reportFolderId };
+      return { ...t, fileMeta: { name, format, sizeBytes, url, localPath, downloadEndpoint, folderDownloadEndpoint }, reportFiles, reportFolderId: t.reportFolderId };
     }));
     res.json({ tasks: augmented });
   } catch (e: any) {
@@ -1363,20 +1651,38 @@ leasedLineRoutes.delete('/security-report/tasks/:taskId/remove', async (req: any
 leasedLineRoutes.get('/security-report/folders/:folderId/download', async (req, res) => {
   try {
     const { folderId } = req.params as any;
+    const { type } = req.query as any;
     const cfg = getDifyConfig();
     const reportsDir = cfg.reportsDir || path.join(process.cwd(), 'data', 'security-reports');
     const folderPath = path.join(reportsDir, folderId);
     if (!fs.existsSync(folderPath)) return res.status(404).json({ message: '报告文件不存在' });
     const files = await fs.promises.readdir(folderPath);
-    const docx = files.find(f => f.toLowerCase().endsWith('.docx'));
-    if (!docx) return res.status(404).json({ message: '报告文件不存在' });
-    const full = path.join(folderPath, docx);
+    
+    let targetFile: string | undefined = undefined;
+    if (type === 'pdf') {
+      targetFile = files.find(f => f.toLowerCase().endsWith('.pdf'));
+    } else if (type === 'docx') {
+      targetFile = files.find(f => f.toLowerCase().endsWith('.docx'));
+    } else {
+      // Priority: PDF > DOCX
+      targetFile = files.find(f => f.toLowerCase().endsWith('.pdf')) || files.find(f => f.toLowerCase().endsWith('.docx'));
+    }
+
+    if (!targetFile) return res.status(404).json({ message: '报告文件不存在' });
+    const full = path.join(folderPath, targetFile);
     const stat = await fs.promises.stat(full);
     let safe = path.basename(full, path.extname(full));
-    const filename = `${safe}.docx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    const ext = path.extname(full).toLowerCase();
+    const filename = `${safe}${ext}`;
+    
+    if (ext === '.pdf') {
+      res.setHeader('Content-Type', 'application/pdf');
+    } else {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    }
+    
     res.setHeader('Content-Length', String(stat.size));
-    const asciiName = `${String(safe).replace(/[^\x20-\x7E]+/g, '_')}.docx`;
+    const asciiName = `${String(safe).replace(/[^\x20-\x7E]+/g, '_')}${ext}`;
     res.setHeader('Content-Disposition', `attachment; filename=${asciiName}; filename*=UTF-8''${encodeURIComponent(filename)}`);
     const stream = fs.createReadStream(full);
     stream.pipe(res);

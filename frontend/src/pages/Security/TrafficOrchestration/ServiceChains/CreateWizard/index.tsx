@@ -1,9 +1,12 @@
-import React, { useState, useCallback } from 'react';
-import { Button, Card, Col, Form, Input, Row, Select, Space, Steps, message, Tag, Transfer, Segmented, Radio, Popover, Table, Tooltip, Modal, List, Badge, Progress } from 'antd';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Button, Card, Col, Form, Input, Row, Select, Space, Steps, message, Tag, Transfer, Segmented, Radio, Popover, Table, Tooltip, Modal, List, Badge, Progress, Descriptions, Tabs, Alert, Typography } from 'antd';
 import type { TransferItem, TransferProps } from 'antd/es/transfer';
 import type { ColumnsType, TableProps } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
+import { createServiceChain, fetchSecurityZones, fetchProtectionObjects } from '../../../../../services/trafficOrchestration';
+import { fetchTenants, fetchOrganizationsByTenant } from '../../../../../services/api';
+import { useAuth } from '../../../../../contexts/AuthContext';
 import ReactFlow, {
   addEdge,
   Controls,
@@ -22,6 +25,7 @@ import ReactFlow, {
 } from 'react-flow-renderer';
 import { 
   DeleteOutlined, 
+  SearchOutlined, 
   SettingOutlined, 
   LayoutOutlined,
   CheckCircleFilled, 
@@ -47,6 +51,10 @@ import {
   AppstoreOutlined,
   CodeOutlined,
   QuestionCircleOutlined,
+  ReloadOutlined,
+  PlusOutlined,
+  SubnodeOutlined,
+  SisternodeOutlined,
 } from '@ant-design/icons';
 
 // Import assets
@@ -284,6 +292,71 @@ const EndNode = ({ data }: any) => {
   );
 };
 
+const VRDomainTableSelector = ({ value, onChange, dataSource }: any) => {
+  const [keyword, setKeyword] = useState('');
+
+  const filteredData = useMemo(() => {
+    if (!keyword) return dataSource;
+    const lower = keyword.toLowerCase();
+    return (dataSource || []).filter((item: any) => 
+      (item.name && item.name.toLowerCase().includes(lower)) ||
+      (item.subType && item.subType.toLowerCase().includes(lower)) ||
+      (item.provider && item.provider.toLowerCase().includes(lower)) ||
+      (item.region && item.region.toLowerCase().includes(lower)) ||
+      (item.cidr && item.cidr.toLowerCase().includes(lower)) ||
+      (item.vrName && item.vrName.toLowerCase().includes(lower))
+    );
+  }, [dataSource, keyword]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+          placeholder="搜索名称、CIDR、VR或云厂商..."
+          allowClear
+          onChange={e => setKeyword(e.target.value)}
+          style={{ width: 320 }}
+        />
+        <div style={{ color: '#999', fontSize: 12 }}>
+          共 {dataSource?.length || 0} 项，已选 {(value || []).length} 项
+        </div>
+      </div>
+      <Table
+        rowSelection={{
+          type: 'checkbox',
+          selectedRowKeys: value || [],
+          onChange: (keys) => onChange?.(keys),
+          preserveSelectedRowKeys: true,
+        }}
+        dataSource={filteredData}
+        columns={[
+          { title: '名称', dataIndex: 'name', width: 120, ellipsis: true },
+          { 
+            title: '分类', 
+            dataIndex: 'subType', 
+            width: 140,
+            render: (text: any) => text ? <Tag>{text}</Tag> : '-' 
+          },
+          { 
+            title: '云厂商/地域', 
+            key: 'cloud',
+            width: 160,
+            render: (_, r: any) => (r.provider || r.region) ? `${r.provider || '-'}/${r.region || '-'}` : '-' 
+          },
+          { title: 'IPv4 CIDR', dataIndex: 'cidr', width: 130, render: (t: any) => t ? <Tag>{t}</Tag> : '-' },
+          { title: '绑定 VR', dataIndex: 'vrName', width: 120, render: (t: any) => t ? <Tag color="blue">{t}</Tag> : '-' },
+        ]}
+        rowKey="id"
+        size="small"
+        pagination={{ pageSize: 5, size: 'small' }}
+        scroll={{ y: 240 }}
+        style={{ border: '1px solid #f0f0f0', borderRadius: 8 }}
+      />
+    </div>
+  );
+};
+
 const ServiceNode = ({ data }: any) => {
   const instanceCount = data.instanceCount || 1;
   
@@ -447,6 +520,11 @@ const mockTransferData: CustomTransferItem[] = [
   { key: 'vm-002', title: 'VM-Frontend-02', description: '172.16.0.6', type: 'VM' },
 ];
 
+const mockSecurityZones = [
+    { id: 'zone-1', name: 'sase2', subType: '公有云VPC网络', provider: 'huaweicloud', region: 'cn-east-3', cidr: '192.168.0.0/16', vrName: '测试PE-B' },
+    { id: 'zone-2', name: '勇敢牛牛', subType: '公有云VPC网络', provider: 'aliyun', region: 'cn-hangzhou', cidr: '-', vrName: 'vrouter-openl-x86' },
+  ];
+
 interface TableTransferProps extends TransferProps<CustomTransferItem> {
   dataSource: CustomTransferItem[];
   leftColumns: ColumnsType<CustomTransferItem>;
@@ -491,7 +569,7 @@ const TableTransfer = ({ leftColumns, rightColumns, ...restProps }: TableTransfe
           dataSource={filteredItems}
           size="small"
           pagination={false}
-          scroll={{ y: 245 }}
+          scroll={{ y: 305 }}
           style={{ pointerEvents: listDisabled ? 'none' : undefined }}
           onRow={({ key, disabled: itemDisabled }) => ({
             onClick: () => {
@@ -570,11 +648,19 @@ const SCENARIOS = {
 
 const CreateServiceChainWizard: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [current, setCurrent] = useState(0);
   const [form] = Form.useForm();
   const [scenarioType, setScenarioType] = useState<'detection' | 'encryption'>('detection');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('std');
   const [hoveredTemplate, setHoveredTemplate] = useState<string | null>(null);
+  const [steeringMode, setSteeringMode] = useState<'vr' | 'direct'>('direct');
+  const [securityZones, setSecurityZones] = useState<any[]>([]);
+  const [directData, setDirectData] = useState<CustomTransferItem[]>(mockTransferData);
+  const [addDirectOpen, setAddDirectOpen] = useState(false);
+  const [addDirectForm] = Form.useForm();
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [orgOptions, setOrgOptions] = useState<any[]>([]);
   
   // React Flow State
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -587,6 +673,40 @@ const CreateServiceChainWizard: React.FC = () => {
   const [pendingService, setPendingService] = useState<{type: string, label: string, icon: React.ReactNode, color: string} | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const zones = await fetchSecurityZones({});
+        setSecurityZones(Array.isArray(zones) && zones.length > 0 ? zones : mockSecurityZones);
+      } catch (e) {
+        console.error(e);
+        setSecurityZones(mockSecurityZones);
+      }
+      try {
+        const objs = await fetchProtectionObjects({});
+        if (Array.isArray(objs) && objs.length > 0) {
+          const mapped: CustomTransferItem[] = objs.map((o: any) => ({
+            key: o.value || o.id,
+            title: o.name,
+            description: o.description || '',
+            type: (o.type === 'subnet' ? 'Network' : (o.type === 'ip' ? 'IP' : (o.type === 'line' ? 'IP' : 'VM'))) as CustomTransferItem['type'],
+          }));
+          setDirectData(mapped);
+        } else {
+          setDirectData(mockTransferData);
+        }
+      } catch (e) {
+        console.error(e);
+        setDirectData(mockTransferData);
+      }
+      try {
+        const ts = await fetchTenants();
+        setTenants(Array.isArray(ts) ? ts : []);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, []);
   const onConnect = useCallback((params: Connection) => setEdges((eds) => addEdge({ 
     ...params, 
     type: 'particle', 
@@ -754,7 +874,36 @@ const CreateServiceChainWizard: React.FC = () => {
   const handleFinish = async () => {
     try {
       const values = await form.validateFields();
-      console.log('Wizard Finished', { ...values, nodes, edges });
+      const services = nodes
+        .filter(n => n.type === 'serviceNode')
+        .sort((a, b) => a.position.x - b.position.x)
+        .map(n => (n as any).data?.serviceType)
+        .filter(Boolean);
+
+      const selectedKeys: string[] = form.getFieldValue('protectedObjects') || [];
+      const vrDomains: string[] = form.getFieldValue('vrDomains') || [];
+
+      const payload = {
+        name: values.name,
+        clusterName: values.cluster,
+        type: values.type || 'serial',
+        description: values.description || '',
+        steeringMode,
+        securityServices: services.join(','),
+        protectionTargets: JSON.stringify(
+          steeringMode === 'vr' 
+            ? { mode: 'vr', domains: vrDomains } 
+            : { mode: 'direct', objects: selectedKeys }
+        ),
+        tenantId: values.tenantId,
+        organizationId: values.organizationId,
+        topology: {
+          nodes: nodes.map(n => ({ id: n.id, type: n.type, data: (n as any).data, position: n.position })),
+          edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target, type: e.type }))
+        }
+      };
+
+      await createServiceChain(payload);
       message.success('服务链创建成功');
       navigate('/admin/security/traffic/service-chains');
     } catch (error) {
@@ -765,26 +914,48 @@ const CreateServiceChainWizard: React.FC = () => {
   const next = async () => {
     try {
       if (current === 0) {
-        await form.validateFields(['name', 'cluster']);
+        const baseFields = ['name', 'cluster', 'type'];
+        const extra = (user?.role === 'super_admin') ? ['tenantId', 'organizationId'] : [];
+        await form.validateFields([...baseFields, ...extra]);
       } else if (current === 1) {
-        await form.validateFields(['protectedObjects']);
-        
-        // Update 'out' node with selected protected objects
-        const selectedKeys = form.getFieldValue('protectedObjects') || [];
-        const selectedObjects = mockTransferData.filter(item => selectedKeys.includes(item.key));
-        
-        setNodes((nds) => nds.map(node => {
-          if (node.id === 'out') {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                protectedObjects: selectedObjects
-              }
-            };
-          }
-          return node;
-        }));
+        if (steeringMode === 'vr') {
+          await form.validateFields(['vrDomains']);
+          const selectedZoneIds = form.getFieldValue('vrDomains') || [];
+          const selectedZones = securityZones.filter((z: any) => selectedZoneIds.includes(z.id)).map((z: any) => ({
+            key: z.id,
+            title: z.name,
+            description: z.clusterName || '',
+            type: 'Network',
+          }));
+          setNodes((nds) => nds.map(node => {
+            if (node.id === 'out') {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  protectedObjects: selectedZones
+                }
+              };
+            }
+            return node;
+          }));
+        } else {
+          await form.validateFields(['protectedObjects']);
+          const selectedKeys = form.getFieldValue('protectedObjects') || [];
+          const selectedObjects = directData.filter(item => selectedKeys.includes(item.key));
+          setNodes((nds) => nds.map(node => {
+            if (node.id === 'out') {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  protectedObjects: selectedObjects
+                }
+              };
+            }
+            return node;
+          }));
+        }
       }
       setCurrent(current + 1);
     } catch (error) {
@@ -797,44 +968,66 @@ const CreateServiceChainWizard: React.FC = () => {
   };
 
   const steps = [
-    { title: '基本信息' },
+    { title: '基础信息' },
     { title: '防护对象' },
     { title: '服务链编排' },
     { title: '确认创建' },
   ];
 
+  const flattenOrganizations = (orgTree: any[]): any[] => {
+    const out: any[] = [];
+    const recur = (list: any[]) => {
+      for (const o of list) {
+        out.push({ id: o.id, name: o.name });
+        if (Array.isArray(o.children) && o.children.length) recur(o.children);
+      }
+    };
+    recur(Array.isArray(orgTree) ? orgTree : []);
+    return out;
+  };
   const renderContent = () => {
     // Step 1: Basic Info
     if (current === 0) {
       return (
-        <div style={{ maxWidth: 900, margin: '0' }}>
+        <div>
           
-            <div style={{ paddingBottom: 16 }}>
-              <div style={{ fontSize: 20, fontWeight: 500, color: '#1f1f1f', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 4, height: 20, background: '#1677ff', borderRadius: 2 }} />
-                设定服务链的应用场景
-              </div>
-              <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 14, marginLeft: 14 }}>
-                定义服务链的基础属性与运行模式，支持根据业务需求灵活选择流量检测或加密改造场景，构建安全可靠的流量编排基石。
-              </div>
-            </div>
+            <Alert
+              message="欢迎使用服务链创建向导，请设定服务链的应用场景"
+              type="info"
+              showIcon
+              style={{ marginBottom: 4, fontSize: 14, color: '#1f1f1f' }}
+            />
 
             <Form form={form} layout="vertical" >
               <Form.Item >
                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                   <Segmented 
-                     options={[
-                       { label: '流量检测/防护模式', value: 'detection', icon: <SafetyCertificateOutlined /> },
-                       { label: '应用加密改造模式', value: 'encryption', icon: <FileProtectOutlined /> }
+                   <Tabs 
+                     items={[
+                       { 
+                         key: 'detection', 
+                         label: (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <SafetyCertificateOutlined />
+                            流量检测/防护模式
+                          </span>
+                        )
+                      },
+                      { 
+                        key: 'encryption', 
+                        label: (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <FileProtectOutlined />
+                            应用加密改造模式
+                          </span>
+                        )
+                       }
                      ]}
-                     value={scenarioType}
+                     activeKey={scenarioType}
                      onChange={(val) => {
                         setScenarioType(val as 'detection' | 'encryption');
                         setSelectedTemplate(SCENARIOS[val as 'detection' | 'encryption'].options[0].value);
                      }}
-                     block
-                     style={{ marginBottom: 24, padding: 4, background: '#f5f7fa' }}
-                     size="middle"
+                     style={{ marginBottom: 8 }}
                    />
                    
                    <Row gutter={[24, 24]}>
@@ -967,6 +1160,21 @@ const CreateServiceChainWizard: React.FC = () => {
                       </Form.Item>
                     </Col>
                     <Col span={12}>
+                      <Form.Item name="type" label="服务链类型" initialValue="serial" rules={[{ required: true, message: '请选择类型' }]}>
+                        <Segmented
+                          options={[
+                            { label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><SubnodeOutlined style={{ fontSize: 14 }} /> 串行</span>, value: 'serial' },
+                            { label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><SisternodeOutlined style={{ fontSize: 14 }} /> 旁路</span>, value: 'bypass' },
+                          ]}
+                          size="middle"
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  
+                  <Row gutter={24}>
+                    <Col span={12}>
                       <Form.Item name="cluster" label="所属集群" rules={[{ required: true, message: '请选择集群' }]}>
                         <Select 
                           placeholder="请选择集群" 
@@ -983,11 +1191,49 @@ const CreateServiceChainWizard: React.FC = () => {
                         </Select>
                       </Form.Item>
                     </Col>
+                    <Col span={12}>
+                      {user?.role === 'super_admin' ? (
+                        <Row gutter={12}>
+                          <Col span={12}>
+                            <Form.Item name="tenantId" label="所属租户" rules={[{ required: true, message: '请选择租户' }]}>
+                              <Select
+                                placeholder="请选择租户"
+                                options={tenants.map((t: any) => ({ value: t.id, label: t.name }))}
+                                onChange={async (tid: string) => {
+                                  form.setFieldsValue({ organizationId: undefined });
+                                  setOrgOptions([]);
+                                  try {
+                                    const orgs = await fetchOrganizationsByTenant(tid);
+                                    const flat = flattenOrganizations(orgs);
+                                    setOrgOptions(flat.map((o: any) => ({ value: o.id, label: o.name })));
+                                  } catch (e) {
+                                    console.error(e);
+                                  }
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item name="organizationId" label="所属组织" rules={[{ required: true, message: '请选择组织' }]}>
+                              <Select
+                                placeholder="请选择组织"
+                                options={orgOptions}
+                                disabled={!form.getFieldValue('tenantId')}
+                              />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      ) : (
+                        <Form.Item label="所属租户/组织">
+                          <Input disabled placeholder="由登录上下文自动归属" />
+                        </Form.Item>
+                      )}
+                    </Col>
                   </Row>
                   
-                  <Form.Item name="description" label="描述" style={{ marginBottom: 0 }}>
+                  <Form.Item name="description" label="描述" style={{ paddingBottom: 0 }}>
                     <Input.TextArea 
-                      rows={3} 
+                      rows={2} 
                       placeholder="请输入描述信息" 
                       style={{ borderRadius: 6 }}
                       showCount
@@ -1005,152 +1251,238 @@ const CreateServiceChainWizard: React.FC = () => {
     if (current === 1) {
       return (
         <div >
-      
-            <div style={{paddingBottom: 16 }}>
-              <div style={{ fontSize: 20, fontWeight: 500, color: '#1f1f1f', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 4, height: 20, background: '#1677ff', borderRadius: 2 }} />
-                设定服务链的防护对象
-              </div>
-              <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 14, marginLeft: 14 }}>
-                选择需接入服务链的核心资产对象，支持多维度资源（云主机、网络、IP）的混合编排，通过智能引流技术实现对业务流量的全方位安全覆盖。
-              </div>
-            </div>
-
-
             <Form form={form} layout="vertical">
-              <Form.Item 
-                name="protectedObjects" 
-                valuePropName="targetKeys"
-                rules={[{ required: true, message: '请至少选择一个防护对象' }]}
-
-              >
-                <TableTransfer
-                  style={{ width: '100%' }}
-                  listStyle={{ 
-                    height: 400,
-                    borderRadius: 8,
-                    border: '1px solid #f0f0f0'
-                  }}
-                  dataSource={mockTransferData}
-                  titles={[
-                    <div style={{ color: '#595959' }}>待选对象</div>, 
-                    <div style={{ color: '#1677ff' }}>已选对象</div>
-                  ]}
-                  targetKeys={form.getFieldValue('protectedObjects')}
-                  leftColumns={[
-                    { 
-                      dataIndex: 'title', 
-                      title: '防护对象',
-                      render: (text, record) => (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                           <div style={{ 
-                             width: 32, height: 32, 
-                             background: '#f5f7fa', 
-                             borderRadius: 6, 
-                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                             color: '#1677ff'
-                           }}>
-                             {record.type === 'VM' && <CloudServerOutlined />}
-                             {record.type === 'Network' && <GlobalOutlined />}
-                             {record.type === 'VSW' && <PartitionOutlined />}
-                             {record.type === 'IP' && <EnvironmentOutlined />}
-                           </div>
-                           <div style={{ display: 'flex', flexDirection: 'column' }}>
-                             <span>{text}</span>
-                           </div>
-                        </div>
-                      )
-                    },
-                    { 
-                      dataIndex: 'type', 
-                      title: '类型',
-                      width: 100,
-                      render: (text) => <Tag color="blue">{text}</Tag>,
-                      filters: [
-                        { text: 'IP', value: 'IP' },
-                        { text: 'Network', value: 'Network' },
-                        { text: 'VSW', value: 'VSW' },
-                        { text: 'VM', value: 'VM' },
-                      ],
-                      onFilter: (value: boolean | React.Key, item: CustomTransferItem) => item.type === value,
-                    },
-                    { 
-                      dataIndex: 'title', 
-                      title: '防护范围',
-                      render: (text, record) => (
-                        <div>
-                           <div style={{ display: 'flex', flexDirection: 'column' }}>
-                             <span>{record.key}</span>
-                           </div>
-                        </div>
-                      )
-                    },
-                  ]}
-                  rightColumns={[
-                    { 
-                      dataIndex: 'title', 
-                      title: '防护对象',
-                      render: (text, record) => (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                           <div style={{ 
-                             width: 32, height: 32, 
-                             background: '#e6f7ff', 
-                             borderRadius: 6, 
-                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                             color: '#1677ff'
-                           }}>
-                             {record.type === 'VM' && <CloudServerOutlined />}
-                             {record.type === 'Network' && <GlobalOutlined />}
-                             {record.type === 'VSW' && <PartitionOutlined />}
-                             {record.type === 'IP' && <EnvironmentOutlined />}
-                           </div>
-                           <div style={{ display: 'flex', flexDirection: 'column' }}>
-                             <span style={{ fontWeight: 500, color: '#1677ff' }}>{text}</span>
-                             <span style={{ fontSize: 10, color: '#8c8c8c' }}>{record.key}</span>
-                           </div>
-                        </div>
-                      )
-                    },
-                    { dataIndex: 'type', title: '类型', width: 100, render: (text) => <Tag>{text}</Tag> },
-                  ]}
-                  filterOption={(inputValue, item) =>
-                    (item.title?.indexOf(inputValue) ?? -1) > -1 || (item.description?.indexOf(inputValue) ?? -1) > -1
-                  }
-                  showSearch
-                />
-              </Form.Item>
-              
-              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-                <Popover
-                  content={
-                    <div style={{ maxWidth: 500 }}>
-                      <ol style={{ margin: 0, paddingLeft: 20, color: 'rgba(0, 0, 0)', lineHeight: 1.8, fontSize: 13 }}>
-                        <li>您可以将已创建的 防护目标 添加到安全域，或者点击右上角创建新防护目标。</li>
-                        <li>支持多选不同类型的资源对象（云主机、子网、弹性公网IP等）进行混合编排。</li>
-                        <li>选中的对象将作为流量入口，自动引流至后续配置的安全服务链中。</li>
-                      </ol>
+              {/* Mode Selection Area */}
+              <div style={{ background: '#e6f7ff', padding: '12px 16px', borderRadius: 8, marginBottom: 16, border: '1px solid #91d5ff' }}>
+                <Form.Item 
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 600 }}>选择引流方式</span>
+                      <Popover
+                        content={
+                          <div style={{ maxWidth: 620 }}>
+                            <div style={{ marginBottom: 8, fontWeight: 600, color: '#1f1f1f' }}>关于防护对象配置</div>
+                            <ul style={{ margin: 0, paddingLeft: 18, color: 'rgba(0, 0, 0, 0.88)', lineHeight: 1.8, fontSize: 13 }}>
+                              <li>
+                                <span style={{ fontWeight: 500 }}>关联方式：</span>
+                                <span>将已创建的防护目标添加到安全域，或直接新建防护目标。</span>
+                              </li>
+                              <li>
+                                <span style={{ fontWeight: 500 }}>资源支持：</span>
+                                <span>支持云主机、子网、弹性公网IP等多种资源对象的混合编排。</span>
+                              </li>
+                              <li>
+                                <span style={{ fontWeight: 500 }}>引流机制：</span>
+                                <span>选中对象将作为流量入口，自动引流至当前配置的服务链。</span>
+                              </li>
+                            </ul>
+                          </div>
+                        }
+                        title={null}
+                        trigger="hover"
+                        placement="topRight"
+                      >
+                        <Typography.Link style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <QuestionCircleOutlined />
+                          如何选择防护对象？
+                        </Typography.Link>
+                      </Popover>
                     </div>
                   }
-                  title={null}
-                  trigger="hover"
-                  placement="topRight"
+                  style={{ marginBottom: 0 }}
                 >
-                  <span style={{ 
-                    cursor: 'pointer', 
-                    color: '#8c8c8c', 
-                    fontSize: 14, 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 6,
-                    transition: 'color 0.3s'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = '#1677ff'}
-                  onMouseLeave={(e) => e.currentTarget.style.color = '#8c8c8c'}
+                  <Radio.Group
+                    value={steeringMode}
+                    onChange={(e) => setSteeringMode(e.target.value as 'vr' | 'direct')}
+                    optionType="button"
+                    buttonStyle="solid"
                   >
-                    <QuestionCircleOutlined />
-                    <span style={{ fontSize: 13 }}>如何选择防护对象？</span>
-                  </span>
-                </Popover>
+                    <Radio.Button value="direct">直连引流</Radio.Button>
+                    <Radio.Button value="vr">VR引流</Radio.Button>
+                  </Radio.Group>
+                </Form.Item>
+              </div>
+
+              {/* Configuration Area */}
+              <div>
+                {steeringMode === 'vr' ? (
+                  <div style={{ background: '#fff', padding: 4, borderRadius: 8 }}>
+                        <Form.Item name="vrDomains" label="信息域选择" rules={[{ required: true, message: '请选择信息域' }]}>
+                          <VRDomainTableSelector dataSource={securityZones} />
+                        </Form.Item>
+                  </div>
+                ) : (
+                  <Form.Item 
+                    style={{ marginBottom: 0 }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#1f1f1f' }}>
+                          <SafetyCertificateOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+                          配置防护对象列表
+                        </div>
+                        <Space>
+                          <Button icon={<ReloadOutlined />} onClick={async () => {
+                            try {
+                              const objs = await fetchProtectionObjects({});
+                              const mapped: CustomTransferItem[] = objs.map((o: any) => ({
+                                key: o.value || o.id,
+                                title: o.name,
+                                description: o.description || '',
+                                type: (o.type === 'subnet' ? 'Network' : (o.type === 'ip' ? 'IP' : (o.type === 'line' ? 'IP' : 'VM'))) as CustomTransferItem['type'],
+                              }));
+                              setDirectData(mapped);
+                              message.success('已加载现有防护对象');
+                            } catch (e) {
+                              console.error(e);
+                              message.error('加载防护对象失败');
+                            }
+                          }}>加载已有</Button>
+                          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddDirectOpen(true)}>新增条目</Button>
+                        </Space>
+                      </div>
+
+                      <Form.Item
+                        name="protectedObjects"
+                        valuePropName="targetKeys"
+                        initialValue={[]}
+                        rules={[{ required: true, message: '请至少选择一个防护对象' }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <TableTransfer
+                          style={{ width: '100%' }}
+                          listStyle={{ 
+                            height: 450,
+                            borderRadius: 8,
+                            border: '1px solid #f0f0f0'
+                          }}
+                          dataSource={directData}
+                          titles={[
+                            <div style={{ color: '#595959', fontWeight: 500 }}>待选对象</div>, 
+                            <div style={{ color: '#1677ff', fontWeight: 500 }}>已选对象</div>
+                          ]}
+                          leftColumns={[
+                            { 
+                              dataIndex: 'title', 
+                              title: '防护对象',
+                              render: (text, record) => (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div style={{ 
+                                    width: 32, height: 32, 
+                                    background: '#f5f7fa', 
+                                    borderRadius: 6, 
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: '#1677ff'
+                                  }}>
+                                    {record.type === 'VM' && <CloudServerOutlined />}
+                                    {record.type === 'Network' && <GlobalOutlined />}
+                                    {record.type === 'VSW' && <PartitionOutlined />}
+                                    {record.type === 'IP' && <EnvironmentOutlined />}
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontWeight: 500 }}>{text}</span>
+                                  </div>
+                                </div>
+                              )
+                            },
+                            { 
+                              dataIndex: 'type', 
+                              title: '类型',
+                              width: 100,
+                              render: (text) => <Tag color="blue">{text}</Tag>,
+                              filters: [
+                                { text: 'IP', value: 'IP' },
+                                { text: 'Network', value: 'Network' },
+                                { text: 'VSW', value: 'VSW' },
+                                { text: 'VM', value: 'VM' },
+                              ],
+                              onFilter: (value: boolean | React.Key, item: CustomTransferItem) => item.type === value,
+                            },
+                            { 
+                              dataIndex: 'title', 
+                              title: '防护范围',
+                              render: (text, record) => (
+                                <div>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ color: '#8c8c8c' }}>{record.key}</span>
+                                  </div>
+                                </div>
+                              )
+                            },
+                          ]}
+                          rightColumns={[
+                            { 
+                              dataIndex: 'title', 
+                              title: '防护对象',
+                              render: (text, record) => (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div style={{ 
+                                    width: 32, height: 32, 
+                                    background: '#e6f7ff', 
+                                    borderRadius: 6, 
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: '#1677ff'
+                                  }}>
+                                    {record.type === 'VM' && <CloudServerOutlined />}
+                                    {record.type === 'Network' && <GlobalOutlined />}
+                                    {record.type === 'VSW' && <PartitionOutlined />}
+                                    {record.type === 'IP' && <EnvironmentOutlined />}
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontWeight: 500, color: '#1677ff' }}>{text}</span>
+                                    <span style={{ fontSize: 10, color: '#8c8c8c' }}>{record.key}</span>
+                                  </div>
+                                </div>
+                              )
+                            },
+                            { dataIndex: 'type', title: '类型', width: 100, render: (text) => <Tag>{text}</Tag> },
+                          ]}
+                          filterOption={(inputValue, item) =>
+                            (item.title?.indexOf(inputValue) ?? -1) > -1 || (item.description?.indexOf(inputValue) ?? -1) > -1
+                          }
+                          showSearch
+                        />
+                      </Form.Item>
+                      <Modal
+                        title="新增直连引流条目"
+                        open={addDirectOpen}
+                        onCancel={() => setAddDirectOpen(false)}
+                        onOk={() => {
+                          addDirectForm
+                            .validateFields()
+                            .then(vals => {
+                              const newItem: CustomTransferItem = {
+                                key: vals.value,
+                                title: vals.name || vals.value,
+                                description: vals.value,
+                                type: (vals.type === 'ip' ? 'IP' : 'Network'),
+                              };
+                              setDirectData(prev => [newItem, ...prev]);
+                              setAddDirectOpen(false);
+                              addDirectForm.resetFields();
+                              message.success('已新增条目');
+                            })
+                            .catch(() => {});
+                        }}
+                      >
+                        <Form form={addDirectForm} layout="vertical">
+                          <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+                            <Select placeholder="请选择类型">
+                              <Select.Option value="ip">IP</Select.Option>
+                              <Select.Option value="subnet">IP段</Select.Option>
+                            </Select>
+                          </Form.Item>
+                          <Form.Item name="value" label="值" rules={[{ required: true }]}>
+                            <Input placeholder="例如 192.168.1.10 或 192.168.1.0/24" />
+                          </Form.Item>
+                          <Form.Item name="name" label="名称">
+                            <Input placeholder="可选：为条目取一个名称" />
+                          </Form.Item>
+                        </Form>
+                      </Modal>
+                    </div>
+                  </Form.Item>
+                )}
               </div>
             </Form>
           
@@ -1432,6 +1764,12 @@ const CreateServiceChainWizard: React.FC = () => {
             <p><strong>场景模式:</strong> {scenarioLabel} - {templateLabel}</p>
             <p><strong>名称:</strong> {values.name}</p>
             <p><strong>集群:</strong> {values.cluster}</p>
+            {user?.role === 'super_admin' && (
+              <>
+                <p><strong>租户:</strong> {tenants.find(t => t.id === values.tenantId)?.name || '-'}</p>
+                <p><strong>组织:</strong> {(orgOptions.find((o: any) => o.value === values.organizationId) || { label: '-' }).label}</p>
+              </>
+            )}
             <p><strong>描述:</strong> {values.description || '-'}</p>
           </Card>
           <Card title="防护对象" size="small" bordered={false} style={{ marginTop: 16 }}>
@@ -1470,7 +1808,7 @@ const CreateServiceChainWizard: React.FC = () => {
             <div style={{ minHeight: 400 }}>
               {renderContent()}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, }}>
               <Button onClick={() => navigate('/admin/security/traffic/service-chains')}>取消</Button>
               <Space>
                 {current > 0 && <Button onClick={prev}>上一步</Button>}

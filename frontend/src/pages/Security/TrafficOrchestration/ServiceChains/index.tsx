@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Space, Tag, Modal, Form, Input, Select, Card, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import ReactFlow, {
@@ -7,6 +7,7 @@ import ReactFlow, {
 } from 'react-flow-renderer';
 import 'react-flow-renderer/dist/style.css';
 import PageContainer from '../../../../components/PageContainer';
+import { fetchServiceChains, deleteServiceChain } from '../../../../services/trafficOrchestration';
 
 interface ServiceChainRow {
   id: string;
@@ -15,12 +16,12 @@ interface ServiceChainRow {
   type: 'serial' | 'bypass';
   status: 'active' | 'inactive';
   description: string;
+  steeringMode?: string;
+  securityServices?: string;
+  protectionTargets?: string;
+  tenant?: { name: string };
+  organization?: { name: string };
 }
-
-const data: ServiceChainRow[] = [
-  { id: '1', name: 'Web Protection Chain', clusterName: 'Cluster-A', type: 'serial', status: 'active', description: 'WAF -> IPS' },
-  { id: '2', name: 'Monitor Chain', clusterName: 'Cluster-B', type: 'bypass', status: 'active', description: 'IDS' },
-];
 
 const ServiceChains: React.FC = () => {
   const navigate = useNavigate();
@@ -28,37 +29,64 @@ const ServiceChains: React.FC = () => {
   // Detail Modal
   const [detailOpen, setDetailOpen] = useState(false);
   const [currentChain, setCurrentChain] = useState<ServiceChainRow | null>(null);
+  const [data, setData] = useState<ServiceChainRow[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Filter State
   const [filterForm] = Form.useForm();
   const [filters, setFilters] = useState<Record<string, any>>({});
 
-  const filteredData = React.useMemo(() => {
-    return data.filter(item => {
-      if (filters.keyword && !item.name.toLowerCase().includes(filters.keyword.toLowerCase())) return false;
-      if (filters.cluster && item.clusterName !== filters.cluster) return false;
-      if (filters.type && item.type !== filters.type) return false;
-      if (filters.status && item.status !== filters.status) return false;
-      return true;
-    });
-  }, [filters, data]);
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const list = await fetchServiceChains(filters);
+      setData(list);
+    } catch (e) {
+      console.error(e);
+      message.error('加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [filters]);
 
   const columns = [
-    { title: '服务链名称', dataIndex: 'name', key: 'name' },
-    { title: '所属集群', dataIndex: 'clusterName', key: 'clusterName' },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type: string) => <Tag color={type === 'serial' ? 'blue' : 'cyan'}>{type === 'serial' ? '串行' : '旁路'}</Tag>,
-    },
+    { title: '序号', key: 'index', render: (_: any, __: any, index: number) => index + 1 },
+    { title: '服务链名称/ID', dataIndex: 'name', key: 'name', render: (text: string, record: ServiceChainRow) => (
+      <div>
+        <div>{text}</div>
+        <div style={{ fontSize: 12, color: '#999' }}>{record.id}</div>
+      </div>
+    )},
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => <Tag color={status === 'active' ? 'success' : 'default'}>{status === 'active' ? '已激活' : '未激活'}</Tag>,
     },
-    { title: '描述', dataIndex: 'description', key: 'description' },
+    { title: '防护目标', dataIndex: 'protectionTargets', key: 'protectionTargets', render: (val: any) => {
+        // Assume val is string or JSON string
+        return <div style={{maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}} title={val}>{val || '-'}</div>;
+    }},
+    { title: '引流方式', dataIndex: 'steeringMode', key: 'steeringMode', render: (val: string) => val === 'vr' ? 'VR引流' : (val === 'direct' ? '直连引流' : val || '-') },
+    { title: '包含安全服务', dataIndex: 'securityServices', key: 'securityServices', render: (val: any) => {
+        return <div style={{maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}} title={val}>{val || '-'}</div>;
+    }},
+    {
+      title: '类型',
+      dataIndex: 'type',
+      key: 'type',
+      render: (type: string) => <Tag color={type === 'serial' ? 'blue' : 'cyan'}>{type === 'serial' ? '串行' : '旁路'}</Tag>,
+    },
+    { title: '所属资源池', dataIndex: 'clusterName', key: 'clusterName' },
+    { title: '所属租户/组织', key: 'tenantOrg', render: (_: any, record: ServiceChainRow) => (
+        <span>
+            {record.tenant?.name || '-'}/{record.organization?.name || '-'}
+        </span>
+    )},
     {
       title: '操作',
       key: 'action',
@@ -66,7 +94,15 @@ const ServiceChains: React.FC = () => {
         <Space size="middle">
           <a onClick={() => { setCurrentChain(record); setDetailOpen(true); }}>详情</a>
           <a>编辑</a>
-          <a style={{ color: 'red' }}>删除</a>
+          <a style={{ color: 'red' }} onClick={async () => {
+             try {
+               await deleteServiceChain(record.id);
+               message.success('删除成功');
+               loadData();
+             } catch(e) {
+               message.error('删除失败');
+             }
+          }}>删除</a>
         </Space>
       ),
     },
@@ -125,12 +161,13 @@ const ServiceChains: React.FC = () => {
         type: 'primary',
       }}
       moreMenuItems={[
-        { key: 'refresh', label: '刷新', onClick: () => message.success('已刷新') },
+        { key: 'refresh', label: '刷新', onClick: loadData },
       ]}
       defaultHiddenColumns={[]}
       tableProps={{
         columns,
-        dataSource: filteredData,
+        dataSource: data,
+        loading,
         rowKey: "id",
       }}
     >

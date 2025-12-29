@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Table, Button, Badge, Space, Dropdown, MenuProps, Tag, Descriptions, Card, Input, Form, Select, message } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, PlusOutlined, DatabaseOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import PageContainer from '../../../../components/PageContainer';
 import ResourceDetailContainer from '../../../../components/ResourceDetailContainer';
+import { fetchSecurityZones } from '../../../../services/trafficOrchestration';
 import type { ColumnsType } from 'antd/es/table';
 
-// Mock Data Types
+// Data Types
 interface SecurityZoneRow {
   id: string;
   name: string;
@@ -14,30 +15,36 @@ interface SecurityZoneRow {
   status: 'active' | 'inactive';
 }
 
-const zonesData: SecurityZoneRow[] = [
-  { id: '1', name: 'Zone-A', clusterName: 'Cluster-A', description: 'Primary Security Zone', status: 'active' },
-  { id: '2', name: 'Zone-B', clusterName: 'Cluster-B', description: 'Secondary Security Zone', status: 'active' },
-];
-
 const SecurityZones: React.FC = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [currentZone, setCurrentZone] = useState<SecurityZoneRow | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState('devices');
+  const [data, setData] = useState<SecurityZoneRow[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Filter State
   const [filterForm] = Form.useForm();
   const [filters, setFilters] = useState<Record<string, any>>({});
 
-  const filteredData = React.useMemo(() => {
-    return zonesData.filter(item => {
-      if (filters.keyword && !item.name.toLowerCase().includes(filters.keyword.toLowerCase())) return false;
-      if (filters.cluster && item.clusterName !== filters.cluster) return false;
-      if (filters.status && item.status !== filters.status) return false;
-      return true;
-    });
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const list = await fetchSecurityZones(filters);
+      setData(list);
+    } catch (e) {
+      console.error(e);
+      message.error('加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
   }, [filters]);
 
   const columns: ColumnsType<SecurityZoneRow> = [
+    { title: '序号', key: 'index', render: (_, __, index) => index + 1 },
     { title: '安全域名称', dataIndex: 'name', key: 'name' },
     { title: '所属集群', dataIndex: 'clusterName', key: 'clusterName' },
     { title: '描述', dataIndex: 'description', key: 'description' },
@@ -176,11 +183,12 @@ const SecurityZones: React.FC = () => {
         type: 'primary',
       }}
       moreMenuItems={[
-        { key: 'refresh', label: '刷新', onClick: () => message.success('已刷新') },
+        { key: 'refresh', label: '刷新', onClick: loadData },
       ]}
       tableProps={{
         columns,
-        dataSource: filteredData,
+        dataSource: data,
+        loading,
         rowKey: "id",
       }}
     >

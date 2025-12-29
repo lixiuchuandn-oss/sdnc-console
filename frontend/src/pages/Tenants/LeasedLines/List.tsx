@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Divider, Form, Input, Select, Space as AntSpace, Table, Tag, Modal, Row, Col, message, Dropdown, DatePicker } from 'antd';
 import type { MenuProps } from 'antd';
-import { PlusOutlined, UploadOutlined, ReloadOutlined, EllipsisOutlined, FileWordOutlined, DeleteOutlined, UndoOutlined, EditOutlined } from '@ant-design/icons';
+import { PlusOutlined, UploadOutlined, ReloadOutlined, EllipsisOutlined, FileWordOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, UndoOutlined, EditOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { listLeasedLines, createLeasedLine, batchImportLeasedLines, updateLeasedLine, deleteLeasedLine, startSecurityReportTask, batchDeleteLeasedLines } from '../../../services/leasedLineApi';
 import type { TenantLeasedLine } from '../../../types/leasedLine';
@@ -195,8 +195,28 @@ const ListPage: React.FC<Props> = ({ onStartTask }) => {
     { title: '运营商', dataIndex: 'operator', key: 'operator', render: (v: string) => <Tag color="geekblue">{v}</Tag>, sorter: (a, b) => String(a.operator).localeCompare(String(b.operator)), sortDirections: ['ascend','descend'] },
     { title: '专线IP', dataIndex: 'ips', key: 'ips', render: (v: string) => <span>{v}</span>, sorter: (a, b) => String(a.ips || '').localeCompare(String(b.ips || '')), sortDirections: ['ascend','descend'] },
     { title: '告警日志', dataIndex: 'hasLog', key: 'hasLog', render: (_: any, r: TenantLeasedLine) => r.hasLog ? <Tag color="green">已上传</Tag> : <Tag color="red">未上传</Tag>, sorter: (a, b) => Number(!!a.hasLog) - Number(!!b.hasLog), sortDirections: ['ascend','descend'] },
-    { title: '日志文件名', dataIndex: 'logFileName', key: 'logFileName', sorter: (a, b) => String(a.logFileName || '').localeCompare(String(b.logFileName || '')), sortDirections: ['ascend','descend'] },
-    { title: '文件大小(Byte)', dataIndex: 'logFileSize', key: 'logFileSize', sorter: (a, b) => Number(a.logFileSize || 0) - Number(b.logFileSize || 0), sortDirections: ['ascend','descend'] },
+    { title: '日志文件', key: 'logFileInfo', render: (_: any, r: TenantLeasedLine) => {
+      if (!r.logFileName) return '-';
+      const name = String(r.logFileName).trim();
+      const size = Number(r.logFileSize || 0);
+      const ext = name.split('.').pop()?.toLowerCase();
+      const formatSize = (bytes: number) => {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      };
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+           {ext === 'pdf' ? <FilePdfOutlined style={{ color: '#ff4d4f' }} /> : 
+            (ext === 'doc' || ext === 'docx') ? <FileWordOutlined style={{ color: '#1677ff' }} /> : 
+            <FileOutlined />}
+           <span style={{ fontSize: 13 }}>{name}</span>
+           {size > 0 ? <span style={{ color: '#999', fontSize: 12 }}>{formatSize(size)}</span> : null}
+        </div>
+      );
+    }, sorter: (a, b) => String(a.logFileName || '').localeCompare(String(b.logFileName || '')), sortDirections: ['ascend','descend'] },
     { title: '修改时间', dataIndex: 'logModifiedAt', key: 'logModifiedAt', render: (t?: number) => (typeof t === 'number' && t > 0) ? new Date(t).toLocaleString() : '-', sorter: (a, b) => Number(a.logModifiedAt || 0) - Number(b.logModifiedAt || 0), sortDirections: ['ascend','descend'] },
     { title: '操作', key: 'actions', fixed: 'right', width: 120, render: (_: any, r: TenantLeasedLine) => (
       <Dropdown menu={{ items: getActionMenu(r), onClick: handleRowActionClick(r) }} trigger={["click"]}>

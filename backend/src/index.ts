@@ -25,6 +25,7 @@ import { natRoutes } from './routes/nat';
 import infoDomainRoutes from './routes/infoDomains';
 import leasedLineRoutes from './routes/leasedLines';
 import serviceRoutes from './routes/services';
+import trafficOrchestrationRoutes from './routes/trafficOrchestration';
 import systemRoutes from './routes/system';
 
 dotenv.config();
@@ -115,6 +116,7 @@ app.use('/api/networks/acl', authMiddleware, aclRoutes);
 app.use('/api/networks/nat', authMiddleware, natRoutes);
 app.use('/api/info-domains', authMiddleware, infoDomainRoutes);
 app.use('/api/services', authMiddleware, serviceRoutes);
+app.use('/api/security/traffic', authMiddleware, trafficOrchestrationRoutes);
 app.use('/api/leased-lines', authMiddleware, leasedLineRoutes);
 app.use('/api/system', authMiddleware, systemRoutes);
 

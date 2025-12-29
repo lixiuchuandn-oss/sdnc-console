@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Table, Button, Space, Tag, Modal, Form, Input, Select, message } from 'antd';
 import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import PageContainer from '../../../../components/PageContainer';
 import StdFormModal from '../../../../components/StdFormModal';
+import { fetchProtectionObjects, createProtectionObject, deleteProtectionObject } from '../../../../services/trafficOrchestration';
 
 interface ProtectedObjectRow {
   id: string;
@@ -15,26 +16,32 @@ interface ProtectedObjectRow {
 const ProtectedObjects: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
+  const [data, setData] = useState<ProtectedObjectRow[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Filter State
   const [filterForm] = Form.useForm();
   const [filters, setFilters] = useState<Record<string, any>>({});
 
-  const data: ProtectedObjectRow[] = [
-    { id: '1', name: 'Web Server IP', type: 'ip', value: '192.168.1.10', description: 'Main Web Server' },
-    { id: '2', name: 'Office Subnet', type: 'subnet', value: '10.0.0.0/24', description: 'Office Network' },
-    { id: '3', name: 'Prod VPC', type: 'vpc', value: 'vpc-123456', description: 'Production VPC' },
-  ];
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const list = await fetchProtectionObjects(filters);
+      setData(list);
+    } catch (e) {
+      console.error(e);
+      message.error('加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const filteredData = React.useMemo(() => {
-    return data.filter(item => {
-      if (filters.keyword && !item.name.toLowerCase().includes(filters.keyword.toLowerCase())) return false;
-      if (filters.type && item.type !== filters.type) return false;
-      return true;
-    });
+  useEffect(() => {
+    loadData();
   }, [filters]);
 
   const columns = [
+    { title: '序号', key: 'index', render: (_: any, __: any, index: number) => index + 1 },
     { title: '名称', dataIndex: 'name', key: 'name' },
     {
       title: '类型',
@@ -53,7 +60,15 @@ const ProtectedObjects: React.FC = () => {
       render: (_: any, record: any) => (
         <Space size="middle">
           <a>编辑</a>
-          <a style={{ color: 'red' }}>删除</a>
+          <a style={{ color: 'red' }} onClick={async () => {
+             try {
+               await deleteProtectionObject(record.id);
+               message.success('删除成功');
+               loadData();
+             } catch(e) {
+               message.error('删除失败');
+             }
+          }}>删除</a>
         </Space>
       ),
     },
@@ -61,11 +76,14 @@ const ProtectedObjects: React.FC = () => {
 
   const handleAdd = async (values: any) => {
     try {
-      console.log('Add Object:', values);
+      await createProtectionObject(values);
+      message.success('创建成功');
       setModalOpen(false);
       form.resetFields();
+      loadData();
     } catch (e) {
       console.error(e);
+      message.error('创建失败');
     }
   };
 
@@ -99,11 +117,12 @@ const ProtectedObjects: React.FC = () => {
         type: 'primary',
       }}
       moreMenuItems={[
-        { key: 'refresh', label: '刷新', onClick: () => message.success('已刷新') },
+        { key: 'refresh', label: '刷新', onClick: loadData },
       ]}
       tableProps={{
         columns,
-        dataSource: filteredData,
+        dataSource: data,
+        loading,
         rowKey: "id",
       }}
     >

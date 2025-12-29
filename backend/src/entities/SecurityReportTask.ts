@@ -40,4 +40,7 @@ export class SecurityReportTask {
 
   @Column({ type: 'integer', default: 0 })
   canceled!: number; // 0/1
+
+  @Column({ type: 'simple-json', nullable: true })
+  reportFiles?: any;
 }
