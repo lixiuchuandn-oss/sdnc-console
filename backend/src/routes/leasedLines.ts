@@ -1619,12 +1619,30 @@ leasedLineRoutes.delete('/security-report/tasks/:taskId', async (req: any, res) 
   const { taskId } = req.params;
   const t = reportTasks.get(taskId);
   if (!t) return res.status(404).json({ message: '任务不存在' });
+  try { t.abortCtl?.abort?.(); } catch {}
   t.canceled = true;
   t.status = 'canceled';
   t.updatedAt = Date.now();
   await persistTaskSnapshot(t);
   res.json({ ok: true });
-  setImmediate(processQueue);
+  setImmediate(async () => {
+    try {
+      const cfg = getDifyConfig();
+      const difyBase = cfg.baseUrl || 'http://127.0.0.1/v1';
+      const difyKey = cfg.apiKey;
+      const tid = t.difyTaskId;
+      if (tid && difyKey) {
+        try {
+          await fetch(`${difyBase}/workflows/tasks/${tid}/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${difyKey}` },
+            body: JSON.stringify({ user: 'system' })
+          });
+        } catch {}
+      }
+    } catch {}
+    setImmediate(processQueue);
+  });
 });
 
 // 永久删除任务（从内存与数据库移除）
@@ -1636,13 +1654,43 @@ leasedLineRoutes.delete('/security-report/tasks/:taskId/remove', async (req: any
     if (!(role === 'super_admin' || role === 'leased_lines_admin' || perms.includes('tenants.leased-lines.reports:write') || perms.includes('tenants.leased-lines.manage:write'))) {
       return res.status(403).json({ message: '权限不足：需要写入权限 tenants.leased-lines.reports:write' });
     }
+    try {
+      const mem = reportTasks.get(taskId);
+      if (mem) {
+        try { mem.abortCtl?.abort?.(); } catch {}
+        mem.canceled = true;
+        mem.deleted = true;
+        mem.status = 'canceled';
+        mem.updatedAt = Date.now();
+        await persistTaskSnapshot(mem);
+      }
+    } catch {}
     try { reportTasks.delete(taskId); } catch {}
     try {
       const set = taskSubscribers.get(taskId);
       if (set) { for (const s of Array.from(set)) { try { s.end?.(); } catch {} } taskSubscribers.delete(taskId); }
     } catch {}
-    const repo = AppDataSource.getRepository(SecurityReportTask);
-    await repo.delete({ id: taskId });
+    try {
+      const cfg = getDifyConfig();
+      const difyBase = cfg.baseUrl || 'http://127.0.0.1/v1';
+      const difyKey = cfg.apiKey;
+      const repo = AppDataSource.getRepository(SecurityReportTask);
+      const row = await repo.findOne({ where: { id: taskId } });
+      const tid = (row?.difyTaskId) || (reportTasks.get(taskId)?.difyTaskId);
+      if (tid && difyKey) {
+        try {
+          await fetch(`${difyBase}/workflows/tasks/${tid}/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${difyKey}` },
+            body: JSON.stringify({ user: 'system' })
+          });
+        } catch {}
+      }
+      await repo.delete({ id: taskId });
+    } catch {
+      const repo = AppDataSource.getRepository(SecurityReportTask);
+      await repo.delete({ id: taskId });
+    }
     return res.json({ ok: true });
   } catch (err: any) {
     return res.status(500).json({ message: '删除任务失败', error: String(err) });
