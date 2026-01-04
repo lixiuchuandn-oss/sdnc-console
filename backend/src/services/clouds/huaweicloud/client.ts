@@ -1,5 +1,5 @@
 import { BasicCredentials } from '@huaweicloud/huaweicloud-sdk-core/auth/BasicCredentials';
-import { VpcClient, ListVpcsRequest, ListSubnetsRequest, ListRouteTablesRequest, CreateRouteTableRequest, CreateRoutetableReqBody, CreateRouteTableReq, UpdateRouteTableRequest, UpdateRoutetableReqBody, UpdateRouteTableReq, AssociateRouteTableRequest, DisassociateRouteTableRequest, RoutetableAssociateReqbody, AsscoiateReq, AssociateRouteTableAndSubnetReq, DeleteRouteTableRequest } from '@huaweicloud/huaweicloud-sdk-vpc';
+import { VpcClient, ListVpcsRequest, ListSubnetsRequest, ListPortsRequest, ListRouteTablesRequest, CreateRouteTableRequest, CreateRoutetableReqBody, CreateRouteTableReq, UpdateRouteTableRequest, UpdateRoutetableReqBody, UpdateRouteTableReq, AssociateRouteTableRequest, DisassociateRouteTableRequest, RoutetableAssociateReqbody, AsscoiateReq, AssociateRouteTableAndSubnetReq, DeleteRouteTableRequest } from '@huaweicloud/huaweicloud-sdk-vpc';
 import { EcsClient, ListServersDetailsRequest, ShowServerRemoteConsoleRequest, ShowServerRemoteConsoleRequestBody, GetServerRemoteConsoleOption } from '@huaweicloud/huaweicloud-sdk-ecs';
 import { EvsClient, ListSnapshotsRequest, ListVolumesRequest } from '@huaweicloud/huaweicloud-sdk-evs';
 import { ElbClient } from '@huaweicloud/huaweicloud-sdk-elb';
@@ -168,11 +168,14 @@ export async function huaweiDeleteVpc(opts: HuaweiClientOptions, vpcId: string):
   }
 }
 
-export async function huaweiListSubnets(opts: HuaweiClientOptions): Promise<any> {
+export async function huaweiListSubnets(opts: HuaweiClientOptions, vpcId?: string): Promise<any> {
   const endpoint = buildVpcEndpoint(opts.region);
   const credentials = buildBasicCredentials(opts);
   const client = VpcClient.newBuilder().withCredential(credentials).withEndpoint(endpoint).build();
   const request = new ListSubnetsRequest();
+  if (vpcId) {
+    request.withVpcId(vpcId);
+  }
   try {
     const result = await client.listSubnets(request);
     return result;
@@ -182,6 +185,8 @@ export async function huaweiListSubnets(opts: HuaweiClientOptions): Promise<any>
     throw new Error(code ? `${code}: ${message}` : message);
   }
 }
+
+// Note: ports listing is implemented below using HcClient with /v2.0/ports
 
 export async function huaweiCreateSubnet(
   opts: HuaweiClientOptions,

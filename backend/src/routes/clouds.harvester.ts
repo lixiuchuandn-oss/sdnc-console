@@ -13,10 +13,14 @@ const fetchCloudOr404 = async (id: string, res: Response) => {
   return cloud;
 };
 
-const ensureProvider = (cloud: any, provider: string, res: Response, msg: string) => {
+const ensureProvider = (cloud: any, provider: string, res: Response, msg: string, next?: any) => {
   const actual = String(cloud?.config?.provider || '').toLowerCase().trim();
   const expected = String(provider).toLowerCase().trim();
   if (actual !== expected) {
+    if (next) {
+      next();
+      return false;
+    }
     res.status(400).json({ message: msg });
     return false;
   }
@@ -28,11 +32,12 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     try {
       const { id } = req.params;
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
-      if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+      if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
       const insecure = !!(cloud.config as any)?.ignoreTls;
       const list = await listKubeOvnVpcs({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
       res.json({ message: '查询成功', data: { items: list } });
     } catch (error: any) {
+      if (res.headersSent) return;
       res.status(500).json({ message: '查询VPC失败', error: error.message });
     }
   });
@@ -40,12 +45,13 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     try {
       const { id } = req.params;
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
-      if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+      if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
       const insecure = !!(cloud.config as any)?.ignoreTls;
       const data = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
       const capabilities = { isHarvester: true, supportsInstanceType: false, supportsZone: false, supportsVpc: false, supportsNetworkFusion: true, supportsMultus: true };
       res.json({ message: '查询成功', data, capabilities });
     } catch (error: any) {
+      if (res.headersSent) return;
       res.status(500).json({ message: '查询ECS失败', error: error.message });
     }
   });

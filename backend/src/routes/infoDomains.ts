@@ -3,7 +3,8 @@ import { AppDataSource } from '../config/database';
 import { InfoDomain } from '../entities/InfoDomain';
 import { Cloud } from '../entities/Cloud';
 import { VpcNetwork } from '../entities/VpcNetwork';
-import { callAliyunVpc } from '../services/clouds/aliyun/client';
+import { CenAttachment } from '../entities/CenAttachment';
+import { callAliyunVpc, callAliyunEcs } from '../services/clouds/aliyun/client';
 import { huaweiListVpcs } from '../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../services/clouds/tencentcloud/client';
 
@@ -11,6 +12,7 @@ const router = Router();
 const repo = () => AppDataSource.getRepository(InfoDomain);
 const cloudRepo = () => AppDataSource.getRepository(Cloud);
 const vpcRepo = () => AppDataSource.getRepository(VpcNetwork);
+const cenAttachRepo = () => AppDataSource.getRepository(CenAttachment);
 
 // List
 router.get('/', async (req, res) => {
@@ -114,6 +116,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const payload = req.body as Partial<InfoDomain>;
+    console.log('Creating InfoDomain payload:', JSON.stringify(payload));
 
     const entity = new InfoDomain();
     entity.name = payload.name || '未命名信息域';
@@ -126,6 +129,13 @@ router.post('/', async (req, res) => {
     entity.cidr6 = (payload as any).cidr6;
     entity.vrUuid = payload.vrUuid;
     entity.vrName = payload.vrName;
+    (entity as any).vrInstanceIds = Array.isArray((payload as any).vrInstanceIds) ? (payload as any).vrInstanceIds.join(',') : (payload as any).vrInstanceIds;
+    (entity as any).vrPublicEniIds = Array.isArray((payload as any).vrPublicEniIds) ? (payload as any).vrPublicEniIds.join(',') : (payload as any).vrPublicEniIds;
+    (entity as any).vrPrivateEniIds = Array.isArray((payload as any).vrPrivateEniIds) ? (payload as any).vrPrivateEniIds.join(',') : (payload as any).vrPrivateEniIds;
+    (entity as any).vrPublicIp = Array.isArray((payload as any).vrPublicIp) ? (payload as any).vrPublicIp.join(',') : (payload as any).vrPublicIp;
+    (entity as any).vrPrivateIp = Array.isArray((payload as any).vrPrivateIp) ? (payload as any).vrPrivateIp.join(',') : (payload as any).vrPrivateIp;
+    (entity as any).vrPublicSubnetCidr = Array.isArray((payload as any).vrPublicSubnetCidr) ? (payload as any).vrPublicSubnetCidr.join(',') : (payload as any).vrPublicSubnetCidr;
+    (entity as any).vrPrivateSubnetCidr = Array.isArray((payload as any).vrPrivateSubnetCidr) ? (payload as any).vrPrivateSubnetCidr.join(',') : (payload as any).vrPrivateSubnetCidr;
     entity.resourcePool = payload.resourcePool;
     entity.purpose = payload.purpose;
     entity.tags = payload.tags;
@@ -188,6 +198,11 @@ router.post('/', async (req, res) => {
       if (cloud) {
         entity.provider = (cloud as any)?.config?.provider || (cloud as any)?.provider || undefined;
         entity.region = cloud.region;
+
+        // Auto-fill Aliyun details
+        if (entity.provider === 'aliyun') {
+          await fillAliyunDetails(entity, cloud);
+        }
       }
     }
 
@@ -203,6 +218,7 @@ router.patch('/:id', async (req, res) => {
   try {
     const id = req.params.id;
     const partial = req.body as Partial<InfoDomain>;
+    console.log(`Updating InfoDomain ${id} payload:`, JSON.stringify(partial));
     const existing = await repo().findOne({ where: { id } });
     if (!existing) {
       return res.status(404).json({ message: 'InfoDomain not found' });
@@ -210,6 +226,21 @@ router.patch('/:id', async (req, res) => {
     // 忽略历史字段更新：type 不再作为分类依据
     delete (partial as any).type;
     Object.assign(existing, partial);
+    if ((partial as any).vrInstanceIds !== undefined) {
+      (existing as any).vrInstanceIds = Array.isArray((partial as any).vrInstanceIds) ? (partial as any).vrInstanceIds.join(',') : (partial as any).vrInstanceIds;
+    }
+    if ((partial as any).vrPublicEniIds !== undefined) {
+      (existing as any).vrPublicEniIds = Array.isArray((partial as any).vrPublicEniIds) ? (partial as any).vrPublicEniIds.join(',') : (partial as any).vrPublicEniIds;
+    }
+    if ((partial as any).vrPrivateEniIds !== undefined) {
+      (existing as any).vrPrivateEniIds = Array.isArray((partial as any).vrPrivateEniIds) ? (partial as any).vrPrivateEniIds.join(',') : (partial as any).vrPrivateEniIds;
+    }
+    if ((partial as any).vrPublicSubnetCidr !== undefined) {
+      (existing as any).vrPublicSubnetCidr = Array.isArray((partial as any).vrPublicSubnetCidr) ? (partial as any).vrPublicSubnetCidr.join(',') : (partial as any).vrPublicSubnetCidr;
+    }
+    if ((partial as any).vrPrivateSubnetCidr !== undefined) {
+      (existing as any).vrPrivateSubnetCidr = Array.isArray((partial as any).vrPrivateSubnetCidr) ? (partial as any).vrPrivateSubnetCidr.join(',') : (partial as any).vrPrivateSubnetCidr;
+    }
 
     // 依据最新 vpcMode/vpcId/newVpcCidr 自动更新 CIDR（兼容云侧 vpcId 或本地 VPC UUID）
     try {
@@ -255,6 +286,11 @@ router.patch('/:id', async (req, res) => {
       if (cloud) {
         existing.provider = (cloud as any)?.config?.provider || (cloud as any)?.provider || undefined;
         existing.region = cloud.region;
+
+        // Auto-fill Aliyun details
+        if (existing.provider === 'aliyun') {
+          await fillAliyunDetails(existing, cloud);
+        }
       }
     }
 
@@ -269,11 +305,123 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const id = req.params.id;
+    // 先解除依赖关系：将引用该信息域的 CEN 附着的 infoDomainId 置空
+    try {
+      const attachments = await cenAttachRepo().find({ where: { infoDomainId: id } });
+      if (attachments && attachments.length) {
+        for (const att of attachments) {
+          (att as any).infoDomainId = null;
+        }
+        await cenAttachRepo().save(attachments);
+      }
+    } catch (e) {
+      console.warn('解除 CEN 附着对信息域的依赖失败:', e);
+      // 不阻断删除流程，继续尝试删除
+    }
     await repo().delete({ id });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete info domain', error: String(err) });
   }
 });
+
+// Helper: Fill Aliyun Details (CIDR, ENI IPs, Subnets)
+async function fillAliyunDetails(entity: InfoDomain, cloud: Cloud) {
+  if (!cloud || !cloud.accessKey || !cloud.secretKey || !cloud.region) return;
+  const creds = { accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region };
+
+  // 1. Fill VPC CIDR if missing
+  if (entity.vpcMode === 'existing' && entity.vpcId && (!entity.cidr || entity.cidr.trim() === '')) {
+    try {
+      let targetVpcId = entity.vpcId;
+      const vpcRepo = AppDataSource.getRepository(VpcNetwork);
+      const localVpc = await vpcRepo.findOne({ where: { id: entity.vpcId } });
+
+      const resp: any = await callAliyunVpc({ ...creds, action: 'DescribeVpcs', extraParams: { VpcId: targetVpcId } });
+      const arr: any[] = resp?.Vpcs?.Vpc || resp?.VpcSets?.VpcSet || [];
+      if (arr.length > 0 && arr[0].CidrBlock) {
+        entity.cidr = arr[0].CidrBlock;
+      }
+    } catch (e) {
+      console.warn('Failed to fill Aliyun VPC CIDR:', e);
+    }
+  }
+
+  // 2. Fill ENI Details (IPs, Subnets)
+  const pubEnis = (entity.vrPublicEniIds || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+  const priEnis = (entity.vrPrivateEniIds || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+  const allEnis = [...new Set([...pubEnis, ...priEnis])];
+
+  if (allEnis.length > 0) {
+    try {
+      const params: any = {};
+      allEnis.forEach((id, i) => { params[`NetworkInterfaceId.${i + 1}`] = id; });
+      const eniResp: any = await callAliyunEcs({ ...creds, action: 'DescribeNetworkInterfaces', extraParams: params });
+      const enis = eniResp?.NetworkInterfaceSets?.NetworkInterfaceSet || [];
+
+      const eniMap = new Map<string, any>();
+      const vswIds = new Set<string>();
+      for (const eni of enis) {
+        eniMap.set(eni.NetworkInterfaceId, eni);
+        if (eni.VSwitchId) vswIds.add(eni.VSwitchId);
+      }
+
+      // Fetch Subnets
+      const subnetMap = new Map<string, string>();
+      if (vswIds.size > 0) {
+        const vswParams: any = {};
+        Array.from(vswIds).forEach((id, i) => { vswParams[`VSwitchId.${i + 1}`] = id; });
+        const vswResp: any = await callAliyunVpc({ ...creds, action: 'DescribeVSwitches', extraParams: vswParams });
+        const vsws = vswResp?.VSwitches?.VSwitch || [];
+        for (const v of vsws) {
+          subnetMap.set(v.VSwitchId, v.CidrBlock);
+        }
+      }
+
+      // Fill Public Info
+      if (pubEnis.length > 0) {
+        const ips: string[] = [];
+        const cidrs: string[] = [];
+        const eips: string[] = [];
+
+        for (const id of pubEnis) {
+          const eni = eniMap.get(id);
+          if (eni) {
+            if (eni.PrivateIpAddress) ips.push(eni.PrivateIpAddress);
+            const cidr = subnetMap.get(eni.VSwitchId);
+            if (cidr) cidrs.push(cidr);
+            // Check for Associated EIP
+            if (eni.AssociatedPublicIp && eni.AssociatedPublicIp.PublicIpAddress) {
+              eips.push(eni.AssociatedPublicIp.PublicIpAddress);
+            } else if (eni.PublicIpAddress) { // Classic network fallback
+               eips.push(eni.PublicIpAddress);
+            }
+          }
+        }
+        if (ips.length > 0 && !entity.vrPublicIp) entity.vrPublicIp = ips.join(',');
+        if (cidrs.length > 0 && !entity.vrPublicSubnetCidr) entity.vrPublicSubnetCidr = cidrs.join(',');
+        if (eips.length > 0 && !entity.vrPublicEip) entity.vrPublicEip = eips.join(',');
+      }
+
+      // Fill Private Info
+      if (priEnis.length > 0) {
+        const ips: string[] = [];
+        const cidrs: string[] = [];
+        for (const id of priEnis) {
+          const eni = eniMap.get(id);
+          if (eni) {
+            if (eni.PrivateIpAddress) ips.push(eni.PrivateIpAddress);
+            const cidr = subnetMap.get(eni.VSwitchId);
+            if (cidr) cidrs.push(cidr);
+          }
+        }
+        if (ips.length > 0 && !entity.vrPrivateIp) entity.vrPrivateIp = ips.join(',');
+        if (cidrs.length > 0 && !entity.vrPrivateSubnetCidr) entity.vrPrivateSubnetCidr = cidrs.join(',');
+      }
+    } catch (e) {
+      console.warn('Failed to fill Aliyun ENI info:', e);
+    }
+  }
+}
 
 export default router;

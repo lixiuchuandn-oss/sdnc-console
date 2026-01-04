@@ -1,8 +1,31 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
 import { VRConfig } from '../entities/VRConfig';
+import { vrController } from '../services/vrController';
 
 export const vrConfigRoutes = Router();
+
+// Get real-time VR list from controller (csmctl)
+vrConfigRoutes.get('/pagelist', async (req, res) => {
+    try {
+      {
+        const role = (req as any).user?.role;
+        const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+        if (!(role === 'super_admin' || perms.includes('networks.vr-config:read') || perms.includes('networks.vr-config:write'))) {
+          return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
+        }
+      }
+      const pageNum = Number(req.query.page_num || 1);
+    const pageSize = Number(req.query.page_size || 50);
+
+    const data = await vrController.getVRList(pageSize, pageNum);
+    console.log('[VR_CONFIG] getVRList result:', JSON.stringify(data).slice(0, 500));
+    return res.json({ code: 200, msg: 'ok', data });
+  } catch (err: any) {
+    console.error('[VR_CONFIG] pagelist error', err);
+    return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
+  }
+});
 
 // Upsert VR config by uuid
 vrConfigRoutes.post('/upsert', async (req, res) => {

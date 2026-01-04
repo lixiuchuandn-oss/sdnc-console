@@ -109,6 +109,7 @@ app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 // VR缓存接口不需要登录，允许前端保存和读取缓存
 app.use('/api/vr-cache', vrCacheRoutes);
 app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
+// app.use('/api/vr-config', vrConfigRoutes); // Temporary debug: disable auth
 app.use('/api/vr-config/version', authMiddleware, vrConfigVersionRoutes);
 app.use('/api/networks/srv6', authMiddleware, srv6Routes);
 app.use('/api/networks/ipsec', authMiddleware, ipsecRoutes);

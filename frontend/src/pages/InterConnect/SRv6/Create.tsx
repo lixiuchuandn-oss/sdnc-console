@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useTransition, useDeferredValue } from 'react';
-import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Table } from 'antd';
+import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Table, Divider } from 'antd';
 import { ArrowLeftOutlined, ExportOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
@@ -1347,7 +1347,7 @@ const SRv6CreatePage: React.FC = () => {
       {/* 已移除：VR 实例列表（调试）与（简表） */}
       <Row gutter={16}>
         <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
+          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
             <Steps
               direction="vertical"
               size="small"
@@ -1364,14 +1364,16 @@ const SRv6CreatePage: React.FC = () => {
         <Col span={12}>
           <Card size="small" title={`第 ${current + 1} 步：${stepTitle}`} variant="outlined">
             <CoreContent />
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
+            <Divider style={{ margin: '12px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <Space>
                 <Button onClick={() => navigate('/admin/interconnect/srv6')}>返回列表</Button>
-                {current > 0 && <Button onClick={prev}>上一步</Button>}
+                <Button onClick={prev} disabled={current===0}>上一步</Button>
               </Space>
               <Space>
-                {current < 2 && <Button type="primary" onClick={() => { commitPreview(); next(); }}>下一步</Button>}
-                {current === 2 && <Button type="primary" onClick={submit}>提交创建</Button>}
+                <Button type="primary" onClick={() => { if (current < 2) { commitPreview(); next(); } else { submit(); } }}>
+                  {current < 2 ? '下一步' : '提交创建'}
+                </Button>
               </Space>
             </div>
           </Card>

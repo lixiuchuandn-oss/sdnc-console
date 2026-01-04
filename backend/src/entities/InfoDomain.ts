@@ -56,6 +56,30 @@ export class InfoDomain {
   @Column({ type: 'text', nullable: true })
   vrName?: string;
 
+  @Column({ type: 'text', nullable: true })
+  vrInstanceIds?: string;
+
+  @Column({ type: 'text', nullable: true })
+  vrPublicEniIds?: string;
+
+  @Column({ type: 'text', nullable: true })
+  vrPrivateEniIds?: string;
+
+  @Column({ type: 'text', nullable: true })
+  vrPublicEip?: string;
+
+  @Column({ type: 'text', nullable: true })
+  vrPublicIp?: string;
+
+  @Column({ type: 'text', nullable: true })
+  vrPrivateIp?: string;
+
+  @Column({ type: 'text', nullable: true })
+  vrPublicSubnetCidr?: string;
+
+  @Column({ type: 'text', nullable: true })
+  vrPrivateSubnetCidr?: string;
+
   // 其他展示字段
   @Column({ type: 'text', nullable: true })
   purpose?: string;

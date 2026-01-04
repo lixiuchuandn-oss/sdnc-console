@@ -35,6 +35,8 @@ import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { Tenant, Organization, TenantUser, CreateTenantRequest, CreateOrganizationRequest, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
 import { Space as AntSpace } from 'antd';
 import PageContainer from '../../components/PageContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
@@ -46,6 +48,7 @@ const { TabPane } = Tabs;
 const { Title } = Typography;
 
 const TenantsPage: React.FC = () => {
+  const navigate = useNavigate();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
@@ -67,6 +70,9 @@ const TenantsPage: React.FC = () => {
   const [newChildName, setNewChildName] = useState<string>('');
   const [orgKeyword, setOrgKeyword] = useState<string>('');
   const [assignmentKeyword, setAssignmentKeyword] = useState<string>('');
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [protectionObjects, setProtectionObjects] = useState<any[]>([]);
+  const [securityChains, setSecurityChains] = useState<any[]>([]);
   
   // 模态框状态
   const [tenantDrawerOpen, setTenantDrawerOpen] = useState(false);
@@ -765,6 +771,22 @@ const TenantsPage: React.FC = () => {
     if (orgTreeDrawerOpen && selectedTenant?.id && selectedOrg?.id) {
       fetchUsers(selectedTenant.id, selectedOrg.id);
       fetchAssignments(selectedOrg.id);
+      (async () => {
+        try {
+          setSecurityLoading(true);
+          const [objs, chains] = await Promise.all([
+            fetchProtectionObjects({ organizationId: selectedOrg.id }),
+            fetchServiceChains({ organizationId: selectedOrg.id }),
+          ]);
+          setProtectionObjects(Array.isArray(objs) ? objs : (objs?.data || []));
+          setSecurityChains(Array.isArray(chains) ? chains : (chains?.data || []));
+        } catch {
+          setProtectionObjects([]);
+          setSecurityChains([]);
+        } finally {
+          setSecurityLoading(false);
+        }
+      })();
     }
   }, [orgTreeDrawerOpen, selectedTenant?.id, selectedOrg?.id]);
 
@@ -1080,6 +1102,81 @@ const TenantsPage: React.FC = () => {
                           size="small"
                           bordered
                         />
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>
+                    )}
+                  </Tabs.TabPane>
+                  <Tabs.TabPane tab="云安全资源" key="cloud-security">
+                    {selectedOrg ? (
+                      <div>
+                        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Space>
+                            <Tag color="blue">组织</Tag>
+                            <span style={{ color: '#666' }}>{selectedOrg.name}</span>
+                          </Space>
+                          <Space>
+                            <Button type="primary" onClick={() => navigate('/admin/security/traffic/service-chains/create')}>新建服务链</Button>
+                            <Button onClick={() => navigate('/admin/security/traffic/service-chains')}>服务链管理</Button>
+                            <Button onClick={() => navigate('/admin/security/traffic/protected-objects')}>防护对象管理</Button>
+                          </Space>
+                        </div>
+                        <Row gutter={[16,16]}>
+                          <Col span={24}>
+                            <Card size="small" title="云安全资源池（已分配）">
+                              <Table
+                                loading={securityLoading}
+                                columns={[
+                                  { title: '资源池名称', dataIndex: ['cloud','name'] },
+                                  { title: '供应商', key: 'provider', render: (_: any, r: any) => String((r.cloud?.config?.provider || r.cloud?.type || '')).toLowerCase() },
+                                  { title: '类型', dataIndex: ['cloud','type'] },
+                                ]}
+                                dataSource={assignments.filter(a => {
+                                  const pv = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').toLowerCase();
+                                  return pv === 'cloudmap' || pv === 'csm' || pv.includes('security');
+                                })}
+                                rowKey="id"
+                                size="small"
+                                bordered
+                                pagination={{ pageSize: 5 }}
+                              />
+                            </Card>
+                          </Col>
+                          <Col span={12}>
+                            <Card size="small" title="防护对象">
+                              <Table
+                                loading={securityLoading}
+                                columns={[
+                                  { title: '名称', dataIndex: 'name' },
+                                  { title: '类型', dataIndex: 'type', render: (t: string) => <Tag color="blue">{t}</Tag> },
+                                  { title: '值', dataIndex: 'value' },
+                                ]}
+                                dataSource={protectionObjects}
+                                rowKey={(r) => r.id || r.value}
+                                size="small"
+                                bordered
+                                pagination={{ pageSize: 5 }}
+                              />
+                            </Card>
+                          </Col>
+                          <Col span={12}>
+                            <Card size="small" title="服务链">
+                              <Table
+                                loading={securityLoading}
+                                columns={[
+                                  { title: '名称', dataIndex: 'name' },
+                                  { title: '类型', dataIndex: 'type', render: (t: string) => t === 'serial' ? '串行' : (t === 'parallel' ? '旁路' : t) },
+                                  { title: '描述', dataIndex: 'description' },
+                                ]}
+                                dataSource={securityChains}
+                                rowKey="id"
+                                size="small"
+                                bordered
+                                pagination={{ pageSize: 5 }}
+                              />
+                            </Card>
+                          </Col>
+                        </Row>
                       </div>
                     ) : (
                       <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>

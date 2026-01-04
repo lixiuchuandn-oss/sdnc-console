@@ -202,11 +202,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
     });
   }, [ecs, nsFilter, nodeFilter]);
   const provider = useMemo(() => String((cloud?.config?.provider || defaultProvider || '')).toLowerCase(), [cloud, defaultProvider]);
-  const providerName = useMemo(() => (provider === 'cloudmap' ? 'Cloudmap' : 'Harvester'), [provider]);
-  const labelVolumes = provider === 'cloudmap' ? '虚拟磁盘' : '虚拟卷';
-  const labelNad = provider === 'cloudmap' ? '扁平网络' : 'NAD 网络';
-  const labelKubeOvnVpcs = provider === 'cloudmap' ? 'VPC网络' : 'Kube-OVN VPC';
-  const labelKubeOvnSubnets = provider === 'cloudmap' ? 'VPC子网' : 'Kube-OVN 子网';
+  const providerName = useMemo(() => (provider === 'cloudmap' || provider === 'csm' ? 'CSM' : 'Harvester'), [provider]);
+  const labelVolumes = (provider === 'cloudmap' || provider === 'csm') ? '虚拟磁盘' : '虚拟卷';
+  const labelNad = (provider === 'cloudmap' || provider === 'csm') ? '扁平网络' : 'NAD 网络';
+  const labelKubeOvnVpcs = (provider === 'cloudmap' || provider === 'csm') ? 'VPC网络' : 'Kube-OVN VPC';
+  const labelKubeOvnSubnets = (provider === 'cloudmap' || provider === 'csm') ? 'VPC子网' : 'Kube-OVN 子网';
   const versionText = useMemo(() => {
     const fromConfig = cloud?.config?.harvesterVersion;
     const fromNodes = (harvesterNodes.find((n:any)=> n?.version)?.version) || undefined;

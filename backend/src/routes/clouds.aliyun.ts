@@ -74,7 +74,35 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
       if (!isAliyun(cloud)) return next();
       if (!cloud.accessKey || !cloud.secretKey || !cloud.region) return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-      const data = await callAliyunEcs({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeInstances', extraParams: { PageNumber: 1, PageSize: 50 } } as any);
+      
+      const pageSize = 50;
+      let page = 1;
+      let allInstances: any[] = [];
+      
+      while (true) {
+        const resp = await callAliyunEcs({ 
+          accessKeyId: cloud.accessKey, 
+          accessKeySecret: cloud.secretKey, 
+          regionId: cloud.region, 
+          action: 'DescribeInstances', 
+          extraParams: { PageNumber: page, PageSize: pageSize } 
+        } as any);
+        
+        const chunk = resp?.Instances?.Instance || [];
+        allInstances = allInstances.concat(chunk);
+        
+        if (!Array.isArray(chunk) || chunk.length < pageSize) break;
+        page += 1;
+        if (page > 100) break; // Safety break
+      }
+      
+      const data = {
+        TotalCount: allInstances.length,
+        Instances: {
+          Instance: allInstances
+        }
+      };
+      
       const capabilities = { isHarvester: false, supportsInstanceType: true, supportsZone: true, supportsVpc: true, supportsNetworkFusion: false, supportsMultus: false };
       res.json({ message: '查询成功', data, capabilities });
     } catch (error: any) {
@@ -104,10 +132,30 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
       const tick = async () => {
         if (closed) return;
         try {
-          const data: any = await callAliyunEcs({ accessKeyId: cloud.accessKey!, accessKeySecret: cloud.secretKey!, regionId: cloud.region!, action: 'DescribeInstances', extraParams: { PageNumber: 1, PageSize: 100 } } as any);
-          const items: any[] = Array.isArray(data?.Instances?.Instance) ? data.Instances.Instance
-            : Array.isArray(data?.data?.Instances?.Instance) ? data.data.Instances.Instance
-            : Array.isArray(data) ? data : [];
+          let page = 1;
+          const pageSize = 50;
+          let allItems: any[] = [];
+          
+          while (true) {
+            const data: any = await callAliyunEcs({ 
+              accessKeyId: cloud.accessKey!, 
+              accessKeySecret: cloud.secretKey!, 
+              regionId: cloud.region!, 
+              action: 'DescribeInstances', 
+              extraParams: { PageNumber: page, PageSize: pageSize } 
+            } as any);
+            
+            const chunk: any[] = Array.isArray(data?.Instances?.Instance) ? data.Instances.Instance
+              : Array.isArray(data?.data?.Instances?.Instance) ? data.data.Instances.Instance
+              : Array.isArray(data) ? data : [];
+              
+            allItems = allItems.concat(chunk);
+            if (chunk.length < pageSize) break;
+            page++;
+            if (page > 50) break; // Safety break
+          }
+          
+          const items = allItems;
           const cur = new Map<string, any>();
           for (const r of items) {
             const iid = String(r?.InstanceId || r?.id || '');
@@ -443,7 +491,7 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         // Debug logging
         if (Array.isArray(chunk)) {
           chunk.forEach((eni: any) => {
-            console.log('[Aliyun Debug] Fetched ENI:', eni.NetworkInterfaceId, 'SourceDestCheck:', eni.SourceDestCheck);
+            console.log('[Aliyun Debug] Fetched ENI:', eni.NetworkInterfaceId, 'IP:', eni.PrivateIpAddress, 'PrimaryIP:', eni.PrimaryIpAddress);
           });
         }
 

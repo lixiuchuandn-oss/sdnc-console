@@ -158,15 +158,16 @@ import { testAliyunConnection, callAliyunEcs, callAliyunSlb, callAliyunVpc, call
 // 引入华为云SDK调用
 import { testHuaweiConnection, huaweiListVpcs, huaweiListServers, huaweiListSnapshots, huaweiListSubnets, huaweiListRouteTables } from '../services/huaweicloud';
 import { testHarvesterConnection, listHarvesterVMsStandard, harvesterStartVM, harvesterStopVM, harvesterRebootVM, harvesterDeleteVM, listKubeOvnVpcs, listKubeOvnSubnets } from '../services/harvester';
+import { listCsmVms } from '../services/clouds/csm/client';
 import { registerHarvesterRoutes } from './clouds.harvester';
-import { registerCloudmapRoutes } from './clouds.cloudmap';
+import { registerCsmRoutes } from './clouds.csm';
 import { registerAliyunRoutes } from './clouds.aliyun';
 import { registerHuaweiRoutes } from './clouds.huaweicloud';
 
 registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
-registerCloudmapRoutes(router, checkAdminPermission);
+registerCsmRoutes(router, checkAdminPermission);
 
 // 获取云资源列表
 router.get('/', checkAdminPermission, async (req: AuthRequest, res: Response) => {
@@ -337,11 +338,12 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
   try {
     const cloudRepository = AppDataSource.getRepository(Cloud);
     const clouds = await cloudRepository.find();
-    const supported = ['aliyun','huaweicloud','harvester','cloudmap'];
+    const supported = ['aliyun','huaweicloud','harvester','cloudmap','csm'];
     const items: any[] = [];
     for (const cloud of clouds) {
       const provider = String((cloud as any)?.config?.provider || '').toLowerCase();
-      if (!supported.includes(provider)) continue;
+      console.log(`[DEBUG] Processing cloud: ${cloud.name}, provider: ${provider}`);
+      if (!supported.includes(provider) && !provider.startsWith('cloudmap')) continue;
       let list: any[] = [];
       const vpcInfoMap = new Map<string, { name?: string; cidr?: string }>();
       const vswInfoMap = new Map<string, { name?: string; cidr?: string; vpcId?: string }>();
@@ -379,40 +381,16 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
         const version = String((cloud.config as any)?.harvesterVersion || '').trim();
         const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
         list = Array.isArray(resp) ? resp : [];
-      } else if (provider === 'cloudmap') {
-        const endpointRaw = String(cloud.endpoint || '').trim();
-        const base = (() => {
-          try {
-            const u = endpointRaw.startsWith('http') ? new URL(endpointRaw) : new URL(`https://${endpointRaw}`);
-            const host = `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
-            return host;
-          } catch {
-            const s = endpointRaw.replace(/\/.*$/,'');
-            return /^https?:\/\//.test(s) ? s : `https://${s}`;
-          }
-        })();
-        const ak = String(cloud.accessKey || '').trim();
-        const sk = String(cloud.secretKey || '').trim();
-        if (!ak || !sk) { list = []; } else {
-          const agent = new https.Agent({ rejectUnauthorized: !((cloud as any)?.config?.ignoreTls) });
-          const path = '/V2/ctcontrol/VM04/vms';
-          const other = 'page_size=30&page_num=1';
-          const signUrl = `${base}/api/sign?url=${encodeURIComponent(path)}&method=GET&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(ak)}&secretKey=${encodeURIComponent(sk)}`;
-          try {
-            const signResp = await axios.post(signUrl, {}, { httpsAgent: agent, timeout: 10000 });
-            const auth = signResp?.data?.data?.Authorization;
-            const tonce = signResp?.data?.data?.tonce;
-            const headers: Record<string, any> = { Authorization: auth, tonce, Accept: '*/*', 'User-Agent': 'PostmanRuntime/7.51.0' };
-            const listUrl = `${base}${path}?${other}`;
-            const listResp = await axios.get(listUrl, { httpsAgent: agent, timeout: 20000, headers });
-            const raw = listResp?.data;
-            const items: any[] = Array.isArray(raw?.data?.items) ? raw?.data?.items : (Array.isArray(raw?.items) ? raw?.items : (Array.isArray(raw?.data) ? raw?.data : []));
-            list = Array.isArray(items) ? items : [];
-          } catch {
-            list = [];
+      } else if (provider === 'cloudmap' || provider === 'csm' || provider.startsWith('cloudmap')) {
+          const endpointRaw = String(cloud.endpoint || '').trim();
+          const ak = String(cloud.accessKey || '').trim();
+          const sk = String(cloud.secretKey || '').trim();
+          if (!ak || !sk) { list = []; } else {
+            const ignoreTls = !!((cloud as any)?.config?.ignoreTls);
+            console.log(`[DEBUG] Calling listCsmVms for ${cloud.name} (${provider})`);
+            list = await listCsmVms({ endpoint: endpointRaw, accessKey: ak, secretKey: sk, ignoreTls });
           }
         }
-      }
       for (const r of (Array.isArray(list) ? list : [])) {
         const norm = await (async () => {
           if (provider === 'aliyun') {
@@ -657,12 +635,13 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     if (needRefresh) {
       const clouds = await cloudRepository.find();
-      const supported = ['aliyun','huaweicloud','tencentcloud','harvester','cloudmap'];
+      const supported = ['aliyun','huaweicloud','tencentcloud','harvester','cloudmap','csm'];
       for (const cloud of clouds) {
         if (slow) { await sleep(1200); }
         if (targetCloudId && cloud.id !== targetCloudId) continue;
         const provider = String((cloud as any)?.config?.provider || '').toLowerCase();
-        if (!supported.includes(provider)) continue;
+        console.log(`[DEBUG] Inventory sync: processing cloud ${cloud.name} (${provider})`);
+        if (!supported.includes(provider) && !provider.startsWith('cloudmap')) continue;
         let list: any[] = [];
         const vpcInfoMap = new Map<string, { name?: string; cidr?: string }>();
         const vswInfoMap = new Map<string, { name?: string; cidr?: string; vpcId?: string }>();
@@ -702,38 +681,14 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
           const version = String((cloud.config as any)?.harvesterVersion || '').trim();
           const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
           list = Array.isArray(resp) ? resp : [];
-        } else if (provider === 'cloudmap') {
+        } else if (provider === 'cloudmap' || provider === 'csm' || provider.startsWith('cloudmap')) {
           const endpointRaw = String(cloud.endpoint || '').trim();
-          const base = (() => {
-            try {
-              const u = endpointRaw.startsWith('http') ? new URL(endpointRaw) : new URL(`https://${endpointRaw}`);
-              const host = `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
-              return host;
-            } catch {
-              const s = endpointRaw.replace(/\/.*$/,'');
-              return /^https?:\/\//.test(s) ? s : `https://${s}`;
-            }
-          })();
           const ak = String(cloud.accessKey || '').trim();
           const sk = String(cloud.secretKey || '').trim();
           if (!ak || !sk) { list = []; } else {
-            const agent = new https.Agent({ rejectUnauthorized: !((cloud as any)?.config?.ignoreTls) });
-            const path = '/V2/ctcontrol/VM04/vms';
-            const other = 'page_size=30&page_num=1';
-            const signUrl = `${base}/api/sign?url=${encodeURIComponent(path)}&method=GET&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(ak)}&secretKey=${encodeURIComponent(sk)}`;
-            try {
-              const signResp = await axios.post(signUrl, {}, { httpsAgent: agent, timeout: 10000 });
-              const auth = signResp?.data?.data?.Authorization;
-              const tonce = signResp?.data?.data?.tonce;
-              const headers: Record<string, any> = { Authorization: auth, tonce, Accept: '*/*', 'User-Agent': 'PostmanRuntime/7.51.0' };
-              const listUrl = `${base}${path}?${other}`;
-              const listResp = await axios.get(listUrl, { httpsAgent: agent, timeout: 20000, headers });
-              const raw = listResp?.data;
-              const items: any[] = Array.isArray(raw?.data?.items) ? raw?.data?.items : (Array.isArray(raw?.items) ? raw?.items : (Array.isArray(raw?.data) ? raw?.data : []));
-              list = Array.isArray(items) ? items : [];
-            } catch {
-              list = [];
-            }
+            const ignoreTls = !!((cloud as any)?.config?.ignoreTls);
+            console.log(`[DEBUG] Inventory sync: calling listCsmVms for ${cloud.name}`);
+            list = await listCsmVms({ endpoint: endpointRaw, accessKey: ak, secretKey: sk, ignoreTls });
           }
         }
         const seenIds = new Set<string>();

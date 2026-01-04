@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { CloudEnterpriseNetwork } from './CloudEnterpriseNetwork';
 import { VpcNetwork } from './VpcNetwork';
 import { InfoDomain } from './InfoDomain';
@@ -29,7 +29,8 @@ export class CenAttachment {
   @Column({ type: 'text', nullable: true })
   infoDomainId?: string;
 
-  @ManyToOne(() => InfoDomain)
+  @ManyToOne(() => InfoDomain, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'infoDomainId' })
   infoDomain?: InfoDomain;
 
   @Column({

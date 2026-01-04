@@ -37,12 +37,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         return res.status(403).json({ message: '权限不足：需要写入权限 networks.cen:write' });
       }
     }
-    const { name, description, tenantId } = req.body;
+    const { name, description, tenantId, strategy } = req.body;
     if (!tenantId) {
       return res.status(400).json({ message: '缺少 tenantId' });
     }
     const repo = AppDataSource.getRepository(CloudEnterpriseNetwork);
-    const cen = repo.create({ name, description, tenantId, status: CenStatus.CREATING });
+    const cen = repo.create({ name, description, tenantId, strategy: strategy || 'SRv6', status: CenStatus.CREATING });
     await repo.save(cen);
 
     // 模拟创建过程
@@ -58,15 +58,48 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// 更新 CEN
+router.patch('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, strategy, topology, hubId } = req.body;
+    const repo = AppDataSource.getRepository(CloudEnterpriseNetwork);
+    const cen = await repo.findOne({ where: { id } });
+    if (!cen) return res.status(404).json({ message: 'CEN 不存在' });
+
+    if (name !== undefined) cen.name = name;
+    if (description !== undefined) cen.description = description;
+    if (strategy !== undefined) cen.strategy = strategy;
+    if (topology !== undefined) cen.topology = topology;
+    if (hubId !== undefined) cen.hubId = hubId;
+
+    await repo.save(cen);
+    res.json(cen);
+  } catch (err) {
+    console.error('更新 CEN 失败:', err);
+    res.status(500).json({ message: '更新失败' });
+  }
+});
+
 // 删除 CEN
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const force = String((req.query as any)?.force || '').toLowerCase() === '1' || String((req.query as any)?.force || '').toLowerCase() === 'true';
     const repo = AppDataSource.getRepository(CloudEnterpriseNetwork);
     const cen = await repo.findOne({ where: { id } });
     if (!cen) return res.status(404).json({ message: 'CEN 不存在' });
+    if (force) {
+      const attachRepo = AppDataSource.getRepository(CenAttachment);
+      const attachments = await attachRepo.find({ where: { cenId: id } });
+      if (attachments && attachments.length) {
+        for (const att of attachments) {
+          await attachRepo.remove(att);
+        }
+      }
+    }
     await repo.remove(cen);
-    res.json({ message: 'CEN 删除成功' });
+    res.json({ message: force ? '已强制删除：已释放挂载信息域并删除 CEN' : 'CEN 删除成功' });
   } catch (err) {
     console.error('删除 CEN 失败:', err);
     res.status(500).json({ message: '删除失败' });
@@ -79,7 +112,29 @@ router.get('/:id/attachments', async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const repo = AppDataSource.getRepository(CenAttachment);
     const list = await repo.find({ where: { cenId: id }, relations: ['vpc', 'infoDomain'] });
-    res.json(list);
+    
+    // Transform response to clean up structure as requested
+    const result = list.map(att => {
+      const domain: any = att.infoDomain ? { ...att.infoDomain } : {};
+      
+      // Inject CEN ID and Attachment ID into domain object
+      domain.cenId = att.cenId;
+      domain.attachmentId = att.id; // Needed for frontend actions (e.g. unbind)
+
+      // Remove unwanted fields from InfoDomain (as per user request "没用删掉")
+      delete domain.vpcMode;
+      delete domain.newVpcName;
+      delete domain.newVpcCidr;
+
+      return {
+        id: att.id,
+        status: att.status,
+        infoDomain: domain
+        // Exclude root level vpcId, vpc, cenId, etc.
+      };
+    });
+
+    res.json(result);
   } catch (err) {
     console.error('获取附件失败:', err);
     res.status(500).json({ message: '获取失败' });

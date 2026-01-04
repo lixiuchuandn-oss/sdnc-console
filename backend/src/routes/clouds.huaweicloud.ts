@@ -643,9 +643,9 @@ router.post('/:id/resources/ecs/:instanceId/ces-metrics-single', checkAdminPermi
   });
 
   router.get('/:id/resources/subnets', checkAdminPermission, async (req: any, res: Response, next: any) => {
-    try { const { id } = req.params; const cloud = await fetchCloudOr404(id, res); if (!cloud) return; if (!isHuawei(cloud)) return next();
+    try { const { id } = req.params; const { vpcId } = (req.query || {}) as any; const cloud = await fetchCloudOr404(id, res); if (!cloud) return; if (!isHuawei(cloud)) return next();
       const projectId = (cloud.config as any)?.projectId; if (!cloud.accessKey || !cloud.secretKey || !projectId) return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-      const data = await huaweiListSubnets({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+      const data = await huaweiListSubnets({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, vpcId);
       const capabilities = { isHarvester: false, supportsSubnets: true, supportsNetworkFusion: false, supportsMultus: false };
       res.json({ message: '查询成功', data, capabilities });
     } catch (error: any) { if (res.headersSent) return; return res.status(500).json({ message: '查询子网失败', error: error.message }); }

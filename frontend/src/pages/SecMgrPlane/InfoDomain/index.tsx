@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Divider,
-  Drawer,
   Form,
   Input,
   message,
@@ -14,11 +13,14 @@ import {
   Tag,
   Tooltip,
   Dropdown,
+  Popover,
+Checkbox,
   Steps,
   Radio,
+  Descriptions,
 } from 'antd';
 import type { MenuProps } from 'antd';
-import { PlusOutlined, ReloadOutlined, EllipsisOutlined, EnvironmentOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, EllipsisOutlined, EnvironmentOutlined, SettingOutlined, DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import '../../common/filters.css';
 import { vrApi } from '../../../services/vrApi';
@@ -36,16 +38,31 @@ export interface InfoDomain {
   type?: InfoDomainType;
   category?: string;
   subType?: string;
+  cloudId?: string;
+  vpcId?: string;
+  vpcMode?: 'existing' | 'new';
   provider?: string;
   region?: string;
   cidr4?: string[];
   cidr6?: string[];
+  cidr?: string;
+  newVpcCidr?: string;
   vrUuid?: string;
   vrName?: string;
   tags?: string[];
   description?: string;
   status?: InfoDomainStatus;
   createdAt?: string;
+  updatedAt?: string;
+  vrInstanceIds?: string;
+  vrPublicEniIds?: string;
+  vrPublicEip?: string;
+  vrPublicIp?: string;
+  vrPrivateIp?: string;
+  vrPublicSubnetCidr?: string;
+  vrPrivateSubnetCidr?: string;
+  resourcePool?: string;
+  purpose?: string;
 }
 
 interface InfoDomainForm extends InfoDomain {}
@@ -108,8 +125,36 @@ const InfoDomainPage: React.FC = () => {
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailData, setDetailData] = useState<InfoDomain | null>(null);
+  const [resourcePoolMap, setResourcePoolMap] = useState<Record<string, string>>({});
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
   const initializedRef = useRef(false);
+  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({
+    name: true,
+    category: true,
+    providerRegion: true,
+    source: true,
+    cidr4: true,
+    cidr6: false,
+    tags: false,
+    vr: true,
+    status: true,
+    createdAt: true,
+    actions: true,
+  });
+  const columnLabels: Record<string, string> = {
+    name: '名称',
+    category: '分类',
+    providerRegion: '云厂商/地域',
+    source: '网络来源',
+    cidr4: 'IPv4 CIDR',
+    cidr6: 'IPv6 CIDR',
+    tags: '标签',
+    vr: '绑定 VR 实例',
+    status: '状态',
+    createdAt: '创建时间',
+    actions: '操作',
+  };
 
   const loadVRList = async () => {
     setVrLoading(true);
@@ -137,11 +182,34 @@ const InfoDomainPage: React.FC = () => {
     }
   };
 
+  const fetchResourcePools = async () => {
+    try {
+      const res = await fetch('/api/clouds', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const map: Record<string, string> = {};
+        if (Array.isArray(data)) {
+          data.forEach((c: any) => {
+            map[c.id] = c.name;
+          });
+        }
+        setResourcePoolMap(map);
+      }
+    } catch (e) {
+      console.error('Failed to load resource pools', e);
+    }
+  };
+
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
       loadVRList();
       reloadDomains();
+      fetchResourcePools();
     }
   }, []);
 
@@ -156,13 +224,25 @@ const InfoDomainPage: React.FC = () => {
         try {
           const res = await fetchCloudProviderVpcs(cid);
           const raw = (res?.data || res || []);
-          vpcCache[cid] = Array.isArray(raw?.vpcs) ? raw.vpcs : Array.isArray(raw?.Vpcs) ? raw.Vpcs : Array.isArray(raw?.list) ? raw.list : (Array.isArray(raw) ? raw : []);
+          const items =
+            Array.isArray(raw?.Vpcs?.Vpc) ? raw.Vpcs.Vpc
+            : Array.isArray(res?.Vpcs?.Vpc) ? res.Vpcs.Vpc
+            : Array.isArray(raw?.vpcs?.vpcs) ? raw.vpcs.vpcs
+            : Array.isArray(raw?.vpcs) ? raw.vpcs
+            : Array.isArray(res?.vpcs) ? res.vpcs
+            : Array.isArray(raw?.items) ? raw.items
+            : Array.isArray(res?.items) ? res.items
+            : Array.isArray(raw?.list) ? raw.list
+            : Array.isArray(res?.list) ? res.list
+            : (Array.isArray(raw) ? raw : []);
+          vpcCache[cid] = items;
         } catch (e) {
           vpcCache[cid] = [];
         }
       }
       const normalized: InfoDomain[] = (Array.isArray(list) ? list : []).map((item: any) => {
         let ipv4Cidrs: string[] = [];
+        let ipv6Cidrs: string[] = [];
         if (item.newVpcCidr) {
           ipv4Cidrs = [item.newVpcCidr];
         } else if (item.category === 'vpc' && item.vpcMode === 'existing' && item.cloudId && item.vpcId) {
@@ -170,6 +250,8 @@ const InfoDomainPage: React.FC = () => {
           const v = vpcs.find((x: any) => String(x?.VpcId || x?.id || x?.uuid || x?.vpcId || x?.vpc_id) === String(item.vpcId));
           const cidr = v?.CidrBlock || v?.Ipv4CidrBlock || v?.cidr || v?.Cidr || v?.VpcCidr || v?.CidrIpv4 || undefined;
           if (cidr) ipv4Cidrs = [String(cidr)];
+          const cidr6 = v?.Ipv6CidrBlock || v?.CidrIpv6 || v?.Ipv6Cidr || undefined;
+          if (cidr6) ipv6Cidrs = [String(cidr6)];
         } else if (item.cidr) {
           ipv4Cidrs = [String(item.cidr)];
         }
@@ -179,18 +261,37 @@ const InfoDomainPage: React.FC = () => {
           type: item.type,
           category: (item as any).category,
           subType: (item as any).subType,
+          cloudId: item.cloudId,
+          vpcId: item.vpcId,
+          vpcMode: item.vpcMode,
           provider: item.provider,
           region: item.region,
           cidr4: ipv4Cidrs,
-          cidr6: typeof (item as any).cidr6 === 'string'
-            ? (item as any).cidr6.split(',').map((s: string) => s.trim()).filter(Boolean)
-            : ((item as any).cidr6 || []),
+          cidr6: (() => {
+            if (ipv6Cidrs.length) return ipv6Cidrs;
+            if (typeof (item as any).cidr6 === 'string') {
+              return (item as any).cidr6.split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+            return ((item as any).cidr6 || []);
+          })(),
+          cidr: item.cidr,
+          newVpcCidr: item.newVpcCidr,
           vrUuid: item.vrUuid,
           vrName: item.vrName,
           tags: typeof item.tags === 'string' ? item.tags.split(',').map((s: string) => s.trim()).filter(Boolean) : (item.tags || []),
           description: item.description,
           status: item.status || 'active',
           createdAt: item.createdAt ? String(item.createdAt).slice(0,19).replace('T',' ') : undefined,
+          updatedAt: item.updatedAt ? String(item.updatedAt).slice(0,19).replace('T',' ') : undefined,
+          vrInstanceIds: item.vrInstanceIds,
+          vrPublicEniIds: item.vrPublicEniIds,
+          vrPublicEip: item.vrPublicEip,
+          vrPublicIp: item.vrPublicIp,
+          vrPrivateIp: item.vrPrivateIp,
+          vrPublicSubnetCidr: item.vrPublicSubnetCidr,
+          vrPrivateSubnetCidr: item.vrPrivateSubnetCidr,
+          resourcePool: item.resourcePool,
+          purpose: item.purpose,
           });
       });
       setDomains(normalized);
@@ -218,6 +319,27 @@ const InfoDomainPage: React.FC = () => {
   const forceRefresh = () => {
     loadVRList();
     message.success('已刷新');
+  };
+
+  const removeSelectedDomains = () => {
+    if (!selectedRowKeys.length) return;
+    const targets = domains.filter(d => selectedRowKeys.includes(d.id));
+    Modal.confirm({
+      title: '确认批量删除选中的信息域？',
+      content: `共 ${targets.length} 项：${targets.map(t => t.name).join('、')}`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        const results = await Promise.allSettled(targets.map(t => deleteInfoDomain(t.id)));
+        const success = results.filter(r => r.status === 'fulfilled').length;
+        const failed = results.length - success;
+        if (success) message.success(`已删除 ${success} 项${failed ? `，失败 ${failed} 项` : ''}`);
+        else message.error('删除失败');
+        setSelectedRowKeys([]);
+        reloadDomains();
+      },
+    });
   };
 
   const openDetail = (record: InfoDomain) => {
@@ -308,7 +430,7 @@ const InfoDomainPage: React.FC = () => {
       render: (text: string, record: InfoDomain) => (
         <Space direction="vertical" size={0}>
           <span style={{ fontWeight: 400 }}>{text}</span>
-          <span style={{ color: '#8c8c8c', fontSize: 12 }}>{record.description || '—'}</span>
+          {record.description ? <span style={{ color: '#8c8c8c', fontSize: 12 }}>{record.description}</span> : null}
         </Space>
       ),
     },
@@ -319,12 +441,12 @@ const InfoDomainPage: React.FC = () => {
         const cls = getDomainClass(r);
         const major = netClassLabel(cls);
         const color = netClassColor(cls);
-        const subtype = r.subType || '—';
+        const subtype = String(r.subType || '').trim();
         return (
           <Space size={4}>
             <Tag color={color}>{major}</Tag>
-            <span style={{ color: '#8c8c8c' }}>/</span>
-            <Tag>{subtype}</Tag>
+            {subtype ? (<span style={{ color: '#8c8c8c' }}>/</span>) : null}
+            {subtype ? (<Tag>{subtype}</Tag>) : null}
           </Space>
         );
       },
@@ -332,21 +454,48 @@ const InfoDomainPage: React.FC = () => {
     {
       title: '云厂商/地域',
       key: 'providerRegion',
-      render: (_: any, r: InfoDomain) => (
-        <span>{r.provider || '—'}{r.region ? ` / ${r.region}` : ''}</span>
-      ),
+      render: (_: any, r: InfoDomain) => {
+        const provider = String(r.provider || '').trim();
+        const region = String(r.region || '').trim();
+        if (provider && region) return <span>{provider} / {region}</span>;
+        if (provider) return <span>{provider}</span>;
+        if (region) return <span>{region}</span>;
+        return '';
+      },
+    },
+    {
+      title: '网络来源',
+      key: 'source',
+      render: (_: any, r: InfoDomain) => {
+        if (r.category === 'vpc') {
+          const modeText = r.vpcMode === 'existing' ? '已有VPC' : (r.vpcMode === 'new' ? '新建VPC' : 'VPC');
+          return (
+            <Space size={4}>
+              <Tag color="blue">{modeText}</Tag>
+              <span style={{ color: '#8c8c8c' }}>{r.vpcId || ''}</span>
+            </Space>
+          );
+        }
+        return '';
+      },
     },
     {
       title: 'IPv4 CIDR',
       dataIndex: 'cidr4',
       key: 'cidr4',
-      render: (list: string[] = []) => list.length ? list.map((c, idx) => <Tag key={idx}>{c}</Tag>) : '—',
+      render: (list: string[] = []) => list.length ? list.map((c, idx) => <Tag key={idx}>{c}</Tag>) : '',
     },
     {
       title: 'IPv6 CIDR',
       dataIndex: 'cidr6',
       key: 'cidr6',
-      render: (list: string[] = []) => list.length ? list.map((c, idx) => <Tag key={idx}>{c}</Tag>) : '—',
+      render: (list: string[] = []) => list.length ? list.map((c, idx) => <Tag key={idx}>{c}</Tag>) : '',
+    },
+    {
+      title: '标签',
+      dataIndex: 'tags',
+      key: 'tags',
+      render: (list: string[] = []) => list.length ? list.map((t, idx) => <Tag key={idx}>{t}</Tag>) : '',
     },
     {
       title: '绑定 VR 实例',
@@ -393,15 +542,15 @@ const InfoDomainPage: React.FC = () => {
       },
     },
   ];
+  const displayColumns = useMemo(() => {
+    return (columns as any[]).filter((c) => visibleCols[String(c.key)] !== false);
+  }, [columns, visibleCols]);
 
   return (
     <PageContainer
-      title="信息域管理"
       titleLevel={3}
-      subtitle="信息域代表用户私有网络（IDC/VPC/办公网络）。通过 VR 实例之间建立的 SRv6 隧道或 IPsec 隧道，实现不同信息域之间的互联通信。"
       asCard={false}
     >
-      <Divider style={{ margin: '0 0 20px 0' }} />
       <div className="filters-row filters-row--compact">
         <Form
           className="filter-tools filter-tools--center"
@@ -442,20 +591,55 @@ const InfoDomainPage: React.FC = () => {
           </Form.Item>
         </Form>
         <Space className="filter-actions">
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/admin/sec-mgr-plane/info-domain/new')}>新建</Button>
-          <Button icon={<ReloadOutlined />} onClick={forceRefresh}>刷新</Button>
+          <Button type="primary" onClick={() => navigate('/admin/sec-mgr-plane/info-domain/new')}>新建信息域</Button>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'refresh', label: '刷新' },
+                { key: 'bulkDel', label: '批量删除', disabled: selectedRowKeys.length === 0 },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'refresh') return forceRefresh();
+                if (key === 'bulkDel') return removeSelectedDomains();
+              },
+            }}
+            trigger={['click']}
+          >
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
+          <Popover
+            placement="bottomRight"
+            trigger="click"
+            content={
+              <div style={{ minWidth: 220 }}>
+                {['name','category','providerRegion','source','cidr4','cidr6','tags','vr','status','createdAt'].map((k) => (
+                  <div key={k} style={{ marginBottom: 6 }}>
+                    <Checkbox
+                      checked={visibleCols[k] !== false}
+                      onChange={(e) => setVisibleCols((prev) => ({ ...prev, [k]: e.target.checked }))}
+                    >
+                      {columnLabels[k]}
+                    </Checkbox>
+                  </div>
+                ))}
+              </div>
+            }
+          >
+            <Button icon={<SettingOutlined />} />
+          </Popover>
         </Space>
       </div>
-
-      <Divider dashed style={{ margin: '12px 0' }} />
-
       <Table
         bordered
         className="vr-table"
         rowKey="id"
         loading={loading}
         dataSource={filteredDomains}
-        columns={columns as any}
+        columns={displayColumns as any}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+        }}
         pagination={{ pageSize: 8, showSizeChanger: true, pageSizeOptions: ['8', '16', '32'] }}
       />
 
@@ -506,6 +690,90 @@ const InfoDomainPage: React.FC = () => {
             <Select mode="tags" tokenSeparators={[',', ' ']} placeholder="如：prod,east,office" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="信息域详情"
+        width={1000}
+        onCancel={() => setDetailOpen(false)}
+        open={detailOpen}
+        footer={<Button onClick={() => setDetailOpen(false)}>关闭</Button>}
+      >
+        {detailData && (
+          <Descriptions column={2} bordered size="small">
+            <Descriptions.Item label="名称">{detailData.name}</Descriptions.Item>
+            <Descriptions.Item label="ID">{detailData.id}</Descriptions.Item>
+            <Descriptions.Item label="状态">
+              <Tag color={detailData.status === 'active' ? 'geekblue' : 'default'}>
+                {detailData.status === 'active' ? '启用' : '停用'}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label={
+              <span>
+                分类
+                <Tooltip title="网络架构类型，区分VPC网络与扁平网络">
+                  <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.45)' }} />
+                </Tooltip>
+              </span>
+            }>
+              {(() => {
+                const cls = getDomainClass(detailData);
+                const major = netClassLabel(cls);
+                const color = netClassColor(cls);
+                return (
+                  <Space size={4}>
+                    <Tag color={color}>{major}</Tag>
+                    {detailData.subType && <Tag>{detailData.subType}</Tag>}
+                    {detailData.type && <Tag>{detailData.type}</Tag>}
+                  </Space>
+                );
+              })()}
+            </Descriptions.Item>
+            <Descriptions.Item label="云厂商/地域">
+              {detailData.provider} {detailData.region ? `/ ${detailData.region}` : ''}
+            </Descriptions.Item>
+            <Descriptions.Item label={
+              <span>
+                资源池
+                <Tooltip title={detailData.cloudId ? `资源池 ID: ${detailData.cloudId}` : '所属云平台或资源池'}>
+                  <QuestionCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.45)' }} />
+                </Tooltip>
+              </span>
+            }>
+              {detailData.cloudId ? (resourcePoolMap[detailData.cloudId] || detailData.cloudId) : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="VPC ID">{detailData.vpcId || '-'}</Descriptions.Item>
+            <Descriptions.Item label="IPv4 CIDR" span={2}>
+              {(() => {
+                const list = new Set<string>();
+                if (detailData.cidr) list.add(detailData.cidr);
+                if (detailData.cidr4 && Array.isArray(detailData.cidr4)) detailData.cidr4.forEach(c => list.add(c));
+                const arr = Array.from(list);
+                return arr.length > 0 ? arr.map((c, i) => <Tag key={i}>{c}</Tag>) : '-';
+              })()}
+            </Descriptions.Item>
+            <Descriptions.Item label="IPv6 CIDR" span={2}>
+              {(detailData.cidr6 || []).length > 0 ? (detailData.cidr6 || []).map((c, i) => <Tag key={i}>{c}</Tag>) : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="VR 实例">
+              {detailData.vrName ? <Tag color="geekblue">{detailData.vrName}</Tag> : '未绑定'}
+            </Descriptions.Item>
+            <Descriptions.Item label="VR UUID">{detailData.vrUuid || '-'}</Descriptions.Item>
+            <Descriptions.Item label="VR 实例 ID">{detailData.vrInstanceIds || '-'}</Descriptions.Item>
+            <Descriptions.Item label="公网 ENI ID">{detailData.vrPublicEniIds || '-'}</Descriptions.Item>
+            <Descriptions.Item label="公网 EIP">{detailData.vrPublicEip || '-'}</Descriptions.Item>
+            <Descriptions.Item label="公网 IP">{detailData.vrPublicIp || '-'}</Descriptions.Item>
+            <Descriptions.Item label="私网 IP">{detailData.vrPrivateIp || '-'}</Descriptions.Item>
+            <Descriptions.Item label="公网子网 CIDR">{detailData.vrPublicSubnetCidr || '-'}</Descriptions.Item>
+            <Descriptions.Item label="私网子网 CIDR">{detailData.vrPrivateSubnetCidr || '-'}</Descriptions.Item>
+            <Descriptions.Item label="标签" span={2}>
+              {(detailData.tags || []).length > 0 ? (detailData.tags || []).map((t, i) => <Tag key={i}>{t}</Tag>) : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="用途说明" span={2}>{detailData.description || '-'}</Descriptions.Item>
+            <Descriptions.Item label="创建时间">{detailData.createdAt || '-'}</Descriptions.Item>
+            <Descriptions.Item label="更新时间">{detailData.updatedAt || '-'}</Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </PageContainer>
   );

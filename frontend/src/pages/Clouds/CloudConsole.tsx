@@ -8,7 +8,7 @@ import '../common/filters.css';
 import './CloudConsole.css';
 
 type CloudItem = { id: string; name: string; region?: string; type?: string; config?: any; status?: string };
-const SUPPORTED_PROVIDERS = ['aliyun','huaweicloud','harvester','cloudmap'];
+const SUPPORTED_PROVIDERS = ['aliyun','huaweicloud','harvester','cloudmap','csm'];
 
 const statusMark = (raw: any) => {
   const v = String(raw || '').toLowerCase();
@@ -71,7 +71,7 @@ const CloudConsolePage: React.FC = () => {
         filterForm.setFieldsValue({ cloudId: 'all' });
       }
       if (filtered.length === 0) {
-        setError('当前仅支持阿里云/华为云/腾讯云/Harvester/Cloudmap，请先在“资源池管理”中创建并配置对应云账号');
+        setError('当前仅支持阿里云/华为云/腾讯云/Harvester/CSM，请先在“资源池管理”中创建并配置对应云账号');
       }
     } catch (e) {
       // ignore
@@ -105,7 +105,7 @@ const CloudConsolePage: React.FC = () => {
           }
         }
         const list: any[] = Array.isArray(json?.data) ? json.data : [];
-        const defaultCaps2 = (provider === 'harvester' || provider === 'cloudmap') ? {
+        const defaultCaps2 = (provider === 'harvester' || provider === 'cloudmap' || provider === 'csm') ? {
           isHarvester: true,
           supportsInstanceType: false,
           supportsZone: false,
@@ -142,7 +142,7 @@ const CloudConsolePage: React.FC = () => {
         rawList = json?.data?.Instances?.Instance || [];
       }
       const list: any[] = Array.isArray(rawList) ? rawList : [];
-      const defaultCaps = (provider === 'harvester' || provider === 'cloudmap') ? {
+      const defaultCaps = (provider === 'harvester' || provider === 'cloudmap' || provider === 'csm') ? {
         isHarvester: true,
         supportsInstanceType: false,
         supportsZone: false,
@@ -186,7 +186,7 @@ const CloudConsolePage: React.FC = () => {
     const cid = currentCloudId;
     const pv = provider;
     if (!cid || cid === 'all') return;
-    if (!(pv.includes('harvester') || pv.includes('cloudmap') || pv.includes('aliyun') || pv.includes('huaweicloud'))) return;
+    if (!(pv.includes('harvester') || pv.includes('cloudmap') || pv.includes('csm') || pv.includes('aliyun') || pv.includes('huaweicloud'))) return;
     try {
       const url = `${API_BASE_URL}/api/clouds/${encodeURIComponent(cid)}/resources/ecs/stream${(() => { const t = localStorage.getItem('token'); return t ? `?token=${encodeURIComponent(t)}` : ''; })()}`;
       const es = new EventSource(url);
@@ -253,7 +253,7 @@ const CloudConsolePage: React.FC = () => {
     };
     const providerText = (c: CloudItem): string => {
       const p = String(c?.config?.provider || '').toLowerCase();
-      return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || (p === 'cloudmap-security' && 'Cloudmap') || (c?.config?.provider || '未知厂商');
+      return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'CSM') || (p === 'csm' && 'CSM') || (p === 'cloudmap-security' && 'CSM') || (c?.config?.provider || '未知厂商');
     };
     const typeIcon = (type?: string): React.ReactNode => {
       const t = String(type || '').toLowerCase();
@@ -426,7 +426,7 @@ const CloudConsolePage: React.FC = () => {
         const hit = [String(name).toLowerCase(), String(ns).toLowerCase(), String(nodeName).toLowerCase()].some(v => v.includes(kw));
         if (!hit) return false;
       }
-      if (provider === 'harvester' || provider === 'cloudmap') {
+      if (provider === 'harvester' || provider === 'cloudmap' || provider === 'csm') {
         if (nsFilter !== 'all' && ns !== nsFilter) return false;
         if (nodeFilter !== 'all' && nodeName !== nodeFilter) return false;
       }

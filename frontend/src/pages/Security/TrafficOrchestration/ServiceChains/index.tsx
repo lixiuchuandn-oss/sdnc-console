@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Space, Tag, Modal, Form, Input, Select, Card, message } from 'antd';
+import { Space, Tag, Modal, Form, Input, Select, Card, message, Button } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import ReactFlow, {
   Controls,
@@ -8,6 +8,7 @@ import ReactFlow, {
 import 'react-flow-renderer/dist/style.css';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchServiceChains, deleteServiceChain } from '../../../../services/trafficOrchestration';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 
 interface ServiceChainRow {
   id: string;
@@ -31,6 +32,7 @@ const ServiceChains: React.FC = () => {
   const [currentChain, setCurrentChain] = useState<ServiceChainRow | null>(null);
   const [data, setData] = useState<ServiceChainRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
   // Filter State
   const [filterForm] = Form.useForm();
@@ -40,7 +42,33 @@ const ServiceChains: React.FC = () => {
     setLoading(true);
     try {
       const list = await fetchServiceChains(filters);
-      setData(list);
+      const normalize = (items: any[]) => {
+        return items.map((r: any) => {
+          const hasId = !!String(r?.id || '');
+          const id = hasId ? String(r.id) : `demo-${Date.now()}`;
+          const name = String(r?.name || '').trim() || `未命名服务链-${id}`;
+          const clusterName = String(r?.clusterName || r?.clusterId || '').trim() || '-';
+          const tenant = r?.tenant ? { id: r.tenant.id, name: (String(r.tenant.name || '').trim() || String(r.tenant.id || '').trim() || '-') } : undefined;
+          const organization = r?.organization ? { id: r.organization.id, name: (String(r.organization.name || '').trim() || String(r.organization.id || '').trim() || '-') } : undefined;
+          return { ...r, id, name, clusterName, tenant, organization };
+        });
+      };
+      const listNorm = normalize(Array.isArray(list) ? list : []);
+      const applyFilters = (items: any[]) => {
+        const kw = String(filters?.keyword || '').trim();
+        const cl = String(filters?.cluster || '').trim();
+        const tp = String(filters?.type || '').trim();
+        const st = String(filters?.status || '').trim();
+        return items.filter((r: any) => {
+          if (kw && !String(r?.name || '').toLowerCase().includes(kw.toLowerCase())) return false;
+          if (cl && String(r?.clusterName || '') !== cl) return false;
+          if (tp && String(r?.type || '') !== tp) return false;
+          if (st && String(r?.status || '') !== st) return false;
+          return true;
+        });
+      };
+      const sorted = [...applyFilters(listNorm)].sort((a: any, b: any) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+      setData(sorted);
     } catch (e) {
       console.error(e);
       message.error('加载失败');
@@ -52,6 +80,31 @@ const ServiceChains: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [filters]);
+
+  const handleBatchDelete = async () => {
+    const ids = selectedRowKeys.map(k => String(k));
+    if (ids.length === 0) {
+      message.warning('请选择要删除的记录');
+      return;
+    }
+    Modal.confirm({
+      title: '确认批量删除',
+      content: `将删除 ${ids.length} 条服务链，是否继续？`,
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await Promise.allSettled(ids.map(id => deleteServiceChain(id)));
+          message.success('删除完成');
+          setSelectedRowKeys([]);
+          loadData();
+        } catch (e) {
+          message.error('删除失败');
+        }
+      },
+    });
+  };
 
   const columns = [
     { title: '序号', key: 'index', render: (_: any, __: any, index: number) => index + 1 },
@@ -91,19 +144,28 @@ const ServiceChains: React.FC = () => {
       title: '操作',
       key: 'action',
       render: (_: any, record: any) => (
-        <Space size="middle">
-          <a onClick={() => { setCurrentChain(record); setDetailOpen(true); }}>详情</a>
-          <a>编辑</a>
-          <a style={{ color: 'red' }} onClick={async () => {
-             try {
-               await deleteServiceChain(record.id);
-               message.success('删除成功');
-               loadData();
-             } catch(e) {
-               message.error('删除失败');
-             }
-          }}>删除</a>
-        </Space>
+        <ResourceActionsDropdown
+          items={[
+            { key: 'detail', label: '详情' },
+            { key: 'edit', label: '编辑' },
+            { key: 'delete', label: <span style={{ color: 'red' }}>删除</span> }
+          ]}
+          onClick={async ({ key }) => {
+            if (key === 'detail') {
+              setCurrentChain(record);
+              setDetailOpen(true);
+            } else if (key === 'edit') {
+            } else if (key === 'delete') {
+              try {
+                await deleteServiceChain(record.id);
+                message.success('删除成功');
+                loadData();
+              } catch (e) {
+                message.error('删除失败');
+              }
+            }
+          }}
+        />
       ),
     },
   ];
@@ -137,8 +199,9 @@ const ServiceChains: React.FC = () => {
           </Form.Item>
           <Form.Item name="cluster" label="所属集群" style={{ marginBottom: 0 }}>
             <Select placeholder="所属集群" style={{ width: 150 }} allowClear>
-              <Select.Option value="Cluster-A">Cluster-A</Select.Option>
-              <Select.Option value="Cluster-B">Cluster-B</Select.Option>
+              {Array.from(new Set((data || []).map((r:any)=> String(r?.clusterName || '').trim()).filter(Boolean))).map((name) => (
+                <Select.Option key={name} value={name}>{name}</Select.Option>
+              ))}
             </Select>
           </Form.Item>
           <Form.Item name="type" label="类型" style={{ marginBottom: 0 }}>
@@ -162,6 +225,7 @@ const ServiceChains: React.FC = () => {
       }}
       moreMenuItems={[
         { key: 'refresh', label: '刷新', onClick: loadData },
+        { key: 'batch-delete', label: <span style={{ color: 'red' }}>批量删除</span>, danger: true, disabled: selectedRowKeys.length === 0, onClick: handleBatchDelete },
       ]}
       defaultHiddenColumns={[]}
       tableProps={{
@@ -169,6 +233,10 @@ const ServiceChains: React.FC = () => {
         dataSource: data,
         loading,
         rowKey: "id",
+        rowSelection: {
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+        },
       }}
     >
       {/* Detail Modal with Topology */}

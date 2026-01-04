@@ -42,7 +42,6 @@ import AccessRolesPage from './pages/Access/Roles/index';
 import AccessActionsPage from './pages/Access/Actions/index';
 import AccessUsersPage from './pages/Access/Users/index';
 import VSWCluster from './pages/Security/TrafficOrchestration/VSWCluster';
-import SecurityZones from './pages/Security/TrafficOrchestration/SecurityZones';
 import ProtectedObjects from './pages/Security/TrafficOrchestration/ProtectedObjects';
 import ServiceChains from './pages/Security/TrafficOrchestration/ServiceChains';
 import CreateServiceChainWizard from './pages/Security/TrafficOrchestration/ServiceChains/CreateWizard';
@@ -130,7 +129,6 @@ const AppRoutes: React.FC = () => {
           
           {/* SSLO Traffic Orchestration */}
           <Route path="security/traffic/vsw" element={<VSWCluster />} />
-          <Route path="security/traffic/security-zones" element={<SecurityZones />} />
           <Route path="security/traffic/protected-objects" element={<ProtectedObjects />} />
           <Route path="security/traffic/service-chains" element={<ServiceChains />} />
           <Route path="security/traffic/service-chains/create" element={<CreateServiceChainWizard />} />

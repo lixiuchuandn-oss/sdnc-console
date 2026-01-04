@@ -1,58 +1,56 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import '../../common/filters.css';
-import { Breadcrumb, Typography, Card, Row, Col, Statistic, Table, Tag, Space as AntSpace, Button, Modal, Form, Input, message, Select, Drawer, Tabs, Badge, Collapse, Divider, Progress, Dropdown, Alert, Transfer } from 'antd';
-import TestChart from '../../../components/TestChart';
+import { Typography, Card, Row, Col, Table, Tag, Space as AntSpace, Button, Modal, Form, Input, message, Select, Badge, Divider, Dropdown, Descriptions } from 'antd';
 import PageContainer from '../../../components/PageContainer';
-import { HomeOutlined, GlobalOutlined, PlusOutlined, DeleteOutlined, LinkOutlined, CloudOutlined, DeploymentUnitOutlined, CheckOutlined, EnvironmentOutlined, SafetyOutlined, EllipsisOutlined, InfoCircleOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { 
+  GlobalOutlined, 
+  PlusOutlined, 
+  DeleteOutlined, 
+  LinkOutlined, 
+  GatewayOutlined, 
+  DeploymentUnitOutlined, 
+  PartitionOutlined, 
+  SafetyOutlined, 
+  EllipsisOutlined, 
+  EyeOutlined, 
+  ReloadOutlined,
+  SearchOutlined,
+  EnvironmentOutlined,
+  BranchesOutlined
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { fetchCens, createCen, deleteCen, attachVpcToCen, fetchTenants, fetchCenAttachments, detachVpcFromCen, fetchCloudProviderVpcs, fetchClouds } from '../../../services/api';
+import { fetchCens, createCen, deleteCen, attachVpcToCen, fetchTenants, fetchCenAttachments, detachVpcFromCen, fetchCloudProviderVpcs, fetchClouds, updateCen } from '../../../services/api';
 import { getDomainClass, netClassLabel, netClassColor } from '../../../utils/netClass';
 import { listInfoDomains } from '../../../services/infoDomainApi';
-import { ReactNode } from 'react';
+import ReactFlow, { Controls, Background, Handle, Position } from 'react-flow-renderer';
+import SharedToolbar from '../../../components/SharedToolbar';
 
-const StatCard:React.FC<{title:string;icon:ReactNode;color:string;value:number}> = ({title,icon,color,value})=> {
-  const bg = `${color}26`;
-  return (
-    <Card styles={{ body: { padding:20 } }} style={{ background:'#fff', borderRadius:8, border:'1px solid #f0f0f0' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-        <div style={{ width:48, height:48, borderRadius:'50%', background:bg, display:'flex', alignItems:'center', justifyContent:'center', color:color, fontSize:22 }}>
-          {icon}
-        </div>
-        <div style={{ lineHeight:1, flex:1 }}>
-          <div style={{ fontSize:24, fontWeight:600, color:'#333' }}>{value}</div>
-          <div style={{ fontSize:13, color:'#888', marginTop:4 }}>{title}</div>
-        </div>
-      </div>
-    </Card>
-  );
-};
-
-interface ResourceCardProps {title:string; total:number; partA:{label:string; value:number; color:string}; partB:{label:string; value:number; color:string}}
-
-const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;midLabel:string;midValue:number;mainColor:string}> = ({title,total,unit='',used,midLabel,midValue,mainColor})=>{
+import ResourceDetailContainer from '../../../components/ResourceDetailContainer';
+	
+const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;midLabel:string;midValue:number;mainColor:string;usedLabel?:string}> = ({title,total,unit='',used,midLabel,midValue,mainColor,usedLabel})=>{
   const remain = Math.max(total - used - midValue, 0);
   const percent = total ? (used / total) * 100 : 0;
   const trail = '#d8dee8';
   return (
-    <Card styles={{ body: { padding: 24 } }} style={{ borderRadius: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <span style={{ fontWeight: 600 }}>{title}</span>
-        <span style={{ color: '#8c8c8c' }}>总{unit} {total}{unit}</span>
+    <Card styles={{ body: { padding: 12 } }} style={{ borderRadius: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>{title}</span>
+        <span style={{ color: '#8c8c8c', fontSize: 12 }}>总{unit} {total}{unit}</span>
       </div>
-      <div style={{ height: 14, background: trail, borderRadius: 7, overflow: 'hidden', marginBottom: 12 }}>
+      <div style={{ height: 8, background: trail, borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
         <div style={{ width: `${percent}%`, height: '100%', background: mainColor }} />
       </div>
       <div style={{ display: 'flex' }}>
         {[
-          { label: '已用', value: used, color: mainColor },
+          { label: usedLabel || '已用', value: used, color: mainColor },
           { label: midLabel, value: midValue, color: '#8c8c8c' },
           ...(remain > 0 ? [{ label: '剩余', value: remain, color: '#8c8c8c' }] : [])
         ].map((m, i, arr) => (
-          <div key={i} style={{ flex: 1, padding: '12px 16px', background: '#fff', borderRight: i < arr.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, marginBottom: 2 }}>
-              <span style={{ width: 10, height: 10, background: m.color, borderRadius: 2 }} /> {m.label}
+          <div key={i} style={{ flex: 1, padding: '8px 12px', background: '#fff', borderRight: i < arr.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, marginBottom: 2 }}>
+              <span style={{ width: 8, height: 8, background: m.color, borderRadius: 2 }} /> {m.label}
             </div>
-            <div style={{ fontSize: 32, fontWeight: 700, color: '#1f1f1f', lineHeight: 1 }}>{m.value}{unit && <span style={{ fontSize: 14, color: '#8c8c8c', marginLeft: 4 }}>{unit}</span>}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: '#1f1f1f', lineHeight: 1 }}>{m.value}{unit && <span style={{ fontSize: 12, color: '#8c8c8c', marginLeft: 3 }}>{unit}</span>}</div>
           </div>
         ))}
       </div>
@@ -64,6 +62,9 @@ interface Cen {
   id: string;
   name: string;
   description?: string;
+  strategy?: string;
+  topology?: string;
+  hubId?: string;
   status: 'creating' | 'available';
   createdAt: string;
   tenantId: string;
@@ -71,9 +72,12 @@ interface Cen {
   loss?: number;
   latency?: number;
   sla?: number;
+  accessIp?: string;
+  publicIp?: string;
+  privateIp?: string;
 }
 
-  interface InfoDomainOption { id:string; name:string; type?:string; category?:string; subType?:string; vpcId?:string; provider?:string; region?:string; cloudId?:string; cidr?:string; cidr6?:string; vpcMode?:'existing'|'new' }
+interface InfoDomainOption { id:string; name:string; type?:string; category?:string; subType?:string; vpcId?:string; provider?:string; region?:string; cloudId?:string; cidr?:string; cidr6?:string; vrName?:string; vrUuid?:string; vrInstanceIds?:string; vrPublicEniIds?:string; vrPrivateEniIds?:string; vrPublicIp?:string; vrPublicEip?:string; vrPrivateIp?:string; vrPublicSubnetCidr?:string; vrPrivateSubnetCidr?:string }
 
 const CenPage: React.FC = () => {
   const [cens, setCens] = useState<Cen[]>([]);
@@ -86,14 +90,9 @@ const CenPage: React.FC = () => {
 
   const [attachModal, setAttachModal] = useState<{open:boolean; cenId?:string}>({open:false});
   const [domains, setDomains] = useState<InfoDomainOption[]>([]);
-  const [selectedDomainId, setSelectedDomainId] = useState<string | undefined>();
   const [drawer, setDrawer] = useState<{open:boolean; cen?:Cen; tab?:string}>({open:false});
 
-  const navigate = useNavigate();
-
   const [planeActive, setPlaneActive] = useState(0);
-  const [planeInactive, setPlaneInactive] = useState(0);
-  const [planeOverviewOpen, setPlaneOverviewOpen] = useState(false);
 
   const [attachmentCache, setAttachmentCache] = useState<{[k:string]:any[]}>({});
   const [filterForm] = Form.useForm();
@@ -107,6 +106,8 @@ const CenPage: React.FC = () => {
   const [domainTotal,setDomainTotal]=useState(0);
   const [attachedDomain,setAttachedDomain]=useState(0);
   const [attachedDomainUnique,setAttachedDomainUnique]=useState(0);
+  
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -147,7 +148,16 @@ const CenPage: React.FC = () => {
         const arr = await Promise.all((Array.isArray(clouds) ? clouds : []).map((c:any)=> fetchCloudProviderVpcs(String(c.id)).catch(()=>[])));
         const flat = ([] as any[]).concat(...arr.map((res:any)=> {
           const raw = res?.data || res || [];
-          return Array.isArray(raw?.vpcs) ? raw.vpcs : Array.isArray(raw?.Vpcs) ? raw.Vpcs : Array.isArray(raw?.list) ? raw.list : (Array.isArray(raw) ? raw : []);
+          if (Array.isArray(raw)) return raw;
+          if (Array.isArray((raw as any)?.Vpcs)) return (raw as any).Vpcs;
+          if (Array.isArray((raw as any)?.vpcs)) return (raw as any).vpcs;
+          if (Array.isArray((raw as any)?.Vpc)) return (raw as any).Vpc;
+          if (Array.isArray((raw as any)?.list)) return (raw as any).list;
+          if (Array.isArray((raw as any)?.items)) return (raw as any).items;
+          if (Array.isArray((res as any)?.data?.Vpcs?.Vpc)) return (res as any)?.data?.Vpcs?.Vpc;
+          if (Array.isArray((res as any)?.data?.vpcs)) return (res as any)?.data?.vpcs;
+          if (Array.isArray((res as any)?.data?.items)) return (res as any)?.data?.items;
+          return [];
         }));
         setVpcTotal(flat.length);
       } catch {
@@ -169,9 +179,18 @@ const CenPage: React.FC = () => {
           cloudId: d.cloudId,
           cidr: d.cidr,
           cidr6: d.cidr6,
-          vpcMode: d.vpcMode,
-        }));
-        setAllDomains(opts);
+          vrName: d.vrName,
+          vrUuid: d.vrUuid,
+          vrInstanceIds: d.vrInstanceIds,
+          vrPublicEniIds: d.vrPublicEniIds,
+          vrPrivateEniIds: d.vrPrivateEniIds,
+          vrPublicIp: d.vrPublicIp,
+          vrPublicEip: d.vrPublicEip,
+          vrPrivateIp: d.vrPrivateIp,
+          vrPublicSubnetCidr: d.vrPublicSubnetCidr,
+          vrPrivateSubnetCidr: d.vrPrivateSubnetCidr,
+      }));
+      setAllDomains(opts);
         setDomainTotal(opts.length);
       }catch{ setDomainTotal(0); }
       setAttachedDomain(attachedDomainTimes);
@@ -182,16 +201,10 @@ const CenPage: React.FC = () => {
 
   useEffect(()=>{ load(); }, []);
 
-  const statusTag = (s:Cen['status'])=>{
-    const map:any = { creating:'blue', available:'green' };
-    const txt:any = { creating:'创建中', available:'可用' };
-    return <Tag color={map[s]}>{txt[s]}</Tag>;
-  };
-
   const statusBadge = (s:Cen['status'])=>{
     const color = s==='available'? 'green': s==='creating'? 'blue':'default';
     const text = s==='available'? '可用':'创建中';
-    return <Badge color={color} text={text} />;
+    return <Badge color={color} text={<span style={{ fontSize: 13 }}>{text}</span>} />;
   };
 
   const tenantNameById = (id:string)=> tenants.find(t=>t.id===id)?.name || '-';
@@ -250,14 +263,15 @@ const CenPage: React.FC = () => {
 
   const [planeFilter, setPlaneFilter] = useState<string|undefined>();
   const [allDomains, setAllDomains] = useState<InfoDomainOption[]>([]);
-  const [planeModal, setPlaneModal] = useState<{open:boolean}>({ open:false });
-  const [planeCenId, setPlaneCenId] = useState<string|undefined>();
-  const [planeDomainIds, setPlaneDomainIds] = useState<string[]>([]);
-  const [planeSubmitting, setPlaneSubmitting] = useState<boolean>(false);
   const [planeAssignments, setPlaneAssignments] = useState<{[cenId:string]: {[attachId:string]: number}}>({});
   const [domainCache, setDomainCache] = useState<{[vpcId:string]: InfoDomainOption}>({});
   const [attachDomainIds, setAttachDomainIds] = useState<string[]>([]);
   const [attachPlaneIndex, setAttachPlaneIndex] = useState<number | undefined>();
+  const [channelStrategy, setChannelStrategy] = useState<{[cenId:string]:'SRv6'|'IPsec'}>({});
+
+  const [detailModal, setDetailModal] = useState<{ open: boolean; cen?: Cen; tab: string }>({ open: false, tab: 'domains' });
+  const [commKeyword, setCommKeyword] = useState('');
+  const [domainKeyword, setDomainKeyword] = useState('');
 
   const filteredCens = useMemo(()=>{
     return cens.filter(c=>{
@@ -284,29 +298,32 @@ const CenPage: React.FC = () => {
           provider: d.provider,
           region: d.region,
           cloudId: d.cloudId,
-          newVpcCidr: d.newVpcCidr,
           cidr: d.cidr,
           cidr6: d.cidr6,
-          vpcMode: d.vpcMode,
+          vrName: d.vrName,
+          vrUuid: d.vrUuid,
+          vrInstanceIds: d.vrInstanceIds,
+          vrPublicEniIds: d.vrPublicEniIds,
+          vrPrivateEniIds: d.vrPrivateEniIds,
+          vrPublicIp: d.vrPublicIp,
+          vrPublicEip: d.vrPublicEip,
+          vrPrivateIp: d.vrPrivateIp,
+          vrPublicSubnetCidr: d.vrPublicSubnetCidr,
+          vrPrivateSubnetCidr: d.vrPrivateSubnetCidr,
         }));
         setAllDomains(opts);
       }catch{}
     })();
   }, []);
 
-  const domainByVpc = (vpc:any): InfoDomainOption | undefined => {
-    if(!vpc) return undefined;
-    const cidr = String(vpc.cidrBlock||'').trim();
-    const vid = vpc.id ? String(vpc.id) : undefined;
-    if(vid && domainCache[vid]) return domainCache[vid];
-    if(vid){
-      const byId = allDomains.find(d=> String(d.vpcId||'')===vid);
-      if(byId) return byId;
+  useEffect(() => {
+    if (detailModal.open && detailModal.cen) {
+      const cid = detailModal.cen.id;
+      fetchCenAttachments(cid).then((list) => {
+        setAttachmentCache((prev) => ({ ...prev, [cid]: list }));
+      }).catch(() => {});
     }
-    const byCidr = allDomains.find(d=> String(d.cidr || d.cidr6 || '').trim() === cidr);
-    if(byCidr) return byCidr;
-    return allDomains.find(d=> String(d.name||'')===String(vpc.name||''));
-  };
+  }, [detailModal.open, detailModal.cen]);
 
   const domainOfAttachment = (att:any): InfoDomainOption | undefined => {
     if(!att) return undefined;
@@ -318,29 +335,35 @@ const CenPage: React.FC = () => {
     return undefined;
   };
 
+  const openDetailModal = (r: Cen, tab: string = 'domains') => {
+    console.log('openDetailModal called', r.id, tab);
+    setDetailModal({ open: true, cen: r, tab });
+  };
+
   const columns = [
     { title:'名称', dataIndex:'name', key:'name' },
     { title:'租户', dataIndex:'tenantId', key:'tenant', render:(tid:string)=>tenantNameById(tid) },
+    { title:'策略', dataIndex:'strategy', key:'strategy', render:(s:string)=><Tag color={s==='IPsec'?'cyan':'blue'}>{s||'SRv6'}</Tag> },
     { title:'状态', dataIndex:'status', key:'status', render:(s:Cen['status'])=>statusBadge(s) },
     { title:'丢包率', dataIndex:'loss', key:'loss', render:(v:number)=> v!==undefined? <Tag color={v<1?'green':v<3?'orange':'red'}>{v?.toFixed(2)}%</Tag>:'--' },
     { title:'延迟', dataIndex:'latency', key:'latency', render:(v:number)=> v? <Tag color={v<50?'green':v<100?'orange':'red'}>{v}ms</Tag>:'--' },
-    { title:'SLA', dataIndex:'sla', key:'sla', render:(v:number)=> v? <Tag color={v>99?'green':v>95?'orange':'red'}>{v}%</Tag>:'--', onCell:(r:any)=>({onClick:()=>openDrawer(r,'metrics')}) },
-    { title:'安全面', key:'planes', render:(_:any, r:Cen)=>{ const { total, active } = planeStatsByAttachCount(r.attachCount||0); return <Tag color={active>0?'green':'default'}>{`${active}/${total}`}</Tag>; }, onCell:(r:any)=>({onClick:()=>openDrawer(r,'security')}) },
-    { title:'已挂载信息域', dataIndex:'attachCount', key:'cnt', render:(v:number,r:Cen)=>(<a onClick={()=>openDrawer(r)}>{v||0}</a>) },
+    { title:'SLA', dataIndex:'sla', key:'sla', render:(v:number)=> v? <Tag color={v>99?'green':v>95?'orange':'red'}>{v}%</Tag>:'--', onCell:(r:any)=>({onClick:()=>openDetailModal(r,'metrics')}) },
+    { title:'级联通道', key:'planes', render:(_:any, r:Cen)=>{ const { total, active } = planeStatsByAttachCount(r.attachCount||0); return <Tag color={active>0?'green':'default'}>{`${active}/${total}`}</Tag>; }, onCell:(r:any)=>({onClick:()=>openDetailModal(r,'topology')}) },
+    { title:'已挂载信息域', dataIndex:'attachCount', key:'cnt', render:(v:number,r:Cen)=>(<a onClick={()=>openDetailModal(r,'domains')}>{v||0}</a>) },
     { title:'创建时间', dataIndex:'createdAt', key:'time' },
     { title:'操作', key:'act', render:(_:any, r:Cen)=>{
       const items = [
             { key:'view', label:(<span>查看详情</span>), icon:<EyeOutlined /> },
             { key:'attach', label:(<span>挂载信息域</span>), icon:<LinkOutlined /> },
-            { key:'security', label:(<span>打开安全面</span>), icon:<SafetyOutlined /> },
         { type:'divider' as any },
-            { key:'delete', label:(<span>删除切片</span>), icon:<DeleteOutlined />, danger:true },
+            { key:'delete', label:(<span>删除级联通道</span>), icon:<DeleteOutlined />, danger:true },
+            { key:'forceDelete', label:(<span>强制删除（释放挂载）</span>), icon:<DeleteOutlined />, danger:true },
       ];
       const onMenuClick = ({ key }:{ key:string })=>{
-        if(key==='view') return openDrawer(r);
+        if(key==='view') return openDetailModal(r);
         if(key==='attach') return openAttachModal(r.id);
-        if(key==='security') return openDrawer(r,'security');
         if(key==='delete') return handleDelete(r.id);
+        if(key==='forceDelete') return handleForceDelete(r.id);
       };
       return (
         <Dropdown menu={{ items, onClick:onMenuClick }} trigger={["click"]}>
@@ -350,22 +373,26 @@ const CenPage: React.FC = () => {
     } },
   ];
 
-  const openDrawer = (r: Cen, tab?: string) => {
-    setDrawer({ open: true, cen: r, tab });
-  };
+
 
   const handleCreate = async (vals:any) => {
     try {
       await createCen(vals);
-      message.success('CEN 创建中');
+      message.success('级联通道创建中');
       setModalVisible(false); form.resetFields();
       load();
     } catch(err){ message.error('创建失败'); }
   };
 
   const handleDelete = (id:string)=>{
-    Modal.confirm({ title:'确认删除该 CEN ?', onOk:async ()=>{
+    Modal.confirm({ title:'确认删除该级联通道？', onOk:async ()=>{
       try { await deleteCen(id); message.success('删除成功'); load(); } catch(err){ message.error('删除失败'); }
+    }});
+  };
+
+  const handleForceDelete = (id:string)=>{
+    Modal.confirm({ title:'确认强制删除该级联通道？', content:'将释放所有已挂载信息域（不删除信息域本身），并删除级联通道。', okText:'强制删除', onOk:async ()=>{
+      try { const { forceDeleteCen } = await import('../../../services/api'); await forceDeleteCen(id); message.success('已强制删除并释放挂载'); load(); } catch(err){ message.error('强制删除失败'); }
     }});
   };
 
@@ -384,10 +411,18 @@ const CenPage: React.FC = () => {
         provider: d.provider,
         region: d.region,
         cloudId: d.cloudId,
-          newVpcCidr: d.newVpcCidr,
           cidr: d.cidr,
           cidr6: d.cidr6,
-          vpcMode: d.vpcMode,
+          vrName: d.vrName,
+          vrUuid: d.vrUuid,
+          vrInstanceIds: d.vrInstanceIds,
+          vrPublicEniIds: d.vrPublicEniIds,
+          vrPrivateEniIds: d.vrPrivateEniIds,
+          vrPublicIp: d.vrPublicIp,
+          vrPublicEip: d.vrPublicEip,
+          vrPrivateIp: d.vrPrivateIp,
+          vrPublicSubnetCidr: d.vrPublicSubnetCidr,
+          vrPrivateSubnetCidr: d.vrPrivateSubnetCidr,
       }));
       setDomains(opts);
     }catch(err){}
@@ -400,8 +435,8 @@ const CenPage: React.FC = () => {
 
   const handleAttach = async ()=>{
     const cenId = attachModal.cenId;
-    if(!cenId){ message.warning('请选择网络切片'); return; }
-    if(!attachPlaneIndex && attachPlaneIndex!==0){ message.warning('请选择目标安全管理面'); return; }
+    if(!cenId){ message.warning('请选择级联通道'); return; }
+    if(!attachPlaneIndex && attachPlaneIndex!==0){ message.warning('请选择目标级联通道'); return; }
     if(!attachDomainIds.length){ message.warning('请选择至少一个信息域'); return; }
     let ok=0, fail=0;
     const newlyAttachedDomainIds: string[] = [];
@@ -431,98 +466,463 @@ const CenPage: React.FC = () => {
     load();
   };
 
-  const expandedRowRender = (record:Cen)=>{
-    const list = attachmentCache[record.id]||[];
-    if(!list.length) return <Tag color="warning">暂无挂载</Tag>;
-    const planes = groupPlanes(list.filter((l:any)=>l.status==='attached'), planeAssignments[record.id]);
+  const renderOverview = () => {
+    if (!detailModal.cen) return null;
+    const r = detailModal.cen;
+    const { total, active } = planeStatsByAttachCount(r.attachCount || 0);
     return (
-      <div style={{ background:'#fafafa', padding:12, borderRadius:6 }}>
-        <div style={{ display:'flex', alignItems:'center', marginBottom:8 }}>
-          <EnvironmentOutlined style={{ marginRight:6, color:'#1677ff' }} />
-          <span style={{ fontWeight:'normal' }}>信息域</span>
-        </div>
-        <Row gutter={[12,12]}>
-          {list.map((att:any)=>(
-            <Col xs={24} sm={12} md={6} key={att.id}>
-              <Card size="small" title={(() => {
-                const dom = domainOfAttachment(att);
-                const title = dom?.name || att.vpcName || att.vpcId;
-                const cls = getDomainClass({ category: dom?.category, subType: dom?.subType });
-                return (
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                    <span>{title}</span>
-                    {dom && <Tag color={netClassColor(cls)}>{netClassLabel(cls)}</Tag>}
-                  </div>
-                );
-              })()}
-                extra={att.status==='attached' ? (<Button size="small" danger type="link" onClick={async()=>{ try{ await detachVpcFromCen(record.id, att.vpcId); message.success('已解除挂载'); load(); }catch{ message.error('解除失败'); } }}>解除</Button>) : undefined}
-               >
-                <div style={{ fontSize:12, color:'#888' }}>
-                  <div>VPC：{att.vpcName || att.vpcId || '-'}</div>
-                  <div>状态：{att.status || '-'}</div>
-                </div>
-              </Card>
-            </Col>
-          ))}
-        </Row>
-      </div>
+      <Descriptions bordered size="small" column={3} style={{ marginBottom: 16 }}>
+        <Descriptions.Item label="名称">{r.name}</Descriptions.Item>
+        <Descriptions.Item label="租户">{tenantNameById(r.tenantId)}</Descriptions.Item>
+        <Descriptions.Item label="创建时间">{r.createdAt}</Descriptions.Item>
+        <Descriptions.Item label="策略">
+            <Tag color={r.strategy === 'IPsec' ? 'cyan' : 'geekblue'}>{r.strategy || 'SRv6'}</Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="状态">{statusBadge(r.status)}</Descriptions.Item>
+        <Descriptions.Item label="接入地址">
+            {r.accessIp || r.publicIp || r.privateIp || '--'}
+        </Descriptions.Item>
+        <Descriptions.Item label="级联通道">
+            <Tag color={active > 0 ? 'green' : 'default'}>{`${active}/${total}`}</Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="丢包率">
+            {r.loss !== undefined ? <Tag color={r.loss < 1 ? 'green' : r.loss < 3 ? 'orange' : 'red'}>{r.loss.toFixed(2)}%</Tag> : '--'}
+        </Descriptions.Item>
+        <Descriptions.Item label="延迟">
+            {r.latency ? <Tag color={r.latency < 50 ? 'green' : r.latency < 100 ? 'orange' : 'red'}>{r.latency}ms</Tag> : '--'}
+        </Descriptions.Item>
+        <Descriptions.Item label="SLA">
+            {r.sla ? <Tag color={r.sla > 99 ? 'green' : r.sla > 95 ? 'orange' : 'red'}>{r.sla}%</Tag> : '--'}
+        </Descriptions.Item>
+      </Descriptions>
     );
+  };
+
+  const renderDetailContent = () => {
+    if (!detailModal.cen) return [];
+    const record = detailModal.cen;
+    const list = attachmentCache[record.id]||[];
+    // 为了演示效果更佳，attaching 状态也参与通信关系计算
+    const attached = list.filter((l:any)=>l.status==='attached' || l.status==='attaching');
+    const filteredList = list.filter((att: any) => {
+      if (!domainKeyword) return true;
+      const kw = domainKeyword.toLowerCase();
+      const dom = domainOfAttachment(att);
+      const title = dom?.name || att.vpcName || att.vpcId || '';
+      const id = dom?.id || att.id || '';
+      return title.toLowerCase().includes(kw) || String(id).toLowerCase().includes(kw);
+    });
+    const topo = record.topology || 'Mesh';
+    const strat = record.strategy || 'SRv6';
+    const hubId = record.hubId;
+
+    let doms = attached.map((att:any)=>({ att, dom: domainOfAttachment(att) })).filter(x=>!!x.dom);
+    if (topo === 'Hub-Spoke') {
+      // 如果选了 Hub，将其排到第一位；未选则默认第一个为 Hub
+      const idx = hubId ? doms.findIndex((d:any) => String(d.dom!.id) === hubId) : 0;
+      if (idx > -1 && idx < doms.length) {
+        const [hub] = doms.splice(idx, 1);
+        doms.unshift(hub);
+      }
+    }
+
+    return [
+      {
+        key: 'domains',
+        label: '信息域',
+        icon: <EnvironmentOutlined />,
+        children: (
+          <div>
+            <SharedToolbar
+              left={<Input placeholder="请输入信息域名称/ID" allowClear value={domainKeyword} onChange={e => setDomainKeyword(e.target.value)} style={{ width: 220 }} prefix={<SearchOutlined style={{ color: '#ccc' }} />} />}
+              right={
+                <AntSpace>
+                  <Button icon={<ReloadOutlined />} onClick={() => {
+                    if (detailModal.cen) {
+                      fetchCenAttachments(detailModal.cen.id).then((l) => {
+                        setAttachmentCache((prev) => ({ ...prev, [detailModal.cen!.id]: l }));
+                        message.success('刷新成功');
+                      });
+                    }
+                  }} />
+                  <Button type="primary" icon={<LinkOutlined />} onClick={() => openAttachModal(record.id)}>挂载信息域</Button>
+                </AntSpace>
+              }
+            />
+            <Table
+              size="small"
+              rowKey="id"
+              dataSource={filteredList}
+            pagination={false}
+            columns={[
+              {
+                title: '信息域',
+                key: 'info',
+                render: (_: any, r: any) => {
+                  const dom = domainOfAttachment(r);
+                  const title = dom?.name || r.vpcName || r.vpcId;
+                  const cls = getDomainClass({ category: dom?.category, subType: dom?.subType });
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontWeight: 500 }}>{title}</span>
+                        {dom && <Tag color={netClassColor(cls)} style={{ margin: 0, fontSize: 10, lineHeight: '18px' }}>{netClassLabel(cls)}</Tag>}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#888' }}>{dom?.id || '-'}</div>
+                    </div>
+                  );
+                }
+              },
+              {
+                title: 'VPC / CIDR',
+                key: 'vpc',
+                render: (_: any, r: any) => {
+                  const dom = domainOfAttachment(r);
+                  return (
+                    <div style={{ fontSize: 12 }}>
+                      <div>{dom?.vpcId || r.vpcId || '-'}</div>
+                      <div style={{ color: '#888' }}>{dom?.cidr || r.vpcCidr || '-'}</div>
+                      {dom?.cidr6 && <div style={{ color: '#888' }}>{dom.cidr6}</div>}
+                    </div>
+                  );
+                }
+              },
+              {
+                title: '云商 / 地域',
+                key: 'region',
+                render: (_: any, r: any) => {
+                  const dom = domainOfAttachment(r);
+                  return (
+                    <div style={{ fontSize: 12 }}>
+                      <div>{dom?.provider || '-'}</div>
+                      <div style={{ color: '#888' }}>{dom?.region || '-'}</div>
+                    </div>
+                  );
+                }
+              },
+              {
+                title: '关联 VR',
+                key: 'vr',
+                render: (_: any, r: any) => {
+                  const dom = domainOfAttachment(r);
+                  return (
+                    <div style={{ fontSize: 12 }}>
+                      <div>{dom?.vrName || dom?.vrUuid || '-'}</div>
+                      {dom?.vrPublicEip && <div style={{ color: '#888' }}>EIP: {dom.vrPublicEip}</div>}
+                      {dom?.vrPrivateIp && <div style={{ color: '#888' }}>Pri: {dom.vrPrivateIp}</div>}
+                    </div>
+                  );
+                }
+              },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                key: 'status',
+                width: 100,
+                render: (s: string) => <Badge status={s === 'attached' ? 'success' : 'processing'} text={s === 'attached' ? '已挂载' : s} />
+              },
+              {
+                title: '操作',
+                key: 'op',
+                width: 80,
+                render: (_: any, r: any) => (
+                  r.status === 'attached' ? (
+                    <Button type="link" danger size="small" style={{ padding: 0 }} onClick={async () => {
+                      try {
+                        await detachVpcFromCen(record.id, r.id);
+                        message.success('已解除挂载');
+                        load();
+                      } catch {
+                        message.error('解除失败');
+                      }
+                    }}>解除</Button>
+                  ) : null
+                )
+              }
+            ]}
+          />
+          </div>
+        )
+      },
+      {
+        key: 'topology',
+        label: '级联通道拓扑',
+        icon: <BranchesOutlined />,
+        children: (() => {
+          const domList = doms;
+          const total = domList.length;
+          const centerX = 520;
+          const centerY = 260;
+          const radius = 200;
+          const nodeTypes = {
+            mainNode: (props: any) => (
+              <div style={{ width: 100, height: 60, borderRadius: 12, background: '#fff', border: '1px solid #e5e5e5', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, position: 'relative' }}>
+                <DeploymentUnitOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+                <div style={{ fontSize: 14, color: '#333', fontWeight: 500, maxWidth: 112, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props?.data?.eip || '-'}</div>
+                <Handle type="source" position={Position.Top} id="pub" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
+                <Handle type="target" position={Position.Top} id="pub" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
+              </div>
+            ),
+            domainCard: (props: any) => (
+              <div style={{ width: 240, height: 72, borderRadius: 10, background: '#fff', border: '1px solid #e5e5e5', boxShadow: '0 3px 10px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6, padding: '8px 12px', position: 'relative' }}>
+                <div style={{ fontSize: 12, color: '#1f1f1f', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props?.data?.title || '-'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', borderRadius: 8, border: '1px solid #e6f0ff', background: '#f7f9ff', maxWidth: 80 }}>
+                    <GatewayOutlined style={{ fontSize: 12, color: '#1677ff' }} />
+                    <span style={{ fontSize: 12, color: '#3a3a3a', overflow: 'hidden', textOverflow: 'ellipsis' }}>{props?.data?.vrName || '-'}</span>
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', borderRadius: 8, border: '1px solid #e6f0ff', background: '#f7f9ff', maxWidth: 120 }}>
+                    <PartitionOutlined style={{ fontSize: 12, color: '#fa8c16' }} />
+                    <span style={{ fontSize: 12, color: '#3a3a3a', overflow: 'hidden', textOverflow: 'ellipsis' }}>{props?.data?.vpcCidr || '-'}</span>
+                  </span>
+                </div>
+                <Handle type="source" position={Position.Top} id="card" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
+                <Handle type="target" position={Position.Top} id="card" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
+              </div>
+            )
+          };
+          const mainNodes = domList.map((d: any, idx: number) => {
+            const angle = total ? (idx * 2 * Math.PI) / total : 0;
+            const x = centerX + Math.cos(angle) * radius;
+            const y = centerY + Math.sin(angle) * radius;
+            const eip = d?.dom?.vrPublicEip || d?.dom?.vrPublicIp || '-';
+            return {
+              id: `main-${String(d?.dom?.id)}`,
+              type: 'mainNode',
+              position: { x, y },
+              data: { eip }
+            };
+          });
+          const domainNodes = domList.map((d: any, idx: number) => {
+            const mpos = mainNodes[idx]?.position || { x: centerX, y: centerY };
+            const dx = mpos.x - centerX;
+            const dy = mpos.y - centerY;
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+            const ux = dx / len;
+            const uy = dy / len;
+            const mainW = 100, mainH = 60;
+            const cardW = 220, cardH = 72;
+            const gap = 24;
+            const mainSupport = (mainW / 2) * Math.abs(ux) + (mainH / 2) * Math.abs(uy);
+            const cardSupport = (cardW / 2) * Math.abs(ux) + (cardH / 2) * Math.abs(uy);
+            const offset = mainSupport + cardSupport + gap;
+            const outX = mpos.x + ux * offset - 55;
+            const outY = mpos.y + uy * offset;
+            const title = d?.dom?.name || d?.att?.vpcName || d?.att?.vpcId || '-';
+            const vrName = d?.dom?.vrName || d?.dom?.vrUuid || '-';
+            const vrPrivateIp = d?.dom?.vrPrivateIp || '-';
+            const vpcCidr = d?.dom?.cidr || d?.att?.vpcCidr || '-';
+            return {
+              id: `domain-${String(d?.dom?.id)}`,
+              type: 'domainCard',
+              position: { x: outX, y: outY },
+              data: { title: `${title}信息域`, vrName, vrPrivateIp, vpcCidr }
+            };
+          });
+          const nodes = ([] as any[]).concat(mainNodes, domainNodes);
+          const edges: any[] = [];
+          if (total >= 2) {
+            if (topo === 'Mesh') {
+              for (let i = 0; i < domList.length; i++) {
+                for (let j = i + 1; j < domList.length; j++) {
+                  const a = `main-${String(domList[i]?.dom?.id)}`;
+                  const b = `main-${String(domList[j]?.dom?.id)}`;
+                  edges.push({ id: `${a}-${b}`, source: a, target: b, sourceHandle: 'pub', targetHandle: 'pub', type: 'straight', style: { stroke: '#1677ff', strokeWidth: 2 } });
+                }
+              }
+            } else {
+              const hub = `main-${String(domList[0]?.dom?.id)}`;
+              for (let i = 1; i < domList.length; i++) {
+                const spoke = `main-${String(domList[i]?.dom?.id)}`;
+                edges.push({ id: `${hub}-${spoke}`, source: hub, target: spoke, sourceHandle: 'pub', targetHandle: 'pub', type: 'straight', style: { stroke: '#1677ff', strokeWidth: 2 } });
+              }
+            }
+          }
+          for (let i = 0; i < domList.length; i++) {
+            const mid = `main-${String(domList[i]?.dom?.id)}`;
+            const did = `domain-${String(domList[i]?.dom?.id)}`;
+            edges.push({ id: `${mid}-${did}`, source: mid, target: did, sourceHandle: 'pub', targetHandle: 'card', type: 'straight', style: { stroke: '#bfbfbf', strokeWidth: 1.5 } });
+          }
+          return (
+            <div style={{ height: 460, border: '1px solid #e8e8e8', borderRadius: 12, background: '#fafafa', backgroundImage: 'radial-gradient(rgba(0,0,0,0.08) 1px, transparent 1px)', backgroundSize: '22px 22px', backgroundPosition: '0 0', overflow: 'hidden', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(255,255,255,0.8)', padding: '4px 8px', borderRadius: 6, backdropFilter: 'blur(4px)', border: '1px solid rgba(0,0,0,0.05)' }}>
+                <span style={{ color: '#666', fontSize: 12 }}>拓扑模式</span>
+                <Select 
+                  size="small"
+                  value={topo} 
+                  style={{ width: 110 }} 
+                  onChange={async (v) => {
+                    try {
+                      await updateCen(record.id, { topology: v });
+                      const newCen = { ...record, topology: v };
+                      setDetailModal(prev => ({ ...prev, cen: newCen }));
+                      setCens(prev => prev.map(c => c.id === record.id ? newCen : c));
+                      message.success('拓扑模式已更新');
+                    } catch { message.error('更新失败'); }
+                  }} 
+                  options={[{ value: 'Mesh', label: 'Mesh' }, { value: 'Hub-Spoke', label: 'Hub-Spoke' }]} 
+                />
+                {topo === 'Hub-Spoke' && (
+                  <>
+                    <span style={{ color: '#666', fontSize: 12, marginLeft: 8 }}>中心节点</span>
+                    <Select
+                      size="small"
+                      value={hubId || (domList.length > 0 ? String(domList[0].dom!.id) : undefined)}
+                      placeholder="选择Hub"
+                      style={{ width: 140 }}
+                      onChange={async (v) => {
+                        try {
+                          await updateCen(record.id, { hubId: v });
+                          const newCen = { ...record, hubId: v };
+                          setDetailModal(prev => ({ ...prev, cen: newCen }));
+                          setCens(prev => prev.map(c => c.id === record.id ? newCen : c));
+                          message.success('中心节点已更新');
+                        } catch { message.error('更新失败'); }
+                      }}
+                      options={domList.map((d: any) => ({ value: String(d.dom!.id), label: d.dom!.name }))}
+                    />
+                  </>
+                )}
+              </div>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes as any}
+                fitView
+                fitViewOptions={{ padding: 0.2, maxZoom: 1.0 }}
+                minZoom={0.4}
+                maxZoom={1.6}
+                style={{ background: 'transparent', width: '100%', height: '100%' }}
+              >
+                <Controls showInteractive={false} />
+              </ReactFlow>
+            </div>
+          );
+        })()
+      }
+    ];
   };
 
   return (
     <PageContainer
-      title="实例管理"
       titleLevel={3}
-      subtitle="跨地域互联的中心网实例（CEN），支持挂载信息域并抽象为安全管理面用于统一治理。"
       asCard={false}
-    >
-      <Divider style={{ margin:'0 0 16px 0' }} />
-      <div style={{ padding:'0 24px' }}>
-        <Row gutter={[12,12]}>
-          <Col xs={24} sm={12} md={6}><StatCard title="安全管理面（活跃/总计）" icon={<DeploymentUnitOutlined />} color="#52c41a" value={planeActive} /></Col>
-          <Col xs={24} sm={12} md={6}><StatCard title="信息域（已挂载/唯一）" icon={<EnvironmentOutlined />} color="#1677ff" value={attachedDomainUnique} /></Col>
-          <Col xs={24} sm={12} md={6}><StatCard title="云端VPC（已挂载/唯一）" icon={<CloudOutlined />} color="#722ed1" value={attachedVpcUnique} /></Col>
-          <Col xs={24} sm={12} md={6}><StatCard title="活跃中心网（实例总数）" icon={<GlobalOutlined />} color="#fa8c16" value={planeActive} /></Col>
+      pagePadding="24px 36px 0 36px"
+      collapsibleChildren={(
+        <Row gutter={[12,12]} style={{ marginBottom:16 }}>
+          <Col xs={24} sm={12} md={6}><MetricCard title="级联通道" total={planeTotal} unit="个" used={planeActive} midLabel="未生效" midValue={planeTotal-planeActive} usedLabel="生效" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="活跃通道" total={cens.length} unit="个" used={cens.filter(c=>c.status==='available').length} midLabel="创建中" midValue={cens.filter(c=>c.status==='creating').length} usedLabel="可用" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="信息域" total={domainTotal} unit="个" used={attachedDomainUnique} midLabel="未挂载" midValue={domainTotal-attachedDomainUnique} usedLabel="已挂载" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="云端VPC" total={vpcTotal} unit="个" used={attachedVpcUnique} midLabel="未挂载" midValue={vpcTotal-attachedVpcUnique} usedLabel="已挂载" mainColor="#1677ff" /></Col>
         </Row>
+      )}
+      toolbarLeft={(
+        <Form
+          className="filter-tools"
+          form={filterForm}
+          layout="vertical"
+          style={{ rowGap:12, columnGap:12, display:'flex', alignItems:'flex-end' }}
+          onValuesChange={(_,all)=>{ setKeyword(all.keyword||''); setStatusFilter(all.status); setTenantFilter(all.tenant); setPlaneFilter(all.plane); }}
+          initialValues={{ status: [], tenant: undefined, plane: undefined }}
+        >
+          <Form.Item name="keyword" label="关键字">
+            <Input allowClear placeholder="搜索级联通道" style={{ width:200 }} />
+          </Form.Item>
+          <Form.Item name="status" label="状态">
+            <Select allowClear placeholder="选择状态" mode="multiple" style={{ width:200 }} options={[{ value:'creating', label:'创建中' }, { value:'available', label:'可用' }]} />
+          </Form.Item>
+          <Form.Item name="tenant" label="租户">
+            <Select allowClear placeholder="选择租户" style={{ width:200 }} options={tenants.map(t=>({ value:t.id, label:t.name }))} />
+          </Form.Item>
+          <Form.Item name="plane" label="级联通道">
+            <Select allowClear placeholder="选择级联通道状态" style={{ width:200 }} options={[{ value:'active', label:'已生效（≥2信息域）' }, { value:'none', label:'未生效（＜2信息域）' }]} />
+          </Form.Item>
+          <Form.Item>
+            <Button type="link" style={{ padding:0 }} onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTenantFilter(undefined); setPlaneFilter(undefined);}}>重置</Button>
+          </Form.Item>
+        </Form>
+      )}
+      primaryAction={{ text: '新建级联通道', onClick: ()=>setModalVisible(true) }}
+      moreMenuItems={[
+            { key:'refresh', label: '全局刷新', onClick: () => load() },
+            { key: 'bulkDelete', label: '批量删除', danger: true, disabled: selectedRowKeys.length === 0, onClick: () => {
+              Modal.confirm({
+                title: '确认批量删除',
+                content: `将删除选中的 ${selectedRowKeys.length} 个级联通道，操作不可恢复。`,
+                okText: '删除',
+                cancelText: '取消',
+                onOk: async () => {
+                  try {
+                    let ok = 0, fail = 0;
+                for (const id of selectedRowKeys) {
+                  try {
+                    await deleteCen(String(id));
+                    ok++;
+                  } catch {
+                    fail++;
+                  }
+                }
+                message.success(`删除成功 ${ok} 个，失败 ${fail} 个`);
+                setSelectedRowKeys([]);
+                load();
+              } catch (e: any) {
+                message.error('批量删除失败');
+              }
+            }
+          });
+        } },
+      ]}
+      actionsSize="middle"
+      tableProps={{
+        columns: columns as any,
+        dataSource: filteredCens,
+        rowKey: "id",
+        style: { fontSize: 13 },
+        rowSelection: {
+          selectedRowKeys,
+          onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+        },
+        pagination: { pageSize: 10, showSizeChanger: true },
+        scroll: { x: 'max-content' },
+        tableLayout: "auto",
+      }}
+    >
+      <ResourceDetailContainer
+        open={detailModal.open}
+        overviewNode={renderOverview()}
+        width="95%"
+        cloudId=""
+        vmDetail={detailModal.cen}
+        tabKey={detailModal.tab}
+        onChangeTab={(k) => setDetailModal(prev => ({ ...prev, tab: k }))}
+        onCloseModal={() => setDetailModal({ open: false, tab: 'domains' })}
+        onRefreshAll={load}
+        tabsItems={renderDetailContent()}
+      />
+      <Modal title="新建级联通道" open={modalVisible} onCancel={()=>{ setModalVisible(false); form.resetFields(); }} footer={null} destroyOnHidden>
+        <Form form={form} layout="vertical" onFinish={handleCreate}>
+          <Form.Item name="name" label="名称" rules={[{ required:true }]}><Input /></Form.Item>
+          <Form.Item name="tenantId" label="租户" rules={[{ required:true, message:'请选择租户' }]}>
+            <Select placeholder="请选择租户" options={tenants.map(t=>({ value:t.id, label:t.name }))} />
+          </Form.Item>
+          <Form.Item name="strategy" label="互联策略" rules={[{ required:true, message:'请选择互联策略' }]} initialValue="SRv6">
+            <Select options={[{ value:'SRv6', label:'SRv6 (支持 PE/CE VR)' }, { value:'IPsec', label:'IPsec (支持标准 VR)' }]} />
+          </Form.Item>
+          <Form.Item name="description" label="说明"><Input /></Form.Item>
+          <Form.Item><Button type="primary" htmlType="submit">创建</Button></Form.Item>
+        </Form>
+      </Modal>
 
-        <Card style={{ marginTop:12 }}>
-          <div className="filters-row">
-            <Form form={filterForm} layout="inline" onValuesChange={(_,all)=>{ setKeyword(all.keyword||''); setStatusFilter(all.status); setTenantFilter(all.tenant); setPlaneFilter(all.plane); }}>
-              <Form.Item name="keyword" label="关键字"><Input allowClear placeholder="搜索中心网实例" style={{ width:220 }} /></Form.Item>
-              <Form.Item name="status" label="状态"><Select allowClear placeholder="选择状态" style={{ width:160 }} options={[{ value:'creating', label:'创建中' }, { value:'available', label:'可用' }]} /></Form.Item>
-              <Form.Item name="tenant" label="租户"><Select allowClear placeholder="选择租户" style={{ width:160 }} options={tenants.map(t=>({ value:t.id, label:t.name }))} /></Form.Item>
-              <Form.Item name="plane" label="安全面"><Select allowClear placeholder="选择安全面状态" style={{ width:180 }} options={[{ value:'active', label:'已生效（≥2信息域）' }, { value:'none', label:'未生效（＜2信息域）' }]} /></Form.Item>
-              <Form.Item style={{ marginLeft:'auto' }}>
-                <AntSpace>
-                  <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={()=>{ setModalVisible(true); }}>新建中心网实例</Button>
-                </AntSpace>
-              </Form.Item>
-            </Form>
-          </div>
-          <Divider style={{ margin:'12px 0' }} />
-          <Table columns={columns as any} dataSource={filteredCens} rowKey="id" loading={loading} pagination={{ pageSize: 10, showSizeChanger: true }} expandable={{ expandedRowRender }} />
-        </Card>
-
-        <Modal title="新建中心网实例" open={modalVisible} onCancel={()=>{ setModalVisible(false); form.resetFields(); }} footer={null} destroyOnHidden>
-          <Form form={form} layout="vertical" onFinish={handleCreate}>
-            <Form.Item name="name" label="名称" rules={[{ required:true }]}><Input /></Form.Item>
-            <Form.Item name="description" label="说明"><Input /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit">创建</Button></Form.Item>
-          </Form>
-        </Modal>
-
-        <Modal title="挂载信息域" open={attachModal.open} onOk={handleAttach} onCancel={()=> setAttachModal({open:false})} destroyOnHidden>
-          <Form layout="vertical">
-            <Form.Item label="信息域">
-              <Select mode="multiple" value={attachDomainIds} onChange={setAttachDomainIds} options={domains.map(d=>({ value:d.id, label:d.name }))} />
-            </Form.Item>
-            <Form.Item label="安全面索引">
-              <Select value={attachPlaneIndex} onChange={setAttachPlaneIndex} options={[{ value:0, label:'索引 0' }, { value:1, label:'索引 1' }, { value:2, label:'索引 2' }]} />
-            </Form.Item>
-          </Form>
-        </Modal>
-      </div>
+      <Modal title="挂载信息域" open={attachModal.open} onOk={handleAttach} onCancel={()=> setAttachModal({open:false})} destroyOnHidden>
+        <Form layout="vertical">
+          <Form.Item label="信息域">
+            <Select mode="multiple" value={attachDomainIds} onChange={setAttachDomainIds} options={domains.map(d=>({ value:d.id, label:d.name }))} />
+          </Form.Item>
+          <Form.Item label="目标通道编号" tooltip="用于将选中的信息域挂载到该级联通道的指定编号，用于通道分组与后续隧道编排。">
+            <Select value={attachPlaneIndex} onChange={setAttachPlaneIndex} options={[{ value:0, label:'通道 0' }, { value:1, label:'通道 1' }, { value:2, label:'通道 2' }]} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </PageContainer>
   );
 };

@@ -28,6 +28,15 @@ export class CloudEnterpriseNetwork {
   @Column()
   tenantId!: string;
 
+  @Column({ default: 'SRv6' })
+  strategy!: string;
+
+  @Column({ default: 'Mesh' })
+  topology?: string;
+
+  @Column({ nullable: true })
+  hubId?: string;
+
   @ManyToOne(() => Tenant)
   tenant!: Tenant;
 

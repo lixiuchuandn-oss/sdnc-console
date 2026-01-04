@@ -1,32 +1,34 @@
-
 const axios = require('axios');
 const crypto = require('crypto');
 const https = require('https');
 
 const base = process.env.BASE_URL || 'http://localhost:5001';
 
-describe('Cloudmap Direct API Test', () => {
-  let cloudmap;
+describe('CSM Direct API Test', () => {
+  let csm;
   
   beforeAll(async () => {
     try {
       const resp = await axios.post(`${base}/api/auth/login`, { username: 'admin', password: 'admin123' });
       const token = resp.data.token;
       const clouds = (await axios.get(`${base}/api/clouds`, { headers: { Authorization: `Bearer ${token}` } })).data;
-      cloudmap = (clouds || []).find(c => String(c.config?.provider || '').toLowerCase().includes('cloudmap'));
-      if (!cloudmap) console.error('No cloudmap found');
-      else console.log('Found cloudmap:', cloudmap.id, cloudmap.endpoint);
+      csm = (clouds || []).find(c => {
+          const p = String(c.config?.provider || '').toLowerCase();
+          return p.includes('csm') || p.includes('cloudmap');
+      });
+      if (!csm) console.error('No csm found');
+      else console.log('Found csm:', csm.id, csm.endpoint);
     } catch (e) {
       console.error('Setup failed:', e.message);
     }
   }, 20000);
 
   test('direct call with signature', async () => {
-    if (!cloudmap) return;
+    if (!csm) return;
     
-    const ak = (cloudmap.accessKey || '').trim();
-    const sk = (cloudmap.secretKey || '').trim();
-    let endpoint = cloudmap.endpoint || '';
+    const ak = (csm.accessKey || '').trim();
+    const sk = (csm.secretKey || '').trim();
+    let endpoint = csm.endpoint || '';
     // Normalize endpoint
     if (!endpoint.startsWith('http')) endpoint = `https://${endpoint}`;
     // Remove trailing slash

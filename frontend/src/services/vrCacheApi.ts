@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, apiRequest } from './api';
 
 // 读取后端本地缓存的 VR 列表（无需登录）
 export const fetchVrCachePageList = async (pageSize: number = 50, pageNum: number = 1) => {
@@ -14,6 +14,13 @@ export const fetchVrCachePageList = async (pageSize: number = 50, pageNum: numbe
   const json = await res.json();
   // 约定返回 { code: 200, data: { page: any[], total: number } }
   return json;
+};
+
+// 实时从 CSMCTL (通过后端) 获取 VR 列表
+export const fetchVrRealtimeList = async (pageSize: number = 50, pageNum: number = 1) => {
+  // apiRequest 默认带 token 认证，调用 /api/vr-config/pagelist
+  const res = await apiRequest(`/api/vr-config/pagelist?page_size=${pageSize}&page_num=${pageNum}`);
+  return res;
 };
 
 // 规范化为 { uuid, name } 列表，兼容常见字段

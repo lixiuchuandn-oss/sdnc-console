@@ -914,10 +914,48 @@ export const fetchHarvesterVmVncUrl = async (cloudId: string, namespace: string,
   return await res.json();
 };
 
-// Cloudmap 云安全资源池：虚拟安全网元
-export const fetchCloudmapVirtualElements = async (cloudId: string) => {
+// CSM：虚拟安全网元
+export const fetchCsmVirtualElements = async (cloudId: string) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/cloudmap/security/virtual-elements`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/virtual-elements`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+export const fetchCloudmapVirtualElements = fetchCsmVirtualElements;
+
+// CSM：物理安全网元
+export const fetchCsmPhysicalElements = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/physical-elements`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+export const fetchCloudmapPhysicalElements = fetchCsmPhysicalElements;
+
+// CSM：安全网元组
+export const fetchCsmElementGroups = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/element-groups`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+export const fetchCloudmapElementGroups = fetchCsmElementGroups;
+
+export const fetchCsmServiceChains = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -926,23 +964,11 @@ export const fetchCloudmapVirtualElements = async (cloudId: string) => {
   return await res.json();
 };
 
-// Cloudmap 云安全资源池：物理安全网元
-export const fetchCloudmapPhysicalElements = async (cloudId: string) => {
+export const deleteCsmServiceChain = async (cloudId: string, chainId: string, params?: { pool_id?: string }) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/cloudmap/security/physical-elements`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
-};
-
-// Cloudmap 云安全资源池：安全网元组
-export const fetchCloudmapElementGroups = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/cloudmap/security/element-groups`, {
-    method: 'GET',
+  const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains/${encodeURIComponent(chainId)}${qs}`, {
+    method: 'DELETE',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
   });
@@ -1722,12 +1748,20 @@ export const fetchCens = async () => {
   return await apiRequest('/api/cens');
 };
 
-export const createCen = async (payload: { name: string; description?: string; tenantId: string }) => {
+export const createCen = async (payload: { name: string; description?: string; tenantId: string; strategy?: string }) => {
   return await apiPost('/api/cens', payload);
+};
+
+export const updateCen = async (id: string, payload: { name?: string; description?: string; strategy?: string; topology?: string; hubId?: string }) => {
+  return await apiPatch(`/api/cens/${id}`, payload);
 };
 
 export const deleteCen = async (id: string) => {
   return await apiDelete(`/api/cens/${id}`);
+};
+
+export const forceDeleteCen = async (id: string) => {
+  return await apiDelete(`/api/cens/${id}?force=1`);
 };
 
 export const attachVpcToCen = async (cenId: string, vpcId?: string, infoDomainId?: string) => {
@@ -1808,4 +1842,13 @@ export const updateService = async (id: string, payload: any) => {
 
 export const deleteService = async (id: string) => {
   return await apiDelete(`/api/services/${id}`);
+};
+
+// CSM 虚拟安全网元操作
+export const operateCsmVm = async (cloudId: string, vmId: string, action: 'start' | 'stop' | 'reboot') => {
+  return await apiPost(`/api/clouds/${cloudId}/csm/security/virtual-elements/${encodeURIComponent(vmId)}/action`, { action });
+};
+
+export const getCsmVmConsole = async (cloudId: string, vmId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/csm/security/virtual-elements/${encodeURIComponent(vmId)}/console`);
 };

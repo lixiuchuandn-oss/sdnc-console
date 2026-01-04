@@ -242,9 +242,7 @@ const SecurityApps: React.FC = () => {
 
   return (
     <PageContainer
-      title="服务目录管理"
       titleLevel={3}
-      subtitle="服务目录是信息域内由若干虚机或容器实例组合而成的业务单元，可对其进行 IBAC、RBAC、ABAC 授权策略管理。"
       asCard={false}
     >
       <Divider style={{ margin: '0 0 20px 0' }} />

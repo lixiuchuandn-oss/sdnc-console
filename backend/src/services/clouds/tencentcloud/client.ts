@@ -55,6 +55,17 @@ export async function tencentListVpcs(opts: TencentOptions, params: Record<strin
   }
 }
 
+export async function tencentListSubnets(opts: TencentOptions, params: Record<string, any> = {}) {
+  const client = createVpcClient(opts);
+  try {
+    const data = await client.DescribeSubnets({ Limit: '50', Offset: '0', ...params });
+    return data;
+  } catch (err: any) {
+    const message = err?.message || 'Tencent Subnet 调用失败';
+    throw new Error(message);
+  }
+}
+
 export async function testTencentConnection(opts: TencentOptions): Promise<{ ok: boolean; message?: string }>{
   try {
     const data = await tencentListVpcs(opts, { Limit: '1', Offset: '0' });

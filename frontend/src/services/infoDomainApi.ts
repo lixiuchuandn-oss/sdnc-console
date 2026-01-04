@@ -22,6 +22,13 @@ export interface InfoDomainPayload {
   newVpcCidr?: string;
   vrUuid?: string;
   vrName?: string;
+  vrInstanceIds?: string[];
+  vrPublicEniIds?: string[];
+  vrPrivateEniIds?: string[];
+  vrPublicIp?: string[];
+  vrPrivateIp?: string[];
+  vrPublicSubnetCidr?: string[];
+  vrPrivateSubnetCidr?: string[];
   purpose?: string;
   tags?: string; // 逗号分隔
   description?: string;

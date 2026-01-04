@@ -48,7 +48,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [formData, setFormData] = useState<any>(null);
 
   const isOpenProvider = (id: string) => {
-    return ['aliyun', 'huaweicloud', 'cloudmap', 'harvester', 'cloudmap-security'].includes(id);
+    return ['aliyun', 'huaweicloud', 'csm', 'harvester'].includes(id);
   };
 
   // 云平台配置
@@ -81,8 +81,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       fields: [
         { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
         { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap.example.com' },
-        { key: 'accessKey', label: 'AccessKey', type: 'input', required: true, placeholder: '请输入 AccessKey（如 Cloudmap%23123）' },
-        { key: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '请输入 SecretKey（如 Cloudmap%23123）' }
+        { key: 'accessKey', label: 'AccessKey', type: 'input', required: true, placeholder: '请输入 AccessKey' },
+        { key: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '请输入 SecretKey' }
       ]
     },
     {
@@ -324,25 +324,6 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       ]
     },
     {
-      id: 'cloudmap',
-      name: 'Cloudmap',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: '添加Cloudmap 融合边缘云',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap.example.com' },
-        { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入Cloudmap API令牌' },
-        { key: 'accessKey', label: 'AccessKey', type: 'input', required: true, placeholder: '请输入 AccessKey（如 Cloudmap%23123）' },
-        { key: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '请输入 SecretKey（如 Cloudmap%23123）' },
-        { key: 'harvesterVersion', label: '版本', type: 'select', required: false, placeholder: '自动识别', options: [
-          { label: '自动', value: 'auto' },
-          { label: '1.5', value: '1.5' },
-          { label: '1.6', value: '1.6' }
-        ]}
-      ]
-    },
-    {
       id: 'feitiancloud',
       name: '飞天',
       logo: <AliyunOutlined />,
@@ -447,7 +428,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           ? 'https://ecs.aliyuncs.com'
           : selectedProvider?.id === 'huaweicloud'
             ? `https://ecs.${values.region}.myhuaweicloud.com`
-            : (selectedProvider?.id === 'harvester' || selectedProvider?.id === 'cloudmap')
+            : (selectedProvider?.id === 'harvester' || selectedProvider?.id === 'csm')
               ? (values.endpoint || '')
               : (values.endpoint || values.authUrl || values.vcenterHost || '');
       const payload = {
@@ -673,7 +654,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             {poolType === 'virtualization' && renderProviderGrid('virtualization', '虚拟化平台', cloudProviders.filter(p => p.category === 'private' && ['vmware','kvm','harvester'].includes(p.id)))}
             {poolType === 'object_storage' && renderProviderGrid('storage', '对象存储', cloudProviders.filter(p => p.category === 'storage'))}
             {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter(p => ['cloudmap','rancher'].includes(p.id)))}
-            {poolType === 'security_pool' && renderProviderGrid('private', 'CSM', cloudProviders.filter(p => ['cloudmap-security'].includes(p.id)))}
+            {poolType === 'security_pool' && renderProviderGrid('private', '云安全资源池', cloudProviders.filter(p => ['cloudmap-security'].includes(p.id)))}
             {poolType === 'sase_gateway' && (
               <Alert style={{ marginTop: 12 }} type="warning" showIcon message="该资源池类型暂未开放接入" />
             )}
@@ -708,7 +689,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                   <Option value="edge">边缘计算</Option>
                   <Option value="virtualization">虚拟化</Option>
                   <Option value="object_storage">对象存储</Option>
-                  <Option value="security_pool">CSM</Option>
+                  <Option value="security_pool">云安全资源池</Option>
                   <Option value="sase_gateway">SASE网关</Option>
                 </Select>
               </Form.Item>

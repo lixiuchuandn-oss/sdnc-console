@@ -1,6 +1,7 @@
 import axios from 'axios';
 import https from 'https';
 import { getSystemSetting } from '../config/systemSettings';
+import { csmRequest, CsmConfig } from './clouds/csm/client';
 
 const DEFAULT_URL = 'https://10.20.255.93:8016';
 const ACCESS_KEY = "Cloudmap%23123";
@@ -89,5 +90,28 @@ export const vrController = {
     });
     
     return response.data;
+  },
+
+  getVRList: async (pageSize: number = 50, pageNum: number = 1) => {
+    // 使用 csmRequest (基于 curl) 来避免 axios 签名问题
+    const config: CsmConfig = {
+      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      accessKey: ACCESS_KEY,
+      secretKey: SECRET_KEY,
+      ignoreTls: true
+    };
+    
+    const path = '/V2/ctcontrol/VR1/pagelist';
+    const query = { page_size: pageSize, page_num: pageNum };
+
+    try {
+      console.log(`[VR_CONTROLLER] getVRList via csmRequest: ${path}`, query);
+      const raw = await csmRequest(config, path, query);
+      const dataField = raw && raw.data ? raw.data : raw;
+      return dataField;
+    } catch (error: any) {
+      console.error(`[VR_CONTROLLER] getVRList error:`, error.message);
+      throw error;
+    }
   }
 };

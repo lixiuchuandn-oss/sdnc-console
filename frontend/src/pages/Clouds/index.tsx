@@ -611,7 +611,7 @@ const Clouds: React.FC = () => {
               <Select.Option value="private">私有云</Select.Option>
               <Select.Option value="edge">边缘计算</Select.Option>
               <Select.Option value="virtualization">虚拟化</Select.Option>
-              <Select.Option value="storage">对象存储</Select.Option>
+              <Select.Option value="object_storage">对象存储</Select.Option>
               <Select.Option value="security">云安全资源池</Select.Option>
               <Select.Option value="sase">SASE网关</Select.Option>
             </Select>
