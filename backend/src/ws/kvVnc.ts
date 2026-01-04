@@ -38,7 +38,7 @@ export function initKvVncWsServer(server: http.Server) {
       const cloud = await repo.findOne({ where: { id: cloudId } });
       if (!cloud) throw new Error('云资源不存在');
       const pv = String((cloud as any)?.config?.provider || '').toLowerCase().trim();
-      if (!(pv === 'harvester' || pv === 'cloudmap' || pv.startsWith('cloudmap'))) throw new Error('仅支持 Harvester');
+      if (pv !== 'harvester') throw new Error('仅支持 Harvester');
       const insecure = !!(cloud.config as any)?.ignoreTls;
       const base = String(cloud.endpoint || '').replace(/\/+$/, '');
       let origin = base;

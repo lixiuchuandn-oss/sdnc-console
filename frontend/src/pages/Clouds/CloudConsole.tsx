@@ -253,7 +253,7 @@ const CloudConsolePage: React.FC = () => {
     };
     const providerText = (c: CloudItem): string => {
       const p = String(c?.config?.provider || '').toLowerCase();
-      return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || (c?.config?.provider || '未知厂商');
+      return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || (p === 'cloudmap-security' && 'Cloudmap') || (c?.config?.provider || '未知厂商');
     };
     const typeIcon = (type?: string): React.ReactNode => {
       const t = String(type || '').toLowerCase();
@@ -302,12 +302,13 @@ const CloudConsolePage: React.FC = () => {
     (p === 'huaweicloud' && '华为云') ||
     (p === 'harvester' && 'Harvester') ||
     (p === 'cloudmap' && 'Cloudmap') ||
+    (p === 'cloudmap-security' && 'CSM') ||
     p || '-'
   );
   const providerName = useMemo(() => {
     const p = String(currentCloud?.config?.provider || '').toLowerCase();
     if (currentCloudId === 'all') return '全部区域';
-    return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || p || '-';
+    return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || (p === 'cloudmap-security' && 'CSM') || p || '-';
   }, [currentCloud]);
 
   const statusStats = useMemo(() => {

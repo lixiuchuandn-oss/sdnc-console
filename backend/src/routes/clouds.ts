@@ -1,4 +1,6 @@
 import { Router, Response } from 'express';
+import axios from 'axios';
+import https from 'https';
 import { AppDataSource } from '../config/database';
 import { Cloud, CloudType, CloudStatus } from '../entities/Cloud';
 import { CloudInstanceInventory } from '../entities/CloudInstanceInventory';
@@ -31,7 +33,31 @@ const testCloudConnectionUnified = async (args: { provider?: string; accessKey?:
   if (provider === 'tencentcloud') {
     return { ok: false, message: '已不支持腾讯云接入' };
   }
-  if (provider === 'harvester' || provider === 'cloudmap' || provider.startsWith('cloudmap')) {
+  if (provider === 'cloudmap' || provider.startsWith('cloudmap') || provider === 'cloudmap-security') {
+    try {
+      const raw = String(args.endpoint || '').trim();
+      const base = (() => {
+        try {
+          const u = raw.startsWith('http') ? new URL(raw) : new URL(`https://${raw}`);
+          const host = `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
+          return host;
+        } catch {
+          const s = raw.replace(/\/.*$/,'');
+          return /^https?:\/\//.test(s) ? s : `https://${s}`;
+        }
+      })();
+      const ak = encodeURIComponent(String(args.accessKey || ''));
+      const sk = encodeURIComponent(String(args.secretKey || ''));
+      const url = `${base}/api/sign?url=/V2/ctcontrol/VM04/vms&method=GET&other=&accessKey=${ak}&secretKey=${sk}`;
+      const agent = new https.Agent({ rejectUnauthorized: !args.config?.ignoreTls });
+      const resp = await axios.post(url, {}, { httpsAgent: agent, timeout: 8000 });
+      const ok = !!(resp?.data?.data?.Authorization && resp?.data?.data?.tonce);
+      return { ok, message: ok ? '签名校验成功' : '签名校验失败' };
+    } catch (err: any) {
+      return { ok: false, message: err?.message || '签名校验失败' };
+    }
+  }
+  if (provider === 'harvester') {
     const t = await testHarvesterConnection({ endpoint: args.endpoint || '', token: args.secretKey || '', insecure: !!args.config?.ignoreTls });
     return { ok: !!t.ok, message: t.message || '' };
   }
@@ -133,12 +159,14 @@ import { testAliyunConnection, callAliyunEcs, callAliyunSlb, callAliyunVpc, call
 import { testHuaweiConnection, huaweiListVpcs, huaweiListServers, huaweiListSnapshots, huaweiListSubnets, huaweiListRouteTables } from '../services/huaweicloud';
 import { testHarvesterConnection, listHarvesterVMsStandard, harvesterStartVM, harvesterStopVM, harvesterRebootVM, harvesterDeleteVM, listKubeOvnVpcs, listKubeOvnSubnets } from '../services/harvester';
 import { registerHarvesterRoutes } from './clouds.harvester';
+import { registerCloudmapRoutes } from './clouds.cloudmap';
 import { registerAliyunRoutes } from './clouds.aliyun';
 import { registerHuaweiRoutes } from './clouds.huaweicloud';
 
 registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
+registerCloudmapRoutes(router, checkAdminPermission);
 
 // 获取云资源列表
 router.get('/', checkAdminPermission, async (req: AuthRequest, res: Response) => {
@@ -346,11 +374,44 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
             if (vid) vpcInfoMap.set(vid, { name: v?.name || v?.VpcName, cidr: v?.cidr || v?.CidrBlock });
           }
         } catch {}
-      } else if (provider === 'harvester' || provider === 'cloudmap') {
+      } else if (provider === 'harvester') {
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const version = String((cloud.config as any)?.harvesterVersion || '').trim();
         const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
         list = Array.isArray(resp) ? resp : [];
+      } else if (provider === 'cloudmap') {
+        const endpointRaw = String(cloud.endpoint || '').trim();
+        const base = (() => {
+          try {
+            const u = endpointRaw.startsWith('http') ? new URL(endpointRaw) : new URL(`https://${endpointRaw}`);
+            const host = `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
+            return host;
+          } catch {
+            const s = endpointRaw.replace(/\/.*$/,'');
+            return /^https?:\/\//.test(s) ? s : `https://${s}`;
+          }
+        })();
+        const ak = String(cloud.accessKey || '').trim();
+        const sk = String(cloud.secretKey || '').trim();
+        if (!ak || !sk) { list = []; } else {
+          const agent = new https.Agent({ rejectUnauthorized: !((cloud as any)?.config?.ignoreTls) });
+          const path = '/V2/ctcontrol/VM04/vms';
+          const other = 'page_size=30&page_num=1';
+          const signUrl = `${base}/api/sign?url=${encodeURIComponent(path)}&method=GET&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(ak)}&secretKey=${encodeURIComponent(sk)}`;
+          try {
+            const signResp = await axios.post(signUrl, {}, { httpsAgent: agent, timeout: 10000 });
+            const auth = signResp?.data?.data?.Authorization;
+            const tonce = signResp?.data?.data?.tonce;
+            const headers: Record<string, any> = { Authorization: auth, tonce, Accept: '*/*', 'User-Agent': 'PostmanRuntime/7.51.0' };
+            const listUrl = `${base}${path}?${other}`;
+            const listResp = await axios.get(listUrl, { httpsAgent: agent, timeout: 20000, headers });
+            const raw = listResp?.data;
+            const items: any[] = Array.isArray(raw?.data?.items) ? raw?.data?.items : (Array.isArray(raw?.items) ? raw?.items : (Array.isArray(raw?.data) ? raw?.data : []));
+            list = Array.isArray(items) ? items : [];
+          } catch {
+            list = [];
+          }
+        }
       }
       for (const r of (Array.isArray(list) ? list : [])) {
         const norm = await (async () => {
@@ -437,6 +498,41 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
               usageCpuPct,
               usageMemPct,
               caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true }
+            };
+          } else if (provider === 'cloudmap') {
+            const id: string = r?.InstanceId || r?.id || r?.Id || r?.uuid || '';
+            const name: string = r?.InstanceName || r?.HostName || r?.name || r?.Name || id;
+            const pri = Array.isArray((r as any)?.IPs) ? (r as any)?.IPs : (Array.isArray((r as any)?.Extra?.IPs) ? (r as any)?.Extra?.IPs : []);
+            const cpuRaw = (r as any)?.CPU ?? (r as any)?.Extra?.CPU ?? (r as any)?.Spec?.CPU;
+            const cpu = typeof cpuRaw === 'number' ? cpuRaw : undefined;
+            const memRaw = (r as any)?.Memory ?? (r as any)?.Extra?.Memory;
+            const memMatch = typeof memRaw === 'string' ? String(memRaw).match(/([0-9]+\.?[0-9]*)/i) : null;
+            const memoryGb = memMatch ? Math.round(parseFloat(memMatch[1])) : (typeof memRaw === 'number' ? memRaw : undefined);
+            const cpuUsagePct = (r as any)?.CpuUsagePct ?? (r as any)?.Extra?.CpuUsagePct;
+            const memUsageStr: string | undefined = (r as any)?.MemUsage ?? (r as any)?.Extra?.MemUsage;
+            const memUsageMiMatch = typeof memUsageStr === 'string' ? memUsageStr.match(/([0-9]+\.?[0-9]*)\s*Mi/i) : null;
+            const memUsageMi = memUsageMiMatch ? parseFloat(memUsageMiMatch[1]) : undefined;
+            const usageMemPct = (typeof memoryGb === 'number' && memoryGb > 0 && typeof memUsageMi === 'number')
+              ? Math.min(100, Math.max(0, Math.round((memUsageMi / (memoryGb * 1024)) * 100)))
+              : undefined;
+            return {
+              id,
+              name,
+              provider,
+              cloudId: cloud.id,
+              region: cloud.region,
+              status: r?.Status || (r as any)?.status || (r as any)?.PowerStatus,
+              vpcId: undefined,
+              zoneId: undefined,
+              instanceType: undefined,
+              privateIps: Array.isArray(pri) ? pri : [],
+              createdAt: (r?.CreationTime || (r as any)?.CreatedAt || (r as any)?.createTime || ((r?.Extra as any)?.CreationTime)) || undefined,
+              extra: { namespace: (r as any)?.namespace, networks: (r as any)?.Networks || (r?.Extra as any)?.Networks, imageType: (r as any)?.ImageType || (r?.Extra as any)?.ImageType, imageVersion: (r as any)?.ImageVersion || (r?.Extra as any)?.ImageVersion },
+              cpu: typeof cpu === 'number' ? cpu : undefined,
+              memoryGb,
+              usageCpuPct: typeof cpuUsagePct === 'number' ? cpuUsagePct : undefined,
+              usageMemPct: usageMemPct,
+              caps: { 'provider.cloudmap.kvm': true }
             };
           }
           if (provider === 'huaweicloud') {
@@ -601,11 +697,44 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
               if (vid) vpcInfoMap.set(String(vid), { name, cidr });
             }
           } catch {}
-        } else if (provider === 'harvester' || provider === 'cloudmap') {
-        const insecure = !!(cloud.config as any)?.ignoreTls;
-        const version = String((cloud.config as any)?.harvesterVersion || '').trim();
-        const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
-        list = Array.isArray(resp) ? resp : [];
+        } else if (provider === 'harvester') {
+          const insecure = !!(cloud.config as any)?.ignoreTls;
+          const version = String((cloud.config as any)?.harvesterVersion || '').trim();
+          const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
+          list = Array.isArray(resp) ? resp : [];
+        } else if (provider === 'cloudmap') {
+          const endpointRaw = String(cloud.endpoint || '').trim();
+          const base = (() => {
+            try {
+              const u = endpointRaw.startsWith('http') ? new URL(endpointRaw) : new URL(`https://${endpointRaw}`);
+              const host = `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
+              return host;
+            } catch {
+              const s = endpointRaw.replace(/\/.*$/,'');
+              return /^https?:\/\//.test(s) ? s : `https://${s}`;
+            }
+          })();
+          const ak = String(cloud.accessKey || '').trim();
+          const sk = String(cloud.secretKey || '').trim();
+          if (!ak || !sk) { list = []; } else {
+            const agent = new https.Agent({ rejectUnauthorized: !((cloud as any)?.config?.ignoreTls) });
+            const path = '/V2/ctcontrol/VM04/vms';
+            const other = 'page_size=30&page_num=1';
+            const signUrl = `${base}/api/sign?url=${encodeURIComponent(path)}&method=GET&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(ak)}&secretKey=${encodeURIComponent(sk)}`;
+            try {
+              const signResp = await axios.post(signUrl, {}, { httpsAgent: agent, timeout: 10000 });
+              const auth = signResp?.data?.data?.Authorization;
+              const tonce = signResp?.data?.data?.tonce;
+              const headers: Record<string, any> = { Authorization: auth, tonce, Accept: '*/*', 'User-Agent': 'PostmanRuntime/7.51.0' };
+              const listUrl = `${base}${path}?${other}`;
+              const listResp = await axios.get(listUrl, { httpsAgent: agent, timeout: 20000, headers });
+              const raw = listResp?.data;
+              const items: any[] = Array.isArray(raw?.data?.items) ? raw?.data?.items : (Array.isArray(raw?.items) ? raw?.items : (Array.isArray(raw?.data) ? raw?.data : []));
+              list = Array.isArray(items) ? items : [];
+            } catch {
+              list = [];
+            }
+          }
         }
         const seenIds = new Set<string>();
         for (const r of (Array.isArray(list) ? list : [])) {
@@ -723,7 +852,7 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
               memoryGb,
               vpcId: r?.VpcId,
             };
-          } else if (provider === 'harvester' || provider === 'cloudmap') {
+          } else if (provider === 'harvester') {
             const id: string = r?.InstanceId || '';
             const pri = r?.VpcAttributes?.PrivateIpAddress?.IpAddress || (Array.isArray(r?.Extra?.IPs) ? r?.Extra?.IPs : []);
             const cpu = typeof (r?.Extra as any)?.CPU === 'number' ? (r?.Extra as any).CPU : undefined;
@@ -743,6 +872,26 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
               subnetName: (r?.Extra as any)?.SubnetName,
               networks: JSON.stringify(Array.isArray((r?.Extra as any)?.Networks) ? (r?.Extra as any)?.Networks : []),
               instanceCreatedAt: (r?.CreationTime || ((r?.Extra as any)?.CreationTime)) || undefined,
+            };
+          } else if (provider === 'cloudmap') {
+            const id: string = (r as any)?.InstanceId || (r as any)?.id || (r as any)?.Id || (r as any)?.uuid || '';
+            const name: string = (r as any)?.InstanceName || (r as any)?.HostName || (r as any)?.name || (r as any)?.Name || id;
+            const priArr = Array.isArray((r as any)?.IPs) ? (r as any)?.IPs : (Array.isArray((r as any)?.Extra?.IPs) ? (r as any)?.Extra?.IPs : []);
+            const cpuRaw = (r as any)?.CPU ?? (r as any)?.Extra?.CPU;
+            const cpu = typeof cpuRaw === 'number' ? cpuRaw : undefined;
+            const memRaw = (r as any)?.Memory ?? (r as any)?.Extra?.Memory;
+            const memMatch = typeof memRaw === 'string' ? String(memRaw).match(/([0-9]+\.?[0-9]*)/i) : null;
+            const memoryGb = memMatch ? Math.round(parseFloat(memMatch[1])) : (typeof memRaw === 'number' ? memRaw : undefined);
+            record = {
+              ...base,
+              instanceId: id,
+              instanceName: name,
+              status: (r as any)?.Status || (r as any)?.status || (r as any)?.PowerStatus,
+              privateIps: JSON.stringify(Array.isArray(priArr) ? priArr : []),
+              cpu,
+              memoryGb,
+              networks: JSON.stringify(Array.isArray((r as any)?.Networks) ? (r as any)?.Networks : (Array.isArray((r?.Extra as any)?.Networks) ? (r?.Extra as any)?.Networks : [])),
+              instanceCreatedAt: (r as any)?.CreationTime || (r as any)?.CreatedAt || (r as any)?.createTime || ((r?.Extra as any)?.CreationTime) || undefined,
             };
           }
           if (!record || !record.instanceId) continue;

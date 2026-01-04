@@ -8,6 +8,7 @@ import { normalizeVpcs } from '../../utils/cloudNormalize';
 import CloudDetailHw from './Hw/CloudDetailHw';
 import CloudDetailHarvester from './Harvester/CloudDetailHarvester';
 import CloudDetailAliyun from './Aliyun/CloudDetailAliyun';
+import CloudDetailCloudmap from './Cloudmap/CloudDetailCloudmap';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderSubnets, fetchCloudProviderRouteEntries, createCloudProviderVpc, createCloudProviderVSwitch, fetchCloudProviderSubnetsByVpc, deleteCloudProviderVpc, updateCloudProviderVpc, deleteCloudProviderVSwitch, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEnis, createCloudProviderEni, updateCloudProviderEni, deleteCloudProviderEni, fetchCloudProviderNetworkAcls, createCloudProviderNetworkAcl, updateCloudProviderNetworkAcl, deleteCloudProviderNetworkAcl, createCloudProviderSecurityGroup, updateCloudProviderSecurityGroup, deleteCloudProviderSecurityGroup, fetchHarvesterNads, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchHarvesterHealth, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchAliyunEcsVncUrl } from '../../services/api';
 
 interface AliyunVpc {
@@ -185,7 +186,7 @@ const CloudDetail: React.FC = () => {
         rawList = (json as any)?.data?.InstanceSet || [];
       } else if (provider.includes('huawei')) {
         rawList = (json as any)?.data?.servers || [];
-      } else if (provider === 'harvester' || provider === 'cloudmap') {
+      } else if (provider === 'harvester') {
         rawList = Array.isArray((json as any)?.data) ? (json as any).data : ((json as any)?.data?.Instances?.Instance || (json as any)?.data?.items || (json as any)?.data?.data || []);
       } else {
         rawList = (json as any)?.data?.Instances?.Instance || [];
@@ -563,7 +564,7 @@ const CloudDetail: React.FC = () => {
       loadSnapshots();
       loadEnis();
       loadNetworkAcls();
-    } else if (provider === 'harvester' || provider === 'cloudmap') {
+    } else if (provider === 'harvester') {
       loadEcs();
       loadHarvesterNads();
       loadHarvesterVolumes();
@@ -680,7 +681,10 @@ const CloudDetail: React.FC = () => {
   if (provider.includes('aliyun') && id) {
     return (<CloudDetailAliyun cloudId={id} />);
   }
-  if ((provider === 'harvester' || provider === 'cloudmap') && id) {
+  if ((provider === 'cloudmap' || provider.startsWith('cloudmap')) && id) {
+    return (<CloudDetailCloudmap cloudId={id} />);
+  }
+  if ((provider === 'harvester') && id) {
     return (<CloudDetailHarvester cloudId={id} defaultProvider={provider} />);
   }
   // 避免闪屏：在 provider 未解析前不渲染回退页面
@@ -1266,7 +1270,7 @@ const CloudDetail: React.FC = () => {
                               if (key === 'webvnc') {
                                 const isAliyun = String(provider || '').toLowerCase().includes('aliyun');
                                 const isHuawei = String(provider || '').toLowerCase().includes('huawei');
-                                const isHarvester = String(provider || '').toLowerCase().includes('harvester') || String(provider || '').toLowerCase().includes('cloudmap');
+                                const isHarvester = String(provider || '').toLowerCase().includes('harvester');
                                 if ((isAliyun || isHuawei) && id && iid) {
                                   try {
                                     const json = await fetchAliyunEcsVncUrl(id!, iid);

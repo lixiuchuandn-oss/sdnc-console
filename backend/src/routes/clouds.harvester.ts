@@ -1,4 +1,6 @@
 import { Router, Response } from 'express';
+import axios from 'axios';
+import https from 'https';
 import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
 import { listHarvesterVMsStandard, listHarvesterNADsStandard, listHarvesterVolumesStandard, listHarvesterAvailableVolumesStandard, listHarvesterImagesStandard, listHarvesterNodesStandard, listHarvesterSystemPodsStandard, listHarvesterGpuResources, listHarvesterUsbResources, listHarvesterStorageClassesStandard, harvesterHealthCheck, getHarvesterVM, createHarvesterVM, listKubeOvnVpcs, listKubeOvnSubnets, buildHarvesterVMManifest, harvesterStartVM, harvesterStopVM, harvesterRebootVM, harvesterDeleteVM, harvesterAddVolumeToVM, harvesterRemoveVolumeFromVM, deleteHarvesterLonghornVolume, createHarvesterPVCVolume, exportImageFromPVC, createVolumeSnapshot, updatePVCSpec, clonePVC, updateHarvesterVMSpec, getHarvesterVmVncUrl, harvesterAddVolumeToVMDirect } from '../services/harvester';
@@ -14,9 +16,7 @@ const fetchCloudOr404 = async (id: string, res: Response) => {
 const ensureProvider = (cloud: any, provider: string, res: Response, msg: string) => {
   const actual = String(cloud?.config?.provider || '').toLowerCase().trim();
   const expected = String(provider).toLowerCase().trim();
-  const ok = actual === expected
-    || (expected === 'harvester' && (actual === 'cloudmap' || actual.startsWith('cloudmap')));
-  if (!ok) {
+  if (actual !== expected) {
     res.status(400).json({ message: msg });
     return false;
   }
@@ -28,10 +28,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     try {
       const { id } = req.params;
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
-      {
-        const pv = String((cloud as any)?.config?.provider || '').toLowerCase().trim();
-        if (!(pv === 'harvester' || pv === 'cloudmap' || pv.startsWith('cloudmap'))) return next();
-      }
+      if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
       const insecure = !!(cloud.config as any)?.ignoreTls;
       const list = await listKubeOvnVpcs({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
       res.json({ message: '查询成功', data: { items: list } });
@@ -43,10 +40,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     try {
       const { id } = req.params;
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
-      {
-        const pv = String((cloud as any)?.config?.provider || '').toLowerCase().trim();
-        if (!(pv === 'harvester' || pv === 'cloudmap' || pv.startsWith('cloudmap'))) return next();
-      }
+      if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
       const insecure = !!(cloud.config as any)?.ignoreTls;
       const data = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
       const capabilities = { isHarvester: true, supportsInstanceType: false, supportsZone: false, supportsVpc: false, supportsNetworkFusion: true, supportsMultus: true };

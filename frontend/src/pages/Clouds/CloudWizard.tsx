@@ -48,7 +48,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [formData, setFormData] = useState<any>(null);
 
   const isOpenProvider = (id: string) => {
-    return ['aliyun', 'huaweicloud', 'cloudmap', 'harvester'].includes(id);
+    return ['aliyun', 'huaweicloud', 'cloudmap', 'harvester', 'cloudmap-security'].includes(id);
   };
 
   // 云平台配置
@@ -70,6 +70,19 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           { value: 'cn-beijing', label: 'cn-beijing（华北2 北京）' },
           { value: 'cn-shenzhen', label: 'cn-shenzhen（华南1 深圳）' }
         ]}
+      ]
+    },
+    {
+      id: 'cloudmap-security',
+      name: 'CSM',
+      logo: <CloudServerOutlined />,
+      category: 'private',
+      description: '添加 CSM',
+      fields: [
+        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
+        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap.example.com' },
+        { key: 'accessKey', label: 'AccessKey', type: 'input', required: true, placeholder: '请输入 AccessKey（如 Cloudmap%23123）' },
+        { key: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '请输入 SecretKey（如 Cloudmap%23123）' }
       ]
     },
     {
@@ -320,6 +333,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
         { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap.example.com' },
         { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入Cloudmap API令牌' },
+        { key: 'accessKey', label: 'AccessKey', type: 'input', required: true, placeholder: '请输入 AccessKey（如 Cloudmap%23123）' },
+        { key: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '请输入 SecretKey（如 Cloudmap%23123）' },
         { key: 'harvesterVersion', label: '版本', type: 'select', required: false, placeholder: '自动识别', options: [
           { label: '自动', value: 'auto' },
           { label: '1.5', value: '1.5' },
@@ -473,9 +488,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       const values = formData || form.getFieldsValue();
       console.log('使用的表单数据:', values);
       
-      // 规范化资源类型到后端支持的集合（central/edge/hybrid）
+      // 规范化资源类型到后端支持的集合
       const rawType: string = String(values.type || '').toLowerCase();
-      const normalizedType: string = ['central','edge','hybrid'].includes(rawType)
+      const normalizedType: string = ['central','edge','hybrid','security_pool'].includes(rawType)
         ? rawType
         : ((selectedProvider?.category === 'private') ? 'edge' : 'central');
 
@@ -658,7 +673,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             {poolType === 'virtualization' && renderProviderGrid('virtualization', '虚拟化平台', cloudProviders.filter(p => p.category === 'private' && ['vmware','kvm','harvester'].includes(p.id)))}
             {poolType === 'object_storage' && renderProviderGrid('storage', '对象存储', cloudProviders.filter(p => p.category === 'storage'))}
             {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter(p => ['cloudmap','rancher'].includes(p.id)))}
-            {(poolType === 'security_pool' || poolType === 'sase_gateway') && (
+            {poolType === 'security_pool' && renderProviderGrid('private', 'CSM', cloudProviders.filter(p => ['cloudmap-security'].includes(p.id)))}
+            {poolType === 'sase_gateway' && (
               <Alert style={{ marginTop: 12 }} type="warning" showIcon message="该资源池类型暂未开放接入" />
             )}
           </div>
@@ -671,7 +687,11 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           <div>
             <div style={{ marginBottom: 12 }}>
               <div className="wizard-group-title">配置云账号</div>
-              <div style={{ color: '#8c8c8c', marginTop: 6 }}>{selectedProvider.description}</div>
+              <div style={{ color: '#8c8c8c', marginTop: 6 }}>
+                {(poolType === 'security_pool' && selectedProvider.id === 'cloudmap-security')
+                  ? '添加 CSM'
+                  : selectedProvider.description}
+              </div>
             </div>
 
             <Form
@@ -688,12 +708,21 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                   <Option value="edge">边缘计算</Option>
                   <Option value="virtualization">虚拟化</Option>
                   <Option value="object_storage">对象存储</Option>
-                  <Option value="security_pool">云安全资源池</Option>
+                  <Option value="security_pool">CSM</Option>
                   <Option value="sase_gateway">SASE网关</Option>
                 </Select>
               </Form.Item>
 
-              {selectedProvider.fields.map(field => (
+              {(() => {
+                const fieldsToRender = (() => {
+                  const arr = selectedProvider.fields;
+                  if (selectedProvider.id === 'cloudmap') {
+                    if (poolType === 'security_pool') return arr.filter(f => f.key !== 'apiToken');
+                    return arr.filter(f => f.key !== 'accessKey' && f.key !== 'secretKey');
+                  }
+                  return arr;
+                })();
+                return fieldsToRender.map(field => (
                 <Form.Item
                   key={field.key}
                   name={field.key}
@@ -720,7 +749,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                     <Input.TextArea rows={4} placeholder={field.placeholder} />
                   )}
                 </Form.Item>
-              ))}
+                ));
+              })()}
 
               <Collapse
                 className="wizard-collapse-nopad"

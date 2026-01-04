@@ -6,6 +6,12 @@
 - 在线状态：`health_status` 取值 `ONLINE/OFFLINE`
 - 错误码：`10001/10002/10003/10004/10005/5001`
 
+## 查询资源池下主机的安全能力 (VM04)
+- `GET /V2/ctcontrol/VM04/host/vms`
+- 参数：`host_id` (可选) - 主机Id，若不填写，则查询资源池下所有能力
+- 响应：`data[]` 包含 `vm_id`, `vm_name`, `status`, `vm_type`, `manage_ip`, `interfaceList`, `dev_disk` 等
+- 错误码：`10009` (host_id不存在), `200`, `500` 等
+
 ## VR 实例注册
 - `POST /V2/vrcontrol/VR1/register`
 - 参数：`pool_id/pool_name/vm_id/mac/name/uuid/version/type(=VR)`

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Button, Card, Col, Form, Input, Row, Select, Space, Steps, message, Tag, Transfer, Segmented, Radio, Popover, Table, Tooltip, Modal, List, Badge, Progress, Descriptions, Tabs, Alert, Typography } from 'antd';
+import { Button, Card, Col, Form, Input, Row, Select, Space, Steps, message, Tag, Transfer, Segmented, Radio, Popover, Table, Tooltip, Modal, Badge, Progress, Tabs, Alert, Typography } from 'antd';
 import type { TransferItem, TransferProps } from 'antd/es/transfer';
 import type { ColumnsType, TableProps } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
@@ -26,7 +26,6 @@ import ReactFlow, {
 import { 
   DeleteOutlined, 
   SearchOutlined, 
-  SettingOutlined, 
   LayoutOutlined,
   CheckCircleFilled, 
   SafetyCertificateOutlined, 
@@ -43,9 +42,6 @@ import {
   AuditOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  ClusterOutlined,
-  DeploymentUnitOutlined,
-  DesktopOutlined,
   PartitionOutlined,
   EnvironmentOutlined,
   AppstoreOutlined,
@@ -507,17 +503,18 @@ interface CustomTransferItem extends TransferItem {
   title: string;
   description: string;
   type: 'IP' | 'Network' | 'VSW' | 'VM';
+  ports?: string;
 }
 
 const mockTransferData: CustomTransferItem[] = [
-  { key: '192.168.1.10', title: 'Web Server', description: '192.168.1.10', type: 'IP' },
-  { key: '192.168.1.11', title: 'DB Server', description: '192.168.1.11', type: 'IP' },
-  { key: '192.168.1.0/24', title: 'Office Network', description: '192.168.1.0/24', type: 'Network' },
-  { key: '10.0.0.0/16', title: 'Core Network', description: '10.0.0.0/16', type: 'Network' },
-  { key: 'vsw-001', title: 'VSW-001', description: 'Core VSW', type: 'VSW' },
-  { key: 'vsw-002', title: 'VSW-002', description: 'Backup VSW', type: 'VSW' },
-  { key: 'vm-001', title: 'VM-Frontend-01', description: '172.16.0.5', type: 'VM' },
-  { key: 'vm-002', title: 'VM-Frontend-02', description: '172.16.0.6', type: 'VM' },
+  { key: '192.168.1.10', title: 'Web Server', description: '192.168.1.10', type: 'IP', ports: '全部' },
+  { key: '192.168.1.11', title: 'DB Server', description: '192.168.1.11', type: 'IP', ports: '全部' },
+  { key: '192.168.1.0/24', title: 'Office Network', description: '192.168.1.0/24', type: 'Network', ports: '全部' },
+  { key: '10.0.0.0/16', title: 'Core Network', description: '10.0.0.0/16', type: 'Network', ports: '全部' },
+  { key: 'vsw-001', title: 'VSW-001', description: 'Core VSW', type: 'VSW', ports: '全部' },
+  { key: 'vsw-002', title: 'VSW-002', description: 'Backup VSW', type: 'VSW', ports: '全部' },
+  { key: 'vm-001', title: 'VM-Frontend-01', description: '172.16.0.5', type: 'VM', ports: '80,443' },
+  { key: 'vm-002', title: 'VM-Frontend-02', description: '172.16.0.6', type: 'VM', ports: '80,443' },
 ];
 
 const mockSecurityZones = [
@@ -1330,6 +1327,7 @@ const CreateServiceChainWizard: React.FC = () => {
                                 title: o.name,
                                 description: o.description || '',
                                 type: (o.type === 'subnet' ? 'Network' : (o.type === 'ip' ? 'IP' : (o.type === 'line' ? 'IP' : 'VM'))) as CustomTransferItem['type'],
+                                ports: (o.ports || o.port || ((o.portStart && o.portEnd) ? `${o.portStart}-${o.portEnd}` : undefined)) || '全部',
                               }));
                               setDirectData(mapped);
                               message.success('已加载现有防护对象');
@@ -1409,6 +1407,12 @@ const CreateServiceChainWizard: React.FC = () => {
                                 </div>
                               )
                             },
+                            { 
+                              dataIndex: 'ports', 
+                              title: '防护端口',
+                              width: 120,
+                              render: (t, record) => <Tag style={{ marginRight: 0 }}>{t || '全部'}</Tag>
+                            },
                           ]}
                           rightColumns={[
                             { 
@@ -1418,7 +1422,7 @@ const CreateServiceChainWizard: React.FC = () => {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <div style={{ 
                                     width: 32, height: 32, 
-                                    background: '#e6f7ff', 
+                                    background: '#f5f7fa', 
                                     borderRadius: 6, 
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     color: '#1677ff'
@@ -1429,16 +1433,46 @@ const CreateServiceChainWizard: React.FC = () => {
                                     {record.type === 'IP' && <EnvironmentOutlined />}
                                   </div>
                                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <span style={{ fontWeight: 500, color: '#1677ff' }}>{text}</span>
-                                    <span style={{ fontSize: 10, color: '#8c8c8c' }}>{record.key}</span>
+                                    <span style={{ fontWeight: 500 }}>{text}</span>
                                   </div>
                                 </div>
                               )
                             },
-                            { dataIndex: 'type', title: '类型', width: 100, render: (text) => <Tag>{text}</Tag> },
+                            { 
+                              dataIndex: 'type', 
+                              title: '类型',
+                              width: 100,
+                              render: (text) => <Tag color="blue">{text}</Tag>,
+                              filters: [
+                                { text: 'IP', value: 'IP' },
+                                { text: 'Network', value: 'Network' },
+                                { text: 'VSW', value: 'VSW' },
+                                { text: 'VM', value: 'VM' },
+                              ],
+                              onFilter: (value: boolean | React.Key, item: CustomTransferItem) => item.type === value,
+                            },
+                            { 
+                              dataIndex: 'title', 
+                              title: '防护范围',
+                              render: (text, record) => (
+                                <div>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ color: '#8c8c8c' }}>{record.key}</span>
+                                  </div>
+                                </div>
+                              )
+                            },
+                            { 
+                              dataIndex: 'ports', 
+                              title: '防护端口',
+                              width: 120,
+                              render: (t) => <Tag style={{ marginRight: 0 }}>{t || '全部'}</Tag>
+                            },
                           ]}
                           filterOption={(inputValue, item) =>
-                            (item.title?.indexOf(inputValue) ?? -1) > -1 || (item.description?.indexOf(inputValue) ?? -1) > -1
+                            (item.title?.indexOf(inputValue) ?? -1) > -1 
+                            || (item.description?.indexOf(inputValue) ?? -1) > -1
+                            || (item.ports?.indexOf(inputValue) ?? -1) > -1
                           }
                           showSearch
                         />
@@ -1450,17 +1484,18 @@ const CreateServiceChainWizard: React.FC = () => {
                         onOk={() => {
                           addDirectForm
                             .validateFields()
-                            .then(vals => {
-                              const newItem: CustomTransferItem = {
-                                key: vals.value,
-                                title: vals.name || vals.value,
-                                description: vals.value,
-                                type: (vals.type === 'ip' ? 'IP' : 'Network'),
-                              };
-                              setDirectData(prev => [newItem, ...prev]);
-                              setAddDirectOpen(false);
-                              addDirectForm.resetFields();
-                              message.success('已新增条目');
+                          .then(vals => {
+                            const newItem: CustomTransferItem = {
+                              key: vals.value,
+                              title: vals.name || vals.value,
+                              description: vals.value,
+                              type: (vals.type === 'ip' ? 'IP' : 'Network'),
+                              ports: vals.ports || '全部',
+                            };
+                            setDirectData(prev => [newItem, ...prev]);
+                            setAddDirectOpen(false);
+                            addDirectForm.resetFields();
+                            message.success('已新增条目');
                             })
                             .catch(() => {});
                         }}
@@ -1474,6 +1509,9 @@ const CreateServiceChainWizard: React.FC = () => {
                           </Form.Item>
                           <Form.Item name="value" label="值" rules={[{ required: true }]}>
                             <Input placeholder="例如 192.168.1.10 或 192.168.1.0/24" />
+                          </Form.Item>
+                          <Form.Item name="ports" label="防护端口">
+                            <Input placeholder="例如 80,443 或 1-65535；留空表示全部" />
                           </Form.Item>
                           <Form.Item name="name" label="名称">
                             <Input placeholder="可选：为条目取一个名称" />

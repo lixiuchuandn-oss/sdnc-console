@@ -3,7 +3,8 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 export enum CloudType {
   CENTRAL = 'central',
   EDGE = 'edge',
-  HYBRID = 'hybrid'
+  HYBRID = 'hybrid',
+  SECURITY_POOL = 'security_pool'
 }
 
 export enum CloudStatus {

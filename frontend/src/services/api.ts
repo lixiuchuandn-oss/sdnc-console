@@ -914,6 +914,42 @@ export const fetchHarvesterVmVncUrl = async (cloudId: string, namespace: string,
   return await res.json();
 };
 
+// Cloudmap 云安全资源池：虚拟安全网元
+export const fetchCloudmapVirtualElements = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/cloudmap/security/virtual-elements`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+// Cloudmap 云安全资源池：物理安全网元
+export const fetchCloudmapPhysicalElements = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/cloudmap/security/physical-elements`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+// Cloudmap 云安全资源池：安全网元组
+export const fetchCloudmapElementGroups = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/cloudmap/security/element-groups`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
 export const updateHarvesterVmSpec = async (
   cloudId: string,
   namespace: string,

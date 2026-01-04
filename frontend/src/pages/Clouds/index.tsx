@@ -288,6 +288,7 @@ const Clouds: React.FC = () => {
       rancher: { name: 'Rancher', logo: <CodepenOutlined /> },
       harvester: { name: 'Harvester', logo: <CodepenOutlined /> },
       cloudmap: { name: 'Cloudmap', logo: <CodepenOutlined /> },
+      'cloudmap-security': { name: 'Cloudmap', logo: <CodepenOutlined /> },
       parallel_file_storage: { name: '高速并行文件存储', logo: <CodepenOutlined /> },
     };
 
