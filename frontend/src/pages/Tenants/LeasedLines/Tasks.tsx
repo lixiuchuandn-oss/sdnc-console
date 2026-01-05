@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Progress, Space as AntSpace, Table, Tag, Modal, Timeline, Popover, message, Dropdown, Form, Input, DatePicker, Select, Tabs, Descriptions, Alert, Switch, Drawer, Radio, Checkbox } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, DeleteOutlined, DownloadOutlined, SettingOutlined, UndoOutlined, EyeOutlined, StopOutlined, DownOutlined, FilePdfOutlined, FileWordOutlined, FileOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, DeleteOutlined, DownloadOutlined, SettingOutlined, UndoOutlined, EyeOutlined, StopOutlined, DownOutlined, FilePdfOutlined, FileWordOutlined, FileOutlined, FileZipOutlined } from '@ant-design/icons';
 import { listSecurityReportTasks, getSecurityReportTask, cancelSecurityReportTask, getSecurityReportTaskOutputs, removeSecurityReportTask, batchRemoveSecurityReportTasks } from '../../../services/leasedLineApi';
 import { listLeasedLines } from '../../../services/leasedLineApi';
 import { getDifyConfig as apiGetDifyConfig, updateDifyConfig as apiUpdateDifyConfig } from '../../../services/systemApi';
@@ -98,7 +98,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
     return name ? String(name) : '-';
   };
 
-  const downloadReport = async (r: any, type?: 'pdf' | 'docx') => {
+  const downloadReport = async (r: any, type?: 'pdf' | 'docx' | 'WXB_ZIP') => {
     try {
       const meta = r?.fileMeta || {};
       let url = String(meta?.folderDownloadEndpoint || meta?.downloadEndpoint || '');
@@ -118,9 +118,17 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
       const blob = await res.blob();
       const tn = tenantNameByLineId(r.lineId);
       const computedName = (tn && tn !== '-') ? `${tn}安全报告` : undefined;
-      const baseName = String(meta?.name || computedName || '安全报告').trim().replace(/\.(docx|pdf)$/i, '');
-      const ext = type ? `.${type}` : (meta?.format ? `.${meta.format}` : '.docx');
-      const name = baseName.endsWith(ext) ? baseName : `${baseName}${ext}`;
+      const baseName = String(meta?.name || computedName || '安全报告').trim().replace(/\.(docx|pdf|zip)$/i, '');
+      
+      let ext = '.docx';
+      if (type === 'WXB_ZIP') ext = '.zip';
+      else if (type) ext = `.${type}`;
+      else if (meta?.format) ext = `.${meta.format}`;
+      
+      let name = baseName.endsWith(ext) ? baseName : `${baseName}${ext}`;
+      if (type === 'WXB_ZIP' && !name.includes('网信办')) {
+          name = `${baseName}_网信办报告打包${ext}`;
+      }
       
       const a = document.createElement('a');
       const objectUrl = URL.createObjectURL(blob);
@@ -135,7 +143,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
     }
   };
 
-  const downloadSelectedReports = async (type: 'pdf' | 'docx') => {
+  const downloadSelectedReports = async (type: 'pdf' | 'docx' | 'WXB_ZIP') => {
     try {
       if (!selectedRowKeys.length) { message.warning('请先选择任务'); return; }
       const map = new Map<string, any>(tasks.map((t) => [t.id, t]));
@@ -166,12 +174,15 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
     let defaultFormats: string[] = ['docx'];
     if (!isBatch && task) {
         const reportFiles = task.reportFiles || [];
-        const hasPdf = reportFiles.some((f: any) => f.type === 'pdf');
-        const hasDocx = reportFiles.some((f: any) => f.type === 'docx');
+        const hasPdf = reportFiles.some((f: any) => String(f.type).toLowerCase() === 'pdf');
+        const hasDocx = reportFiles.some((f: any) => String(f.type).toLowerCase() === 'docx');
+        const hasZip = reportFiles.some((f: any) => String(f.type).toLowerCase() === 'wxb_zip');
         
-        if (hasPdf && !hasDocx) defaultFormats = ['pdf'];
-        else if (!hasPdf && hasDocx) defaultFormats = ['docx'];
-        else if (hasPdf && hasDocx) defaultFormats = ['pdf', 'docx'];
+        defaultFormats = [];
+        if (hasDocx) defaultFormats.push('docx');
+        if (hasPdf) defaultFormats.push('pdf');
+        if (hasZip) defaultFormats.push('WXB_ZIP');
+        if (defaultFormats.length === 0) defaultFormats = ['docx'];
     }
     setDlFormats(defaultFormats);
     setDlModalOpen(true);
@@ -527,6 +538,7 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
                             <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {String(f.type).toLowerCase() === 'pdf' ? <FilePdfOutlined style={{ color: '#ff4d4f' }} /> : 
                                  String(f.type).toLowerCase() === 'docx' ? <FileWordOutlined style={{ color: '#1677ff' }} /> : 
+                                 String(f.type).toLowerCase() === 'wxb_zip' ? <FileZipOutlined style={{ color: '#faad14' }} /> :
                                  <FileOutlined />}
                                 <span style={{ fontSize: 13 }}>{f.filename || f.name}</span>
                                 <span style={{ color: '#999', fontSize: 12 }}>
@@ -551,10 +563,12 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
             const meta = r?.fileMeta || {};
             const downloadUrl = String(meta?.folderDownloadEndpoint || meta?.downloadEndpoint || '');
             const canDownload = !!downloadUrl;
+            const wxbZip = (r.reportFiles || []).find((f: any) => f.type === 'WXB_ZIP');
             
             const items = [
               { key: 'detail', label: '查看详情', icon: <EyeOutlined /> },
               canDownload ? { key: 'download', label: '下载报告', icon: <DownloadOutlined /> } : null,
+              wxbZip ? { key: 'download_wxb', label: '下载网信办报告', icon: <FileZipOutlined /> } : null,
               (deriveStatus(r)==='running') ? { key: 'cancel', label: '取消任务', danger: true, icon: <StopOutlined /> } : null,
               { key: 'remove', label: '删除任务', danger: true, icon: <DeleteOutlined /> },
             ].filter(Boolean) as any[];
@@ -563,6 +577,11 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
               onClick: async ({ key }: any) => {
                 if (key === 'detail') { openTaskDetail(r.id); return; }
                 if (key === 'download') { handleDownloadClick(false, r); return; }
+                if (key === 'download_wxb') { 
+                    const token = localStorage.getItem('token');
+                    window.open(`${API_BASE_URL}/api/leased-lines/security-report/tasks/${r.id}/download?type=WXB_ZIP${token ? `&token=${token}` : ''}`, '_blank');
+                    return; 
+                }
                 if (key === 'cancel') { try { await cancelSecurityReportTask(r.id); fetchTasks(); } catch {} return; }
                 if (key === 'remove') {
                   Modal.confirm({
@@ -808,11 +827,14 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
             <p style={{ marginBottom: 12 }}>请选择要下载的报告文件格式（可多选）：</p>
             <Checkbox.Group value={dlFormats} onChange={(vals) => setDlFormats(vals as string[])}>
                 <AntSpace direction="vertical">
-                    <Checkbox value="pdf" disabled={!dlIsBatch && dlTargetTask && dlTargetTask.reportFiles?.length > 0 && !dlTargetTask.reportFiles.some((f:any)=>f.type==='pdf')}>
+                    <Checkbox value="pdf" disabled={!dlIsBatch && dlTargetTask && dlTargetTask.reportFiles?.length > 0 && !dlTargetTask.reportFiles.some((f:any)=>String(f.type).toLowerCase() === 'pdf')}>
                         PDF 格式 (.pdf)
                     </Checkbox>
-                    <Checkbox value="docx" disabled={!dlIsBatch && dlTargetTask && dlTargetTask.reportFiles?.length > 0 && !dlTargetTask.reportFiles.some((f:any)=>f.type==='docx')}>
+                    <Checkbox value="docx" disabled={!dlIsBatch && dlTargetTask && dlTargetTask.reportFiles?.length > 0 && !dlTargetTask.reportFiles.some((f:any)=>String(f.type).toLowerCase() === 'docx')}>
                         Word 格式 (.docx)
+                    </Checkbox>
+                    <Checkbox value="WXB_ZIP" disabled={!dlIsBatch && dlTargetTask && dlTargetTask.reportFiles?.length > 0 && !dlTargetTask.reportFiles.some((f:any)=>String(f.type).toLowerCase() === 'wxb_zip')}>
+                        网信办报告打包 (.zip)
                     </Checkbox>
                 </AntSpace>
             </Checkbox.Group>
