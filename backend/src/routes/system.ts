@@ -73,7 +73,7 @@ router.get('/rbac/actions', async (_req, res) => {
     'networks.vpcs:read','networks.vpcs:write',
     'networks.cen:read','networks.cen:write',
     'networks.cen.attachments:read','networks.cen.attachments:write',
-    'networks.info-domain:read','networks.info-domain:write',
+    'networks.security-domain:read','networks.security-domain:write',
     'networks.srv6:read','networks.srv6:write',
     'networks.vr-config:read','networks.vr-config:write',
     'networks.route-tables:read','networks.route-tables:write',

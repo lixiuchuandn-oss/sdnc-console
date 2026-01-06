@@ -13,7 +13,7 @@ const fetchCloudOr404 = async (id: string, res: Response) => {
 
 const ensureCsm = (cloud: any, res: Response, msg: string) => {
   const pv = String((cloud as any)?.config?.provider || '').toLowerCase().trim();
-  const ok = pv === 'cloudmap' || pv.startsWith('cloudmap') || pv === 'csm';
+  const ok = pv === 'cloudmap-security' || pv === 'csm';
   if (!ok) {
     res.status(400).json({ message: msg });
     return false;

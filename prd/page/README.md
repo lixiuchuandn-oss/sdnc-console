@@ -8,7 +8,7 @@
   - VR实例管理：`docs/prd/interconnect/vr-instance.md`
   - SRv6隧道管理：`docs/prd/interconnect/srv6-tunnel.md`
 - 安全与网络域：
-  - 信息域管理：`docs/prd/security/info-domain.md`
+  - 安全域管理：`docs/prd/security/security-domain.md`
 - 公共内容：
   - API 文档索引：`docs/api/README.md`
   - 通信规约与认证：`docs/api/communication.md`

@@ -33,29 +33,27 @@ const testCloudConnectionUnified = async (args: { provider?: string; accessKey?:
   if (provider === 'tencentcloud') {
     return { ok: false, message: '已不支持腾讯云接入' };
   }
-  if (provider === 'cloudmap' || provider.startsWith('cloudmap') || provider === 'cloudmap-security') {
+  if (provider === 'cloudmap-security' || provider === 'csm') {
     try {
-      const raw = String(args.endpoint || '').trim();
-      const base = (() => {
-        try {
-          const u = raw.startsWith('http') ? new URL(raw) : new URL(`https://${raw}`);
-          const host = `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
-          return host;
-        } catch {
-          const s = raw.replace(/\/.*$/,'');
-          return /^https?:\/\//.test(s) ? s : `https://${s}`;
-        }
-      })();
-      const ak = encodeURIComponent(String(args.accessKey || ''));
-      const sk = encodeURIComponent(String(args.secretKey || ''));
-      const url = `${base}/api/sign?url=/V2/ctcontrol/VM04/vms&method=GET&other=&accessKey=${ak}&secretKey=${sk}`;
-      const agent = new https.Agent({ rejectUnauthorized: !args.config?.ignoreTls });
-      const resp = await axios.post(url, {}, { httpsAgent: agent, timeout: 8000 });
-      const ok = !!(resp?.data?.data?.Authorization && resp?.data?.data?.tonce);
-      return { ok, message: ok ? '签名校验成功' : '签名校验失败' };
+      const config = {
+        endpoint: String(args.endpoint || '').trim(),
+        accessKey: String(args.accessKey || '').trim(),
+        secretKey: String(args.secretKey || '').trim(),
+        ignoreTls: !!args.config?.ignoreTls
+      };
+      // Perform a real API call to verify connectivity and permissions
+      // Querying VM list (limit 1) to ensure the data plane is accessible
+      await csmRequest(config, '/V2/ctcontrol/VM04/vms', { page_size: 1, page_num: 1 });
+      return { ok: true, message: '连接成功，API调用正常' };
     } catch (err: any) {
-      return { ok: false, message: err?.message || '签名校验失败' };
+      console.error('Cloudmap connection test failed:', err);
+      const msg = err?.response?.data?.message || err?.message || '连接失败';
+      return { ok: false, message: `连接失败: ${msg}` };
     }
+  }
+  if (provider === 'cloudmap' || provider === 'cloudmap-private' || provider === 'cloudmap-edge') {
+    const t = await testHarvesterConnection({ endpoint: args.endpoint || '', token: args.secretKey || '', insecure: !!args.config?.ignoreTls });
+    return { ok: !!t.ok, message: t.message || '' };
   }
   if (provider === 'harvester') {
     const t = await testHarvesterConnection({ endpoint: args.endpoint || '', token: args.secretKey || '', insecure: !!args.config?.ignoreTls });
@@ -158,7 +156,7 @@ import { testAliyunConnection, callAliyunEcs, callAliyunSlb, callAliyunVpc, call
 // 引入华为云SDK调用
 import { testHuaweiConnection, huaweiListVpcs, huaweiListServers, huaweiListSnapshots, huaweiListSubnets, huaweiListRouteTables } from '../services/huaweicloud';
 import { testHarvesterConnection, listHarvesterVMsStandard, harvesterStartVM, harvesterStopVM, harvesterRebootVM, harvesterDeleteVM, listKubeOvnVpcs, listKubeOvnSubnets } from '../services/harvester';
-import { listCsmVms } from '../services/clouds/csm/client';
+import { listCsmVms, csmRequest } from '../services/clouds/csm/client';
 import { registerHarvesterRoutes } from './clouds.harvester';
 import { registerCsmRoutes } from './clouds.csm';
 import { registerAliyunRoutes } from './clouds.aliyun';
@@ -629,8 +627,9 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
         .execute();
     }
     let inv = await invRepo.find();
-    const needRefresh = (!inv || inv.length === 0) || String(req.query.refresh || '').toLowerCase() === 'true';
     const targetCloudId = typeof (req.query as any)?.cloudId === 'string' ? String((req.query as any).cloudId) : undefined;
+    const hasTarget = targetCloudId ? inv.some(x => x.cloudId === targetCloudId) : inv.length > 0;
+    const needRefresh = (!hasTarget) || String(req.query.refresh || '').toLowerCase() === 'true';
     const slow = String((req.query as any)?.slow || '').toLowerCase() === 'true';
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     if (needRefresh) {
@@ -676,12 +675,12 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
               if (vid) vpcInfoMap.set(String(vid), { name, cidr });
             }
           } catch {}
-        } else if (provider === 'harvester') {
+        } else if (provider === 'harvester' || provider === 'cloudmap' || provider === 'cloudmap-private' || provider === 'cloudmap-edge') {
           const insecure = !!(cloud.config as any)?.ignoreTls;
           const version = String((cloud.config as any)?.harvesterVersion || '').trim();
           const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
           list = Array.isArray(resp) ? resp : [];
-        } else if (provider === 'cloudmap' || provider === 'csm' || provider.startsWith('cloudmap')) {
+        } else if (provider === 'csm' || provider === 'cloudmap-security') {
           const endpointRaw = String(cloud.endpoint || '').trim();
           const ak = String(cloud.accessKey || '').trim();
           const sk = String(cloud.secretKey || '').trim();
@@ -807,7 +806,7 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
               memoryGb,
               vpcId: r?.VpcId,
             };
-          } else if (provider === 'harvester') {
+          } else if (provider === 'harvester' || provider === 'cloudmap' || provider === 'cloudmap-private' || provider === 'cloudmap-edge') {
             const id: string = r?.InstanceId || '';
             const pri = r?.VpcAttributes?.PrivateIpAddress?.IpAddress || (Array.isArray(r?.Extra?.IPs) ? r?.Extra?.IPs : []);
             const cpu = typeof (r?.Extra as any)?.CPU === 'number' ? (r?.Extra as any).CPU : undefined;
@@ -817,18 +816,19 @@ router.get('/inventory/instances', checkAdminPermission, async (req: AuthRequest
             record = {
               ...base,
               instanceId: id,
-              instanceName: id.split('/').pop() || id,
+              instanceName: r?.InstanceName || (id.includes('/') ? id.split('/').pop() : id),
               status: r?.Status || (r as any)?.status,
               privateIps: JSON.stringify(Array.isArray(pri) ? pri : []),
               cpu,
               memoryGb,
               vpcId: (r as any)?.VpcId,
+              vpcName: (r as any)?.VpcName,
               subnetId: (r?.Extra as any)?.SubnetId,
               subnetName: (r?.Extra as any)?.SubnetName,
               networks: JSON.stringify(Array.isArray((r?.Extra as any)?.Networks) ? (r?.Extra as any)?.Networks : []),
               instanceCreatedAt: (r?.CreationTime || ((r?.Extra as any)?.CreationTime)) || undefined,
             };
-          } else if (provider === 'cloudmap') {
+          } else if (provider === 'csm' || provider === 'cloudmap-security') {
             const id: string = (r as any)?.InstanceId || (r as any)?.id || (r as any)?.Id || (r as any)?.uuid || '';
             const name: string = (r as any)?.InstanceName || (r as any)?.HostName || (r as any)?.name || (r as any)?.Name || id;
             const priArr = Array.isArray((r as any)?.IPs) ? (r as any)?.IPs : (Array.isArray((r as any)?.Extra?.IPs) ? (r as any)?.Extra?.IPs : []);

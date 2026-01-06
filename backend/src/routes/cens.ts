@@ -3,8 +3,9 @@ import { AppDataSource } from '../config/database';
 import { CloudEnterpriseNetwork, CenStatus } from '../entities/CloudEnterpriseNetwork';
 import { CenAttachment, CenAttachmentStatus } from '../entities/CenAttachment';
 import { VpcNetwork } from '../entities/VpcNetwork';
-import { InfoDomain } from '../entities/InfoDomain';
+import { SecurityDomain } from '../entities/SecurityDomain';
 import { AuthRequest } from '../middleware/auth';
+import { logOperation } from '../utils/audit';
 
 const router = Router();
 
@@ -89,17 +90,23 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const repo = AppDataSource.getRepository(CloudEnterpriseNetwork);
     const cen = await repo.findOne({ where: { id } });
     if (!cen) return res.status(404).json({ message: 'CEN 不存在' });
-    if (force) {
-      const attachRepo = AppDataSource.getRepository(CenAttachment);
-      const attachments = await attachRepo.find({ where: { cenId: id } });
-      if (attachments && attachments.length) {
-        for (const att of attachments) {
-          await attachRepo.remove(att);
-        }
+    const attachRepo = AppDataSource.getRepository(CenAttachment);
+    const attachments = await attachRepo.find({ where: { cenId: id } });
+
+    if (!force && attachments.length > 0) {
+      return res.status(400).json({ 
+        message: `无法删除互联通道，该通道已关联 ${attachments.length} 个安全域，请先解除关联` 
+      });
+    }
+
+    if (force && attachments.length > 0) {
+      for (const att of attachments) {
+        await attachRepo.remove(att);
       }
     }
     await repo.remove(cen);
-    res.json({ message: force ? '已强制删除：已释放挂载信息域并删除 CEN' : 'CEN 删除成功' });
+    await logOperation(req, 'Delete CEN', `删除云企业网: ${cen.name} (ID: ${id})，关联安全域已解绑`, true);
+    res.json({ message: force ? '已强制删除：已释放挂载安全域并删除 CEN' : 'CEN 删除成功' });
   } catch (err) {
     console.error('删除 CEN 失败:', err);
     res.status(500).json({ message: '删除失败' });
@@ -111,17 +118,17 @@ router.get('/:id/attachments', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const repo = AppDataSource.getRepository(CenAttachment);
-    const list = await repo.find({ where: { cenId: id }, relations: ['vpc', 'infoDomain'] });
+    const list = await repo.find({ where: { cenId: id }, relations: ['vpc', 'securityDomain'] });
     
     // Transform response to clean up structure as requested
     const result = list.map(att => {
-      const domain: any = att.infoDomain ? { ...att.infoDomain } : {};
+      const domain: any = att.securityDomain ? { ...att.securityDomain } : {};
       
       // Inject CEN ID and Attachment ID into domain object
       domain.cenId = att.cenId;
       domain.attachmentId = att.id; // Needed for frontend actions (e.g. unbind)
 
-      // Remove unwanted fields from InfoDomain (as per user request "没用删掉")
+      // Remove unwanted fields from SecurityDomain (as per user request "没用删掉")
       delete domain.vpcMode;
       delete domain.newVpcName;
       delete domain.newVpcCidr;
@@ -129,7 +136,7 @@ router.get('/:id/attachments', async (req: AuthRequest, res: Response) => {
       return {
         id: att.id,
         status: att.status,
-        infoDomain: domain
+        securityDomain: domain
         // Exclude root level vpcId, vpc, cenId, etc.
       };
     });
@@ -145,7 +152,7 @@ router.get('/:id/attachments', async (req: AuthRequest, res: Response) => {
 router.post('/:id/attachments', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { vpcId, infoDomainId } = req.body;
+    const { vpcId, securityDomainId } = req.body;
 
     const cenRepo = AppDataSource.getRepository(CloudEnterpriseNetwork);
     const cen = await cenRepo.findOne({ where: { id } });
@@ -158,18 +165,18 @@ router.post('/:id/attachments', async (req: AuthRequest, res: Response) => {
       if (!vpc) return res.status(404).json({ message: 'VPC 不存在' });
     }
 
-    // 如传入 infoDomainId，验证其存在，用于建立渲染映射
-    let infoDomain: InfoDomain | null = null;
-    if (infoDomainId) {
-      const domRepo = AppDataSource.getRepository(InfoDomain);
-      infoDomain = await domRepo.findOne({ where: { id: String(infoDomainId) } });
-      if (!infoDomain) {
-        return res.status(404).json({ message: '信息域不存在' });
+    // 如传入 securityDomainId，验证其存在，用于建立渲染映射
+    let securityDomain: SecurityDomain | null = null;
+    if (securityDomainId) {
+      const domRepo = AppDataSource.getRepository(SecurityDomain);
+      securityDomain = await domRepo.findOne({ where: { id: String(securityDomainId) } });
+      if (!securityDomain) {
+        return res.status(404).json({ message: '安全域不存在' });
       }
     }
 
     const attachRepo = AppDataSource.getRepository(CenAttachment);
-    const attachment = attachRepo.create({ cenId: id, vpcId: vpcId || undefined, status: CenAttachmentStatus.ATTACHING, infoDomainId: infoDomainId || undefined, infoDomain: infoDomain || undefined });
+    const attachment = attachRepo.create({ cenId: id, vpcId: vpcId || undefined, status: CenAttachmentStatus.ATTACHING, securityDomainId: securityDomainId || undefined, securityDomain: securityDomain || undefined });
     await attachRepo.save(attachment);
 
     // 模拟附加过程
@@ -179,7 +186,7 @@ router.post('/:id/attachments', async (req: AuthRequest, res: Response) => {
     }, 2000);
 
     // 返回包含关系的最新对象，便于前端渲染
-    const created = await attachRepo.findOne({ where: { id: attachment.id }, relations: ['vpc', 'infoDomain'] });
+    const created = await attachRepo.findOne({ where: { id: attachment.id }, relations: ['vpc', 'securityDomain'] });
     res.status(201).json({ message: 'VPC 附加中', attachment: created || attachment });
   } catch (err) {
     console.error('附加失败:', err);

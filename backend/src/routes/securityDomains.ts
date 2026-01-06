@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
-import { InfoDomain } from '../entities/InfoDomain';
+import { SecurityDomain } from '../entities/SecurityDomain';
 import { Cloud } from '../entities/Cloud';
 import { VpcNetwork } from '../entities/VpcNetwork';
 import { CenAttachment } from '../entities/CenAttachment';
@@ -9,7 +9,7 @@ import { huaweiListVpcs } from '../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../services/clouds/tencentcloud/client';
 
 const router = Router();
-const repo = () => AppDataSource.getRepository(InfoDomain);
+const repo = () => AppDataSource.getRepository(SecurityDomain);
 const cloudRepo = () => AppDataSource.getRepository(Cloud);
 const vpcRepo = () => AppDataSource.getRepository(VpcNetwork);
 const cenAttachRepo = () => AppDataSource.getRepository(CenAttachment);
@@ -20,12 +20,12 @@ router.get('/', async (req, res) => {
     {
       const role = (req as any).user?.role;
       const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.info-domain:read') || perms.includes('networks.info-domain:write'))) {
-        return res.status(403).json({ message: '权限不足：需要读取权限 networks.info-domain:read' });
+      if (!(role === 'super_admin' || perms.includes('networks.security-domain:read') || perms.includes('networks.security-domain:write'))) {
+        return res.status(403).json({ message: '权限不足：需要读取权限 networks.security-domain:read' });
       }
     }
     const list = await repo().find({ order: { createdAt: 'DESC' } });
-    // 在列表查询时为缺失 CIDR 的 VPC 类型信息域进行回填，并入库，保证前端查询到的接口始终包含 CIDR
+    // 在列表查询时为缺失 CIDR 的 VPC 类型安全域进行回填，并入库，保证前端查询到的接口始终包含 CIDR
     for (const dom of list) {
       let changed = false;
       const cidrEmpty = !dom.cidr || String(dom.cidr).trim() === '';
@@ -101,25 +101,25 @@ router.get('/', async (req, res) => {
         try {
           await repo().save(dom);
         } catch (e) {
-          console.warn('列表查询保存信息域失败:', e);
+          console.warn('列表查询保存安全域失败:', e);
         }
       }
     }
 
     res.json(list);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch info domains', error: String(err) });
+    res.status(500).json({ message: 'Failed to list security domains', error: String(err) });
   }
 });
 
 // Create
 router.post('/', async (req, res) => {
   try {
-    const payload = req.body as Partial<InfoDomain>;
-    console.log('Creating InfoDomain payload:', JSON.stringify(payload));
+    const payload = req.body as Partial<SecurityDomain>;
+    console.log('Creating SecurityDomain payload:', JSON.stringify(payload));
 
-    const entity = new InfoDomain();
-    entity.name = payload.name || '未命名信息域';
+    const entity = new SecurityDomain();
+    entity.name = payload.name || '未命名安全域';
     entity.cloudId = payload.cloudId;
     entity.vpcMode = payload.vpcMode;
     entity.vpcId = payload.vpcId;
@@ -145,7 +145,7 @@ router.post('/', async (req, res) => {
     (entity as any).category = (payload as any).category;
     (entity as any).subType = (payload as any).subType;
 
-    // VPC 类型信息域：自动填充 CIDR（兼容云侧 vpcId 或本地 VPC UUID）
+    // VPC 类型安全域：自动填充 CIDR（兼容云侧 vpcId 或本地 VPC UUID）
     try {
       if (entity.vpcMode === 'existing' && entity.vpcId) {
         const vpc = await vpcRepo().findOne({ where: { id: String(entity.vpcId) } });
@@ -184,12 +184,12 @@ router.post('/', async (req, res) => {
           entity.cloudId = vpcCloudId;
         }
       } else if (entity.vpcMode === 'new' && entity.newVpcCidr) {
-        // 新建 VPC 的 CIDR 也写入通用 cidr 字段，保证 /api/info-domains 始终有 CIDR 数据
+        // 新建 VPC 的 CIDR 也写入通用 cidr 字段，保证 /api/security-domains 始终有 CIDR 数据
         (entity as any).cidr = String(entity.newVpcCidr || '').trim() || (entity as any).cidr;
       }
     } catch (e) {
       // 忽略 CIDR 自动填充失败，不影响创建
-      console.warn('自动填充信息域CIDR失败:', e);
+      console.warn('自动填充安全域CIDR失败:', e);
     }
 
     // 填充云 provider/region（provider 从 config.provider 获取）
@@ -209,7 +209,7 @@ router.post('/', async (req, res) => {
     const saved = await repo().save(entity);
     res.status(201).json(saved);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to create info domain', error: String(err) });
+    res.status(500).json({ message: 'Failed to create security domain', error: String(err) });
   }
 });
 
@@ -217,11 +217,11 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    const partial = req.body as Partial<InfoDomain>;
-    console.log(`Updating InfoDomain ${id} payload:`, JSON.stringify(partial));
+    const partial = req.body as Partial<SecurityDomain>;
+    console.log(`Updating SecurityDomain ${id} payload:`, JSON.stringify(partial));
     const existing = await repo().findOne({ where: { id } });
     if (!existing) {
-      return res.status(404).json({ message: 'InfoDomain not found' });
+      return res.status(404).json({ message: 'SecurityDomain not found' });
     }
     // 忽略历史字段更新：type 不再作为分类依据
     delete (partial as any).type;
@@ -277,7 +277,7 @@ router.patch('/:id', async (req, res) => {
         (existing as any).cidr = String(existing.newVpcCidr || '').trim() || (existing as any).cidr;
       }
     } catch (e) {
-      console.warn('更新信息域CIDR失败:', e);
+      console.warn('更新安全域CIDR失败:', e);
     }
 
     // 如果 cloudId 更新，重新填充 provider/region（provider 从 config.provider 获取）
@@ -297,7 +297,7 @@ router.patch('/:id', async (req, res) => {
     const saved = await repo().save(existing);
     res.json(saved);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to update info domain', error: String(err) });
+    res.status(500).json({ message: 'Failed to update security domain', error: String(err) });
   }
 });
 
@@ -305,28 +305,28 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    // 先解除依赖关系：将引用该信息域的 CEN 附着的 infoDomainId 置空
+    // 先解除依赖关系：将引用该安全域的 CEN 附着的 securityDomainId 置空
     try {
-      const attachments = await cenAttachRepo().find({ where: { infoDomainId: id } });
+      const attachments = await cenAttachRepo().find({ where: { securityDomainId: id } });
       if (attachments && attachments.length) {
         for (const att of attachments) {
-          (att as any).infoDomainId = null;
+          (att as any).securityDomainId = null;
         }
         await cenAttachRepo().save(attachments);
       }
     } catch (e) {
-      console.warn('解除 CEN 附着对信息域的依赖失败:', e);
+      console.warn('解除 CEN 附着对安全域的依赖失败:', e);
       // 不阻断删除流程，继续尝试删除
     }
     await repo().delete({ id });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to delete info domain', error: String(err) });
+    res.status(500).json({ message: 'Failed to delete security domain', error: String(err) });
   }
 });
 
 // Helper: Fill Aliyun Details (CIDR, ENI IPs, Subnets)
-async function fillAliyunDetails(entity: InfoDomain, cloud: Cloud) {
+async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
   if (!cloud || !cloud.accessKey || !cloud.secretKey || !cloud.region) return;
   const creds = { accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region };
 

@@ -5,11 +5,11 @@ import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { fetchVrRealtimeList, normalizeVrRows } from '../../../services/vrCacheApi';
 import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderEips, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchHuaweiPorts, fetchCloudProviderSubnetsByVpc } from '../../../services/api';
-import { createInfoDomain, InfoDomainPayload } from '../../../services/infoDomainApi';
+import { createSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 
 interface VRRowOpt { uuid: string; name: string; }
 
-const InfoDomainWizardPage: React.FC = () => {
+const SecurityDomainWizardPage: React.FC = () => {
   const navigate = useNavigate();
   const [current, setCurrent] = useState<number>(0);
   const [form] = Form.useForm();
@@ -36,8 +36,8 @@ const InfoDomainWizardPage: React.FC = () => {
 
   const stepTitle = useMemo(() => {
     if (current === 0) return '设定基础信息';
-    if (current === 1) return '设定信息域';
-    return '确认信息域';
+    if (current === 1) return '设定安全域';
+    return '确认安全域';
   }, [current]);
 
   const loadVRList = async () => {
@@ -101,12 +101,14 @@ const InfoDomainWizardPage: React.FC = () => {
         arr = (data?.vpcs) || (data?.data?.vpcs) || [];
       } else if (provider === 'tencentcloud') {
         arr = (data?.VpcSet) || [];
+      } else if (provider === 'harvester' || provider.includes('cloudmap')) {
+        arr = (data?.items) || (data?.data?.items) || [];
       } else {
-        arr = Array.isArray((data as any)) ? (data as any) : (data?.list || []);
+        arr = Array.isArray((data as any)) ? (data as any) : (data?.list || data?.items || []);
       }
       setRawVpcs(Array.isArray(arr) ? arr : []);
       const normalized = (Array.isArray(arr) ? arr : []).map((v: any) => {
-        const id = v.VpcId || v.id || v.uuid || v.vpc_id || v.vpcId || v.ID || v.Name || '';
+        const id = v.VpcId || v.id || v.uuid || v.vpc_id || v.vpcId || v.ID || v.Name || v.name || '';
         const name = v.VpcName || v.name || v.Vpc || v.DisplayName || id || 'VPC';
         const cidr = v.CidrBlock || v.cidr || v.cidrBlock || v.network || v.address || v.vpc_cidr || '';
         const label = `${name}（${id ? String(id).slice(0,8) : '—'}）${cidr ? ' / ' + cidr : ''}`;
@@ -139,6 +141,8 @@ const InfoDomainWizardPage: React.FC = () => {
            list = (res?.data?.subnets) || (res?.subnets) || [];
         } else if (provider.includes('tencent')) {
            list = (res?.data?.SubnetSet) || [];
+        } else if (provider === 'harvester' || provider.includes('cloudmap')) {
+           list = (res?.data?.items) || (res?.items) || [];
         } else {
            // Default to Aliyun structure or generic array
            list = (res?.data?.VSwitches?.VSwitch) || (Array.isArray(res) ? res : []) || [];
@@ -232,6 +236,9 @@ const InfoDomainWizardPage: React.FC = () => {
           });
           if (setByAddr.size > 0) validVmIds = setByAddr;
         }
+      } else if (provider === 'harvester' || provider.includes('cloudmap')) {
+        setEniOptions([]);
+        setRawEnis([]);
       } else {
         const eniRes = await fetchCloudProviderEnis(cloudId, { vpcId });
         const eniList: any[] = eniRes?.data?.NetworkInterfaces?.NetworkInterface || eniRes?.data?.enis || eniRes?.enis || eniRes?.list || [];
@@ -362,6 +369,8 @@ const InfoDomainWizardPage: React.FC = () => {
           });
           if (setByAddr.size > 0) validVmIds = setByAddr;
         }
+      } else if (provider === 'harvester' || provider.includes('cloudmap')) {
+        enis = [];
       } else {
         const eniRes: any = await fetchCloudProviderEnis(cid, { vpcId: vid });
         const eniList: any[] = eniRes?.data?.NetworkInterfaces?.NetworkInterface || eniRes?.data?.enis || eniRes?.enis || eniRes?.list || [];
@@ -577,18 +586,18 @@ const InfoDomainWizardPage: React.FC = () => {
       
       console.log('[Wizard Debug] Extracted CIDRs:', { vrPublicSubnetCidr, vrPrivateSubnetCidr });
 
-      const payload: InfoDomainPayload = {
+      const payload: SecurityDomainPayload = {
         name: values.name,
         category: values.category,
-        subType,
+        subType: Array.isArray(values.subType) ? values.subType.join(',') : values.subType,
         cidr: !isVpc ? String(values.cidr || '') : (() => {
           if (!values.vpcId) return undefined;
-          const v = rawVpcs.find(rv => String(rv.VpcId || rv.id || rv.uuid || rv.vpc_id || rv.vpcId || rv.ID || rv.Name || '') === String(values.vpcId));
+          const v = rawVpcs.find(rv => String(rv.VpcId || rv.id || rv.uuid || rv.vpc_id || rv.vpcId || rv.ID || rv.Name || rv.name || '') === String(values.vpcId));
           return v ? (v.CidrBlock || v.cidr || v.cidrBlock || v.network || v.address || v.vpc_cidr) : undefined;
         })(),
         cidr6: !isVpc ? String(values.cidr6 || '') : (() => {
           if (!values.vpcId) return undefined;
-          const v = rawVpcs.find(rv => String(rv.VpcId || rv.id || rv.uuid || rv.vpc_id || rv.vpcId || rv.ID || rv.Name || '') === String(values.vpcId));
+          const v = rawVpcs.find(rv => String(rv.VpcId || rv.id || rv.uuid || rv.vpc_id || rv.vpcId || rv.ID || rv.Name || rv.name || '') === String(values.vpcId));
           return v ? (v.Ipv6CidrBlock || v.ipv6_cidr) : undefined;
         })(),
         cloudId: isVpc ? String(values.cloudId || '') : undefined,
@@ -605,17 +614,14 @@ const InfoDomainWizardPage: React.FC = () => {
         vrPrivateIp: vrPrivateIp.length ? vrPrivateIp : undefined,
         vrPublicSubnetCidr: vrPublicSubnetCidr.length ? vrPublicSubnetCidr : undefined,
         vrPrivateSubnetCidr: vrPrivateSubnetCidr.length ? vrPrivateSubnetCidr : undefined,
-        tags: (() => {
-          const extra = Array.isArray(values.tags) ? values.tags : (values.tags ? String(values.tags).split(',').map(s=>s.trim()).filter(Boolean) : []);
-          return extra.join(',');
-        })(),
+        tags: undefined,
         description: values.description,
         status: 'active',
       };
 
-      await createInfoDomain(payload);
-      message.success('信息域已创建');
-      navigate('/admin/sec-mgr-plane/info-domain');
+      await createSecurityDomain(payload);
+      message.success('安全域已创建');
+      navigate('/admin/sec-mgr-plane/security-domain');
     } catch (e) {
         console.error(e);
         message.error('创建失败');
@@ -624,16 +630,16 @@ const InfoDomainWizardPage: React.FC = () => {
 
   return (
     <PageContainer
-      title={<span><UserOutlined style={{ marginRight: 6, color: '#1677ff' }} />信息域设置向导</span>}
+      title={<span><UserOutlined style={{ marginRight: 6, color: '#1677ff' }} />安全域设置向导</span>}
       titleLevel={3}
-      subtitle="按照步骤设定信息域大类/子类、选择资源池与 VPC 或绑定 VR 实例，并最终确认配置。"
+      subtitle="按照步骤设定安全域大类/子类、选择资源池与 VPC 或绑定 VR 实例，并最终确认配置。"
       extra={<Space><Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button><Button icon={<ReloadOutlined />} onClick={() => { loadVRList(); loadClouds(); const cid = form.getFieldValue('cloudId'); if (cid) loadCloudVpcs(cid); }}>刷新</Button></Space>}
       asCard={false}
     >
       <Row gutter={16}>
         <Col span={5}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={(idx) => setCurrent(idx)} items={[{ title: '设定基础信息' }, { title: '设定信息域' }, { title: '确认信息域' }]} />
+            <Steps direction="vertical" size="small" current={current} onChange={(idx) => setCurrent(idx)} items={[{ title: '设定基础信息' }, { title: '设定安全域' }, { title: '确认安全域' }]} />
           </Card>
         </Col>
         <Col span={19}>
@@ -673,16 +679,16 @@ const InfoDomainWizardPage: React.FC = () => {
             >
               {current === 0 && (
                 <>
-                  <Form.Item name="name" label="信息域名称" rules={[{ required: true, message: '请输入信息域名称' }]}> 
+                  <Form.Item name="name" label="安全域名称" rules={[{ required: true, message: '请输入安全域名称' }]}> 
                     <Input placeholder="如：华东生产VPC / 总部办公网" />
                   </Form.Item>
-                  <Form.Item name="category" label="信息域大类" rules={[{ required: true, message: '请选择大类' }]}> 
+                  <Form.Item name="category" label="安全域大类" rules={[{ required: true, message: '请选择大类' }]}> 
                     <Select placeholder="请选择大类" options={[{ value: 'vpc', label: 'VPC网络' }, { value: 'flat', label: '扁平网络' }]} />
                   </Form.Item>
                   <Form.Item shouldUpdate={(prev, cur) => prev.category !== cur.category} noStyle>
                     {() => (
-                      <Form.Item name="subType" label="信息域子类" rules={[{ required: true, message: '请选择子类' }]}> 
-                        <Select showSearch optionFilterProp="label" disabled={!form.getFieldValue('category')} placeholder={form.getFieldValue('category') ? '请选择子类' : '请先选择大类'} notFoundContent={form.getFieldValue('category') ? '暂无选项' : '请先选择大类'} options={(() => {
+                      <Form.Item name="subType" label="安全域标签"> 
+                        <Select mode="tags" tokenSeparators={[',', ' ']} showSearch allowClear optionFilterProp="label" disabled={!form.getFieldValue('category')} placeholder={form.getFieldValue('category') ? '请选择或输入标签（可选）' : '请先选择大类'} notFoundContent={form.getFieldValue('category') ? '暂无选项' : '请先选择大类'} options={(() => {
                           const cat = form.getFieldValue('category');
                           const vpcSubs = [{ value: '公有云VPC网络', label: '公有云VPC网络' }, { value: '私有云VPC网络', label: '私有云VPC网络' }];
                           const flatSubs = [{ value: '虚拟化网络', label: '虚拟化网络' }, { value: 'IDC网络', label: 'IDC网络' }, { value: '办公网络', label: '办公网络' }];
@@ -694,10 +700,7 @@ const InfoDomainWizardPage: React.FC = () => {
                     )}
                   </Form.Item>
                   <Form.Item name="description" label="用途说明"> 
-                    <Input.TextArea rows={3} placeholder="设定信息域用途与说明" />
-                  </Form.Item>
-                  <Form.Item name="tags" label="标签"> 
-                    <Select mode="tags" tokenSeparators={[',', ' ']} placeholder="如：prod,east,office" />
+                    <Input.TextArea rows={3} placeholder="设定安全域用途与说明" />
                   </Form.Item>
                 </>
               )}
@@ -978,15 +981,19 @@ const InfoDomainWizardPage: React.FC = () => {
               {current === 2 && (
                 <>
                   <Descriptions size="small" column={1} bordered>
-                    <Descriptions.Item label="信息域名称">{String(form.getFieldValue('name')||'')}</Descriptions.Item>
-                    <Descriptions.Item label="大类/子类">
+                    <Descriptions.Item label="安全域名称">{String(form.getFieldValue('name')||'')}</Descriptions.Item>
+                    <Descriptions.Item label="大类/标签">
                       {(() => {
                         const cat = String(form.getFieldValue('category')||'').trim();
-                        const sub = String(form.getFieldValue('subType')||'').trim();
-                        if (cat && sub) return `${cat} / ${sub}`;
-                        if (cat) return cat;
-                        if (sub) return sub;
-                        return '';
+                        const subRaw = form.getFieldValue('subType');
+                        const subArr = Array.isArray(subRaw) ? subRaw : (subRaw ? String(subRaw).split(',') : []);
+                        
+                        return (
+                          <Space>
+                            {cat && <Tag>{cat}</Tag>}
+                            {subArr.map((s: string, i: number) => <Tag key={i}>{s}</Tag>)}
+                          </Space>
+                        );
                       })()}
                     </Descriptions.Item>
                     
@@ -1085,7 +1092,7 @@ const InfoDomainWizardPage: React.FC = () => {
             <Divider style={{ margin: '12px 0' }} />
             <div style={{ display:'flex', justifyContent:'space-between' }}>
               <Space>
-                <Button onClick={() => navigate('/admin/sec-mgr-plane/info-domain')}>返回列表</Button>
+                <Button onClick={() => navigate('/admin/sec-mgr-plane/security-domain')}>返回列表</Button>
                 <Button onClick={onPrev} disabled={current===0}>上一步</Button>
               </Space>
               <Space>
@@ -1100,4 +1107,4 @@ const InfoDomainWizardPage: React.FC = () => {
   );
 };
 
-export default InfoDomainWizardPage;
+export default SecurityDomainWizardPage;

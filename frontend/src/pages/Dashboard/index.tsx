@@ -1176,7 +1176,7 @@ const Dashboard: React.FC = () => {
             <Space direction="vertical" style={{ width:'100%' }}>
               <Button type="primary" icon={<PlusOutlined />} onClick={()=> navigate('/clouds')}>创建云资源</Button>
               <Button icon={<ApartmentOutlined />} onClick={()=> navigate('/admin/sec-mgr-plane/instances')}>创建与管理 CEN</Button>
-              <Button icon={<LinkOutlined />} onClick={()=> navigate('/admin/sec-mgr-plane/info-domain')}>管理附件（信息域）</Button>
+              <Button icon={<LinkOutlined />} onClick={()=> navigate('/admin/sec-mgr-plane/security-domain')}>管理附件（安全域）</Button>
               <Button icon={<DesktopOutlined />} onClick={()=> navigate('/clouds')}>查看配额与限额</Button>
               <Button icon={<SafetyOutlined />} onClick={()=> navigate('/tenants')}>进入详细页面（租户/安全）</Button>
             </Space>

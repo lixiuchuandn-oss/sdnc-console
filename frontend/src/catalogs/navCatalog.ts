@@ -1,8 +1,8 @@
 export type Platform = 'CNMC' | 'SDNCC' | 'CNSOC' | '全部';
-export type Group = '资源控制台' | '租户管理' | '售卖管理' | '访问控制' | '流量编排' | '跨地域互联' | '安全管理面' | '安全运营' | '安全控制台' | '可信数据空间' | '全部';
+export type Group = '资源控制台' | '租户管理' | '售卖管理' | '权限管控' | '流量编排' | '跨地域互联' | '安全管理面' | '安全运营' | '安全控制台' | '可信数据空间' | '全部';
 
 export const PLATFORMS: Platform[] = ['全部','CNMC','SDNCC','CNSOC'];
-export const GROUPS: Group[] = ['全部','资源控制台','租户管理','售卖管理','访问控制','流量编排','跨地域互联','安全管理面','安全运营','安全控制台','可信数据空间'];
+export const GROUPS: Group[] = ['全部','资源控制台','租户管理','售卖管理','权限管控','流量编排','跨地域互联','安全管理面','安全运营','安全控制台','可信数据空间'];
 
 export type FeatureCatalogItem = {
   prefix: string; // 权限资源前缀，如 'ops.dashboard' 或 'clouds.instances'
@@ -22,8 +22,8 @@ export const FEATURE_CATALOG: FeatureCatalogItem[] = [
   { prefix:'tenants.leased-lines', label:'租户专线管理', group:'租户管理', platform:'CNMC' },
   { prefix:'tenants.users', label:'子用户管理', group:'租户管理', platform:'CNMC' },
 
-  // 访问控制（CNMC）
-  { prefix:'access', label:'访问控制', group:'访问控制', platform:'CNMC' },
+  // 权限管控（CNMC）
+  { prefix:'access', label:'权限管控', group:'权限管控', platform:'CNMC' },
 
   // 资源池（CNMC）
   { prefix:'clouds', label:'资源池管理', group:'资源控制台', platform:'CNMC' },
@@ -53,7 +53,7 @@ export const FEATURE_CATALOG: FeatureCatalogItem[] = [
   { prefix:'networks.vswitches', label:'交换机', group:'跨地域互联', platform:'SDNCC' },
   { prefix:'networks.acl', label:'网络ACL', group:'跨地域互联', platform:'SDNCC' },
   { prefix:'networks.nat', label:'NAT管理', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.info-domain', label:'信息域', group:'安全管理面', platform:'SDNCC' },
+  { prefix:'networks.security-domain', label:'安全域管理', group:'安全管理面', platform:'SDNCC' },
   { prefix:'security.services', label:'服务目录管理', group:'安全管理面', platform:'SDNCC' },
   { prefix:'security.policies', label:'授权策略', group:'安全管理面', platform:'SDNCC' },
   { prefix:'security.apps', label:'服务目录', group:'安全管理面', platform:'SDNCC' },
@@ -100,10 +100,10 @@ export const ROUTE_CATALOG: RouteItem[] = [
   { path: '/admin/tenants/users', label: '子用户管理', platform: 'CNMC', group: '租户管理', icon: 'UserOutlined' },
   { path: '/admin/tenants/leased-lines', label: '租户专线管理', platform: 'CNMC', group: '租户管理', icon: 'GatewayOutlined' },
 
-  { path: '/admin/access/policies', label: '授权策略', platform: 'CNMC', group: '访问控制', icon: 'LockOutlined' },
-  { path: '/admin/access/actions', label: '权限原子', platform: 'CNMC', group: '访问控制', icon: 'ApiOutlined' },
-  { path: '/admin/access/roles', label: '角色管理', platform: 'CNMC', group: '访问控制', icon: 'UserSwitchOutlined' },
-  { path: '/admin/access/users', label: '用户管理', platform: 'CNMC', group: '访问控制', icon: 'UserOutlined' },
+  { path: '/admin/access/policies', label: '授权策略', platform: 'CNMC', group: '权限管控', icon: 'LockOutlined' },
+  { path: '/admin/access/actions', label: '权限原子', platform: 'CNMC', group: '权限管控', icon: 'ApiOutlined' },
+  { path: '/admin/access/roles', label: '角色管理', platform: 'CNMC', group: '权限管控', icon: 'UserSwitchOutlined' },
+  { path: '/admin/access/users', label: '用户管理', platform: 'CNMC', group: '权限管控', icon: 'UserOutlined' },
 
   { path: '/admin/interconnect/vr', label: 'VR实例管理', platform: 'SDNCC', group: '跨地域互联', icon: 'GatewayOutlined' },
   { path: '/admin/interconnect/srv6', label: 'SRv6隧道管理', platform: 'SDNCC', group: '跨地域互联', icon: 'ShareAltOutlined' },
@@ -112,7 +112,7 @@ export const ROUTE_CATALOG: RouteItem[] = [
   { path: '/admin/interconnect/nat', label: 'NAT管理', platform: 'SDNCC', group: '跨地域互联', icon: 'SwapOutlined' },
   
   
-  { path: '/admin/sec-mgr-plane/info-domain', label: '信息域管理', platform: 'SDNCC', group: '安全管理面', icon: 'EnvironmentOutlined' },
+  { path: '/admin/sec-mgr-plane/security-domain', label: '安全域管理', platform: 'SDNCC', group: '安全管理面', icon: 'EnvironmentOutlined' },
   { path: '/admin/sec-mgr-plane/instances', label: '级联通道管理', platform: 'SDNCC', group: '安全管理面', icon: 'BranchesOutlined' },
   { path: '/admin/sec-mgr-plane/apps', label: '应用管理', platform: 'SDNCC', group: '安全管理面', icon: 'AppstoreOutlined' },
 

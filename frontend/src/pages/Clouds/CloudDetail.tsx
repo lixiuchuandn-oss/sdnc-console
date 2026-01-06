@@ -682,11 +682,11 @@ const CloudDetail: React.FC = () => {
   if (provider.includes('aliyun') && id) {
     return (<CloudDetailAliyun cloudId={id} />);
   }
-  if (provider === 'csm' && id) {
+  if ((provider === 'csm' || provider === 'cloudmap-security') && id) {
     return (<CloudDetailCsm cloudId={id} />);
   }
-  if ((provider === 'cloudmap' || provider.startsWith('cloudmap')) && id) {
-    return (<CloudDetailCloudmap cloudId={id} />);
+  if ((provider === 'cloudmap' || provider === 'cloudmap-private') && id) {
+    return (<CloudDetailHarvester cloudId={id} defaultProvider={provider} />);
   }
   if ((provider === 'harvester') && id) {
     return (<CloudDetailHarvester cloudId={id} defaultProvider={provider} />);

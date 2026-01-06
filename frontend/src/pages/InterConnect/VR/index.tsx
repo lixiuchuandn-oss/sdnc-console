@@ -7,7 +7,7 @@ import { vrApi } from '../../../services/vrApi';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
 import { getVRRoles, setVRRole, getVRConfig, saveVRConfig } from '../../../services/vrConfigApi';
-import { listInfoDomains, updateInfoDomain } from '../../../services/infoDomainApi';
+import { listSecurityDomains, updateSecurityDomain } from '../../../services/securityDomainApi';
 import { netClassLabel, netClassColor } from '../../../utils/netClass';
 import '../../common/filters.css';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
@@ -313,16 +313,16 @@ const VRPage: React.FC = () => {
         }
       } as any;
 
-      // 追加信息域网络分类列（基于信息域绑定）
+      // 追加安全域网络分类列（基于安全域绑定）
       const netClassCol = {
-        title: '信息域',
+        title: '安全域',
         key: 'netClass',
         dataIndex: 'netClass',
         render: (_: any, row: VRRow) => {
           const id = row.uuid || row.id || row.vm_id;
           const domain = id ? netClassMapRef.current[id] : null;
           
-          // 只有未绑定时显示 Link，已绑定显示纯文本（信息域名称）
+          // 只有未绑定时显示 Link，已绑定显示纯文本（安全域名称）
           if (!domain) {
              return (
                <Button 
@@ -331,16 +331,16 @@ const VRPage: React.FC = () => {
                  style={{ padding: 0 }} 
                  onClick={() => {
                    if (!id) return message.warning('无法识别VR ID');
-                   // 携带 VR 信息跳转到信息域创建页面
+                   // 携带 VR 信息跳转到安全域创建页面
                    const vrName = row.name || id;
-                   navigate(`/admin/sec-mgr-plane/info-domain/new?vrUuid=${encodeURIComponent(id)}&vrName=${encodeURIComponent(vrName)}`);
+                   navigate(`/admin/sec-mgr-plane/security-domain/new?vrUuid=${encodeURIComponent(id)}&vrName=${encodeURIComponent(vrName)}`);
                  }}
                >
                  点击绑定
                </Button>
              );
           }
-          return <span>{domain.name || '未知信息域'}</span>;
+          return <span>{domain.name || '未知安全域'}</span>;
         }
       } as any;
 
@@ -424,7 +424,7 @@ const VRPage: React.FC = () => {
         }
       };
 
-      // 构建新的列顺序：序号 -> 名称 -> 状态 -> UUID -> 角色 -> 监控指标 -> MAC -> 版本 -> 类型 -> 信息域 -> 资源池ID -> 其他 -> 操作
+      // 构建新的列顺序：序号 -> 名称 -> 状态 -> UUID -> 角色 -> 监控指标 -> MAC -> 版本 -> 类型 -> 安全域 -> 资源池ID -> 其他 -> 操作
       const newCols: any[] = [];
       if (indexColObj) newCols.push(indexColObj);
       if (nameColObj) newCols.push(nameColObj);
@@ -647,16 +647,16 @@ const VRPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 加载信息域并构建 VR → 信息域对象 映射
+  // 加载安全域并构建 VR → 安全域对象 映射
   useEffect(() => {
     (async () => {
       try {
-        const domains: any[] = await listInfoDomains();
+        const domains: any[] = await listSecurityDomains();
         const map: Record<string, any> = {};
         (domains || []).forEach((d: any) => {
           const uuid = d?.vrUuid || d?.vr_id || d?.vrId || d?.vrUUID;
           if (uuid) {
-            // 存储完整的信息域对象，以便展示名称等
+            // 存储完整的安全域对象，以便展示名称等
             map[uuid] = d;
           }
         });
@@ -703,7 +703,7 @@ const VRPage: React.FC = () => {
           if (r !== roleFilter) return false;
         }
       }
-      // 信息域网络分类筛选
+      // 安全域网络分类筛选
       if (netClassFilter) {
         const id = (v.uuid || v.id || v.vm_id) as string;
         const domain = netClassMap[id];

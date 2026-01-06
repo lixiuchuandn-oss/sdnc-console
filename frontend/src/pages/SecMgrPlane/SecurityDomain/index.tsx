@@ -26,16 +26,16 @@ import '../../common/filters.css';
 import { vrApi } from '../../../services/vrApi';
 import { getVRRoles } from '../../../services/vrConfigApi';
 import { fetchCloudProviderVpcs } from '../../../services/api';
-import { listInfoDomains, createInfoDomain, updateInfoDomain, deleteInfoDomain, InfoDomainPayload } from '../../../services/infoDomainApi';
+import { listSecurityDomains, createSecurityDomain, updateSecurityDomain, deleteSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 import { getDomainClass, netClassLabel, netClassColor } from '../../../utils/netClass';
 
-export type InfoDomainType = 'IDC' | 'VPC' | '虚拟化网络' | '办公网络';
-export type InfoDomainStatus = 'active' | 'inactive';
+export type SecurityDomainType = 'IDC' | 'VPC' | '虚拟化网络' | '办公网络';
+export type SecurityDomainStatus = 'active' | 'inactive';
 
-export interface InfoDomain {
+export interface SecurityDomain {
   id: string;
   name: string;
-  type?: InfoDomainType;
+  type?: SecurityDomainType;
   category?: string;
   subType?: string;
   cloudId?: string;
@@ -51,7 +51,7 @@ export interface InfoDomain {
   vrName?: string;
   tags?: string[];
   description?: string;
-  status?: InfoDomainStatus;
+  status?: SecurityDomainStatus;
   createdAt?: string;
   updatedAt?: string;
   vrInstanceIds?: string;
@@ -65,14 +65,14 @@ export interface InfoDomain {
   purpose?: string;
 }
 
-interface InfoDomainForm extends InfoDomain {}
+interface SecurityDomainForm extends SecurityDomain {}
 
 interface VRRowOpt {
   uuid: string;
   name: string;
 }
 
-const defaultDomains: InfoDomain[] = [
+const defaultDomains: SecurityDomain[] = [
   {
     id: 'dom-001',
     name: '总部办公网',
@@ -105,14 +105,14 @@ const defaultDomains: InfoDomain[] = [
   },
 ];
 
-const InfoDomainPage: React.FC = () => {
+const SecurityDomainPage: React.FC = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [keyword, setKeyword] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<InfoDomainStatus | undefined>();
+  const [statusFilter, setStatusFilter] = useState<SecurityDomainStatus | undefined>();
   const [netClassFilter, setNetClassFilter] = useState<'vpc' | 'flat' | undefined>();
 
-  const [domains, setDomains] = useState<InfoDomain[]>([]);
+  const [domains, setDomains] = useState<SecurityDomain[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
   const [vrOptions, setVrOptions] = useState<VRRowOpt[]>([]);
@@ -120,11 +120,11 @@ const InfoDomainPage: React.FC = () => {
   const [vrLoading, setVrLoading] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [editing, setEditing] = useState<InfoDomain | null>(null);
-  const [createForm] = Form.useForm<InfoDomainForm>();
+  const [editing, setEditing] = useState<SecurityDomain | null>(null);
+  const [createForm] = Form.useForm<SecurityDomainForm>();
 
   const [detailOpen, setDetailOpen] = useState(false);
-  const [detailData, setDetailData] = useState<InfoDomain | null>(null);
+  const [detailData, setDetailData] = useState<SecurityDomain | null>(null);
   const [resourcePoolMap, setResourcePoolMap] = useState<Record<string, string>>({});
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
@@ -174,7 +174,7 @@ const InfoDomainPage: React.FC = () => {
         setVrCeOptions(opts);
       }
     } catch (err: any) {
-      message.warning('VR 列表获取失败，暂无法在创建信息域时绑定 VR 实例');
+      message.warning('VR 列表获取失败，暂无法在创建安全域时绑定 VR 实例');
       setVrOptions([]);
       setVrCeOptions([]);
     } finally {
@@ -216,7 +216,7 @@ const InfoDomainPage: React.FC = () => {
   const reloadDomains = async () => {
     try {
       setLoading(true);
-      const list = await listInfoDomains();
+      const list = await listSecurityDomains();
       const needVpcCidrs = (Array.isArray(list) ? list : []).filter((it: any) => it?.category === 'vpc' && it?.vpcMode === 'existing' && it?.cloudId && it?.vpcId);
       const cloudIds = Array.from(new Set(needVpcCidrs.map((it: any) => String(it.cloudId)))).filter(Boolean);
       const vpcCache: Record<string, any[]> = {};
@@ -240,16 +240,25 @@ const InfoDomainPage: React.FC = () => {
           vpcCache[cid] = [];
         }
       }
-      const normalized: InfoDomain[] = (Array.isArray(list) ? list : []).map((item: any) => {
+      const normalized: SecurityDomain[] = (Array.isArray(list) ? list : []).map((item: any) => {
         let ipv4Cidrs: string[] = [];
         let ipv6Cidrs: string[] = [];
         if (item.newVpcCidr) {
           ipv4Cidrs = [item.newVpcCidr];
         } else if (item.category === 'vpc' && item.vpcMode === 'existing' && item.cloudId && item.vpcId) {
           const vpcs = vpcCache[String(item.cloudId)] || [];
-          const v = vpcs.find((x: any) => String(x?.VpcId || x?.id || x?.uuid || x?.vpcId || x?.vpc_id) === String(item.vpcId));
-          const cidr = v?.CidrBlock || v?.Ipv4CidrBlock || v?.cidr || v?.Cidr || v?.VpcCidr || v?.CidrIpv4 || undefined;
-          if (cidr) ipv4Cidrs = [String(cidr)];
+          const v = vpcs.find((x: any) => String(x?.VpcId || x?.id || x?.uuid || x?.vpcId || x?.vpc_id || x?.Name || x?.name) === String(item.vpcId));
+          let cidr = v?.CidrBlock || v?.Ipv4CidrBlock || v?.cidr || v?.Cidr || v?.VpcCidr || v?.CidrIpv4 || undefined;
+          
+          // Fallback to stored CIDR if realtime lookup fails or returns nothing
+          if (!cidr && item.cidr) {
+            cidr = item.cidr;
+          }
+
+          if (cidr) {
+            const s = String(cidr);
+            ipv4Cidrs = s.includes(',') ? s.split(',').map(x => x.trim()).filter(Boolean) : [s];
+          }
           const cidr6 = v?.Ipv6CidrBlock || v?.CidrIpv6 || v?.Ipv6Cidr || undefined;
           if (cidr6) ipv6Cidrs = [String(cidr6)];
         } else if (item.cidr) {
@@ -296,7 +305,7 @@ const InfoDomainPage: React.FC = () => {
       });
       setDomains(normalized);
     } catch (e: any) {
-      message.error('获取信息域列表失败');
+      message.error('获取安全域列表失败');
     } finally {
       setLoading(false);
     }
@@ -325,13 +334,13 @@ const InfoDomainPage: React.FC = () => {
     if (!selectedRowKeys.length) return;
     const targets = domains.filter(d => selectedRowKeys.includes(d.id));
     Modal.confirm({
-      title: '确认批量删除选中的信息域？',
+      title: '确认批量删除选中的安全域？',
       content: `共 ${targets.length} 项：${targets.map(t => t.name).join('、')}`,
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
       onOk: async () => {
-        const results = await Promise.allSettled(targets.map(t => deleteInfoDomain(t.id)));
+        const results = await Promise.allSettled(targets.map(t => deleteSecurityDomain(t.id)));
         const success = results.filter(r => r.status === 'fulfilled').length;
         const failed = results.length - success;
         if (success) message.success(`已删除 ${success} 项${failed ? `，失败 ${failed} 项` : ''}`);
@@ -342,31 +351,32 @@ const InfoDomainPage: React.FC = () => {
     });
   };
 
-  const openDetail = (record: InfoDomain) => {
+  const openDetail = (record: SecurityDomain) => {
     setDetailData(record);
     setDetailOpen(true);
   };
 
-  const openEdit = (record: InfoDomain) => {
+  const openEdit = (record: SecurityDomain) => {
     setEditing(record);
     setCreateOpen(true);
     loadVRList();
     createForm.setFieldsValue({
       ...record,
+      subType: record.subType ? record.subType.split(',').map(s => s.trim()).filter(Boolean) : [],
       cidr4: record.cidr4 || [],
       cidr6: record.cidr6 || [],
-    });
+    } as any);
   };
 
-  const removeDomain = (record: InfoDomain) => {
+  const removeDomain = (record: SecurityDomain) => {
     Modal.confirm({
-      title: '确认删除该信息域？',
-      content: `信息域名称：${record.name}`,
+      title: '确认删除该安全域？',
+      content: `安全域名称：${record.name}`,
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
       onOk: () => {
-        deleteInfoDomain(record.id)
+        deleteSecurityDomain(record.id)
           .then(() => { message.success('删除成功'); reloadDomains(); })
           .catch((e) => { message.error(`删除失败: ${e?.message || e}`); });
       },
@@ -378,7 +388,7 @@ const InfoDomainPage: React.FC = () => {
       const values = await createForm.validateFields();
       try {
         if (editing) {
-          const payload: Partial<InfoDomainPayload> = {
+          const payload: Partial<SecurityDomainPayload> = {
             name: values.name,
             category: values.category,
             subType: values.subType,
@@ -388,23 +398,23 @@ const InfoDomainPage: React.FC = () => {
             tags: Array.isArray(values.tags) ? values.tags.join(',') : values.tags,
             status: values.status || 'active',
           };
-          await updateInfoDomain(editing.id, payload);
-          message.success('信息域已更新');
+          await updateSecurityDomain(editing.id, payload);
+          message.success('安全域已更新');
           setEditing(null);
           reloadDomains();
         } else {
-          const payload: InfoDomainPayload = {
+          const payload: SecurityDomainPayload = {
             name: values.name,
             category: values.category,
-            subType: values.subType,
+            subType: Array.isArray(values.subType) ? values.subType.join(',') : values.subType,
             description: values.description,
             vrUuid: values.vrUuid,
             vrName: values.vrUuid ? (vrCeOptions.find(v => v.uuid === values.vrUuid)?.name || vrOptions.find(v => v.uuid === values.vrUuid)?.name) : undefined,
             tags: Array.isArray(values.tags) ? values.tags.join(',') : values.tags,
             status: values.status || 'active',
           };
-          await createInfoDomain(payload);
-          message.success('信息域已创建');
+          await createSecurityDomain(payload);
+          message.success('安全域已创建');
           reloadDomains();
         }
         setCreateOpen(false);
@@ -427,7 +437,7 @@ const InfoDomainPage: React.FC = () => {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      render: (text: string, record: InfoDomain) => (
+      render: (text: string, record: SecurityDomain) => (
         <Space direction="vertical" size={0}>
           <span style={{ fontWeight: 400 }}>{text}</span>
           {record.description ? <span style={{ color: '#8c8c8c', fontSize: 12 }}>{record.description}</span> : null}
@@ -437,16 +447,17 @@ const InfoDomainPage: React.FC = () => {
     {
       title: '分类',
       key: 'category',
-      render: (_: any, r: InfoDomain) => {
+      render: (_: any, r: SecurityDomain) => {
         const cls = getDomainClass(r);
         const major = netClassLabel(cls);
         const color = netClassColor(cls);
         const subtype = String(r.subType || '').trim();
+        const subTypes = subtype ? subtype.split(',').map(s => s.trim()).filter(Boolean) : [];
         return (
           <Space size={4}>
             <Tag color={color}>{major}</Tag>
-            {subtype ? (<span style={{ color: '#8c8c8c' }}>/</span>) : null}
-            {subtype ? (<Tag>{subtype}</Tag>) : null}
+            {subTypes.length ? (<span style={{ color: '#8c8c8c' }}>/</span>) : null}
+            {subTypes.map((t, i) => <Tag key={i}>{t}</Tag>)}
           </Space>
         );
       },
@@ -454,7 +465,7 @@ const InfoDomainPage: React.FC = () => {
     {
       title: '云厂商/地域',
       key: 'providerRegion',
-      render: (_: any, r: InfoDomain) => {
+      render: (_: any, r: SecurityDomain) => {
         const provider = String(r.provider || '').trim();
         const region = String(r.region || '').trim();
         if (provider && region) return <span>{provider} / {region}</span>;
@@ -466,7 +477,7 @@ const InfoDomainPage: React.FC = () => {
     {
       title: '网络来源',
       key: 'source',
-      render: (_: any, r: InfoDomain) => {
+      render: (_: any, r: SecurityDomain) => {
         if (r.category === 'vpc') {
           const modeText = r.vpcMode === 'existing' ? '已有VPC' : (r.vpcMode === 'new' ? '新建VPC' : 'VPC');
           return (
@@ -500,7 +511,7 @@ const InfoDomainPage: React.FC = () => {
     {
       title: '绑定 VR 实例',
       key: 'vr',
-      render: (_: any, r: InfoDomain) => r.vrName ? (
+      render: (_: any, r: SecurityDomain) => r.vrName ? (
         <Tooltip title={r.vrUuid}><Tag color="geekblue">{r.vrName}</Tag></Tooltip>
       ) : '未绑定',
     },
@@ -508,7 +519,7 @@ const InfoDomainPage: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      render: (s: InfoDomainStatus = 'active') => (
+      render: (s: SecurityDomainStatus = 'active') => (
         <Tag color={s === 'active' ? 'geekblue' : 'default'}>{s === 'active' ? '启用' : '停用'}</Tag>
       ),
     },
@@ -523,7 +534,7 @@ const InfoDomainPage: React.FC = () => {
       key: 'actions',
       fixed: 'right',
       width: 160,
-      render: (_: any, record: InfoDomain) => {
+      render: (_: any, record: SecurityDomain) => {
         const items: MenuProps['items'] = [
           { key: 'detail', label: '详情' },
           { key: 'edit', label: '编辑' },
@@ -591,7 +602,7 @@ const InfoDomainPage: React.FC = () => {
           </Form.Item>
         </Form>
         <Space className="filter-actions">
-          <Button type="primary" onClick={() => navigate('/admin/sec-mgr-plane/info-domain/new')}>新建信息域</Button>
+          <Button type="primary" onClick={() => navigate('/admin/sec-mgr-plane/security-domain/new')}>新建安全域</Button>
           <Dropdown
             menu={{
               items: [
@@ -644,7 +655,7 @@ const InfoDomainPage: React.FC = () => {
       />
 
       <Modal
-        title={editing ? '编辑信息域' : '编辑信息域'}
+        title={editing ? '编辑安全域' : '编辑安全域'}
         open={createOpen}
         onCancel={onCancelCreate}
         onOk={onSubmitCreate}
@@ -652,21 +663,23 @@ const InfoDomainPage: React.FC = () => {
         cancelText="取消"
       >
         <Form form={createForm} layout="vertical">
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入信息域名称' }]}> 
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入安全域名称' }]}> 
             <Input placeholder="如：华东生产VPC / 总部办公网" />
           </Form.Item>
-          <Form.Item name="category" label="信息域大类"> 
+          <Form.Item name="category" label="安全域大类"> 
             <Select allowClear placeholder="请选择" options={[{ value: 'vpc', label: 'VPC网络' }, { value: 'flat', label: '扁平网络' }]} />
           </Form.Item>
           <Form.Item shouldUpdate={(prev,cur)=>prev.category!==cur.category} noStyle>
             {() => (
-              <Form.Item name="subType" label="信息域子类"> 
+              <Form.Item name="subType" label="安全域标签"> 
                 <Select 
+                  mode="tags"
+                  tokenSeparators={[',', ' ']}
                   allowClear 
                   showSearch 
                   optionFilterProp="label" 
                   disabled={!createForm.getFieldValue('category')} 
-                  placeholder={createForm.getFieldValue('category') ? '请选择子类' : '请先选择大类'} 
+                  placeholder={createForm.getFieldValue('category') ? '请选择或输入标签（可选）' : '请先选择大类'} 
                   options={(() => {
                     const cat = createForm.getFieldValue('category');
                     if (cat === 'vpc') return [
@@ -676,6 +689,7 @@ const InfoDomainPage: React.FC = () => {
                     if (cat === 'flat') return [
                       { value: '虚拟化网络', label: '虚拟化网络' },
                       { value: 'IDC网络', label: 'IDC网络' },
+                      { value: '办公网络', label: '办公网络' },
                     ];
                     return [];
                   })()} 
@@ -684,7 +698,7 @@ const InfoDomainPage: React.FC = () => {
             )}
           </Form.Item>
           <Form.Item name="description" label="用途说明"> 
-            <Input.TextArea rows={3} placeholder="设定信息域用途与说明" />
+            <Input.TextArea rows={3} placeholder="设定安全域用途与说明" />
           </Form.Item>
           <Form.Item name="tags" label="标签"> 
             <Select mode="tags" tokenSeparators={[',', ' ']} placeholder="如：prod,east,office" />
@@ -693,7 +707,7 @@ const InfoDomainPage: React.FC = () => {
       </Modal>
 
       <Modal
-        title="信息域详情"
+        title="安全域详情"
         width={1000}
         onCancel={() => setDetailOpen(false)}
         open={detailOpen}
@@ -723,7 +737,7 @@ const InfoDomainPage: React.FC = () => {
                 return (
                   <Space size={4}>
                     <Tag color={color}>{major}</Tag>
-                    {detailData.subType && <Tag>{detailData.subType}</Tag>}
+                    {detailData.subType && detailData.subType.split(',').map((s, i) => <Tag key={i}>{s.trim()}</Tag>)}
                     {detailData.type && <Tag>{detailData.type}</Tag>}
                   </Space>
                 );
@@ -779,4 +793,4 @@ const InfoDomainPage: React.FC = () => {
   );
 };
 
-export default InfoDomainPage;
+export default SecurityDomainPage;

@@ -13,7 +13,7 @@ export const PATH_PERMISSION_MAPPING = [
   { path: '/admin/interconnect/ipsec', action: 'networks.ipsec:read' },
   { path: '/admin/interconnect/srv6', action: 'networks.srv6:read' },
   { path: '/admin/interconnect/vr', action: 'networks.vr-config:read' },
-  { path: '/admin/sec-mgr-plane/info-domain', action: 'networks.info-domain:read' },
+  { path: '/admin/sec-mgr-plane/security-domain', action: 'networks.security-domain:read' },
   { path: '/admin/sec-mgr-plane/instances', action: 'networks.cen:read' },
   { path: '/admin/sec-mgr-plane/apps', action: 'security.services:read' },
   { path: '/admin/alarms', action: 'secops.alerts:read' },

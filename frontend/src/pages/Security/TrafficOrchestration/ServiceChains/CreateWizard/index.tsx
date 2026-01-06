@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { fetchSecurityZones, fetchProtectionObjects, createServiceChain } from '../../../../../services/trafficOrchestration';
 import { fetchTenants, fetchOrganizationsByTenant, fetchClouds, fetchCsmElementGroups, fetchCloudProviderEcs, fetchCsmVirtualElements, fetchInventoryInstancesByCloud } from '../../../../../services/api';
+import { listSecurityDomains } from '../../../../../services/securityDomainApi';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { 
   addEdge,
@@ -48,6 +49,8 @@ const CreateServiceChainWizard: React.FC = () => {
   const [globalObjects, setGlobalObjects] = useState<CustomTransferItem[]>(mockTransferData);
   const [clusterObjects, setClusterObjects] = useState<CustomTransferItem[]>([]);
   const [manualObjects, setManualObjects] = useState<CustomTransferItem[]>([]);
+  const [trafficMode, setTrafficMode] = useState<'direct' | 'vr'>('direct');
+  const [vrDomains, setVrDomains] = useState<any[]>([]);
 
   const directData = useMemo(() => {
     const all = [...manualObjects, ...clusterObjects, ...globalObjects];
@@ -119,6 +122,12 @@ const CreateServiceChainWizard: React.FC = () => {
           return pv === 'cloudmap' || pv === 'csm' || pv.startsWith('cloudmap') || pv === 'aliyun' || pv === 'huaweicloud' || pv === 'tencentcloud';
         });
         setCloudPools(pools);
+      } catch (e) {
+        console.error(e);
+      }
+      try {
+        const vrs = await listSecurityDomains();
+        setVrDomains(Array.isArray(vrs) ? vrs : []);
       } catch (e) {
         console.error(e);
       }
@@ -439,7 +448,9 @@ const CreateServiceChainWizard: React.FC = () => {
         .map(n => (n as any).data?.serviceType)
         .filter(Boolean);
 
-      const selectedKeys: string[] = form.getFieldValue('protectedObjects') || [];
+      const protectionTargets = trafficMode === 'direct' 
+        ? { mode: 'direct', objects: form.getFieldValue('protectedObjects') || [] }
+        : { mode: 'vr', objects: form.getFieldValue('vrDomains') || [] };
 
       const nowTs = Date.now();
       const payload = {
@@ -453,9 +464,7 @@ const CreateServiceChainWizard: React.FC = () => {
         description: String(values.description || ''),
         steeringMode: 'direct',
         securityServices: services.join(','),
-        protectionTargets: JSON.stringify(
-          { mode: 'direct', objects: selectedKeys }
-        ),
+        protectionTargets: JSON.stringify(protectionTargets),
         tenantId: values.tenantId,
         organizationId: values.organizationId,
         topology: {
@@ -483,21 +492,26 @@ const CreateServiceChainWizard: React.FC = () => {
         const extra = (user?.role === 'super_admin') ? ['tenantId', 'organizationId'] : [];
         await form.validateFields([...baseFields, ...extra]);
       } else if (current === 1) {
-        await form.validateFields(['protectedObjects']);
-        const selectedKeys = form.getFieldValue('protectedObjects') || [];
-        const selectedObjects = directData.filter(item => selectedKeys.includes(item.key));
-        setNodes((nds) => nds.map(node => {
-          if (node.id === 'out') {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                protectedObjects: selectedObjects
-              }
-            };
-          }
-          return node;
-        }));
+        if (trafficMode === 'direct') {
+          await form.validateFields(['protectedObjects']);
+          const selectedKeys = form.getFieldValue('protectedObjects') || [];
+          const selectedObjects = directData.filter(item => selectedKeys.includes(item.key));
+          setNodes((nds) => nds.map(node => {
+            if (node.id === 'out') {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  protectedObjects: selectedObjects
+                }
+              };
+            }
+            return node;
+          }));
+        } else {
+          await form.validateFields(['vrDomains']);
+          // VR模式下可能不需要更新out节点的protectedObjects，或者需要不同的处理
+        }
       }
       setCurrent(current + 1);
     } catch (error) {
@@ -561,6 +575,9 @@ const CreateServiceChainWizard: React.FC = () => {
           addDirectForm={addDirectForm}
           fetchProtectionObjects={fetchProtectionObjects}
           message={message}
+          trafficMode={trafficMode}
+          setTrafficMode={setTrafficMode}
+          vrDomains={vrDomains}
         />
       );
     } else if (current === 2) {

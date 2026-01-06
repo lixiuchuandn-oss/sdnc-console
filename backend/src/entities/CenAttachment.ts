@@ -1,7 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { CloudEnterpriseNetwork } from './CloudEnterpriseNetwork';
 import { VpcNetwork } from './VpcNetwork';
-import { InfoDomain } from './InfoDomain';
+import { SecurityDomain } from './SecurityDomain';
 
 export enum CenAttachmentStatus {
   ATTACHING = 'attaching',
@@ -25,13 +25,13 @@ export class CenAttachment {
   @ManyToOne(() => VpcNetwork)
   vpc?: VpcNetwork;
 
-  // 关联信息域（用于前端渲染来自 /api/info-domains 的分类/子类等字段）
+  // 关联安全域（用于前端渲染来自 /api/security-domains 的分类/子类等字段）
   @Column({ type: 'text', nullable: true })
-  infoDomainId?: string;
+  securityDomainId?: string;
 
-  @ManyToOne(() => InfoDomain, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'infoDomainId' })
-  infoDomain?: InfoDomain;
+  @ManyToOne(() => SecurityDomain, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'securityDomainId' })
+  securityDomain?: SecurityDomain;
 
   @Column({
     type: 'simple-enum',

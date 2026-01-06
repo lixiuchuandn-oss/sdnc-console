@@ -139,7 +139,7 @@ export async function csmRequest(config: CsmConfig, path: string, queryObj: any 
 export const listCsmVms = async (config: CsmConfig, queryParams: any = {}) => {
   // VM04/vms seems to be the correct endpoint for VMs
   const path = '/V2/ctcontrol/VM04/vms';
-  const query = { page_size: 30, page_num: 1, ...queryParams };
+  const query = { page_size: 1000, page_num: 1, ...queryParams };
   
   try {
     const raw = await csmRequest(config, path, query);
@@ -168,7 +168,7 @@ export const listCsmVms = async (config: CsmConfig, queryParams: any = {}) => {
 export const listCsmHosts = async (config: CsmConfig) => {
     // VM02/hosts might be for physical hosts
     const path = '/V2/ctcontrol/VM02/hosts'; // Adjust if needed
-    const query = { page_size: 30, page_num: 1 };
+    const query = { page_size: 1000, page_num: 1 };
     
     try {
       const raw = await csmRequest(config, path, query);
@@ -211,7 +211,7 @@ export const getCsmVmConsole = async (config: CsmConfig, vmId: string) => {
 
 export const listCsmElementGroups = async (config: CsmConfig) => {
   const path = '/V2/ctcontrol/VM04/groups';
-  const query = { page_size: 30, page_num: 1 };
+  const query = { page_size: 1000, page_num: 1 };
   let groups: any[] = [];
   try {
     const raw = await csmRequest(config, path, query);
@@ -257,7 +257,7 @@ export const listCsmServiceChains = async (config: CsmConfig, queryParams: any =
     '/V2/ctcontrol/VSW02/chains',
     '/V2/ctcontrol/VM04/service-chains'
   ];
-  const query = { page_size: 30, page_num: 1, ...queryParams };
+  const query = { page_size: 1000, page_num: 1, ...queryParams };
   for (const p of endpoints) {
     try {
       const raw = await csmRequest(config, p, query);

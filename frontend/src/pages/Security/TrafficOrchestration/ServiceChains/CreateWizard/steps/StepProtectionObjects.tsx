@@ -1,6 +1,7 @@
 import React from 'react';
-import { Form, Popover, Typography, Button, Space, Tag, Modal, Input, Select } from 'antd';
+import { Form, Popover, Typography, Button, Space, Tag, Modal, Input, Select, Radio } from 'antd';
 import { SafetyCertificateOutlined, ReloadOutlined, PlusOutlined, GlobalOutlined, CloudServerOutlined, PartitionOutlined, EnvironmentOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import VRDomainTableSelector from '../components/VRDomainTableSelector';
 
 export default function StepProtectionObjects(props: any) {
   const {
@@ -15,6 +16,9 @@ export default function StepProtectionObjects(props: any) {
     message,
     onReload,
     onAdd,
+    trafficMode,
+    setTrafficMode,
+    vrDomains,
   } = props;
 
   return (
@@ -58,12 +62,15 @@ export default function StepProtectionObjects(props: any) {
             }
             style={{ marginBottom: 0 }}
           >
-            <Tag color="blue">直连引流</Tag>
+            <Radio.Group value={trafficMode} onChange={e => setTrafficMode && setTrafficMode(e.target.value)}>
+               <Radio.Button value="direct">直连引流</Radio.Button>
+               <Radio.Button value="vr">VR引流</Radio.Button>
+            </Radio.Group>
           </Form.Item>
         </div>
 
-        <div>
-          {
+        {trafficMode === 'direct' ? (
+          <div>
             <Form.Item style={{ marginBottom: 0 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -280,8 +287,21 @@ export default function StepProtectionObjects(props: any) {
                 </Modal>
               </div>
             </Form.Item>
-          }
-        </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 16 }}>
+             <div style={{ fontSize: 14, fontWeight: 600, color: '#1f1f1f', marginBottom: 12 }}>
+               <SafetyCertificateOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+               配置VR引流列表
+             </div>
+             <Form.Item
+               name="vrDomains"
+               rules={[{ required: true, message: '请至少选择一个VR' }]}
+             >
+               <VRDomainTableSelector dataSource={vrDomains} />
+             </Form.Item>
+           </div>
+        )}
       </Form>
     </div>
   );

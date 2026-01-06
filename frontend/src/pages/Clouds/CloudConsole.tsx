@@ -253,7 +253,7 @@ const CloudConsolePage: React.FC = () => {
     };
     const providerText = (c: CloudItem): string => {
       const p = String(c?.config?.provider || '').toLowerCase();
-      return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'CSM') || (p === 'csm' && 'CSM') || (p === 'cloudmap-security' && 'CSM') || (c?.config?.provider || '未知厂商');
+      return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || (p === 'csm' && 'CSM') || (p === 'cloudmap-security' && 'CSM') || (c?.config?.provider || '未知厂商');
     };
     const typeIcon = (type?: string): React.ReactNode => {
       const t = String(type || '').toLowerCase();

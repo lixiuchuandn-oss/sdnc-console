@@ -48,7 +48,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [formData, setFormData] = useState<any>(null);
 
   const isOpenProvider = (id: string) => {
-    return ['aliyun', 'huaweicloud', 'csm', 'harvester'].includes(id);
+    return ['aliyun', 'huaweicloud', 'csm', 'harvester', 'cloudmap', 'cloudmap-private', 'cloudmap-security'].includes(id);
   };
 
   // 云平台配置
@@ -70,6 +70,30 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           { value: 'cn-beijing', label: 'cn-beijing（华北2 北京）' },
           { value: 'cn-shenzhen', label: 'cn-shenzhen（华南1 深圳）' }
         ]}
+      ]
+    },
+    {
+      id: 'cloudmap',
+      name: 'Cloudmap融合边缘云',
+      logo: <CloudServerOutlined />,
+      category: 'private',
+      description: '添加 Cloudmap 融合边缘云',
+      fields: [
+        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
+        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap-edge.example.com' },
+        { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入 Harvester API 令牌' }
+      ]
+    },
+    {
+      id: 'cloudmap-private',
+      name: 'Cloudmap私有云',
+      logo: <CloudServerOutlined />,
+      category: 'private',
+      description: '添加 Cloudmap 私有云',
+      fields: [
+        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
+        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap-private.example.com' },
+        { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入 Harvester API 令牌' }
       ]
     },
     {
@@ -485,9 +509,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           ? 'https://ecs.aliyuncs.com'
           : selectedProvider.id === 'huaweicloud'
             ? `https://ecs.${values.region}.myhuaweicloud.com`
-            : (selectedProvider.id === 'harvester' || selectedProvider.id === 'cloudmap')
-              ? (values.endpoint || 'https://harvester.example.com')
-              : (values.endpoint || values.authUrl || values.vcenterHost || 'https://api.example.com'),
+          : (selectedProvider.id === 'harvester' || selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap-private')
+            ? (values.endpoint || 'https://harvester.example.com')
+            : (values.endpoint || values.authUrl || values.vcenterHost || 'https://api.example.com'),
         accessKey: values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '',
         secretKey: values.secretKey || values.accessKeySecret || values.secretAccessKey || 
                   values.privateKey || values.clientSecret || values.password || values.apiToken || '',
@@ -695,14 +719,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               </Form.Item>
 
               {(() => {
-                const fieldsToRender = (() => {
-                  const arr = selectedProvider.fields;
-                  if (selectedProvider.id === 'cloudmap') {
-                    if (poolType === 'security_pool') return arr.filter(f => f.key !== 'apiToken');
-                    return arr.filter(f => f.key !== 'accessKey' && f.key !== 'secretKey');
-                  }
-                  return arr;
-                })();
+                const fieldsToRender = selectedProvider.fields;
                 return fieldsToRender.map(field => (
                 <Form.Item
                   key={field.key}

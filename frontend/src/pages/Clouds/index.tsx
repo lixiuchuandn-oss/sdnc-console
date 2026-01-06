@@ -11,7 +11,8 @@ import {
   ClusterOutlined,
   HddOutlined,
   DatabaseOutlined,
-  CodepenOutlined
+  CodepenOutlined,
+  SafetyCertificateOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { fetchAllInstances, fetchCloudProviderVpcs, fetchKubeOvnVpcs } from '../../services/api';
@@ -287,8 +288,10 @@ const Clouds: React.FC = () => {
       kvm: { name: 'KVM', logo: <CodepenOutlined /> },
       rancher: { name: 'Rancher', logo: <CodepenOutlined /> },
       harvester: { name: 'Harvester', logo: <CodepenOutlined /> },
-      cloudmap: { name: 'Cloudmap', logo: <CodepenOutlined /> },
-      'cloudmap-security': { name: 'Cloudmap', logo: <CodepenOutlined /> },
+      cloudmap: { name: 'Cloudmap融合边缘云', logo: <CloudServerOutlined /> },
+      'cloudmap-private': { name: 'Cloudmap私有云', logo: <CloudServerOutlined /> },
+      'cloudmap-security': { name: 'Cloudmap CSM', logo: <SafetyCertificateOutlined /> },
+      csm: { name: 'CSM', logo: <SafetyCertificateOutlined /> },
       parallel_file_storage: { name: '高速并行文件存储', logo: <CodepenOutlined /> },
     };
 

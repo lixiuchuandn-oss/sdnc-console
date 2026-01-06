@@ -297,7 +297,17 @@ export const listHarvesterVMsStandard = async ({ endpoint, token, insecure = fal
     const vmi = vmiMap.get(namespace && name ? `${namespace}/${name}` : uid);
     const ip = ip0 || (vmi?.status?.interfaces?.[0]?.ipAddress || vmi?.status?.ipAddress || undefined);
     const nodeName = node0 || (vmi?.status?.nodeName || vmi?.status?.host || '');
-    const subnetName = ip && typeof ip === 'string' ? ipToSubnet.get(ip) : undefined;
+    const networksArr: any[] = Array.isArray(vm?.spec?.template?.spec?.networks) ? vm?.spec?.template?.spec?.networks : [];
+    const networks: string[] = networksArr.map((n:any)=> n?.multus?.networkName || (n?.name ? String(n.name) : 'pod')).filter((s:string)=> !!s);
+    
+    let subnetName = ip && typeof ip === 'string' ? ipToSubnet.get(ip) : undefined;
+    if (!subnetName && networks.length > 0) {
+      for (const net of networks) {
+        const s = net.includes('/') ? net.split('/').pop()! : net;
+        if (subnetToVpc.has(s)) { subnetName = s; break; }
+      }
+    }
+
     const vpcRaw = subnetName ? subnetToVpc.get(subnetName) : undefined;
     const vpcName = vpcRaw && vpcNameMap.has(vpcRaw) ? vpcNameMap.get(vpcRaw) : (vpcRaw || '');
     const cpu = vm?.spec?.template?.spec?.domain?.cpu?.cores || vm?.spec?.template?.spec?.domain?.cpu?.sockets || undefined;
@@ -316,8 +326,7 @@ export const listHarvesterVMsStandard = async ({ endpoint, token, insecure = fal
       const disp = imgMap.get(pickedDisp) || imgMap.get(short);
       if (disp) image = disp;
     }
-    const networksArr: any[] = Array.isArray(vm?.spec?.template?.spec?.networks) ? vm?.spec?.template?.spec?.networks : [];
-    const networks: string[] = networksArr.map((n:any)=> n?.multus?.networkName || (n?.name ? String(n.name) : 'pod')).filter((s:string)=> !!s);
+    
     const volsArr: any[] = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm?.spec?.template?.spec?.volumes : [];
     const volumeClaims: string[] = volsArr.map((v:any)=> v?.persistentVolumeClaim?.claimName).filter((s:string)=> !!s);
     const volumeMap: Record<string,string> = {};
@@ -336,7 +345,8 @@ export const listHarvesterVMsStandard = async ({ endpoint, token, insecure = fal
       Status: status,
       InstanceType: '',
       ZoneId: '',
-      VpcId: vpcName || '',
+      VpcId: vpcRaw || '',
+      VpcName: vpcName || '',
       VpcAttributes: {
         PrivateIpAddress: {
           IpAddress: ip ? [ip] : []

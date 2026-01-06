@@ -287,9 +287,14 @@ const AdminLayout: React.FC = () => {
   };
 
   const adminSpecs = routeSpecs.filter(s => s.layout === 'admin' && !s.hidden);
+  const platformLabel = (pf: string) => {
+    if (pf === 'CNMC') return '多云管理';
+    if (pf === 'SDNCC') return 'SDN管理';
+    return pf;
+  };
   const centers: any[] = ['CNMC','SDNCC','CNSOC'].map((pf: any) => ({
     key: pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : '/admin/cen_secops',
-    label: pf,
+    label: platformLabel(pf),
     icon: <CodeOutlined />,
     items: Array.from(new Set(adminSpecs.filter(s => s.platform === pf).map(s => String(s.group || '')))).map((grp) => ({
       key: `${pf}_${grp}`,

@@ -32,8 +32,8 @@ import CEWizard from './pages/InterConnect/VR/CEWizard';
 import StandardWizard from './pages/InterConnect/VR/StandardWizard';
 import ACLPage from './pages/InterConnect/ACL/index';
 import NATPage from './pages/InterConnect/NAT/index';
-import InfoDomainPage from './pages/SecMgrPlane/InfoDomain/index';
-import InfoDomainWizardPage from './pages/SecMgrPlane/InfoDomain/Wizard';
+import SecurityDomainPage from './pages/SecMgrPlane/SecurityDomain/index';
+import SecurityDomainWizardPage from './pages/SecMgrPlane/SecurityDomain/Wizard';
 import CENPage from './pages/SecMgrPlane/SmpInstance/index';
 import ComingSoon from './pages/ComingSoon';
 import SecurityApps from './pages/SecMgrPlane/Applications/index';
@@ -115,8 +115,8 @@ const AppRoutes: React.FC = () => {
           <Route path="interconnect/vr/:uuid/role-standard" element={<StandardWizard />} />
           <Route path="interconnect/acl" element={<ACLPage />} />
           <Route path="interconnect/nat" element={<NATPage />} />
-          <Route path="sec-mgr-plane/info-domain" element={<InfoDomainPage />} />
-          <Route path="sec-mgr-plane/info-domain/new" element={<InfoDomainWizardPage />} />
+          <Route path="sec-mgr-plane/security-domain" element={<SecurityDomainPage />} />
+          <Route path="sec-mgr-plane/security-domain/new" element={<SecurityDomainWizardPage />} />
           <Route path="sec-mgr-plane/instances" element={<CENPage />} />
           <Route path="alarms" element={<Alarms />} />
           <Route path="settings" element={<Settings />} />

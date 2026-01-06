@@ -15,8 +15,10 @@ const fetchCloudOr404 = async (id: string, res: Response) => {
 
 const ensureProvider = (cloud: any, provider: string, res: Response, msg: string, next?: any) => {
   const actual = String(cloud?.config?.provider || '').toLowerCase().trim();
-  const expected = String(provider).toLowerCase().trim();
-  if (actual !== expected) {
+  // Allow Harvester and Cloudmap Private/Edge (but not Security/CSM)
+  const isHarvesterLike = actual === 'harvester' || actual === 'cloudmap' || actual === 'cloudmap-private' || actual === 'cloudmap-edge';
+  
+  if (!isHarvesterLike) {
     if (next) {
       next();
       return false;
@@ -39,6 +41,24 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     } catch (error: any) {
       if (res.headersSent) return;
       res.status(500).json({ message: '查询VPC失败', error: error.message });
+    }
+  });
+  router.get('/:id/resources/subnets', checkAdminPermission, async (req: any, res: Response, next: any) => {
+    try {
+      const { id } = req.params;
+      const { vpcId } = req.query as any;
+      const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
+      if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
+      const insecure = !!(cloud.config as any)?.ignoreTls;
+      const list = await listKubeOvnSubnets({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      let items = list;
+      if (vpcId) {
+        items = list.filter((s: any) => String(s?.vpc || '').trim() === String(vpcId).trim());
+      }
+      res.json({ message: '查询成功', data: { items } });
+    } catch (error: any) {
+      if (res.headersSent) return;
+      res.status(500).json({ message: '查询子网失败', error: error.message });
     }
   });
   router.get('/:id/resources/ecs', checkAdminPermission, async (req: any, res: Response, next: any) => {

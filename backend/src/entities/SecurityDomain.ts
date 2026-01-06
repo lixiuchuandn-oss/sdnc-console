@@ -1,10 +1,10 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
-export type InfoDomainType = '业务信息域' | '安全信息域' | '数据域' | '其他';
+export type SecurityDomainType = '业务安全域' | '核心安全域' | '数据域' | '其他';
 export type VpcMode = 'existing' | 'new';
 
-@Entity('info_domains')
-export class InfoDomain {
+@Entity('security_domains')
+export class SecurityDomain {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -13,7 +13,7 @@ export class InfoDomain {
   name!: string;
 
   @Column({ type: 'text', nullable: true })
-  type?: InfoDomainType;
+  type?: SecurityDomainType;
 
   // 云资源绑定信息
   @Column({ type: 'text', nullable: true })
@@ -43,11 +43,11 @@ export class InfoDomain {
 
   // 通用网络标识（非 VPC 类型可录入）
   @Column({ type: 'text', nullable: true })
-  cidr?: string; // 信息域 IPv4 CIDR（IDC/虚拟化/办公网络等）
+  cidr?: string; // 安全域 IPv4 CIDR（IDC/虚拟化/办公网络等）
 
   // IPv6 网络标识（非 VPC 类型可录入），多个用逗号分隔
   @Column({ type: 'text', nullable: true })
-  cidr6?: string; // 信息域 IPv6 CIDR（如 2001:db8::/32），可逗号分隔
+  cidr6?: string; // 安全域 IPv6 CIDR（如 2001:db8::/32），可逗号分隔
 
   // VR 绑定
   @Column({ type: 'text', nullable: true })

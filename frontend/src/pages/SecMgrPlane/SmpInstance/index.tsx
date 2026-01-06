@@ -21,7 +21,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { fetchCens, createCen, deleteCen, attachVpcToCen, fetchTenants, fetchCenAttachments, detachVpcFromCen, fetchCloudProviderVpcs, fetchClouds, updateCen } from '../../../services/api';
 import { getDomainClass, netClassLabel, netClassColor } from '../../../utils/netClass';
-import { listInfoDomains } from '../../../services/infoDomainApi';
+import { listSecurityDomains } from '../../../services/securityDomainApi';
 import ReactFlow, { Controls, Background, Handle, Position } from 'react-flow-renderer';
 import SharedToolbar from '../../../components/SharedToolbar';
 
@@ -77,7 +77,7 @@ interface Cen {
   privateIp?: string;
 }
 
-interface InfoDomainOption { id:string; name:string; type?:string; category?:string; subType?:string; vpcId?:string; provider?:string; region?:string; cloudId?:string; cidr?:string; cidr6?:string; vrName?:string; vrUuid?:string; vrInstanceIds?:string; vrPublicEniIds?:string; vrPrivateEniIds?:string; vrPublicIp?:string; vrPublicEip?:string; vrPrivateIp?:string; vrPublicSubnetCidr?:string; vrPrivateSubnetCidr?:string }
+interface SecurityDomainOption { id:string; name:string; type?:string; category?:string; subType?:string; vpcId?:string; provider?:string; region?:string; cloudId?:string; cidr?:string; cidr6?:string; vrName?:string; vrUuid?:string; vrInstanceIds?:string; vrPublicEniIds?:string; vrPrivateEniIds?:string; vrPublicIp?:string; vrPublicEip?:string; vrPrivateIp?:string; vrPublicSubnetCidr?:string; vrPrivateSubnetCidr?:string }
 
 const CenPage: React.FC = () => {
   const [cens, setCens] = useState<Cen[]>([]);
@@ -89,7 +89,7 @@ const CenPage: React.FC = () => {
   const [tenants, setTenants] = useState<any[]>([]);
 
   const [attachModal, setAttachModal] = useState<{open:boolean; cenId?:string}>({open:false});
-  const [domains, setDomains] = useState<InfoDomainOption[]>([]);
+  const [domains, setDomains] = useState<SecurityDomainOption[]>([]);
   const [drawer, setDrawer] = useState<{open:boolean; cen?:Cen; tab?:string}>({open:false});
 
   const [planeActive, setPlaneActive] = useState(0);
@@ -122,7 +122,7 @@ const CenPage: React.FC = () => {
           const list = await fetchCenAttachments(c.id);
           list.forEach((att:any)=>{
             if(att?.vpcId && att.status==='attached') { attachedVpcSet.add(att.vpcId); attachedTimes += 1; }
-            const domId = String(att?.infoDomain?.id || att?.infoDomainId || '');
+            const domId = String(att?.securityDomain?.id || att?.securityDomainId || '');
             if(domId && att.status==='attached') { attachedDomainSet.add(domId); attachedDomainTimes += 1; }
           });
           return { ...c, attachCount: list.length };
@@ -166,8 +166,8 @@ const CenPage: React.FC = () => {
       setAttachedVpc(attachedTimes);
       setAttachedVpcUnique(attachedVpcSet.size);
       try{
-        const domains = await listInfoDomains();
-        const opts: InfoDomainOption[] = (Array.isArray(domains)? domains: []).map((d:any)=>({
+        const domains = await listSecurityDomains();
+        const opts: SecurityDomainOption[] = (Array.isArray(domains)? domains: []).map((d:any)=>({
           id: d.id,
           name: d.name,
           type: d.type,
@@ -262,9 +262,9 @@ const CenPage: React.FC = () => {
   };
 
   const [planeFilter, setPlaneFilter] = useState<string|undefined>();
-  const [allDomains, setAllDomains] = useState<InfoDomainOption[]>([]);
+  const [allDomains, setAllDomains] = useState<SecurityDomainOption[]>([]);
   const [planeAssignments, setPlaneAssignments] = useState<{[cenId:string]: {[attachId:string]: number}}>({});
-  const [domainCache, setDomainCache] = useState<{[vpcId:string]: InfoDomainOption}>({});
+  const [domainCache, setDomainCache] = useState<{[vpcId:string]: SecurityDomainOption}>({});
   const [attachDomainIds, setAttachDomainIds] = useState<string[]>([]);
   const [attachPlaneIndex, setAttachPlaneIndex] = useState<number | undefined>();
   const [channelStrategy, setChannelStrategy] = useState<{[cenId:string]:'SRv6'|'IPsec'}>({});
@@ -287,8 +287,8 @@ const CenPage: React.FC = () => {
   useEffect(()=>{
     (async()=>{
       try{
-        const list = await listInfoDomains();
-        const opts: InfoDomainOption[] = (Array.isArray(list)? list: []).map((d:any)=>({
+        const list = await listSecurityDomains();
+        const opts: SecurityDomainOption[] = (Array.isArray(list)? list: []).map((d:any)=>({
           id: d.id,
           name: d.name,
           type: d.type,
@@ -325,9 +325,9 @@ const CenPage: React.FC = () => {
     }
   }, [detailModal.open, detailModal.cen]);
 
-  const domainOfAttachment = (att:any): InfoDomainOption | undefined => {
+  const domainOfAttachment = (att:any): SecurityDomainOption | undefined => {
     if(!att) return undefined;
-    const id = att?.infoDomain?.id || att?.infoDomainId;
+    const id = att?.securityDomain?.id || att?.securityDomainId;
     if(id){
       const found = allDomains.find(d=> String(d.id)===String(id));
       if(found) return found;
@@ -349,12 +349,12 @@ const CenPage: React.FC = () => {
     { title:'延迟', dataIndex:'latency', key:'latency', render:(v:number)=> v? <Tag color={v<50?'green':v<100?'orange':'red'}>{v}ms</Tag>:'--' },
     { title:'SLA', dataIndex:'sla', key:'sla', render:(v:number)=> v? <Tag color={v>99?'green':v>95?'orange':'red'}>{v}%</Tag>:'--', onCell:(r:any)=>({onClick:()=>openDetailModal(r,'metrics')}) },
     { title:'级联通道', key:'planes', render:(_:any, r:Cen)=>{ const { total, active } = planeStatsByAttachCount(r.attachCount||0); return <Tag color={active>0?'green':'default'}>{`${active}/${total}`}</Tag>; }, onCell:(r:any)=>({onClick:()=>openDetailModal(r,'topology')}) },
-    { title:'已挂载信息域', dataIndex:'attachCount', key:'cnt', render:(v:number,r:Cen)=>(<a onClick={()=>openDetailModal(r,'domains')}>{v||0}</a>) },
+    { title:'已挂载安全域', dataIndex:'attachCount', key:'cnt', render:(v:number,r:Cen)=>(<a onClick={()=>openDetailModal(r,'domains')}>{v||0}</a>) },
     { title:'创建时间', dataIndex:'createdAt', key:'time' },
     { title:'操作', key:'act', render:(_:any, r:Cen)=>{
       const items = [
             { key:'view', label:(<span>查看详情</span>), icon:<EyeOutlined /> },
-            { key:'attach', label:(<span>挂载信息域</span>), icon:<LinkOutlined /> },
+            { key:'attach', label:(<span>挂载安全域</span>), icon:<LinkOutlined /> },
         { type:'divider' as any },
             { key:'delete', label:(<span>删除级联通道</span>), icon:<DeleteOutlined />, danger:true },
             { key:'forceDelete', label:(<span>强制删除（释放挂载）</span>), icon:<DeleteOutlined />, danger:true },
@@ -391,7 +391,7 @@ const CenPage: React.FC = () => {
   };
 
   const handleForceDelete = (id:string)=>{
-    Modal.confirm({ title:'确认强制删除该级联通道？', content:'将释放所有已挂载信息域（不删除信息域本身），并删除级联通道。', okText:'强制删除', onOk:async ()=>{
+    Modal.confirm({ title:'确认强制删除该级联通道？', content:'将释放所有已挂载安全域（不删除安全域本身），并删除级联通道。', okText:'强制删除', onOk:async ()=>{
       try { const { forceDeleteCen } = await import('../../../services/api'); await forceDeleteCen(id); message.success('已强制删除并释放挂载'); load(); } catch(err){ message.error('强制删除失败'); }
     }});
   };
@@ -400,8 +400,8 @@ const CenPage: React.FC = () => {
     setAttachDomainIds([]);
     setAttachPlaneIndex(undefined);
     try{
-      const list = await listInfoDomains();
-      const opts: InfoDomainOption[] = (Array.isArray(list)? list: []).map((d:any)=>({
+      const list = await listSecurityDomains();
+      const opts: SecurityDomainOption[] = (Array.isArray(list)? list: []).map((d:any)=>({
         id: d.id,
         name: d.name,
         type: d.type,
@@ -437,7 +437,7 @@ const CenPage: React.FC = () => {
     const cenId = attachModal.cenId;
     if(!cenId){ message.warning('请选择级联通道'); return; }
     if(!attachPlaneIndex && attachPlaneIndex!==0){ message.warning('请选择目标级联通道'); return; }
-    if(!attachDomainIds.length){ message.warning('请选择至少一个信息域'); return; }
+    if(!attachDomainIds.length){ message.warning('请选择至少一个安全域'); return; }
     let ok=0, fail=0;
     const newlyAttachedDomainIds: string[] = [];
     for(const did of attachDomainIds){
@@ -454,7 +454,7 @@ const CenPage: React.FC = () => {
       setAttachmentCache(prev=>({ ...prev, [cenId]: fresh }));
       const assignments = { ...(planeAssignments[cenId]||{}) };
       for(const att of (fresh||[])){
-        const domId = String(att?.infoDomain?.id||att?.infoDomainId||'');
+        const domId = String(att?.securityDomain?.id||att?.securityDomainId||'');
         if(domId && newlyAttachedDomainIds.includes(domId)){
           assignments[att.id] = Number(attachPlaneIndex);
         }
@@ -529,12 +529,12 @@ const CenPage: React.FC = () => {
     return [
       {
         key: 'domains',
-        label: '信息域',
+        label: '安全域',
         icon: <EnvironmentOutlined />,
         children: (
           <div>
             <SharedToolbar
-              left={<Input placeholder="请输入信息域名称/ID" allowClear value={domainKeyword} onChange={e => setDomainKeyword(e.target.value)} style={{ width: 220 }} prefix={<SearchOutlined style={{ color: '#ccc' }} />} />}
+              left={<Input placeholder="请输入安全域名称/ID" allowClear value={domainKeyword} onChange={e => setDomainKeyword(e.target.value)} style={{ width: 220 }} prefix={<SearchOutlined style={{ color: '#ccc' }} />} />}
               right={
                 <AntSpace>
                   <Button icon={<ReloadOutlined />} onClick={() => {
@@ -545,7 +545,7 @@ const CenPage: React.FC = () => {
                       });
                     }
                   }} />
-                  <Button type="primary" icon={<LinkOutlined />} onClick={() => openAttachModal(record.id)}>挂载信息域</Button>
+                  <Button type="primary" icon={<LinkOutlined />} onClick={() => openAttachModal(record.id)}>挂载安全域</Button>
                 </AntSpace>
               }
             />
@@ -556,7 +556,7 @@ const CenPage: React.FC = () => {
             pagination={false}
             columns={[
               {
-                title: '信息域',
+                title: '安全域',
                 key: 'info',
                 render: (_: any, r: any) => {
                   const dom = domainOfAttachment(r);
@@ -716,7 +716,7 @@ const CenPage: React.FC = () => {
               id: `domain-${String(d?.dom?.id)}`,
               type: 'domainCard',
               position: { x: outX, y: outY },
-              data: { title: `${title}信息域`, vrName, vrPrivateIp, vpcCidr }
+              data: { title: `${title}安全域`, vrName, vrPrivateIp, vpcCidr }
             };
           });
           const nodes = ([] as any[]).concat(mainNodes, domainNodes);
@@ -812,7 +812,7 @@ const CenPage: React.FC = () => {
         <Row gutter={[12,12]} style={{ marginBottom:16 }}>
           <Col xs={24} sm={12} md={6}><MetricCard title="级联通道" total={planeTotal} unit="个" used={planeActive} midLabel="未生效" midValue={planeTotal-planeActive} usedLabel="生效" mainColor="#1677ff" /></Col>
           <Col xs={24} sm={12} md={6}><MetricCard title="活跃通道" total={cens.length} unit="个" used={cens.filter(c=>c.status==='available').length} midLabel="创建中" midValue={cens.filter(c=>c.status==='creating').length} usedLabel="可用" mainColor="#1677ff" /></Col>
-          <Col xs={24} sm={12} md={6}><MetricCard title="信息域" total={domainTotal} unit="个" used={attachedDomainUnique} midLabel="未挂载" midValue={domainTotal-attachedDomainUnique} usedLabel="已挂载" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="安全域" total={domainTotal} unit="个" used={attachedDomainUnique} midLabel="未挂载" midValue={domainTotal-attachedDomainUnique} usedLabel="已挂载" mainColor="#1677ff" /></Col>
           <Col xs={24} sm={12} md={6}><MetricCard title="云端VPC" total={vpcTotal} unit="个" used={attachedVpcUnique} midLabel="未挂载" midValue={vpcTotal-attachedVpcUnique} usedLabel="已挂载" mainColor="#1677ff" /></Col>
         </Row>
       )}
@@ -835,7 +835,7 @@ const CenPage: React.FC = () => {
             <Select allowClear placeholder="选择租户" style={{ width:200 }} options={tenants.map(t=>({ value:t.id, label:t.name }))} />
           </Form.Item>
           <Form.Item name="plane" label="级联通道">
-            <Select allowClear placeholder="选择级联通道状态" style={{ width:200 }} options={[{ value:'active', label:'已生效（≥2信息域）' }, { value:'none', label:'未生效（＜2信息域）' }]} />
+            <Select allowClear placeholder="选择级联通道状态" style={{ width:200 }} options={[{ value:'active', label:'已生效（≥2安全域）' }, { value:'none', label:'未生效（＜2安全域）' }]} />
           </Form.Item>
           <Form.Item>
             <Button type="link" style={{ padding:0 }} onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTenantFilter(undefined); setPlaneFilter(undefined);}}>重置</Button>
@@ -913,12 +913,12 @@ const CenPage: React.FC = () => {
         </Form>
       </Modal>
 
-      <Modal title="挂载信息域" open={attachModal.open} onOk={handleAttach} onCancel={()=> setAttachModal({open:false})} destroyOnHidden>
+      <Modal title="挂载安全域" open={attachModal.open} onOk={handleAttach} onCancel={()=> setAttachModal({open:false})} destroyOnHidden>
         <Form layout="vertical">
-          <Form.Item label="信息域">
+          <Form.Item label="安全域">
             <Select mode="multiple" value={attachDomainIds} onChange={setAttachDomainIds} options={domains.map(d=>({ value:d.id, label:d.name }))} />
           </Form.Item>
-          <Form.Item label="目标通道编号" tooltip="用于将选中的信息域挂载到该级联通道的指定编号，用于通道分组与后续隧道编排。">
+          <Form.Item label="目标通道编号" tooltip="用于将选中的安全域挂载到该级联通道的指定编号，用于通道分组与后续隧道编排。">
             <Select value={attachPlaneIndex} onChange={setAttachPlaneIndex} options={[{ value:0, label:'通道 0' }, { value:1, label:'通道 1' }, { value:2, label:'通道 2' }]} />
           </Form.Item>
         </Form>

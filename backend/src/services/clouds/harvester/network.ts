@@ -60,26 +60,6 @@ export const listHarvesterNADsStandard = async ({ endpoint, token, insecure = fa
   }));
 };
 
-export const listKubeOvnVpcs = async ({ endpoint, token, insecure = false }: HarvesterTestParams): Promise<any[]> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try { const u = new URL(base); origin = `${u.protocol}//${u.host}`; } catch { origin = base.replace(/\/v[0-9].*$/, ''); }
-  const candidates = [
-    `${origin}/apis/kubeovn.io/v1/vpcs`
-  ];
-  let json:any=null; let lastErr:any=null;
-  for (const url of candidates) { try { json = await getJsonOnce(url, token, insecure); if (json) break; } catch(e:any){ lastErr=e; } }
-  if (!json && lastErr) { const s=Number(lastErr?.status||0); const m=String(lastErr?.message||'').toLowerCase(); const b=String(lastErr?.body||'').toLowerCase(); if (s===401||m.includes('unauthorized')||b.includes('unauthorized')) return []; if (s===404||m.includes('not found')||b.includes('not found')) return []; throw lastErr; }
-  const items = Array.isArray(json?.items) ? json?.items : Array.isArray(json?.data) ? json?.data : [];
-  return items.map((v:any)=> ({
-    name: v?.metadata?.name || v?.name || '',
-    namespaces: Array.isArray(v?.spec?.namespaces) ? v.spec.namespaces : [],
-    standalone: !!v?.spec?.standalone,
-    staticRoutes: Array.isArray(v?.spec?.staticRoutes) ? v.spec.staticRoutes.length : 0,
-    createdAt: v?.metadata?.creationTimestamp || ''
-  }));
-};
-
 export const listKubeOvnSubnets = async ({ endpoint, token, insecure = false }: HarvesterTestParams): Promise<any[]> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -98,7 +78,49 @@ export const listKubeOvnSubnets = async ({ endpoint, token, insecure = false }: 
     gateway: s?.spec?.gateway || s?.spec?.gateway || '',
     protocol: s?.spec?.protocol || 'IPV4',
     nat: !!s?.spec?.nat,
-    allowDhcp: s?.spec?.enableDHCP || s?.spec?.dhcp || false,
-    createdAt: s?.metadata?.creationTimestamp || ''
+    private: !!s?.spec?.private,
+    namespaces: Array.isArray(s?.spec?.namespaces) ? s.spec.namespaces : []
   }));
+};
+
+export const listKubeOvnVpcs = async ({ endpoint, token, insecure = false }: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try { const u = new URL(base); origin = `${u.protocol}//${u.host}`; } catch { origin = base.replace(/\/v[0-9].*$/, ''); }
+  const candidates = [
+    `${origin}/apis/kubeovn.io/v1/vpcs`
+  ];
+  let json:any=null; let lastErr:any=null;
+  for (const url of candidates) { try { json = await getJsonOnce(url, token, insecure); if (json) break; } catch(e:any){ lastErr=e; } }
+  if (!json && lastErr) { const s=Number(lastErr?.status||0); const m=String(lastErr?.message||'').toLowerCase(); const b=String(lastErr?.body||'').toLowerCase(); if (s===401||m.includes('unauthorized')||b.includes('unauthorized')) return []; if (s===404||m.includes('not found')||b.includes('not found')) return []; throw lastErr; }
+  const items = Array.isArray(json?.items) ? json?.items : Array.isArray(json?.data) ? json?.data : [];
+  
+  // Fetch subnets to map CIDR to VPC
+  let subnets: any[] = [];
+  try {
+    subnets = await listKubeOvnSubnets({ endpoint, token, insecure });
+  } catch (e) {
+    console.warn('[listKubeOvnVpcs] Failed to fetch subnets for CIDR mapping:', e);
+  }
+  const vpcCidrs = new Map<string, string[]>();
+  for (const s of subnets) {
+    const v = String(s.vpc || '').trim();
+    if (v && s.cidr) {
+       if (!vpcCidrs.has(v)) vpcCidrs.set(v, []);
+       vpcCidrs.get(v)?.push(s.cidr);
+    }
+  }
+
+  return items.map((v:any)=> {
+    const name = v?.metadata?.name || v?.name || '';
+    const cidrs = vpcCidrs.get(name) || [];
+    return {
+      name,
+      cidr: cidrs.join(', '),
+      namespaces: Array.isArray(v?.spec?.namespaces) ? v.spec.namespaces : [],
+      standalone: !!v?.spec?.standalone,
+      staticRoutes: Array.isArray(v?.spec?.staticRoutes) ? v.spec.staticRoutes.length : 0,
+      createdAt: v?.metadata?.creationTimestamp || ''
+    };
+  });
 };

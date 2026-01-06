@@ -28,7 +28,25 @@ export class ServiceCatalog {
   status!: ServiceStatus;
 
   @Column({ type: 'text', nullable: true })
+  description?: string;
+
+  @Column({ type: 'text', nullable: true })
+  owner?: string;
+
+  @Column({ type: 'text', nullable: true })
+  version?: string;
+
+  @Column({ type: 'text', nullable: true })
   strategies?: string; // 逗号分隔：IBAC,RBAC,ABAC
+
+  @Column({ type: 'text', nullable: true })
+  policyIds?: string; // 逗号分隔：策略ID列表
+
+  @Column({ type: 'text', nullable: true })
+  networkPolicyIds?: string; // 逗号分隔：网络策略ID列表
+
+  @Column({ type: 'text', nullable: true })
+  hostPolicyIds?: string; // 逗号分隔：主机策略ID列表
 
   @Column({ type: 'text', nullable: true })
   instances?: string; // JSON 字符串数组，保存虚机/容器实例ID

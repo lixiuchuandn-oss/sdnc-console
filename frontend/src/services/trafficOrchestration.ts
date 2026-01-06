@@ -12,8 +12,8 @@ const getHeaders = () => {
 
 export const fetchSecurityZones = async (params?: any) => {
   const query = new URLSearchParams(params).toString();
-  // Call the Info Domain API instead of security-zones
-  const res = await fetch(`${API_BASE_URL}/api/info-domains?${query}`, {
+  // Call the Security Domain API instead of security-zones
+  const res = await fetch(`${API_BASE_URL}/api/security-domains?${query}`, {
     method: 'GET',
     headers: getHeaders(),
   });

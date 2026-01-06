@@ -15,6 +15,10 @@ type Policy = {
   description?: string;
   actions: string[];
   groups: string[];
+  conditions?: {
+    timeWindow?: string;
+    ipRange?: string;
+  };
 };
 
 const mapGroupOf = (val: string): string => groupOf(val);
@@ -165,7 +169,7 @@ const AccessPoliciesPage: React.FC = () => {
     return policies.filter(p => (type==='all' || p.type===type) && (activeGroup === '全部' || p.groups.includes(activeGroup)) && (p.name.toLowerCase().includes(lower) || (p.description||'').toLowerCase().includes(lower)));
   }, [policies, type, activeGroup, kw]);
 
-  const rows = filteredPolicies.map(p => ({ key: p.id, name: p.name, type: p.type, desc: p.description }));
+  const rows = filteredPolicies.map(p => ({ key: p.id, name: p.name, type: p.type, desc: p.description, conditions: p.conditions }));
 
   const groupActions = useMemo(() => {
     const lower = kw.toLowerCase();
@@ -174,7 +178,9 @@ const AccessPoliciesPage: React.FC = () => {
       if (r.startsWith('tenants.leased-lines')) return '租户专线';
       if (r.startsWith('networks.vpcs')) return 'VPC';
       if (r.startsWith('networks.cen')) return 'CEN';
-      if (r.startsWith('networks.info-domain')) return '信息域';
+      if (r.startsWith('services')) return '应用管理';
+      if (r.includes('security-domain')) return '安全域管理';
+      if (r.startsWith('clouds')) return '云资源管理';
       if (r.startsWith('networks.ipsec')) return 'IPsecVPN';
       if (r.startsWith('networks.nat')) return 'NAT网关';
       if (r.startsWith('networks.srv6')) return 'SRv6隧道';
@@ -214,10 +220,15 @@ const AccessPoliciesPage: React.FC = () => {
 
 
   const handleSavePolicy = async (vals: any) => {
+    const conditions = (vals.timeWindow || vals.ipRange) ? {
+      timeWindow: vals.timeWindow,
+      ipRange: vals.ipRange
+    } : undefined;
+
     if (isEditMode && editingPolicy) {
-      setPolicies(prev => prev.map(p => p.id === editingPolicy.id ? { ...p, name: vals.name, description: vals.description || '' } : p));
+      setPolicies(prev => prev.map(p => p.id === editingPolicy.id ? { ...p, name: vals.name, description: vals.description || '', conditions } : p));
     } else {
-      const pol: Policy = { id: `custom-${Date.now()}`, name: vals.name, type: '自定义策略', description: vals.description || '', actions: [], groups: [] };
+      const pol: Policy = { id: `custom-${Date.now()}`, name: vals.name, type: '自定义策略', description: vals.description || '', actions: [], groups: [], conditions };
       setPolicies(prev => [pol, ...prev]);
     }
     setCreateOpen(false);
@@ -297,7 +308,7 @@ const AccessPoliciesPage: React.FC = () => {
         columns={[
           { title:'序号', key:'index', width:70, render: (_:any, __:any, index:number)=> index+1 },
           { title:'策略名称', dataIndex:'name' },
-          { title:'策略类型', dataIndex:'type', width: 120 },
+          { title:'策略类型', dataIndex:'type', width: 120, render: (val: string, r: any) => <Space direction="vertical" size={0}><span>{val}</span>{r.conditions && <Tag color="orange" style={{fontSize:10, lineHeight:'16px'}}>ABAC</Tag>}</Space> },
           { title:'描述', dataIndex:'desc' },
           { title:'操作', key:'actions', width: 160, fixed: 'right', render: (_:any, record:any) => {
             const isCustom = record?.type === '自定义策略';
@@ -316,7 +327,12 @@ const AccessPoliciesPage: React.FC = () => {
                 if (!p || p.type !== '自定义策略') return;
                 setIsEditMode(true);
                 setEditingPolicy(p);
-                createForm.setFieldsValue({ name: p.name, description: p.description || '' });
+                createForm.setFieldsValue({ 
+                  name: p.name, 
+                  description: p.description || '',
+                  timeWindow: p.conditions?.timeWindow,
+                  ipRange: p.conditions?.ipRange
+                });
                 setCreateOpen(true);
                 return;
               }
@@ -332,10 +348,17 @@ const AccessPoliciesPage: React.FC = () => {
 
       <StdFormModal title={isEditMode ? '编辑授权策略' : '新建授权策略'} open={createOpen} onCancel={()=> { setCreateOpen(false); setIsEditMode(false); setEditingPolicy(null); }} okText={isEditMode ? '保存' : '创建'} width={600} form={createForm} onFinish={handleSavePolicy}>
         <Form.Item name="name" label="策略名称" rules={[{ required: true, message: '请输入策略名称' }]}> 
-          <Input placeholder="例如：信息域只读策略" />
+          <Input placeholder="例如：安全域只读策略" />
         </Form.Item>
         <Form.Item name="description" label="描述">
           <Input.TextArea placeholder="策略用途说明（可选）" autoSize={{ minRows: 3, maxRows: 6 }} />
+        </Form.Item>
+        <Divider orientation="left" style={{ margin: '12px 0' }}>ABAC 属性控制（可选）</Divider>
+        <Form.Item name="timeWindow" label="生效时间段" tooltip="例如：09:00-18:00，留空表示不限制">
+          <Input placeholder="例如：09:00-18:00" />
+        </Form.Item>
+        <Form.Item name="ipRange" label="允许源IP段" tooltip="CIDR格式，例如：10.0.0.0/8，留空表示不限制">
+          <Input placeholder="例如：10.0.0.0/8" />
         </Form.Item>
       </StdFormModal>
 

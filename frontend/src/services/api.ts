@@ -951,6 +951,7 @@ export const fetchCsmElementGroups = async (cloudId: string) => {
   if (!res.ok) { throw new Error(await res.text()); }
   return await res.json();
 };
+
 export const fetchCloudmapElementGroups = fetchCsmElementGroups;
 
 export const fetchCsmServiceChains = async (cloudId: string) => {
@@ -1764,8 +1765,8 @@ export const forceDeleteCen = async (id: string) => {
   return await apiDelete(`/api/cens/${id}?force=1`);
 };
 
-export const attachVpcToCen = async (cenId: string, vpcId?: string, infoDomainId?: string) => {
-  return await apiPost(`/api/cens/${cenId}/attachments`, { vpcId, infoDomainId });
+export const attachVpcToCen = async (cenId: string, vpcId?: string, securityDomainId?: string) => {
+  return await apiPost(`/api/cens/${cenId}/attachments`, { vpcId, securityDomainId });
 };
 
 export const fetchCenAttachments = async (cenId: string) => {

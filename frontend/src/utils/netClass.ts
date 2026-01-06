@@ -1,6 +1,10 @@
 export type NetClass = 'vpc' | 'flat' | 'unbound';
 
-// 从信息域对象计算分类
+/**
+ * 根据安全域类型获取网络分类
+ * @param domain 安全域对象
+ * @returns 'private' | 'public' | 'hybrid' | 'unknown'
+ */
 export function getDomainClass(domain: any): NetClass {
   if (!domain) return 'unbound';
   const category = String(domain?.category || '').trim();
@@ -20,3 +24,9 @@ export function netClassColor(cls: NetClass): string {
   if (cls === 'flat') return 'green';
   return 'default';
 }
+
+// 映射
+// 1. vpc: VPC网络
+// 2. flat: 扁平网络
+// 3. security-domain: 安全域
+// 4. unclassified: 未分类

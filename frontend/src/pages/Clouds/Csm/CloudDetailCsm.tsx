@@ -4,7 +4,7 @@ import { Card, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Description
 import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, DownOutlined, EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import SharedToolbar from '../../../components/SharedToolbar';
-import { fetchClouds, fetchCsmVirtualElements, fetchCsmPhysicalElements, fetchCsmElementGroups, operateCsmVm, getCsmVmConsole } from '../../../services/api';
+import { fetchClouds, fetchCsmVirtualElements, fetchCsmPhysicalElements, fetchCsmElementGroups, fetchCsmServiceChains, operateCsmVm, getCsmVmConsole } from '../../../services/api';
 import CsmVmDetailModal from './modals/CsmVmDetailModal';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import CsmServiceChainSection from './sections/CsmServiceChainSection';
@@ -20,6 +20,7 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [virtualElements, setVirtualElements] = useState<any[]>([]);
   const [physicalElements, setPhysicalElements] = useState<any[]>([]);
   const [elementGroups, setElementGroups] = useState<any[]>([]);
+  const [serviceChains, setServiceChains] = useState<any[]>([]);
   const [showLog, setShowLog] = useState<boolean>(false);
   const [rawVirtual, setRawVirtual] = useState<any | null>(null);
   const [rawPhysical, setRawPhysical] = useState<any | null>(null);
@@ -68,18 +69,21 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       const cloudsRes = await fetchClouds();
       const cloudList: any[] = Array.isArray(cloudsRes) ? cloudsRes : (Array.isArray((cloudsRes as any)?.data) ? (cloudsRes as any).data : []);
       setCloud((cloudList || []).find((c:any)=> String(c.id) === String(cloudId)) || null);
-      const [virtualJson, physicalJson, groupsJson] = await Promise.all([
+      const [virtualJson, physicalJson, groupsJson, chainsJson] = await Promise.all([
         fetchCsmVirtualElements(cloudId).catch(()=>null),
         fetchCsmPhysicalElements(cloudId).catch(()=>null),
         fetchCsmElementGroups(cloudId).catch(()=>null),
+        fetchCsmServiceChains(cloudId).catch(()=>null),
       ]);
       const vList: any[] = (virtualJson as any)?.data?.items || (virtualJson as any)?.items || (virtualJson as any)?.data || [];
       const pList: any[] = (physicalJson as any)?.data?.items || (physicalJson as any)?.items || (physicalJson as any)?.data || [];
       const gList: any[] = (groupsJson as any)?.data?.items || (groupsJson as any)?.items || (groupsJson as any)?.data || [];
+      const cList: any[] = (chainsJson as any)?.data?.items || (chainsJson as any)?.items || (chainsJson as any)?.data || [];
       setVirtualElements(Array.isArray(vList) ? vList : []);
       setPhysicalElements(Array.isArray(pList) ? pList : []);
       const groupsFinal = (Array.isArray(gList) && gList.length > 0) ? gList : buildGroupsFromVirtual(vList);
       setElementGroups(Array.isArray(groupsFinal) ? groupsFinal : []);
+      setServiceChains(Array.isArray(cList) ? cList : []);
       setRawVirtual(virtualJson || null);
       setRawPhysical(physicalJson || null);
       setRawGroups(groupsJson || null);
@@ -333,9 +337,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             children: (
               <>
                 <Row gutter={[16, 16]}>
-                  <Col xs={24} sm={12} md={8}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />虚拟安全网元</span>} value={virtualElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                  <Col xs={24} sm={12} md={8}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />物理安全网元</span>} value={physicalElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                  <Col xs={24} sm={12} md={8}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SafetyCertificateOutlined style={{ color:'#1677ff', marginRight:8 }} />安全网元组</span>} value={elementGroups.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                  <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />虚拟安全网元</span>} value={virtualElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                  <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />物理安全网元</span>} value={physicalElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                  <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SafetyCertificateOutlined style={{ color:'#1677ff', marginRight:8 }} />安全网元组</span>} value={elementGroups.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                  <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><UnorderedListOutlined style={{ color:'#1677ff', marginRight:8 }} />服务链</span>} value={serviceChains.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                 </Row>
               </>
             )
