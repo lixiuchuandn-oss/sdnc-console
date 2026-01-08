@@ -99,6 +99,7 @@ const TenantsPage: React.FC = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTenants(response.data);
+      await refreshOrgCounts(response.data);
     } catch (error) {
       message.error('获取租户列表失败');
     } finally {
@@ -147,6 +148,41 @@ const TenantsPage: React.FC = () => {
       }
     } catch (error) {
       message.error('获取组织列表失败');
+    }
+  };
+
+  // 批量刷新所有租户的组织数量
+  const refreshOrgCounts = async (list: Tenant[]) => {
+    try {
+      const token = localStorage.getItem('token');
+      const pairs = await Promise.all(list.map(async (t) => {
+        try {
+          const res = await axios.get(`/api/tenants/${t.id}/organizations`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const countAll = (orgs: Organization[]): number => {
+            let c = 0;
+            const recur = (ls: Organization[]) => {
+              for (const o of ls) {
+                c += 1;
+                if (o.children && o.children.length) recur(o.children);
+              }
+            };
+            recur(orgs);
+            return c;
+          };
+          return [t.id, countAll(res.data)] as const;
+        } catch {
+          return [t.id, 0] as const;
+        }
+      }));
+      setTenantOrgCountMap(prev => {
+        const next = { ...prev };
+        for (const [id, cnt] of pairs) next[id] = cnt;
+        return next;
+      });
+    } catch {
+      // ignore
     }
   };
 
@@ -603,7 +639,9 @@ const TenantsPage: React.FC = () => {
       key: 'name',
       render: (text: string, record: Tenant) => (
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <span style={{ fontSize:14, cursor:'default' }}>{text}</span>
+          <Button type="link" style={{ padding:0, height:'auto', fontSize:14 }} onClick={()=>navigate(`/admin/tenants/${record.id}/organizations`)}>
+            {text}
+          </Button>
         </div>
       )
     },
@@ -670,9 +708,7 @@ const TenantsPage: React.FC = () => {
                 return;
               }
               if (key === 'orgManage') {
-                setSelectedTenant(record);
-                fetchOrganizations(record.id);
-                setOrgTreeDrawerOpen(true);
+                navigate(`/admin/tenants/${record.id}/organizations`);
                 return;
               }
             }
@@ -768,27 +804,7 @@ const TenantsPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (orgTreeDrawerOpen && selectedTenant?.id && selectedOrg?.id) {
-      fetchUsers(selectedTenant.id, selectedOrg.id);
-      fetchAssignments(selectedOrg.id);
-      (async () => {
-        try {
-          setSecurityLoading(true);
-          const [objs, chains] = await Promise.all([
-            fetchProtectionObjects({ organizationId: selectedOrg.id }),
-            fetchServiceChains({ organizationId: selectedOrg.id }),
-          ]);
-          setProtectionObjects(Array.isArray(objs) ? objs : (objs?.data || []));
-          setSecurityChains(Array.isArray(chains) ? chains : (chains?.data || []));
-        } catch {
-          setProtectionObjects([]);
-          setSecurityChains([]);
-        } finally {
-          setSecurityLoading(false);
-        }
-      })();
-    }
-  }, [orgTreeDrawerOpen, selectedTenant?.id, selectedOrg?.id]);
+  }, []);
 
   useEffect(() => {
     if (selectedTenant?.id) {
@@ -803,7 +819,6 @@ const TenantsPage: React.FC = () => {
       subtitle="租户（Tenant）用于隔离不同组织或项目的资源与权限，支持组织架构、用户与角色管理、资源池分配等。"
       asCard={false}
     >
-      <Divider style={{ margin: '0 0 16px 0' }} />
 
       <SharedToolbar
         style={{ alignItems:'flex-end' }}
@@ -967,228 +982,6 @@ const TenantsPage: React.FC = () => {
           </Form.Item>
           
         </Form>
-      </StdSideDrawer>
-      <StdSideDrawer
-        title="组织管理"
-        open={orgTreeDrawerOpen}
-        width={1000}
-        onClose={() => setOrgTreeDrawerOpen(false)}
-        onOk={() => setOrgTreeDrawerOpen(false)}
-        okText="关闭"
-      >
-        
-        {organizations.length > 0 ? (
-          <>
-            <Row gutter={[16,0]} style={{ height:'100%' }}>
-              <Col span={12} style={{ height:'100%' }}>
-                {/* 左侧：组织树 */}
-                <div className="org-tree-container" style={{ display:'flex', flexDirection:'column', height:'100%' }}>
-                  <div style={{ display:'flex', alignItems:'center', marginBottom: 8 }}>
-                    <Input
-                      allowClear
-                      placeholder="搜索组织名称"
-                      style={{ width: '100%' }}
-                      value={orgKeyword}
-                      onChange={(e)=> setOrgKeyword(e.target.value)}
-                    />
-                  </div>
-                  <div className="org-tree-scroll">
-                    <Tree
-                      className="org-tree"
-                      showLine={{ showLeafIcon: false }}
-                      defaultExpandAll
-                      expandedKeys={expandedKeys}
-                      onExpand={(keys)=> setExpandedKeys(keys as string[])}
-                      selectedKeys={selectedKeys}
-                      treeData={buildTreeData(filterOrgs(organizations, orgKeyword))}
-                      onSelect={(keys) => {
-                        if (keys.length > 0) {
-                          const findOrg = (orgs: Organization[], id: string): Organization | null => {
-                            for (const org of orgs) {
-                              if (org.id === id) return org;
-                              if (org.children) {
-                                const found = findOrg(org.children, id);
-                                if (found) return found;
-                              }
-                            }
-                            return null;
-                          };
-                          const org = findOrg(organizations, keys[0] as string);
-                          if (org) {
-                            setSelectedKeys([org.id]);
-                            setSelectedOrg(org);
-                          }
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-              </Col>
-              <Col span={12}>
-                {/* 右侧：标签页（用户管理、资源分配） */}
-                <Tabs defaultActiveKey="users">
-                  <Tabs.TabPane tab="用户管理" key="users">
-                    {selectedOrg ? (
-                      <div>
-                        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Input
-                            allowClear
-                            placeholder="搜索用户关键字"
-                            style={{ width: 240 }}
-                            value={userKeyword}
-                            onChange={(e)=> setUserKeyword(e.target.value)}
-                          />
-                          <Button 
-                            type="primary" 
-                            onClick={() => {
-                              userForm.resetFields();
-                              const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
-                              userForm.setFieldsValue({ organizationId: selectedOrg?.id, username: rand });
-                              setUserDrawerOpen(true);
-                            }}
-                          >添加用户</Button>
-                        </div>
-                        <Table
-                          columns={userColumns}
-                          dataSource={(userKeyword.trim() ? users.filter(u => {
-                            const kw = userKeyword.trim().toLowerCase();
-                            return (
-                              (u.username || '').toLowerCase().includes(kw) ||
-                              (u.fullName || '').toLowerCase().includes(kw) ||
-                              (u.email || '').toLowerCase().includes(kw)
-                            );
-                          }) : users)}
-                          rowKey="id"
-                          pagination={{ pageSize: 10 }}
-                          size="small"
-                          bordered
-                        />
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>
-                    )}
-                  </Tabs.TabPane>
-                  <Tabs.TabPane tab="资源分配" key="assign">
-                    {selectedOrg ? (
-                      <div>
-                        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Input
-                            allowClear
-                            placeholder="搜索资源池关键字"
-                            style={{ width: 240 }}
-                            value={assignmentKeyword}
-                            onChange={(e)=> setAssignmentKeyword(e.target.value)}
-                          />
-                          <Button 
-                            type="primary" 
-                            onClick={() => {
-                              fetchResourcePools();
-                              resourcePoolForm.resetFields();
-                              setResourcePoolDrawerOpen(true);
-                            }}
-                          >分配资源池</Button>
-                        </div>
-                        <Table
-                          columns={assignmentColumns}
-                          dataSource={(assignmentKeyword.trim() ? assignments.filter(a => {
-                            const kw = assignmentKeyword.trim().toLowerCase();
-                            const name = String((a.cloud as any)?.name || '').toLowerCase();
-                            const type = String((a.cloud as any)?.type || '').toLowerCase();
-                            const provider = String((a.cloud as any)?.config?.provider || '').toLowerCase();
-                            return name.includes(kw) || type.includes(kw) || provider.includes(kw);
-                          }) : assignments)}
-                          rowKey="id"
-                          pagination={{ pageSize: 10 }}
-                          size="small"
-                          bordered
-                        />
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>
-                    )}
-                  </Tabs.TabPane>
-                  <Tabs.TabPane tab="云安全资源" key="cloud-security">
-                    {selectedOrg ? (
-                      <div>
-                        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Space>
-                            <Tag color="blue">组织</Tag>
-                            <span style={{ color: '#666' }}>{selectedOrg.name}</span>
-                          </Space>
-                          <Space>
-                            <Button type="primary" onClick={() => navigate('/admin/security/traffic/service-chains/create')}>新建服务链</Button>
-                            <Button onClick={() => navigate('/admin/security/traffic/service-chains')}>服务链管理</Button>
-                            <Button onClick={() => navigate('/admin/security/traffic/protected-objects')}>防护对象管理</Button>
-                          </Space>
-                        </div>
-                        <Row gutter={[16,16]}>
-                          <Col span={24}>
-                            <Card size="small" title="云安全资源池（已分配）">
-                              <Table
-                                loading={securityLoading}
-                                columns={[
-                                  { title: '资源池名称', dataIndex: ['cloud','name'] },
-                                  { title: '供应商', key: 'provider', render: (_: any, r: any) => String((r.cloud?.config?.provider || r.cloud?.type || '')).toLowerCase() },
-                                  { title: '类型', dataIndex: ['cloud','type'] },
-                                ]}
-                                dataSource={assignments.filter(a => {
-                                  const pv = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').toLowerCase();
-                                  return pv === 'cloudmap' || pv === 'csm' || pv.includes('security');
-                                })}
-                                rowKey="id"
-                                size="small"
-                                bordered
-                                pagination={{ pageSize: 5 }}
-                              />
-                            </Card>
-                          </Col>
-                          <Col span={12}>
-                            <Card size="small" title="防护对象">
-                              <Table
-                                loading={securityLoading}
-                                columns={[
-                                  { title: '名称', dataIndex: 'name' },
-                                  { title: '类型', dataIndex: 'type', render: (t: string) => <Tag color="blue">{t}</Tag> },
-                                  { title: '值', dataIndex: 'value' },
-                                ]}
-                                dataSource={protectionObjects}
-                                rowKey={(r) => r.id || r.value}
-                                size="small"
-                                bordered
-                                pagination={{ pageSize: 5 }}
-                              />
-                            </Card>
-                          </Col>
-                          <Col span={12}>
-                            <Card size="small" title="服务链">
-                              <Table
-                                loading={securityLoading}
-                                columns={[
-                                  { title: '名称', dataIndex: 'name' },
-                                  { title: '类型', dataIndex: 'type', render: (t: string) => t === 'serial' ? '串行' : (t === 'parallel' ? '旁路' : t) },
-                                  { title: '描述', dataIndex: 'description' },
-                                ]}
-                                dataSource={securityChains}
-                                rowKey="id"
-                                size="small"
-                                bordered
-                                pagination={{ pageSize: 5 }}
-                              />
-                            </Card>
-                          </Col>
-                        </Row>
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>
-                    )}
-                  </Tabs.TabPane>
-                </Tabs>
-              </Col>
-            </Row>
-          </>
-        ) : (
-          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>暂无组织数据</div>
-        )}
       </StdSideDrawer>
 
       <StdSideDrawer

@@ -141,7 +141,7 @@ const AdminLogin: React.FC = () => {
           <h1 className="login-title">Compute Tower</h1>
           <p className="login-subtitle">后台管理登录</p>
         </div>
-        <Card className="login-card" bordered={false}>
+        <Card className="login-card" variant="borderless">
           <Form
             form={form}
             name="login"

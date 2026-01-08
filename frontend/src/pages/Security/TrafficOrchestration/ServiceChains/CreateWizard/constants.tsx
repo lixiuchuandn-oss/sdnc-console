@@ -15,7 +15,6 @@ import {
   DatabaseOutlined
 } from '@ant-design/icons';
 import { Node } from 'react-flow-renderer';
-import type { TransferItem } from 'antd/es/transfer';
 
 // Import assets
 import smGz from '../../../../../assets/sm-gz.png';
@@ -58,30 +57,6 @@ export const initialNodes: Node[] = [
     data: { label: '防护对象', icon: <DatabaseOutlined /> }, 
     position: { x: 750, y: 150 }, 
   }
-];
-
-export interface CustomTransferItem extends TransferItem {
-  key: string;
-  title: string;
-  description: string;
-  type: 'IP' | 'Network' | 'VSW' | 'VM';
-  ports?: string;
-}
-
-export const mockTransferData: CustomTransferItem[] = [
-  { key: '192.168.1.10', title: 'Web Server', description: '192.168.1.10', type: 'IP', ports: '全部' },
-  { key: '192.168.1.11', title: 'DB Server', description: '192.168.1.11', type: 'IP', ports: '全部' },
-  { key: '192.168.1.0/24', title: 'Office Network', description: '192.168.1.0/24', type: 'Network', ports: '全部' },
-  { key: '10.0.0.0/16', title: 'Core Network', description: '10.0.0.0/16', type: 'Network', ports: '全部' },
-  { key: 'vsw-001', title: 'VSW-001', description: 'Core VSW', type: 'VSW', ports: '全部' },
-  { key: 'vsw-002', title: 'VSW-002', description: 'Backup VSW', type: 'VSW', ports: '全部' },
-  { key: 'vm-001', title: 'VM-Frontend-01', description: '172.16.0.5', type: 'VM', ports: '80,443' },
-  { key: 'vm-002', title: 'VM-Frontend-02', description: '172.16.0.6', type: 'VM', ports: '80,443' },
-];
-
-export const mockSecurityZones = [
-  { id: 'zone-1', name: 'sase2', subType: '公有云VPC网络', provider: 'huaweicloud', region: 'cn-east-3', cidr: '192.168.0.0/16', vrName: '测试PE-B' },
-  { id: 'zone-2', name: '勇敢牛牛', subType: '公有云VPC网络', provider: 'aliyun', region: 'cn-hangzhou', cidr: '-', vrName: 'vrouter-openl-x86' },
 ];
 
 export const SCENARIOS: Record<string, any> = {

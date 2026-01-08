@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, Tag, message, Typography, Input, Select, Form, Divider } from 'antd';
+import { Table, Button, Space, Tag, message, Typography, Input, Select, Form } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
@@ -146,7 +146,6 @@ const UserManagement: React.FC = () => {
       subtitle="管理租户用户，并支持按租户、角色与状态筛选"
       asCard={false}
     >
-      <Divider style={{ margin: '0 0 20px 0' }} />
       <div className="filters-row">
         <Form
           className="filter-tools filter-tools--center"

@@ -58,8 +58,7 @@ export const FEATURE_CATALOG: FeatureCatalogItem[] = [
   { prefix:'security.policies', label:'授权策略', group:'安全管理面', platform:'SDNCC' },
   { prefix:'security.apps', label:'服务目录', group:'安全管理面', platform:'SDNCC' },
 
-  // SSLO 流量编排
-  { prefix:'security.traffic.vsw', label:'VSW集群管理', group:'流量编排', platform:'SDNCC' },
+// SSLO 流量编排
   { prefix:'security.traffic.protected-objects', label:'防护对象管理', group:'流量编排', platform:'SDNCC' },
   { prefix:'security.traffic.service-chains', label:'服务链管理', group:'流量编排', platform:'SDNCC' },
 ];
@@ -116,8 +115,7 @@ export const ROUTE_CATALOG: RouteItem[] = [
   { path: '/admin/sec-mgr-plane/instances', label: '级联通道管理', platform: 'SDNCC', group: '安全管理面', icon: 'BranchesOutlined' },
   { path: '/admin/sec-mgr-plane/apps', label: '应用管理', platform: 'SDNCC', group: '安全管理面', icon: 'AppstoreOutlined' },
 
-  // SSLO 流量编排 (Traffic Orchestration)
-  { path: '/admin/security/traffic/vsw', label: 'VSW集群管理', platform: 'SDNCC', group: '流量编排', icon: 'ClusterOutlined' },
+// SSLO 流量编排 (Traffic Orchestration)
   { path: '/admin/security/traffic/protected-objects', label: '防护对象管理', platform: 'SDNCC', group: '流量编排', icon: 'SafetyCertificateOutlined' },
   { path: '/admin/security/traffic/service-chains', label: '服务链管理', platform: 'SDNCC', group: '流量编排', icon: 'NodeIndexOutlined' },
 ];

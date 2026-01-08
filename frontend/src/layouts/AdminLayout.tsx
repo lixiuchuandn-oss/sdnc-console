@@ -281,7 +281,9 @@ const AdminLayout: React.FC = () => {
 
   const groupIconOf = (pf: string, grp: string) => {
     if (grp === '安全管理面') return iconOf('SecurityScanOutlined');
-    const firstSpec = routeSpecs.find(s => s.layout === 'admin' && s.platform === pf && s.group === grp);
+    const firstSpec = routeSpecs
+      .filter(s => s.layout === 'admin' && s.platform === pf && s.group === grp)
+      .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))[0];
     const iconKey = firstSpec?.icon;
     return iconOf(iconKey);
   };

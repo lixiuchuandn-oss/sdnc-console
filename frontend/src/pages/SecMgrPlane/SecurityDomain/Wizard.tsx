@@ -841,7 +841,7 @@ const SecurityDomainWizardPage: React.FC = () => {
                         </Space>
                       </Form.Item>
                       {(providerKey.includes('huawei') || providerKey.includes('华为云')) && debugOpen && (
-                        <Card size="small" title="调试数据" bordered style={{ marginTop: 8 }}>
+                        <Card size="small" title="调试数据" variant="outlined" style={{ marginTop: 8 }}>
                           <Space style={{ marginBottom: 8 }}>
                             <Tag color="blue">ECS</Tag>
                             <span>{debugEcs.length}</span>

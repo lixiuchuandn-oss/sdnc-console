@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Breadcrumb, Button, Card, Form, Input, Select, Space, Table, Tag, Divider, Dropdown, Transfer, message } from 'antd';
+import { Breadcrumb, Button, Card, Form, Input, Select, Space, Table, Tag, Dropdown, Transfer, message } from 'antd';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import StdFormModal from '../../../components/StdFormModal';
 import { LockOutlined, PlusOutlined, EllipsisOutlined, DeleteOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
@@ -256,7 +256,6 @@ const AccessRolesPage: React.FC = () => {
       subtitle="角色用于将权限策略批量授权给用户或租户，便于统一管理与快速复用。"
       asCard={false}
     >
-      <Divider style={{ margin: '0 0 20px 0' }} />
       <div className="filters-row">
         <Form
           className="filter-tools filter-tools--center"

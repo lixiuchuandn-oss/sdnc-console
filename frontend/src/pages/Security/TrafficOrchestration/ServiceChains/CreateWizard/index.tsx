@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Button, Form, message, Steps, Card, Row, Col, Space, Divider } from 'antd';
+import { Button, Form, message, Steps, Card, Row, Col, Space, Divider, Modal } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
-import { fetchSecurityZones, fetchProtectionObjects, createServiceChain } from '../../../../../services/trafficOrchestration';
-import { fetchTenants, fetchOrganizationsByTenant, fetchClouds, fetchCsmElementGroups, fetchCloudProviderEcs, fetchCsmVirtualElements, fetchInventoryInstancesByCloud } from '../../../../../services/api';
+import { fetchSecurityZones, createServiceChain } from '../../../../../services/trafficOrchestration';
+import { fetchTenants, fetchOrganizationsByTenant, fetchClouds, fetchCsmElementGroups, fetchCsmAssets, fetchCsmServiceChains, createCsmServiceChainRaw } from '../../../../../services/api';
 import { listSecurityDomains } from '../../../../../services/securityDomainApi';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { 
@@ -18,14 +18,10 @@ import {
 import { 
   SECURITY_SERVICES, 
   initialNodes, 
-  mockTransferData, 
-  mockSecurityZones, 
-  SCENARIOS, 
-  CustomTransferItem 
+  SCENARIOS 
 } from './constants';
 
-// Components
-import TableTransfer from './components/TableTransfer';
+
 
 // Steps
 import StepBasicInfo from './steps/StepBasicInfo';
@@ -45,25 +41,8 @@ const CreateServiceChainWizard: React.FC = () => {
   const [scenarioType, setScenarioType] = useState<'detection' | 'encryption'>('detection');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('std');
   const [hoveredTemplate, setHoveredTemplate] = useState<string | null>(null);
-  const [steeringMode] = useState<'direct'>('direct');
-  const [globalObjects, setGlobalObjects] = useState<CustomTransferItem[]>(mockTransferData);
-  const [clusterObjects, setClusterObjects] = useState<CustomTransferItem[]>([]);
-  const [manualObjects, setManualObjects] = useState<CustomTransferItem[]>([]);
-  const [trafficMode, setTrafficMode] = useState<'direct' | 'vr'>('direct');
   const [vrDomains, setVrDomains] = useState<any[]>([]);
-
-  const directData = useMemo(() => {
-    const all = [...manualObjects, ...clusterObjects, ...globalObjects];
-    const seen = new Set();
-    return all.filter(item => {
-      if (seen.has(item.key)) return false;
-      seen.add(item.key);
-      return true;
-    });
-  }, [manualObjects, clusterObjects, globalObjects]);
-
-  const [addDirectOpen, setAddDirectOpen] = useState(false);
-  const [addDirectForm] = Form.useForm();
+  const [csmAssets, setCsmAssets] = useState<any[]>([]);
   const [tenants, setTenants] = useState<any[]>([]);
   const [orgOptions, setOrgOptions] = useState<any[]>([]);
   const [cloudPools, setCloudPools] = useState<any[]>([]);
@@ -89,25 +68,12 @@ const CreateServiceChainWizard: React.FC = () => {
   const [pendingService, setPendingService] = useState<{type: string, label: string, icon: React.ReactNode, color: string} | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
 
+  // Preview Modal State
+  const [submitPreviewVisible, setSubmitPreviewVisible] = useState(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+
   useEffect(() => {
     (async () => {
-      try {
-        const objs = await fetchProtectionObjects({});
-        if (Array.isArray(objs) && objs.length > 0) {
-          const mapped: CustomTransferItem[] = objs.map((o: any) => ({
-            key: o.value || o.id,
-            title: o.name,
-            description: o.description || '',
-            type: (o.type === 'subnet' ? 'Network' : (o.type === 'ip' ? 'IP' : (o.type === 'line' ? 'IP' : 'VM'))) as CustomTransferItem['type'],
-          }));
-          setGlobalObjects(mapped);
-        } else {
-          setGlobalObjects(mockTransferData);
-        }
-      } catch (e) {
-        console.error(e);
-        setGlobalObjects(mockTransferData);
-      }
       try {
         const ts = await fetchTenants();
         setTenants(Array.isArray(ts) ? ts : []);
@@ -118,8 +84,9 @@ const CreateServiceChainWizard: React.FC = () => {
         const clouds = await fetchClouds();
         const list = Array.isArray(clouds) ? clouds : [];
         const pools = list.filter((c: any) => {
-          const pv = String((c?.config?.provider || '')).toLowerCase();
-          return pv === 'cloudmap' || pv === 'csm' || pv.startsWith('cloudmap') || pv === 'aliyun' || pv === 'huaweicloud' || pv === 'tencentcloud';
+          const pv = String((c?.config?.provider || c?.type || '')).toLowerCase();
+          const t = String(c?.type || '').toLowerCase();
+          return pv === 'cloudmap-security' || pv === 'csm' || t.includes('security') || t === 'security_pool';
         });
         setCloudPools(pools);
       } catch (e) {
@@ -133,6 +100,8 @@ const CreateServiceChainWizard: React.FC = () => {
       }
     })();
   }, []);
+
+
 
   useEffect(() => {
     setNodes((nds) => nds.map(n => {
@@ -177,57 +146,8 @@ const CreateServiceChainWizard: React.FC = () => {
       const poolId = selectedClusterId || form.getFieldValue('cluster');
       if (!poolId) return;
       
-      // Fetch ECS for the selected pool
-      (async () => {
-        const foundPool = cloudPools.find(p => String(p.id) === String(poolId));
-        if (foundPool) {
-          try {
-            const provider = (foundPool?.config?.provider || foundPool?.type || '').toLowerCase();
-            let rawList: any[] = [];
-            
-            if (provider === 'csm' || provider === 'cloudmap' || provider.startsWith('cloudmap')) {
-              const csmRes: any = await fetchCsmVirtualElements(String(poolId));
-              rawList = csmRes?.data?.items || [];
-            } else {
-              // Try inventory first
-              let loadedFromInventory = false;
-              try {
-                const invJson: any = await fetchInventoryInstancesByCloud(String(poolId));
-                if (Array.isArray(invJson?.data) && invJson.data.length > 0) {
-                   rawList = invJson.data;
-                   loadedFromInventory = true;
-                }
-              } catch (e) { console.warn('Inventory fetch failed', e); }
+      // ECS fetching removed as Direct Mode is disabled
 
-              if (!loadedFromInventory) {
-                const json: any = await fetchCloudProviderEcs(String(poolId));
-                if (provider.includes('tencent')) {
-                  rawList = json?.data?.InstanceSet || [];
-                } else if (provider.includes('huawei')) {
-                  rawList = json?.data?.servers || [];
-                } else if (provider === 'harvester') {
-                  rawList = Array.isArray(json?.data) ? json.data : (json?.data?.Instances?.Instance || json?.data?.items || json?.data?.data || []);
-                } else {
-                  rawList = json?.data?.Instances?.Instance || [];
-                }
-              }
-            }
-
-            const list = Array.isArray(rawList) ? rawList : [];
-            const mappedVms: CustomTransferItem[] = list.map((vm: any) => ({
-              key: vm.id || vm.InstanceId || vm.uuid,
-              title: vm.name || vm.InstanceName || vm.id,
-              description: (Array.isArray(vm.privateIps) ? vm.privateIps.join(', ') : (vm.Description || vm.description || vm.ip || '')),
-              type: 'VM',
-              ports: '全部'
-            }));
-            
-            setClusterObjects(mappedVms);
-          } catch (ecsErr) {
-            console.error('Fetch ECS error:', ecsErr);
-          }
-        }
-      })();
 
       setLoadingGroups(true);
       try {
@@ -324,6 +244,7 @@ const CreateServiceChainWizard: React.FC = () => {
         label: groupInfo ? groupInfo.name : `${label}-${nodeId}`, 
         typeLabel: label,
         serviceType: type,
+        groupId: groupInfo ? groupInfo.id : undefined,
         icon: icon,
         color: color,
         instanceCount,
@@ -445,12 +366,27 @@ const CreateServiceChainWizard: React.FC = () => {
       const services = nodes
         .filter(n => n.type === 'serviceNode')
         .sort((a, b) => a.position.x - b.position.x)
-        .map(n => (n as any).data?.serviceType)
+        .map(n => (n as any).data?.groupId || (n as any).data?.serviceType)
         .filter(Boolean);
 
-      const protectionTargets = trafficMode === 'direct' 
-        ? { mode: 'direct', objects: form.getFieldValue('protectedObjects') || [] }
-        : { mode: 'vr', objects: form.getFieldValue('vrDomains') || [] };
+      if (services.length === 0) {
+        message.error('串行节点(serial_list)和旁路节点(monitor_list)不能同时为空');
+        return;
+      }
+
+      const protectionTargets = (() => {
+        const mode = form.getFieldValue('steeringMode') || 'vr';
+        if (mode === 'direct') {
+           const objects = form.getFieldValue('selectedAssetObjects') || [];
+           return { mode: 'direct', objects };
+        }
+        const keys: string[] = form.getFieldValue('vrDomains') || [];
+        const details = keys.map((id) => {
+          const d = vrDomains.find((v: any) => String(v.id) === String(id));
+          return d ? { id: d.id, name: d.name, cidr: d.cidr, provider: d.provider, region: d.region } : { id };
+        });
+        return { mode: 'vr', objects: details };
+      })();
 
       const nowTs = Date.now();
       const payload = {
@@ -462,7 +398,7 @@ const CreateServiceChainWizard: React.FC = () => {
         })(),
         type: values.type || 'serial',
         description: String(values.description || ''),
-        steeringMode: 'direct',
+        steeringMode: form.getFieldValue('steeringMode') || 'vr',
         securityServices: services.join(','),
         protectionTargets: JSON.stringify(protectionTargets),
         tenantId: values.tenantId,
@@ -473,45 +409,126 @@ const CreateServiceChainWizard: React.FC = () => {
         }
       };
 
-      try {
-        await createServiceChain(payload);
-        message.success('服务链创建成功');
-        navigate('/admin/security/traffic/service-chains');
-      } catch (error) {
-        message.error('服务链创建失败');
+      // Prepare CSM Payload
+      const currentCloudId = String(selectedClusterId || form.getFieldValue('cluster') || '').trim();
+      let csmPayload = null;
+      let csmParams = null;
+
+      if (currentCloudId) {
+          const targetIds = (() => {
+            if (protectionTargets.mode === 'vr') {
+               return (protectionTargets.objects || []).map((o: any) => {
+                   const cidr = String(o?.cidr || '').trim();
+                   if (cidr) {
+                       const asset = csmAssets.find(a => 
+                           String(a.value || '').trim() === cidr && 
+                           String(a.type || '').toLowerCase() === 'subnet'
+                       );
+                       if (asset) return asset.network_id || asset.id || asset.uuid;
+                   }
+                   return String(o?.id || '');
+               }).filter(Boolean);
+            }
+            if (protectionTargets.mode === 'direct') {
+               return (protectionTargets.objects || []).map((o: any) => String(o?.id || o?.key || '')).filter(Boolean);
+            }
+             return (protectionTargets.objects || []).map((k: any) => String(k?.id || k || '')).filter(Boolean);
+          })();
+          
+          csmPayload = {
+             network_ids: targetIds.join(';'),
+             monitor_list: (payload.type === 'bypass') ? services.join(';') : '',
+             serial_list: (payload.type === 'serial') ? services.join(';') : '',
+             vrf_id: Number(values.vrf_id ?? 0)
+          };
+          
+          const pid = String(form.getFieldValue('pool_id') || '').trim();
+          if (pid) csmParams = { pool_id: pid };
       }
+
+      setPreviewData({ payload, csmPayload, csmParams, currentCloudId });
+      setSubmitPreviewVisible(true);
+
     } catch (error) {
       console.error('Validation failed:', error);
+    }
+  };
+
+  const executeSubmit = async () => {
+    if (!previewData) return;
+    const { payload, csmPayload, csmParams, currentCloudId } = previewData;
+    setSubmitPreviewVisible(false);
+
+    try {
+        await createServiceChain(payload);
+        message.success('服务链创建成功');
+        
+        if (currentCloudId && csmPayload) {
+            const hideLoading = message.loading('正在下发到 CSM...', 0);
+            try {
+                const resp = await createCsmServiceChainRaw(currentCloudId, csmPayload, csmParams);
+                hideLoading();
+                Modal.info({
+                  title: 'CSM 接口返回',
+                  width: 720,
+                  content: (
+                    <pre style={{ maxHeight: 420, overflow: 'auto', padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
+    {JSON.stringify(resp.body, null, 2)}
+                    </pre>
+                  )
+                });
+            } catch (e) {
+                hideLoading();
+                message.error('CSM下发失败: ' + String(e));
+            }
+        }
+        navigate('/admin/security/traffic/service-chains');
+    } catch (error) {
+        message.error('服务链创建失败');
     }
   };
 
   const next = async () => {
     try {
       if (current === 0) {
-        const baseFields = ['name', 'cluster', 'type'];
+        const baseFields = ['name', 'cluster', 'type', 'vrf_id'];
         const extra = (user?.role === 'super_admin') ? ['tenantId', 'organizationId'] : [];
         await form.validateFields([...baseFields, ...extra]);
       } else if (current === 1) {
-        if (trafficMode === 'direct') {
-          await form.validateFields(['protectedObjects']);
-          const selectedKeys = form.getFieldValue('protectedObjects') || [];
-          const selectedObjects = directData.filter(item => selectedKeys.includes(item.key));
+          const mode = form.getFieldValue('steeringMode') || 'vr';
+          let selected: any[] = [];
+          
+          if (mode === 'direct') {
+             await form.validateFields(['selectedAssets']);
+             const objects = form.getFieldValue('selectedAssetObjects') || [];
+             selected = objects.map((o: any) => ({
+               key: o.id,
+               title: o.value ? `${o.name} (${o.value})` : o.name,
+               type: o.type || 'Asset'
+             }));
+          } else {
+             await form.validateFields(['vrDomains']);
+             const keys: string[] = form.getFieldValue('vrDomains') || [];
+             selected = keys.map((id) => {
+               const d = vrDomains.find((v: any) => String(v.id) === String(id));
+               const title = d?.name || id;
+               const cidr = d?.cidr;
+               return { key: id, title: cidr ? `${title} (${cidr})` : title, type: 'Network' };
+             });
+          }
+
           setNodes((nds) => nds.map(node => {
             if (node.id === 'out') {
               return {
                 ...node,
                 data: {
                   ...node.data,
-                  protectedObjects: selectedObjects
+                  protectedObjects: selected
                 }
               };
             }
             return node;
           }));
-        } else {
-          await form.validateFields(['vrDomains']);
-          // VR模式下可能不需要更新out节点的protectedObjects，或者需要不同的处理
-        }
       }
       setCurrent(current + 1);
     } catch (error) {
@@ -566,18 +583,10 @@ const CreateServiceChainWizard: React.FC = () => {
       return (
         <StepProtectionObjects
           form={form}
-          TableTransfer={TableTransfer}
-          directData={directData}
-          onReload={setGlobalObjects}
-          onAdd={(item: any) => setManualObjects((prev) => [item, ...prev])}
-          addDirectOpen={addDirectOpen}
-          setAddDirectOpen={setAddDirectOpen}
-          addDirectForm={addDirectForm}
-          fetchProtectionObjects={fetchProtectionObjects}
-          message={message}
-          trafficMode={trafficMode}
-          setTrafficMode={setTrafficMode}
           vrDomains={vrDomains}
+          csmAssets={csmAssets}
+          setCsmAssets={setCsmAssets}
+          selectedClusterId={clusterId || selectedClusterId}
         />
       );
     } else if (current === 2) {
@@ -617,6 +626,8 @@ const CreateServiceChainWizard: React.FC = () => {
           orgOptions={orgOptions}
           nodes={nodes}
           edges={edges}
+          vrDomains={vrDomains}
+          cloudPools={cloudPools}
         />
       );
     }
@@ -657,6 +668,32 @@ const CreateServiceChainWizard: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* Submit Preview Modal */}
+      <Modal
+        title="确认提交参数"
+        open={submitPreviewVisible}
+        onOk={executeSubmit}
+        onCancel={() => setSubmitPreviewVisible(false)}
+        width={800}
+        okText="确认提交"
+        cancelText="取消"
+      >
+        <div style={{ maxHeight: 500, overflow: 'auto' }}>
+            <h4>Backend Service Chain Payload:</h4>
+            <pre style={{ background: '#f5f5f5', padding: 10, borderRadius: 4 }}>
+                {previewData?.payload ? JSON.stringify(previewData.payload, null, 2) : ''}
+            </pre>
+            {previewData?.csmPayload && (
+                <>
+                    <h4>CSM Payload (Cloud Controller):</h4>
+                    <pre style={{ background: '#f5f5f5', padding: 10, borderRadius: 4 }}>
+                        {JSON.stringify(previewData.csmPayload, null, 2)}
+                    </pre>
+                </>
+            )}
+        </div>
+      </Modal>
     </PageContainer>
   );
 };

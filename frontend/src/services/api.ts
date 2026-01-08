@@ -30,6 +30,27 @@ const getAuthHeaders = () => {
   };
 };
 
+const uuidToObjectIdHex = (uuidStr: string): string => {
+  const s = String(uuidStr || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s)) {
+    throw new Error('uuid 格式非法');
+  }
+  const hex = s.replace(/-/g, '');
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  if (!(bytes[6] === 0x40 && bytes[7] === 0x00 && bytes[8] === 0x80 && bytes[9] === 0x00)) {
+    throw new Error('UUID 不是由 ObjectId 生成的');
+  }
+  const obj = new Uint8Array(12);
+  obj.set(bytes.slice(0, 6), 0);
+  obj.set(bytes.slice(10, 16), 6);
+  let out = '';
+  for (let i = 0; i < 12; i++) out += obj[i].toString(16).padStart(2, '0');
+  return out;
+};
+
 // 通用请求函数
 export const apiRequest = async (endpoint: string) => {
   try {
@@ -954,10 +975,110 @@ export const fetchCsmElementGroups = async (cloudId: string) => {
 
 export const fetchCloudmapElementGroups = fetchCsmElementGroups;
 
-export const fetchCsmServiceChains = async (cloudId: string) => {
+export const fetchCsmServiceChains = async (cloudId: string, params?: { pool_id?: string }) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains`, {
+  const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains${qs}`, {
     method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchCsmVRouters = async (cloudId: string, params?: { pool_id?: string }) => {
+  const token = localStorage.getItem('token');
+  const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/vrouters${qs}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchCsmVRPageList = async (cloudId: string, params?: { page_size?: number; page_num?: number }) => {
+  const token = localStorage.getItem('token');
+  const search = new URLSearchParams();
+  if (params?.page_size !== undefined) search.set('page_size', String(params.page_size));
+  if (params?.page_num !== undefined) search.set('page_num', String(params.page_num));
+  const qs = search.toString() ? `?${search.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/vr-pagelist${qs}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const detectCsmPoolId = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/pool-id`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchCsmPoolId = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/pool-id`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchCsmAssets = async (cloudId: string, params: any = {}) => {
+  const token = localStorage.getItem('token');
+  const query = new URLSearchParams();
+  Object.keys(params).forEach(key => {
+    if (params[key] !== undefined && params[key] !== null) {
+      query.append(key, String(params[key]));
+    }
+  });
+  const qs = query.toString() ? `?${query.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/assets${qs}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const createCsmAsset = async (cloudId: string, payload: any, params?: { pool_id?: string }) => {
+  const token = localStorage.getItem('token');
+  const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/assets${qs}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(typeof json === 'string' ? json : (json?.error || json?.message || '请求失败'));
+  }
+  const code = Number((json as any)?.data?.code ?? 0);
+  const msg = String((json as any)?.data?.msg ?? '');
+  if (Number.isFinite(code) && code >= 400) {
+    throw new Error(msg || 'CSM 资产创建失败');
+  }
+  return json;
+};
+
+export const deleteCsmAsset = async (cloudId: string, assetId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/assets/${assetId}`, {
+    method: 'DELETE',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
   });
@@ -975,6 +1096,45 @@ export const deleteCsmServiceChain = async (cloudId: string, chainId: string, pa
   });
   if (!res.ok) { throw new Error(await res.text()); }
   return await res.json();
+};
+
+export const createCsmServiceChain = async (cloudId: string, payload: any, params?: { pool_id?: string }) => {
+  const token = localStorage.getItem('token');
+  const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains${qs}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(typeof json === 'string' ? json : (json?.error || json?.message || '请求失败'));
+  }
+  const code = Number((json as any)?.data?.code ?? 0);
+  const msg = String((json as any)?.data?.msg ?? '');
+  if (Number.isFinite(code) && code >= 400) {
+    throw new Error(msg || 'CSM 服务链创建失败');
+  }
+  return json;
+};
+
+export const createCsmServiceChainRaw = async (cloudId: string, payload: any, params?: { pool_id?: string }) => {
+  const token = localStorage.getItem('token');
+  const search = new URLSearchParams();
+  if (params?.pool_id) search.set('pool_id', String(params.pool_id));
+  search.set('raw', '1');
+  const qs = `?${search.toString()}`;
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains${qs}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  const text = await res.text();
+  let body: any = text;
+  try { body = JSON.parse(text); } catch {}
+  return { ok: res.ok, status: res.status, body };
 };
 
 export const updateHarvesterVmSpec = async (
@@ -1852,4 +2012,13 @@ export const operateCsmVm = async (cloudId: string, vmId: string, action: 'start
 
 export const getCsmVmConsole = async (cloudId: string, vmId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/csm/security/virtual-elements/${encodeURIComponent(vmId)}/console`);
+};
+
+export const csmSsoLogin = async (cloudId: string, vmId: string, currentLoginWebPort?: string) => {
+  const webId = uuidToObjectIdHex(vmId);
+  const port = String(currentLoginWebPort || '8011');
+  return await apiPost(`/api/clouds/${cloudId}/csm/security/domain/attach/callOnSSO`, {
+    id: webId,
+    currentLoginWebPort: port,
+  });
 };

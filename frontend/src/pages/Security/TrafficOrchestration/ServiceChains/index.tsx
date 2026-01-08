@@ -107,7 +107,6 @@ const ServiceChains: React.FC = () => {
   };
 
   const columns = [
-    { title: '序号', key: 'index', render: (_: any, __: any, index: number) => index + 1 },
     { title: '服务链名称/ID', dataIndex: 'name', key: 'name', render: (text: string, record: ServiceChainRow) => (
       <div>
         <div>{text}</div>
@@ -120,9 +119,27 @@ const ServiceChains: React.FC = () => {
       key: 'status',
       render: (status: string) => <Tag color={status === 'active' ? 'success' : 'default'}>{status === 'active' ? '已激活' : '未激活'}</Tag>,
     },
-    { title: '防护目标', dataIndex: 'protectionTargets', key: 'protectionTargets', render: (val: any) => {
-        // Assume val is string or JSON string
-        return <div style={{maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}} title={val}>{val || '-'}</div>;
+    { title: '防护目标', dataIndex: 'protectionTargets', key: 'protectionTargets', render: (val: any, record: any) => {
+        let text = '';
+        try {
+          const obj = typeof val === 'string' ? JSON.parse(val) : val;
+          if (obj && obj.mode === 'vr') {
+            const list = Array.isArray(obj.objects) ? obj.objects : [];
+            text = list.map((o: any) => {
+              const name = o.name || o.id || '-';
+              const cidr = o.cidr || '';
+              return cidr ? `${name}(${cidr})` : name;
+            }).join(', ');
+          } else if (obj && obj.mode === 'direct') {
+            const list = Array.isArray(obj.objects) ? obj.objects : [];
+            text = list.join(', ');
+          } else {
+            text = typeof val === 'string' ? val : '';
+          }
+        } catch {
+          text = typeof val === 'string' ? val : '';
+        }
+        return <div style={{maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}} title={text}>{text || '-'}</div>;
     }},
     { title: '引流方式', dataIndex: 'steeringMode', key: 'steeringMode', render: (val: string) => val === 'vr' ? 'VR引流' : (val === 'direct' ? '直连引流' : val || '-') },
     { title: '包含安全服务', dataIndex: 'securityServices', key: 'securityServices', render: (val: any) => {
@@ -247,7 +264,7 @@ const ServiceChains: React.FC = () => {
         onCancel={() => setDetailOpen(false)}
         footer={null}
       >
-        <Card title="拓扑视图" bordered={false}>
+        <Card title="拓扑视图" variant="borderless">
           <div style={{ height: 400, border: '1px solid #f0f0f0', background: '#f5f5f5' }}>
              <ReactFlow
                 nodes={detailNodes}

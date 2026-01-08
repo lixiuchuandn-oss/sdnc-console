@@ -44,22 +44,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   }, [cloud]);
   const tlsIgnored = !!(cloud?.config?.ignoreTls);
 
-  const buildGroupsFromVirtual = useCallback((list: any[]) => {
-    const map = new Map<string, any>();
-    (Array.isArray(list) ? list : []).forEach((r: any) => {
-      const vendor = String(r?.vm_vendor || '').trim() || '-';
-      const type = String(r?.vm_type || r?.Type || '').trim() || '-';
-      const gid = `${vendor}::${type}`;
-      const name = `${vendor} · ${type}`;
-      const id = gid;
-      const curr = map.get(gid) || { id, name, elements: [], Count: 0 };
-      const vid = r?.id || r?.Id || r?.uuid || r?.vm_id;
-      if (vid) (curr as any).elements.push(vid);
-      (curr as any).Count = (curr as any).elements.length;
-      map.set(gid, curr);
-    });
-    return Array.from(map.values());
-  }, []);
+
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -78,7 +63,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       const gList: any[] = (groupsJson as any)?.data?.items || (groupsJson as any)?.items || (groupsJson as any)?.data || [];
       setVirtualElements(Array.isArray(vList) ? vList : []);
       setPhysicalElements(Array.isArray(pList) ? pList : []);
-      const groupsFinal = (Array.isArray(gList) && gList.length > 0) ? gList : buildGroupsFromVirtual(vList);
+      const groupsFinal = gList;
       setElementGroups(Array.isArray(groupsFinal) ? groupsFinal : []);
       setRawVirtual(virtualJson || null);
       setRawPhysical(physicalJson || null);
@@ -324,7 +309,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       {error && (
         <Alert type="error" message="查询失败" description={error} style={{ marginBottom: 16 }} showIcon />
       )}
-      <Tabs
+          <Tabs
         defaultActiveKey="overview"
         items={[
           {
@@ -333,7 +318,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             children: (
               <>
                 <Row gutter={[16, 16]}>
-                  <Col xs={24} sm={12} md={8}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />虚拟安全网元</span>} value={virtualElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                  <Col xs={24} sm={12} md={8}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />虚拟机数量</span>} value={virtualElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                   <Col xs={24} sm={12} md={8}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />物理安全网元</span>} value={physicalElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                   <Col xs={24} sm={12} md={8}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SafetyCertificateOutlined style={{ color:'#1677ff', marginRight:8 }} />安全网元组</span>} value={elementGroups.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                 </Row>
@@ -342,7 +327,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           },
           {
             key: 'virtual',
-            label: '虚拟安全网元',
+            label: '虚拟机列表',
             children: (
               <>
                 <SharedToolbar

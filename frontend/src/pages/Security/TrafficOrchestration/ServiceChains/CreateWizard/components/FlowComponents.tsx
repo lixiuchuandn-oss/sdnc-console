@@ -189,7 +189,7 @@ export const EndNode = ({ data }: any) => {
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 500, lineHeight: 1.2, color: '#262626' }}>{obj.title}</div>
-              <div style={{ color: '#8c8c8c', fontSize: 10, lineHeight: 1.2, marginTop: 2 }}>{obj.description}</div>
+              <div style={{ color: '#8c8c8c', fontSize: 10, lineHeight: 1.2, marginTop: 2 }}>{obj.description || obj.cidr}</div>
             </div>
             <div style={{ flexShrink: 0, marginLeft: 8 }}>
               <Tag color="blue" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '16px', border: 'none', background: 'rgba(22, 119, 255, 0.1)', color: '#1677ff' }}>{obj.type}</Tag>

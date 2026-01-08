@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Table, Tag, Tree } from 'antd';
+import { Button, Form, Input, Select, Space, Table, Tag, Tree } from 'antd';
 import { ApiOutlined } from '@ant-design/icons';
  
 import axios from 'axios';
@@ -162,7 +162,6 @@ const AccessActionsPage: React.FC = () => {
       subtitle="列出后端提供的 API 级别功能点，供策略组合与角色授权使用。"
       asCard={false}
     >
-      <Divider style={{ margin: '0 0 20px 0' }} />
 
       <div style={{ display: 'flex', gap: 0 }}>
         <div style={{ width: 260, minWidth: 260, flex: '0 0 260px', borderRight: '1px solid #f0f0f0', paddingRight: 12, overflowY: 'auto' }}>

@@ -80,7 +80,7 @@ const SecurityZones: React.FC = () => {
 
   // Detail Content
   const overviewNode = currentZone ? (
-    <Card bordered={false} title="基础信息">
+    <Card variant="borderless" title="基础信息">
       <Descriptions column={2}>
         <Descriptions.Item label="名称">{currentZone.name}</Descriptions.Item>
         <Descriptions.Item label="所属集群">{currentZone.clusterName}</Descriptions.Item>

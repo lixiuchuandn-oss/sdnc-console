@@ -41,7 +41,6 @@ import AccessPoliciesPage from './pages/Access/Policies/index';
 import AccessRolesPage from './pages/Access/Roles/index';
 import AccessActionsPage from './pages/Access/Actions/index';
 import AccessUsersPage from './pages/Access/Users/index';
-import VSWCluster from './pages/Security/TrafficOrchestration/VSWCluster';
 import ProtectedObjects from './pages/Security/TrafficOrchestration/ProtectedObjects';
 import ServiceChains from './pages/Security/TrafficOrchestration/ServiceChains';
 import CreateServiceChainWizard from './pages/Security/TrafficOrchestration/ServiceChains/CreateWizard';
@@ -50,6 +49,7 @@ import WebSSHPage from './pages/Clouds/WebSSH';
 import CloudConsolePage from './pages/Clouds/CloudConsole';
 import HarvesterVNCPage from './pages/Clouds/Harvester/HarvesterVNC';
 import TenantLeasedLinesPage from './pages/Tenants/LeasedLines';
+import OrgManagePage from './pages/Tenants/OrgManage';
 import { routeSpecs } from './routes/RouteSpec';
 import VmCreateWizardModal from './pages/Clouds/Harvester/modals/VmCreateWizardModal';
 
@@ -97,6 +97,7 @@ const AppRoutes: React.FC = () => {
           <Route path="clouds/ecs" element={<Navigate to="/admin/clouds/console" replace />} />
           <Route path="clouds/console" element={<CloudConsolePage />} />
           <Route path="tenants" element={<Tenants />} />
+          <Route path="tenants/:tenantId/organizations" element={<OrgManagePage />} />
           <Route path="tenants/leased-lines" element={<TenantLeasedLinesPage />} />
           <Route path="tenants/leased-lines/list" element={<TenantLeasedLinesPage />} />
           <Route path="tenants/leased-lines/tasks" element={<TenantLeasedLinesPage />} />
@@ -128,7 +129,6 @@ const AppRoutes: React.FC = () => {
           <Route path="access/users" element={<AccessUsersPage />} />
           
           {/* SSLO Traffic Orchestration */}
-          <Route path="security/traffic/vsw" element={<VSWCluster />} />
           <Route path="security/traffic/protected-objects" element={<ProtectedObjects />} />
           <Route path="security/traffic/service-chains" element={<ServiceChains />} />
           <Route path="security/traffic/service-chains/create" element={<CreateServiceChainWizard />} />

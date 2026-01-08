@@ -233,9 +233,9 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
 
   const renderPolicyCard = (title: string, icon: React.ReactNode, field: string, options: any[], help: string) => (
     <Card 
-      title={<Space>{icon}<span>{title}</span></Space>} 
-      bordered={false} 
-      style={{ height: '100%', background: '#f5f7fa' }}
+            title={<Space>{icon}<span>{title}</span></Space>} 
+            variant="borderless"
+            style={{ height: '100%', background: '#f5f7fa' }}
       headStyle={{ borderBottom: '1px solid #e8e8e8', minHeight: 48 }}
       bodyStyle={{ padding: 16 }}
     >

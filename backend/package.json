@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "set \"PORT=5001\" && nodemon --exec ts-node --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "set \"PORT=5001\" && node dist/index.js",
+    "start": "set \"PORT=5001\" && node dist/src/index.js",
     "test": "jest"
   },
   "dependencies": {

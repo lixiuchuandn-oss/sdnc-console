@@ -1,681 +1,403 @@
+:root {
+  --primary-color: #1677ff;
+  --success-color: #52c41a;
+  --warning-color: #faad14;
+  --error-color: #f5222d;
+  --bg-color: #f0f2f5;
+  --card-bg: #ffffff;
+  --text-primary: #1f1f1f;
+  --text-secondary: #8c8c8c;
+  --border-radius: 12px;
+  --border-color: #f0f0f0;
+  --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='dark'] {
+  --bg-color: #141414;
+  --card-bg: #1f1f1f;
+  --text-primary: #ffffff;
+  --text-secondary: #a6a6a6;
+  --border-color: #303030;
+  --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
 .dashboard {
   padding: 24px;
+  background-color: var(--bg-color);
+  min-height: 100vh;
 }
 
-.dashboard h1 {
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 24px;
-  color: #262626;
+}
+
+.dashboard-title {
+  font-size: 24px;
   font-weight: 600;
-}
-
-.cloud-status-card .ant-card-body {
-  padding: 16px;
-}
-
-.cloud-item {
-  border: 1px solid #f0f0f0;
-  transition: all 0.3s;
-}
-
-.cloud-item:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
-}
-
-.cloud-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.cloud-header h4 {
-  margin: 0;
-  color: #262626;
-  font-weight: 500;
-}
-
-.cloud-metrics {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.metric {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.metric span {
-  font-size: 12px;
-  color: #8c8c8c;
-}
-
-.metric .ant-progress {
+  color: var(--text-primary);
   margin: 0;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .cloud-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-} 
-/* ==== 仪表盘新增样式（区域热力与布局微调） ==== */
-.region-block {
-  padding: 12px;
-  border-radius: 8px;
-  cursor: pointer;
+/* KPI Cards */
+.kpi-card {
+  background: var(--card-bg);
+  border-radius: var(--border-radius);
+  padding: 24px;
+  box-shadow: var(--box-shadow);
   display: flex;
+  flex-direction: row;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-}
-
-.region-name {
-  font-weight: 500;
-}
-
-.region-count {
-  color: rgba(0,0,0,0.65);
-}
-/* 工业化区域分布样式 */
-.region-legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.legend-swatch {
-  width: 24px;
-  height: 10px;
-  border-radius: 4px;
-  background: #d6e4ff;
-}
-
-.legend-swatch.level-0 { background: #d6e4ff; }
-.legend-swatch.level-1 { background: #adc6ff; }
-.legend-swatch.level-2 { background: #85a5ff; }
-.legend-swatch.level-3 { background: #597ef7; }
-.legend-swatch.level-4 { background: #2f54eb; }
-
-.region-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.region-chip {
+  height: 100%;
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
   position: relative;
-  min-width: 140px;
-  padding: 10px 12px 10px 12px;
-  background: #fff;
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  cursor: pointer;
+  overflow: hidden;
 }
 
-.region-chip:hover {
-  border-color: var(--primary-hex);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-
-.region-chip::before {
+.kpi-card::after {
   content: '';
   position: absolute;
-  left: 0;
   top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: 8px 0 0 8px;
-  background: #d6e4ff;
+  right: 0;
+  width: 120px;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(22, 119, 255, 0.03));
+  pointer-events: none;
 }
 
-.region-chip.level-0::before { background: var(--intensity-0); }
-.region-chip.level-1::before { background: var(--intensity-1); }
-.region-chip.level-2::before { background: var(--intensity-2); }
-.region-chip.level-3::before { background: var(--intensity-3); }
-.region-chip.level-4::before { background: var(--intensity-4); }
-
-.chip-title {
-  font-weight: 600;
-  color: var(--color-text-strong);
+.kpi-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  border-color: rgba(22, 119, 255, 0.2);
 }
 
-.chip-meta {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-/* 卡片阴影统一样式（提升层次感） */
-.dashboard .ant-card {
-  box-shadow: var(--shadow-soft);
-  border-radius: var(--radius-md);
-  transition: box-shadow 0.2s ease;
-}
-
-.dashboard .ant-card:hover {
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
-}
-/* 二级分区块：用分隔块替代卡片 */
-.subsection-block {
-  padding: 12px 16px;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
-}
-
-.subsection-header {
-  font-weight: 600;
-  margin-bottom: 12px;
-  color: var(--color-text-strong);
-  font-size: var(--font-size-title-2);
-}
-
-/* 统一一级标题（卡片头）样式 - 更紧凑的标题与行高 */
-.dashboard .ant-card-head {
-  padding: var(--card-head-padding-y) var(--card-head-padding-x);
-}
-.dashboard .ant-card-head-title {
-  font-size: var(--card-title-size);
-  font-weight: 500;
-  color: var(--color-text-strong);
-  line-height: 1.3;
-  margin: 0;
-}
-/* 若标题内容使用 Typography，强制缩小字号以统一视觉 */
-.dashboard .ant-card-head-title .ant-typography {
-  font-size: var(--card-title-size) !important;
-  line-height: 1.3 !important;
-  margin: 0 !important;
-}
-
-/* 统一卡片正文的基础字体 */
-.dashboard .ant-card-body {
-  font-size: var(--font-size-body);
-  color: var(--color-text);
-}
-
-/* 资源健康分布：工业化布局 */
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.kpi-item {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 10px 12px;
+.kpi-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  z-index: 1;
+  justify-content: center;
 }
 
 .kpi-title {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-
-.kpi-value {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text-strong);
-}
-
-.health-bar {
-  display: flex;
-  height: 12px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #f0f0f0;
-  background: #fff;
-  margin-bottom: 10px;
-}
-
-.health-segment {
-  height: 100%;
-  transition: opacity 0.2s ease;
-  cursor: pointer;
-}
-
-/* 使用更克制的工业化色板：在线与维护采用主色强度，离线保留红但降低饱和度 */
-.health-segment.online { background: var(--intensity-3); }
-.health-segment.maintenance { background: var(--intensity-1); }
-.health-segment.offline { background: var(--status-offline); }
-
-/* Legend swatches use token intensities */
-.legend-swatch.level-0 { background: var(--intensity-0); }
-.legend-swatch.level-1 { background: var(--intensity-1); }
-.legend-swatch.level-2 { background: var(--intensity-2); }
-.legend-swatch.level-3 { background: var(--intensity-3); }
-.legend-swatch.level-4 { background: var(--intensity-4); }
-
-.health-segment:hover { opacity: 0.85; }
-
-.health-legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 状态点（用于 KPI 标题旁的小型状态提示） */
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  vertical-align: middle;
-  margin-right: 6px;
-}
-.status-dot.online { background: var(--status-online); }
-.status-dot.maintenance { background: var(--status-maintenance); }
-.status-dot.offline { background: var(--status-offline); }
-
-/* 区域/提供商芯片高度统一，更显整齐 */
-.region-chip, .provider-chip { min-height: 48px; }
-
-/* Provider distribution: industrial chips */
-.provider-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
-}
-
-.provider-chip {
-  position: relative;
-  min-width: 160px;
-  padding: 10px 12px 16px 12px;
-  background: #fff;
-  border: 1px solid #e5e7eb; /* 更克制的边框色 */
-  border-radius: 6px;
-  box-shadow: none; /* 去除柔和阴影，趋向工业风 */
-  transition: border-color 0.2s ease, background-color 0.2s ease;
-  cursor: pointer;
-  outline: none;
-}
-
-/* 顶部行：左侧名称，右侧数量与占比，保证对齐且不换行 */
-.provider-chip .chip-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.provider-chip .chip-title {
-  flex: 1 1 auto;
-  min-width: 0; /* 让文本截断生效 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 600;
-}
-.provider-chip .chip-meta {
-  flex: none;
-  white-space: nowrap;
-  color: var(--color-text-secondary);
-  font-variant-numeric: tabular-nums; /* 数字对齐更工业化 */
-  font-feature-settings: 'tnum' 1;
-}
-
-.provider-chip:hover {
-  border-color: var(--primary-hex);
-  background: #fafafa;
-}
-
-.provider-chip:focus-visible {
-  outline: 2px solid var(--primary-hex);
-  outline-offset: 2px;
-}
-
-.provider-chip .chip-bar {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 10px;
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(0,0,0,0.06);
-  overflow: hidden;
-}
-
-.provider-chip .chip-bar::after {
-  content: '';
-  display: block;
-  height: 100%;
-  width: var(--chip-bar-width, 0%);
-  background: var(--intensity-3);
-}
-
-/* 示例数据的条目更低调的视觉提示 */
-.provider-chip.demo-chip {
-  opacity: 0.95;
-}
-
-/* Sparkline placeholder */
-.sparkline-placeholder {
-  height: 28px;
-  border: 1px dashed #d9d9d9;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-
-/* Card actions alignment */
-.card-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* === Overrides and additions for industrial + dark mode support === */
-/* Dashboard background uses token (supports dark mode) */
-.dashboard {
-  background: var(--color-bg-soft);
-}
-
-/* Title color via token */
-.dashboard h1 {
-  color: var(--color-text-strong);
-}
-
-/* Subsection block tokenized */
-.subsection-block {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-}
-
-/* Card title structure with subtitle（更小的标题与更细的副标题） */
-.card-title { display: flex; flex-direction: column; }
-.card-title .main {
-  font-weight: 500;
-  color: var(--color-text-strong);
-  font-size: var(--card-title-size);
-  line-height: 1.3;
-}
-.card-title .subtitle {
-  font-size: var(--card-subtitle-size);
-  color: var(--color-text-secondary);
-  margin-top: 2px;
-}
-
-.card-actions { gap: 6px; }
-/* Card actions icons hover/focus（缩小图标与紧凑排列） */
-.card-actions .anticon { font-size: var(--card-actions-icon-size); color: var(--color-text-secondary); }
-.card-actions .anticon:hover { color: var(--color-text); }
-.card-actions .ant-tag { border-radius: 999px; }
-
-/* Collapsible containers for animated expand/collapse */
-.collapsible { overflow: hidden; transition: max-height 0.25s ease; }
-.collapsible.collapsed { max-height: 220px; }
-.collapsible.expanded { max-height: 1000px; }
-
-/* Containers for grids to apply collapsible */
-.provider-grid-container, .region-grid-container { margin-top: 4px; }
-
-/* ================= CEN 内容工业化样式 ================= */
-.dashboard .cen-card .ant-card-body { font-size: var(--font-size-body); }
-
-.dashboard .cen-card .subsection-block {
-  padding: 10px 12px;
-  border-radius: 6px;
-}
-
-/* 状态分布列表：三列布局（标签 | 进度条 | 数量） */
-.dashboard .cen-status-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.dashboard .cen-status-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.dashboard .cen-status-tag {
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  color: var(--text-secondary);
+  font-size: 14px;
   font-weight: 500;
 }
 
-.dashboard .cen-status-row .ant-progress {
-  margin: 0;
-}
-.dashboard .cen-status-row .ant-progress .ant-progress-bg {
-  height: 8px; /* 更粗的进度条，工业风 */
-}
-
-.dashboard .cen-status-count {
-  color: var(--color-text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* 指标区：左右对齐，数字强调 */
-.dashboard .cen-metrics {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.dashboard .cen-metric-row {
+.kpi-top-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-.dashboard .cen-metric-row .value {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  margin-bottom: 8px;
+  height: 24px;
 }
 
-/* 附件统计标签：克制的工业化风格 */
-.dashboard .cen-attachments { display: flex; gap: 8px; }
-.dashboard .cen-attachments .ant-tag {
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  font-weight: 500;
-}
-
-/* 概览统计样式收敛 */
-.dashboard .cen-card .ant-statistic-title {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-.dashboard .cen-card .ant-statistic-content-value {
-  color: var(--color-text-strong);
-  font-weight: 600;
-}
-
-/* 状态分布：合成总览条与图例（对齐多云健康分布样式） */
-.dashboard .cen-bar {
-  display: flex;
-  height: 10px;
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--color-bg-soft);
-  margin-top: 8px;
-}
-.dashboard .cen-segment { height: 100%; }
-.dashboard .cen-segment.creating { background: #faad14; }
-.dashboard .cen-segment.available { background: #52c41a; }
-.dashboard .cen-segment.failed { background: #f5222d; }
-
-.dashboard .cen-legend {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-}
-.dashboard .status-dot.creating { width: 8px; height: 8px; border-radius: 999px; background: #faad14; display: inline-block; }
-.dashboard .status-dot.available { width: 8px; height: 8px; border-radius: 999px; background: #52c41a; display: inline-block; }
-.dashboard .status-dot.failed { width: 8px; height: 8px; border-radius: 999px; background: #f5222d; display: inline-block; }
-.provider-grid-container .provider-grid, .region-grid-container .region-grid { margin-top: 4px; }
-
-/* KPI title color via token */
-.kpi-title { color: var(--color-text-secondary); }
-/* Summary KPI cards — industrial, compact styling */
-.dashboard .summary-kpi-row .summary-kpi-card {
-  position: relative;
-  border-radius: var(--radius-md);
-}
-.dashboard .summary-kpi-row .summary-kpi-card .ant-card-body {
-  padding: 10px 12px; /* 更紧凑的上下内边距 */
-  min-height: var(--kpi-card-min-height); /* 由变量统一控制卡片最小高度 */
-  display: flex;
-  align-items: center; /* 垂直居中内容，整体更平衡 */
-}
-.dashboard .summary-kpi-row .summary-kpi-card::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-  background: var(--intensity-2);
-}
-.dashboard .summary-kpi-row .summary-kpi-card.accent-cloud::before { background: var(--intensity-3); }
-.dashboard .summary-kpi-row .summary-kpi-card.accent-cen::before { background: var(--intensity-2); }
-.dashboard .summary-kpi-row .summary-kpi-card.accent-events::before { background: var(--intensity-1); }
-.dashboard .summary-kpi-row .summary-kpi-card.accent-users::before { background: var(--intensity-4); }
-
-.dashboard .summary-kpi-row .summary-kpi-card .ant-statistic-title {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  letter-spacing: 0.2px;
-}
-.dashboard .summary-kpi-row .summary-kpi-card .kpi {
-  display: flex;
-  align-items: center;
-}
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-icon .anticon {
-  color: var(--intensity-4);
-  background: var(--intensity-0);
-  border-radius: 50%;
-  padding: var(--kpi-icon-padding);
-  font-size: var(--kpi-icon-size);
-}
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-content {
-  margin-left: var(--kpi-icon-gap);
-  display: flex;
-  flex-direction: column;
-}
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-label {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-main {
+.kpi-value-wrapper {
   display: flex;
   align-items: baseline;
   gap: 6px;
 }
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-value {
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--color-text-strong);
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum';
+
+.kpi-value {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+  font-family: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
 }
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-unit {
-  font-size: 12px;
-  color: var(--color-text-secondary);
+
+.kpi-suffix {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 400;
 }
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-meta {
-  margin-top: 4px;
+
+.kpi-trend {
+  font-size: 13px;
   display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-delta {
-  display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-delta.up { color: var(--color-success); }
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-delta.down { color: var(--color-error); }
-.dashboard .summary-kpi-row .summary-kpi-card .kpi-hint {
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-}
-.dashboard .summary-kpi-row .summary-kpi-card:hover {
-  box-shadow: var(--shadow-soft);
-}
-.dashboard {
-  /* KPI icon sizing tokens for quick tuning */
-  --kpi-icon-size: 20px;       /* default 20px, can be 18/22/24 based on preference */
-  --kpi-icon-padding: 8px;     /* visual weight of icon background */
-  --kpi-icon-gap: 10px;        /* space between icon and value */
-  --kpi-card-min-height: 88px; /* 目标紧凑高度，可根据反馈进一步调整为 84/92 等 */
+  font-weight: 500;
 }
 
-/* 顶部页签：工业化风格（更紧凑、克制的色彩、强调下划线指示） */
-.dashboard .industrial-tabs.ant-tabs {
-  margin-top: 8px;
+.trend-up { color: var(--success-color); background: rgba(82, 196, 26, 0.1); padding: 2px 8px; border-radius: 12px; width: fit-content; }
+.trend-down { color: var(--error-color); background: rgba(245, 34, 45, 0.1); padding: 2px 8px; border-radius: 12px; width: fit-content; }
+
+.kpi-icon-wrapper {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: rgba(22, 119, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: var(--primary-color);
+  transition: all 0.3s ease;
+  margin-left: 16px;
 }
-.dashboard .industrial-tabs .ant-tabs-nav {
-  margin-bottom: 12px;
+
+.kpi-card:hover .kpi-icon-wrapper {
+  background: var(--primary-color);
+  color: #fff;
+  transform: scale(1.05) rotate(5deg);
+  box-shadow: 0 8px 20px rgba(22, 119, 255, 0.25);
 }
-.dashboard .industrial-tabs .ant-tabs-nav::before {
-  display: none; /* 去掉默认分隔线 */
+
+/* Charts & Content Cards */
+.content-card {
+  background: var(--card-bg);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  box-shadow: var(--box-shadow);
+  height: 100%;
 }
-.dashboard .industrial-tabs .ant-tabs-tab {
-  padding: 8px 12px;
-  border-radius: 0;
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
 }
-.dashboard .industrial-tabs .ant-tabs-tab .ant-tabs-tab-btn {
+
+.card-title {
+  font-size: 16px;
   font-weight: 600;
-  color: var(--color-text-secondary);
-}
-.dashboard .industrial-tabs .ant-tabs-tab:hover .ant-tabs-tab-btn {
-  color: var(--color-text-primary);
-}
-.dashboard .industrial-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
-  color: var(--color-text-primary);
-}
-.dashboard .industrial-tabs .ant-tabs-ink-bar {
-  height: 2px; /* 更细的强调线 */
-  background: var(--primary-hex);
+  color: var(--text-primary);
 }
 
-/* 分拆后的多云子卡片：同一行保持等高，内容充满卡片 */
-.dashboard .cloud-subcard.ant-card {
-  display: flex;
-  flex-direction: column;
+/* Resource Cards - Modern Enterprise Style */
+.resource-card {
+  background: #ffffff;
+  border: 1px solid #f0f0f0;
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
   height: 100%;
-}
-.dashboard .cloud-subcard .ant-card-body {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-}
-.dashboard .equal-height-card.ant-card {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.dashboard .equal-height-card .ant-card-body {
-  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
 }
 
-/* CEN 子卡片等高填充，与多云子卡片保持一致 */
-.dashboard .cen-subcard.ant-card {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+.resource-card:hover {
+  border-color: #e6f4ff;
 }
-.dashboard .cen-subcard .ant-card-body {
-  flex: 1 1 auto;
+
+/* Removed left border bar as per user request */
+
+.resource-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.resource-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  border-radius: 12px;
+  font-size: 24px;
+  color: #64748b;
+  transition: all 0.3s;
+}
+
+.resource-card:hover .resource-icon {
+  background: #eff6ff;
+  color: #1677ff;
+}
+
+/* Status Badge Container */
+.status-badge-container {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 20px;
+  transition: all 0.3s;
+}
+
+.status-badge-container.online {
+  background: rgba(82, 196, 26, 0.1); /* Light green background */
+  border: 1px solid rgba(82, 196, 26, 0.2);
+}
+
+.status-badge-container.offline {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.status-badge-container .ant-badge-status-dot {
+  width: 8px !important;
+  height: 8px !important;
+}
+
+.status-badge-container .ant-badge-status-text {
+  font-size: 13px;
+  margin-left: 8px;
+  font-weight: 500;
+}
+
+.status-badge-container.online .ant-badge-status-text {
+  color: #52c41a; /* Green text for online */
+}
+
+.status-badge-container.offline .ant-badge-status-text {
+  color: #6b7280;
+}
+
+.resource-card-body {
+  flex: 1;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+}
+
+/* Resource Matrix Visualization */
+.resource-matrix {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 2px;
+  width: 100%;
+  margin-top: 16px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.matrix-block {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  transition: all 0.3s;
+}
+
+/* Empty/Gray slots */
+.matrix-block.empty-slot {
+  background-color: #f0f0f0;
+  border: 1px solid transparent;
+}
+
+.resource-card:hover .matrix-block.empty-slot {
+  background-color: #e5e7eb;
+}
+
+/* Active Instance slots */
+.matrix-block.active-instance {
+  background-color: #52c41a;
+  box-shadow: 0 0 2px rgba(82, 196, 26, 0.4);
+}
+
+/* Wave breathing animation for active instances */
+@keyframes instance-wave {
+  0%, 100% { 
+    opacity: 1; 
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(82, 196, 26, 0);
+  }
+  50% { 
+    opacity: 0.7; 
+    transform: scale(0.85); 
+    background-color: #73d13d; /* Lighter green */
+    box-shadow: 0 0 4px rgba(82, 196, 26, 0.6);
+  }
+}
+
+.matrix-block.active-instance {
+  animation: instance-wave 4s infinite ease-in-out;
+}
+
+/* Removed unused load classes */
+
+.resource-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 8px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resource-meta {
+  display: flex;
+  align-items: center;
+}
+
+.region-tag {
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* Activity List */
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.activity-item {
+  display: flex;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-time {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 50px;
+}
+
+.activity-content {
+  flex: 1;
+}
+
+.activity-title {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.activity-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Tabs */
+.custom-tabs .ant-tabs-nav {
+  margin-bottom: 16px;
+}
+
+.custom-tabs .ant-tabs-tab {
+  padding: 8px 16px;
+  border-radius: 6px 6px 0 0;
+  transition: all 0.3s;
+}
+
+.custom-tabs .ant-tabs-tab-active {
+  background: rgba(22, 119, 255, 0.1);
+}
+
+.custom-tabs .ant-tabs-ink-bar {
+  display: none;
 }

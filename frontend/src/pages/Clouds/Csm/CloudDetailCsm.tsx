@@ -1,30 +1,50 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Dropdown, message, Table, Input, Select, Modal, Popover, Checkbox } from 'antd';
-import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, DownOutlined, EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
+import { Card, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Dropdown, message, Table, Input, Select, Modal, Popover, Checkbox, Form, Typography, Progress } from 'antd';
+import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, EllipsisOutlined, SettingOutlined, AppstoreOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import SharedToolbar from '../../../components/SharedToolbar';
-import { fetchClouds, fetchCsmVirtualElements, fetchCsmPhysicalElements, fetchCsmElementGroups, fetchCsmServiceChains, operateCsmVm, getCsmVmConsole } from '../../../services/api';
+import { fetchClouds, fetchCsmVirtualElements, fetchCsmPhysicalElements, fetchCsmElementGroups, fetchCsmServiceChains, operateCsmVm, getCsmVmConsole, fetchCsmVRouters, fetchCsmAssets, createCsmAsset, deleteCsmAsset, csmSsoLogin } from '../../../services/api';
 import CsmVmDetailModal from './modals/CsmVmDetailModal';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import CsmServiceChainSection from './sections/CsmServiceChainSection';
 
 interface CloudItem { id: string; name: string; region: string; type: string; config?: any; status?: string; endpoint?: string; description?: string; createdAt?: string; updatedAt?: string; }
 
+// Helpers to reduce redundancy
+const getColumnOptions = (columns: any[]) =>
+  columns
+    .filter((c: any) => c.key !== 'action')
+    .map((c: any) => ({ label: c.title, value: c.key }));
+
+const getDisplayColumns = (columns: any[], visibleKeys: string[]) => {
+  const keys = new Set(visibleKeys);
+  return columns.filter((c: any) => c.key === 'action' || keys.has(c.key));
+};
+
+const createRowSelection = (selectedRowKeys: React.Key[], onChange: (keys: React.Key[]) => void, extraProps?: any) => ({
+  selectedRowKeys,
+  onChange,
+  ...extraProps,
+});
+
 const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const navigate = useNavigate();
   const [cloud, setCloud] = useState<CloudItem | null>(null);
   const [loading, setLoading] = useState(false);
-  const [operationLoading, setOperationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [virtualElements, setVirtualElements] = useState<any[]>([]);
   const [physicalElements, setPhysicalElements] = useState<any[]>([]);
   const [elementGroups, setElementGroups] = useState<any[]>([]);
   const [serviceChains, setServiceChains] = useState<any[]>([]);
+  const [vRouters, setVRouters] = useState<any[]>([]);
+  const [assets, setAssets] = useState<any[]>([]);
   const [showLog, setShowLog] = useState<boolean>(false);
   const [rawVirtual, setRawVirtual] = useState<any | null>(null);
   const [rawPhysical, setRawPhysical] = useState<any | null>(null);
   const [rawGroups, setRawGroups] = useState<any | null>(null);
+  const [rawVRouters, setRawVRouters] = useState<any | null>(null);
+  const [rawAssets, setRawAssets] = useState<any | null>(null);
   const [vmModalOpen, setVmModalOpen] = useState(false);
   const [currentVm, setCurrentVm] = useState<any | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -33,34 +53,43 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [vendorFilter, setVendorFilter] = useState<string>('');
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<string[]>([]);
+  const [assetSearch, setAssetSearch] = useState<string>('');
+  const [assetType, setAssetType] = useState<string | undefined>(undefined);
+  const [assetIpType, setAssetIpType] = useState<string | undefined>(undefined);
+  const [assetPort, setAssetPort] = useState<string>('');
+  const [assetSelectedRowKeys, setAssetSelectedRowKeys] = useState<React.Key[]>([]);
+  const [assetVisibleColumnKeys, setAssetVisibleColumnKeys] = useState<string[]>(['id','type','ip_type','value','port','action']);
+  const [assetCreateOpen, setAssetCreateOpen] = useState(false);
+  const [assetEditOpen, setAssetEditOpen] = useState(false);
+  const [editingAsset, setEditingAsset] = useState<any | null>(null);
+  const [assetForm] = Form.useForm();
+  const [assetEditForm] = Form.useForm();
 
-  const rowSelection = {
-    selectedRowKeys,
-    onChange: (newSelectedRowKeys: React.Key[]) => setSelectedRowKeys(newSelectedRowKeys),
-  };
+  // VRouter States
+  const [vRouterSearch, setVRouterSearch] = useState<string>('');
+  const [vRouterSelectedRowKeys, setVRouterSelectedRowKeys] = useState<React.Key[]>([]);
+  const [vRouterVisibleColumnKeys, setVRouterVisibleColumnKeys] = useState<string[]>(['id', 'ip', 'host_ip', 'status', 'vm_count', 'port_count', 'action']);
+
+  // Physical Hosts States
+  const [physicalSearch, setPhysicalSearch] = useState<string>('');
+  const [physicalSelectedRowKeys, setPhysicalSelectedRowKeys] = useState<React.Key[]>([]);
+  const [physicalVisibleColumnKeys, setPhysicalVisibleColumnKeys] = useState<string[]>(['name', 'ip', 'status', 'cpu', 'memory', 'disk', 'action']);
+
+  // Groups States
+  const [groupSearch, setGroupSearch] = useState<string>('');
+  const [groupTypeFilter, setGroupTypeFilter] = useState<string>('');
+  const [groupVendorFilter, setGroupVendorFilter] = useState<string>('');
+  const [groupDefendFilter, setGroupDefendFilter] = useState<string>('');
+  const [groupSelectedRowKeys, setGroupSelectedRowKeys] = useState<React.Key[]>([]);
+  const [groupVisibleColumnKeys, setGroupVisibleColumnKeys] = useState<string[]>(['name', 'id', 'type', 'vendor', 'defend_type', 'count', 'members', 'action']);
+  
+  const rowSelection = createRowSelection(selectedRowKeys, setSelectedRowKeys);
 
   const versionText = useMemo(() => {
     const fromConfig = cloud?.config?.harvesterVersion;
     return fromConfig || '-';
   }, [cloud]);
   const tlsIgnored = !!(cloud?.config?.ignoreTls);
-
-  const buildGroupsFromVirtual = useCallback((list: any[]) => {
-    const map = new Map<string, any>();
-    (Array.isArray(list) ? list : []).forEach((r: any) => {
-      const vendor = String(r?.vm_vendor || '').trim() || '-';
-      const type = String(r?.vm_type || r?.Type || '').trim() || '-';
-      const gid = `${vendor}::${type}`;
-      const name = `${vendor} · ${type}`;
-      const id = gid;
-      const curr = map.get(gid) || { id, name, elements: [], Count: 0 };
-      const vid = r?.id || r?.Id || r?.uuid || r?.vm_id;
-      if (vid) (curr as any).elements.push(vid);
-      (curr as any).Count = (curr as any).elements.length;
-      map.set(gid, curr);
-    });
-    return Array.from(map.values());
-  }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -69,24 +98,32 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       const cloudsRes = await fetchClouds();
       const cloudList: any[] = Array.isArray(cloudsRes) ? cloudsRes : (Array.isArray((cloudsRes as any)?.data) ? (cloudsRes as any).data : []);
       setCloud((cloudList || []).find((c:any)=> String(c.id) === String(cloudId)) || null);
-      const [virtualJson, physicalJson, groupsJson, chainsJson] = await Promise.all([
+      const [virtualJson, physicalJson, groupsJson, chainsJson, vRoutersJson, assetsJson] = await Promise.all([
         fetchCsmVirtualElements(cloudId).catch(()=>null),
         fetchCsmPhysicalElements(cloudId).catch(()=>null),
         fetchCsmElementGroups(cloudId).catch(()=>null),
         fetchCsmServiceChains(cloudId).catch(()=>null),
+        fetchCsmVRouters(cloudId).catch(()=>null),
+        fetchCsmAssets(cloudId).catch(()=>null),
       ]);
       const vList: any[] = (virtualJson as any)?.data?.items || (virtualJson as any)?.items || (virtualJson as any)?.data || [];
       const pList: any[] = (physicalJson as any)?.data?.items || (physicalJson as any)?.items || (physicalJson as any)?.data || [];
       const gList: any[] = (groupsJson as any)?.data?.items || (groupsJson as any)?.items || (groupsJson as any)?.data || [];
       const cList: any[] = (chainsJson as any)?.data?.items || (chainsJson as any)?.items || (chainsJson as any)?.data || [];
+      const vrList: any[] = (vRoutersJson as any)?.data?.items || (vRoutersJson as any)?.items || (vRoutersJson as any)?.data || [];
+      const aList: any[] = (assetsJson as any)?.data?.items || (assetsJson as any)?.items || (assetsJson as any)?.data || [];
       setVirtualElements(Array.isArray(vList) ? vList : []);
       setPhysicalElements(Array.isArray(pList) ? pList : []);
-      const groupsFinal = (Array.isArray(gList) && gList.length > 0) ? gList : buildGroupsFromVirtual(vList);
+      const groupsFinal = gList;
       setElementGroups(Array.isArray(groupsFinal) ? groupsFinal : []);
       setServiceChains(Array.isArray(cList) ? cList : []);
+      setVRouters(Array.isArray(vrList) ? vrList : []);
+      setAssets(Array.isArray(aList) ? aList : []);
       setRawVirtual(virtualJson || null);
       setRawPhysical(physicalJson || null);
       setRawGroups(groupsJson || null);
+      setRawVRouters(vRoutersJson || null);
+      setRawAssets(assetsJson || null);
     } catch (e:any) {
       setError(e?.message || '查询失败');
     } finally {
@@ -102,7 +139,6 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     Modal.confirm({
       title: `确定要${action === 'reboot' ? '重启' : action === 'start' ? '启动' : '停止'}选中的 ${selectedRowKeys.length} 台虚拟机吗？`,
       onOk: async () => {
-        setOperationLoading(true);
         try {
           let successCount = 0;
           let failCount = 0;
@@ -124,8 +160,6 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           setSelectedRowKeys([]);
         } catch (e) {
           message.error('操作异常');
-        } finally {
-          setOperationLoading(false);
         }
       }
     });
@@ -199,24 +233,313 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     });
   }, [virtualElements, searchText, filterStatus, typeFilter, vendorFilter]);
 
-  const columnsCommon = [
-    { title: '名称', dataIndex: 'name', key: 'name', render: (t: any, r: any) => t || r?.Name || r?.displayName || r?.vm_name || '-' },
-    { title: 'ID', dataIndex: 'id', key: 'id', render: (t: any, r: any) => t || r?.Id || r?.uuid || r?.vm_id || '-' },
-    { title: '类型', dataIndex: 'type', key: 'type', render: (t: any, r: any) => t || r?.Type || r?.vm_type || '-' },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (s: any) => {
-      // Handle integer status from Table 26
-      if (typeof s === 'number') {
-        const map: any = { 0: '已关闭', 1: '正常', 2: '启动失败', 3: '启动中', 4: '部署中' };
-        const colorMap: any = { 0: 'default', 1: 'green', 2: 'red', 3: 'blue', 4: 'processing' };
-        return <Tag color={colorMap[s] || 'default'}>{map[s] || s}</Tag>;
+  const filteredPhysicalElements = useMemo(() => {
+    return physicalElements.filter(item => {
+      if (physicalSearch) {
+        const lower = physicalSearch.toLowerCase();
+        const name = String(item.host_name || item.name || '').toLowerCase();
+        const ip = String(item.host_manage_ip || '').toLowerCase();
+        return name.includes(lower) || ip.includes(lower);
       }
-      const k = String(s || '').toLowerCase();
-      const color = k.includes('run') ? 'green' : k.includes('stop') ? 'orange' : (k.includes('error') ? 'red' : 'blue');
-      return <Tag color={color}>{s || '-'}</Tag>;
-    } },
-    { title: '描述', dataIndex: 'description', key: 'desc', render: (t: any, r: any) => t || r?.Description || '-' },
-    { title: '创建时间', dataIndex: 'createdAt', key: 'ctime', render: (t: any, r: any) => t || r?.CreatedAt || r?.createTime || '-' },
-  ] as any[];
+      return true;
+    });
+  }, [physicalElements, physicalSearch]);
+
+  const columnsHosts = [
+    { title: '主机名称', dataIndex: 'host_name', key: 'name', width: 120, ellipsis: true, render: (t: any, r: any) => t || r?.Name || '-' },
+    { title: '管理IP', dataIndex: 'host_manage_ip', key: 'ip', width: 120, render: (t: any) => t || '-' },
+    { title: '状态', dataIndex: 'host_active_status', key: 'status', width: 80, render: (s: any) => {
+      const map: any = { 0: '存活', 1: '非存活' };
+      const colorMap: any = { 0: 'green', 1: 'red' };
+      return <Tag color={colorMap[s] || 'default'}>{map[s] || s}</Tag>;
+    }},
+    { title: '厂商', dataIndex: 'vendor_name', key: 'vendor', width: 100, ellipsis: true, render: (t: any) => t || '-' },
+    { title: '型号', dataIndex: 'machine_type', key: 'model', width: 100, ellipsis: true, render: (t: any) => t || '-' },
+    { title: 'CPU', key: 'cpu', width: 160, render: (_: any, r: any) => {
+      const total = r.cpu || 0;
+      const usageRaw = parseFloat(r.cpu_usage || 0);
+      const pct = Math.max(0, Math.min(100, Number(usageRaw - 100)));
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+          <span>{total}核</span>
+          <Progress percent={pct} size="small" status={pct > 90 ? 'exception' : 'active'} showInfo={false} />
+        </div>
+      );
+    }},
+    { title: '内存', key: 'memory', width: 160, render: (_: any, r: any) => {
+      const total = r.memory_total ? `${r.memory_total}GB` : '-';
+      const usageRaw = parseFloat(r.mem_usage || 0);
+      const pct = Math.max(0, Math.min(100, Number(usageRaw)));
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+          <span>{total}</span>
+          <Progress percent={pct} size="small" status={pct > 90 ? 'exception' : 'active'} showInfo={false} />
+        </div>
+      );
+    }},
+    { title: '大页内存', key: 'huge_mem', width: 160, render: (_: any, r: any) => {
+      const total = r.huge_mem_total ? `${r.huge_mem_total}GB` : '0';
+      const usage = parseFloat(r.huge_mem_usage || 0).toFixed(1);
+      if (!r.huge_mem_total) return '-';
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+          <span>{total}</span>
+          <Progress percent={Number(usage)} size="small" showInfo={false} />
+        </div>
+      );
+    }},
+    { title: '磁盘', key: 'disk', width: 160, render: (_: any, r: any) => {
+      const total = r.disk_total ? `${r.disk_total}GB` : '-';
+      const usageRaw = parseFloat(r.disk_usage || 0);
+      const pct = Math.max(0, Math.min(100, Number(usageRaw)));
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+          <span>{total}</span>
+          <Progress percent={pct} size="small" showInfo={false} />
+        </div>
+      );
+    }},
+    { title: 'Ceph磁盘', key: 'ceph', width: 160, render: (_: any, r: any) => {
+      const total = r.ceph_disk_total ? `${r.ceph_disk_total}GB` : '-';
+      const usage = parseFloat(r.ceph_disk_usage || 0).toFixed(1);
+      if (!r.ceph_disk_total) return '-';
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+          <span>{total}</span>
+          <Progress percent={Number(usage)} size="small" showInfo={false} />
+        </div>
+      );
+    }},
+    { title: '架构', dataIndex: 'cpu_architecture', key: 'arch', width: 80, render: (t: any) => t || '-' },
+    { title: '故障迁移', dataIndex: 'migrate', key: 'migrate', width: 90, render: (t: boolean) => t ? <Tag color="green">支持</Tag> : <Tag>不支持</Tag> },
+    { title: '引流', dataIndex: 'is_drainage', key: 'drainage', width: 80, render: (t: any) => String(t) === '1' ? <Tag color="blue">是</Tag> : '否' },
+    { title: '绑定CPU', dataIndex: 'bindCpu', key: 'bindCpu', width: 90, render: (t: any) => (t ? <Tag color="purple">绑定</Tag> : <Tag>不绑定</Tag>) },
+    { title: '可绑定CPU', dataIndex: 'availiable_bind_cpu', key: 'bindCpuAvail', width: 110, render: (n: any) => (typeof n === 'number' ? n : '-') },
+    { title: 'DHCP', dataIndex: 'dhcpEnable', key: 'dhcp', width: 80, render: (t: boolean) => t ? <Tag color="green">开启</Tag> : '关闭' },
+    { title: '防御类型', dataIndex: 'host_defend_type', key: 'defend_type', width: 100, render: (t: any) => {
+       const m:any = { 1:'非流量型', 2:'流量型', 3:'通用' };
+       return m[t] || t || '-';
+    }},
+    { title: '描述', dataIndex: 'host_description', key: 'desc', ellipsis: true, render: (t: any) => t || '-' },
+    { title: '操作', key: 'action', width: 120, fixed: 'right' as 'right', render: (_: any, record: any) => (
+      <ResourceActionsDropdown
+        items={[
+          { key: 'detail', label: '查看元数据' },
+        ]}
+        onClick={({ key }) => {
+          if (key === 'detail') {
+            Modal.info({
+              title: '物理主机元数据',
+              width: 600,
+              content: (
+                <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+{JSON.stringify(record, null, 2)}
+                  </pre>
+                </div>
+              )
+            });
+          }
+        }}
+        icon={<EllipsisOutlined />}
+        size="small"
+        buttonProps={{ style: { padding: 0 } }}
+      />
+    ) },
+  ];
+
+  const physicalColumnOptions = React.useMemo(() => getColumnOptions(columnsHosts), []);
+
+  const columnsHostsDisplay = React.useMemo(() => getDisplayColumns(columnsHosts, physicalVisibleColumnKeys), [physicalVisibleColumnKeys]);
+
+  const physicalRowSelection = createRowSelection(physicalSelectedRowKeys, setPhysicalSelectedRowKeys);
+
+  const filteredGroups = useMemo(() => {
+    return elementGroups.filter(item => {
+      if (groupTypeFilter && item.vm_type !== groupTypeFilter) return false;
+      if (groupVendorFilter && item.vendor_name !== groupVendorFilter) return false;
+      if (groupDefendFilter && String(item.defend_type) !== groupDefendFilter) return false;
+      
+      if (groupSearch) {
+        const lower = groupSearch.toLowerCase();
+        const name = String(item.vm_group_name || item.name || '').toLowerCase();
+        return name.includes(lower);
+      }
+      return true;
+    });
+  }, [elementGroups, groupSearch, groupTypeFilter, groupVendorFilter, groupDefendFilter]);
+
+  const columnsGroups = [
+    { title: '名称', dataIndex: 'vm_group_name', key: 'name', render: (t:any,r:any)=> t || r?.name || '-' },
+    { title: 'ID', dataIndex: 'vm_group_id', key: 'id', render: (t:any,r:any)=> t || r?.id || '-' },
+    { title: '类型', dataIndex: 'vm_type', key: 'type', render: (t:any) => {
+      const color = t === 'waf' ? 'blue' : t === 'ids' ? 'cyan' : t === 'fw' ? 'purple' : 'default';
+      return <Tag color={color}>{t?.toUpperCase() || '-'}</Tag>;
+    }},
+    { title: '厂商', dataIndex: 'vendor_name', key: 'vendor', render: (t:any)=> t || '-' },
+    { title: '防御类型', dataIndex: 'defend_type', key: 'defend_type', render: (t:any)=> {
+      const map: any = { 1: '非流量型', 2: '流量型' };
+      return map[t] || t || '-';
+    }},
+    { title: '网元数量', dataIndex: 'count', key: 'count', render: (t:any,r:any)=> {
+      const c = t ?? r?.Count;
+      if (c !== undefined) return c;
+      return Array.isArray(r?.elements) ? r.elements.length : '-';
+    }},
+    { title: '成员列表', dataIndex: 'vm_id_list', key: 'members', width: 200, render: (t:any,r:any)=> {
+      const list = t || (Array.isArray(r?.elements) ? r.elements.join(';') : '');
+      if (!list) return '-';
+      return (
+        <Typography.Text style={{ width: 180 }} ellipsis={{ tooltip: list }} copyable={{ text: list }}>
+          {list}
+        </Typography.Text>
+      );
+    }},
+    { title: '操作', key: 'action', width: 120, fixed: 'right' as 'right', render: (_: any, record: any) => (
+      <ResourceActionsDropdown
+        items={[
+          { key: 'detail', label: '查看元数据' },
+        ]}
+        onClick={({ key }) => {
+          if (key === 'detail') {
+            Modal.info({
+              title: '安全网元组元数据',
+              width: 600,
+              content: (
+                <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+{JSON.stringify(record, null, 2)}
+                  </pre>
+                </div>
+              )
+            });
+          }
+        }}
+        icon={<EllipsisOutlined />}
+        size="small"
+        buttonProps={{ style: { padding: 0 } }}
+      />
+    ) },
+  ];
+
+  const groupColumnOptions = React.useMemo(() => getColumnOptions(columnsGroups), []);
+
+  const columnsGroupsDisplay = React.useMemo(() => getDisplayColumns(columnsGroups, groupVisibleColumnKeys), [groupVisibleColumnKeys]);
+
+  const groupRowSelection = createRowSelection(groupSelectedRowKeys, setGroupSelectedRowKeys);
+
+  const filteredVRouters = useMemo(() => {
+    return vRouters.filter(item => {
+      if (vRouterSearch) {
+        const lower = vRouterSearch.toLowerCase();
+        const id = String(item.vrouter_id || item.id || '').toLowerCase();
+        const ip = String(item.vrouter_ip || '').toLowerCase();
+        const hostIp = String(item.vrouter_host_ip || '').toLowerCase();
+        return id.includes(lower) || ip.includes(lower) || hostIp.includes(lower);
+      }
+      return true;
+    });
+  }, [vRouters, vRouterSearch]);
+
+  const columnsVRouters = [
+    { title: 'VSW ID', dataIndex: 'vrouter_id', key: 'id', render: (t: any, r: any) => t || r?.id || '-' },
+    { title: 'IP地址', dataIndex: 'vrouter_ip', key: 'ip', render: (t: any) => t || '-' },
+    { title: '宿主机IP', dataIndex: 'vrouter_host_ip', key: 'host_ip', render: (t: any) => t || '-' },
+    { title: '状态', dataIndex: 'status', key: 'status', render: (s: any) => {
+      const map: any = { 0: '正常', 1: '异常' };
+      const colorMap: any = { 0: 'green', 1: 'red' };
+      return <Tag color={colorMap[s] || 'default'}>{map[s] || s}</Tag>;
+    }},
+    { title: '虚机数量', key: 'vm_count', render: (_: any, r: any) => Array.isArray(r.vm_list) ? r.vm_list.length : 0 },
+    { title: '端口数量', key: 'port_count', render: (_: any, r: any) => Array.isArray(r.vrouter_port_list) ? r.vrouter_port_list.length : 0 },
+    { title: '操作', key: 'action', width: 120, fixed: 'right' as 'right', render: (_: any, record: any) => (
+      <ResourceActionsDropdown
+        items={[
+          { key: 'detail', label: '查看详情' },
+        ]}
+        onClick={({ key }) => {
+          if (key === 'detail') {
+            Modal.info({
+              title: 'VSW 详情',
+              width: 600,
+              content: (
+                <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+{JSON.stringify(record, null, 2)}
+                  </pre>
+                </div>
+              )
+            });
+          }
+        }}
+        icon={<EllipsisOutlined />}
+        size="small"
+        buttonProps={{ style: { padding: 0 } }}
+      />
+    ) },
+  ];
+
+  const vRouterColumnOptions = React.useMemo(() => getColumnOptions(columnsVRouters), []); // columnsVRouters is constant-like within render
+
+  const columnsVRoutersDisplay = React.useMemo(() => getDisplayColumns(columnsVRouters, vRouterVisibleColumnKeys), [vRouterVisibleColumnKeys]); // columnsVRouters dependency omitted as it is recreated but stable enough structurally
+
+  const vRouterRowSelection = createRowSelection(vRouterSelectedRowKeys, setVRouterSelectedRowKeys);
+
+  const columnsAssets = [
+    { title: '资产ID', dataIndex: 'network_id', key: 'id', render: (t: any, r: any) => t || r?.id || r?.Id || r?.uuid || '-' },
+    { title: '类型', dataIndex: 'type', key: 'type', render: (t: any) => {
+      const map: any = { 'subnet': '子网', 'ip': 'IP', 'vpc': 'VPC' };
+      return <Tag color="blue">{map[t] || t}</Tag>;
+    }},
+    { title: 'IP类型', dataIndex: 'ip_type', key: 'ip_type', render: (t: any) => t || '-' },
+    { title: '值', dataIndex: 'value', key: 'value', render: (t: any) => t || '-' },
+    { title: '端口', dataIndex: 'port', key: 'port', render: (t: any) => t || '-' },
+    { title: '操作', key: 'action', width: 120, fixed: 'right' as 'right', render: (_: any, record: any) => (
+      <ResourceActionsDropdown
+        items={[
+          { key: 'edit', label: '编辑' },
+          { type: 'divider' as any },
+          { key: 'delete', label: '删除', danger: true },
+        ]}
+        onClick={({ key }) => {
+          const assetId = record.network_id || record.id || record.Id || record.uuid;
+          if (key === 'edit') {
+            setEditingAsset(record);
+            assetEditForm.setFieldsValue({
+              type: (record.type || 'ip'),
+              ip_type: (record.ip_type || 'ipv4'),
+              value: (record.value || ''),
+              port: (record.port || '')
+            });
+            setAssetEditOpen(true);
+            return;
+          }
+          if (key === 'delete') {
+            Modal.confirm({
+              title: '删除资产',
+              content: `确定删除资产 ${assetId || ''} 吗？`,
+              okText: '删除',
+              okType: 'danger',
+              cancelText: '取消',
+              onOk: async () => {
+                try {
+                  if (!assetId) { message.warning('缺少资产ID'); return; }
+                  await deleteCsmAsset(cloudId, String(assetId));
+                  message.success('删除成功');
+                  await loadAll();
+                } catch (e:any) {
+                  message.error(e.message || '删除失败');
+                }
+              }
+            });
+          }
+        }}
+        icon={<EllipsisOutlined />}
+        size="small"
+        buttonProps={{ style: { padding: 0 } }}
+      />
+    ) },
+  ];
 
   const columnsVirtual = [
     { title: '名称', dataIndex: 'name', key: 'name', render: (t: any, r: any) => (
@@ -251,16 +574,102 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     { title: '操作', key: 'action', width: 120, fixed: 'right' as 'right', render: (_: any, record: any) => (
       <ResourceActionsDropdown
         items={[
+          { key: 'detail', label: '查看元数据' },
           { key: 'start', label: '开机' },
-          { key: 'stop', label: '关机', danger: true },
           { key: 'reboot', label: '重启' },
           { key: 'console', label: '控制台' },
+          { key: 'sso', label: 'SSO登录' },
+          { type: 'divider' as any },
+          { key: 'stop', label: '关机', danger: true },
         ]}
         onClick={({ key }) => {
+          if (key === 'detail') {
+            Modal.info({
+              title: '虚拟安全网元元数据',
+              width: 600,
+              content: (
+                <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
+                  <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+{JSON.stringify(record, null, 2)}
+                  </pre>
+                </div>
+              )
+            });
+            return;
+          }
           if (key === 'start') return handleSingleOperation(record, 'start');
           if (key === 'stop') return handleSingleOperation(record, 'stop');
           if (key === 'reboot') return handleSingleOperation(record, 'reboot');
           if (key === 'console') return handleConsole(record);
+          if (key === 'sso') {
+            const vmId = record.id || record.Id || record.uuid || record.vm_id;
+            if (!vmId) { message.warning('未找到虚机ID'); return; }
+            const port = '8011';
+            const hide = message.loading('正在发起 SSO 登录...', 0);
+            csmSsoLogin(cloudId, String(vmId), port).then((res: any) => {
+              hide();
+              const raw = res?.data?.data?.url || res?.data?.url || res?.url || '';
+              const url = String(raw || '').trim().replace(/^[`'"]|[`'"]$/g, '');
+              const steps = res?.data?.steps || res?.steps || {};
+              const authStep = steps?.auth;
+              const adminStep = steps?.getAdmin;
+              const ssoStep = steps?.sso;
+              if (url) {
+                const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
+                const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
+                const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
+                window.open(url, 'csm-sso', features);
+              }
+              /*
+              Modal.info({
+                title: 'SSO 返回',
+                width: '90vw',
+                centered: true,
+                styles: {
+                  content: { height: '90vh', display: 'flex', flexDirection: 'column' },
+                  body: { flex: 1, overflow: 'auto' }
+                },
+                content: (
+                  <div>
+                    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%' }}>
+                      {url ? (
+                        <div style={{ marginBottom: 12 }}>
+                          <a href={url} target="_blank" rel="noreferrer">{url}</a>
+                        </div>
+                      ) : null}
+                      <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', gap: 12, height: '100%' }}>
+                        <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', gap: 8, minHeight: 0 }}>
+                          <div style={{ fontWeight: 600 }}>步骤1 · 鉴权（请求体 / 返回值）</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, minHeight: 0 }}>
+                            <pre style={{ height: 240, overflow: 'auto', padding: 12, background: '#f5f5f5', borderRadius: 8 }}>{JSON.stringify(authStep?.request ?? null, null, 2)}</pre>
+                            <pre style={{ height: 240, overflow: 'auto', padding: 12, background: '#f5f5f5', borderRadius: 8 }}>{JSON.stringify(authStep?.response ?? null, null, 2)}</pre>
+                          </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', gap: 8, minHeight: 0 }}>
+                          <div style={{ fontWeight: 600 }}>步骤2 · 管理员信息（请求体 / 返回值）</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, minHeight: 0 }}>
+                            <pre style={{ height: 220, overflow: 'auto', padding: 12, background: '#f5f5f5', borderRadius: 8 }}>{JSON.stringify(adminStep?.request ?? null, null, 2)}</pre>
+                            <pre style={{ height: 220, overflow: 'auto', padding: 12, background: '#f5f5f5', borderRadius: 8 }}>{JSON.stringify(adminStep?.response ?? null, null, 2)}</pre>
+                          </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', gap: 8, minHeight: 0 }}>
+                          <div style={{ fontWeight: 600 }}>步骤3 · SSO返回（请求体 / 返回值）</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, minHeight: 0 }}>
+                            <pre style={{ height: 220, overflow: 'auto', padding: 12, background: '#f5f5f5', borderRadius: 8 }}>{JSON.stringify(ssoStep?.request ?? null, null, 2)}</pre>
+                            <pre style={{ height: 220, overflow: 'auto', padding: 12, background: '#f5f5f5', borderRadius: 8 }}>{JSON.stringify(ssoStep?.response ?? null, null, 2)}</pre>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              });
+              */
+            }).catch((e: any) => {
+              hide();
+              message.error(e?.message || 'SSO 登录失败');
+            });
+          }
         }}
         icon={<EllipsisOutlined />}
         size="small"
@@ -274,15 +683,113 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     setVisibleColumnKeys(initKeys);
   }, []);
 
-  const columnOptions = React.useMemo(() => {
-    return columnsVirtual
-      .filter((c: any) => c.key !== 'action')
-      .map((c: any) => ({ label: c.title, value: c.key }));
-  }, [columnsVirtual]);
+  const columnOptions = React.useMemo(() => getColumnOptions(columnsVirtual), [columnsVirtual]);
 
-  const columnsVirtualDisplay = React.useMemo(() => {
-    return columnsVirtual.filter((c: any) => c.key === 'action' || visibleColumnKeys.includes(c.key));
-  }, [columnsVirtual, visibleColumnKeys]);
+  const columnsVirtualDisplay = React.useMemo(() => getDisplayColumns(columnsVirtual, visibleColumnKeys), [columnsVirtual, visibleColumnKeys]);
+
+  const filteredAssets = useMemo(() => {
+    return (assets || []).filter((item: any) => {
+      if (assetType) {
+        const t = String(item.type || '').trim();
+        if (t !== assetType) return false;
+      }
+      if (assetIpType) {
+        const ipt = String(item.ip_type || '').trim();
+        if (ipt !== assetIpType) return false;
+      }
+      if (assetPort && String(assetPort).trim().length > 0) {
+        const pt = String(item.port ?? '').trim();
+        if (pt !== String(assetPort).trim()) return false;
+      }
+      if (assetSearch) {
+        const lower = assetSearch.toLowerCase();
+        const id = String(item.network_id || item.id || item.uuid || '').toLowerCase();
+        const value = String(item.value || '').toLowerCase();
+        const type = String(item.type || '').toLowerCase();
+        return id.includes(lower) || value.includes(lower) || type.includes(lower);
+      }
+      return true;
+    });
+  }, [assets, assetType, assetIpType, assetPort, assetSearch]);
+
+  const assetColumnOptions = React.useMemo(() => getColumnOptions(columnsAssets), [columnsAssets]);
+
+  const columnsAssetsDisplay = React.useMemo(() => getDisplayColumns(columnsAssets, assetVisibleColumnKeys), [columnsAssets, assetVisibleColumnKeys]);
+
+  const assetRowSelection = createRowSelection(assetSelectedRowKeys, setAssetSelectedRowKeys, {
+    getCheckboxProps: (record: any) => ({
+      value: record.network_id || record.id || record.Id || record.uuid
+    })
+  });
+
+  const handleBatchDeleteAssets = async () => {
+    if (!assetSelectedRowKeys.length) return;
+    Modal.confirm({
+      title: '批量删除资产',
+      content: `确定删除选中的 ${assetSelectedRowKeys.length} 项资产吗？`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          let ok = 0; let fail = 0;
+          for (const k of assetSelectedRowKeys) {
+            try {
+              await deleteCsmAsset(cloudId, String(k));
+              ok++;
+            } catch {
+              fail++;
+            }
+          }
+          if (fail === 0) message.success('批量删除成功');
+          else message.warning(`删除完成：成功 ${ok}，失败 ${fail}`);
+          setAssetSelectedRowKeys([]);
+          await loadAll();
+        } catch (e:any) {
+          message.error(e.message || '批量删除失败');
+        }
+      }
+    });
+  };
+
+  const handleCreateAsset = async () => {
+    try {
+      const values = await assetForm.validateFields();
+      const payload: any = {
+        type: values.type,
+        ip_type: values.ip_type,
+        value: values.value
+      };
+      if (values.port) payload.port = String(values.port).trim();
+      await createCsmAsset(cloudId, payload);
+      message.success('创建成功');
+      setAssetCreateOpen(false);
+      assetForm.resetFields();
+      await loadAll();
+    } catch (e:any) {
+      if (e?.errorFields) return;
+      message.error(e.message || '创建失败');
+    }
+  };
+
+  const handleEditAsset = async () => {
+    try {
+      const values = await assetEditForm.validateFields();
+      const assetId = editingAsset?.network_id || editingAsset?.id || editingAsset?.uuid;
+      if (!assetId) { message.warning('缺少资产ID'); return; }
+      await deleteCsmAsset(cloudId, String(assetId));
+      const payload: any = { type: values.type, ip_type: values.ip_type, value: values.value };
+      if (values.port) payload.port = String(values.port).trim();
+      await createCsmAsset(cloudId, payload);
+      message.success('更新成功');
+      setAssetEditOpen(false);
+      setEditingAsset(null);
+      await loadAll();
+    } catch (e:any) {
+      if (e?.errorFields) return;
+      message.error(e.message || '更新失败');
+    }
+  };
 
   return (
     <PageDetailContainer
@@ -333,21 +840,304 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         items={[
           {
             key: 'overview',
-            label: '资源总览',
+            label: (
+              <Space size={4}>
+                <AppstoreOutlined />
+                <span>资源总览</span>
+              </Space>
+            ),
             children: (
               <>
                 <Row gutter={[16, 16]}>
                   <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />虚拟安全网元</span>} value={virtualElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                  <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />物理安全网元</span>} value={physicalElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                  <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />物理主机</span>} value={physicalElements.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                   <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SafetyCertificateOutlined style={{ color:'#1677ff', marginRight:8 }} />安全网元组</span>} value={elementGroups.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                   <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><UnorderedListOutlined style={{ color:'#1677ff', marginRight:8 }} />服务链</span>} value={serviceChains.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                  <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />VSW 集群</span>} value={vRouters.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                  <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DesktopOutlined style={{ color:'#1677ff', marginRight:8 }} />资产列表</span>} value={assets.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                 </Row>
               </>
             )
           },
           {
+            key: 'physical',
+            label: (
+              <Space size={4}>
+                <NodeIndexOutlined />
+                <span>物理主机</span>
+                <span>({physicalElements.length})</span>
+              </Space>
+            ),
+            children: (
+              <>
+                <SharedToolbar
+                  left={
+                    <Input
+                      placeholder="搜索主机名称/管理IP"
+                      prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                      value={physicalSearch}
+                      onChange={(e) => setPhysicalSearch(e.target.value)}
+                      style={{ width: 220 }}
+                      allowClear
+                    />
+                  }
+                  right={
+                    <Space size={8}>
+                      <Popover
+                        trigger="click"
+                        placement="bottomRight"
+                        content={(
+                          <div style={{ width: 720 }}>
+                            <Checkbox.Group
+                              value={physicalVisibleColumnKeys.filter(k => k !== 'action')}
+                              onChange={(vals) => setPhysicalVisibleColumnKeys([...(vals as string[]), 'action'])}
+                            >
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {physicalColumnOptions.map((opt: any) => (
+                                  <Checkbox key={String(opt.value)} value={opt.value}>{opt.label}</Checkbox>
+                                ))}
+                              </div>
+                            </Checkbox.Group>
+                          </div>
+                        )}
+                      >
+                        <Button icon={<SettingOutlined />} />
+                      </Popover>
+                      <Button icon={<ReloadOutlined />} onClick={loadAll} loading={loading} />
+                    </Space>
+                  }
+                />
+                <Table
+                  bordered
+                  rowSelection={physicalRowSelection}
+                  rowKey={(r:any)=> r.host_id || r.id || r.Id || r.uuid}
+                  columns={columnsHostsDisplay as any}
+                  dataSource={filteredPhysicalElements}
+                  loading={loading}
+                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                />
+                {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawPhysical, null, 2)}</pre></div>)}
+              </>
+            )
+          },
+          {
+            key: 'vrouters',
+            label: (
+              <Space size={4}>
+                <DeploymentUnitOutlined />
+                <span>VSW 集群</span>
+                <span>({vRouters.length})</span>
+              </Space>
+            ),
+            children: (
+              <>
+                <SharedToolbar
+                  left={
+                    <Input
+                      placeholder="搜索ID/IP/宿主机IP"
+                      prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                      value={vRouterSearch}
+                      onChange={(e) => setVRouterSearch(e.target.value)}
+                      style={{ width: 220 }}
+                      allowClear
+                    />
+                  }
+                  right={
+                    <Space size={8}>
+                      <Popover
+                        trigger="click"
+                        placement="bottomRight"
+                        content={(
+                          <div style={{ width: 720 }}>
+                            <Checkbox.Group
+                              value={vRouterVisibleColumnKeys.filter(k => k !== 'action')}
+                              onChange={(vals) => setVRouterVisibleColumnKeys([...(vals as string[]), 'action'])}
+                            >
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {vRouterColumnOptions.map((opt: any) => (
+                                  <Checkbox key={String(opt.value)} value={opt.value}>{opt.label}</Checkbox>
+                                ))}
+                              </div>
+                            </Checkbox.Group>
+                          </div>
+                        )}
+                      >
+                        <Button icon={<SettingOutlined />} />
+                      </Popover>
+                      <Button icon={<ReloadOutlined />} onClick={loadAll} loading={loading} />
+                    </Space>
+                  }
+                />
+                <Table
+                  bordered
+                  rowSelection={vRouterRowSelection}
+                  columns={columnsVRoutersDisplay as any}
+                  dataSource={filteredVRouters}
+                  rowKey={(r: any) => r.vrouter_id || r.id || r.Id || r.uuid || Math.random().toString()}
+                  pagination={{ showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
+                  loading={loading}
+                />
+                {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVRouters, null, 2)}</pre></div>)}
+              </>
+            )
+          },
+          {
+            key: 'assets',
+            label: (
+              <Space size={4}>
+                <DesktopOutlined />
+                <span>资产列表</span>
+                <span>({assets.length})</span>
+              </Space>
+            ),
+            children: (
+              <>
+                <SharedToolbar
+                  left={
+                    <>
+                      <Input
+                        placeholder="搜索资产ID/值/类型"
+                        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                        value={assetSearch}
+                        onChange={(e)=> setAssetSearch(e.target.value)}
+                        style={{ width: 220 }}
+                        allowClear
+                      />
+                      <Select
+                        allowClear
+                        placeholder="类型"
+                        value={assetType}
+                        onChange={(v)=> setAssetType(v || undefined)}
+                        style={{ width: 140 }}
+                        options={[
+                          { label: 'IP', value: 'ip' },
+                          { label: '子网', value: 'subnet' },
+                          { label: 'VPC', value: 'vpc' },
+                        ]}
+                      />
+                      <Select
+                        allowClear
+                        placeholder="IP类型"
+                        value={assetIpType}
+                        onChange={(v)=> setAssetIpType(v || undefined)}
+                        style={{ width: 140 }}
+                        options={[
+                          { label: 'IPv4', value: 'ipv4' },
+                          { label: 'IPv6', value: 'ipv6' },
+                        ]}
+                      />
+                      <Input
+                        placeholder="端口"
+                        value={assetPort}
+                        onChange={(e)=> setAssetPort(e.target.value)}
+                        style={{ width: 100 }}
+                        allowClear
+                      />
+                    </>
+                  }
+                  right={
+                    <Space size={8}>
+                      <Button type="primary" onClick={()=> setAssetCreateOpen(true)}>创建资产</Button>
+                      <ResourceActionsDropdown
+                        items={[
+                          { key: 'batch_delete', label: '批量删除', danger: true, disabled: assetSelectedRowKeys.length === 0 },
+                        ]}
+                        onClick={({ key }) => {
+                          if (key === 'batch_delete') handleBatchDeleteAssets();
+                        }}
+                        buttonType="default"
+                        icon={<EllipsisOutlined />}
+                      />
+                      <Popover
+                        trigger="click"
+                        placement="bottomRight"
+                        content={(
+                          <div style={{ width: 720 }}>
+                            <Checkbox.Group
+                              value={assetVisibleColumnKeys.filter(k=> k!=='action')}
+                              onChange={(vals) => setAssetVisibleColumnKeys([...(vals as string[]), 'action'])}
+                            >
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {assetColumnOptions.map((opt: any) => (
+                                  <Checkbox key={String(opt.value)} value={opt.value}>{opt.label}</Checkbox>
+                                ))}
+                              </div>
+                            </Checkbox.Group>
+                          </div>
+                        )}
+                      >
+                        <Button icon={<SettingOutlined />} />
+                      </Popover>
+                      <Button icon={<ReloadOutlined />} onClick={loadAll} loading={loading} />
+                    </Space>
+                  }
+                />
+                <Table
+                  bordered
+                  rowSelection={assetRowSelection}
+                  columns={columnsAssetsDisplay as any}
+                  dataSource={filteredAssets}
+                  rowKey={(r: any) => r.network_id || r.id || r.Id || r.uuid || Math.random().toString()}
+                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  loading={loading}
+                />
+                {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawAssets, null, 2)}</pre></div>)}
+                <Modal
+                  title="创建资产"
+                  open={assetCreateOpen}
+                  onCancel={()=> setAssetCreateOpen(false)}
+                  onOk={handleCreateAsset}
+                  okText="创建"
+                >
+                  <Form form={assetForm} layout="vertical">
+                    <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+                      <Select options={[{label:'IP', value:'ip'}, {label:'子网', value:'subnet'}, {label:'VPC', value:'vpc'}]} />
+                    </Form.Item>
+                    <Form.Item name="ip_type" label="IP类型" initialValue="ipv4" rules={[{ required: true }]}>
+                      <Select options={[{label:'IPv4', value:'ipv4'}, {label:'IPv6', value:'ipv6'}]} />
+                    </Form.Item>
+                    <Form.Item name="value" label="值" rules={[{ required: true }]}>
+                      <Input placeholder="如 10.0.0.1 或 10.0.0.0/24" />
+                    </Form.Item>
+                    <Form.Item name="port" label="端口" tooltip="可选">
+                      <Input placeholder="可选：端口号" />
+                    </Form.Item>
+                  </Form>
+                </Modal>
+                <Modal
+                  title="编辑资产"
+                  open={assetEditOpen}
+                  onCancel={()=> { setAssetEditOpen(false); setEditingAsset(null); }}
+                  onOk={handleEditAsset}
+                  okText="保存"
+                >
+                  <Form form={assetEditForm} layout="vertical">
+                    <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+                      <Select options={[{label:'IP', value:'ip'}, {label:'子网', value:'subnet'}, {label:'VPC', value:'vpc'}]} />
+                    </Form.Item>
+                    <Form.Item name="ip_type" label="IP类型" rules={[{ required: true }]}>
+                      <Select options={[{label:'IPv4', value:'ipv4'}, {label:'IPv6', value:'ipv6'}]} />
+                    </Form.Item>
+                    <Form.Item name="value" label="值" rules={[{ required: true }]}>
+                      <Input />
+                    </Form.Item>
+                    <Form.Item name="port" label="端口" tooltip="可选">
+                      <Input />
+                    </Form.Item>
+                  </Form>
+                </Modal>
+              </>
+            )
+          },
+          {
             key: 'virtual',
-            label: '虚拟安全网元',
+            label: (
+              <Space size={4}>
+                <DeploymentUnitOutlined />
+                <span>虚拟安全网元</span>
+                <span>({virtualElements.length})</span>
+              </Space>
+            ),
             children: (
               <>
                 <SharedToolbar
@@ -422,11 +1212,18 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                         trigger="click"
                         placement="bottomRight"
                         content={(
-                          <Checkbox.Group
-                            options={columnOptions}
-                            value={visibleColumnKeys}
-                            onChange={(vals) => setVisibleColumnKeys(vals as string[])}
-                          />
+                          <div style={{ width: 720 }}>
+                            <Checkbox.Group
+                              value={visibleColumnKeys}
+                              onChange={(vals) => setVisibleColumnKeys(vals as string[])}
+                            >
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {columnOptions.map((opt: any) => (
+                                  <Checkbox key={String(opt.value)} value={opt.value}>{opt.label}</Checkbox>
+                                ))}
+                              </div>
+                            </Checkbox.Group>
+                          </div>
                         )}
                       >
                         <Button icon={<SettingOutlined />} />
@@ -442,47 +1239,101 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsVirtualDisplay as any}
                   dataSource={filteredVirtualElements}
                   loading={loading}
-                  pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVirtual, null, 2)}</pre></div>)}
               </>
             )
           },
           {
-            key: 'physical',
-            label: '物理安全网元',
-            children: (
-              <>
-                <Table
-                  bordered
-                  rowKey={(r:any)=> r.id || r.Id || r.uuid}
-                  columns={columnsCommon}
-                  dataSource={physicalElements}
-                  loading={loading}
-                  pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
-                />
-                {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawPhysical, null, 2)}</pre></div>)}
-              </>
-            )
-          },
-          {
             key: 'groups',
-            label: '安全网元组',
+            label: (
+              <Space size={4}>
+                <SafetyCertificateOutlined />
+                <span>安全网元组</span>
+                <span>({elementGroups.length})</span>
+              </Space>
+            ),
             children: (
               <>
+                <SharedToolbar
+                  left={
+                    <>
+                      <Input
+                        placeholder="搜索网元组名称"
+                        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+                        value={groupSearch}
+                        onChange={(e) => setGroupSearch(e.target.value)}
+                        style={{ width: 220 }}
+                        allowClear
+                      />
+                      <Select
+                        allowClear
+                        placeholder="类型"
+                        value={groupTypeFilter || undefined}
+                        onChange={(v) => setGroupTypeFilter(v || '')}
+                        style={{ width: 140 }}
+                        options={[
+                          ...Array.from(new Set((elementGroups || []).map((r: any) => r?.vm_type).filter(Boolean))).map(t => ({ label: t, value: t }))
+                        ]}
+                      />
+                      <Select
+                        allowClear
+                        placeholder="厂商"
+                        value={groupVendorFilter || undefined}
+                        onChange={(v) => setGroupVendorFilter(v || '')}
+                        style={{ width: 140 }}
+                        options={[
+                          ...Array.from(new Set((elementGroups || []).map((r: any) => r?.vendor_name).filter(Boolean))).map(v => ({ label: v, value: v }))
+                        ]}
+                      />
+                      <Select
+                        allowClear
+                        placeholder="防御类型"
+                        value={groupDefendFilter || undefined}
+                        onChange={(v) => setGroupDefendFilter(v || '')}
+                        style={{ width: 140 }}
+                        options={[
+                          { label: '非流量型', value: '1' },
+                          { label: '流量型', value: '2' },
+                        ]}
+                      />
+                    </>
+                  }
+                  right={
+                    <Space size={8}>
+                      <Popover
+                        trigger="click"
+                        placement="bottomRight"
+                        content={(
+                          <div style={{ width: 720 }}>
+                            <Checkbox.Group
+                              value={groupVisibleColumnKeys.filter(k => k !== 'action')}
+                              onChange={(vals) => setGroupVisibleColumnKeys([...(vals as string[]), 'action'])}
+                            >
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {groupColumnOptions.map((opt: any) => (
+                                  <Checkbox key={String(opt.value)} value={opt.value}>{opt.label}</Checkbox>
+                                ))}
+                              </div>
+                            </Checkbox.Group>
+                          </div>
+                        )}
+                      >
+                        <Button icon={<SettingOutlined />} />
+                      </Popover>
+                      <Button icon={<ReloadOutlined />} onClick={loadAll} loading={loading} />
+                    </Space>
+                  }
+                />
                 <Table
                   bordered
+                  rowSelection={groupRowSelection}
                   rowKey={(r:any)=> r.id || r.Id || r.uuid}
-                  columns={[
-                    { title: '名称', dataIndex: 'name', key: 'name', render: (t:any,r:any)=> t || r?.Name || '-' },
-                    { title: 'ID', dataIndex: 'id', key: 'id', render: (t:any,r:any)=> t || r?.Id || r?.uuid || '-' },
-                    { title: '网元数量', dataIndex: 'count', key: 'count', render: (_:any,r:any)=> Array.isArray(r?.elements) ? r.elements.length : (r?.Count ?? '-') },
-                    { title: '描述', dataIndex: 'description', key: 'desc', render: (t:any,r:any)=> t || r?.Description || '-' },
-                    { title: '创建时间', dataIndex: 'createdAt', key: 'ctime', render: (t:any,r:any)=> t || r?.CreatedAt || r?.createTime || '-' },
-                  ] as any}
-                  dataSource={elementGroups}
+                  columns={columnsGroupsDisplay as any}
+                  dataSource={filteredGroups}
                   loading={loading}
-                  pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawGroups, null, 2)}</pre></div>)}
               </>
@@ -490,7 +1341,13 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           },
           {
             key: 'serviceChains',
-            label: '服务链',
+            label: (
+              <Space size={4}>
+                <UnorderedListOutlined />
+                <span>服务链</span>
+                <span>({serviceChains.length})</span>
+              </Space>
+            ),
             children: <CsmServiceChainSection cloudId={cloudId} showLog={showLog} />
           },
         ]}

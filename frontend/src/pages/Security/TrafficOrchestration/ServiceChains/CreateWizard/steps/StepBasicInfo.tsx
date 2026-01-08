@@ -1,8 +1,7 @@
 import React from 'react';
-import { Alert, Form, Tabs, Row, Col, Tag, Popover, Input, Segmented, Select, Space } from 'antd';
-import { SafetyCertificateOutlined, FileProtectOutlined, CheckCircleFilled, CodeOutlined, SubnodeOutlined, SisternodeOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { Alert, Form, Tabs, Row, Col, Tag, Popover, Input, Segmented, Select, Space, InputNumber } from 'antd';
+import { SafetyCertificateOutlined, FileProtectOutlined, CheckCircleFilled, CodeOutlined, SubnodeOutlined, SisternodeOutlined, CloudServerOutlined, NumberOutlined } from '@ant-design/icons';
 import { SCENARIOS } from '../constants';
-import type { CustomTransferItem } from '../constants';
 
 export default function StepBasicInfo(props: any) {
   const {
@@ -192,7 +191,7 @@ export default function StepBasicInfo(props: any) {
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={6}>
               <Form.Item name="type" label="服务链类型" initialValue="serial" rules={[{ required: true, message: '请选择类型' }]}>
                 <Segmented
                   options={[
@@ -204,13 +203,24 @@ export default function StepBasicInfo(props: any) {
                 />
               </Form.Item>
             </Col>
+            <Col span={6}>
+              <Form.Item name="vrf_id" label="VRF ID" initialValue={0} rules={[{ required: true, message: '请输入VRF ID' }]}>
+                <InputNumber
+                  placeholder="0"
+                  prefix={<NumberOutlined style={{ color: '#bfbfbf' }} />}
+                  size="middle"
+                  style={{ width: '100%', borderRadius: 6 }}
+                  min={0}
+                />
+              </Form.Item>
+            </Col>
           </Row>
 
           <Row gutter={24}>
             <Col span={12}>
-              <Form.Item name="cluster" label="所属集群" rules={[{ required: true, message: '请选择集群' }]}>
+              <Form.Item name="cluster" label="安全资源池" rules={[{ required: true, message: '请选择安全资源池' }]}>
                 <Select
-                  placeholder="请选择集群"
+                  placeholder="请选择安全资源池"
                   size="middle"
                   suffixIcon={<CloudServerOutlined style={{ color: '#bfbfbf' }} />}
                   style={{ borderRadius: 6 }}
@@ -283,4 +293,3 @@ export default function StepBasicInfo(props: any) {
     </div>
   );
 }
-

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Divider, Form, Input, Modal, Select, Space, Table, Tag, Dropdown, Transfer, message } from 'antd';
+import { Button, Form, Input, Modal, Select, Space, Table, Tag, Dropdown, Transfer, message } from 'antd';
 import StdFormModal from '../../../components/StdFormModal';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import { UserOutlined, PlusOutlined, EllipsisOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
@@ -140,7 +140,6 @@ const AccessUsersPage: React.FC = () => {
       subtitle="管理系统用户并为其赋予访问控制角色"
       asCard={false}
     >
-      <Divider style={{ margin: '0 0 20px 0' }} />
       <div className="filters-row">
         <Form className="filter-tools filter-tools--center" layout="vertical" style={{ rowGap: 12, columnGap: 12, display:'flex', alignItems:'flex-end' }} onValuesChange={(_,all)=> { setKw(all.keyword||''); setStatusFilter(all.status||'active'); }}>
           <Form.Item name="keyword" label="关键字"><Input allowClear placeholder="搜索用户名/姓名/邮箱" style={{ width: 240 }} /></Form.Item>

@@ -76,7 +76,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
     return '-';
   };
 
-  const columns = [
+  const columns = React.useMemo(() => [
     { title: '服务链ID', dataIndex: 'service_chain_id', key: 'service_chain_id', render: (_: any, r: any) => r?.service_chain_id || r?.id || '-' },
     { title: '服务链类型', dataIndex: 'type', key: 'type', width: 120, render: (_: any, r: any) => deriveType(r) },
     { title: '防护对象', dataIndex: 'network_ids', key: 'targets', width: 120, render: (v: any) => {
@@ -98,10 +98,26 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
       return (
         <ResourceActionsDropdown
           items={[
+            { key: 'metadata', label: '查看元数据' },
             { key: 'detail', label: '详情' },
+            { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, disabled: !chainId },
           ]}
           onClick={async ({ key }) => {
+            if (key === 'metadata') {
+              Modal.info({
+                title: '服务链元数据',
+                width: 600,
+                content: (
+                  <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
+                    <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+{JSON.stringify(r, null, 2)}
+                    </pre>
+                  </div>
+                )
+              });
+              return;
+            }
             if (key === 'detail') {
               window.open('#', '_blank');
               return;
@@ -126,7 +142,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
         />
       );
     } },
-  ] as any[];
+  ] as any[], [cloudId, load]);
 
   React.useEffect(() => {
     const initKeys = columns.map((c: any) => c.key).filter((k: string) => k !== 'action');
@@ -172,35 +188,23 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
         }
         right={
           <Space size={8}>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/admin/security/traffic/service-chains/create')}>
+            <Button type="primary" onClick={() => navigate('/admin/security/traffic/service-chains/create')}>
               创建服务链
             </Button>
-            <Button icon={<ReloadOutlined />} onClick={load} />
             <Popover
               trigger="click"
+              placement="bottomRight"
               content={(
-                <div style={{ maxWidth: 240 }}>
-                  {columnOptions.map(opt => (
-                    <div key={opt.value} style={{ marginBottom: 6 }}>
-                      <Checkbox
-                        checked={visibleColumnKeys.includes(opt.value)}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setVisibleColumnKeys(prev => {
-                            if (checked) return Array.from(new Set([...prev, opt.value]));
-                            return prev.filter(k => k !== opt.value);
-                          });
-                        }}
-                      >
-                        {opt.label}
-                      </Checkbox>
-                    </div>
-                  ))}
-                </div>
+                <Checkbox.Group
+                  options={columnOptions}
+                  value={visibleColumnKeys}
+                  onChange={(vals) => setVisibleColumnKeys(vals as string[])}
+                />
               )}
             >
               <Button icon={<SettingOutlined />} />
             </Popover>
+            <Button icon={<ReloadOutlined />} onClick={load} />
           </Space>
         }
       />
@@ -210,7 +214,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
         columns={columnsDisplay}
         dataSource={filteredItems}
         loading={loading}
-        pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
       {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(raw, null, 2)}</pre></div>)}
     </>

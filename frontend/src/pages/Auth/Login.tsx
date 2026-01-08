@@ -41,7 +41,7 @@ const Login: React.FC = () => {
           <p className="login-subtitle">多云管理平台</p>
         </div>
         
-        <Card className="login-card" bordered={false}>
+        <Card className="login-card" variant="borderless">
           <Form
             form={form}
             name="login"

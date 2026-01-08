@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactFlow, {
   Controls,
   Background,
@@ -23,6 +23,62 @@ const getField = (data: Record<string, any>, keys: string[]): string => {
 };
 
 const nodeTypes = {
+  platform: (props: NodeProps) => {
+    const isOnline = true;
+    return (
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div
+          style={{
+            position: 'relative',
+            width: 100,
+            height: 100,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 12px 48px rgba(83, 29, 171, 0.35), 0 0 30px rgba(114, 46, 209, 0.3)',
+            border: '4px solid white',
+            zIndex: 3
+          }}
+        >
+          <ClusterOutlined style={{ fontSize: 48, color: 'white' }} />
+          <Handle type="source" position={Position.Top} id="center-out" style={{ opacity: 0, top: '58%', left: '50%', transform: 'translate(-50%,-50%)' }} />
+          <Handle type="target" position={Position.Top} id="center-in" style={{ opacity: 0, top: '58%', left: '50%', transform: 'translate(-50%,-50%)' }} />
+          <Handle type="source" position={Position.Top} id="top-out" style={{ opacity: 0 }} />
+          <Handle type="source" position={Position.Bottom} id="bottom-out" style={{ opacity: 0 }} />
+          <Handle type="source" position={Position.Left} id="left-out" style={{ opacity: 0 }} />
+          <Handle type="source" position={Position.Right} id="right-out" style={{ opacity: 0 }} />
+          <Handle type="target" position={Position.Top} id="top-in" style={{ opacity: 0 }} />
+          <Handle type="target" position={Position.Bottom} id="bottom-in" style={{ opacity: 0 }} />
+          <Handle type="target" position={Position.Left} id="left-in" style={{ opacity: 0 }} />
+          <Handle type="target" position={Position.Right} id="right-in" style={{ opacity: 0 }} />
+        </div>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          padding: '8px 12px',
+          background: 'rgba(255,255,255,0.95)',
+          borderRadius: 12,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+          border: '1px solid #f0f0f0'
+        }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#262626' }}>
+            Compute.Tower 平台
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: '#666' }}>纳管中心</span>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: isOnline ? '#52c41a' : '#ff4d4f',
+              boxShadow: isOnline ? '0 0 8px rgba(82, 196, 26, 0.4)' : '0 0 8px rgba(255, 77, 79, 0.4)'
+            }} />
+          </div>
+        </div>
+      </div>
+    );
+  },
   cloud: (props: NodeProps) => {
     const platformKeys = [
       'platform', 'provider', 'cloudPlatform', 'vendor', 'cloud_vendor', 'cloudProvider', 'cloud_platform', 'platformName', 'platform_name'
@@ -80,31 +136,24 @@ const nodeTypes = {
     const cloudRegion = getField(props.data, ['region', 'location', 'area']);
     const provider = providerMap[platformValue] || platformValue || '-';
 
-    // 动态计算卡片位置 - 让卡片在拓扑图外侧
-    const canvasWidth = 1200; // 假设画布宽度
-    const canvasHeight = 800;  // 假设画布高度
+    const cx = (props.data && props.data.center && typeof props.data.center.x === 'number') ? props.data.center.x : ((typeof window !== 'undefined' && window.innerWidth) ? Math.round(window.innerWidth / 2) : 600);
+    const cy = (props.data && props.data.center && typeof props.data.center.y === 'number') ? props.data.center.y : ((typeof window !== 'undefined' && window.innerHeight) ? Math.round(window.innerHeight / 2) : 400);
     const nodeX = props.xPos || 0;
     const nodeY = props.yPos || 0;
     
-    // 判断节点在画布中的位置
-    const isLeftSide = nodeX < canvasWidth / 2;
-    const isTopSide = nodeY < canvasHeight / 2;
+    const isLeftSide = nodeX < cx;
+    const isTopSide = nodeY < cy;
     
-    // 根据位置决定卡片方向 - 朝向画布外侧
-    let cardDirection = 'right'; // 默认右侧
-    if (isLeftSide) {
-      cardDirection = 'left'; // 左侧节点，卡片在左（朝向外侧）
-    } else {
-      cardDirection = 'right'; // 右侧节点，卡片在右（朝向外侧）
-    }
+    const cardDirection = 'bottom'; // 注释卡片统一在主节点下方
 
     return (
       <div style={{ 
         position: 'relative', 
         display: 'flex', 
         alignItems: 'center', 
-        gap: 16,
-        flexDirection: cardDirection === 'left' ? 'row-reverse' : 'row'
+        justifyContent: 'center',
+        gap: 12,
+        flexDirection: 'column'
       }}>
         {/* 主图标节点 */}
         <div
@@ -143,6 +192,28 @@ const nodeTypes = {
           <CodepenOutlined style={{ fontSize: 40, color: 'white' }} />
 
           {/* 连接点 - 隐藏但保持功能 */}
+          <Handle 
+            type="source" 
+            position={Position.Top} 
+            id="center-out"
+            style={{ 
+              opacity: 0,
+              left: '50%',
+              top: '50%',
+              transform: 'translate(-50%, -50%)'
+            }} 
+          />
+          <Handle 
+            type="target" 
+            position={Position.Top} 
+            id="center-in"
+            style={{ 
+              opacity: 0,
+              left: '50%',
+              top: '50%',
+              transform: 'translate(-50%, -50%)'
+            }} 
+          />
           <Handle 
             type="source" 
             position={Position.Bottom} 
@@ -314,6 +385,20 @@ const TopologyPage: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [cloudStats, setCloudStats] = useState({ total: 0, online: 0 });
+  const mainRef = useRef<HTMLDivElement>(null);
+  const [canvasHeight, setCanvasHeight] = useState<number>(600);
+
+  useEffect(() => {
+    const calc = () => {
+      const rectTop = mainRef.current ? mainRef.current.getBoundingClientRect().top : 0;
+      const bottomPadding = 24;
+      const h = Math.max(300, Math.floor((typeof window !== 'undefined' ? window.innerHeight : 800) - rectTop - bottomPadding));
+      setCanvasHeight(h);
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
 
   useEffect(() => {
     const fetchClouds = async () => {
@@ -328,123 +413,69 @@ const TopologyPage: React.FC = () => {
         const online = clouds.filter((c: any) => c.status === 'online').length;
         setCloudStats({ total, online });
         
-        // 分散布局算法 - 圆形和随机分布
-        const nodeList: Node[] = clouds.map((cloud: any, idx: number) => {
-          const totalNodes = clouds.length;
-          let x, y;
-          
-          if (totalNodes <= 6) {
-            // 少量节点时使用圆形布局
-            const angle = (idx * 2 * Math.PI) / totalNodes;
-            const radius = 300;
-            const centerX = 600;
-            const centerY = 400;
-            x = centerX + Math.cos(angle) * radius;
-            y = centerY + Math.sin(angle) * radius;
-          } else {
-            // 多节点时使用分散网格 + 随机偏移
-            const cols = Math.ceil(Math.sqrt(totalNodes));
-            const row = Math.floor(idx / cols);
-            const col = idx % cols;
-            const baseX = 200 + col * 400;
-            const baseY = 250 + row * 300;
-            // 添加随机偏移让分布更自然
-            const offsetX = (Math.random() - 0.5) * 100;
-            const offsetY = (Math.random() - 0.5) * 100;
-            x = baseX + offsetX;
-            y = baseY + offsetY;
-          }
-          
-          return {
-            id: `cloud-${cloud.id}`,
-            type: 'cloud',
-            position: { x, y },
-            data: { ...cloud },
-          };
-        });
-        
-        setNodes(nodeList);
-        
-        // 创建双向全连接边 - 使用相邻连接点避免交叉
-        const edgeList: Edge[] = [];
-        for (let i = 0; i < nodeList.length; i++) {
-          for (let j = i + 1; j < nodeList.length; j++) {
-            const node1 = nodeList[i];
-            const node2 = nodeList[j];
-            
-            // 计算两个节点的相对位置来选择最佳连接方向
-            const dx = node2.position.x - node1.position.x;
-            const dy = node2.position.y - node1.position.y;
-            
-            let sourceHandle1, targetHandle1, sourceHandle2, targetHandle2;
-            
-            // 根据相对位置选择连接点，使用同一路径避免交叉
-            if (Math.abs(dx) > Math.abs(dy)) {
-              // 水平方向为主
-              if (dx > 0) {
-                // node2 在 node1 右侧 - 都使用右-左连接
-                sourceHandle1 = 'right-out';    // node1 右侧输出
-                targetHandle1 = 'left-in';      // node2 左侧输入
-                sourceHandle2 = 'left-out';     // node2 左侧输出
-                targetHandle2 = 'right-in';     // node1 右侧输入
-              } else {
-                // node2 在 node1 左侧 - 都使用左-右连接
-                sourceHandle1 = 'left-out';     // node1 左侧输出
-                targetHandle1 = 'right-in';     // node2 右侧输入
-                sourceHandle2 = 'right-out';    // node2 右侧输出
-                targetHandle2 = 'left-in';      // node1 左侧输入
-              }
-            } else {
-              // 垂直方向为主
-              if (dy > 0) {
-                // node2 在 node1 下方 - 都使用上-下连接
-                sourceHandle1 = 'bottom-out';   // node1 底部输出
-                targetHandle1 = 'top-in';       // node2 顶部输入
-                sourceHandle2 = 'top-out';      // node2 顶部输出
-                targetHandle2 = 'bottom-in';    // node1 底部输入
-              } else {
-                // node2 在 node1 上方 - 都使用下-上连接
-                sourceHandle1 = 'top-out';      // node1 顶部输出
-                targetHandle1 = 'bottom-in';    // node2 底部输入
-                sourceHandle2 = 'bottom-out';   // node2 底部输出
-                targetHandle2 = 'top-in';       // node1 顶部输入
-              }
-            }
-            
-            // 第一条边：从 i 到 j (蓝色实线，直角连接)
-            edgeList.push({
-              id: `${node1.id}-${node2.id}`,
-              source: node1.id,
-              target: node2.id,
-              sourceHandle: sourceHandle1,
-              targetHandle: targetHandle1,
-              type: 'step',
-              style: {
-                stroke: '#1890ff',
-                strokeWidth: 3,
-                zIndex: 1,
-              },
-              animated: true
+        const W = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1200;
+        const H = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
+        const centerX = Math.round(W / 2);
+        const platformY = Math.round(H * 0.22);
+        const minDim = Math.min(W, H);
+        const platformNode: Node = {
+          id: 'platform-center',
+          type: 'platform',
+          position: { x: centerX, y: platformY },
+          data: { name: 'Compute.Tower 平台' },
+        };
+
+        const totalNodes = clouds.length;
+        const tileWidth = 260;
+        const tileHeight = 160;
+        const baseSpacing = 48;
+        const availWidth = Math.floor(W * 0.86);
+        let spacing = baseSpacing;
+        let totalWidth = totalNodes * tileWidth + Math.max(0, totalNodes - 1) * spacing;
+        let rows = 1;
+        if (totalWidth > availWidth) {
+          rows = Math.ceil(totalWidth / availWidth);
+        }
+        const perRowCap = Math.max(1, Math.ceil(totalNodes / rows));
+        const nodeList: Node[] = [];
+        let index = 0;
+        for (let r = 0; r < rows; r++) {
+          const remaining = totalNodes - index;
+          const count = Math.min(perRowCap, remaining);
+          const rowWidth = count * tileWidth + Math.max(0, count - 1) * spacing;
+          const startX = centerX - Math.floor(rowWidth / 2) + Math.floor(tileWidth / 2);
+          const y = platformY + 220 + r * (tileHeight + 80);
+          for (let k = 0; k < count; k++) {
+            const cloud = clouds[index];
+            const x = startX + k * (tileWidth + spacing);
+            nodeList.push({
+              id: `cloud-${cloud.id}`,
+              type: 'cloud',
+              position: { x, y },
+              data: { ...cloud, center: { x: centerX, y: platformY } },
             });
-            
-            // 第二条边：从 j 到 i (绿色虚线，直角连接)
-            edgeList.push({
-              id: `${node2.id}-${node1.id}`,
-              source: node2.id,
-              target: node1.id,
-              sourceHandle: sourceHandle2,
-              targetHandle: targetHandle2,
-              type: 'step',
-              style: {
-                stroke: '#52c41a',
-                strokeWidth: 2,
-                strokeDasharray: '8,4',
-                zIndex: 0,
-              },
-              animated: true
-            });
+            index += 1;
           }
         }
+        
+        setNodes([platformNode, ...nodeList]);
+        
+        const edgeList: Edge[] = nodeList.map((cloudNode) => {
+          return {
+            id: `platform-center-${cloudNode.id}`,
+            source: 'platform-center',
+            target: cloudNode.id,
+            sourceHandle: 'center-out',
+            targetHandle: 'center-in',
+            type: 'bezier',
+            style: {
+              stroke: '#1890ff',
+              strokeWidth: 3,
+              strokeDasharray: '8,4'
+            },
+            animated: true
+          };
+        });
         setEdges(edgeList);
       } catch (e) {
         setCloudStats({ total: 0, online: 0 });
@@ -459,7 +490,7 @@ const TopologyPage: React.FC = () => {
     (params: any) => setEdges((eds) => [...eds, { 
       ...params, 
       id: `${params.source}-${params.target}`, 
-      type: 'step',
+      type: 'bezier',
       style: { 
         stroke: '#1890ff', 
         strokeWidth: 2,
@@ -493,7 +524,7 @@ const TopologyPage: React.FC = () => {
       }} />
 
       {/* 主内容区域 */}
-      <div style={{ position: 'relative', width: '100%', height: '100vh' }}>
+      <div style={{ position: 'relative', width: '100%' }} ref={mainRef}>
                 {/* 标题和统计 - 漂浮在左上角 */}
         <div style={{
           position: 'absolute',
@@ -672,7 +703,7 @@ const TopologyPage: React.FC = () => {
       </div>
 
         {/* 拓扑画布 */}
-        <div style={{ height: '100%' }}>
+        <div style={{ height: canvasHeight }}>
           <ReactFlow
             nodes={nodes}
             edges={edges}

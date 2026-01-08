@@ -358,6 +358,12 @@ const StepOrchestrationContent: React.FC<StepOrchestrationProps> = ({
               rowKey="id"
               columns={[
                 { 
+                  title: 'ID', 
+                  dataIndex: 'id', 
+                  width: 220, 
+                  render: (t: any) => <span style={{ fontFamily: 'monospace' }}>{t}</span> 
+                },
+                { 
                   title: '集群名称', 
                   dataIndex: 'name', 
                   width: 180, 

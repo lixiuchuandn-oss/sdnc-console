@@ -1,4 +1,4 @@
-~import { Router } from 'express';
+import { Router } from 'express';
 import { AppDataSource } from '../config/database';
 import { ServiceCatalog } from '../entities/ServiceCatalog';
 import { SecurityDomain } from '../entities/SecurityDomain';

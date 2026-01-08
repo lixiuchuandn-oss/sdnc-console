@@ -18,5 +18,11 @@
     "types": ["node", "jest"]
   },
   "include": ["src/**/*", "*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "src/standalone_test.ts",
+    "src/test_csm_assets_manual.ts"
+  ]
 }

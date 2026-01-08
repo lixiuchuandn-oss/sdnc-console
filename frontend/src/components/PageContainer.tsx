@@ -318,7 +318,7 @@ const PageContainer = <T extends Record<string, any> = any>({
 
       {/* 内容容器：可选择使用卡片或直接渲染 */}
       {asCard ? (
-        <Card bordered={bordered} style={cardStyle} styles={{ body: { padding: contentPadding } }}>
+        <Card variant={bordered ? 'outlined' : 'borderless'} style={cardStyle} styles={{ body: { padding: contentPadding } }}>
           {children}
         </Card>
       ) : (

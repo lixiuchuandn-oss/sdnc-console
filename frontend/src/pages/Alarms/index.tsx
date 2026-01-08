@@ -80,7 +80,7 @@ const Alarms: React.FC = () => {
       </Row>
       {/* table */}
       <div style={{ padding: '0 36px' }}>
-        <Card bordered={false} styles={{ body: { padding: 0 } }}>
+        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
           <Table columns={columns} dataSource={alarms} rowKey="id" loading={loading} pagination={{ showSizeChanger: true, showQuickJumper: true, showTotal: t => `共 ${t} 条记录` }} />
         </Card>
       </div>
