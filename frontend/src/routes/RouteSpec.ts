@@ -28,6 +28,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '资源控制台',
     title: '云主机控制台',
+    breadcrumbLabel: '云主机控制台',
     icon: 'DesktopOutlined',
     order: 10
   },
@@ -50,6 +51,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '资源控制台',
     title: '算力网络拓扑',
+    subtitle: '可视化展示网络拓扑结构，支持跨域连接、流量路径与设备状态的实时监控。',
     icon: 'DeploymentUnitOutlined',
     order: 2
   },
@@ -61,6 +63,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '资源控制台',
     title: '资源池管理',
+    breadcrumbLabel: '资源池管理',
     subtitle: '统一管理各云资源池的状态与资源，支持监控与运维。',
     icon: 'CloudUploadOutlined',
     order: 3
@@ -73,6 +76,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '租户管理',
     title: '租户管理',
+    subtitle: '租户（Tenant）用于隔离不同组织或项目的资源与权限，支持组织架构、用户与角色管理、资源池分配等。',
     icon: 'TeamOutlined',
     order: 1
   },
@@ -84,6 +88,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '租户管理',
     title: '租户专线管理',
+    subtitle: '一站式管理租户专线IP；支持多维筛选/全列排序与批量操作；联动安全报告任务（进度跟踪、下载/取消/删除）；提供CSV导入与日志文件管理。',
     icon: 'BarChartOutlined',
     order: 2
   },
@@ -106,6 +111,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '权限管控',
     title: '策略管理',
+    subtitle: '集中管理系统权限策略与自定义策略，支持基于 RBAC 与 ABAC 的细粒度控制。',
     icon: 'SafetyCertificateOutlined',
     order: 1
   },
@@ -117,6 +123,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '权限管控',
     title: '权限原子',
+    subtitle: '列出后端提供的 API 级别功能点，供策略组合与角色授权使用。',
     icon: 'ApiOutlined',
     order: 0
   },
@@ -128,6 +135,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '权限管控',
     title: '角色管理',
+    subtitle: '角色用于将权限策略批量授权给用户或租户，便于统一管理与快速复用。',
     icon: 'SolutionOutlined',
     order: 2
   },
@@ -139,6 +147,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '权限管控',
     title: '用户管理',
+    subtitle: '管理系统用户并为其赋予访问控制角色',
     icon: 'UserOutlined',
     order: 3
   },
@@ -153,9 +162,21 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '安全管理面',
     title: '安全域管理',
-    subtitle: '统一管理多云环境下的安全隔离域',
-    icon: 'SafetyCertificateOutlined',
+    subtitle: '构建跨多云环境的统一安全边界，通过逻辑隔离与策略编排，实现对 VPC、办公网及扁平网络等异构资产的精细化防护与全生命周期管理。',
+    icon: 'ClusterOutlined',
     order: 1
+  },
+  {
+    id: 'security-domain-detail',
+    path: '/admin/sec-mgr-plane/security-domain/:id',
+    element: 'SecurityDomainDetail',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '安全管理面',
+    title: '安全域详情',
+    breadcrumbLabel: '详情',
+    hidden: true,
+    parentId: 'security-domain',
   },
   {
     id: 'cascade-channels',
@@ -168,6 +189,18 @@ export const routeSpecs: RouteSpec[] = [
     subtitle: '跨地域、跨云的安全互联通道管理',
     icon: 'ShareAltOutlined',
     order: 2
+  },
+  {
+    id: 'cascade-channels-detail',
+    path: '/admin/sec-mgr-plane/cascade-channels/:id',
+    element: 'CENDetailPage',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '安全管理面',
+    title: '级联通道详情',
+    breadcrumbLabel: '详情',
+    hidden: true,
+    parentId: 'cascade-channels',
   },
   {
     id: 'smp-apps',
@@ -191,6 +224,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨地域互联',
     title: 'VR实例管理',
+    subtitle: 'VR（Virtual Router）实例用于在多云与异构网络之间提供路由与互联能力，支持跨区域连通、BGP/静态路由、策略与监控，帮助实现稳定、安全、高效的网络连接。',
     icon: 'GatewayOutlined',
     order: 1
   },
@@ -202,6 +236,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨地域互联',
     title: 'SRv6隧道管理',
+    subtitle: 'SRv6（Segment Routing over IPv6）用于在 IPv6 网络中实现基于段的路由，支持灵活的流量工程与业务编排。',
     icon: 'NodeIndexOutlined',
     order: 2
   },
@@ -213,6 +248,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '跨地域互联',
     title: 'IPsecVPN管理',
+    subtitle: '通过 IKEv1/IKEv2 协议创建加密虚拟专用网络，支持拓扑查看、配置审计和状态监控，保障跨网络数据传输安全。',
     icon: 'LockOutlined',
     order: 3
   },
@@ -223,7 +259,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'SDNCC',
     group: '跨地域互联',
-    title: '网络ACL',
+    title: 'ACL 访问控制列表',
+    subtitle: '配置基于优先级的访问控制规则，支持 TCP/UDP/ICMP 协议过滤和源/目的地址匹配，实现网络流量的精细化管控。',
     icon: 'FileTextOutlined',
     order: 4
   },
@@ -234,7 +271,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'SDNCC',
     group: '跨地域互联',
-    title: 'NAT管理',
+    title: 'NAT 网络地址转换',
+    subtitle: '创建 SNAT/DNAT/静态 NAT 规则，实现私网地址与公网地址的转换，支持接口绑定和地址段映射，解决内网主机访问公网需求。',
     icon: 'SwapOutlined',
     order: 5
   },
@@ -247,7 +285,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'SDNCC',
     group: '流量编排',
-    title: '引流对象管理',
+    title: '防护对象管理（CSM 资产）',
+    subtitle: '直接对已接入的 CSM 安全资源池资产进行统一生命周期管理',
     icon: 'SafetyCertificateOutlined',
     order: 1
   },
@@ -258,7 +297,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'SDNCC',
     group: '流量编排',
-    title: '服务链编排',
+    title: '服务链管理',
+    subtitle: '服务链（Service Chain）通过灵活编排网络流量经过防火墙、IPS、WAF 等安全组件，实现业务流量的按需清洗与防护，支持串行阻断与旁路检测模式。',
     icon: 'NodeIndexOutlined',
     order: 2
   },
@@ -270,8 +310,21 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: '流量编排',
     title: '引流策略管理',
+    subtitle: '统一配置引流策略与阻断策略，实现对流量的灵活调度、牵引清洗及安全阻断，全方位保障网络安全与业务连续性。',
     icon: 'FileTextOutlined',
     order: 3
+  },
+  {
+    id: 'traffic-security-zones',
+    path: '/admin/security/traffic/security-zones',
+    element: 'SecurityZones',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '流量编排',
+    title: '安全域管理',
+    subtitle: '安全域（Security Zone）构建了逻辑隔离的网络安全边界，支持将防火墙、IPS、WAF 等多类安全网元划分至同一信任域。通过定义域间与域内的流量控制策略，实现不同安全等级业务的精细化防护与威胁隔离。',
+    icon: 'BorderOuterOutlined',
+    order: 4
   },
 
   {

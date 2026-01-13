@@ -4,7 +4,7 @@ import { ArrowLeftOutlined, UserOutlined, ReloadOutlined, MinusCircleOutlined, P
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { fetchVrRealtimeList, normalizeVrRows } from '../../../services/vrCacheApi';
-import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderEips, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchHuaweiPorts, fetchCloudProviderSubnetsByVpc } from '../../../services/api';
+import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchHuaweiPorts, fetchCloudProviderSubnetsByVpc, fetchTenants } from '../../../services/api';
 import { createSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 
 interface VRRowOpt { uuid: string; name: string; }
@@ -21,7 +21,7 @@ const SecurityDomainWizardPage: React.FC = () => {
   const [eniOptions, setEniOptions] = useState<any[]>([]);
   const [subnets, setSubnets] = useState<any[]>([]);
   const [rawEnis, setRawEnis] = useState<any[]>([]);
-  const [resLoading, setResLoading] = useState<boolean>(false);
+  // const [resLoading, setResLoading] = useState<boolean>(false);
   const [debugEcs, setDebugEcs] = useState<any[]>([]);
   const [debugPorts, setDebugPorts] = useState<any[]>([]);
   const [debugOpen, setDebugOpen] = useState<boolean>(false);
@@ -32,13 +32,23 @@ const SecurityDomainWizardPage: React.FC = () => {
   const [normalizedVpcs, setNormalizedVpcs] = useState<Array<{ id: string; name: string; label: string }>>([]);
   const [rawVpcs, setRawVpcs] = useState<any[]>([]);
   const [vpcLoading, setVpcLoading] = useState<boolean>(false);
-  const [autoBinding, setAutoBinding] = useState<boolean>(false);
+  // const [autoBinding, setAutoBinding] = useState<boolean>(false);
+
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [tenantLoading, setTenantLoading] = useState<boolean>(false);
 
   const stepTitle = useMemo(() => {
     if (current === 0) return '设定基础信息';
     if (current === 1) return '设定安全域';
     return '确认安全域';
   }, [current]);
+
+  const generateRandomName = () => {
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    return `sec-domain-${randomSuffix}`;
+  };
+
+  const [randomName] = useState<string>(generateRandomName());
 
   const loadVRList = async () => {
     setVrLoading(true);
@@ -127,7 +137,7 @@ const SecurityDomainWizardPage: React.FC = () => {
       setEniOptions([]);
       return;
     }
-    setResLoading(true);
+    // setResLoading(true);
     const cloud = clouds.find((c) => String(c?.id || c?._id || c?.uuid || c?.cloudId) === String(cloudId));
     const provider = (cloud?.config?.provider || cloud?.type || '').toLowerCase();
     setProviderKey(provider);
@@ -386,168 +396,184 @@ const SecurityDomainWizardPage: React.FC = () => {
       console.error(e);
       // message.warning('关联资源列表获取失败');
     } finally {
-      setResLoading(false);
+      // setResLoading(false);
     }
   };
 
-  const autoBindResources = async (cloudId?: string, vpcId?: string) => {
-    const cid = String(cloudId || '').trim();
-    const vid = String(vpcId || '').trim();
-    if (!cid || !vid) return;
-    setAutoBinding(true);
+  // const autoBindResources = async (cloudId?: string, vpcId?: string) => {
+  //   const cid = String(cloudId || '').trim();
+  //   const vid = String(vpcId || '').trim();
+  //   if (!cid || !vid) return;
+  //   // setAutoBinding(true);
+  //   try {
+  //     const cloud = clouds.find((c) => String(c?.id || c?._id || c?.uuid || c?.cloudId) === String(cid));
+  //     const provider = (cloud?.config?.provider || cloud?.type || '').toLowerCase();
+
+  //     let validVmIds: Set<string> | null = null;
+  //     let enis: any[] = [];
+
+  //     if (provider.includes('huawei') || provider === 'huaweicloud' || provider.includes('华为云')) {
+  //       const subnetsJson: any = await fetchCloudProviderSubnets(cid);
+  //       const subnetList: any[] = (subnetsJson?.data?.subnets) || (subnetsJson?.subnets) || [];
+  //       const subnetIdsInVpc = new Set(
+  //         subnetList.filter((s: any) => String(s?.vpc_id || s?.VpcId || '').trim() === String(vid).trim())
+  //                   .map((s: any) => String(s?.id || s?.SubnetId || '').trim())
+  //       );
+  //       const ecsJson: any = await fetchCloudProviderEcs(cid);
+  //       const ecsList: any[] = (ecsJson?.data?.servers) || (ecsJson?.servers) || [];
+  //       const aggPorts: any[] = [];
+  //       for (const vm of (Array.isArray(ecsList) ? ecsList : [])) {
+  //         const vmId = String(vm?.id || vm?.InstanceId || vm?.instance_id || '');
+  //         if (!vmId) continue;
+  //         try {
+  //           const pj = await fetchHuaweiPorts(cid, { deviceId: vmId });
+  //           const pls: any[] = (pj?.data?.ports) || (pj?.ports) || [];
+  //           aggPorts.push(...pls.filter((p: any) => {
+  //             const ips: any[] = Array.isArray(p?.fixed_ips) ? p.fixed_ips : [];
+  //             return ips.some((fi: any) => subnetIdsInVpc.has(String(fi?.subnet_id || '').trim()));
+  //           }));
+  //         } catch (e) {}
+  //       }
+  //       enis = aggPorts;
+  //       validVmIds = new Set(enis.map((p: any) => String(p?.device_id || '')).filter(Boolean));
+  //       if (!validVmIds || validVmIds.size === 0) {
+  //         const portIdsInVpc = new Set(enis.map((p: any) => String(p?.id || p?.port_id || '')).filter(Boolean));
+  //         const networkIdsInVpc = new Set(enis.map((p: any) => String(p?.network_id || '')).filter(Boolean));
+  //         const ecsJson: any = await fetchCloudProviderEcs(cid);
+  //         const ecsList: any[] = (ecsJson?.data?.servers) || (ecsJson?.servers) || [];
+  //         const setByAddr = new Set<string>();
+  //         (Array.isArray(ecsList) ? ecsList : []).forEach((x: any) => {
+  //           const addrs = x?.addresses;
+  //           if (addrs && !Array.isArray(addrs)) {
+  //             Object.entries(addrs).forEach(([netKey, arr]: [string, any]) => {
+  //               const ips: any[] = Array.isArray(arr) ? arr : [];
+  //               const hasPortId = ips.some((i: any) => portIdsInVpc.has(String(i?.['OS-EXT-IPS:port_id'] || '')));
+  //               const hasNetworkKey = networkIdsInVpc.has(String(netKey || '').trim());
+  //               if (hasPortId || hasNetworkKey) {
+  //                 const id0 = String(x?.id || x?.InstanceId || x?.instance_id || '');
+  //                 if (id0) setByAddr.add(id0);
+  //               }
+  //             });
+  //           }
+  //         });
+  //         if (setByAddr.size > 0) validVmIds = setByAddr;
+  //       }
+  //     } else if (provider === 'harvester' || provider.includes('cloudmap')) {
+  //       enis = [];
+  //     } else {
+  //       const eniRes: any = await fetchCloudProviderEnis(cid, { vpcId: vid });
+  //       const eniList: any[] = eniRes?.data?.NetworkInterfaces?.NetworkInterface || eniRes?.data?.enis || eniRes?.enis || eniRes?.list || [];
+  //       enis = Array.isArray(eniList) ? eniList : [];
+  //     }
+  //     setRawEnis(enis);
+
+  //     const instRes: any = await fetchInventoryInstancesByCloud(cid);
+  //     let allInst: any[] = (instRes?.data?.instances || instRes?.instances || instRes?.data || instRes || []);
+  //     if (provider.includes('huawei') || provider === 'huaweicloud') {
+  //       const ecsJson: any = await fetchCloudProviderEcs(cid);
+  //       const ecsList: any[] = (ecsJson?.data?.servers) || (ecsJson?.servers) || (Array.isArray(ecsJson?.data) ? ecsJson.data : []);
+  //       const seen = new Set<string>();
+  //       const merged: any[] = [];
+  //       [...(Array.isArray(allInst) ? allInst : []), ...(Array.isArray(ecsList) ? ecsList : [])].forEach((x: any) => {
+  //         const id = String(x?.InstanceId || x?.instanceId || x?.id || x?.uuid || x?.instance_id || '');
+  //         if (id && !seen.has(id)) { seen.add(id); merged.push(x); }
+  //       });
+  //       allInst = merged;
+  //       if ((!validVmIds || validVmIds.size === 0) && String(vid).trim()) {
+  //         // fallback by matching addresses' network keys against ports' network_id set
+  //         const netSet = new Set((enis || []).map((p:any)=> String(p?.network_id || '').trim()).filter(Boolean));
+  //         const fallback = new Set<string>();
+  //         (Array.isArray(allInst) ? allInst : []).forEach((x: any) => {
+  //           const addrs = x?.addresses;
+  //           if (addrs && !Array.isArray(addrs)) {
+  //             Object.keys(addrs || {}).forEach((k: string) => {
+  //               if (netSet.has(String(k).trim())) {
+  //                 const id0 = String(x?.id || x?.InstanceId || x?.instance_id || '');
+  //                 if (id0) fallback.add(id0);
+  //               }
+  //             });
+  //           }
+  //         });
+  //         if (fallback.size > 0) validVmIds = fallback;
+  //       }
+  //     }
+      
+  //     const targetInsts = (Array.isArray(allInst) ? allInst : []).filter((x: any) => {
+  //       if (validVmIds) {
+  //          const id = String(x?.InstanceId || x?.instanceId || x?.id || x?.uuid || x?.instance_id || '');
+  //          return validVmIds.has(id);
+  //       }
+  //       const v = x?.VpcId || x?.vpcId || x?.vpc_id || (x?.VpcAttributes?.VpcId) || x?.extra?.vpcId;
+  //       return String(v || '').trim() === vid;
+  //     });
+
+  //     const eipRes: any = await fetchCloudProviderEips(cid);
+  //     const eips: any[] = Array.isArray(eipRes?.data?.eips) ? eipRes!.data!.eips : (Array.isArray(eipRes) ? eipRes : []);
+  //     const isBoundToEip = (niId: string) => {
+  //       const list = (eips || []).filter((x: any) => {
+  //         const type = String(x?.InstanceType || x?.instance_type || '').toLowerCase();
+  //         const eniByType = (type === 'networkinterface') ? (x?.InstanceId || x?.instance_id || '') : '';
+  //         const eniByField = x?.NetworkInterfaceId || x?.port_id || '';
+  //         const target = String(niId || '');
+  //         return String(eniByField || '') === target || String(eniByType || '') === target;
+  //       });
+  //       return list.length > 0;
+  //     };
+      
+  //     const associations = targetInsts.map((inst: any) => {
+  //       const vmId = String(inst?.InstanceId || inst?.instanceId || inst?.id || inst?.uuid || inst?.instance_id || '');
+  //       if (!vmId) return null;
+        
+  //       let vmEnis: any[] = [];
+  //       if (provider.includes('huawei') || provider === 'huaweicloud') {
+  //         vmEnis = enis.filter((p: any) => String(p?.device_id || '').trim() === String(vmId || '').trim());
+  //       } else {
+  //         vmEnis = enis.filter((e: any) => {
+  //             const attachment = e?.Attachment || e?.attachment || {};
+  //             const iid = String(attachment?.InstanceId || attachment?.instance_id || attachment?.instanceId || e?.InstanceId || e?.instanceId || '');
+  //             return iid && iid.trim() === String(vmId || '').trim();
+  //         });
+  //       }
+        
+  //       const pubEni = vmEnis.find(ni => isBoundToEip(String(ni?.NetworkInterfaceId || ni?.Id || ni?.id || ni?.port_id || '')));
+  //       const privEni = vmEnis.find(ni => !isBoundToEip(String(ni?.NetworkInterfaceId || ni?.Id || ni?.id || ni?.port_id || '')));
+        
+  //       return { 
+  //         vmId, 
+  //         publicEniId: pubEni ? String(pubEni?.NetworkInterfaceId || pubEni?.Id || pubEni?.id || pubEni?.port_id || '') : undefined,
+  //         privateEniId: privEni ? String(privEni?.NetworkInterfaceId || privEni?.Id || privEni?.id || privEni?.port_id || '') : undefined
+  //       };
+  //     }).filter(Boolean);
+
+  //     if (associations.length) {
+  //       form.setFieldsValue({ vrAssociations: associations.slice(0, 1) });
+  //       message.success(`已自动关联 1 台云主机及网卡`);
+  //     }
+  //   } catch (e) {
+  //     console.error(e);
+  //     message.warning('自动关联失败，可手动填写关联ID');
+  //   } finally {
+  //     // setAutoBinding(false);
+  //   }
+  // };
+
+  const loadTenants = async () => {
+    setTenantLoading(true);
     try {
-      const cloud = clouds.find((c) => String(c?.id || c?._id || c?.uuid || c?.cloudId) === String(cid));
-      const provider = (cloud?.config?.provider || cloud?.type || '').toLowerCase();
-
-      let validVmIds: Set<string> | null = null;
-      let enis: any[] = [];
-
-      if (provider.includes('huawei') || provider === 'huaweicloud' || provider.includes('华为云')) {
-        const subnetsJson: any = await fetchCloudProviderSubnets(cid);
-        const subnetList: any[] = (subnetsJson?.data?.subnets) || (subnetsJson?.subnets) || [];
-        const subnetIdsInVpc = new Set(
-          subnetList.filter((s: any) => String(s?.vpc_id || s?.VpcId || '').trim() === String(vid).trim())
-                    .map((s: any) => String(s?.id || s?.SubnetId || '').trim())
-        );
-        const ecsJson: any = await fetchCloudProviderEcs(cid);
-        const ecsList: any[] = (ecsJson?.data?.servers) || (ecsJson?.servers) || [];
-        const aggPorts: any[] = [];
-        for (const vm of (Array.isArray(ecsList) ? ecsList : [])) {
-          const vmId = String(vm?.id || vm?.InstanceId || vm?.instance_id || '');
-          if (!vmId) continue;
-          try {
-            const pj = await fetchHuaweiPorts(cid, { deviceId: vmId });
-            const pls: any[] = (pj?.data?.ports) || (pj?.ports) || [];
-            aggPorts.push(...pls.filter((p: any) => {
-              const ips: any[] = Array.isArray(p?.fixed_ips) ? p.fixed_ips : [];
-              return ips.some((fi: any) => subnetIdsInVpc.has(String(fi?.subnet_id || '').trim()));
-            }));
-          } catch (e) {}
-        }
-        enis = aggPorts;
-        validVmIds = new Set(enis.map((p: any) => String(p?.device_id || '')).filter(Boolean));
-        if (!validVmIds || validVmIds.size === 0) {
-          const portIdsInVpc = new Set(enis.map((p: any) => String(p?.id || p?.port_id || '')).filter(Boolean));
-          const networkIdsInVpc = new Set(enis.map((p: any) => String(p?.network_id || '')).filter(Boolean));
-          const ecsJson: any = await fetchCloudProviderEcs(cid);
-          const ecsList: any[] = (ecsJson?.data?.servers) || (ecsJson?.servers) || [];
-          const setByAddr = new Set<string>();
-          (Array.isArray(ecsList) ? ecsList : []).forEach((x: any) => {
-            const addrs = x?.addresses;
-            if (addrs && !Array.isArray(addrs)) {
-              Object.entries(addrs).forEach(([netKey, arr]: [string, any]) => {
-                const ips: any[] = Array.isArray(arr) ? arr : [];
-                const hasPortId = ips.some((i: any) => portIdsInVpc.has(String(i?.['OS-EXT-IPS:port_id'] || '')));
-                const hasNetworkKey = networkIdsInVpc.has(String(netKey || '').trim());
-                if (hasPortId || hasNetworkKey) {
-                  const id0 = String(x?.id || x?.InstanceId || x?.instance_id || '');
-                  if (id0) setByAddr.add(id0);
-                }
-              });
-            }
-          });
-          if (setByAddr.size > 0) validVmIds = setByAddr;
-        }
-      } else if (provider === 'harvester' || provider.includes('cloudmap')) {
-        enis = [];
-      } else {
-        const eniRes: any = await fetchCloudProviderEnis(cid, { vpcId: vid });
-        const eniList: any[] = eniRes?.data?.NetworkInterfaces?.NetworkInterface || eniRes?.data?.enis || eniRes?.enis || eniRes?.list || [];
-        enis = Array.isArray(eniList) ? eniList : [];
-      }
-      setRawEnis(enis);
-
-      const instRes: any = await fetchInventoryInstancesByCloud(cid);
-      let allInst: any[] = (instRes?.data?.instances || instRes?.instances || instRes?.data || instRes || []);
-      if (provider.includes('huawei') || provider === 'huaweicloud') {
-        const ecsJson: any = await fetchCloudProviderEcs(cid);
-        const ecsList: any[] = (ecsJson?.data?.servers) || (ecsJson?.servers) || (Array.isArray(ecsJson?.data) ? ecsJson.data : []);
-        const seen = new Set<string>();
-        const merged: any[] = [];
-        [...(Array.isArray(allInst) ? allInst : []), ...(Array.isArray(ecsList) ? ecsList : [])].forEach((x: any) => {
-          const id = String(x?.InstanceId || x?.instanceId || x?.id || x?.uuid || x?.instance_id || '');
-          if (id && !seen.has(id)) { seen.add(id); merged.push(x); }
-        });
-        allInst = merged;
-        if ((!validVmIds || validVmIds.size === 0) && String(vid).trim()) {
-          // fallback by matching addresses' network keys against ports' network_id set
-          const netSet = new Set((enis || []).map((p:any)=> String(p?.network_id || '').trim()).filter(Boolean));
-          const fallback = new Set<string>();
-          (Array.isArray(allInst) ? allInst : []).forEach((x: any) => {
-            const addrs = x?.addresses;
-            if (addrs && !Array.isArray(addrs)) {
-              Object.keys(addrs || {}).forEach((k: string) => {
-                if (netSet.has(String(k).trim())) {
-                  const id0 = String(x?.id || x?.InstanceId || x?.instance_id || '');
-                  if (id0) fallback.add(id0);
-                }
-              });
-            }
-          });
-          if (fallback.size > 0) validVmIds = fallback;
-        }
-      }
-      
-      const targetInsts = (Array.isArray(allInst) ? allInst : []).filter((x: any) => {
-        if (validVmIds) {
-           const id = String(x?.InstanceId || x?.instanceId || x?.id || x?.uuid || x?.instance_id || '');
-           return validVmIds.has(id);
-        }
-        const v = x?.VpcId || x?.vpcId || x?.vpc_id || (x?.VpcAttributes?.VpcId) || x?.extra?.vpcId;
-        return String(v || '').trim() === vid;
-      });
-
-      const eipRes: any = await fetchCloudProviderEips(cid);
-      const eips: any[] = Array.isArray(eipRes?.data?.eips) ? eipRes!.data!.eips : (Array.isArray(eipRes) ? eipRes : []);
-      const isBoundToEip = (niId: string) => {
-        const list = (eips || []).filter((x: any) => {
-          const type = String(x?.InstanceType || x?.instance_type || '').toLowerCase();
-          const eniByType = (type === 'networkinterface') ? (x?.InstanceId || x?.instance_id || '') : '';
-          const eniByField = x?.NetworkInterfaceId || x?.port_id || '';
-          const target = String(niId || '');
-          return String(eniByField || '') === target || String(eniByType || '') === target;
-        });
-        return list.length > 0;
-      };
-      
-      const associations = targetInsts.map((inst: any) => {
-        const vmId = String(inst?.InstanceId || inst?.instanceId || inst?.id || inst?.uuid || inst?.instance_id || '');
-        if (!vmId) return null;
-        
-        let vmEnis: any[] = [];
-        if (provider.includes('huawei') || provider === 'huaweicloud') {
-          vmEnis = enis.filter((p: any) => String(p?.device_id || '').trim() === String(vmId || '').trim());
-        } else {
-          vmEnis = enis.filter((e: any) => {
-              const attachment = e?.Attachment || e?.attachment || {};
-              const iid = String(attachment?.InstanceId || attachment?.instance_id || attachment?.instanceId || e?.InstanceId || e?.instanceId || '');
-              return iid && iid.trim() === String(vmId || '').trim();
-          });
-        }
-        
-        const pubEni = vmEnis.find(ni => isBoundToEip(String(ni?.NetworkInterfaceId || ni?.Id || ni?.id || ni?.port_id || '')));
-        const privEni = vmEnis.find(ni => !isBoundToEip(String(ni?.NetworkInterfaceId || ni?.Id || ni?.id || ni?.port_id || '')));
-        
-        return { 
-          vmId, 
-          publicEniId: pubEni ? String(pubEni?.NetworkInterfaceId || pubEni?.Id || pubEni?.id || pubEni?.port_id || '') : undefined,
-          privateEniId: privEni ? String(privEni?.NetworkInterfaceId || privEni?.Id || privEni?.id || privEni?.port_id || '') : undefined
-        };
-      }).filter(Boolean);
-
-      if (associations.length) {
-        form.setFieldsValue({ vrAssociations: associations.slice(0, 1) });
-        message.success(`已自动关联 1 台云主机及网卡`);
-      }
-    } catch (e) {
-      console.error(e);
-      message.warning('自动关联失败，可手动填写关联ID');
-    } finally {
-      setAutoBinding(false);
-    }
+      const res = await fetchTenants();
+      const list = (res?.data || res || []);
+      setTenants(Array.isArray(list) ? list : []);
+    } catch (e: any) {
+      console.warn('租户列表获取失败', e);
+      setTenants([]);
+    } finally { setTenantLoading(false); }
   };
 
-  useEffect(() => { loadVRList(); loadClouds(); }, []);
+  useEffect(() => {
+    loadVRList();
+    loadClouds();
+    loadTenants();
+  }, []);
 
   const onPrev = () => setCurrent((c) => Math.max(0, c - 1));
   const onNext = async () => {
@@ -572,7 +598,7 @@ const SecurityDomainWizardPage: React.FC = () => {
       const values = form.getFieldsValue(true);
       const isVpc = form.getFieldValue('category') === 'vpc';
 
-      const subType = form.getFieldValue('subType');
+      // const subType = form.getFieldValue('subType');
       const associations = Array.isArray(values.vrAssociations) ? values.vrAssociations : [];
       const vrInstanceIds = associations.map((a: any) => a.vmId).filter(Boolean);
       const vrPublicEniIds = associations.map((a: any) => a.publicEniId).filter(Boolean);
@@ -695,6 +721,7 @@ const SecurityDomainWizardPage: React.FC = () => {
         vrPrivateSubnetCidr: vrPrivateSubnetCidr.length ? vrPrivateSubnetCidr : undefined,
         tags: undefined,
         description: values.description,
+        tenantId: values.tenantId,
         status: 'active',
       };
 
@@ -726,7 +753,7 @@ const SecurityDomainWizardPage: React.FC = () => {
             <Form
               form={form}
               layout="vertical"
-              initialValues={{ vrBindingMode: 'auto' }}
+              initialValues={{ vrBindingMode: 'auto', name: randomName }}
               onValuesChange={(changed, all) => {
                 if (changed.cloudId) loadCloudVpcs(changed.cloudId);
                 if (changed.category) {
@@ -758,8 +785,11 @@ const SecurityDomainWizardPage: React.FC = () => {
             >
               {current === 0 && (
                 <>
+                  <Form.Item name="tenantId" label="所属租户" rules={[{ required: true, message: '请选择所属租户' }]}> 
+                    <Select placeholder="请选择租户" loading={tenantLoading} options={tenants.map(t => ({ value: t.id || t._id, label: t.name || t.username || '未命名租户' }))} showSearch optionFilterProp="label" />
+                  </Form.Item>
                   <Form.Item name="name" label="安全域名称" rules={[{ required: true, message: '请输入安全域名称' }]}> 
-                    <Input placeholder="如：华东生产VPC / 总部办公网" />
+                    <Input placeholder="如：华东生产VPC / 总部办公网" addonAfter={<ReloadOutlined style={{ cursor: 'pointer' }} onClick={() => form.setFieldValue('name', generateRandomName())} title="随机生成名称" />} />
                   </Form.Item>
                   <Form.Item name="category" label="安全域大类" rules={[{ required: true, message: '请选择大类' }]}> 
                     <Select placeholder="请选择大类" options={[{ value: 'vpc', label: 'VPC网络' }, { value: 'flat', label: '扁平网络' }]} />

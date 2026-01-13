@@ -13,7 +13,7 @@ import {
   ClusterOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import ReactFlow, { Controls, Handle, Position } from 'react-flow-renderer';
+import ReactFlow, { Controls, Handle, Position, getBezierPath, EdgeProps } from 'react-flow-renderer';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { attachVpcToCen, deleteCen, detachVpcFromCen, fetchCenAttachments, fetchCens, fetchTenants, updateCen, apiPost, fetchCsmElementGroups } from '../../../../services/api';
@@ -262,7 +262,7 @@ const CenDetailPage: React.FC = () => {
         try {
           await deleteCen(cenId);
           message.success('删除成功');
-          navigate('/admin/sec-mgr-plane/instances');
+          navigate('/admin/sec-mgr-plane/cascade-channels');
         } catch {
           message.error('删除失败');
         }
@@ -280,7 +280,7 @@ const CenDetailPage: React.FC = () => {
           const { forceDeleteCen } = await import('../../../../services/api');
           await forceDeleteCen(cenId);
           message.success('已强制删除并释放挂载');
-          navigate('/admin/sec-mgr-plane/instances');
+          navigate('/admin/sec-mgr-plane/cascade-channels');
         } catch {
           message.error('强制删除失败');
         }
@@ -528,7 +528,6 @@ const CenDetailPage: React.FC = () => {
           <Tag color={cen.strategy === 'IPsec' ? 'cyan' : 'geekblue'}>{cen.strategy || 'SRv6'}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="状态">{statusBadge(cen.status)}</Descriptions.Item>
-        <Descriptions.Item label="接入地址">{cen.accessIp || cen.publicIp || cen.privateIp || '--'}</Descriptions.Item>
         <Descriptions.Item label="级联通道">
           <Tag color={active > 0 ? 'green' : 'default'}>{`${active}/${total}`}</Tag>
         </Descriptions.Item>
@@ -541,11 +540,18 @@ const CenDetailPage: React.FC = () => {
         <Descriptions.Item label="SLA">
           {cen.sla ? <Tag color={cen.sla > 99 ? 'green' : cen.sla > 95 ? 'orange' : 'red'}>{cen.sla}%</Tag> : '--'}
         </Descriptions.Item>
-        <Descriptions.Item label="说明" span={3}>{cen.description || '-'}</Descriptions.Item>
         <Descriptions.Item label="创建时间">{cen.createdAt || '-'}</Descriptions.Item>
       </Descriptions>
     );
   }, [cen, tenants]);
+
+  const subtitleText = useMemo(() => {
+    if (loading) return '加载中...';
+    if (!cen) return '级联通道资源详情';
+    return [
+      '管理跨地域/跨云的级联通道，支持挂载安全域与分组，可在 Mesh / Hub‑Spoke 拓扑间切换并指定中心节点',
+    ].join(' ');
+  }, [cen, loading]);
 
   const filteredAttachments = useMemo(() => {
     if (!domainKeyword) return attachments;
@@ -672,6 +678,15 @@ const CenDetailPage: React.FC = () => {
       return d;
     })();
 
+    const vrCount = (() => {
+      const keys = new Set<string>();
+      doms.forEach((it: any) => {
+        const key = it?.dom?.vrUuid || `vr-${it?.dom?.id}`;
+        if (key) keys.add(String(key));
+      });
+      return keys.size;
+    })();
+
     return [
       {
         key: 'domains',
@@ -794,8 +809,47 @@ const CenDetailPage: React.FC = () => {
         key: 'topology',
         label: '级联通道拓扑',
         icon: <BranchesOutlined />,
-        count: attachedForTopo.length || 0,
+        count: vrCount || 0,
         children: (() => {
+          const SvcEdge: React.FC<EdgeProps> = ({
+            id,
+            sourceX,
+            sourceY,
+            targetX,
+            targetY,
+            sourcePosition,
+            targetPosition,
+            style = {},
+          }) => {
+            const edgePath = getBezierPath({
+              sourceX,
+              sourceY,
+              sourcePosition,
+              targetX,
+              targetY,
+              targetPosition,
+            });
+            return (
+              <>
+                <defs>
+                  <marker id={`svc-arrow-${id}`} markerWidth="10" markerHeight="10" viewBox="0 0 10 10" refX="8" refY="5" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#fa8c16" />
+                  </marker>
+                </defs>
+                <path
+                  id={id}
+                  className="react-flow__edge-path"
+                  d={edgePath}
+                  style={{ stroke: '#fa8c16', strokeWidth: 2, filter: 'drop-shadow(0 0 2px rgba(250,140,22,0.35))', ...(style as any) }}
+                  markerEnd={`url(#svc-arrow-${id})`}
+                />
+                <circle r="3" fill="#fa8c16">
+                  <animateMotion dur="1.8s" repeatCount="indefinite" path={edgePath} />
+                </circle>
+              </>
+            );
+          };
+
           // 1. Group domains by VR (Main Nodes)
           const vrGroups = new Map<string, { vr: any; domains: any[] }>();
           const domList = doms;
@@ -1015,7 +1069,7 @@ const CenDetailPage: React.FC = () => {
                           sourceHandle: 'card',
                           targetHandle: 'app',
                           type: 'straight',
-                          style: { stroke: '#bfbfbf', strokeWidth: 1.5, strokeDasharray: '4 4' }
+                          style: { stroke: '#bfbfbf', strokeWidth: 1.5 }
                         });
                       } else if (item._kind === 'serviceGroup') {
                         // Service Group Node
@@ -1037,8 +1091,7 @@ const CenDetailPage: React.FC = () => {
                           target: svcId,
                           sourceHandle: 'card',
                           targetHandle: 'svc',
-                          type: 'straight',
-                          style: { stroke: '#fa8c16', strokeWidth: 2 }
+                          type: 'svcEdge'
                         });
                       }
                     });
@@ -1119,6 +1172,7 @@ const CenDetailPage: React.FC = () => {
                   nodes={nodes}
                   edges={edges}
                   nodeTypes={nodeTypes as any}
+                  edgeTypes={{ svcEdge: SvcEdge }}
                   fitView
                   fitViewOptions={{ padding: 0.2, maxZoom: 1.0 }}
                   minZoom={0.4}
@@ -1302,8 +1356,9 @@ const CenDetailPage: React.FC = () => {
       <PageDetailContainer
         title={cen?.name || '级联通道详情'}
         icon={<BranchesOutlined />}
-        onBack={() => navigate('/admin/sec-mgr-plane/instances')}
+        onBack={() => navigate('/admin/sec-mgr-plane/cascade-channels')}
         overviewContent={overviewContent}
+        subtitle={subtitleText}
         tabs={tabs}
         activeTabKey={activeTabKey}
         defaultActiveTabKey="domains"
@@ -1323,7 +1378,6 @@ const CenDetailPage: React.FC = () => {
           if (key === 'delete') return handleDelete(cenId);
           if (key === 'forceDelete') return handleForceDelete(cenId);
         }}
-        subtitle={loading ? '加载中...' : undefined}
       />
 
       <Modal title="挂载安全域" open={attachModal.open} onOk={handleAttach} onCancel={() => setAttachModal({ open: false })} destroyOnHidden>

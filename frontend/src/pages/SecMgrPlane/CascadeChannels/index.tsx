@@ -208,11 +208,13 @@ const CenPage: React.FC = () => {
   const openDetail = (r: Cen, tab: string = 'domains') => {
     const rid = String(r?.id || '');
     if (!rid) return;
-    navigate(`/admin/sec-mgr-plane/instances/${encodeURIComponent(rid)}?tab=${encodeURIComponent(tab)}`);
+    navigate(`/admin/sec-mgr-plane/cascade-channels/${encodeURIComponent(rid)}?tab=${encodeURIComponent(tab)}`);
   };
 
   const columns = [
-    { title:'名称', dataIndex:'name', key:'name' },
+    { title:'名称', dataIndex:'name', key:'name', render:(text: string, record: Cen) => (
+      <a onClick={() => openDetail(record)} style={{ color: '#1677ff' }}>{text}</a>
+    ) },
     { title:'租户', dataIndex:'tenantId', key:'tenant', render:(tid:string)=>tenantNameById(tid) },
     { title:'策略', dataIndex:'strategy', key:'strategy', render:(s:string)=><Tag color={s==='IPsec'?'cyan':'blue'}>{s||'SRv6'}</Tag> },
     { title:'状态', dataIndex:'status', key:'status', render:(s:Cen['status'])=>statusBadge(s) },

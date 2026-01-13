@@ -24,6 +24,7 @@ export interface SecurityDomainPayload {
   purpose?: string;
   tags?: string; // 逗号分隔
   description?: string;
+  tenantId?: string;
   status?: string;
 }
 

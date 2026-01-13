@@ -699,7 +699,7 @@ const CloudConsolePage: React.FC = () => {
   };
 
   return (
-    <PageContainer asCard={false} hideHeader title="" pagePadding={0}>
+    <PageContainer asCard={false} hideHeader pagePadding={0}>
       <div className="cloud-console-root">
       <Row gutter={0}>
         <Col span={3} style={{ padding: 0 }}>

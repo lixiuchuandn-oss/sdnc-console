@@ -217,9 +217,7 @@ const ACLPage: React.FC = () => {
 
   return (
     <PageContainer
-      title="ACL 访问控制列表"
       titleLevel={3}
-      subtitle="配置基于优先级的访问控制规则，支持 TCP/UDP/ICMP 协议过滤和源/目的地址匹配，实现网络流量的精细化管控。"
       asCard={false}
       primaryAction={{
         text: '新建 ACL',

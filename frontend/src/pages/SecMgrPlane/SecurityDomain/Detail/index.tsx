@@ -1233,6 +1233,7 @@ const SecurityDomainDetail: React.FC = () => {
     <PageDetailContainer
       title={data?.name || '安全域详情'}
       onBack={() => navigate('/admin/sec-mgr-plane/security-domain')}
+      subtitle="资源概览与网络关系"
       overviewContent={overviewContent}
       tabs={tabs}
       defaultActiveTabKey="overview"

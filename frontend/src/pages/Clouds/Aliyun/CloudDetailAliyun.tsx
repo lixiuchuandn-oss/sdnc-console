@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { App, Alert, Button, Modal, Descriptions, Row, Col, Card, Statistic } from 'antd';
-import { CloudUploadOutlined, DashboardOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, DashboardOutlined, HomeOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { useNavigate } from 'react-router-dom';
 import EcsSectionAliyun, { Icon as EcsIcon, Label as EcsLabel } from './sections/EcsSectionAliyun';
@@ -142,6 +142,12 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
 
   return (
     <PageDetailContainer
+      breadcrumbs={[
+        { title: <HomeOutlined />, href: '/' },
+        { title: '资源控制台' },
+        { title: '资源池管理', href: '/admin/clouds' },
+        { title: `阿里云 ${cloud?.name || '-'}` }
+      ]}
       icon={<CloudUploadOutlined />}
       title={`阿里云 ${cloud?.name || '-'}`}
       titleLevel={3}

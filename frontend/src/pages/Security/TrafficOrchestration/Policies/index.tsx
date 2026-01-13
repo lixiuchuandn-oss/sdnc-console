@@ -99,8 +99,6 @@ const Policies: React.FC = () => {
 
   return (
     <PageContainer
-      title="策略管理"
-      subtitle="统一配置引流策略与阻断策略，实现对流量的灵活调度、牵引清洗及安全阻断，全方位保障网络安全与业务连续性。"
       tabList={[
         { key: 'diversion', tab: '引流策略' },
         { key: 'blocking', tab: '阻断策略' },

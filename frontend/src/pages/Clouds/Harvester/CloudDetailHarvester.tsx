@@ -8,7 +8,7 @@ import NadsSection from './sections/NadsSection';
 import KubeOvnVpcsSection from './sections/KubeOvnVpcsSection';
 import KubeOvnSubnetsSection from './sections/KubeOvnSubnetsSection';
 import GpusSection from './sections/GpusSection';
-import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ReloadOutlined, ArrowLeftOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ReloadOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchHarvesterGpuResources } from '../../../services/api';
 import VmDetailModal from './modals/VmDetailModal';
@@ -227,6 +227,12 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
 
   return (
     <PageDetailContainer
+      breadcrumbs={[
+        { title: <HomeOutlined />, href: '/' },
+        { title: '资源控制台' },
+        { title: '资源池管理', href: '/admin/clouds' },
+        { title: `${providerName} ${cloud?.name || '-'}` }
+      ]}
       icon={<CloudUploadOutlined />}
       title={`${providerName} ${cloud?.name || '-'}`}
       titleLevel={3}

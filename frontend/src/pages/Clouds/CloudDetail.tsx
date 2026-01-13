@@ -699,6 +699,12 @@ const CloudDetail: React.FC = () => {
   if (id) {
     return (
       <PageDetailContainer
+        breadcrumbs={[
+          { title: <HomeOutlined />, href: '/' },
+          { title: '资源控制台' },
+          { title: '资源池管理', href: '/admin/clouds' },
+          { title: `${providerName} ${cloud?.name || '-'}` }
+        ]}
         icon={<CloudUploadOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
         title={`${providerName} ${cloud?.name || '-'}`}
         titleLevel={3}
@@ -720,8 +726,14 @@ const CloudDetail: React.FC = () => {
       </PageDetailContainer>
     );
   }
-  return (
+    return (
     <PageDetailContainer
+      breadcrumbs={[
+        { title: <HomeOutlined />, href: '/' },
+        { title: '资源控制台' },
+        { title: '资源池管理', href: '/admin/clouds' },
+        { title: `${providerName} ${cloud?.name || '-'}` }
+      ]}
       icon={<CloudUploadOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
       title={`${providerName} ${cloud?.name || '-'}`}
       titleLevel={3}

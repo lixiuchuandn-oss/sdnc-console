@@ -241,8 +241,6 @@ const ServiceChains: React.FC = () => {
 
   return (
     <PageContainer
-      title="服务链管理"
-      subtitle="服务链（Service Chain）通过灵活编排网络流量经过防火墙、IPS、WAF 等安全组件，实现业务流量的按需清洗与防护，支持串行阻断与旁路检测模式。"
       toolbarLeft={
         <Form
           form={filterForm}

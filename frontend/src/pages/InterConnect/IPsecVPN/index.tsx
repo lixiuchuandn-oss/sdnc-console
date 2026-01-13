@@ -256,9 +256,7 @@ const IPsecVPNPage: React.FC = () => {
 
   return (
     <PageContainer
-      title="IPsecVPN管理"
       titleLevel={3}
-      subtitle="通过 IKEv1/IKEv2 协议创建加密虚拟专用网络，支持拓扑查看、配置审计和状态监控，保障跨网络数据传输安全。"
       asCard={false}
       primaryAction={{
         text: '新建连接',

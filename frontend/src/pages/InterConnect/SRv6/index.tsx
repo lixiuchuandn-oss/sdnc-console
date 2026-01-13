@@ -291,9 +291,7 @@ const SRv6Page: React.FC = () => {
 
   return (
     <PageContainer
-      title="SRv6 隧道管理"
       titleLevel={3}
-      subtitle="SRv6（Segment Routing over IPv6）用于在 IPv6 网络中实现基于段的路由，支持灵活的流量工程与业务编排。"
       asCard={false}
       primaryAction={{
         text: '创建SRv6隧道',

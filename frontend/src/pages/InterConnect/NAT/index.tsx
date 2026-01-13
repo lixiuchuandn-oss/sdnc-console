@@ -242,9 +242,7 @@ const NATPage: React.FC = () => {
 
   return (
     <PageContainer
-      title="NAT 网络地址转换"
       titleLevel={3}
-      subtitle="创建 SNAT/DNAT/静态 NAT 规则，实现私网地址与公网地址的转换，支持接口绑定和地址段映射，解决内网主机访问公网需求。"
       asCard={false}
       primaryAction={{
         text: '新建 NAT',

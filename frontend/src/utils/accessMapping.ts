@@ -14,7 +14,7 @@ export const PATH_PERMISSION_MAPPING = [
   { path: '/admin/interconnect/srv6', action: 'networks.srv6:read' },
   { path: '/admin/interconnect/vr', action: 'networks.vr-config:read' },
   { path: '/admin/sec-mgr-plane/security-domain', action: 'networks.security-domain:read' },
-  { path: '/admin/sec-mgr-plane/instances', action: 'sec-mgr-plane.instances:read' },
+  { path: '/admin/sec-mgr-plane/cascade-channels', action: 'sec-mgr-plane.cascade-channels:read' },
   { path: '/admin/sec-mgr-plane/apps', action: 'security.services:read' },
   { path: '/admin/alarms', action: 'secops.alerts:read' },
   { path: '/admin/access', action: 'access:read' },

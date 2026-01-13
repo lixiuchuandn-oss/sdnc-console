@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Dropdown, Card, Space, Button, Input, Select, Tabs, Descriptions, Row, Col, Statistic, Form, Drawer, Modal, InputNumber, App, Tooltip, Alert, DatePicker, Divider } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { CloudUploadOutlined, ReloadOutlined, ArrowLeftOutlined, MoreOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CloseOutlined, PlayCircleOutlined, PoweroffOutlined, CopyOutlined, EyeOutlined, DashboardOutlined, LineChartOutlined, WindowsOutlined, CodeOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
+import { HomeOutlined, CloudUploadOutlined, ReloadOutlined, ArrowLeftOutlined, MoreOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CloseOutlined, PlayCircleOutlined, PoweroffOutlined, CopyOutlined, EyeOutlined, DashboardOutlined, LineChartOutlined, WindowsOutlined, CodeOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchAliyunEcsVncUrl, createCloudProviderRouteTable, updateCloudProviderRouteTable, associateCloudProviderRouteTable, deleteCloudProviderRouteTable, fetchCloudProviderRouteEntries, modCloudProviderRouteEntry, deleteCloudProviderRouteEntry, deleteCloudProviderVpc, deleteCloudProviderSubnet, showCloudProviderVpc, fetchCloudProviderEnis, showCloudProviderSecurityGroup, deleteHuaweiCloudSecurityGroup, createHuaweiCloudSecurityGroupRule, deleteHuaweiCloudSecurityGroupRule, updateHuaweiCloudSecurityGroupRule, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchHuaweiEcsMetrics, fetchHuaweiEcsAuditLogs, fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, bindHuaweiEip, unbindHuaweiEip, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup } from '../../../services/api';
 import StdFormModal from '../../../components/StdFormModal';
@@ -292,6 +292,12 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   return (
     <PageDetailContainer
+      breadcrumbs={[
+        { title: <HomeOutlined />, href: '/' },
+        { title: '资源控制台' },
+        { title: '资源池管理', href: '/admin/clouds' },
+        { title: `华为云 ${cloud?.name || '-'}` }
+      ]}
       icon={<CloudUploadOutlined />}
       title={`华为云 ${cloud?.name || '-'}`}
       titleLevel={3}

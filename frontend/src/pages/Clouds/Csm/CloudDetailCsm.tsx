@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Dropdown, message, Table, Input, Select, Modal, Popover, Checkbox, Form, Typography, Progress } from 'antd';
-import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, EllipsisOutlined, SettingOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, SafetyCertificateOutlined, DeploymentUnitOutlined, NodeIndexOutlined, ArrowLeftOutlined, UnorderedListOutlined, ReloadOutlined, DesktopOutlined, SearchOutlined, EllipsisOutlined, SettingOutlined, AppstoreOutlined, HomeOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import SharedToolbar from '../../../components/SharedToolbar';
 import { fetchClouds, fetchCsmVirtualElements, fetchCsmPhysicalElements, fetchCsmElementGroups, fetchCsmServiceChains, operateCsmVm, getCsmVmConsole, fetchCsmVRouters, fetchCsmAssets, createCsmAsset, deleteCsmAsset, csmSsoLogin } from '../../../services/api';
@@ -794,6 +794,12 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   return (
     <PageDetailContainer
+      breadcrumbs={[
+        { title: <HomeOutlined />, href: '/' },
+        { title: '资源控制台' },
+        { title: '资源池管理', href: '/admin/clouds' },
+        { title: `CSM ${cloud?.name || '-'}` }
+      ]}
       icon={<CloudUploadOutlined />}
       title={`CSM ${cloud?.name || '-'}`}
       titleLevel={3}

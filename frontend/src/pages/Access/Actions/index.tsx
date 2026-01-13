@@ -156,10 +156,7 @@ const AccessActionsPage: React.FC = () => {
 
   return (
     <PageContainer
-      icon={<ApiOutlined style={{ fontSize:24, color:'#1890ff' }} />}
-      title="权限原子"
       titleLevel={3}
-      subtitle="列出后端提供的 API 级别功能点，供策略组合与角色授权使用。"
       asCard={false}
     >
 

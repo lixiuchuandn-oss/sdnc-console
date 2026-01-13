@@ -772,9 +772,7 @@ const VRPage: React.FC = () => {
 
   return (
     <PageContainer
-      title="VR实例管理"
       titleLevel={3}
-      subtitle="VR（Virtual Router）实例用于在多云与异构网络之间提供路由与互联能力，支持跨区域连通、BGP/静态路由、策略与监控，帮助实现稳定、安全、高效的网络连接。"
       primaryAction={{
         text: '新增VR实例',
         onClick: () => setAddModalOpen(true),

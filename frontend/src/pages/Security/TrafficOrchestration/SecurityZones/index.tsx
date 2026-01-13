@@ -151,8 +151,6 @@ const SecurityZones: React.FC = () => {
 
   return (
     <PageContainer
-      title="安全域管理"
-      subtitle="安全域（Security Zone）构建了逻辑隔离的网络安全边界，支持将防火墙、IPS、WAF 等多类安全网元划分至同一信任域。通过定义域间与域内的流量控制策略，实现不同安全等级业务的精细化防护与威胁隔离。"
       toolbarLeft={
         <Form
           form={filterForm}

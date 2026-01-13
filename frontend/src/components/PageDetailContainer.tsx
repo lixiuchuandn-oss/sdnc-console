@@ -32,6 +32,8 @@ export interface PageDetailContainerProps {
   defaultActiveTabKey?: string;
   onTabChange?: (key: string) => void;
   tabBarExtraContent?: React.ReactNode;
+  /** 手动指定面包屑项，如果提供将覆盖自动生成的面包屑 */
+  breadcrumbs?: Array<{ title: React.ReactNode; href?: string }>;
 }
 
 const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
@@ -61,6 +63,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
   defaultActiveTabKey,
   onTabChange,
   tabBarExtraContent,
+  breadcrumbs,
 }) => {
   const loc = useLocation();
   const { token } = theme.useToken();
@@ -115,6 +118,11 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
     return items;
   }, [loc.pathname, currentSpec]);
 
+  const finalBreadcrumbs = useMemo(() => {
+    if (breadcrumbs) return breadcrumbs;
+    return autoCrumbs.map((item) => ({ title: item.label, href: item.href }));
+  }, [breadcrumbs, autoCrumbs]);
+
   const displayTitle = title ?? currentSpec?.title ?? currentSpec?.breadcrumbLabel ?? '';
   const displaySubtitle = subtitle ?? currentSpec?.subtitle;
   const displayIcon = styledIcon(icon ?? iconOf(currentSpec?.icon), 22, token.colorPrimary);
@@ -129,7 +137,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
   return (
     <div style={{ padding: pagePadding !== undefined ? pagePadding : '24px 36px' }}>
       {!hideHeader && (
-        <Breadcrumb style={{ marginBottom: 12 }} items={autoCrumbs.map((item) => ({ title: item.label, href: item.href }))} />
+        <Breadcrumb style={{ marginBottom: 12 }} items={finalBreadcrumbs} />
       )}
       {!hideHeader && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

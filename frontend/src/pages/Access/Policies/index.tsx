@@ -267,9 +267,7 @@ const AccessPoliciesPage: React.FC = () => {
 
   return (
     <PageContainer
-      title="授权策略"
       titleLevel={3}
-      subtitle="授权策略用于将权限原子（Action）按功能维度进行组合，以实现批量授权与条件控制。支持系统策略与自定义策略两类，便于复用与统一管理。"
       asCard={false}
     >
       <div className="filters-row">

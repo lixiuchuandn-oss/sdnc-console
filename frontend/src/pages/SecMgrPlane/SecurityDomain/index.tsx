@@ -1,26 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import {
-  Button,
-  Divider,
-  Form,
-  Input,
-  message,
-  Modal,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Tooltip,
-  Dropdown,
-  Popover,
-Checkbox,
-  Steps,
-  Radio,
-  Descriptions,
-} from 'antd';
+import { Button, Checkbox, Descriptions, Dropdown, Form, Input, message, Modal, Popover, Select, Space, Table, Tag, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
-import { PlusOutlined, ReloadOutlined, EllipsisOutlined, EnvironmentOutlined, SettingOutlined, DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, SettingOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import '../../common/filters.css';
 import { vrApi } from '../../../services/vrApi';
@@ -74,6 +56,7 @@ export interface SecurityDomain {
   bypassPolicies?: any[];
   securityServiceIds?: string;
   securityServices?: any[];
+  tenantId?: string;
 }
 
 interface SecurityDomainForm extends SecurityDomain {}
@@ -82,39 +65,6 @@ interface VRRowOpt {
   uuid: string;
   name: string;
 }
-
-const defaultDomains: SecurityDomain[] = [
-  {
-    id: 'dom-001',
-    name: '总部办公网',
-    type: '办公网络',
-    provider: undefined,
-    region: undefined,
-    cidr4: ['10.10.0.0/16'],
-    cidr6: [],
-    vrUuid: undefined,
-    vrName: undefined,
-    tags: ['office', 'main'],
-    description: '公司总部办公网络，主要承载办公系统与打印服务',
-    status: 'active',
-    createdAt: '2024-08-01 10:00:00',
-  },
-  {
-    id: 'dom-002',
-    name: '华东生产VPC',
-    type: 'VPC',
-    provider: '阿里云',
-    region: 'cn-shanghai',
-    cidr4: ['172.16.0.0/16'],
-    cidr6: [],
-    vrUuid: undefined,
-    vrName: undefined,
-    tags: ['prod', 'east'],
-    description: '生产业务承载VPC',
-    status: 'active',
-    createdAt: '2024-08-15 12:00:00',
-  },
-];
 
 const SecurityDomainPage: React.FC = () => {
   const navigate = useNavigate();
@@ -128,7 +78,10 @@ const SecurityDomainPage: React.FC = () => {
 
   const [vrOptions, setVrOptions] = useState<VRRowOpt[]>([]);
   const [vrCeOptions, setVrCeOptions] = useState<VRRowOpt[]>([]);
-  const [vrLoading, setVrLoading] = useState(false);
+  // const [vrLoading, setVrLoading] = useState(false);
+
+  // const [tenants, setTenants] = useState<any[]>([]);
+  // const [tenantLoading, setTenantLoading] = useState<boolean>(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<SecurityDomain | null>(null);
@@ -150,7 +103,7 @@ const SecurityDomainPage: React.FC = () => {
     tags: false,
     vr: true,
     status: true,
-    createdAt: true,
+    createdAt: false,
     actions: true,
   });
   const columnLabels: Record<string, string> = {
@@ -168,7 +121,7 @@ const SecurityDomainPage: React.FC = () => {
   };
 
   const loadVRList = async () => {
-    setVrLoading(true);
+    // setVrLoading(true);
     try {
       const res = await vrApi.getVRInstances(50, 1);
       const list = (res?.data?.list || res?.list || res?.data || []) as any[];
@@ -189,9 +142,21 @@ const SecurityDomainPage: React.FC = () => {
       setVrOptions([]);
       setVrCeOptions([]);
     } finally {
-      setVrLoading(false);
+      // setVrLoading(false);
     }
   };
+
+  // const loadTenants = async () => {
+  //   setTenantLoading(true);
+  //   try {
+  //     const res = await fetchTenants();
+  //     const list = (res?.data || res || []);
+  //     setTenants(Array.isArray(list) ? list : []);
+  //   } catch (e: any) {
+  //     console.warn('租户列表获取失败', e);
+  //     setTenants([]);
+  //   } finally { setTenantLoading(false); }
+  // };
 
   const fetchResourcePools = async () => {
     try {
@@ -221,6 +186,7 @@ const SecurityDomainPage: React.FC = () => {
       loadVRList();
       reloadDomains();
       fetchResourcePools();
+      // loadTenants();
     }
   }, []);
 
@@ -312,6 +278,7 @@ const SecurityDomainPage: React.FC = () => {
           vrPrivateSubnetCidr: item.vrPrivateSubnetCidr,
           resourcePool: item.resourcePool,
           purpose: item.purpose,
+          tenantId: item.tenantId,
           });
       });
       setDomains(normalized);
@@ -338,6 +305,7 @@ const SecurityDomainPage: React.FC = () => {
 
   const forceRefresh = () => {
     loadVRList();
+    // loadTenants();
     message.success('已刷新');
   };
 
@@ -371,11 +339,13 @@ const SecurityDomainPage: React.FC = () => {
     setEditing(record);
     setCreateOpen(true);
     loadVRList();
+    // loadTenants();
     createForm.setFieldsValue({
       ...record,
       subType: record.subType ? record.subType.split(',').map(s => s.trim()).filter(Boolean) : [],
       cidr4: record.cidr4 || [],
       cidr6: record.cidr6 || [],
+      tenantId: record.tenantId,
     } as any);
   };
 
@@ -443,130 +413,128 @@ const SecurityDomainPage: React.FC = () => {
     createForm.resetFields();
   };
 
-  const columns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (text: string, record: SecurityDomain) => (
-        <Space direction="vertical" size={0}>
-          <Link to={`/admin/sec-mgr-plane/security-domain/${record.id}`} style={{ fontWeight: 400 }}>{text}</Link>
-          {record.description ? <span style={{ color: '#8c8c8c', fontSize: 12 }}>{record.description}</span> : null}
-        </Space>
-      ),
-    },
-    {
-      title: '分类',
-      key: 'category',
-      render: (_: any, r: SecurityDomain) => {
-        const cls = getDomainClass(r);
-        const major = netClassLabel(cls);
-        const color = netClassColor(cls);
-        const subtype = String(r.subType || '').trim();
-        const subTypes = subtype ? subtype.split(',').map(s => s.trim()).filter(Boolean) : [];
-        return (
-          <Space size={4}>
-            <Tag color={color}>{major}</Tag>
-            {subTypes.length ? (<span style={{ color: '#8c8c8c' }}>/</span>) : null}
-            {subTypes.map((t, i) => <Tag key={i}>{t}</Tag>)}
+  const displayColumns = useMemo(() => {
+    const columns = [
+      {
+        title: '名称',
+        dataIndex: 'name',
+        key: 'name',
+        render: (text: string, record: SecurityDomain) => (
+          <Space direction="vertical" size={0}>
+            <Link to={`/admin/sec-mgr-plane/security-domain/${record.id}`} style={{ fontWeight: 400 }}>{text}</Link>
+            {record.description ? <span style={{ color: '#8c8c8c', fontSize: 12 }}>{record.description}</span> : null}
           </Space>
-        );
+        ),
       },
-    },
-    {
-      title: '云厂商/地域',
-      key: 'providerRegion',
-      render: (_: any, r: SecurityDomain) => {
-        const provider = String(r.provider || '').trim();
-        const region = String(r.region || '').trim();
-        if (provider && region) return <span>{provider} / {region}</span>;
-        if (provider) return <span>{provider}</span>;
-        if (region) return <span>{region}</span>;
-        return '';
-      },
-    },
-    {
-      title: '网络来源',
-      key: 'source',
-      render: (_: any, r: SecurityDomain) => {
-        if (r.category === 'vpc') {
-          const modeText = r.vpcMode === 'existing' ? '已有VPC' : (r.vpcMode === 'new' ? '新建VPC' : 'VPC');
+      {
+        title: '分类',
+        key: 'category',
+        render: (_: any, r: SecurityDomain) => {
+          const cls = getDomainClass(r);
+          const major = netClassLabel(cls);
+          const color = netClassColor(cls);
+          const subtype = String(r.subType || '').trim();
+          const subTypes = subtype ? subtype.split(',').map(s => s.trim()).filter(Boolean) : [];
           return (
             <Space size={4}>
-              <Tag color="blue">{modeText}</Tag>
-              <span style={{ color: '#8c8c8c' }}>{r.vpcId || ''}</span>
+              <Tag color={color}>{major}</Tag>
+              {subTypes.length ? (<span style={{ color: '#8c8c8c' }}>/</span>) : null}
+              {subTypes.map((t, i) => <Tag key={i}>{t}</Tag>)}
             </Space>
           );
-        }
-        return '';
+        },
       },
-    },
-    {
-      title: 'IPv4 CIDR',
-      dataIndex: 'cidr4',
-      key: 'cidr4',
-      render: (list: string[] = []) => list.length ? list.map((c, idx) => <Tag key={idx}>{c}</Tag>) : '',
-    },
-    {
-      title: 'IPv6 CIDR',
-      dataIndex: 'cidr6',
-      key: 'cidr6',
-      render: (list: string[] = []) => list.length ? list.map((c, idx) => <Tag key={idx}>{c}</Tag>) : '',
-    },
-    {
-      title: '标签',
-      dataIndex: 'tags',
-      key: 'tags',
-      render: (list: string[] = []) => list.length ? list.map((t, idx) => <Tag key={idx}>{t}</Tag>) : '',
-    },
-    {
-      title: '绑定 VR 实例',
-      key: 'vr',
-      render: (_: any, r: SecurityDomain) => r.vrName ? (
-        <Tooltip title={r.vrUuid}><Tag color="geekblue">{r.vrName}</Tag></Tooltip>
-      ) : '未绑定',
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (s: SecurityDomainStatus = 'active') => (
-        <Tag color={s === 'active' ? 'geekblue' : 'default'}>{s === 'active' ? '启用' : '停用'}</Tag>
-      ),
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      width: 180,
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      fixed: 'right',
-      width: 160,
-      render: (_: any, record: SecurityDomain) => {
-        const items: MenuProps['items'] = [
-          { key: 'detail', label: '详情' },
-          { key: 'edit', label: '编辑' },
-          { key: 'delete', label: '删除', danger: true },
-        ];
-        const onMenuClick: MenuProps['onClick'] = ({ key }) => {
-          if (key === 'detail') return openDetail(record);
-          if (key === 'edit') return openEdit(record);
-          if (key === 'delete') return removeDomain(record);
-        };
-        return (
-          <Dropdown menu={{ items, onClick: onMenuClick }} trigger={['click']}>
-            <Button type="text" icon={<EllipsisOutlined />} />
-          </Dropdown>
-        );
+      {
+        title: '云厂商/地域',
+        key: 'providerRegion',
+        render: (_: any, r: SecurityDomain) => {
+          const provider = String(r.provider || '').trim();
+          const region = String(r.region || '').trim();
+          if (provider && region) return <span>{provider} / {region}</span>;
+          if (provider) return <span>{provider}</span>;
+          if (region) return <span>{region}</span>;
+          return '';
+        },
       },
-    },
-  ];
-  const displayColumns = useMemo(() => {
-    return (columns as any[]).filter((c) => visibleCols[String(c.key)] !== false);
-  }, [columns, visibleCols]);
+      {
+        title: '网络来源',
+        key: 'source',
+        render: (_: any, r: SecurityDomain) => {
+          if (r.category === 'vpc') {
+            const modeText = r.vpcMode === 'existing' ? '已有VPC' : (r.vpcMode === 'new' ? '新建VPC' : 'VPC');
+            return (
+              <Space size={4}>
+                <Tag color="blue">{modeText}</Tag>
+                <span style={{ color: '#8c8c8c' }}>{r.vpcId || ''}</span>
+              </Space>
+            );
+          }
+          return '';
+        },
+      },
+      {
+        title: 'IPv4 CIDR',
+        dataIndex: 'cidr4',
+        key: 'cidr4',
+        render: (list: string[] = []) => list.length ? list.map((c, idx) => <Tag key={idx}>{c}</Tag>) : '',
+      },
+      {
+        title: 'IPv6 CIDR',
+        dataIndex: 'cidr6',
+        key: 'cidr6',
+        render: (list: string[] = []) => list.length ? list.map((c, idx) => <Tag key={idx}>{c}</Tag>) : '',
+      },
+      {
+        title: '标签',
+        dataIndex: 'tags',
+        key: 'tags',
+        render: (list: string[] = []) => list.length ? list.map((t, idx) => <Tag key={idx}>{t}</Tag>) : '',
+      },
+      {
+        title: '绑定 VR 实例',
+        key: 'vr',
+        render: (_: any, r: SecurityDomain) => r.vrName ? (
+          <Tooltip title={r.vrUuid}><Tag color="geekblue">{r.vrName}</Tag></Tooltip>
+        ) : '未绑定',
+      },
+      {
+        title: '状态',
+        dataIndex: 'status',
+        key: 'status',
+        render: (s: SecurityDomainStatus = 'active') => (
+          <Tag color={s === 'active' ? 'geekblue' : 'default'}>{s === 'active' ? '启用' : '停用'}</Tag>
+        ),
+      },
+      {
+        title: '创建时间',
+        dataIndex: 'createdAt',
+        key: 'createdAt',
+      },
+      {
+        title: '操作',
+        key: 'actions',
+        fixed: 'right',
+        render: (_: any, record: SecurityDomain) => {
+          const items: MenuProps['items'] = [
+            { key: 'detail', label: '详情' },
+            { key: 'edit', label: '编辑' },
+            { key: 'delete', label: '删除', danger: true },
+          ];
+          const onMenuClick: MenuProps['onClick'] = ({ key }) => {
+            if (key === 'detail') return openDetail(record);
+            if (key === 'edit') return openEdit(record);
+            if (key === 'delete') return removeDomain(record);
+          };
+          return (
+            <Dropdown menu={{ items, onClick: onMenuClick }} trigger={['click']}>
+              <Button type="text" icon={<EllipsisOutlined />} />
+            </Dropdown>
+          );
+        },
+      },
+    ];
+    return columns.filter((c) => visibleCols[String(c.key)] !== false);
+  }, [createForm, vrOptions, vrCeOptions, visibleCols, openEdit, removeDomain]);
 
   return (
     <PageContainer
@@ -710,9 +678,6 @@ const SecurityDomainPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="description" label="用途说明"> 
             <Input.TextArea rows={3} placeholder="设定安全域用途与说明" />
-          </Form.Item>
-          <Form.Item name="tags" label="标签"> 
-            <Select mode="tags" tokenSeparators={[',', ' ']} placeholder="如：prod,east,office" />
           </Form.Item>
         </Form>
       </Modal>

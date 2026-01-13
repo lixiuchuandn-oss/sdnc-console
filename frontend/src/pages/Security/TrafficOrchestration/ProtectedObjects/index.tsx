@@ -168,8 +168,6 @@ const ProtectedObjects: React.FC = () => {
 
   return (
     <PageContainer
-      title="防护对象管理（CSM 资产）"
-      subtitle="直接对已接入的 CSM 安全资源池资产进行统一生命周期管理"
       toolbarLeft={
         <Form
           form={filterForm}

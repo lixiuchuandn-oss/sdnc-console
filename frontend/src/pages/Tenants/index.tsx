@@ -4,48 +4,32 @@ import {
   Button, 
   Form, 
   Input, 
-  Select, 
   message, 
-  Space, 
-  Tag, 
-  Popconfirm,
   Dropdown,
   Modal,
-  Card,
   Row,
   Col,
-  Tree,
   Tabs,
-  Badge,
   Typography,
-  Statistic,
-  Divider
+  Select,
+  Tag,
+  Space,
 } from 'antd';
 import { 
-  PlusOutlined, 
-  DeleteOutlined, 
-  TeamOutlined, 
-  MoreOutlined,
-  EditOutlined,
-  CheckOutlined,
-  CloseOutlined,
   EllipsisOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import type { DataNode } from 'antd/es/tree';
-import { Tenant, Organization, TenantUser, CreateTenantRequest, CreateOrganizationRequest, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
+import { Tenant, Organization, TenantUser, CreateTenantRequest, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
-import { Space as AntSpace } from 'antd';
 import PageContainer from '../../components/PageContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import SharedToolbar from '../../components/SharedToolbar';
 import '../common/filters.css';
 
 const { TextArea } = Input;
-const { TabPane } = Tabs;
-const { Title } = Typography;
+// const { TabPane } = Tabs;
+// const { Title } = Typography;
 
 const TenantsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -60,7 +44,6 @@ const TenantsPage: React.FC = () => {
   const [resourcePools, setResourcePools] = useState<any[]>([]);
   const [assignments, setAssignments] = useState<ResourcePoolAssignment[]>([]);
   const [selectedTenantRowKeys, setSelectedTenantRowKeys] = useState<string[]>([]);
-  const [userKeyword, setUserKeyword] = useState<string>('');
   const [tenantOrgCountMap, setTenantOrgCountMap] = useState<Record<string, number>>({});
   const [tenantUserCountMap, setTenantUserCountMap] = useState<Record<string, number>>({});
   const [tenantSearch, setTenantSearch] = useState<string>('');
@@ -68,17 +51,11 @@ const TenantsPage: React.FC = () => {
   const [renameName, setRenameName] = useState<string>('');
   const [addingForParentId, setAddingForParentId] = useState<string | null>(null);
   const [newChildName, setNewChildName] = useState<string>('');
-  const [orgKeyword, setOrgKeyword] = useState<string>('');
-  const [assignmentKeyword, setAssignmentKeyword] = useState<string>('');
-  const [securityLoading, setSecurityLoading] = useState(false);
-  const [protectionObjects, setProtectionObjects] = useState<any[]>([]);
-  const [securityChains, setSecurityChains] = useState<any[]>([]);
   
   // 模态框状态
   const [tenantDrawerOpen, setTenantDrawerOpen] = useState(false);
   const [userDrawerOpen, setUserDrawerOpen] = useState(false);
   const [resourcePoolDrawerOpen, setResourcePoolDrawerOpen] = useState(false);
-  const [orgTreeDrawerOpen, setOrgTreeDrawerOpen] = useState(false);
   const [usersManageDrawerOpen, setUsersManageDrawerOpen] = useState(false);
   const [assignDrawerOpen, setAssignDrawerOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
@@ -324,23 +301,10 @@ const TenantsPage: React.FC = () => {
     });
   };
 
-  // 创建组织
-  const handleOrgSubmit = async (values: CreateOrganizationRequest) => {
-    if (!selectedTenant) return;
-    
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post(`/api/tenants/${selectedTenant.id}/organizations`, values, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('组织创建成功');
-      fetchOrganizations(selectedTenant.id);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '创建失败');
-    }
-  };
+
 
   // 删除组织（级联删除）
+  /*
   const handleOrgDelete = async (orgId: string) => {
     try {
       const token = localStorage.getItem('token');
@@ -386,6 +350,7 @@ const TenantsPage: React.FC = () => {
       message.error(error.response?.data?.message || '创建失败');
     }
   };
+  */
 
   // 创建用户
   const handleUserSubmit = async (values: CreateTenantUserRequest) => {
@@ -421,148 +386,7 @@ const TenantsPage: React.FC = () => {
     }
   };
 
-  // 过滤组织树
-  const filterOrgs = (orgs: Organization[], keyword: string): Organization[] => {
-    const kw = keyword.trim().toLowerCase();
-    if (!kw) return orgs;
-    const recur = (list: Organization[]): Organization[] => {
-      const out: Organization[] = [];
-      for (const org of list) {
-        const children = org.children ? recur(org.children) : [];
-        const selfMatch = org.name.toLowerCase().includes(kw);
-        if (selfMatch || children.length) {
-          out.push({ ...org, children });
-        }
-      }
-      return out;
-    };
-    return recur(orgs);
-  };
 
-  // 构建组织树数据
-  const buildTreeData = (orgs: Organization[]): DataNode[] => {
-    return orgs.map(org => {
-      const children = org.children ? buildTreeData(org.children) : [];
-      // 如果当前节点正在添加子组织，插入一个占位子节点
-      if (addingForParentId === org.id) {
-        children.push({
-          key: `__new__-${org.id}`,
-          title: (
-            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <Input
-                size="small"
-                value={newChildName}
-                onChange={(e) => setNewChildName(e.target.value)}
-                placeholder="请输入组织名称"
-                style={{ width: 200 }}
-              />
-              <Button
-                type="link"
-                size="small"
-                className="org-action-btn"
-                icon={<CheckOutlined />}
-                disabled={!newChildName.trim()}
-                onClick={(e) => { e.stopPropagation(); handleAddChildSave(org.id); }}
-              >保存</Button>
-              <Button
-                type="link"
-                size="small"
-                className="org-action-btn"
-                icon={<CloseOutlined />}
-                onClick={(e) => { e.stopPropagation(); setAddingForParentId(null); setNewChildName(''); }}
-              >取消</Button>
-            </div>
-          ),
-        });
-      }
-      return {
-        key: org.id,
-        title: (
-          <div style={{ display:'flex', alignItems:'center', gap:16, width:'100%' }}>
-            {renameOrgId === org.id ? (
-              <Input
-                size="small"
-                value={renameName}
-                onChange={(e) => setRenameName(e.target.value)}
-                style={{ width: 180 }}
-              />
-            ) : (
-              <Typography.Text className="org-tree-title" style={{ pointerEvents: 'none' }}>{org.name}</Typography.Text>
-            )}
-            <div style={{ display:'flex', alignItems:'center', marginLeft:'auto', justifyContent:'flex-end' }}>
-              {renameOrgId === org.id ? (
-                <>
-                  <Button
-                    type="link"
-                    size="small"
-                    className="org-action-btn"
-                    icon={<CheckOutlined />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!renameName.trim()) { message.warning('组织名称不能为空'); return; }
-                      handleOrgRename(org.id, renameName.trim());
-                    }}
-                  >保存</Button>
-                  <Button
-                    type="link"
-                    size="small"
-                    className="org-action-btn"
-                    icon={<CloseOutlined />}
-                    onClick={(e) => { e.stopPropagation(); setRenameOrgId(null); setRenameName(''); }}
-                  >取消</Button>
-                </>
-              ) : (
-                <Button
-                  type="link"
-                  size="small"
-                  className="org-action-btn"
-                  icon={<EditOutlined />}
-                  onClick={(e) => { e.stopPropagation(); setRenameOrgId(org.id); setRenameName(org.name); }}
-                >重命名</Button>
-              )}
-              <Divider type="vertical" />
-              <Button
-                type="link"
-                size="small"
-                icon={<PlusOutlined />}
-                className="org-action-btn"
-                disabled={org.level >= 4}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedKeys(prev => (prev.includes(org.id) ? prev : [...prev, org.id]));
-                  setAddingForParentId(org.id);
-                  setNewChildName('');
-                }}
-              >添加子组织</Button>
-              {org.level !== 1 && (
-                <>
-                  <Divider type="vertical" />
-                  <Button
-                    type="link"
-                    danger
-                    size="small"
-                    icon={<DeleteOutlined />}
-                    className="org-action-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      Modal.confirm({
-                        title: '确认删除组织',
-                        content: '将删除该组织及其所有下级组织、关联用户与资源池分配。',
-                        okText: '删除',
-                        cancelText: '取消',
-                        onOk: async () => { await handleOrgDelete(org.id); }
-                      });
-                    }}
-                  >删除</Button>
-                </>
-              )}
-            </div>
-          </div>
-        ),
-        children,
-      } as DataNode;
-    });
-  };
 
   // 资源池分配表格列定义
   const assignmentColumns: ColumnsType<ResourcePoolAssignment> = [
@@ -795,12 +619,9 @@ const TenantsPage: React.FC = () => {
     return okKeyword && okStatus;
   });
 
-  const totalTenants = tenants.length;
-  const orgTotal = organizations.length; // only for selected? maybe compute all
-  const totalUsers = users.length;
-
   useEffect(() => {
     fetchTenants();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -814,9 +635,7 @@ const TenantsPage: React.FC = () => {
 
   return (
     <PageContainer
-      title="租户管理"
       titleLevel={3}
-      subtitle="租户（Tenant）用于隔离不同组织或项目的资源与权限，支持组织架构、用户与角色管理、资源池分配等。"
       asCard={false}
     >
 
@@ -1000,7 +819,7 @@ const TenantsPage: React.FC = () => {
                   value={selectedOrg?.id}
                   placeholder="选择组织"
                   style={{ width: 240 }}
-                  onChange={(orgId)=>{
+                  onChange={(orgId: string)=>{
                     const org = organizations.find(o => o.id === orgId) || null;
                     setSelectedOrg(org);
                     if (selectedTenant?.id && orgId) fetchUsers(selectedTenant.id, orgId);
