@@ -57,8 +57,11 @@ const OrgManagePage: React.FC = () => {
       setOrganizations(response.data);
       const collectKeys = (orgs: Organization[]): string[] => {
         const out: string[] = [];
+        const visited = new Set<string>();
         const recur = (list: Organization[]) => {
           for (const o of list) {
+            if (visited.has(o.id)) continue;
+            visited.add(o.id);
             out.push(o.id);
             if (o.children && o.children.length) recur(o.children);
           }
@@ -195,9 +198,12 @@ const OrgManagePage: React.FC = () => {
   const filterOrgs = (orgs: Organization[], keyword: string): Organization[] => {
     const kw = keyword.trim().toLowerCase();
     if (!kw) return orgs;
+    const visited = new Set<string>();
     const recur = (list: Organization[]): Organization[] => {
       const out: Organization[] = [];
       for (const org of list) {
+        if (visited.has(org.id)) continue;
+        visited.add(org.id);
         const children = org.children ? recur(org.children) : [];
         const selfMatch = org.name.toLowerCase().includes(kw);
         if (selfMatch || children.length) {
@@ -210,8 +216,12 @@ const OrgManagePage: React.FC = () => {
   };
 
   const buildTreeData = (orgs: Organization[]): DataNode[] => {
-    return orgs.map(org => {
-      const children = org.children ? buildTreeData(org.children) : [];
+    const visited = new Set<string>();
+    const recur = (list: Organization[]): DataNode[] => {
+      return list.map(org => {
+        if (visited.has(org.id)) return null;
+        visited.add(org.id);
+        const children = org.children ? recur(org.children) : [];
       if (addingForParentId === org.id) {
         children.push({
           key: `__new__-${org.id}`,
@@ -324,7 +334,9 @@ const OrgManagePage: React.FC = () => {
         ),
         children,
       } as DataNode;
-    });
+    }).filter(Boolean) as DataNode[];
+    };
+    return recur(orgs);
   };
 
   const userColumns: ColumnsType<TenantUser> = [

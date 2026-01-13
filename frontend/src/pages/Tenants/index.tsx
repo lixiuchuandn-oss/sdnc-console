@@ -96,8 +96,11 @@ const TenantsPage: React.FC = () => {
       setOrganizations(response.data);
       const countAll = (orgs: Organization[]): number => {
         let c = 0;
+        const visited = new Set<string>();
         const recur = (list: Organization[]) => {
           for (const o of list) {
+            if (visited.has(o.id)) continue;
+            visited.add(o.id);
             c += 1;
             if (o.children && o.children.length) recur(o.children);
           }
@@ -108,8 +111,11 @@ const TenantsPage: React.FC = () => {
       setTenantOrgCountMap(prev => ({ ...prev, [tenantId]: countAll(response.data) }));
       const collectKeys = (orgs: Organization[]): string[] => {
         const out: string[] = [];
+        const visited = new Set<string>();
         const recur = (list: Organization[]) => {
           for (const o of list) {
+            if (visited.has(o.id)) continue;
+            visited.add(o.id);
             out.push(o.id);
             if (o.children && o.children.length) recur(o.children);
           }
@@ -132,27 +138,40 @@ const TenantsPage: React.FC = () => {
   const refreshOrgCounts = async (list: Tenant[]) => {
     try {
       const token = localStorage.getItem('token');
-      const pairs = await Promise.all(list.map(async (t) => {
-        try {
-          const res = await axios.get(`/api/tenants/${t.id}/organizations`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const countAll = (orgs: Organization[]): number => {
-            let c = 0;
-            const recur = (ls: Organization[]) => {
-              for (const o of ls) {
-                c += 1;
-                if (o.children && o.children.length) recur(o.children);
-              }
+      const pairs: [string, number][] = [];
+      
+      // 分批处理，避免并发过高
+      const chunkSize = 5;
+      for (let i = 0; i < list.length; i += chunkSize) {
+        const chunk = list.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(chunk.map(async (t) => {
+          try {
+            const res = await axios.get(`/api/tenants/${t.id}/organizations`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const countAll = (orgs: Organization[]): number => {
+              let c = 0;
+              const visited = new Set<string>();
+              const recur = (ls: Organization[]) => {
+                for (const o of ls) {
+                  if (visited.has(o.id)) continue;
+                  visited.add(o.id);
+                  c += 1;
+                  if (o.children && o.children.length) recur(o.children);
+                }
+              };
+              recur(orgs);
+              return c;
             };
-            recur(orgs);
-            return c;
-          };
-          return [t.id, countAll(res.data)] as const;
-        } catch {
-          return [t.id, 0] as const;
-        }
-      }));
+            return [t.id, countAll(res.data)] as const;
+          } catch {
+            return [t.id, 0] as const;
+          }
+        }));
+        // @ts-ignore
+        pairs.push(...chunkResults);
+      }
+
       setTenantOrgCountMap(prev => {
         const next = { ...prev };
         for (const [id, cnt] of pairs) next[id] = cnt;

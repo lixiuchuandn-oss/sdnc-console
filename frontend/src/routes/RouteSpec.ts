@@ -81,6 +81,18 @@ export const routeSpecs: RouteSpec[] = [
     order: 1
   },
   {
+    id: 'tenant-organizations',
+    path: '/admin/tenants/:tenantId/organizations',
+    element: 'OrgManagePage',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '租户管理',
+    title: '组织管理',
+    breadcrumbLabel: '组织管理',
+    hidden: true,
+    parentId: 'tenants-list',
+  },
+  {
     id: 'leased-lines',
     path: '/admin/tenants/leased-lines',
     element: 'TenantLeasedLinesPage',
