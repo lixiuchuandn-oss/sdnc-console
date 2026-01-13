@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Button, Space, Tag, Modal, Input, Select, message, Pagination, Radio, Table } from 'antd';
+import { Alert, Form, Button, Space, Tag, Modal, Input, Select, message, Radio, Table } from 'antd';
 import VRDomainTableSelector from '../components/VRDomainTableSelector';
 import { createCsmAsset, fetchCsmAssets, fetchCsmVRouters, fetchCsmPoolId } from '../../../../../../services/api';
 
@@ -54,6 +54,19 @@ export default function StepProtectionObjects(props: any) {
       (a.value || '').toLowerCase().includes(kw) ||
       (a.type || '').toLowerCase().includes(kw) ||
       (a.description || '').toLowerCase().includes(kw)
+    );
+  });
+
+  const filteredVrDomains = (vrDomains || []).filter((item: any) => {
+    const kw = String(vrKeyword || '').trim().toLowerCase();
+    if (!kw) return true;
+    return (
+      String(item.name || '').toLowerCase().includes(kw) ||
+      String(item.subType || '').toLowerCase().includes(kw) ||
+      String(item.provider || '').toLowerCase().includes(kw) ||
+      String(item.region || '').toLowerCase().includes(kw) ||
+      String(item.cidr || '').toLowerCase().includes(kw) ||
+      String(item.vrName || '').toLowerCase().includes(kw)
     );
   });
 
@@ -120,8 +133,9 @@ export default function StepProtectionObjects(props: any) {
 
   return (
     <div>
+
       <Form form={form} layout="vertical">
-         <Form.Item name="steeringMode" label="引流模式" initialValue="vr">
+         <Form.Item name="steeringMode"  initialValue="vr" style={{ marginBottom: 16 }}>
            <Radio.Group onChange={handleModeChange} value={steeringMode}>
              <Radio.Button value="vr">VR引流 (安全域)</Radio.Button>
              <Radio.Button value="direct">直连引流 (资源池资产)</Radio.Button>
@@ -129,8 +143,8 @@ export default function StepProtectionObjects(props: any) {
          </Form.Item>
 
          {steeringMode === 'vr' ? (
-          <div style={{ marginTop: 16, minHeight: 560 }}>
-             <div style={{ fontSize: 14, color: '#1f1f1f', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+             <div style={{ fontSize: 14, color: '#1f1f1f', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                  <label style={{ fontSize: 14, color: '#1f1f1f' }}>关键字搜索</label>
                  <Input
@@ -141,7 +155,7 @@ export default function StepProtectionObjects(props: any) {
                    style={{ width: 320 }}
                  />
                  <div style={{ color: '#999', fontSize: 12 }}>
-                   共 {(vrDomains || []).length} 项，已选 {(form.getFieldValue('vrDomains') || []).length} 项
+                   共 {filteredVrDomains.length} 项，已选 {(form.getFieldValue('vrDomains') || []).length} 项
                  </div>
                </div>
                <Space>
@@ -164,18 +178,7 @@ export default function StepProtectionObjects(props: any) {
             >
                 <VRDomainTableSelector
                   csmAssets={csmAssets}
-                  dataSource={((vrDomains || []).filter((item: any) => {
-                    const kw = String(vrKeyword || '').trim().toLowerCase();
-                    if (!kw) return true;
-                    return (
-                      String(item.name || '').toLowerCase().includes(kw) ||
-                      String(item.subType || '').toLowerCase().includes(kw) ||
-                      String(item.provider || '').toLowerCase().includes(kw) ||
-                      String(item.region || '').toLowerCase().includes(kw) ||
-                      String(item.cidr || '').toLowerCase().includes(kw) ||
-                      String(item.vrName || '').toLowerCase().includes(kw)
-                    );
-                  })).slice((vrPage-1)*vrPageSize, (vrPage-1)*vrPageSize + vrPageSize)}
+                  dataSource={filteredVrDomains}
                   showActions
                  onAddAsset={(record: any) => {
                    const cloudId = String(selectedClusterId || form.getFieldValue('cluster') || '').trim();
@@ -240,46 +243,22 @@ export default function StepProtectionObjects(props: any) {
                      else message.error('添加到资产失败');
                    })();
                  }}
-                 tableProps={{ pagination: false, size: 'middle' }}
+                 tableProps={{
+                   size: 'small',
+                   pagination: {
+                     size: 'small',
+                     current: vrPage,
+                     pageSize: vrPageSize,
+                     total: filteredVrDomains.length,
+                     onChange: (p: number, ps: number) => { setVrPage(p); setVrPageSize(ps); },
+                     showSizeChanger: true
+                   }
+                 }}
                  existingCidrs={vrExistingCidrs}
                  hideHeader
+                 
                 />
               </Form.Item>
-             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop:16 }}>
-               <div style={{ color: '#999', fontSize: 12 }}>
-                 总计：{((vrDomains || []).filter((item: any) => {
-                   const kw = String(vrKeyword || '').trim().toLowerCase();
-                   if (!kw) return true;
-                   return (
-                     String(item.name || '').toLowerCase().includes(kw) ||
-                     String(item.subType || '').toLowerCase().includes(kw) ||
-                     String(item.provider || '').toLowerCase().includes(kw) ||
-                     String(item.region || '').toLowerCase().includes(kw) ||
-                     String(item.cidr || '').toLowerCase().includes(kw) ||
-                     String(item.vrName || '').toLowerCase().includes(kw)
-                   );
-                 })).length} 条
-               </div>
-               <Pagination
-
-                 current={vrPage}
-                 pageSize={vrPageSize}
-                 total={((vrDomains || []).filter((item: any) => {
-                   const kw = String(vrKeyword || '').trim().toLowerCase();
-                   if (!kw) return true;
-                   return (
-                     String(item.name || '').toLowerCase().includes(kw) ||
-                     String(item.subType || '').toLowerCase().includes(kw) ||
-                     String(item.provider || '').toLowerCase().includes(kw) ||
-                     String(item.region || '').toLowerCase().includes(kw) ||
-                     String(item.cidr || '').toLowerCase().includes(kw) ||
-                     String(item.vrName || '').toLowerCase().includes(kw)
-                   );
-                 })).length}
-                 showSizeChanger
-                 onChange={(p, ps) => { setVrPage(p); setVrPageSize(ps); }}
-               />
-             </div>
              <Modal
                title="批量添加到资产（VR安全域）"
                open={vrBatchOpen}
@@ -421,24 +400,8 @@ export default function StepProtectionObjects(props: any) {
              </Modal>
            </div>
         ) : (
-          <div style={{ marginTop: 16, minHeight: 560 }}>
-             <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 16 }}>
-                <span style={{ fontSize: 12 }}>资源池ID (Pool ID):</span>
-                <Input 
-                    style={{ width: 280 }} 
-                    value={poolId || ''} 
-                    onChange={e => {
-                        const val = e.target.value;
-                        setPoolId(val);
-                        form.setFieldsValue({ pool_id: val });
-                    }}
-                    placeholder="自动检测中..."
-                    size="small"
-                />
-                <Button size="small" onClick={() => loadAssets()} loading={assetsLoading}>刷新列表</Button>
-                {poolDetecting && <span style={{ color: '#999', fontSize: 12 }}>检测中...</span>}
-             </div>
-             <div style={{ fontSize: 14, color: '#1f1f1f', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ marginTop: 16}}>
+             <div style={{ fontSize: 14, color: '#1f1f1f', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                  <label style={{ fontSize: 14, color: '#1f1f1f' }}>资产搜索</label>
                  <Input
@@ -451,6 +414,14 @@ export default function StepProtectionObjects(props: any) {
                  <div style={{ color: '#999', fontSize: 12 }}>
                    共 {csmAssets.length} 项，已选 {(form.getFieldValue('selectedAssets') || []).length} 项
                  </div>
+                 <span style={{ fontSize: 12, color: '#1677ff' }}>| 资源池ID (Pool ID)</span>
+                 <Input 
+                    style={{ width: 280, border: 'none', boxShadow: 'none' }} 
+                    value={poolId || ''} 
+                    disabled
+                    placeholder="自动检测中..."
+                    size="small"
+                />
                </div>
              </div>
              
@@ -459,10 +430,11 @@ export default function StepProtectionObjects(props: any) {
                 rules={[{ required: true, message: '请至少选择一个防护对象' }]}
              >
                 <Table
+                  bordered
+                  size="small"
                   dataSource={filteredAssets}
                   loading={assetsLoading}
                   rowKey={(r: any) => r.network_id || r.id || r.uuid}
-                  size="small"
                   rowSelection={{
                     type: 'checkbox',
                     selectedRowKeys: selectedAssetKeys,

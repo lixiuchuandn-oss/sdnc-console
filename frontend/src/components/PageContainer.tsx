@@ -2,7 +2,39 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider, Table, TableProps, Popover, Checkbox, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined } from '@ant-design/icons';
+
+export const iconOf = (key?: string) => {
+  const m: Record<string, React.ReactNode> = {
+    AppstoreOutlined: <AppstoreOutlined />,
+    DashboardOutlined: <DashboardOutlined />,
+    DeploymentUnitOutlined: <DeploymentUnitOutlined />,
+    CloudUploadOutlined: <CloudUploadOutlined />,
+    DesktopOutlined: <DesktopOutlined />,
+    TeamOutlined: <TeamOutlined />,
+    UserOutlined: <UserOutlined />,
+    UserSwitchOutlined: <UserSwitchOutlined />,
+    GatewayOutlined: <GatewayOutlined />,
+    LockOutlined: <LockOutlined />,
+    ApiOutlined: <ApiOutlined />,
+    BranchesOutlined: <BranchesOutlined />,
+    GlobalOutlined: <GlobalOutlined />,
+    EnvironmentOutlined: <EnvironmentOutlined />,
+    ShareAltOutlined: <ShareAltOutlined />,
+    NodeIndexOutlined: <NodeIndexOutlined />,
+    SecurityScanOutlined: <SecurityScanOutlined />,
+    SwapOutlined: <SwapOutlined />,
+    AppstoreAddOutlined: <AppstoreAddOutlined />,
+    BarChartOutlined: <BarChartOutlined />,
+    FileTextOutlined: <FileTextOutlined />,
+    FundProjectionScreenOutlined: <FundProjectionScreenOutlined />,
+    RadarChartOutlined: <RadarChartOutlined />,
+    DatabaseOutlined: <DatabaseOutlined />,
+    CloudDownloadOutlined: <CloudDownloadOutlined />,
+    SolutionOutlined: <SolutionOutlined />,
+  };
+  return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
+};
 
 export interface PageContainerProps<T = any> {
   title?: React.ReactNode;
@@ -123,28 +155,7 @@ const PageContainer = <T extends Record<string, any> = any>({
     </div>
   ), [tableProps?.columns, hiddenColumns]);
 
-  const iconOf = (key?: string) => {
-    const m: Record<string, React.ReactNode> = {
-      AppstoreOutlined: <AppstoreOutlined />,
-      DeploymentUnitOutlined: <DeploymentUnitOutlined />,
-      CloudUploadOutlined: <CloudUploadOutlined />,
-      DesktopOutlined: <DesktopOutlined />,
-      TeamOutlined: <TeamOutlined />,
-      UserOutlined: <UserOutlined />,
-      UserSwitchOutlined: <UserSwitchOutlined />,
-      GatewayOutlined: <GatewayOutlined />,
-      LockOutlined: <LockOutlined />,
-      ApiOutlined: <ApiOutlined />,
-      BranchesOutlined: <BranchesOutlined />,
-      GlobalOutlined: <GlobalOutlined />,
-      EnvironmentOutlined: <EnvironmentOutlined />,
-      ShareAltOutlined: <ShareAltOutlined />,
-      NodeIndexOutlined: <NodeIndexOutlined />,
-      SecurityScanOutlined: <SecurityScanOutlined />,
-      SwapOutlined: <SwapOutlined />,
-    };
-    return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
-  };
+  
 
   const styledIcon = (node: React.ReactNode, size: number, color: string) => {
     return React.isValidElement(node)
@@ -261,7 +272,7 @@ const PageContainer = <T extends Record<string, any> = any>({
           style={{
             marginBottom: collapsed ? 0 : 16,
             height: collapsed ? 0 : undefined,
-            overflow: 'hidden',
+            overflow: collapsed ? 'hidden' : 'visible',
             transition: 'height 200ms ease, opacity 200ms ease, margin 200ms ease',
             opacity: collapsed ? 0 : 1,
           }}

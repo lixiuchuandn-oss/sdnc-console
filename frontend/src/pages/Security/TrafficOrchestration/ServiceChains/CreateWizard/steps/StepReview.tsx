@@ -185,38 +185,6 @@ const StepReview: React.FC<StepReviewProps> = ({
         </Descriptions.Item>
       </Descriptions>
       <div style={{ height: 8 }} />
-      <div style={{ fontSize: 13, color: '#000', margin: '0 0 8px 0', paddingBottom: 0 }}>CSM 接口关键参数</div>
-      <Descriptions
-        column={1}
-        bordered
-        size="small"
-      >
-        <Descriptions.Item label="cloud_id">{String(values.cluster || '').trim() || '-'}</Descriptions.Item>
-        <Descriptions.Item label="pool_id">
-          <Space>
-            <Input
-              placeholder="pool_id"
-              value={form.getFieldValue('pool_id') || ''}
-              onChange={(e) => form.setFieldsValue({ pool_id: e.target.value })}
-              style={{ width: 220 }}
-            />
-            <Button onClick={detectPoolId}>自动检测</Button>
-          </Space>
-        </Descriptions.Item>
-        <Descriptions.Item label="name">{String(values.name || '').trim() || '-'}</Descriptions.Item>
-        <Descriptions.Item label="type">{String(values.type || 'serial')}</Descriptions.Item>
-        <Descriptions.Item label="vrf_id">{values.vrf_id ?? 0}</Descriptions.Item>
-        <Descriptions.Item label="steering_mode">{steeringMode}</Descriptions.Item>
-        <Descriptions.Item label="serial_list">
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify((values.type || 'serial') === 'serial' ? orderedServices : [], null, 2)}</pre>
-        </Descriptions.Item>
-        <Descriptions.Item label="monitor_list">
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify((values.type || 'serial') === 'bypass' ? orderedServices : [], null, 2)}</pre>
-        </Descriptions.Item>
-        <Descriptions.Item label="targets">
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(targetsCidrs, null, 2)}</pre>
-        </Descriptions.Item>
-      </Descriptions>
     </div>
   );
 };

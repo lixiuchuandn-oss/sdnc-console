@@ -29,7 +29,7 @@ type Policy = {
 const normalizeGroupName = (g: string): string => g;
 const featureNameOf = (resource: string): string => featureLabelOf(resource);
 
-const mapGroupOf = (val: string): string => groupOf(val);
+const mapGroupOf = (val: string): string => groupOf(val) || '';
 
 const computeSystemPoliciesFrom = (actions: string[]): Policy[] => {
   const byGroup = new Map<string, string[]>();

@@ -1,11 +1,11 @@
 import React from 'react';
-import { Table, Space, Input, Button, Popover, Checkbox, Tag } from 'antd';
-import { SearchOutlined, SettingOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons';
+import { Table, Space, Input, Button, Popover, Checkbox, Tag, Typography, Divider } from 'antd';
+import { SearchOutlined, SettingOutlined, ReloadOutlined, PlusOutlined, GlobalOutlined, LinkOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import SharedToolbar from '../../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { Modal, message } from 'antd';
 import { deleteCsmServiceChain } from '../../../../services/api';
-import { fetchCsmServiceChains } from '../../../../services/api';
+import { fetchCsmServiceChains, fetchCsmAssets, fetchCsmElementGroups } from '../../../../services/api';
 import { useNavigate } from 'react-router-dom';
 
 type Props = { cloudId: string; showLog?: boolean };
@@ -17,11 +17,18 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
   const [raw, setRaw] = React.useState<any | null>(null);
   const [searchText, setSearchText] = React.useState('');
   const [visibleColumnKeys, setVisibleColumnKeys] = React.useState<string[]>([]);
+  const [assetMap, setAssetMap] = React.useState<Map<string, { name: string; type: string }>>(new Map());
+  const [groupMap, setGroupMap] = React.useState<Map<string, string>>(new Map());
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetchCsmServiceChains(cloudId);
+      const [res, assetRes, groupRes] = await Promise.all([
+        fetchCsmServiceChains(cloudId),
+        fetchCsmAssets(cloudId).catch(() => ({ data: { items: [] } })),
+        fetchCsmElementGroups(cloudId).catch(() => ({ data: { items: [] } }))
+      ]);
+
       const arr =
         Array.isArray(res) ? res
         : Array.isArray(res?.data) ? res.data
@@ -38,6 +45,36 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
         : [];
       setItems(arr);
       setRaw(res);
+
+      // Process assets
+      const assets = Array.isArray(assetRes?.data?.items) ? assetRes.data.items :
+                     Array.isArray(assetRes?.items) ? assetRes.items :
+                     Array.isArray(assetRes?.data) ? assetRes.data :
+                     Array.isArray(assetRes) ? assetRes : [];
+      
+      const map = new Map<string, { name: string; type: string }>();
+      assets.forEach((a: any) => {
+        const id = a.network_id || a.id || a.uuid;
+        const val = a.value;
+        const type = a.type || '虚拟机';
+        if (id && val) map.set(id, { name: val, type });
+      });
+      setAssetMap(map);
+
+      // Process groups
+      const groups = Array.isArray(groupRes?.data?.items) ? groupRes.data.items :
+                     Array.isArray(groupRes?.items) ? groupRes.items :
+                     Array.isArray(groupRes?.data) ? groupRes.data :
+                     Array.isArray(groupRes) ? groupRes : [];
+      
+      const gMap = new Map<string, string>();
+      groups.forEach((g: any) => {
+        const id = g.vm_group_id || g.id;
+        const name = g.vm_group_name || g.name;
+        if (id && name) gMap.set(id, name);
+      });
+      setGroupMap(gMap);
+
     } catch {
       setItems([]);
       setRaw(null);
@@ -78,21 +115,85 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
 
   const columns = React.useMemo(() => [
     { title: '服务链ID', dataIndex: 'service_chain_id', key: 'service_chain_id', render: (_: any, r: any) => r?.service_chain_id || r?.id || '-' },
-    { title: '服务链类型', dataIndex: 'type', key: 'type', width: 120, render: (_: any, r: any) => deriveType(r) },
-    { title: '防护对象', dataIndex: 'network_ids', key: 'targets', width: 120, render: (v: any) => {
-      const n = toList(v).length;
-      return `${n} 项`;
+    { title: '服务链类型', dataIndex: 'type', key: 'type', render: (_: any, r: any) => deriveType(r) },
+    { title: '防护对象', dataIndex: 'network_ids', key: 'targets',  render: (v: any) => {
+      const ids = toList(v);
+      if (ids.length === 0) return '-';
+      
+      const dataSource = ids.map((id, i) => {
+        const asset = assetMap.get(id);
+        return {
+          key: i,
+          id,
+          name: asset?.name || id,
+          type: asset?.type || '-'
+        };
+      });
+
+      const columns = [
+        { title: '对象类型', dataIndex: 'type', key: 'type' },
+        { title: '防护对象', dataIndex: 'name', key: 'name' },
+      ];
+
+      const content = (
+        <div style={{ width: 300 }}>
+            <Table 
+                dataSource={dataSource} 
+                columns={columns} 
+                size="small" 
+                pagination={false} 
+                rowKey="key"
+            />
+        </div>
+      );
+
+      return (
+          <Popover content={content}>
+             <a onClick={e => e.preventDefault()} style={{ fontWeight: 500 }}>{ids.length} 项</a>
+          </Popover>
+      );
     } },
-    { title: '安全服务（网元组）', dataIndex: 'services', key: 'services', width: 160, render: (_: any, r: any) => {
-      const serialCount = toList(r?.serial_list).length;
-      const monitorCount = toList(r?.monitor_list).length;
-      const total = serialCount + monitorCount;
-      return `${total} 项`;
+    { title: '安全服务（网元组）', dataIndex: 'services', key: 'services', render: (_: any, r: any) => {
+      const serialList = toList(r?.serial_list);
+      const monitorList = toList(r?.monitor_list);
+      const total = serialList.length + monitorList.length;
+      
+      if (total === 0) return '-';
+
+      const dataSource = [
+        ...serialList.map((id, i) => ({ key: `s-${i}`, id, name: groupMap.get(id) || id, type: '串行' })),
+        ...monitorList.map((id, i) => ({ key: `m-${i}`, id, name: groupMap.get(id) || id, type: '旁路' }))
+      ];
+
+      const columns = [
+        { title: '名称', dataIndex: 'name', key: 'name' },
+        { title: '类型', dataIndex: 'type', key: 'type', width: 80, render: (t: string) => (
+            <Tag color={t === '串行' ? 'purple' : 'cyan'}>{t}</Tag>
+        )},
+      ];
+
+      const content = (
+        <div style={{ width: 400 }}>
+            <Table 
+                dataSource={dataSource} 
+                columns={columns} 
+                size="small" 
+                pagination={false} 
+                rowKey="key"
+            />
+        </div>
+      );
+
+      return (
+        <Popover content={content}>
+           <a onClick={e => e.preventDefault()} style={{ fontWeight: 500 }}>{total} 项</a>
+        </Popover>
+      );
     } },
-    { title: '串行状态', dataIndex: 'serial_status', key: 'serial_status', width: 100, render: (v: any, r: any) => statusTag(v, toList(r?.serial_list).length > 0) },
-    { title: '旁路状态', dataIndex: 'monitor_status', key: 'monitor_status', width: 100, render: (v: any, r: any) => statusTag(v, toList(r?.monitor_list).length > 0) },
-    { title: '目标流量', dataIndex: 'target_pps', key: 'target_pps', width: 100, render: (t: any) => (t != null ? `${t}pps` : '0.0pps') },
-    { title: '来源流量', dataIndex: 'source_pps', key: 'source_pps', width: 100, render: (t: any) => (t != null ? `${t}pps` : '0.0pps') },
+    { title: '串行状态', dataIndex: 'serial_status', key: 'serial_status',  render: (v: any, r: any) => statusTag(v, toList(r?.serial_list).length > 0) },
+    { title: '旁路状态', dataIndex: 'monitor_status', key: 'monitor_status',  render: (v: any, r: any) => statusTag(v, toList(r?.monitor_list).length > 0) },
+    { title: '目标流量', dataIndex: 'target_pps', key: 'target_pps',  render: (t: any) => (t != null ? `${t}pps` : '0.0pps') },
+    { title: '来源流量', dataIndex: 'source_pps', key: 'source_pps',  render: (t: any) => (t != null ? `${t}pps` : '0.0pps') },
     { title: '操作', key: 'action', width: 120, fixed: 'right' as 'right', render: (_: any, r: any) => {
       const chainId = r?.service_chain_id || r?.id;
       return (
@@ -142,7 +243,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
         />
       );
     } },
-  ] as any[], [cloudId, load]);
+  ] as any[], [cloudId, load, assetMap, groupMap]);
 
   React.useEffect(() => {
     const initKeys = columns.map((c: any) => c.key).filter((k: string) => k !== 'action');

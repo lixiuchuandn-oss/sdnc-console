@@ -19,6 +19,10 @@ export const PATH_PERMISSION_MAPPING = [
   { path: '/admin/alarms', action: 'secops.alerts:read' },
   { path: '/admin/access', action: 'access:read' },
   { path: '/admin/coming-soon', action: 'ops:read' },
+  { path: '/admin/soc/overview', action: 'secops.dashboard:read' },
+  { path: '/admin/soc/threat/events', action: 'secops.alerts:read' },
+  { path: '/admin/soc/threat/offline-logs', action: 'tenants.leased-lines.alert-logs:read' },
+  { path: '/admin/soc/threat/rules', action: 'secops.rules:read' },
 ];
 
 export const getRequiredActionForPath = (path: string): string | null => {

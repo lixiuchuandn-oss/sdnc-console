@@ -265,6 +265,8 @@ router.post('/service-chains', async (req, res) => {
     entity.status = payload.status || 'active';
     entity.description = payload.description;
     entity.securityZoneId = payload.securityZoneId;
+    entity.domainId = payload.domainId;
+    entity.domainName = payload.domainName;
     
     entity.steeringMode = payload.steeringMode;
     entity.securityServices = payload.securityServices; // JSON/Text
@@ -304,6 +306,8 @@ router.patch('/service-chains/:id', async (req, res) => {
     if (payload.status !== undefined) entity.status = payload.status;
     if (payload.description !== undefined) entity.description = payload.description;
     if (payload.securityZoneId !== undefined) entity.securityZoneId = payload.securityZoneId;
+    if (payload.domainId !== undefined) entity.domainId = payload.domainId;
+    if (payload.domainName !== undefined) entity.domainName = payload.domainName;
     
     if (payload.steeringMode !== undefined) entity.steeringMode = payload.steeringMode;
     if (payload.securityServices !== undefined) entity.securityServices = payload.securityServices;

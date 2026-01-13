@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, Space, Typography, theme, Button, Dropdown, Tooltip, Switch } from 'antd';
 import { EllipsisOutlined } from '@ant-design/icons';
-import SharedToolbar from './SharedToolbar';
+import SharedToolbar, { ColumnOption } from './SharedToolbar';
 import { AppstoreOutlined } from '@ant-design/icons';
 
 export type PageDetailSectionProps = {
@@ -29,6 +29,30 @@ export type PageDetailSectionProps = {
   selectWidth?: number;
   inputSize?: 'small' | 'middle' | 'large';
   showHeaderTitle?: boolean;
+
+  // New SharedToolbar props
+  onRefresh?: () => void;
+  refreshLoading?: boolean;
+  columnsConfig?: {
+    value: string[];
+    options: ColumnOption[];
+    onChange: (values: string[]) => void;
+    tooltip?: React.ReactNode;
+  };
+  primaryAction?: {
+    label: React.ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+    loading?: boolean;
+    danger?: boolean;
+    tooltip?: React.ReactNode;
+  };
+  batchActions?: {
+    items: any[]; // Using any[] to avoid circular dependency or strict type issues, but ideally import MenuProps
+    onMenuClick?: (key: string) => void;
+    disabled?: boolean;
+    tooltip?: React.ReactNode;
+  };
 };
 
 const PageDetailSection: React.FC<PageDetailSectionProps> = ({
@@ -56,6 +80,11 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
   selectWidth = 200,
   inputSize = 'middle',
   showHeaderTitle = false,
+  onRefresh,
+  refreshLoading,
+  columnsConfig,
+  primaryAction,
+  batchActions,
 }) => {
   const { token } = theme.useToken();
   const styledIcon = (node: React.ReactNode, size: number, color: string) => {
@@ -159,8 +188,22 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
 
   const leftContent = autoStyleInputs && toolbarLeft ? normalizeChildren(toolbarLeft) : toolbarLeft;
   const rightContent = autoStyleInputs && toolbarRight ? normalizeChildren(toolbarRight) : toolbarRight;
-  const toolbar = (leftContent || rightContent) ? (
-    <SharedToolbar left={leftContent} right={rightContent} leftGap={toolbarGapLeft} rightGap={toolbarGapRight} style={toolbarStyle} />
+  
+  const hasToolbar = leftContent || rightContent || onRefresh || columnsConfig || primaryAction || batchActions;
+  
+  const toolbar = hasToolbar ? (
+    <SharedToolbar 
+      left={leftContent} 
+      right={rightContent} 
+      leftGap={toolbarGapLeft} 
+      rightGap={toolbarGapRight} 
+      style={toolbarStyle}
+      onRefresh={onRefresh}
+      refreshLoading={refreshLoading}
+      columnsConfig={columnsConfig}
+      primaryAction={primaryAction}
+      batchActions={batchActions}
+    />
   ) : null;
 
   const contentChildren = autoStyleInputs && children ? normalizeChildren(children) : children;

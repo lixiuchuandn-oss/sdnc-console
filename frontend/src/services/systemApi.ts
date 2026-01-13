@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const API_BASE = '/api/system';
+const API_THREATS = '/api/threats';
 
 export type DifyConfig = {
   baseUrl?: string;
@@ -62,4 +63,24 @@ export async function updateSystemSetting(key: string, value: string): Promise<{
     headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' },
   });
   return res.data?.data || res.data;
+}
+
+export async function importThreatEvents(file: File): Promise<{ ok: boolean; count: number; message: string }> {
+  const token = localStorage.getItem('token');
+  const form = new FormData();
+  form.append('file', file);
+  const res = await axios.post(`${API_THREATS}/import-csv`, form, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    timeout: 180000,
+  });
+  return res.data;
+}
+
+export async function listThreatEvents(page = 1, pageSize = 10): Promise<{ data: any[]; total: number; page: number; pageSize: number }> {
+  const token = localStorage.getItem('token');
+  const res = await axios.get(`${API_THREATS}`, {
+    params: { page, pageSize },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  return res.data;
 }

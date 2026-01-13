@@ -486,14 +486,15 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const vRouterRowSelection = createRowSelection(vRouterSelectedRowKeys, setVRouterSelectedRowKeys);
 
   const columnsAssets = [
+    { title: '防护对象', dataIndex: 'value', key: 'value', render: (t: any) => t || '-' },
     { title: '资产ID', dataIndex: 'network_id', key: 'id', render: (t: any, r: any) => t || r?.id || r?.Id || r?.uuid || '-' },
-    { title: '类型', dataIndex: 'type', key: 'type', render: (t: any) => {
+    { title: '对象类型', dataIndex: 'type', key: 'type', render: (t: any) => {
       const map: any = { 'subnet': '子网', 'ip': 'IP', 'vpc': 'VPC' };
       return <Tag color="blue">{map[t] || t}</Tag>;
     }},
     { title: 'IP类型', dataIndex: 'ip_type', key: 'ip_type', render: (t: any) => t || '-' },
-    { title: '值', dataIndex: 'value', key: 'value', render: (t: any) => t || '-' },
-    { title: '端口', dataIndex: 'port', key: 'port', render: (t: any) => t || '-' },
+    { title: 'IP范围', dataIndex: 'value', key: 'value', render: (t: any) => t || '-' },
+    { title: '端口范围', dataIndex: 'port', key: 'port', render: (t: any) => t || '-' },
     { title: '操作', key: 'action', width: 120, fixed: 'right' as 'right', render: (_: any, record: any) => (
       <ResourceActionsDropdown
         items={[

@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { API_BASE_URL } from '../services/api';
 
+/**
+ * 用户对象
+ * - permissions 为派生属性：登录后通过角色→权限计算得到的权限原子集合（去重）
+ */
 interface User {
   id: string;
   username: string;
@@ -11,6 +15,13 @@ interface User {
   permissions?: string[];
 }
 
+/**
+ * 认证上下文
+ * - user: 当前登录用户（含权限）
+ * - token: 访问后端的 Bearer Token（存储于 localStorage）
+ * - login/logout: 登录/退出
+ * - loading: 初始化阶段或登录过程中的加载态
+ */
 interface AuthContextType {
   user: User | null;
   token: string | null;
@@ -21,6 +32,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * 获取认证上下文的 Hook
+ * 使用前需确保组件树外层包裹了 <AuthProvider>
+ */
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -33,6 +48,12 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+/**
+ * 认证提供者
+ * - 启动时从 localStorage 读取 token 并校验
+ * - 若 token 有效，拉取用户信息并按“角色→权限”计算出 permissions
+ * - 注意：将 token 存于 localStorage 在存在 XSS 时可能被窃取，请确保前端安全基线
+ */
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
@@ -43,7 +64,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const storedToken = localStorage.getItem('token');
       if (storedToken) {
         try {
-          // 验证token有效性
+          // 1) 验证 token 有效性，并获取基础用户信息
           const response = await fetch(`${API_BASE_URL}/api/users/me`, {
             headers: {
               'Authorization': `Bearer ${storedToken}`
@@ -53,6 +74,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           if (response.ok) {
             const userData = await response.json();
             try {
+              // 2) 根据用户类型（tenant/system）拉取角色分配
               const userType = userData.role === 'tenant' ? 'tenant' : 'system';
               const assignRes = await fetch(`${API_BASE_URL}/api/system/rbac/assignments?userType=${encodeURIComponent(userType)}&userId=${encodeURIComponent(userData.id)}`, {
                 headers: { 'Authorization': `Bearer ${storedToken}` }
@@ -62,6 +84,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 const assignsJson = await assignRes.json();
                 const roleIds: string[] = Array.isArray(assignsJson?.assignments) ? assignsJson.assignments.map((a: any) => a.roleId) : [];
                 if (roleIds.length) {
+                  // 3) 拉取全量角色列表，在本地筛出用户的角色，聚合权限
                   const rolesRes = await fetch(`${API_BASE_URL}/api/system/rbac/roles`, { headers: { 'Authorization': `Bearer ${storedToken}` } });
                   if (rolesRes.ok) {
                     const rolesJson = await rolesRes.json();
@@ -69,6 +92,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                     const myRoles = roles.filter((r: any) => roleIds.includes(r.id));
                     for (const r of myRoles) {
                       try {
+                        // 后端角色的 permissions 字段为 JSON 字符串，需安全解析
                         const arr = JSON.parse(String(r.permissions || '[]')) || [];
                         if (Array.isArray(arr)) perms = perms.concat(arr);
                       } catch {}
@@ -76,26 +100,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                   }
                 }
               }
+              // 4) 去重汇总后的权限集合，挂载回 user
               setUser({ ...userData, permissions: Array.from(new Set(perms)) });
             } catch {
+              // 若权限汇总失败，不影响基础登录态
               setUser(userData);
             }
             setToken(storedToken);
           } else {
+            // token 失效：清理本地态
             localStorage.removeItem('token');
             setToken(null);
           }
         } catch (error) {
+          // 网络或解析异常：同样清理本地态
           localStorage.removeItem('token');
           setToken(null);
         }
       }
+      // 初始化流程结束
       setLoading(false);
     };
 
     initAuth();
   }, []);
 
+/**
+ * 登录
+ * - 成功后写入 token 到 localStorage
+ * - 同步执行与 initAuth 相同的“角色→权限”汇总逻辑，返回带 permissions 的用户对象
+ */
   const login = async (username: string, password: string): Promise<User> => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -114,6 +148,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('token', data.token);
       setToken(data.token);
       try {
+        // 与初始化相同：基于分配关系聚合角色权限
         const userType = data.user.role === 'tenant' ? 'tenant' : 'system';
         const assignRes = await fetch(`${API_BASE_URL}/api/system/rbac/assignments?userType=${encodeURIComponent(userType)}&userId=${encodeURIComponent(data.user.id)}`, {
           headers: { 'Authorization': `Bearer ${data.token}` }
@@ -141,6 +176,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(withPerms);
         return withPerms;
       } catch {
+        // 权限聚合失败不阻塞登录
         setUser(data.user);
         return data.user;
       }
@@ -149,6 +185,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+/**
+ * 退出登录
+ * - 清空内存态与 localStorage 中的 token
+ */
   const logout = () => {
     setUser(null);
     setToken(null);

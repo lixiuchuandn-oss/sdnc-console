@@ -34,7 +34,9 @@ import ACLPage from './pages/InterConnect/ACL/index';
 import NATPage from './pages/InterConnect/NAT/index';
 import SecurityDomainPage from './pages/SecMgrPlane/SecurityDomain/index';
 import SecurityDomainWizardPage from './pages/SecMgrPlane/SecurityDomain/Wizard';
-import CENPage from './pages/SecMgrPlane/SmpInstance/index';
+import SecurityDomainDetail from './pages/SecMgrPlane/SecurityDomain/Detail';
+import CENPage from './pages/SecMgrPlane/CascadeChannels/index';
+import CENDetailPage from './pages/SecMgrPlane/CascadeChannels/Detail';
 import ComingSoon from './pages/ComingSoon';
 import SecurityApps from './pages/SecMgrPlane/Applications/index';
 import AccessPoliciesPage from './pages/Access/Policies/index';
@@ -52,6 +54,8 @@ import TenantLeasedLinesPage from './pages/Tenants/LeasedLines';
 import OrgManagePage from './pages/Tenants/OrgManage';
 import { routeSpecs } from './routes/RouteSpec';
 import VmCreateWizardModal from './pages/Clouds/Harvester/modals/VmCreateWizardModal';
+import AiSocPlaceholder from './pages/SecOps/AiSocPlaceholder';
+
 
   
 
@@ -118,11 +122,21 @@ const AppRoutes: React.FC = () => {
           <Route path="interconnect/nat" element={<NATPage />} />
           <Route path="sec-mgr-plane/security-domain" element={<SecurityDomainPage />} />
           <Route path="sec-mgr-plane/security-domain/new" element={<SecurityDomainWizardPage />} />
-          <Route path="sec-mgr-plane/instances" element={<CENPage />} />
+          <Route path="sec-mgr-plane/security-domain/:id" element={<SecurityDomainDetail />} />
+          <Route path="sec-mgr-plane/cascade-channels" element={<CENPage />} />
+          <Route path="sec-mgr-plane/cascade-channels/:id" element={<CENDetailPage />} />
+          <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
           <Route path="alarms" element={<Alarms />} />
+          {/* AI SOC Integration Placeholders */}
+          <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC总览" module="situation_overview" />} />
+          <Route path="aisoc/preprocessing/raw" element={<AiSocPlaceholder title="原始数据预览" module="preprocessing_raw" />} />
+          <Route path="aisoc/preprocessing/rules" element={<AiSocPlaceholder title="预处理规则" module="preprocessing_rules" />} />
+          <Route path="aisoc/analysis/events" element={<AiSocPlaceholder title="威胁事件分析" module="analysis_events" />} />
+          <Route path="aisoc/analysis/attack" element={<AiSocPlaceholder title="ATT&CK框架分析" module="analysis_attack" />} />
+          <Route path="aisoc/reports/download" element={<AiSocPlaceholder title="报告下载" module="reports_download" />} />
+
           <Route path="settings" element={<Settings />} />
           <Route path="coming-soon" element={<ComingSoon />} />
-          <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
           <Route path="access/policies" element={<AccessPoliciesPage />} />
           <Route path="access/actions" element={<AccessActionsPage />} />
           <Route path="access/roles" element={<AccessRolesPage />} />

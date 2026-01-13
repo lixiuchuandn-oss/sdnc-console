@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Transfer, message, Select, Descriptions, Tag, Row, Col, Card, Divider, Typography, Space } from 'antd';
 import { SafetyCertificateOutlined, GlobalOutlined, DesktopOutlined, CheckCircleOutlined, CheckOutlined, ProfileOutlined, SettingOutlined } from '@ant-design/icons';
-import { fetchAllInstances, createService } from '../../../services/api';
+import { fetchAllInstances, createService, fetchClouds, fetchCloudProviderEcs } from '../../../services/api';
 import { listSecurityDomains } from '../../../services/securityDomainApi';
 import { WizardModal } from '../../../components/WizardShell';
 import '../../../pages/Clouds/Harvester/modals/InstanceWizard.css';
@@ -34,7 +34,9 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
   const [loading, setLoading] = useState(false);
   const [domainLoading, setDomainLoading] = useState(false);
   const [instances, setInstances] = useState<any[]>([]);
+  const [cloudmapInstances, setCloudmapInstances] = useState<any[]>([]);
   const [domains, setDomains] = useState<any[]>([]);
+  const [clouds, setClouds] = useState<any[]>([]);
   const [targetKeys, setTargetKeys] = useState<string[]>([]);
   const [basicInfo, setBasicInfo] = useState<any>({});
   const [strategyInfo, setStrategyInfo] = useState<any>({});
@@ -56,9 +58,20 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
       setStrategyInfo({});
       loadInstances();
       loadDomains();
+      loadClouds();
       loadPolicies();
     }
   }, [open]);
+
+  const loadClouds = async () => {
+    try {
+      const res: any = await fetchClouds();
+      const list = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
+      setClouds(list);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const loadPolicies = () => {
     try {
@@ -89,16 +102,68 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
     return String(raw).split(',').map(s => s.trim()).filter(Boolean);
   }, [currentDomain]);
 
+  useEffect(() => {
+    const fetchCloudmapResources = async () => {
+      setCloudmapInstances([]);
+      if (!currentDomain) return;
+      const cid = (currentDomain as any)?.cloudId;
+      if (!cid) return;
+      
+      const cloud = clouds.find((c: any) => String(c.id || c._id || c.uuid) === String(cid));
+      const provider = String(cloud?.config?.provider || cloud?.type || '').toLowerCase();
+      
+      if (provider === 'harvester' || provider.includes('cloudmap')) {
+        try {
+          setLoading(true);
+          const ecsJson: any = await fetchCloudProviderEcs(cid);
+          const data = ecsJson?.data || ecsJson;
+          const ecsList = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+          
+          // Transform to match instance structure
+          const mapped = ecsList.map((x: any) => ({
+            id: String(x?.InstanceId || x?.id || x?.uuid || ''),
+            name: x?.InstanceName || x?.name || x?.id,
+            provider: provider, // 'harvester' or 'cloudmap'
+            region: cloud?.region || '',
+            privateIps: x?.PrivateIpAddress ? [x.PrivateIpAddress] : 
+                        (Array.isArray(x?.fixed_ips) ? x.fixed_ips.map((ip:any)=>ip.ip_address) : []),
+            vpcId: x?.VpcId || x?.vpcId || x?.vpc_id || '',
+            status: x?.State?.Name || x?.status || 'unknown',
+            extra: x // Keep original data
+          })).filter((x: any) => !!x.id);
+          
+          setCloudmapInstances(mapped);
+        } catch (e) {
+          console.error("Failed to fetch cloudmap instances", e);
+          setCloudmapInstances([]);
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+    
+    fetchCloudmapResources();
+  }, [currentDomain, clouds]);
+
   const filteredInstances = React.useMemo(() => {
     const vpcId = (currentDomain as any)?.vpcId;
     const vpcStr = vpcId ? String(vpcId) : '';
-    return instances
+    
+    // Merge instances and cloudmapInstances (avoid duplicates)
+    const allCandidates = [...instances];
+    cloudmapInstances.forEach(ci => {
+      if (!allCandidates.find(i => String(i.id) === String(ci.id))) {
+        allCandidates.push(ci);
+      }
+    });
+
+    return allCandidates
       .filter((i: any) => {
         const ivpc = String(i.vpcId || (i.extra && (i.extra.vpcId || i.extra.vpc_id)) || '');
         return vpcStr ? (ivpc === vpcStr) : true;
       })
       .filter((i: any) => !vrIdsInDomain.includes(String(i.id)));
-  }, [instances, currentDomain, vrIdsInDomain]);
+  }, [instances, cloudmapInstances, currentDomain, vrIdsInDomain]);
 
   useEffect(() => {
     // 当安全域发生变化时，重置穿梭框选择，避免误清空已选数据的副作用

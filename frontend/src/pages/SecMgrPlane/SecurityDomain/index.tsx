@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   Button,
   Divider,
@@ -41,6 +41,7 @@ export interface SecurityDomain {
   cloudId?: string;
   vpcId?: string;
   vpcMode?: 'existing' | 'new';
+  newVpcName?: string;
   provider?: string;
   region?: string;
   cidr4?: string[];
@@ -63,6 +64,16 @@ export interface SecurityDomain {
   vrPrivateSubnetCidr?: string;
   resourcePool?: string;
   purpose?: string;
+  appInstances?: any[];
+  cloudInstances?: any[];
+  serviceChains?: any[];
+  cascadeChannels?: any[];
+  srv6Tunnels?: any[];
+  natRules?: any[];
+  aclRules?: any[];
+  bypassPolicies?: any[];
+  securityServiceIds?: string;
+  securityServices?: any[];
 }
 
 interface SecurityDomainForm extends SecurityDomain {}
@@ -439,7 +450,7 @@ const SecurityDomainPage: React.FC = () => {
       key: 'name',
       render: (text: string, record: SecurityDomain) => (
         <Space direction="vertical" size={0}>
-          <span style={{ fontWeight: 400 }}>{text}</span>
+          <Link to={`/admin/sec-mgr-plane/security-domain/${record.id}`} style={{ fontWeight: 400 }}>{text}</Link>
           {record.description ? <span style={{ color: '#8c8c8c', fontSize: 12 }}>{record.description}</span> : null}
         </Space>
       ),

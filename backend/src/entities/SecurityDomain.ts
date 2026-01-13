@@ -100,6 +100,10 @@ export class SecurityDomain {
   @Column({ type: 'text', nullable: true })
   subType?: string; // 公有云VPC网络/私有云VPC网络/虚拟化网络/IDC网络/办公网络 等
 
+  // Direct Security Service Association (CSM vm_group_id list)
+  @Column({ type: 'text', nullable: true })
+  securityServiceIds?: string;
+
   @CreateDateColumn({ type: 'datetime' })
   createdAt!: Date;
 

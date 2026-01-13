@@ -299,7 +299,6 @@ const SecurityApps: React.FC = () => {
     <PageContainer
       titleLevel={3}
       asCard={false}
-      title="应用管理"
     >
 
       <div className="filters-row filters-row--compact">

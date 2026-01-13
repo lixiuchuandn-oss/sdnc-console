@@ -4,15 +4,29 @@ import { SecurityDomain } from '../entities/SecurityDomain';
 import { Cloud } from '../entities/Cloud';
 import { VpcNetwork } from '../entities/VpcNetwork';
 import { CenAttachment } from '../entities/CenAttachment';
+import { CloudEnterpriseNetwork } from '../entities/CloudEnterpriseNetwork';
+import { Srv6Tunnel } from '../entities/Srv6Tunnel';
+import { CloudInstanceInventory } from '../entities/CloudInstanceInventory';
+import { NATRule } from '../entities/NATRule';
+import { ACLRule } from '../entities/ACLRule';
+import { ServiceCatalog } from '../entities/ServiceCatalog';
+import { ServiceChain } from '../entities/ServiceChain';
 import { callAliyunVpc, callAliyunEcs } from '../services/clouds/aliyun/client';
 import { huaweiListVpcs } from '../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../services/clouds/tencentcloud/client';
+import { listCsmElementGroups } from '../services/clouds/csm/client';
 
 const router = Router();
 const repo = () => AppDataSource.getRepository(SecurityDomain);
 const cloudRepo = () => AppDataSource.getRepository(Cloud);
 const vpcRepo = () => AppDataSource.getRepository(VpcNetwork);
 const cenAttachRepo = () => AppDataSource.getRepository(CenAttachment);
+const srv6Repo = () => AppDataSource.getRepository(Srv6Tunnel);
+const inventoryRepo = () => AppDataSource.getRepository(CloudInstanceInventory);
+const natRepo = () => AppDataSource.getRepository(NATRule);
+const aclRepo = () => AppDataSource.getRepository(ACLRule);
+const serviceRepo = () => AppDataSource.getRepository(ServiceCatalog);
+const chainRepo = () => AppDataSource.getRepository(ServiceChain);
 
 // List
 router.get('/', async (req, res) => {
@@ -112,6 +126,367 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Get Detail
+router.get('/:id', async (req, res) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+      if (!(role === 'super_admin' || perms.includes('networks.security-domain:read') || perms.includes('networks.security-domain:write'))) {
+        return res.status(403).json({ message: '权限不足：需要读取权限 networks.security-domain:read' });
+      }
+    }
+
+    const id = req.params.id;
+    const item = await repo().findOne({ where: { id } });
+    
+    if (!item) {
+      return res.status(404).json({ message: 'SecurityDomain not found' });
+    }
+
+    const result = { ...item } as any;
+    // Transform cidr6 string to array
+    if (typeof result.cidr6 === 'string' && result.cidr6) {
+        result.cidr6 = result.cidr6.split(',').map((s: string) => s.trim()).filter((s: string) => s);
+    } else {
+        result.cidr6 = [];
+    }
+
+    // Populate cidr4 array for frontend compatibility
+    if (result.cidr) {
+        result.cidr4 = [result.cidr];
+    } else {
+        result.cidr4 = [];
+    }
+
+    // Fetch associated Cascade Channels (CENs)
+    try {
+        const attachments = await cenAttachRepo().find({
+            where: { securityDomainId: id },
+            relations: ['cen']
+        });
+        result.cascadeChannels = attachments.map(a => a.cen).filter(c => c);
+    } catch (e) {
+        console.warn('Failed to fetch cascade channels:', e);
+        result.cascadeChannels = [];
+    }
+
+    // Fetch associated SRv6 Tunnels
+    // Match by VR UUID or IPs (PE/CE)
+    result.srv6Tunnels = [];
+    try {
+        const matchConditions: any[] = [];
+        if (result.vrUuid) {
+            matchConditions.push({ peA: result.vrUuid }, { peB: result.vrUuid }, { ceA: result.vrUuid }, { ceB: result.vrUuid });
+        }
+        if (result.vrPublicIp) {
+            const ips = String(result.vrPublicIp).split(',').map(s => s.trim()).filter(s => s);
+            ips.forEach(ip => matchConditions.push({ peA: ip }, { peB: ip }, { ceA: ip }, { ceB: ip }));
+        }
+        if (matchConditions.length > 0) {
+            result.srv6Tunnels = await srv6Repo().find({ where: matchConditions });
+        }
+    } catch (e) {
+        console.warn('Failed to fetch SRv6 tunnels:', e);
+    }
+    
+    // Fetch associated Cloud Instances (CloudInstanceInventory)
+    // Relation is based on cloudId and vpcId
+    if (result.cloudId && result.vpcId) {
+        console.log(`[SecurityDomain] Fetching cloud instances for cloudId=${result.cloudId} vpcId=${result.vpcId}`);
+        try {
+            const instances = await inventoryRepo().find({
+                where: {
+                    cloudId: result.cloudId,
+                    vpcId: result.vpcId
+                }
+            });
+            console.log(`[SecurityDomain] Found ${instances.length} cloud instances`);
+            result.cloudInstances = instances;
+        } catch (e) {
+            console.warn('Failed to fetch cloud instances for security domain:', e);
+            result.cloudInstances = [];
+        }
+    } else {
+        console.log(`[SecurityDomain] Skip fetching cloud instances: cloudId=${result.cloudId} vpcId=${result.vpcId}`);
+        result.cloudInstances = [];
+    }
+
+    // Fetch associated Application Instances (ServiceCatalog)
+    // Relation is based on domainId
+    try {
+        const services = await serviceRepo().find({ where: { domainId: id } });
+        result.appInstances = services;
+    } catch (e) {
+        console.warn('Failed to fetch app instances (services):', e);
+        result.appInstances = [];
+    }
+
+    // Fetch associated Service Chains (ServiceChain)
+    // Relation is based on domainId OR protectionTargets matching ID/Name
+    try {
+        const chains = await chainRepo().createQueryBuilder('chain')
+            .where('chain.domainId = :id', { id })
+            .orWhere('chain.protectionTargets LIKE :searchId', { searchId: `%${id}%` })
+            .orWhere('chain.protectionTargets LIKE :searchName', { searchName: `%${result.name}%` })
+            .getMany();
+        result.serviceChains = chains;
+    } catch (e) {
+        console.warn('Failed to fetch service chains:', e);
+        result.serviceChains = [];
+    }
+
+    try {
+      const directIds: string[] = result.securityServiceIds
+        ? result.securityServiceIds.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      const chainIds = new Set<string>();
+
+      if (result.serviceChains) {
+        (result.serviceChains as any[]).forEach((chain: any) => {
+          if (chain.securityServices) {
+            try {
+              const parsed = JSON.parse(chain.securityServices);
+              if (Array.isArray(parsed)) {
+                parsed.forEach((s: any) => {
+                  if (s && typeof s === 'object') {
+                    const id = String(s?.id ?? s?.vm_group_id ?? s?.vmGroupId ?? s?.vmGroupID ?? s?.vm_group_uuid ?? s?.vmGroupUuid ?? '').trim();
+                    if (id) chainIds.add(id);
+                    return;
+                  }
+                  const id = String(s ?? '').trim();
+                  if (id) chainIds.add(id);
+                });
+              } else {
+                if (parsed && typeof parsed === 'object') {
+                  const id = String(parsed?.id ?? parsed?.vm_group_id ?? parsed?.vmGroupId ?? parsed?.vmGroupID ?? parsed?.vm_group_uuid ?? parsed?.vmGroupUuid ?? '').trim();
+                  if (id) chainIds.add(id);
+                } else {
+                  const id = String(parsed ?? '').trim();
+                  if (id) chainIds.add(id);
+                }
+              }
+            } catch (e) {
+              chain.securityServices.split(',').forEach((s: string) => chainIds.add(s.trim()));
+            }
+          }
+        });
+      }
+
+      const allIds = Array.from(new Set<string>([...directIds, ...Array.from(chainIds)]));
+
+      const groupById = new Map<string, any>();
+      const toKey = (s: any) => String(s ?? '').trim().toLowerCase();
+      const uuidToObjectIdHex = (uuidStr: string): string | null => {
+        try {
+          const s = String(uuidStr || '').trim().toLowerCase();
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s)) return null;
+          const hex = s.replace(/-/g, '');
+          const bytes = Buffer.from(hex, 'hex');
+          if (bytes.length !== 16) return null;
+          if (!(bytes[6] === 0x40 && bytes[7] === 0x00 && bytes[8] === 0x80 && bytes[9] === 0x00)) return null;
+          const obj = Buffer.alloc(12);
+          bytes.copy(obj, 0, 0, 6);
+          bytes.copy(obj, 6, 10, 16);
+          return obj.toString('hex');
+        } catch {
+          return null;
+        }
+      };
+      const idCandidates = (id: string) => {
+        const out: string[] = [];
+        const a = toKey(id);
+        if (a) out.push(a);
+        const b = uuidToObjectIdHex(id);
+        if (b) out.push(toKey(b));
+        return Array.from(new Set(out));
+      };
+      try {
+        if (allIds.length > 0 || ((result as any)?.serviceChains?.length ?? 0) > 0) {
+          const isCsmCloud = (cloud: any) => {
+            const pv = String((cloud as any)?.config?.provider || (cloud as any)?.provider || '').trim().toLowerCase();
+            return pv === 'csm' || pv === 'cloudmap-security';
+          };
+
+          const hasCreds = (cloud: any) => {
+            const endpoint = String(cloud?.endpoint || '').trim();
+            const accessKey = String(cloud?.accessKey || '').trim();
+            const secretKey = String(cloud?.secretKey || '').trim();
+            return !!(endpoint && accessKey && secretKey);
+          };
+
+          const candidateClouds: any[] = [];
+
+          const chainPoolKeys = Array.from(
+            new Set(
+              (((result as any)?.serviceChains as any[]) || [])
+                .map((c: any) => String(c?.clusterName || '').trim())
+                .filter(Boolean)
+            )
+          );
+          if (chainPoolKeys.length > 0) {
+            const byId = await cloudRepo()
+              .createQueryBuilder('c')
+              .where('c.id IN (:...ids)', { ids: chainPoolKeys })
+              .getMany();
+            (Array.isArray(byId) ? byId : []).forEach((c: any) => {
+              if (c && isCsmCloud(c)) candidateClouds.push(c);
+            });
+
+            const foundIds = new Set<string>((Array.isArray(byId) ? byId : []).map((c: any) => String(c?.id || '').trim()));
+            const missingAsNames = chainPoolKeys.filter((k) => !foundIds.has(k));
+            if (missingAsNames.length > 0) {
+              const byName = await cloudRepo()
+                .createQueryBuilder('c')
+                .where('c.name IN (:...names)', { names: missingAsNames })
+                .getMany();
+              (Array.isArray(byName) ? byName : []).forEach((c: any) => {
+                if (c && isCsmCloud(c)) candidateClouds.push(c);
+              });
+            }
+          }
+
+          if ((result as any)?.resourcePool) {
+            const rpCloud = await cloudRepo().findOne({ where: { id: String((result as any).resourcePool) } });
+            if (rpCloud && isCsmCloud(rpCloud)) candidateClouds.push(rpCloud);
+          }
+
+          if (result.cloudId) {
+            const domCloud = await cloudRepo().findOne({ where: { id: String(result.cloudId) } });
+            if (domCloud && isCsmCloud(domCloud)) candidateClouds.push(domCloud);
+          }
+
+          if (candidateClouds.length === 0) {
+            const allClouds = await cloudRepo().find();
+            (Array.isArray(allClouds) ? allClouds : []).forEach((c: any) => {
+              if (c && isCsmCloud(c)) candidateClouds.push(c);
+            });
+          }
+
+          const seen = new Set<string>();
+          const deduped = candidateClouds.filter((c: any) => {
+            const cid = String(c?.id || '').trim();
+            if (!cid) return false;
+            if (seen.has(cid)) return false;
+            seen.add(cid);
+            return true;
+          });
+
+          for (const cloud of deduped) {
+            if (!cloud || !isCsmCloud(cloud) || !hasCreds(cloud)) continue;
+
+            const endpoint = String(cloud.endpoint || '').trim();
+            const accessKey = String(cloud.accessKey || '').trim();
+            const secretKey = String(cloud.secretKey || '').trim();
+            const ignoreTls = !!((cloud as any)?.config?.ignoreTls);
+
+            const groups = await listCsmElementGroups({ endpoint, accessKey, secretKey, ignoreTls } as any);
+            (Array.isArray(groups) ? groups : []).forEach((g: any) => {
+              const gid = String(g?.id ?? g?.vm_group_id ?? g?.vmGroupId ?? g?.vmGroupID ?? g?.vm_group_uuid ?? g?.vmGroupUuid ?? '').trim();
+              if (!gid) return;
+              idCandidates(gid).forEach((k) => groupById.set(k, g));
+            });
+
+            const matched = allIds.some((sid) => idCandidates(sid).some((k) => groupById.has(k)));
+            if (matched) break;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load CSM element groups for security services:', e);
+      }
+
+      const pick = (obj: any, keys: string[]) => {
+        for (const k of keys) {
+          const v = obj?.[k];
+          if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+        }
+        return undefined;
+      };
+
+      const normalizeOne = (sid: string, source: string) => {
+        const keyList = idCandidates(sid);
+        const g = keyList.map((k) => groupById.get(k)).find(Boolean) || {};
+        const elements = Array.isArray(g?.elements) ? g.elements : (typeof g?.vm_id_list === 'string' ? String(g.vm_id_list).split(';').filter((s: string) => s.trim()) : []);
+        const neCount = Number(
+          pick(g, ['neCount', 'count', 'Count', 'elementCount', 'elementsCount', 'elements_count', 'vm_count', 'vmCount']) ??
+          (Array.isArray(elements) ? elements.length : 0)
+        );
+
+        const vendor = pick(g, ['vendor', 'manufacturer', 'vendor_name', 'vendorName', 'factory', 'brand', 'company', 'maker']);
+        const defenseRaw = pick(g, ['defenseType', 'defense_type', 'defend_type', 'defendType', 'protectType', 'protect_type', 'protectionType', 'protection_type', 'securityType', 'security_type']);
+        const defenseType = ((): string | undefined => {
+          if (defenseRaw === undefined) return undefined;
+          const n = Number(defenseRaw);
+          if (!Number.isNaN(n)) {
+            if (n === 1) return '非流量型';
+            if (n === 2) return '流量型';
+          }
+          const s = String(defenseRaw).trim();
+          return s ? s : undefined;
+        })();
+        const type = pick(g, ['vm_type', 'vmType', 'type', 'groupType', 'vm_group_type', 'vmGroupType', 'productType', 'product_type']) || 'CSM安全网元组';
+        const name = pick(g, ['name', 'vm_group_name', 'vmGroupName']) || `安全网元组-${String(sid).substring(0, 8)}`;
+
+        return {
+          id: sid,
+          name,
+          type,
+          vendor: vendor ?? undefined,
+          defenseType: defenseType ?? undefined,
+          neCount,
+          source,
+          status: 'active'
+        };
+      };
+
+      const allServices: any[] = [];
+      directIds.forEach((sid: string) => {
+        allServices.push(normalizeOne(sid, '直接关联'));
+      });
+      Array.from(chainIds).forEach((sid: string) => {
+        if (!directIds.includes(sid)) {
+          allServices.push(normalizeOne(sid, '服务链关联'));
+        }
+      });
+
+      (result as any).securityServices = allServices;
+    } catch (e) {
+      console.warn('Failed to fetch security services:', e);
+      (result as any).securityServices = [];
+    }
+
+    // Fetch associated NAT Rules (NATRule)
+    // Match by vrId (SecurityDomain.vrUuid)
+    try {
+        if (result.vrUuid) {
+            result.natRules = await natRepo().find({ where: { vrId: result.vrUuid } });
+        } else {
+            result.natRules = [];
+        }
+    } catch (e) {
+        console.warn('Failed to fetch NAT rules:', e);
+        result.natRules = [];
+    }
+
+    // Fetch associated Network ACL Rules (ACLRule)
+    // Match by vrId (SecurityDomain.vrUuid)
+    try {
+        if (result.vrUuid) {
+            result.aclRules = await aclRepo().find({ where: { vrId: result.vrUuid } });
+        } else {
+            result.aclRules = [];
+        }
+    } catch (e) {
+        console.warn('Failed to fetch ACL rules:', e);
+        result.aclRules = [];
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to get security domain', error: String(err) });
+  }
+});
+
 // Create
 router.post('/', async (req, res) => {
   try {
@@ -144,6 +519,7 @@ router.post('/', async (req, res) => {
     // 业务维度分类
     (entity as any).category = (payload as any).category;
     (entity as any).subType = (payload as any).subType;
+    entity.securityServiceIds = payload.securityServiceIds;
 
     // VPC 类型安全域：自动填充 CIDR（兼容云侧 vpcId 或本地 VPC UUID）
     try {
@@ -240,6 +616,9 @@ router.patch('/:id', async (req, res) => {
     }
     if ((partial as any).vrPrivateSubnetCidr !== undefined) {
       (existing as any).vrPrivateSubnetCidr = Array.isArray((partial as any).vrPrivateSubnetCidr) ? (partial as any).vrPrivateSubnetCidr.join(',') : (partial as any).vrPrivateSubnetCidr;
+    }
+    if (partial.securityServiceIds !== undefined) {
+      existing.securityServiceIds = partial.securityServiceIds;
     }
 
     // 依据最新 vpcMode/vpcId/newVpcCidr 自动更新 CIDR（兼容云侧 vpcId 或本地 VPC UUID）

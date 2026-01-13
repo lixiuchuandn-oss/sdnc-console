@@ -8,12 +8,16 @@ import ReactFlow, {
 import 'react-flow-renderer/dist/style.css';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchServiceChains, deleteServiceChain } from '../../../../services/trafficOrchestration';
+import { fetchCsmPoolId, fetchCsmServiceChains, deleteCsmServiceChain } from '../../../../services/api';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 
 interface ServiceChainRow {
   id: string;
   name: string;
   clusterName: string;
+  clusterId?: string;
+  cloudId?: string;
+  cloud_id?: string;
   type: 'serial' | 'bypass';
   status: 'active' | 'inactive';
   description: string;
@@ -48,9 +52,10 @@ const ServiceChains: React.FC = () => {
           const id = hasId ? String(r.id) : `demo-${Date.now()}`;
           const name = String(r?.name || '').trim() || `未命名服务链-${id}`;
           const clusterName = String(r?.clusterName || r?.clusterId || '').trim() || '-';
+          const clusterId = r?.clusterId || r?.cloudId || r?.cloud_id || r?.cluster_id;
           const tenant = r?.tenant ? { id: r.tenant.id, name: (String(r.tenant.name || '').trim() || String(r.tenant.id || '').trim() || '-') } : undefined;
           const organization = r?.organization ? { id: r.organization.id, name: (String(r.organization.name || '').trim() || String(r.organization.id || '').trim() || '-') } : undefined;
-          return { ...r, id, name, clusterName, tenant, organization };
+          return { ...r, id, name, clusterName, clusterId, tenant, organization };
         });
       };
       const listNorm = normalize(Array.isArray(list) ? list : []);
@@ -81,6 +86,37 @@ const ServiceChains: React.FC = () => {
     loadData();
   }, [filters]);
 
+  const tryDeleteCsmChain = async (record: ServiceChainRow) => {
+    const cloudId = record.clusterId || record.cloudId || record.cloud_id;
+    if (!cloudId) {
+      console.warn('Skipping CSM delete: Missing cloudId for record', record);
+      return;
+    }
+
+    try {
+      const poolRes = await fetchCsmPoolId(cloudId);
+      const poolId = poolRes?.data?.pool_id;
+      if (!poolId) return;
+
+      const res = await fetchCsmServiceChains(cloudId, { pool_id: poolId });
+      const items = Array.isArray(res?.data?.items) ? res.data.items : 
+                    Array.isArray(res?.items) ? res.items : 
+                    Array.isArray(res) ? res : [];
+      
+      const target = items.find((item: any) => String(item.name || item.chain_name || '').trim() === record.name);
+      
+      if (target) {
+        const chainId = target.id || target.chain_id || target.service_chain_id;
+        if (chainId) {
+          await deleteCsmServiceChain(cloudId, chainId, { pool_id: poolId });
+          message.success(`已关联删除 CSM 服务链: ${record.name}`);
+        }
+      }
+    } catch (e) {
+      console.warn('关联删除 CSM 服务链失败', e);
+    }
+  };
+
   const handleBatchDelete = async () => {
     const ids = selectedRowKeys.map(k => String(k));
     if (ids.length === 0) {
@@ -95,6 +131,8 @@ const ServiceChains: React.FC = () => {
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
+          const recordsToDelete = data.filter(r => ids.includes(r.id));
+          await Promise.allSettled(recordsToDelete.map(r => tryDeleteCsmChain(r)));
           await Promise.allSettled(ids.map(id => deleteServiceChain(id)));
           message.success('删除完成');
           setSelectedRowKeys([]);
@@ -174,6 +212,7 @@ const ServiceChains: React.FC = () => {
             } else if (key === 'edit') {
             } else if (key === 'delete') {
               try {
+                await tryDeleteCsmChain(record);
                 await deleteServiceChain(record.id);
                 message.success('删除成功');
                 loadData();

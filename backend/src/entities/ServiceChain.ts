@@ -26,6 +26,13 @@ export class ServiceChain {
   @Column({ type: 'text', nullable: true })
   description?: string;
 
+  // Domain Association
+  @Column({ type: 'text', nullable: true })
+  domainId?: string;
+
+  @Column({ type: 'text', nullable: true })
+  domainName?: string;
+
   // New Fields
   @Column({ type: 'text', nullable: true })
   steeringMode?: string; // 'vr' | 'direct'

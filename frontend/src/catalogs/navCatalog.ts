@@ -1,126 +1,153 @@
+import { ReactNode } from 'react';
+
+// ============================================================================
+// 导航与功能目录配置 (Navigation & Feature Catalog)
+// ============================================================================
+// 本文件定义了平台(Platform)、分组(Group)以及功能模块(Feature/Route)的元数据。
+// 主要用于：
+// 1. 侧边栏(Sidebar)的分组排序与展示逻辑 (via GROUPS, PLATFORMS)
+// 2. 权限管控(Access Control)中的资源与功能名称映射 (via ROUTE_CATALOG)
+//
+// 注意：实际的路由定义(Route Definition)在 src/routes/RouteSpec.ts 中。
+// 本文件的 ROUTE_CATALOG 更多关注于“功能模块”或“权限资源”的逻辑分类与命名，
+// 而非具体的 URL 路由路径。
+// ============================================================================
+
 export type Platform = 'CNMC' | 'SDNCC' | 'CNSOC' | '全部';
-export type Group = '资源控制台' | '租户管理' | '售卖管理' | '权限管控' | '流量编排' | '跨地域互联' | '安全管理面' | '安全运营' | '安全控制台' | '可信数据空间' | '全部';
 
-export const PLATFORMS: Platform[] = ['全部','CNMC','SDNCC','CNSOC'];
-export const GROUPS: Group[] = ['全部','资源控制台','租户管理','售卖管理','权限管控','流量编排','跨地域互联','安全管理面','安全运营','安全控制台','可信数据空间'];
+export type Group = 
+  | '资源控制台' 
+  | '租户管理' 
+  | '售卖管理' 
+  | '权限管控' 
+  | '流量编排' 
+  | '跨地域互联' 
+  | '安全管理面' 
+  | '安全运营' 
+  | '安全控制台' 
+  | '可信数据空间' 
+  | '威胁数据预处理' 
+  | '态势中心' 
+  | '数据预处理' 
+  | '威胁综合分析' 
+  | '安全报告' 
+  | '全部';
 
-export type FeatureCatalogItem = {
-  prefix: string; // 权限资源前缀，如 'ops.dashboard' 或 'clouds.instances'
-  label: string;  // 功能显示名称，如 '仪表板'、'云主机'
-  group: Group;   // 所属分组
+// 平台列表定义
+export const PLATFORMS: Platform[] = ['全部', 'CNMC', 'SDNCC', 'CNSOC'];
+
+// 平台显示名称映射
+export const PLATFORM_LABELS: Record<Platform, string> = {
+  'CNMC': '多云管理',
+  'SDNCC': 'SDN管理',
+  'CNSOC': 'AI SOC中心',
+  '全部': '全部'
+};
+
+// 分组排序定义 (Sidebar 使用此顺序渲染分组)
+export const GROUPS: Group[] = [
+  '全部',
+  '资源控制台',
+  '租户管理',
+  '售卖管理',
+  '权限管控',
+  '安全管理面',
+  '跨地域互联',
+  '流量编排',
+  '安全运营',
+  '安全控制台',
+  '可信数据空间',
+  '威胁数据预处理',
+  '态势中心',
+  '数据预处理',
+  '威胁综合分析',
+  '安全报告'
+];
+
+export type RouteItem = {
+  prefix: string;   // 功能/资源前缀 (通常对应权限 Action 的前缀)
+  label: string;    // 显示名称
+  group: Group;     // 所属分组
   platform: Platform; // 所属平台
 };
 
-// 统一功能目录，用于将权限资源或路由资源映射到平台/分组/功能
-export const FEATURE_CATALOG: FeatureCatalogItem[] = [
-  // 资源控制台（CNMC）
-  { prefix:'ops.dashboard', label:'仪表板', group:'资源控制台', platform:'CNMC' },
-  { prefix:'ops.topology', label:'算力网络拓扑', group:'资源控制台', platform:'CNMC' },
-
-  // 系统/租户（CNMC）
-  { prefix:'tenants', label:'租户管理', group:'租户管理', platform:'CNMC' },
-  { prefix:'tenants.leased-lines', label:'租户专线管理', group:'租户管理', platform:'CNMC' },
-  { prefix:'tenants.users', label:'子用户管理', group:'租户管理', platform:'CNMC' },
-
-  // 权限管控（CNMC）
-  { prefix:'access', label:'权限管控', group:'权限管控', platform:'CNMC' },
-
-  // 资源池（CNMC）
-  { prefix:'clouds', label:'资源池管理', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.instances', label:'云主机', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.vpcs', label:'VPC', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.route-tables', label:'路由表', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.eips', label:'弹性公网IP', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.disks', label:'云盘', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.security-groups', label:'安全组', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.load-balancers', label:'负载均衡', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.images', label:'镜像', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.vswitches', label:'交换机', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.enis', label:'弹性网卡', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.network-acls', label:'网络ACL', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.snapshots', label:'快照', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.route-entries', label:'路由条目', group:'资源控制台', platform:'CNMC' },
-  { prefix:'clouds.nat-gateways', label:'NAT网关', group:'资源控制台', platform:'CNMC' },
-
-  // SDN 控制中心（SDNCC）
-  { prefix:'networks.vr-config', label:'VR实例管理', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.cen', label:'实例管理', group:'安全管理面', platform:'SDNCC' },
-  { prefix:'networks.cen.attachments', label:'CEN连接', group:'跨地域互联', platform:'SDNCC' },
-
-  { prefix:'networks.srv6', label:'SRv6隧道管理', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.ipsec', label:'IPsecVPN管理', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.route-tables', label:'路由表', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.vswitches', label:'交换机', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.acl', label:'网络ACL', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.nat', label:'NAT管理', group:'跨地域互联', platform:'SDNCC' },
-  { prefix:'networks.security-domain', label:'安全域管理', group:'安全管理面', platform:'SDNCC' },
-  { prefix:'security.services', label:'服务目录管理', group:'安全管理面', platform:'SDNCC' },
-  { prefix:'security.policies', label:'授权策略', group:'安全管理面', platform:'SDNCC' },
-  { prefix:'security.apps', label:'服务目录', group:'安全管理面', platform:'SDNCC' },
-
-// SSLO 流量编排
-  { prefix:'security.traffic.protected-objects', label:'防护对象管理', group:'流量编排', platform:'SDNCC' },
-  { prefix:'security.traffic.service-chains', label:'服务链管理', group:'流量编排', platform:'SDNCC' },
-];
-
-export const platformOf = (resourceOrAction: string): Platform => {
-  const res = String(resourceOrAction || '');
-  const item = FEATURE_CATALOG.find(it => res.startsWith(it.prefix));
-  return item ? item.platform : 'CNMC';
-};
-
-export const groupOf = (resourceOrAction: string): Group => {
-  const res = String(resourceOrAction || '');
-  const item = FEATURE_CATALOG.find(it => res.startsWith(it.prefix));
-  return item ? item.group : '资源控制台';
-};
-
-export const featureLabelOf = (resourceOrAction: string): string => {
-  const res = String(resourceOrAction || '');
-  const item = FEATURE_CATALOG.find(it => res.startsWith(it.prefix));
-  return item ? item.label : res.replace(/^\w+\./, '');
-};
-
-export type RouteItem = {
-  path: string;
-  label: string;
-  platform: Platform;
-  group: Group;
-  icon?: string;
-};
-
+// 统一功能目录 (Feature Catalog)
+// 用于根据资源前缀查找其所属的平台、分组和友好名称
 export const ROUTE_CATALOG: RouteItem[] = [
-  { path: '/admin/dashboard', label: '仪表板', platform: 'CNMC', group: '资源控制台', icon: 'AppstoreOutlined' },
-  { path: '/admin/topology', label: '算力网络拓扑', platform: 'CNMC', group: '资源控制台', icon: 'DeploymentUnitOutlined' },
-  { path: '/admin/clouds', label: '资源池管理', platform: 'CNMC', group: '资源控制台', icon: 'CloudUploadOutlined' },
-  { path: '/admin/clouds/console', label: '控制台pro', platform: 'CNMC', group: '资源控制台', icon: 'DesktopOutlined' },
+  // 资源控制台 (CNMC)
+  { prefix: 'ops.dashboard', label: '仪表盘', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'ops.topology', label: '算力网络拓扑', group: '资源控制台', platform: 'CNMC' },
 
-  { path: '/admin/tenants', label: '租户管理', platform: 'CNMC', group: '租户管理', icon: 'TeamOutlined' },
-  { path: '/admin/tenants/users', label: '子用户管理', platform: 'CNMC', group: '租户管理', icon: 'UserOutlined' },
-  { path: '/admin/tenants/leased-lines', label: '租户专线管理', platform: 'CNMC', group: '租户管理', icon: 'GatewayOutlined' },
+  // 租户管理 (CNMC)
+  { prefix: 'tenants', label: '租户管理', group: '租户管理', platform: 'CNMC' },
+  { prefix: 'tenants.leased-lines', label: '租户专线管理', group: '租户管理', platform: 'CNMC' },
+  { prefix: 'tenants.users', label: '子用户管理', group: '租户管理', platform: 'CNMC' },
 
-  { path: '/admin/access/policies', label: '授权策略', platform: 'CNMC', group: '权限管控', icon: 'LockOutlined' },
-  { path: '/admin/access/actions', label: '权限原子', platform: 'CNMC', group: '权限管控', icon: 'ApiOutlined' },
-  { path: '/admin/access/roles', label: '角色管理', platform: 'CNMC', group: '权限管控', icon: 'UserSwitchOutlined' },
-  { path: '/admin/access/users', label: '用户管理', platform: 'CNMC', group: '权限管控', icon: 'UserOutlined' },
+  // 权限管控 (CNMC)
+  { prefix: 'access', label: '权限管控', group: '权限管控', platform: 'CNMC' },
+  { prefix: 'access.policies', label: '策略管理', group: '权限管控', platform: 'CNMC' },
+  { prefix: 'access.roles', label: '角色管理', group: '权限管控', platform: 'CNMC' },
+  { prefix: 'access.users', label: '用户管理', group: '权限管控', platform: 'CNMC' },
+  { prefix: 'access.actions', label: '权限原子', group: '权限管控', platform: 'CNMC' },
 
-  { path: '/admin/interconnect/vr', label: 'VR实例管理', platform: 'SDNCC', group: '跨地域互联', icon: 'GatewayOutlined' },
-  { path: '/admin/interconnect/srv6', label: 'SRv6隧道管理', platform: 'SDNCC', group: '跨地域互联', icon: 'ShareAltOutlined' },
-  { path: '/admin/interconnect/ipsec', label: 'IPsecVPN管理', platform: 'SDNCC', group: '跨地域互联', icon: 'NodeIndexOutlined' },
-  { path: '/admin/interconnect/acl', label: '网络ACL', platform: 'SDNCC', group: '跨地域互联', icon: 'SecurityScanOutlined' },
-  { path: '/admin/interconnect/nat', label: 'NAT管理', platform: 'SDNCC', group: '跨地域互联', icon: 'SwapOutlined' },
-  
-  
-  { path: '/admin/sec-mgr-plane/security-domain', label: '安全域管理', platform: 'SDNCC', group: '安全管理面', icon: 'EnvironmentOutlined' },
-  { path: '/admin/sec-mgr-plane/instances', label: '级联通道管理', platform: 'SDNCC', group: '安全管理面', icon: 'BranchesOutlined' },
-  { path: '/admin/sec-mgr-plane/apps', label: '应用管理', platform: 'SDNCC', group: '安全管理面', icon: 'AppstoreOutlined' },
+  // 资源池 (CNMC)
+  { prefix: 'clouds', label: '资源池管理', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.instances', label: '云主机', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.vpcs', label: 'VPC', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.route-tables', label: '路由表', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.eips', label: '弹性公网IP', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.disks', label: '云盘', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.security-groups', label: '安全组', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.load-balancers', label: '负载均衡', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.images', label: '镜像', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.vswitches', label: '交换机', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.enis', label: '弹性网卡', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.network-acls', label: '网络ACL', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.snapshots', label: '快照', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.route-entries', label: '路由条目', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.nat-gateways', label: 'NAT网关', group: '资源控制台', platform: 'CNMC' },
 
-// SSLO 流量编排 (Traffic Orchestration)
-  { path: '/admin/security/traffic/protected-objects', label: '防护对象管理', platform: 'SDNCC', group: '流量编排', icon: 'SafetyCertificateOutlined' },
-  { path: '/admin/security/traffic/service-chains', label: '服务链管理', platform: 'SDNCC', group: '流量编排', icon: 'NodeIndexOutlined' },
+  // SDN 控制中心 (SDNCC)
+  { prefix: 'networks.vr-config', label: 'VR实例管理', group: '跨地域互联', platform: 'SDNCC' },
+  { prefix: 'networks.cen', label: '级联通道管理', group: '安全管理面', platform: 'SDNCC' },
+  { prefix: 'networks.cen.attachments', label: 'CEN连接', group: '跨地域互联', platform: 'SDNCC' },
+
+  { prefix: 'networks.srv6', label: 'SRv6隧道管理', group: '跨地域互联', platform: 'SDNCC' },
+  { prefix: 'networks.ipsec', label: 'IPsecVPN管理', group: '跨地域互联', platform: 'SDNCC' },
+  { prefix: 'networks.route-tables', label: '路由表', group: '跨地域互联', platform: 'SDNCC' },
+  { prefix: 'networks.vswitches', label: '交换机', group: '跨地域互联', platform: 'SDNCC' },
+  { prefix: 'networks.acl', label: '网络ACL', group: '跨地域互联', platform: 'SDNCC' },
+  { prefix: 'networks.nat', label: 'NAT管理', group: '跨地域互联', platform: 'SDNCC' },
+  { prefix: 'networks.security-domain', label: '安全域管理', group: '安全管理面', platform: 'SDNCC' },
+  { prefix: 'security.services', label: '应用管理', group: '安全管理面', platform: 'SDNCC' },
+
+  // 流量编排 (SDNCC)
+  { prefix: 'security.traffic.protected-objects', label: '引流对象管理', group: '流量编排', platform: 'SDNCC' },
+  { prefix: 'security.traffic.service-chains', label: '服务链编排', group: '流量编排', platform: 'SDNCC' },
+  { prefix: 'security.traffic.policies', label: '引流策略管理', group: '流量编排', platform: 'SDNCC' },
 ];
 
-export const findRouteItem = (path: string): RouteItem | undefined => {
-  const pure = String(path || '').split('?')[0];
-  return ROUTE_CATALOG.find(it => it.path === pure);
+/**
+ * 根据资源前缀获取其所属平台
+ * @param prefix 资源前缀 (e.g., 'clouds.instances')
+ */
+export const platformOf = (prefix: string): Platform | undefined => {
+  return ROUTE_CATALOG.find(item => item.prefix === prefix)?.platform;
+};
+
+/**
+ * 根据资源前缀获取其所属分组
+ * @param prefix 资源前缀
+ */
+export const groupOf = (prefix: string): Group | undefined => {
+  return ROUTE_CATALOG.find(item => item.prefix === prefix)?.group;
+};
+
+/**
+ * 根据资源前缀获取其显示名称(Label)
+ * 如果未找到，则返回前缀本身
+ * @param prefix 资源前缀
+ */
+export const featureLabelOf = (prefix: string): string => {
+  return ROUTE_CATALOG.find(item => item.prefix === prefix)?.label || prefix;
 };

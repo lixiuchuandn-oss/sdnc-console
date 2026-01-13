@@ -561,9 +561,7 @@ const Clouds: React.FC = () => {
 
   return (
     <PageContainer
-      title="资源池管理"
       titleLevel={3}
-      subtitle="统一管理各云资源池的状态与资源，支持监控与运维。"
       collapsibleChildren={(
         <Row gutter={[12,12]} style={{ marginBottom:16 }}>
           <Col xs={24} sm={12} md={6}><MetricCard title="资源池数量" total={totalCnt} unit="个" used={onlineCnt} midLabel="离线" midValue={offlineCnt} usedLabel="在线" mainColor="#1677ff" /></Col>

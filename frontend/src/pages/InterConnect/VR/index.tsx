@@ -510,10 +510,12 @@ const VRPage: React.FC = () => {
         `accessKey=${accesskey}&` +
         `secretKey=${secretkey}`;
 
+      const bodyStr = JSON.stringify(values);
+
       const signResp = await fetch(authUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: ''
+        body: bodyStr
       });
       const signJson = await signResp.json();
       const info = (signJson && signJson.data) ? signJson.data : signJson;
@@ -529,7 +531,7 @@ const VRPage: React.FC = () => {
           'Authorization': info.Authorization,
           'tonce': String(info.tonce)
         },
-        body: JSON.stringify(values)
+        body: bodyStr
       });
       const json = await res.json().catch(async () => ({ raw: await res.text() }));
       if (!res.ok || (json && typeof json === 'object' && 'code' in json && json.code !== 200)) {
@@ -572,10 +574,12 @@ const VRPage: React.FC = () => {
         `accessKey=${accesskey}&` +
         `secretKey=${secretkey}`;
 
+      const bodyStr = JSON.stringify(payload);
+
       const signResp = await fetch(authUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: ''
+        body: bodyStr
       });
       const signJson = await signResp.json();
       const info = (signJson && signJson.data) ? signJson.data : signJson;
@@ -591,7 +595,7 @@ const VRPage: React.FC = () => {
           'Authorization': info.Authorization,
           'tonce': String(info.tonce)
         },
-        body: JSON.stringify(payload)
+        body: bodyStr
       });
       const json = await res.json().catch(async () => ({ raw: await res.text() }));
       if (!res.ok || (json && typeof json === 'object' && 'code' in json && (json as any).code !== 200)) {

@@ -86,7 +86,7 @@ const StepOrchestrationContent: React.FC<StepOrchestrationProps> = ({
 
   return (
     <>
-      <div style={{ height: 600, display: 'flex', border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+      <div style={{ height: '100%', display: 'flex', border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
         {/* Component Library Sidebar */}
         <div style={{ width: collapsed ? 64 : 200, borderRight: '1px solid #e8e8e8', display: 'flex', flexDirection: 'column', background: '#fff', transition: 'width 0.2s' }}>
           <div style={{ height: 46, padding: collapsed ? '0' : '0 16px', fontWeight: 600, fontSize: 14, borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: 8 }}>

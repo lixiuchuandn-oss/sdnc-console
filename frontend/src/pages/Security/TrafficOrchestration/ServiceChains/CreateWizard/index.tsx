@@ -446,17 +446,20 @@ const CreateServiceChainWizard: React.FC = () => {
           if (pid) csmParams = { pool_id: pid };
       }
 
-      setPreviewData({ payload, csmPayload, csmParams, currentCloudId });
-      setSubmitPreviewVisible(true);
+      const data = { payload, csmPayload, csmParams, currentCloudId };
+      setPreviewData(data);
+      // setSubmitPreviewVisible(true);
+      executeSubmit(data);
 
     } catch (error) {
       console.error('Validation failed:', error);
     }
   };
 
-  const executeSubmit = async () => {
-    if (!previewData) return;
-    const { payload, csmPayload, csmParams, currentCloudId } = previewData;
+  const executeSubmit = async (data: any = null) => {
+    const finalData = data || previewData;
+    if (!finalData) return;
+    const { payload, csmPayload, csmParams, currentCloudId } = finalData;
     setSubmitPreviewVisible(false);
 
     try {
@@ -651,8 +654,13 @@ const CreateServiceChainWizard: React.FC = () => {
           </Card>
         </Col>
         <Col span={19}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 400 }}>{`第 ${current + 1} 步：${steps[current]?.title || ''}`}</span>} variant="outlined">
-            <div style={{ minHeight: 400 }}>{renderContent()}</div>
+          <Card
+            size="small"
+            title={<span style={{ fontSize: 13, fontWeight: 400 }}>{`第 ${current + 1} 步：${steps[current]?.title || ''}`}</span>}
+            variant="outlined"
+            styles={(current === 1 || current === 2) ? { body: { height: 700, display: 'flex', flexDirection: 'column' } } : undefined}
+          >
+            <div style={(current === 1 || current === 2) ? { flex: 1, minHeight: 0, overflow: 'auto' } : { minHeight: 400 }}>{renderContent()}</div>
             <Divider style={{ margin: '12px 0' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <Space>
@@ -670,30 +678,23 @@ const CreateServiceChainWizard: React.FC = () => {
       </Row>
 
       {/* Submit Preview Modal */}
-      <Modal
+      {/* <Modal
         title="确认提交参数"
         open={submitPreviewVisible}
-        onOk={executeSubmit}
+        onOk={() => executeSubmit(null)}
         onCancel={() => setSubmitPreviewVisible(false)}
         width={800}
         okText="确认提交"
         cancelText="取消"
       >
         <div style={{ maxHeight: 500, overflow: 'auto' }}>
-            <h4>Backend Service Chain Payload:</h4>
-            <pre style={{ background: '#f5f5f5', padding: 10, borderRadius: 4 }}>
-                {previewData?.payload ? JSON.stringify(previewData.payload, null, 2) : ''}
-            </pre>
-            {previewData?.csmPayload && (
-                <>
+
                     <h4>CSM Payload (Cloud Controller):</h4>
                     <pre style={{ background: '#f5f5f5', padding: 10, borderRadius: 4 }}>
-                        {JSON.stringify(previewData.csmPayload, null, 2)}
+                        {previewData && JSON.stringify(previewData.csmPayload, null, 2)}
                     </pre>
-                </>
-            )}
         </div>
-      </Modal>
+      </Modal> */}
     </PageContainer>
   );
 };

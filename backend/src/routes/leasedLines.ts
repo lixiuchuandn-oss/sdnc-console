@@ -51,15 +51,15 @@ function extractOutputUrl(outs: any, safeName: string, difyBase: string) {
   let url = '';
   let filename = '';
   
-  // 1. 优先检查 pdf，其次 doc
+  // 1. 优先检查 doc，其次 pdf（Word 下载必须来自 outputs.doc，而非 wxblist）
   const rawDoc = String(outs?.doc || '').replace(/[`]/g, '').trim();
   const rawPdf = String(outs?.pdf || '').replace(/[`]/g, '').trim();
   
-  if (rawPdf) {
-    url = rawPdf;
-    try { filename = decodeURIComponent(url.split('/').pop() || ''); } catch {}
-  } else if (rawDoc) {
+  if (rawDoc) {
     url = rawDoc;
+    try { filename = decodeURIComponent(url.split('/').pop() || ''); } catch {}
+  } else if (rawPdf) {
+    url = rawPdf;
     try { filename = decodeURIComponent(url.split('/').pop() || ''); } catch {}
   }
   
@@ -1847,12 +1847,15 @@ leasedLineRoutes.get('/security-report/folders/:folderId/download', async (req, 
     if (type === 'WXB_ZIP' || type === 'zip') {
       targetFile = files.find(f => f.toLowerCase().endsWith('.zip'));
     } else if (type === 'pdf') {
-      targetFile = files.find(f => f.toLowerCase().endsWith('.pdf'));
+      const pdfFiles = files.filter(f => f.toLowerCase().endsWith('.pdf'));
+      targetFile = pdfFiles.find(f => !/^wxb_/i.test(f)) || pdfFiles[0];
     } else if (type === 'docx') {
-      targetFile = files.find(f => f.toLowerCase().endsWith('.docx'));
+      const docxFiles = files.filter(f => f.toLowerCase().endsWith('.docx'));
+      targetFile = docxFiles.find(f => !/^wxb_/i.test(f)) || docxFiles[0];
     } else {
-      // Priority: PDF > DOCX
-      targetFile = files.find(f => f.toLowerCase().endsWith('.pdf')) || files.find(f => f.toLowerCase().endsWith('.docx'));
+      const pdfFiles = files.filter(f => f.toLowerCase().endsWith('.pdf'));
+      const docxFiles = files.filter(f => f.toLowerCase().endsWith('.docx'));
+      targetFile = pdfFiles.find(f => !/^wxb_/i.test(f)) || pdfFiles[0] || docxFiles.find(f => !/^wxb_/i.test(f)) || docxFiles[0];
     }
 
     if (!targetFile) return res.status(404).json({ message: '报告文件不存在' });

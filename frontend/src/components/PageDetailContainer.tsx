@@ -116,6 +116,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
   }, [loc.pathname, currentSpec]);
 
   const displayTitle = title ?? currentSpec?.title ?? currentSpec?.breadcrumbLabel ?? '';
+  const displaySubtitle = subtitle ?? currentSpec?.subtitle;
   const displayIcon = styledIcon(icon ?? iconOf(currentSpec?.icon), 22, token.colorPrimary);
 
   const cardStyle: React.CSSProperties = {
@@ -186,7 +187,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
                {
                  key: 'overview',
                  showArrow: false,
-                 label: (subtitle || <span style={{ color: token.colorTextSecondary }}>概览</span>),
+                 label: (displaySubtitle || <span style={{ color: token.colorTextSecondary }}>概览</span>),
                  children: overviewContent,
                }
              ]}

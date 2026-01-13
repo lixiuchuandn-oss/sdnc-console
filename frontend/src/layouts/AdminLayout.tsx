@@ -5,12 +5,14 @@ import {
   SlidersOutlined,ProjectOutlined,CodeOutlined,CloudOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, RightOutlined, CaretDownOutlined,
   ClusterOutlined, TeamOutlined, CodepenOutlined, DesktopOutlined, HddOutlined, GatewayOutlined,
   AppstoreAddOutlined, ApiOutlined, DatabaseOutlined, BellOutlined, RobotOutlined, EditOutlined, PlayCircleOutlined,
-  BulbOutlined, CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled, SearchOutlined, PoweroffOutlined, ReloadOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined
+  BulbOutlined, CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled, SearchOutlined, PoweroffOutlined, ReloadOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, BarChartOutlined,
+  FundProjectionScreenOutlined, RadarChartOutlined, FileTextOutlined, SafetyCertificateOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../utils/accessMapping';
-import { ROUTE_CATALOG, RouteItem } from '../catalogs/navCatalog';
+import { ROUTE_CATALOG, RouteItem, PLATFORMS, PLATFORM_LABELS, GROUPS } from '../catalogs/navCatalog';
 import { routeSpecs } from '../routes/RouteSpec';
+import { iconOf } from '../components/PageContainer';
 import { fetchClouds, fetchInventoryInstancesByCloud, refreshInventoryInstances, fetchAllInstances, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, fetchAliyunEcsVncUrl } from '../services/api';
 
 const { Header, Sider, Content } = Layout;
@@ -253,31 +255,7 @@ const AdminLayout: React.FC = () => {
     </Header>
   );
 
-  const iconOf = (key?: string) => {
-    const m: Record<string, React.ReactNode> = {
-      AppstoreOutlined: <AppstoreOutlined />,
-      DashboardOutlined: <DashboardOutlined />,
-      DeploymentUnitOutlined: <DeploymentUnitOutlined />,
-      CloudUploadOutlined: <CloudUploadOutlined />,
-      DesktopOutlined: <DesktopOutlined />,
-      TeamOutlined: <TeamOutlined />,
-      UserOutlined: <UserOutlined />,
-      UserSwitchOutlined: <UserSwitchOutlined />,
-      GatewayOutlined: <GatewayOutlined />,
-      LockOutlined: <LockOutlined />,
-      ApiOutlined: <ApiOutlined />,
-      BranchesOutlined: <BranchesOutlined />,
-      ShareAltOutlined: <ShareAltOutlined />,
-      NodeIndexOutlined: <NodeIndexOutlined />,
-      GlobalOutlined: <GlobalOutlined />,
-      EnvironmentOutlined: <EnvironmentOutlined />,
-      BellOutlined: <BellOutlined />,
-      DatabaseOutlined: <DatabaseOutlined />,
-      SecurityScanOutlined: <SecurityScanOutlined />,
-      SwapOutlined: <SwapOutlined />,
-    };
-    return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
-  };
+  
 
   const groupIconOf = (pf: string, grp: string) => {
     if (grp === '安全管理面') return iconOf('SecurityScanOutlined');
@@ -289,16 +267,20 @@ const AdminLayout: React.FC = () => {
   };
 
   const adminSpecs = routeSpecs.filter(s => s.layout === 'admin' && !s.hidden);
-  const platformLabel = (pf: string) => {
-    if (pf === 'CNMC') return '多云管理';
-    if (pf === 'SDNCC') return 'SDN管理';
-    return pf;
-  };
-  const centers: any[] = ['CNMC','SDNCC','CNSOC'].map((pf: any) => ({
+  
+  const centers: any[] = PLATFORMS.filter(p => p !== '全部').map((pf: any) => ({
     key: pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : '/admin/cen_secops',
-    label: platformLabel(pf),
+    label: PLATFORM_LABELS[pf as keyof typeof PLATFORM_LABELS] || pf,
     icon: <CodeOutlined />,
-    items: Array.from(new Set(adminSpecs.filter(s => s.platform === pf).map(s => String(s.group || '')))).map((grp) => ({
+    items: Array.from(new Set(adminSpecs.filter(s => s.platform === pf).map(s => String(s.group || ''))))
+      .sort((a, b) => {
+        const idxA = GROUPS.indexOf(a as any);
+        const idxB = GROUPS.indexOf(b as any);
+        const safeA = idxA === -1 ? 999 : idxA;
+        const safeB = idxB === -1 ? 999 : idxB;
+        return safeA - safeB;
+      })
+      .map((grp) => ({
       key: `${pf}_${grp}`,
       label: grp,
       icon: groupIconOf(pf, grp),
@@ -394,9 +376,27 @@ const AdminLayout: React.FC = () => {
   useEffect(() => {}, [user, location.pathname]);
 
   const sidebarForPath = (p: string) => {
+    // Try to find exact match or prefix match in routeSpecs
+    // This helps when routes are explicitly defined with a platform
+    const found = routeSpecs.find(r => {
+      if (r.path === p) return true;
+      // Simple prefix check for parameterized routes
+      if (r.path.includes(':')) {
+        const base = r.path.split(':')[0];
+        return p.startsWith(base);
+      }
+      return false;
+    });
+    
+    if (found && found.platform) {
+      if (found.platform === 'CNMC') return '/admin/cen_compute';
+      if (found.platform === 'SDNCC') return '/admin/cen_sdn';
+      if (found.platform === 'CNSOC') return '/admin/cen_secops';
+    }
+
     const s = p.toLowerCase();
-    if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security')) return '/admin/cen_sdn';
-    if (s.includes('/alarms')) return '/admin/cen_secops';
+    if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security/traffic')) return '/admin/cen_sdn';
+    if (s.includes('/alarms') || s.includes('/soc') || s.includes('/aisoc')) return '/admin/cen_secops';
     return '/admin/cen_compute';
   };
 

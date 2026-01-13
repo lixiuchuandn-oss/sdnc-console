@@ -27,6 +27,7 @@ import leasedLineRoutes from './routes/leasedLines';
 import serviceRoutes from './routes/services';
 import trafficOrchestrationRoutes from './routes/trafficOrchestration';
 import systemRoutes from './routes/system';
+import threatRoutes from './routes/threats';
 
 dotenv.config();
 
@@ -120,6 +121,7 @@ app.use('/api/services', authMiddleware, serviceRoutes);
 app.use('/api/security/traffic', authMiddleware, trafficOrchestrationRoutes);
 app.use('/api/leased-lines', authMiddleware, leasedLineRoutes);
 app.use('/api/system', authMiddleware, systemRoutes);
+app.use('/api/threats', authMiddleware, threatRoutes);
 
 // 健康检查
 app.get('/health', (req, res) => {

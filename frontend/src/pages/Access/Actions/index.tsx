@@ -13,9 +13,9 @@ type ActionItem = { key: string; action: string; group: string; feature: string;
 
  
 
-const mapGroupOf = (val: string): string => groupOf(val);
+const mapGroupOf = (val: string): string => groupOf(val) || '';
 
-const mapPlatformOf = (val: string): string => platformOf(val);
+const mapPlatformOf = (val: string): string => platformOf(val) || '';
 
 const featureOf = (resource: string): string => featureLabelOf(resource);
 

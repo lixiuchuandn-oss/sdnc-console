@@ -32,6 +32,10 @@ export const listSecurityDomains = async (): Promise<any[]> => {
   return Array.isArray(res) ? res : (res?.data || []);
 };
 
+export const getSecurityDomain = async (id: string): Promise<any> => {
+  return await apiRequest(`/api/security-domains/${id}`);
+};
+
 export const createSecurityDomain = async (payload: SecurityDomainPayload): Promise<any> => {
   return await apiPost('/api/security-domains', payload);
 };

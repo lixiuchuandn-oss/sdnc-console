@@ -155,6 +155,7 @@ const SecurityDomainWizardPage: React.FC = () => {
       }
 
       let validVmIds: Set<string> | null = null;
+      let harvesterVmsInVpc: any[] | null = null;
 
       if (provider.includes('huawei') || provider === 'huaweicloud' || provider.includes('华为云')) {
         const subnetsJson: any = await fetchCloudProviderSubnets(cloudId);
@@ -234,11 +235,79 @@ const SecurityDomainWizardPage: React.FC = () => {
               });
             }
           });
-          if (setByAddr.size > 0) validVmIds = setByAddr;
+        if (setByAddr.size > 0) validVmIds = setByAddr;
         }
       } else if (provider === 'harvester' || provider.includes('cloudmap')) {
-        setEniOptions([]);
-        setRawEnis([]);
+        let ecsList: any[] = [];
+        try {
+          const ecsJson: any = await fetchCloudProviderEcs(cloudId);
+          const data = ecsJson?.data || ecsJson;
+          ecsList = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        } catch {
+          ecsList = [];
+        }
+
+        const vmsInVpc = (Array.isArray(ecsList) ? ecsList : []).filter((x: any) => String(x?.VpcId || x?.vpcId || x?.vpc_id || '').trim() === String(vpcId).trim());
+        harvesterVmsInVpc = vmsInVpc;
+        setDebugEcs(Array.isArray(vmsInVpc) ? vmsInVpc : []);
+
+        const pseudoEnis: any[] = [];
+        for (const vm of (Array.isArray(vmsInVpc) ? vmsInVpc : [])) {
+          const vmId = String(vm?.InstanceId || vm?.id || vm?.uuid || '').trim();
+          if (!vmId) continue;
+
+          const nets: string[] = Array.isArray(vm?.Extra?.Networks) ? vm.Extra.Networks : (Array.isArray(vm?.Networks) ? vm.Networks : []);
+          const ip0 = Array.isArray(vm?.VpcAttributes?.PrivateIpAddress?.IpAddress) ? vm.VpcAttributes.PrivateIpAddress.IpAddress[0] : undefined;
+
+          if (!nets.length) {
+            const id = `${vmId}::primary`;
+            pseudoEnis.push({
+              id,
+              NetworkInterfaceId: id,
+              NetworkInterfaceName: 'primary',
+              Attachment: { InstanceId: vmId },
+              InstanceId: vmId,
+              instanceId: vmId,
+              device_id: vmId,
+              port_id: id,
+              VpcId: vm?.VpcId,
+              VSwitchId: vm?.Extra?.SubnetName,
+              PrivateIpAddress: ip0,
+              fixed_ips: ip0 ? [{ ip_address: ip0 }] : [],
+            });
+          } else {
+            nets.forEach((n: string, idx: number) => {
+              const netName = String(n || '').trim() || `net${idx}`;
+              const id = `${vmId}::${netName}`;
+              pseudoEnis.push({
+                id,
+                NetworkInterfaceId: id,
+                NetworkInterfaceName: netName.includes('/') ? (netName.split('/').pop() || netName) : netName,
+                Attachment: { InstanceId: vmId },
+                InstanceId: vmId,
+                instanceId: vmId,
+                device_id: vmId,
+                port_id: id,
+                VpcId: vm?.VpcId,
+                VSwitchId: vm?.Extra?.SubnetName,
+                PrivateIpAddress: idx === 0 ? ip0 : undefined,
+                fixed_ips: (idx === 0 && ip0) ? [{ ip_address: ip0 }] : [],
+              });
+            });
+          }
+        }
+
+        setRawEnis(pseudoEnis);
+        const enis = pseudoEnis.map((x: any) => {
+          const ip = x?.PrivateIpAddress || (Array.isArray(x?.fixed_ips) && x.fixed_ips.length ? x.fixed_ips[0]?.ip_address : '');
+          const name = x?.NetworkInterfaceName || x?.name || x?.id || 'nic';
+          return {
+            label: `${name} (${x?.NetworkInterfaceId || x?.Id || x?.id || x?.port_id || ''}) ${ip ? '/ ' + ip : ''}`,
+            value: String(x?.NetworkInterfaceId || x?.Id || x?.id || x?.port_id || ''),
+          };
+        }).filter((x: any) => !!x.value);
+        setEniOptions(enis);
+        validVmIds = new Set((Array.isArray(vmsInVpc) ? vmsInVpc : []).map((x: any) => String(x?.InstanceId || x?.id || x?.uuid || '').trim()).filter(Boolean));
       } else {
         const eniRes = await fetchCloudProviderEnis(cloudId, { vpcId });
         const eniList: any[] = eniRes?.data?.NetworkInterfaces?.NetworkInterface || eniRes?.data?.enis || eniRes?.enis || eniRes?.list || [];
@@ -254,6 +323,9 @@ const SecurityDomainWizardPage: React.FC = () => {
 
       const instRes = await fetchInventoryInstancesByCloud(cloudId);
       let allInst: any[] = (instRes?.data?.instances || instRes?.instances || instRes?.data || instRes || []);
+      if (harvesterVmsInVpc && (provider === 'harvester' || provider.includes('cloudmap'))) {
+        allInst = harvesterVmsInVpc;
+      }
       if (provider.includes('huawei') || provider === 'huaweicloud' || provider.includes('华为云')) {
         const ecsJson: any = await fetchCloudProviderEcs(cloudId);
         const ecsList: any[] = (ecsJson?.data?.servers) || (ecsJson?.servers) || (Array.isArray(ecsJson?.data) ? ecsJson.data : []);
@@ -294,6 +366,13 @@ const SecurityDomainWizardPage: React.FC = () => {
         label: `${x?.InstanceName || x?.name || x?.id} (${x?.InstanceId || x?.instanceId || x?.id || x?.uuid || x?.instance_id || ''})`,
         value: String(x?.InstanceId || x?.instanceId || x?.id || x?.uuid || x?.instance_id || '')
       })).filter(x => !!x.value);
+      if ((!vms || vms.length === 0) && (provider === 'harvester' || provider.includes('cloudmap'))) {
+        const fallbackVms = harvesterVmsInVpc || [];
+        vms = (Array.isArray(fallbackVms) ? fallbackVms : []).map((x: any) => ({
+          label: `${x?.InstanceName || x?.name || x?.id} (${x?.InstanceId || x?.id || ''})`,
+          value: String(x?.InstanceId || x?.id || '')
+        })).filter((x: any) => !!x.value);
+      }
       if ((!vms || vms.length === 0) && (provider.includes('huawei') || provider === 'huaweicloud' || provider.includes('华为云'))) {
         vms = (Array.isArray(debugEcs) ? debugEcs : []).map((x: any) => ({
           label: `${x?.name || x?.InstanceName || x?.id} (${x?.id || x?.InstanceId || ''})`,

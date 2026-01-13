@@ -21,7 +21,7 @@ type Policy = {
   };
 };
 
-const mapGroupOf = (val: string): string => groupOf(val);
+const mapGroupOf = (val: string): string => groupOf(val) || '';
 
 const featureNameOf = (resource: string): string => featureLabelOf(resource);
 
@@ -46,7 +46,7 @@ const describeAction = (action: string): string => {
   return `${f}操作`;
 };
 
-const mapPlatformOf = (val: string): string => platformOf(val);
+const mapPlatformOf = (val: string): string => platformOf(val) || '';
 
 const computeSystemPoliciesFrom = (actions: string[]): Policy[] => {
   const byGroup = new Map<string, string[]>();
