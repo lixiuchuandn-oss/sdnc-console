@@ -44,18 +44,6 @@ export const routeSpecs: RouteSpec[] = [
     order: 1
   },
   {
-    id: 'topology',
-    path: '/admin/topology',
-    element: 'Topology',
-    layout: 'admin',
-    platform: 'CNMC',
-    group: '资源控制台',
-    title: '算力网络拓扑',
-    subtitle: '可视化展示网络拓扑结构，支持跨域连接、流量路径与设备状态的实时监控。',
-    icon: 'DeploymentUnitOutlined',
-    order: 2
-  },
-  {
     id: 'clouds-list',
     path: '/admin/clouds',
     element: 'Clouds',
@@ -226,6 +214,18 @@ export const routeSpecs: RouteSpec[] = [
     icon: 'AppstoreAddOutlined',
     order: 3
   },
+  {
+    id: 'security-services',
+    path: '/admin/sec-mgr-plane/security-services',
+    element: 'SecurityServices',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '安全管理面',
+    title: '安全服务管理',
+    subtitle: '列出所有CSM安全池的安全服务(安全网元组)',
+    icon: 'SafetyCertificateOutlined',
+    order: 4
+  },
 
   // Group: 跨地域互联
   {
@@ -326,18 +326,6 @@ export const routeSpecs: RouteSpec[] = [
     icon: 'FileTextOutlined',
     order: 3
   },
-  {
-    id: 'traffic-security-zones',
-    path: '/admin/security/traffic/security-zones',
-    element: 'SecurityZones',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全域管理',
-    subtitle: '安全域（Security Zone）构建了逻辑隔离的网络安全边界，支持将防火墙、IPS、WAF 等多类安全网元划分至同一信任域。通过定义域间与域内的流量控制策略，实现不同安全等级业务的精细化防护与威胁隔离。',
-    icon: 'BorderOuterOutlined',
-    order: 4
-  },
 
   {
     id: 'webssh',
@@ -357,7 +345,17 @@ export const routeSpecs: RouteSpec[] = [
   },
   {
     id: 'instance-create',
-    path: '/admin/clouds/instances/create',
+    path: '/admin/clouds/:id/instances/create',
+    element: 'InstanceWizard',
+    modalElement: 'InstanceWizardModal',
+    layout: 'default',
+    guard: 'private',
+    backgroundCapable: true,
+    hidden: true
+  },
+  {
+    id: 'instance-create-pure',
+    path: '/clouds/:id/instances/create',
     element: 'InstanceWizard',
     modalElement: 'InstanceWizardModal',
     layout: 'default',
@@ -368,6 +366,16 @@ export const routeSpecs: RouteSpec[] = [
   {
     id: 'instance-detail',
     path: '/admin/clouds/:id/instances/:instanceId',
+    element: 'InstanceDetail',
+    modalElement: 'InstanceDetailModal',
+    layout: 'default',
+    guard: 'private',
+    backgroundCapable: true,
+    hidden: true
+  },
+  {
+    id: 'instance-detail-pure',
+    path: '/clouds/:id/instances/:instanceId',
     element: 'InstanceDetail',
     modalElement: 'InstanceDetailModal',
     layout: 'default',

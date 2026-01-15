@@ -195,7 +195,11 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
                {
                  key: 'overview',
                  showArrow: false,
-                 label: (displaySubtitle || <span style={{ color: token.colorTextSecondary }}>概览</span>),
+                 label: (displaySubtitle
+                   ? (typeof displaySubtitle === 'string'
+                       ? <span style={{ color: token.colorTextSecondary }}>{displaySubtitle}</span>
+                       : displaySubtitle)
+                   : <span style={{ color: token.colorTextSecondary }}>概览</span>),
                  children: overviewContent,
                }
              ]}

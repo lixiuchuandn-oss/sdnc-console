@@ -16,6 +16,26 @@ export class VRConfig {
   @Column({ type: 'varchar', length: 10, nullable: true })
   role?: string;
 
+  @Index()
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  tenantId?: string;
+
+  @Index()
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  organizationId?: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  name?: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  deviceFingerprint?: string;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  vmId?: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  bindStatus?: string;
+
   @CreateDateColumn({ type: 'datetime' })
   created_at!: Date;
 

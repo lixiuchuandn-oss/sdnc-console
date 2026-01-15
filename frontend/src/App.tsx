@@ -13,7 +13,6 @@ import Users from './pages/Tenants/Users';
 import Clouds from './pages/Clouds';
 import CloudDetail from './pages/Clouds/CloudDetail';
 import InstanceDetail from './pages/Clouds/InstanceDetail';
-import Topology from './pages/Topology';
 import Tenants from './pages/Tenants';
 import { AuthProvider } from './contexts/AuthContext';
 import AdminRoute from './components/AdminRoute';
@@ -39,6 +38,7 @@ import CENPage from './pages/SecMgrPlane/CascadeChannels/index';
 import CENDetailPage from './pages/SecMgrPlane/CascadeChannels/Detail';
 import ComingSoon from './pages/ComingSoon';
 import SecurityApps from './pages/SecMgrPlane/Applications/index';
+import SecurityServices from './pages/SecMgrPlane/SecurityServices/index';
 import AccessPoliciesPage from './pages/Access/Policies/index';
 import AccessRolesPage from './pages/Access/Roles/index';
 import AccessActionsPage from './pages/Access/Actions/index';
@@ -88,6 +88,8 @@ const AppRoutes: React.FC = () => {
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/" element={<Navigate to="/admin" replace />} />
         <Route path="/admin/clouds/:id/instances/:instanceId" element={<InstanceDetail />} />
+        <Route path="/clouds/:id/instances/:instanceId" element={<InstanceDetail />} />
+        <Route path="/clouds/:id/instances/create" element={<PrivateRoute><VmCreateWizardModal /></PrivateRoute>} />
 
         {/* Admin area */}
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
@@ -107,7 +109,6 @@ const AppRoutes: React.FC = () => {
           <Route path="tenants/leased-lines/tasks" element={<TenantLeasedLinesPage />} />
           <Route path="tenants/leased-lines/logs" element={<TenantLeasedLinesPage />} />
           <Route path="tenants/users" element={<Users />} />
-          <Route path="topology" element={<Topology />} />
           <Route path="interconnect/srv6" element={<SRv6Page />} />
           <Route path="interconnect/srv6/create" element={<SRv6CreatePage />} />
           <Route path="interconnect/ipsec" element={<IPsecVPNPage />} />
@@ -126,6 +127,7 @@ const AppRoutes: React.FC = () => {
           <Route path="sec-mgr-plane/cascade-channels" element={<CENPage />} />
           <Route path="sec-mgr-plane/cascade-channels/:id" element={<CENDetailPage />} />
           <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
+          <Route path="sec-mgr-plane/security-services" element={<SecurityServices />} />
           <Route path="alarms" element={<Alarms />} />
           {/* AI SOC Integration Placeholders */}
           <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC总览" module="situation_overview" />} />
@@ -174,7 +176,6 @@ const AppRoutes: React.FC = () => {
             if (!modal) return null;
             return <Route key={`${s.id}.modal`} path={s.path} element={modal} />;
           })}
-          <Route path="/admin/clouds/:id/instances/:instanceId" element={<InstanceDetailModal />} />
         </Routes>
       )}
     </>

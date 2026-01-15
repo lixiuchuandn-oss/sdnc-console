@@ -2,7 +2,7 @@
 
 ## 导航概览
 - 设计：`docs/design/`（综述：`docs/design/capability-driven-ui.md`）
-- 产品需求（PRD）：`docs/prd/`（索引：`docs/prd/README.md`）
+- 产品需求（PRD，新结构）：`docs/prd/`（索引：`docs/prd/README.md`）
 - Provider 适配说明：`docs/providers/`（`aliyun.md`、`huaweicloud.md`、`tencentcloud.md`、`harvester.md`）
 - API：`docs/api/`（索引：`docs/api/README.md`）
 - 设计指南：`docs/guides/`（索引：`docs/guides/README.md`）

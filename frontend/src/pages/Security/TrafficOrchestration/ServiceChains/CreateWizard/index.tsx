@@ -84,9 +84,9 @@ const CreateServiceChainWizard: React.FC = () => {
         const clouds = await fetchClouds();
         const list = Array.isArray(clouds) ? clouds : [];
         const pools = list.filter((c: any) => {
-          const pv = String((c?.config?.provider || c?.type || '')).toLowerCase();
+          const pvRaw = String((c?.config?.provider || c?.type || '')).trim().toLowerCase();
           const t = String(c?.type || '').toLowerCase();
-          return pv === 'cloudmap-security' || pv === 'csm' || t.includes('security') || t === 'security_pool';
+          return pvRaw === 'cloudmap.csm' || t.includes('security') || t === 'security_pool';
         });
         setCloudPools(pools);
       } catch (e) {

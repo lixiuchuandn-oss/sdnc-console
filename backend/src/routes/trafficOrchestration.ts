@@ -3,6 +3,7 @@ import { AppDataSource } from '../config/database';
 import { SecurityZone } from '../entities/SecurityZone';
 import { ProtectionObject } from '../entities/ProtectionObject';
 import { ServiceChain } from '../entities/ServiceChain';
+import { Tenant } from '../entities/Tenant';
 import { Like } from 'typeorm';
 
 const router = Router();
@@ -10,6 +11,7 @@ const router = Router();
 const zoneRepo = () => AppDataSource.getRepository(SecurityZone);
 const objRepo = () => AppDataSource.getRepository(ProtectionObject);
 const chainRepo = () => AppDataSource.getRepository(ServiceChain);
+const tenantRepo = () => AppDataSource.getRepository(Tenant);
 
 // Helper to get tenant context
 const getTenantContext = (req: any) => {
@@ -45,7 +47,23 @@ router.get('/security-zones', async (req, res) => {
     }
 
     const list = await zoneRepo().find({ where, order: { createdAt: 'DESC' } });
-    res.json(list);
+
+    const tenantIds = Array.from(new Set(list.map(z => z.tenantId).filter((id): id is string => !!id)));
+    let tenantMap: Record<string, string> = {};
+    if (tenantIds.length) {
+      const tenants = await tenantRepo().find({ where: tenantIds.map(id => ({ id })) as any });
+      tenantMap = tenants.reduce((acc, t) => {
+        acc[t.id] = t.name;
+        return acc;
+      }, {} as Record<string, string>);
+    }
+
+    const augmented = list.map(z => ({
+      ...z,
+      tenantName: z.tenantId ? tenantMap[z.tenantId] || undefined : undefined,
+    }));
+
+    res.json(augmented);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch security zones', error: String(err) });
   }
@@ -62,7 +80,16 @@ router.get('/security-zones/:id', async (req, res) => {
     }
     const item = await zoneRepo().findOne({ where });
     if (!item) return res.status(404).json({ message: 'Security Zone not found' });
-    res.json(item);
+
+    let tenantName: string | undefined = undefined;
+    if (item.tenantId) {
+      try {
+        const tenant = await tenantRepo().findOne({ where: { id: item.tenantId } });
+        tenantName = tenant?.name || undefined;
+      } catch {}
+    }
+
+    res.json({ ...item, tenantName });
   } catch (err) {
     res.status(500).json({ message: 'Error fetching security zone', error: String(err) });
   }

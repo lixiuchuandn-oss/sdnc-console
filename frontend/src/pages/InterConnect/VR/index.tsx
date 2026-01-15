@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag, Tooltip, Badge, Progress, Popover, Checkbox } from 'antd';
+import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag, Typography, Tooltip, Badge, Progress, Popover, Checkbox } from 'antd';
 import type { MenuProps, CheckboxOptionType } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, CheckCircleFilled, ExclamationCircleFilled, CloseCircleFilled, QuestionCircleFilled, ApiOutlined, SettingOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -12,6 +12,7 @@ import { netClassLabel, netClassColor } from '../../../utils/netClass';
 import '../../common/filters.css';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
 import StdFormModal from '../../../components/StdFormModal';
+import { fetchSaseGateways, fetchTenants } from '../../../services/api';
 
 interface VRRow {
   id?: string;
@@ -26,6 +27,10 @@ interface VRRow {
   uuid?: string;
   version?: string;
   create_time?: string;
+   vr_unique_id?: string;
+   tenant_id?: string;
+   org_id?: string;
+   bind_status?: string;
   [key: string]: any;
 }
 
@@ -61,11 +66,33 @@ const VRPage: React.FC = () => {
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [roleFilter, setRoleFilter] = useState<string | undefined>();
-  const [netClassFilter, setNetClassFilter] = useState<'vpc' | 'flat' | 'unbound' | undefined>();
+  const [tenantFilter, setTenantFilter] = useState<string | undefined>();
   const [rolesMap, setRolesMap] = useState<Record<string, string>>({});
   const rolesMapRef = useRef<Record<string, string>>({});
   const [netClassMap, setNetClassMap] = useState<Record<string, any>>({});
   const netClassMapRef = useRef<Record<string, any>>({});
+  const [tenantOptions, setTenantOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [tenantLoading, setTenantLoading] = useState<boolean>(false);
+
+  const loadTenants = async () => {
+    setTenantLoading(true);
+    try {
+      const res = await fetchTenants();
+      const list = (res?.data || res || []) as any[];
+      const opts = Array.isArray(list)
+        ? list.map(t => ({ value: String((t as any).id || (t as any)._id || ''), label: String((t as any).name || (t as any).username || '未命名租户') }))
+        : [];
+      setTenantOptions(opts);
+    } catch (e) {
+      setTenantOptions([]);
+    } finally {
+      setTenantLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTenants();
+  }, []);
 
   const [currentVrId, setCurrentVrId] = useState<string | null>(null);
   // CE配置弹窗
@@ -243,8 +270,35 @@ const VRPage: React.FC = () => {
         ? (data as VRRow[])
         : [];
 
-      setVrs(list);
-      const first = list[0] || {};
+      let mergedList: VRRow[] = list;
+      try {
+        const saseRes = await fetchSaseGateways();
+        const items = Array.isArray((saseRes as any)?.items) ? (saseRes as any).items : [];
+        const map: Record<string, any> = {};
+        items.forEach((item: any) => {
+          const id = item.vr_unique_id || item.uuid;
+          if (id) map[String(id)] = item;
+        });
+        mergedList = list.map(vr => {
+          const id = vr.uuid || vr.id || vr.vm_id;
+          if (!id) return vr;
+          const extra = map[String(id)];
+          if (!extra) return vr;
+          return {
+            ...vr,
+            vr_unique_id: extra.vr_unique_id || extra.uuid || id,
+            tenant_id: extra.tenant_id,
+            org_id: extra.org_id,
+            bind_status: extra.bind_status || vr.bind_status,
+          };
+        });
+      } catch (e) {
+        console.warn('加载 SASE 绑定信息失败', e);
+        mergedList = list;
+      }
+
+      setVrs(mergedList);
+      const first = mergedList[0] || {};
       const cols: ColumnsType<VRRow> = Object.keys(first).map((k) => ({ title: LABELS[k] || k, dataIndex: k, key: k }));
 
       // 移除可能存在的原始状态列，统一用自定义渲染
@@ -281,7 +335,6 @@ const VRPage: React.FC = () => {
         title: '序号',
         key: 'id',
         dataIndex: 'id',
-        width: 70,
         render: (_: any, __: VRRow, index: number) => indexBase + index + 1,
       } as any;
       if (idIdx >= 0) {
@@ -344,6 +397,44 @@ const VRPage: React.FC = () => {
         }
       } as any;
 
+      const tenantCol = {
+        title: '租户',
+        key: 'tenant',
+        dataIndex: 'tenant_name',
+        render: (_: any, row: VRRow) => {
+          const id = row.uuid || row.vr_unique_id || row.id || row.vm_id;
+          const dom = id ? netClassMapRef.current[String(id)] : undefined;
+          const nameFromDom = dom ? (dom.tenantName || dom.tenant_name) : undefined;
+          if (nameFromDom) return <span>{String(nameFromDom)}</span>;
+          const tid = row.tenant_id || (dom ? dom.tenantId : undefined);
+          const nameFromOptions = tid ? (tenantOptions.find(t => String(t.value) === String(tid))?.label) : undefined;
+          return nameFromOptions ? <span>{String(nameFromOptions)}</span> : '配属';
+        }
+      } as any;
+      const orgCol = {
+        title: '组织',
+        key: 'organization',
+        dataIndex: 'org_name',
+        render: (_: any, row: VRRow) => {
+          const id = row.uuid || row.vr_unique_id || row.id || row.vm_id;
+          const dom = id ? netClassMapRef.current[String(id)] : undefined;
+          const nameFromDom = dom ? (dom.organizationName || dom.organization_name) : undefined;
+          return nameFromDom ? <span>{String(nameFromDom)}</span> : '配属';
+        }
+      } as any;
+      const bindStatusCol = {
+        title: '绑定状态',
+        key: 'bind_status',
+        dataIndex: 'bind_status',
+        render: (v: string | undefined) => {
+          const value = v || '';
+          if (!value) return <Tag>未知</Tag>;
+          if (value === 'BOUND') return <Tag color="green">已绑定</Tag>;
+          if (value === 'UNBOUND') return <Tag color="default">未绑定</Tag>;
+          return <Tag color="orange">{value}</Tag>;
+        }
+      } as any;
+
       // 提取并移除特定列以便重新排序
       const extractCol = (key: string) => {
         const idx = cols.findIndex((c: any) => c.dataIndex === key || c.key === key);
@@ -366,7 +457,7 @@ const VRPage: React.FC = () => {
       const cpuCol = {
         title: 'CPU',
         key: 'cpu',
-        width: 180,
+        width: 140,
         render: () => {
           const total = [2, 4, 8, 16][Math.floor(Math.random() * 4)];
           const percent = Math.floor(Math.random() * 60) + 10; // 10-70% random
@@ -375,7 +466,7 @@ const VRPage: React.FC = () => {
           let color = '#1890ff'; // blue
           if (percent > 80) color = '#ff4d4f'; // red
           else if (percent > 60) color = '#fa541c'; // volcano
-
+          
           return (
             <div style={{ display: 'flex', flexDirection: 'column', fontSize: '12px' }}>
               <span>{used} / {total} 核</span>
@@ -387,7 +478,7 @@ const VRPage: React.FC = () => {
       const memCol = {
         title: '内存',
         key: 'mem',
-        width: 180,
+        width: 140,
         render: () => {
           const total = [4, 8, 16, 32][Math.floor(Math.random() * 4)];
           const percent = Math.floor(Math.random() * 60) + 20; // 20-80% random
@@ -408,7 +499,6 @@ const VRPage: React.FC = () => {
       const upCol = {
         title: '上行速率',
         key: 'up',
-        width: 100,
         render: () => {
           const val = (Math.random() * 5).toFixed(1);
           return <span>{val} Mbps</span>;
@@ -417,7 +507,6 @@ const VRPage: React.FC = () => {
       const downCol = {
         title: '下行速率',
         key: 'down',
-        width: 100,
         render: () => {
           const val = (Math.random() * 10).toFixed(1);
           return <span>{val} Mbps</span>;
@@ -431,6 +520,9 @@ const VRPage: React.FC = () => {
       newCols.push(statusCol);
       if (uuidColObj) newCols.push(uuidColObj);
       newCols.push(roleCol);
+      newCols.push(tenantCol);
+      newCols.push(orgCol);
+      newCols.push(bindStatusCol);
       
       // 添加监控指标列
       newCols.push(cpuCol);
@@ -457,7 +549,6 @@ const VRPage: React.FC = () => {
         title: '操作',
         key: 'actions',
         fixed: 'right',
-        width: 160,
         render: (_: any, row: VRRow) => (
           <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
             <Button type="text" icon={<EllipsisOutlined />} />
@@ -468,7 +559,7 @@ const VRPage: React.FC = () => {
       setColumns(newCols);
 
       // 拉取角色映射
-      const ids = list.map(r => r.uuid || r.id || r.vm_id).filter(Boolean) as string[];
+      const ids = mergedList.map(r => r.uuid || r.id || r.vm_id).filter(Boolean) as string[];
       try {
         const roles = await getVRRoles(ids);
         setRolesMap(roles || {});
@@ -479,7 +570,7 @@ const VRPage: React.FC = () => {
         rolesMapRef.current = {};
       }
 
-      setPagination({ current: pageNum, pageSize, total: Number((data as any)?.total || list.length) });
+      setPagination({ current: pageNum, pageSize, total: Number((data as any)?.total || mergedList.length) });
     } catch (error: any) {
       console.error('[VR_DEBUG_ERROR] 远端直连失败:', error);
       message.error(`远端直连失败: ${error.message || '请稍后重试'}`);
@@ -697,6 +788,12 @@ const VRPage: React.FC = () => {
       const nameLower = (v.name || '').toLowerCase();
       if (keyword && !nameLower.includes(keyword.toLowerCase())) return false;
       if (statusFilter && (v.status || '') !== statusFilter) return false;
+      if (tenantFilter) {
+        const id = (v.uuid || v.vr_unique_id || v.id || v.vm_id) as string;
+        const dom = id ? netClassMapRef.current[String(id)] : undefined;
+        const effectiveTenant = v.tenant_id || (dom ? dom.tenantId : undefined);
+        if (String(effectiveTenant || '') !== String(tenantFilter)) return false;
+      }
       // 角色筛选
       if (roleFilter) {
         const id = (v.uuid || v.id || v.vm_id) as string;
@@ -707,21 +804,9 @@ const VRPage: React.FC = () => {
           if (r !== roleFilter) return false;
         }
       }
-      // 安全域网络分类筛选
-      if (netClassFilter) {
-        const id = (v.uuid || v.id || v.vm_id) as string;
-        const domain = netClassMap[id];
-        // domain 存在则判断其类型（vpc/flat），不存在则为 unbound
-        const cls = domain ? (domain.type === 'VPC' ? 'vpc' : 'flat') : 'unbound';
-        if (netClassFilter === 'unbound') {
-          if (cls !== 'unbound') return false;
-        } else {
-          if (cls !== netClassFilter) return false;
-        }
-      }
       return true;
     });
-  }, [vrs, keyword, statusFilter, roleFilter, rolesMap, netClassFilter, netClassMap]);
+  }, [vrs, keyword, statusFilter, roleFilter, rolesMap, tenantFilter, netClassMap]);
 
   const peOptions = useMemo(() => (
     (vrs || []).filter((r: any) => {
@@ -771,18 +856,18 @@ const VRPage: React.FC = () => {
   // 列设置内容 (Removed)
 
   return (
-    <PageContainer
-      titleLevel={3}
-      primaryAction={{
-        text: '新增VR实例',
-        onClick: () => setAddModalOpen(true),
-        type: 'primary',
-      }}
-      moreMenuItems={[
-        { key: 'refresh', label: '刷新列表', onClick: () => forceRefresh() },
-        { key: 'csmctl', label: '配置 CSMCTL 地址', onClick: handleSettingsOpen }
-      ]}
-      defaultHiddenColumns={['uuid', 'version', 'type', 'pool_id', 'pool_name', 'vm_id']}
+      <PageContainer
+        titleLevel={3}
+        primaryAction={{
+          text: '新增VR实例',
+          onClick: () => setAddModalOpen(true),
+          type: 'primary',
+        }}
+        moreMenuItems={[
+          { key: 'refresh', label: '刷新列表', onClick: () => forceRefresh() },
+          { key: 'csmctl', label: '配置 CSMCTL 地址', onClick: handleSettingsOpen }
+        ]}
+        defaultHiddenColumns={['uuid', 'version', 'type', 'pool_id', 'pool_name', 'vm_id', 'tenant_id', 'org_id']}
       toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"
@@ -793,7 +878,7 @@ const VRPage: React.FC = () => {
             setKeyword(all.keyword || '');
             setStatusFilter(all.status || undefined);
             setRoleFilter(all.role);
-            setNetClassFilter(all.netClass || undefined);
+            setTenantFilter(all.tenant || undefined);
           }}
         >
           <Form.Item name="keyword" label="名称">
@@ -814,12 +899,16 @@ const VRPage: React.FC = () => {
               <Select.Option value="未设置">未设置</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="netClass" label="网络分类">
-            <Select allowClear placeholder="全部" style={{ width: 200 }}>
-              <Select.Option value="vpc">VPC网络</Select.Option>
-              <Select.Option value="flat">扁平网络</Select.Option>
-              <Select.Option value="unbound">未绑定</Select.Option>
-            </Select>
+          <Form.Item name="tenant" label="租户">
+            <Select
+              allowClear
+              placeholder="选择租户"
+              style={{ width: 200 }}
+              showSearch
+              optionFilterProp="label"
+              loading={tenantLoading}
+              options={tenantOptions}
+            />
           </Form.Item>
         </Form>
       )}

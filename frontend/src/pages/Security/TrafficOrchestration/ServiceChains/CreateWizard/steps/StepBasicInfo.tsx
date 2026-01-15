@@ -234,8 +234,8 @@ export default function StepBasicInfo(props: any) {
                     </Select.Option>
                   ))}
                   {(!cloudPools || cloudPools.length === 0) && (
-                    <Select.Option value="" disabled>
-                      暂无已接入的云安全资源池
+                      <Select.Option value="" disabled>
+                      暂无已接入的安全资源池
                     </Select.Option>
                   )}
                 </Select>

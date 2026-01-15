@@ -17,11 +17,13 @@ import { cenRoutes } from './routes/cens';
 import { dashboardRoutes } from './routes/dashboard';
 import { vrCacheRoutes } from './routes/vrCache';
 import { vrConfigRoutes } from './routes/vrConfig';
+import { saseGatewayRoutes } from './routes/saseGateways';
 import { vrConfigVersionRoutes } from './routes/vrConfigVersion';
 import { srv6Routes } from './routes/srv6';
 import { ipsecRoutes } from './routes/ipsec';
 import { aclRoutes } from './routes/acl';
 import { natRoutes } from './routes/nat';
+import { saseAuthRoutes } from './routes/saseAuth';
 import securityDomainRoutes from './routes/securityDomains';
 import leasedLineRoutes from './routes/leasedLines';
 import serviceRoutes from './routes/services';
@@ -32,7 +34,7 @@ import threatRoutes from './routes/threats';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 5001;
 const server = http.createServer(app);
 
 // CORS configuration
@@ -112,6 +114,8 @@ app.use('/api/vr-cache', vrCacheRoutes);
 app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
 // app.use('/api/vr-config', vrConfigRoutes); // Temporary debug: disable auth
 app.use('/api/vr-config/version', authMiddleware, vrConfigVersionRoutes);
+app.use('/api/sase/auth', saseAuthRoutes);
+app.use('/api/sase/gateways', authMiddleware, saseGatewayRoutes);
 app.use('/api/networks/srv6', authMiddleware, srv6Routes);
 app.use('/api/networks/ipsec', authMiddleware, ipsecRoutes);
 app.use('/api/networks/acl', authMiddleware, aclRoutes);

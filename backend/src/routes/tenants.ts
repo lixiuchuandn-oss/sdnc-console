@@ -515,7 +515,7 @@ router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) 
 router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res) => {
   try {
     const { orgId } = req.params;
-    const { resourcePoolIds, permissions } = req.body;
+    const { resourcePoolIds, permissions, namespace } = req.body;
 
     if (!Array.isArray(resourcePoolIds) || resourcePoolIds.length === 0) {
       return res.status(400).json({ message: '请选择要分配的资源池' });
@@ -541,6 +541,16 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       return res.status(400).json({ message: '部分资源池不存在' });
     }
 
+    const isHarvesterLike = (pv: string) => {
+      const p = String(pv || '').toLowerCase();
+      return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
+    };
+    if (resourcePools.some(c => isHarvesterLike((c as any)?.config?.provider))) {
+      if (!namespace || !String(namespace).trim()) {
+        return res.status(400).json({ message: 'Harvester / Cloudmap 资源池分配需要指定命名空间（namespace）' });
+      }
+    }
+
     // 创建资源池分配记录
     const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
     const assignments = [];
@@ -556,7 +566,8 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       });
 
       if (!existingAssignment) {
-        const assignment = assignmentRepository.create({
+        const targetCloud = resourcePools.find(c => c.id === resourcePoolId);
+        const assignment: any = assignmentRepository.create({
           id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
           organizationId: orgId,
           // 与实体字段保持一致：cloudId
@@ -565,6 +576,9 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
           permissions: permissions || ['read', 'use'],
           assignedAt: new Date()
         });
+        if (targetCloud && isHarvesterLike((targetCloud as any)?.config?.provider) && namespace) {
+          assignment.namespace = String(namespace).trim();
+        }
         assignments.push(assignment);
       }
     }

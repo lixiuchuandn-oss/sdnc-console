@@ -1,6 +1,5 @@
 export const PATH_PERMISSION_MAPPING = [
   { path: '/admin/dashboard', action: 'ops.dashboard:read' },
-  { path: '/admin/topology', action: 'ops.topology:read' },
   { path: '/admin/clouds', action: 'clouds:read' },
   { path: '/admin/clouds/console', action: 'clouds.console:read' },
   { path: '/admin/tenants/leased-lines/tasks', action: 'tenants.leased-lines.reports:read' },
@@ -55,7 +54,6 @@ export const getDefaultAdminPath = (perms: string[] = []): string => {
     '/admin/tenants/leased-lines/tasks',
     '/admin/tenants/leased-lines/logs',
     '/admin/dashboard',
-    '/admin/topology',
     '/admin/clouds',
     '/admin/tenants',
     '/admin/tenants/users',

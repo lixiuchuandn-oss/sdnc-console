@@ -36,8 +36,9 @@ const ProtectedObjects: React.FC = () => {
     try {
       const clouds = await fetchClouds();
       const onlyCsm = (Array.isArray(clouds) ? clouds : []).filter((c: any) => {
-        const pv = String((c?.config?.provider || c?.type || '')).toLowerCase();
-        return pv.includes('csm') || pv.includes('security');
+        const pvRaw = String((c?.config?.provider || c?.type || '')).trim().toLowerCase();
+        const t = String(c?.type || '').toLowerCase();
+        return pvRaw === 'cloudmap.csm' || t.includes('security');
       });
       const filtered = targetCloudId ? onlyCsm.filter((c:any)=> String(c.id)===String(targetCloudId)) : onlyCsm;
       const tasks = filtered.map((c:any) => fetchCsmAssets(c.id).then(json => ({ cloudId: c.id, cloudName: c.name, json })).catch(()=>({ cloudId: c.id, cloudName: c.name, json: null })));
@@ -66,8 +67,9 @@ const ProtectedObjects: React.FC = () => {
       try {
         const clouds = await fetchClouds();
         const onlyCsm = (Array.isArray(clouds) ? clouds : []).filter((c: any) => {
-          const pv = String((c?.config?.provider || c?.type || '')).toLowerCase();
-          return pv.includes('csm') || pv.includes('security');
+          const pvRaw = String((c?.config?.provider || c?.type || '')).trim().toLowerCase();
+          const t = String(c?.type || '').toLowerCase();
+          return pvRaw === 'cloudmap.csm' || t.includes('security');
         });
         setCsmClouds(onlyCsm);
       } catch (e) {

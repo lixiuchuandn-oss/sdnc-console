@@ -6,8 +6,9 @@ import { EllipsisOutlined, SettingOutlined, QuestionCircleOutlined } from '@ant-
 import PageContainer from '../../../components/PageContainer';
 import '../../common/filters.css';
 import { vrApi } from '../../../services/vrApi';
+import { fetchSaseGateways } from '../../../services/api';
 import { getVRRoles } from '../../../services/vrConfigApi';
-import { fetchCloudProviderVpcs } from '../../../services/api';
+import { fetchCloudProviderVpcs, fetchTenants, fetchOrganizationsByTenant } from '../../../services/api';
 import { listSecurityDomains, createSecurityDomain, updateSecurityDomain, deleteSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 import { getDomainClass, netClassLabel, netClassColor } from '../../../utils/netClass';
 
@@ -57,6 +58,9 @@ export interface SecurityDomain {
   securityServiceIds?: string;
   securityServices?: any[];
   tenantId?: string;
+  tenantName?: string;
+  organizationId?: string;
+  organizationName?: string;
 }
 
 interface SecurityDomainForm extends SecurityDomain {}
@@ -80,8 +84,9 @@ const SecurityDomainPage: React.FC = () => {
   const [vrCeOptions, setVrCeOptions] = useState<VRRowOpt[]>([]);
   // const [vrLoading, setVrLoading] = useState(false);
 
-  // const [tenants, setTenants] = useState<any[]>([]);
-  // const [tenantLoading, setTenantLoading] = useState<boolean>(false);
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [tenantLoading, setTenantLoading] = useState<boolean>(false);
+  const [orgOptions, setOrgOptions] = useState<{ value: string; label: string }[]>([]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<SecurityDomain | null>(null);
@@ -97,6 +102,8 @@ const SecurityDomainPage: React.FC = () => {
     name: true,
     category: true,
     providerRegion: true,
+    tenant: true,
+    organization: true,
     source: true,
     cidr4: true,
     cidr6: false,
@@ -110,6 +117,8 @@ const SecurityDomainPage: React.FC = () => {
     name: '名称',
     category: '分类',
     providerRegion: '云厂商/地域',
+    tenant: '租户',
+    organization: '组织',
     source: '网络来源',
     cidr4: 'IPv4 CIDR',
     cidr6: 'IPv6 CIDR',
@@ -123,11 +132,11 @@ const SecurityDomainPage: React.FC = () => {
   const loadVRList = async () => {
     // setVrLoading(true);
     try {
-      const res = await vrApi.getVRInstances(50, 1);
-      const list = (res?.data?.list || res?.list || res?.data || []) as any[];
+      const res = await fetchSaseGateways();
+      const list = (res?.items || res?.data || res?.list || []) as any[];
       const opts: VRRowOpt[] = list.map((item: any) => ({
-        uuid: item.uuid || item.vm_id || item.id || item.vmId || item.vm_uuid || '',
-        name: item.name || item.vm_name || item.vmName || item.uuid || '未命名VR',
+        uuid: item.uuid || item.vr_unique_id || item.id || '',
+        name: item.name || item.display_name || item.uuid || '未命名VR',
       })).filter(v => v.uuid);
       setVrOptions(opts);
       try {
@@ -146,17 +155,17 @@ const SecurityDomainPage: React.FC = () => {
     }
   };
 
-  // const loadTenants = async () => {
-  //   setTenantLoading(true);
-  //   try {
-  //     const res = await fetchTenants();
-  //     const list = (res?.data || res || []);
-  //     setTenants(Array.isArray(list) ? list : []);
-  //   } catch (e: any) {
-  //     console.warn('租户列表获取失败', e);
-  //     setTenants([]);
-  //   } finally { setTenantLoading(false); }
-  // };
+  const loadTenants = async () => {
+    setTenantLoading(true);
+    try {
+      const res = await fetchTenants();
+      const list = (res?.data || res || []);
+      setTenants(Array.isArray(list) ? list : []);
+    } catch (e: any) {
+      console.warn('租户列表获取失败', e);
+      setTenants([]);
+    } finally { setTenantLoading(false); }
+  };
 
   const fetchResourcePools = async () => {
     try {
@@ -186,7 +195,7 @@ const SecurityDomainPage: React.FC = () => {
       loadVRList();
       reloadDomains();
       fetchResourcePools();
-      // loadTenants();
+      loadTenants();
     }
   }, []);
 
@@ -279,6 +288,9 @@ const SecurityDomainPage: React.FC = () => {
           resourcePool: item.resourcePool,
           purpose: item.purpose,
           tenantId: item.tenantId,
+          tenantName: item.tenantName,
+          organizationId: item.organizationId,
+          organizationName: item.organizationName,
           });
       });
       setDomains(normalized);
@@ -339,14 +351,36 @@ const SecurityDomainPage: React.FC = () => {
     setEditing(record);
     setCreateOpen(true);
     loadVRList();
-    // loadTenants();
+    loadTenants();
     createForm.setFieldsValue({
       ...record,
       subType: record.subType ? record.subType.split(',').map(s => s.trim()).filter(Boolean) : [],
       cidr4: record.cidr4 || [],
       cidr6: record.cidr6 || [],
       tenantId: record.tenantId,
+      organizationId: record.organizationId,
     } as any);
+    if (record.tenantId) {
+      const tid = String(record.tenantId);
+      (async () => {
+        try {
+          const orgTree = await fetchOrganizationsByTenant(tid);
+          const flat: any[] = [];
+          const recur = (list: any[]) => {
+            for (const o of list) {
+              flat.push({ id: o.id, name: o.name });
+              if (Array.isArray(o.children) && o.children.length) recur(o.children);
+            }
+          };
+          recur(Array.isArray(orgTree) ? orgTree : []);
+          setOrgOptions(flat.map(o => ({ value: o.id, label: o.name })));
+        } catch {
+          setOrgOptions([]);
+        }
+      })();
+    } else {
+      setOrgOptions([]);
+    }
   };
 
   const removeDomain = (record: SecurityDomain) => {
@@ -372,12 +406,14 @@ const SecurityDomainPage: React.FC = () => {
           const payload: Partial<SecurityDomainPayload> = {
             name: values.name,
             category: values.category,
-            subType: values.subType,
+            subType: Array.isArray(values.subType) ? values.subType.join(',') : values.subType,
             description: values.description,
             vrUuid: values.vrUuid,
             vrName: values.vrUuid ? (vrCeOptions.find(v => v.uuid === values.vrUuid)?.name || vrOptions.find(v => v.uuid === values.vrUuid)?.name) : undefined,
             tags: Array.isArray(values.tags) ? values.tags.join(',') : values.tags,
             status: values.status || 'active',
+            tenantId: values.tenantId,
+            organizationId: values.organizationId,
           };
           await updateSecurityDomain(editing.id, payload);
           message.success('安全域已更新');
@@ -393,6 +429,8 @@ const SecurityDomainPage: React.FC = () => {
             vrName: values.vrUuid ? (vrCeOptions.find(v => v.uuid === values.vrUuid)?.name || vrOptions.find(v => v.uuid === values.vrUuid)?.name) : undefined,
             tags: Array.isArray(values.tags) ? values.tags.join(',') : values.tags,
             status: values.status || 'active',
+            tenantId: values.tenantId,
+            organizationId: values.organizationId,
           };
           await createSecurityDomain(payload);
           message.success('安全域已创建');
@@ -454,6 +492,27 @@ const SecurityDomainPage: React.FC = () => {
           if (provider) return <span>{provider}</span>;
           if (region) return <span>{region}</span>;
           return '';
+        },
+      },
+      {
+        title: '租户',
+        key: 'tenant',
+        render: (_: any, r: SecurityDomain) => {
+          if (r.tenantName) return r.tenantName;
+          const id = String(r.tenantId || '').trim();
+          if (!id) return '-';
+          const t = tenants.find((x: any) => String(x.id) === id);
+          return t ? (t.name || id) : id;
+        },
+      },
+      {
+        title: '组织',
+        key: 'organization',
+        render: (_: any, r: SecurityDomain) => {
+          if (r.organizationName) return r.organizationName;
+          const id = String(r.organizationId || '').trim();
+          if (!id) return '-';
+          return id;
         },
       },
       {
@@ -647,6 +706,41 @@ const SecurityDomainPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="category" label="安全域大类"> 
             <Select allowClear placeholder="请选择" options={[{ value: 'vpc', label: 'VPC网络' }, { value: 'flat', label: '扁平网络' }]} />
+          </Form.Item>
+          <Form.Item name="tenantId" label="所属租户">
+            <Select
+              allowClear
+              placeholder="请选择租户（可选）"
+              loading={tenantLoading}
+              options={tenants.map((t: any) => ({ value: t.id, label: t.name }))}
+              onChange={async (tid: string) => {
+                createForm.setFieldsValue({ organizationId: undefined } as any);
+                setOrgOptions([]);
+                if (!tid) return;
+                try {
+                  const orgTree = await fetchOrganizationsByTenant(String(tid));
+                  const flat: any[] = [];
+                  const recur = (list: any[]) => {
+                    for (const o of list) {
+                      flat.push({ id: o.id, name: o.name });
+                      if (Array.isArray(o.children) && o.children.length) recur(o.children);
+                    }
+                  };
+                  recur(Array.isArray(orgTree) ? orgTree : []);
+                  setOrgOptions(flat.map(o => ({ value: o.id, label: o.name })));
+                } catch {
+                  setOrgOptions([]);
+                }
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="organizationId" label="所属组织">
+            <Select
+              allowClear
+              placeholder="请选择组织（可选）"
+              options={orgOptions}
+              disabled={!createForm.getFieldValue('tenantId')}
+            />
           </Form.Item>
           <Form.Item shouldUpdate={(prev,cur)=>prev.category!==cur.category} noStyle>
             {() => (

@@ -104,7 +104,8 @@ const CloudDetail: React.FC = () => {
   const [vmDetailOpen, setVmDetailOpen] = useState(false);
   const [vmDetail, setVmDetail] = useState<any | null>(null);
   const [caps, setCaps] = useState<any>({});
-  const provider = useMemo(() => (cloud?.config?.provider || cloud?.type || '').toLowerCase().trim(), [cloud]);
+  const providerRaw = useMemo(() => String(cloud?.config?.provider || cloud?.type || ''), [cloud]);
+  const provider = useMemo(() => providerRaw.toLowerCase().trim(), [providerRaw]);
   const providerName = useMemo(() => (
     (provider === 'aliyun' && '阿里云') ||
     (provider === 'huaweicloud' && '华为云') ||
@@ -682,10 +683,10 @@ const CloudDetail: React.FC = () => {
   if (provider.includes('aliyun') && id) {
     return (<CloudDetailAliyun cloudId={id} />);
   }
-  if ((provider === 'csm' || provider === 'cloudmap-security') && id) {
+  if ((provider === 'cloudmap.csm') && id) {
     return (<CloudDetailCsm cloudId={id} />);
   }
-  if ((provider === 'cloudmap' || provider === 'cloudmap-private') && id) {
+  if ((provider === 'cloudmap.edge' || provider === 'cloudmap.private') && id) {
     return (<CloudDetailHarvester cloudId={id} defaultProvider={provider} />);
   }
   if ((provider === 'harvester') && id) {

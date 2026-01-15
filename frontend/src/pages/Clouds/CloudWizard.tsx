@@ -48,7 +48,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [formData, setFormData] = useState<any>(null);
 
   const isOpenProvider = (id: string) => {
-    return ['aliyun', 'huaweicloud', 'csm', 'harvester', 'cloudmap', 'cloudmap-private', 'cloudmap-security'].includes(id);
+    return ['aliyun', 'huaweicloud', 'tencentcloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'].includes(id);
   };
 
   // 云平台配置
@@ -73,7 +73,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       ]
     },
     {
-      id: 'cloudmap',
+      id: 'cloudmap.edge',
       name: 'Cloudmap融合边缘云',
       logo: <CloudServerOutlined />,
       category: 'private',
@@ -85,7 +85,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       ]
     },
     {
-      id: 'cloudmap-private',
+      id: 'cloudmap.private',
       name: 'Cloudmap私有云',
       logo: <CloudServerOutlined />,
       category: 'private',
@@ -97,7 +97,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       ]
     },
     {
-      id: 'cloudmap-security',
+      id: 'cloudmap.csm',
       name: 'CSM',
       logo: <CloudServerOutlined />,
       category: 'private',
@@ -452,9 +452,13 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           ? 'https://ecs.aliyuncs.com'
           : selectedProvider?.id === 'huaweicloud'
             ? `https://ecs.${values.region}.myhuaweicloud.com`
-            : (selectedProvider?.id === 'harvester' || selectedProvider?.id === 'csm')
+            : (selectedProvider?.id === 'harvester' || selectedProvider?.id === 'cloudmap.edge' || selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.csm')
               ? (values.endpoint || '')
               : (values.endpoint || values.authUrl || values.vcenterHost || '');
+      const cfgBase: any = { provider: selectedProvider?.id, ...values };
+      if (selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.edge') {
+        cfgBase.harvesterVersion = '1.6';
+      }
       const payload = {
         provider: selectedProvider?.id,
         region: values.region || 'default',
@@ -462,7 +466,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         accessKey: values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '',
         secretKey: values.secretKey || values.accessKeySecret || values.secretAccessKey ||
                    values.privateKey || values.clientSecret || values.password || values.apiToken || '',
-        config: { provider: selectedProvider?.id, ...values }
+        config: cfgBase
       };
       const token = localStorage.getItem('token');
       const resp = await fetch('/api/clouds/test-connection', {
@@ -500,6 +504,13 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         : ((selectedProvider?.category === 'private') ? 'edge' : 'central');
 
       // 构建提交数据
+      const cfg: any = {
+        provider: selectedProvider.id,
+        ...values
+      };
+      if (selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge') {
+        cfg.harvesterVersion = '1.6';
+      }
       const cloudData = {
         name: values.name,
         description: values.description || `${selectedProvider.name}云资源`,
@@ -509,16 +520,13 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           ? 'https://ecs.aliyuncs.com'
           : selectedProvider.id === 'huaweicloud'
             ? `https://ecs.${values.region}.myhuaweicloud.com`
-          : (selectedProvider.id === 'harvester' || selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap-private')
+          : (selectedProvider.id === 'harvester' || selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap.private')
             ? (values.endpoint || 'https://harvester.example.com')
             : (values.endpoint || values.authUrl || values.vcenterHost || 'https://api.example.com'),
         accessKey: values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '',
         secretKey: values.secretKey || values.accessKeySecret || values.secretAccessKey || 
-                  values.privateKey || values.clientSecret || values.password || values.apiToken || '',
-        config: {
-          provider: selectedProvider.id,
-          ...values
-        }
+                   values.privateKey || values.clientSecret || values.password || values.apiToken || '',
+        config: cfg
       };
 
       console.log('表单原始数据:', values);
@@ -641,7 +649,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                   { key: 'edge', label: '边缘计算' },
                   { key: 'virtualization', label: '虚拟化平台' },
                   { key: 'object_storage', label: '对象存储' },
-                  { key: 'security_pool', label: '云安全资源池' },
+                  { key: 'security_pool', label: '安全资源池' },
                   { key: 'sase_gateway', label: 'SASE网关' }
                 ].map(t => (
                   <Col xs={12} sm={8} md={6} lg={6} key={t.key}>
@@ -674,11 +682,11 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               </Row>
             </div>
             {poolType === 'central' && renderProviderGrid('public', '公有云', cloudProviders.filter(p => p.category === 'public' && !['google','ucloud'].includes(p.id)))}
-            {poolType === 'private' && renderProviderGrid('private', '私有云', cloudProviders.filter(p => p.category === 'private' && !['builtinprivate','vmware','harvester','rancher','kvm'].includes(p.id)))}
+            {poolType === 'private' && renderProviderGrid('private', '私有云', cloudProviders.filter(p => p.category === 'private' && !['builtinprivate','vmware','harvester','rancher','kvm','cloudmap.edge','cloudmap.csm'].includes(p.id)))}
             {poolType === 'virtualization' && renderProviderGrid('virtualization', '虚拟化平台', cloudProviders.filter(p => p.category === 'private' && ['vmware','kvm','harvester'].includes(p.id)))}
             {poolType === 'object_storage' && renderProviderGrid('storage', '对象存储', cloudProviders.filter(p => p.category === 'storage'))}
-            {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter(p => ['cloudmap','rancher'].includes(p.id)))}
-            {poolType === 'security_pool' && renderProviderGrid('private', '云安全资源池', cloudProviders.filter(p => ['cloudmap-security'].includes(p.id)))}
+            {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter(p => ['cloudmap.edge','rancher'].includes(p.id)))}
+            {poolType === 'security_pool' && renderProviderGrid('private', '安全资源池', cloudProviders.filter(p => ['cloudmap.csm'].includes(p.id)))}
             {poolType === 'sase_gateway' && (
               <Alert style={{ marginTop: 12 }} type="warning" showIcon message="该资源池类型暂未开放接入" />
             )}
@@ -693,7 +701,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             <div style={{ marginBottom: 12 }}>
               <div className="wizard-group-title">配置云账号</div>
               <div style={{ color: '#8c8c8c', marginTop: 6 }}>
-                {(poolType === 'security_pool' && selectedProvider.id === 'cloudmap-security')
+                {(poolType === 'security_pool' && selectedProvider.id === 'cloudmap.csm')
                   ? '添加 CSM'
                   : selectedProvider.description}
               </div>
@@ -713,7 +721,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                   <Option value="edge">边缘计算</Option>
                   <Option value="virtualization">虚拟化</Option>
                   <Option value="object_storage">对象存储</Option>
-                  <Option value="security_pool">云安全资源池</Option>
+                  <Option value="security_pool">安全资源池</Option>
                   <Option value="sase_gateway">SASE网关</Option>
                 </Select>
               </Form.Item>

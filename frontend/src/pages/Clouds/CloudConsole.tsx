@@ -8,7 +8,7 @@ import '../common/filters.css';
 import './CloudConsole.css';
 
 type CloudItem = { id: string; name: string; region?: string; type?: string; config?: any; status?: string };
-const SUPPORTED_PROVIDERS = ['aliyun','huaweicloud','harvester','cloudmap','csm'];
+const SUPPORTED_PROVIDERS = ['aliyun','huaweicloud','tencentcloud','harvester','cloudmap.edge','cloudmap.private'];
 
 const statusMark = (raw: any) => {
   const v = String(raw || '').toLowerCase();
@@ -64,7 +64,11 @@ const CloudConsolePage: React.FC = () => {
     try {
       const list: any[] = await fetchClouds();
       const arr = Array.isArray(list) ? list : [];
-      const filtered = arr.filter(c => SUPPORTED_PROVIDERS.includes(String(c?.config?.provider || '').toLowerCase()));
+      const filtered = arr.filter(c => {
+        const pRaw = String(c?.config?.provider || '');
+        const lower = pRaw.toLowerCase();
+        return SUPPORTED_PROVIDERS.includes(lower) || lower === 'cloudmap.csm';
+      });
       setClouds(filtered);
       if (!currentCloudId && filtered.length > 0) {
         setCurrentCloudId('all');
@@ -93,8 +97,9 @@ const CloudConsolePage: React.FC = () => {
         setUseAggColumns(true);
         return;
       }
-      const provider = ((clouds.find(c => c.id === cid)?.config?.provider) || '').toLowerCase();
-      if (SUPPORTED_PROVIDERS.includes(provider)) {
+      const providerRaw = String((clouds.find(c => c.id === cid)?.config?.provider) || '');
+      const provider = providerRaw.toLowerCase();
+      if (SUPPORTED_PROVIDERS.includes(provider) || provider === 'cloudmap.csm') {
         let json: any;
         if (provider.includes('huaweicloud')) {
           json = await refreshInventoryInstances(cid);
@@ -104,8 +109,8 @@ const CloudConsolePage: React.FC = () => {
             json = await refreshInventoryInstances(cid);
           }
         }
-        const list: any[] = Array.isArray(json?.data) ? json.data : [];
-        const defaultCaps2 = (provider === 'harvester' || provider === 'cloudmap' || provider === 'csm') ? {
+      const list: any[] = Array.isArray(json?.data) ? json.data : [];
+      const defaultCaps2 = (provider === 'harvester' || provider === 'cloudmap.edge' || provider === 'cloudmap.private' || provider === 'cloudmap.csm') ? {
           isHarvester: true,
           supportsInstanceType: false,
           supportsZone: false,
@@ -142,7 +147,7 @@ const CloudConsolePage: React.FC = () => {
         rawList = json?.data?.Instances?.Instance || [];
       }
       const list: any[] = Array.isArray(rawList) ? rawList : [];
-      const defaultCaps = (provider === 'harvester' || provider === 'cloudmap' || provider === 'csm') ? {
+      const defaultCaps = (provider === 'harvester' || provider === 'cloudmap.edge' || provider === 'cloudmap.private' || provider === 'cloudmap.csm') ? {
         isHarvester: true,
         supportsInstanceType: false,
         supportsZone: false,
@@ -186,7 +191,7 @@ const CloudConsolePage: React.FC = () => {
     const cid = currentCloudId;
     const pv = provider;
     if (!cid || cid === 'all') return;
-    if (!(pv.includes('harvester') || pv.includes('cloudmap') || pv.includes('csm') || pv.includes('aliyun') || pv.includes('huaweicloud'))) return;
+    if (!(pv.includes('harvester') || pv.includes('cloudmap') || pv.includes('aliyun') || pv.includes('huaweicloud'))) return;
     try {
       const url = `${API_BASE_URL}/api/clouds/${encodeURIComponent(cid)}/resources/ecs/stream${(() => { const t = localStorage.getItem('token'); return t ? `?token=${encodeURIComponent(t)}` : ''; })()}`;
       const es = new EventSource(url);
@@ -252,8 +257,16 @@ const CloudConsolePage: React.FC = () => {
       return base;
     };
     const providerText = (c: CloudItem): string => {
-      const p = String(c?.config?.provider || '').toLowerCase();
-      return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || (p === 'csm' && 'CSM') || (p === 'cloudmap-security' && 'CSM') || (c?.config?.provider || '未知厂商');
+      const pRaw = String(c?.config?.provider || '');
+      const lower = pRaw.toLowerCase();
+      return (lower === 'aliyun' && '阿里云')
+        || (lower === 'huaweicloud' && '华为云')
+        || (lower === 'tencentcloud' && '腾讯云')
+        || (lower === 'harvester' && 'Harvester')
+        || (lower === 'cloudmap.edge' && 'Cloudmap')
+        || (lower === 'cloudmap.private' && 'Cloudmap')
+        || (lower === 'cloudmap.csm' && 'CSM')
+        || (c?.config?.provider || '未知厂商');
     };
     const typeIcon = (type?: string): React.ReactNode => {
       const t = String(type || '').toLowerCase();
@@ -302,14 +315,22 @@ const CloudConsolePage: React.FC = () => {
     (p === 'huaweicloud' && '华为云') ||
     (p === 'harvester' && 'Harvester') ||
     (p === 'cloudmap' && 'Cloudmap') ||
-    (p === 'cloudmap-security' && 'CSM') ||
+    (p === 'cloudmap.csm' && 'CSM') ||
     p || '-'
   );
   const providerName = useMemo(() => {
-    const p = String(currentCloud?.config?.provider || '').toLowerCase();
+    const raw = String(currentCloud?.config?.provider || '');
+    const p = raw.toLowerCase();
     if (currentCloudId === 'all') return '全部区域';
-    return (p === 'aliyun' && '阿里云') || (p === 'huaweicloud' && '华为云') || (p === 'tencentcloud' && '腾讯云') || (p === 'harvester' && 'Harvester') || (p === 'cloudmap' && 'Cloudmap') || (p === 'cloudmap-security' && 'CSM') || p || '-';
-  }, [currentCloud]);
+    return (p === 'aliyun' && '阿里云')
+      || (p === 'huaweicloud' && '华为云')
+      || (p === 'tencentcloud' && '腾讯云')
+      || (p === 'harvester' && 'Harvester')
+      || (p === 'cloudmap' && 'Cloudmap')
+      || (p === 'cloudmap.csm' && 'CSM')
+      || raw
+      || '-';
+  }, [currentCloud, currentCloudId]);
 
   const statusStats = useMemo(() => {
     const arr = Array.isArray(clouds) ? clouds : [];
@@ -415,7 +436,7 @@ const CloudConsolePage: React.FC = () => {
     const src = ecs || [];
     return src.filter((r: any) => {
       const name = r.InstanceName || r.name || '';
-      const ns = (provider === 'harvester' || provider === 'cloudmap') ? (String(r?.InstanceId || '').split('/')[0] || '') : '';
+      const ns = (provider === 'harvester' || provider === 'cloudmap.edge') ? (String(r?.InstanceId || '').split('/')[0] || '') : '';
       const nodeName = (provider === 'harvester' || provider === 'cloudmap') ? (r?.Extra?.NodeName || '') : '';
       const s = (r.Status || r.status || '').toLowerCase();
       if (currentCloudId === 'all' && cloudFilterIds.length > 0) {
@@ -426,7 +447,7 @@ const CloudConsolePage: React.FC = () => {
         const hit = [String(name).toLowerCase(), String(ns).toLowerCase(), String(nodeName).toLowerCase()].some(v => v.includes(kw));
         if (!hit) return false;
       }
-      if (provider === 'harvester' || provider === 'cloudmap' || provider === 'csm') {
+      if (provider === 'harvester' || provider === 'cloudmap') {
         if (nsFilter !== 'all' && ns !== nsFilter) return false;
         if (nodeFilter !== 'all' && nodeName !== nodeFilter) return false;
       }
@@ -843,7 +864,7 @@ const CloudConsolePage: React.FC = () => {
                     <Button
                       type="primary"
                       icon={<PlusOutlined />}
-                      onClick={() => navigate(`/clouds/${currentCloudId || 'all'}/instances/create`, { state: { backgroundLocation: location } })}
+                      onClick={() => navigate(`${basePrefix}/clouds/${currentCloudId || 'all'}/instances/create`, { state: { backgroundLocation: location } })}
                     >
                       创建实例
                     </Button>

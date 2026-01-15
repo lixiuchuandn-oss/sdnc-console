@@ -13,7 +13,7 @@ import {
   ClusterOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import ReactFlow, { Controls, Handle, Position, getBezierPath, EdgeProps } from 'react-flow-renderer';
+import ReactFlow, { Controls, Handle, Position, EdgeProps } from 'react-flow-renderer';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { attachVpcToCen, deleteCen, detachVpcFromCen, fetchCenAttachments, fetchCens, fetchTenants, updateCen, apiPost, fetchCsmElementGroups } from '../../../../services/api';
@@ -821,29 +821,22 @@ const CenDetailPage: React.FC = () => {
             targetPosition,
             style = {},
           }) => {
-            const edgePath = getBezierPath({
-              sourceX,
-              sourceY,
-              sourcePosition,
-              targetX,
-              targetY,
-              targetPosition,
-            });
+            const edgePath = `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
             return (
               <>
                 <defs>
                   <marker id={`svc-arrow-${id}`} markerWidth="10" markerHeight="10" viewBox="0 0 10 10" refX="8" refY="5" orient="auto-start-reverse">
-                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#fa8c16" />
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#8c8c8c" />
                   </marker>
                 </defs>
                 <path
                   id={id}
                   className="react-flow__edge-path"
                   d={edgePath}
-                  style={{ stroke: '#fa8c16', strokeWidth: 2, filter: 'drop-shadow(0 0 2px rgba(250,140,22,0.35))', ...(style as any) }}
+                  style={{ stroke: '#8c8c8c', strokeWidth: 2, ...(style as any) }}
                   markerEnd={`url(#svc-arrow-${id})`}
                 />
-                <circle r="3" fill="#fa8c16">
+                <circle r="3" fill="#8c8c8c">
                   <animateMotion dur="1.8s" repeatCount="indefinite" path={edgePath} />
                 </circle>
               </>

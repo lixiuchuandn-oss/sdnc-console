@@ -168,6 +168,10 @@ export const fetchOrganizationsByTenant = async (tenantId: string) => {
   return await apiRequest(`/api/tenants/${tenantId}/organizations`);
 };
 
+export const fetchOrganizationResourcePools = async (organizationId: string) => {
+  return await apiRequest(`/api/tenants/organizations/${organizationId}/resource-pools`);
+};
+
 export const fetchCloudQuotas = async (cloudId:string)=>{
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/quotas`, {
@@ -1006,6 +1010,21 @@ export const fetchCsmVRPageList = async (cloudId: string, params?: { page_size?:
   if (params?.page_num !== undefined) search.set('page_num', String(params.page_num));
   const qs = search.toString() ? `?${search.toString()}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/vr-pagelist${qs}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchSaseGateways = async (params: { tenantId?: string; organizationId?: string } = {}) => {
+  const token = localStorage.getItem('token');
+  const search = new URLSearchParams();
+  if (params.tenantId) search.set('tenantId', params.tenantId);
+  if (params.organizationId) search.set('organizationId', params.organizationId);
+  const qs = search.toString() ? `?${search.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/api/sase/gateways/list${qs}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',

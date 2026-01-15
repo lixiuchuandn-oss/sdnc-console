@@ -308,7 +308,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       ]}
       onMoreMenuClick={({ key }) => { if (key === 'refresh') loadAll(); }}
       asCard={false}
-      subtitle={<span style={{ color: 'rgba(0,0,0,0.45)' }}>集中展示云资源池信息，提供多种资源类型的生命周期管理能力</span>}
+      subtitle="集中展示云资源池信息，提供多种资源类型的生命周期管理能力"
       overviewContent={(
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>

@@ -20,7 +20,10 @@
 2) 设定安全域（分支）：
    - VPC 类型：选择云资源池；来源（已有/新建）；新建时填写名称与 IPv4 CIDR；可启用 IPv6 并填写 CIDR；VR 绑定（自动/绑定已有）。
    - 非 VPC 类型：绑定 VR；可选 IPv4/IPv6 CIDR（建议至少填一项）。
-3) 确认安全域：按分区展示基础信息/云资源与 VPC/网络设置/VR 绑定；提交创建。
+   - 引流方式：在安全域维度统一配置安全流量引流方式，供后续服务链继承与复用。
+     - 隧道引流：通过绑定的 SASE 网关（VR 实例）创建隧道，将安全域内业务流量引流至安全资源池。
+     - 直连引流：安全域所在物理网络已通过核心交换或旁路方式直连到安全资源池，无需额外隧道，仅做策略编排。
+3) 确认安全域：按分区展示基础信息/云资源与 VPC/网络设置/VR 绑定/引流方式；提交创建。
 
 ## 前端功能详述
 - VR 列表：搜索与下拉；可选角色提醒（CE）。
@@ -33,6 +36,10 @@
 - 基础：`name`、`type` 必填；`description/tags` 可选。
 - VPC：`cloudId/vpcMode` 必填；`vpcId/newVpcName/newVpcCidr` 按模式必填；IPv6 开启时 `newVpcIpv6Cidr` 必填。
 - 非 VPC：`vrUuid` 必填；`cidr/cidr6` 可选；建议增强至少填一项。
+- 引流方式：`trafficMode` 必填，取值：
+  - `tunnel`：隧道引流，由 VR 实例创建至安全资源池的隧道承载。
+  - `direct`：直连引流，假定底层物理网络已连通安全资源池。
+  - 服务链默认继承所属安全域的 `trafficMode`，仅在特殊场景下允许覆盖（如需覆盖需在服务链 PRD 中补充说明）。
 
 ## 数据与接口
 - SecurityDomainPayload 字段定义与 CRUD；云接口：`fetchClouds()`、`fetchCloudProviderVpcs(cloudId)`、`createCloudProviderVpc(...)`。

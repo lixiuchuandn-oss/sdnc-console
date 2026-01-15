@@ -236,6 +236,7 @@ const SecurityDomainDetail: React.FC = () => {
       <Descriptions.Item label="类型">{data?.type || '-'}</Descriptions.Item>
       <Descriptions.Item label="云提供商">{data?.provider || '-'}</Descriptions.Item>
       <Descriptions.Item label="区域">{data?.region || '-'}</Descriptions.Item>
+      <Descriptions.Item label="所属组织">{data?.organizationName || data?.organizationId || '-'}</Descriptions.Item>
       <Descriptions.Item label="CIDR">
         {data?.cidr || (data?.cidr4?.join(', ')) || '-'}
       </Descriptions.Item>

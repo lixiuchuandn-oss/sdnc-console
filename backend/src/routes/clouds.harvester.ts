@@ -16,7 +16,11 @@ const fetchCloudOr404 = async (id: string, res: Response) => {
 const ensureProvider = (cloud: any, provider: string, res: Response, msg: string, next?: any) => {
   const actual = String(cloud?.config?.provider || '').toLowerCase().trim();
   // Allow Harvester and Cloudmap Private/Edge (but not Security/CSM)
-  const isHarvesterLike = actual === 'harvester' || actual === 'cloudmap' || actual === 'cloudmap-private' || actual === 'cloudmap-edge';
+  const isHarvesterLike =
+    actual === 'harvester' ||
+    actual === 'cloudmap' ||
+    actual === 'cloudmap.private' ||
+    actual === 'cloudmap.edge';
   
   if (!isHarvesterLike) {
     if (next) {
@@ -201,6 +205,38 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
       res.json({ message: '查询成功', data: { items: list } });
     } catch (error: any) {
       res.status(500).json({ message: '查询网络附件定义失败', error: error.message });
+    }
+  });
+
+  router.get('/:id/resources/harvester/namespaces', checkAdminPermission, async (req: any, res: Response) => {
+    try {
+      const { id } = req.params;
+      const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
+      if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+      const insecure = !!(cloud.config as any)?.ignoreTls;
+      const base = (cloud.endpoint || '').replace(/\/+$/, '');
+      let origin = base;
+      try { const u = new URL(base); origin = `${u.protocol}//${u.host}`; } catch { origin = base.replace(/\/v[0-9].*$/, ''); }
+      const candidates = [
+        `${origin}/api/v1/namespaces`,
+        `${origin}/v1/core.v1.namespaces`,
+        `${origin}/v1/harvester/core.v1.namespaces`,
+        `${origin}/k8s/clusters/local/api/v1/namespaces`,
+      ];
+      let json: any = null; let lastErr: any = null;
+      for (const url of candidates) {
+        try {
+          json = await getJsonOnce(url, cloud.secretKey || '', insecure);
+          if (json) break;
+        } catch (e: any) {
+          lastErr = e;
+        }
+      }
+      if (!json && lastErr) throw lastErr;
+      const items: any[] = Array.isArray(json?.data) ? json?.data : Array.isArray(json?.items) ? json?.items : [];
+      res.json({ message: '查询成功', data: { items } });
+    } catch (error: any) {
+      res.status(500).json({ message: '查询命名空间失败', error: error.message });
     }
   });
 
@@ -424,7 +460,12 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
       if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
       const insecure = !!(cloud.config as any)?.ignoreTls;
-      const version = String((cloud.config as any)?.harvesterVersion || '').trim();
+      const providerRaw = String((cloud as any)?.config?.provider || '');
+      const provider = providerRaw.toLowerCase().trim();
+      let version = String((cloud.config as any)?.harvesterVersion || '').trim();
+      if (!version && (provider === 'cloudmap.private' || provider === 'cloudmap.edge')) {
+        version = '1.6';
+      }
       const list = await listHarvesterImagesStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
       res.json({ message: '查询成功', data: { items: list } });
     } catch (error: any) {

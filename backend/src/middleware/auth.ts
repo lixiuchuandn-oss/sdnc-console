@@ -22,6 +22,18 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as any;
 
+    if (decoded.role === 'sase_device') {
+      (req as any).user = {
+        id: decoded.userId || decoded.deviceFingerprint || 'sase_device',
+        role: 'sase_device',
+        tenantId: decoded.tenantId,
+        organizationId: decoded.organizationId,
+        deviceFingerprint: decoded.deviceFingerprint,
+        vmId: decoded.vmId,
+      };
+      return next();
+    }
+
     let user: any = null;
 
     if (decoded.role === 'tenant') {

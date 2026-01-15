@@ -11,7 +11,11 @@ export const listHarvesterVMsStandard = async ({ endpoint, token, insecure = fal
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const vmCandidates = [
-    `${origin}/v1/harvester/kubevirt.io.virtualmachines`
+    // 原生 Harvester 聚合路径
+    `${origin}/v1/harvester/kubevirt.io.virtualmachines`,
+    // 兼容部分环境仅暴露 kubevirt API 或经 Cloudmap 代理的情况
+    `${origin}/v1/kubevirt.io.virtualmachines`,
+    `${origin}/apis/kubevirt.io/v1/virtualmachines`
   ];
   let vmJson: any = null; let vmErr: any = null;
   for (const url of vmCandidates) {

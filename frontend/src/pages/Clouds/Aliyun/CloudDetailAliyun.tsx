@@ -156,7 +156,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
       moreMenuItems={[{ key: 'refresh', label: '刷新' }, { key: 'toggleLog', label: (showLog ? '隐藏返回' : '显示返回') }]}
       onMoreMenuClick={({ key }) => { if (key === 'refresh') loadAll(); if (key === 'toggleLog') setShowLog(v => !v); }}
       asCard={false}
-      subtitle={<span style={{ color: 'rgba(0,0,0,0.45)' }}>集中展示云资源池信息，提供多种资源类型的生命周期管理能力</span>}
+      subtitle="集中展示云资源池信息，提供多种资源类型的生命周期管理能力"
       overviewContent={(
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>

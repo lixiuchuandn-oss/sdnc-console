@@ -15,7 +15,7 @@ import {
   SafetyCertificateOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
-import { fetchAllInstances, fetchCloudProviderVpcs, fetchKubeOvnVpcs } from '../../services/api';
+import { fetchAllInstances, fetchCloudProviderVpcs, fetchKubeOvnVpcs, fetchInventoryInstancesByCloud, fetchCloudmapVirtualElements, fetchClouds as fetchCloudsApi } from '../../services/api';
 import PageContainer from '../../components/PageContainer';
 import SharedToolbar from '../../components/SharedToolbar';
  
@@ -135,18 +135,52 @@ const Clouds: React.FC = () => {
   useEffect(() => {
     const loadVmStats = async () => {
       try {
-        const json: any = await fetchAllInstances();
-        const list: any[] = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
-        const total = list.length;
-        const norm = (s: any) => String(s || '').toLowerCase();
-        const online = list.filter(r => ['running','active','ok','healthy'].includes(norm(r?.status || r?.Status))).length;
+        const cloudList: any[] = Array.isArray(clouds) && clouds.length > 0
+          ? clouds
+          : (Array.isArray(await fetchCloudsApi()) ? await fetchCloudsApi() : []);
+        if (!Array.isArray(cloudList) || cloudList.length === 0) {
+          setVmStats({ total: 0, online: 0, offline: 0 });
+          return;
+        }
+        const cloudIds: string[] = cloudList.slice(0, 10).map((c: any) => c.id);
+        let total = 0;
+        let online = 0;
+        const results = await Promise.allSettled(
+          cloudIds.map((id: string) => {
+            const cloud = cloudList.find((c: any) => c.id === id);
+            const providerRaw = String(cloud?.config?.provider || '');
+            if (providerRaw === 'cloudmap.csm') {
+              return fetchCloudmapVirtualElements(id);
+            }
+            return fetchInventoryInstancesByCloud(id);
+          })
+        );
+        results.forEach((res: any) => {
+          if (res.status !== 'fulfilled') return;
+          const raw = res.value;
+          const list: any[] =
+            Array.isArray(raw?.data) ? raw.data :
+            Array.isArray(raw?.items) ? raw.items :
+            Array.isArray(raw?.data?.items) ? raw.data.items :
+            Array.isArray(raw) ? raw : [];
+          total += list.length;
+          online += list.filter((item: any) => {
+            const rawStatus = item?.status ?? (item as any)?.Status ?? (item as any)?.state;
+            const s = String(rawStatus || '').toLowerCase();
+            if (!s) return false;
+            if (s.includes('run')) return true;
+            if (s === 'active' || s === 'on' || s === '1') return true;
+            if (item.status === 1) return true;
+            return false;
+          }).length;
+        });
         setVmStats({ total, online, offline: Math.max(0, total - online) });
       } catch {
         setVmStats({ total: 0, online: 0, offline: 0 });
       }
     };
     loadVmStats();
-  }, []);
+  }, [clouds]);
 
   useEffect(() => {
     const loadVpcStats = async () => {
@@ -288,10 +322,9 @@ const Clouds: React.FC = () => {
       kvm: { name: 'KVM', logo: <CodepenOutlined /> },
       rancher: { name: 'Rancher', logo: <CodepenOutlined /> },
       harvester: { name: 'Harvester', logo: <CodepenOutlined /> },
-      cloudmap: { name: 'Cloudmap融合边缘云', logo: <CloudServerOutlined /> },
-      'cloudmap-private': { name: 'Cloudmap私有云', logo: <CloudServerOutlined /> },
-      'cloudmap-security': { name: 'Cloudmap CSM', logo: <SafetyCertificateOutlined /> },
-      csm: { name: 'CSM', logo: <SafetyCertificateOutlined /> },
+      'cloudmap.edge': { name: 'Cloudmap融合边缘云', logo: <CloudServerOutlined /> },
+      'cloudmap.private': { name: 'Cloudmap私有云', logo: <CloudServerOutlined /> },
+      'cloudmap.csm': { name: 'Cloudmap CSM', logo: <SafetyCertificateOutlined /> },
       parallel_file_storage: { name: '高速并行文件存储', logo: <CodepenOutlined /> },
     };
 

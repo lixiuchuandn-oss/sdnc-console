@@ -7,7 +7,7 @@ import axios from 'axios';
 import PageDetailContainer from '../../components/PageDetailContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
-import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, BranchesOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
 
 const { TextArea } = Input;
@@ -41,6 +41,8 @@ const OrgManagePage: React.FC = () => {
   const [assignType, setAssignType] = useState<'compute'|'storage'|'security'>('compute');
   const [storageKeyword, setStorageKeyword] = useState<string>('');
   const [securityKeyword, setSecurityKeyword] = useState<string>('');
+  const [nsLoading, setNsLoading] = useState<boolean>(false);
+  const [nsOptions, setNsOptions] = useState<any[]>([]);
 
   const fetchTenant = async (id: string) => {
     try {
@@ -149,7 +151,9 @@ const OrgManagePage: React.FC = () => {
     if (!selectedOrg) return;
     try {
       const token = localStorage.getItem('token');
-      const payload = { resourcePoolIds: values.resourcePoolIds, permissions: ['use'] };
+      const idsRaw = values.resourcePoolIds;
+      const resourcePoolIds = Array.isArray(idsRaw) ? idsRaw.filter(Boolean) : (idsRaw ? [idsRaw] : []);
+      const payload = { resourcePoolIds, permissions: ['use'], namespace: values.namespace };
       await axios.post(`/api/tenants/organizations/${selectedOrg.id}/resource-pools`, payload, { headers: { Authorization: `Bearer ${token}` } });
       setResourcePoolDrawerOpen(false);
       resourcePoolForm.resetFields();
@@ -377,7 +381,21 @@ const OrgManagePage: React.FC = () => {
 
   const assignmentColumns: ColumnsType<ResourcePoolAssignment> = [
     { title: '资源池名称', dataIndex: ['cloud', 'name'], key: 'name' },
-    { title: '资源池类型', dataIndex: ['cloud', 'type'], key: 'type', render: (type: string) => <Tag color="blue">{type}</Tag> },
+    { 
+      title: '资源池类型', 
+      key: 'poolType', 
+      render: (_: any, record: ResourcePoolAssignment) => {
+        const pvRaw = String((record.cloud as any)?.config?.provider || '').trim().toLowerCase();
+        const label =
+          (pvRaw === 'aliyun' || pvRaw === 'huaweicloud' || pvRaw === 'tencentcloud') ? '公有云' :
+          (pvRaw === 'cloudmap.private') ? '私有云' :
+          (pvRaw === 'cloudmap.edge') ? '边缘计算' :
+          (pvRaw === 'harvester') ? '虚拟化' :
+          ((record.cloud as any)?.type || '-');
+        return <Tag color="blue">{label}</Tag>;
+      }
+    },
+    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', render: (ns: string) => (ns ? <Tag>{ns}</Tag> : <span>-</span>) },
     {
       title: '供应商',
       key: 'vendor',
@@ -423,7 +441,7 @@ const OrgManagePage: React.FC = () => {
   return (
     <PageDetailContainer
       title="组织管理"
-      icon={<BranchesOutlined />}
+      icon={<ClusterOutlined />}
       subtitle="集中管理租户组织架构信息，提供用户与资源池的生命周期管理能力"
       overviewContent={
         <Descriptions bordered size="small" column={4}>
@@ -431,10 +449,9 @@ const OrgManagePage: React.FC = () => {
           <Descriptions.Item label="组织名称">{selectedOrg?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="用户数量">{users.length}</Descriptions.Item>
           <Descriptions.Item label="资源池数量">{assignments.length}</Descriptions.Item>
-          <Descriptions.Item label="云安全资源池">{assignments.filter(a => {
-            const pv = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').toLowerCase();
-            const t = String((a.cloud as any)?.type || '').toLowerCase();
-            return pv === 'cloudmap-security' || pv === 'csm' || t.includes('security');
+          <Descriptions.Item label="安全资源池">{assignments.filter(a => {
+            const pvRaw = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').trim().toLowerCase();
+            return pvRaw === 'cloudmap.csm';
           }).length}</Descriptions.Item>
           <Descriptions.Item label="防护对象数量">{protectionObjects.length}</Descriptions.Item>
           <Descriptions.Item label="服务链数量">{securityChains.length}</Descriptions.Item>
@@ -561,9 +578,9 @@ const OrgManagePage: React.FC = () => {
                         const provider = String((a.cloud as any)?.config?.provider || '').toLowerCase();
                         return name.includes(kw) || type.includes(kw) || provider.includes(kw);
                       }) : assignments.filter(a => {
-                        const pv = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').toLowerCase();
+                        const pvRaw = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').trim().toLowerCase();
                         const t = String((a.cloud as any)?.type || '').toLowerCase();
-                        const isSecurity = pv === 'cloudmap-security' || pv === 'csm' || t.includes('security');
+                        const isSecurity = pvRaw === 'cloudmap.csm';
                         const isStorage = t === 'object_storage' || t === 'file_storage';
                         return !isSecurity && !isStorage;
                       }))}
@@ -645,9 +662,8 @@ const OrgManagePage: React.FC = () => {
                     <Table
                       columns={assignmentColumns}
                       dataSource={(securityKeyword.trim() ? assignments.filter(a => {
-                        const pv = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').toLowerCase();
-                        const t = String((a.cloud as any)?.type || '').toLowerCase();
-                        const isSecurity = pv === 'cloudmap-security' || pv === 'csm' || t.includes('security');
+                        const pvRaw = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').trim().toLowerCase();
+                        const isSecurity = pvRaw === 'cloudmap.csm';
                         if (!isSecurity) return false;
                         const kw = securityKeyword.trim().toLowerCase();
                         const name = String((a.cloud as any)?.name || '').toLowerCase();
@@ -655,9 +671,9 @@ const OrgManagePage: React.FC = () => {
                         const provider = String((a.cloud as any)?.config?.provider || '').toLowerCase();
                         return name.includes(kw) || type.includes(kw) || provider.includes(kw);
                       }) : assignments.filter(a => {
-                        const pv = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').toLowerCase();
-                        const t = String((a.cloud as any)?.type || '').toLowerCase();
-                        return pv === 'cloudmap-security' || pv === 'csm' || t.includes('security');
+                        const pvRaw = String((a.cloud as any)?.config?.provider || (a.cloud as any)?.type || '').trim().toLowerCase();
+                        const isSecurity = pvRaw === 'cloudmap.csm';
+                        return isSecurity;
                       }))}
                       rowKey="id"
                       pagination={{ pageSize: 10 }}
@@ -725,11 +741,26 @@ const OrgManagePage: React.FC = () => {
       >
         <Form form={resourcePoolForm} layout="vertical" onFinish={handleResourcePoolAssign}>
           <Form.Item label="选择资源池" name="resourcePoolIds" rules={[{ required: true }]}> 
-            <Select mode="multiple" placeholder="请选择资源池" style={{ width: '100%' }}>
+            <Select mode={undefined} placeholder="请选择资源池" style={{ width: '100%' }} onChange={async (val: any) => {
+              try {
+                setNsOptions([]);
+                resourcePoolForm.setFieldsValue({ namespace: undefined });
+                const poolId = Array.isArray(val) ? val[0] : val;
+                const pool = (resourcePools || []).find((p:any)=> p.id === poolId);
+                const pvRaw = String(pool?.config?.provider || pool?.type || '').trim().toLowerCase();
+                if (pvRaw === 'harvester' || pvRaw === 'cloudmap.private' || pvRaw === 'cloudmap.edge') {
+                  setNsLoading(true);
+                  const token = localStorage.getItem('token');
+                  const resp = await axios.get(`/api/clouds/${poolId}/resources/harvester/namespaces`, { headers: { Authorization: `Bearer ${token}` } });
+                  const items: any[] = resp?.data?.data?.items || resp?.data?.items || [];
+                  setNsOptions(items);
+                }
+              } catch { setNsOptions([]); } finally { setNsLoading(false); }
+            }}>
               {(resourcePools || []).filter((pool:any) => {
-                const pv = String(pool?.config?.provider || pool?.type || '').toLowerCase();
+                const pvRaw = String(pool?.config?.provider || pool?.type || '').trim().toLowerCase();
                 const t = String(pool?.type || '').toLowerCase();
-                const isSec = pv === 'cloudmap-security' || pv === 'csm' || t.includes('security');
+                const isSec = pvRaw === 'cloudmap.csm';
                 const isStorage = t === 'object_storage' || t === 'file_storage';
                 if (assignType === 'security') return isSec;
                 if (assignType === 'storage') return isStorage;
@@ -745,6 +776,24 @@ const OrgManagePage: React.FC = () => {
                 </Select.Option>
               ))}
             </Select>
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate>
+            {() => {
+              const poolId = resourcePoolForm.getFieldValue('resourcePoolIds');
+              const pool = (resourcePools || []).find((p:any)=> p.id === (Array.isArray(poolId) ? poolId[0] : poolId));
+              const pvRaw = String(pool?.config?.provider || pool?.type || '').trim().toLowerCase();
+              const needNs = pvRaw === 'harvester' || pvRaw === 'cloudmap.private' || pvRaw === 'cloudmap.edge';
+              return needNs ? (
+                <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}>
+                  <Select placeholder="请选择命名空间" loading={nsLoading} style={{ width: '100%' }}>
+                    {(nsOptions || []).map((x:any) => {
+                      const name = x?.metadata?.name || x?.name;
+                      return <Select.Option key={name} value={name}>{name}</Select.Option>;
+                    })}
+                  </Select>
+                </Form.Item>
+              ) : null;
+            }}
           </Form.Item>
         </Form>
       </StdSideDrawer>

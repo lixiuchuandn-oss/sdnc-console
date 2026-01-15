@@ -201,12 +201,14 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       return true;
     });
   }, [ecs, nsFilter, nodeFilter]);
-  const provider = useMemo(() => String((cloud?.config?.provider || defaultProvider || '')).toLowerCase(), [cloud, defaultProvider]);
-  const providerName = useMemo(() => (provider === 'cloudmap' || provider === 'csm' ? 'CSM' : 'Harvester'), [provider]);
-  const labelVolumes = (provider === 'cloudmap' || provider === 'csm') ? '虚拟磁盘' : '虚拟卷';
-  const labelNad = (provider === 'cloudmap' || provider === 'csm') ? '扁平网络' : 'NAD 网络';
-  const labelKubeOvnVpcs = (provider === 'cloudmap' || provider === 'csm') ? 'VPC网络' : 'Kube-OVN VPC';
-  const labelKubeOvnSubnets = (provider === 'cloudmap' || provider === 'csm') ? 'VPC子网' : 'Kube-OVN 子网';
+  const providerRaw = useMemo(() => String(cloud?.config?.provider || defaultProvider || ''), [cloud, defaultProvider]);
+  const provider = useMemo(() => providerRaw.toLowerCase(), [providerRaw]);
+  const isCloudmap = useMemo(() => provider === 'cloudmap' || provider === 'cloudmap.private' || provider === 'cloudmap.edge', [provider]);
+  const providerName = useMemo(() => (isCloudmap ? 'Cloudmap' : 'Harvester'), [isCloudmap]);
+  const labelVolumes = isCloudmap ? '虚拟磁盘' : '虚拟卷';
+  const labelNad = isCloudmap ? '扁平网络' : 'NAD 网络';
+  const labelKubeOvnVpcs = isCloudmap ? 'VPC网络' : 'Kube-OVN VPC';
+  const labelKubeOvnSubnets = isCloudmap ? 'VPC子网' : 'Kube-OVN 子网';
   const versionText = useMemo(() => {
     const fromConfig = cloud?.config?.harvesterVersion;
     const fromNodes = (harvesterNodes.find((n:any)=> n?.version)?.version) || undefined;
@@ -258,7 +260,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       </Space>
       }
       asCard={false}
-      subtitle={<span style={{ color: 'rgba(0,0,0,0.45)' }}>集中展示云资源池信息，提供多种资源类型的生命周期管理能力</span>}
+      subtitle="集中展示云资源池信息，提供多种资源类型的生命周期管理能力"
       overviewContent={(
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>

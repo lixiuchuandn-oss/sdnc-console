@@ -76,7 +76,6 @@ export type RouteItem = {
 export const ROUTE_CATALOG: RouteItem[] = [
   // 资源控制台 (CNMC)
   { prefix: 'ops.dashboard', label: '仪表盘', group: '资源控制台', platform: 'CNMC' },
-  { prefix: 'ops.topology', label: '算力网络拓扑', group: '资源控制台', platform: 'CNMC' },
 
   // 租户管理 (CNMC)
   { prefix: 'tenants', label: '租户管理', group: '租户管理', platform: 'CNMC' },

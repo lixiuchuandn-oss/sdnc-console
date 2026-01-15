@@ -296,7 +296,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         </Space>
       }
       asCard={false}
-      subtitle={<span style={{ color: 'rgba(0,0,0,0.45)' }}>Cloudmap 详情（独立页面），汇总平台内资源与网络</span>}
+      subtitle="Cloudmap 详情（独立页面），汇总平台内资源与网络"
       overviewContent={(
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>

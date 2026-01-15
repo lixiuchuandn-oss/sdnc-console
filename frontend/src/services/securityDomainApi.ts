@@ -25,7 +25,9 @@ export interface SecurityDomainPayload {
   tags?: string; // 逗号分隔
   description?: string;
   tenantId?: string;
+  organizationId?: string;
   status?: string;
+  securityServiceIds?: string;
 }
 
 export const listSecurityDomains = async (): Promise<any[]> => {

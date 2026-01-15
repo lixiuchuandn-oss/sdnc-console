@@ -11,6 +11,10 @@ import { NATRule } from '../entities/NATRule';
 import { ACLRule } from '../entities/ACLRule';
 import { ServiceCatalog } from '../entities/ServiceCatalog';
 import { ServiceChain } from '../entities/ServiceChain';
+import { Tenant } from '../entities/Tenant';
+import { Organization } from '../entities/Organization';
+import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
+import { VRConfig } from '../entities/VRConfig';
 import { callAliyunVpc, callAliyunEcs } from '../services/clouds/aliyun/client';
 import { huaweiListVpcs } from '../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../services/clouds/tencentcloud/client';
@@ -27,6 +31,21 @@ const natRepo = () => AppDataSource.getRepository(NATRule);
 const aclRepo = () => AppDataSource.getRepository(ACLRule);
 const serviceRepo = () => AppDataSource.getRepository(ServiceCatalog);
 const chainRepo = () => AppDataSource.getRepository(ServiceChain);
+const tenantRepo = () => AppDataSource.getRepository(Tenant);
+const orgRepo = () => AppDataSource.getRepository(Organization);
+const assignmentRepo = () => AppDataSource.getRepository(ResourcePoolAssignment);
+const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
+
+const getTenantContext = (req: any) => {
+  const user = req.user;
+  if (user && (user as any).tenantId) {
+    return {
+      tenantId: (user as any).tenantId,
+      organizationId: (user as any).organizationId,
+    };
+  }
+  return null;
+};
 
 // List
 router.get('/', async (req, res) => {
@@ -38,8 +57,13 @@ router.get('/', async (req, res) => {
         return res.status(403).json({ message: '权限不足：需要读取权限 networks.security-domain:read' });
       }
     }
-    const list = await repo().find({ order: { createdAt: 'DESC' } });
-    // 在列表查询时为缺失 CIDR 的 VPC 类型安全域进行回填，并入库，保证前端查询到的接口始终包含 CIDR
+    const ctx = getTenantContext(req as any);
+    const where: any = {};
+    if (ctx) {
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
+    }
+    const list = await repo().find({ where, order: { createdAt: 'DESC' } });
     for (const dom of list) {
       let changed = false;
       const cidrEmpty = !dom.cidr || String(dom.cidr).trim() === '';
@@ -111,6 +135,26 @@ router.get('/', async (req, res) => {
         }
       }
 
+      if (dom.tenantId && !(dom as any).tenantName) {
+        try {
+          const tenant = await tenantRepo().findOne({ where: { id: String(dom.tenantId) } });
+          (dom as any).tenantName = tenant?.name || undefined;
+          changed = true;
+        } catch (e) {
+          console.warn('列表查询填充租户名称失败:', e);
+        }
+      }
+
+      if (dom.organizationId && !(dom as any).organizationName) {
+        try {
+          const org = await orgRepo().findOne({ where: { id: String(dom.organizationId) } });
+          (dom as any).organizationName = org?.name || undefined;
+          changed = true;
+        } catch (e) {
+          console.warn('列表查询填充组织名称失败:', e);
+        }
+      }
+
       if (changed) {
         try {
           await repo().save(dom);
@@ -138,8 +182,33 @@ router.get('/:id', async (req, res) => {
     }
 
     const id = req.params.id;
-    const item = await repo().findOne({ where: { id } });
-    
+    const ctx = getTenantContext(req as any);
+    const where: any = { id };
+    if (ctx) {
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
+    }
+    const item = await repo().findOne({ where });
+    if (item?.tenantId && !(item as any).tenantName) {
+      try {
+        const tenant = await tenantRepo().findOne({ where: { id: String(item.tenantId) } });
+        (item as any).tenantName = tenant?.name || undefined;
+        await repo().save(item);
+      } catch (e) {
+        console.warn('详情查询填充租户名称失败:', e);
+      }
+    }
+
+    if (item?.organizationId && !(item as any).organizationName) {
+      try {
+        const org = await orgRepo().findOne({ where: { id: String(item.organizationId) } });
+        (item as any).organizationName = org?.name || undefined;
+        await repo().save(item);
+      } catch (e) {
+        console.warn('详情查询填充组织名称失败:', e);
+      }
+    }
+
     if (!item) {
       return res.status(404).json({ message: 'SecurityDomain not found' });
     }
@@ -304,8 +373,8 @@ router.get('/:id', async (req, res) => {
       try {
         if (allIds.length > 0 || ((result as any)?.serviceChains?.length ?? 0) > 0) {
           const isCsmCloud = (cloud: any) => {
-            const pv = String((cloud as any)?.config?.provider || (cloud as any)?.provider || '').trim().toLowerCase();
-            return pv === 'csm' || pv === 'cloudmap-security';
+            const pvRaw = String((cloud as any)?.config?.provider || (cloud as any)?.provider || '').trim().toLowerCase();
+            return pvRaw === 'cloudmap.csm';
           };
 
           const hasCreds = (cloud: any) => {
@@ -492,6 +561,7 @@ router.post('/', async (req, res) => {
   try {
     const payload = req.body as Partial<SecurityDomain>;
     console.log('Creating SecurityDomain payload:', JSON.stringify(payload));
+    const ctx = getTenantContext(req as any);
 
     const entity = new SecurityDomain();
     entity.name = payload.name || '未命名安全域';
@@ -520,6 +590,62 @@ router.post('/', async (req, res) => {
     (entity as any).category = (payload as any).category;
     (entity as any).subType = (payload as any).subType;
     entity.securityServiceIds = payload.securityServiceIds;
+
+    if (ctx) {
+      (entity as any).tenantId = ctx.tenantId ? String(ctx.tenantId) : undefined;
+      (entity as any).organizationId = ctx.organizationId ? String(ctx.organizationId) : undefined;
+      if (ctx.tenantId) {
+        try {
+          const tenant = await tenantRepo().findOne({ where: { id: String(ctx.tenantId) } });
+          (entity as any).tenantName = tenant?.name || undefined;
+        } catch (e) {
+          console.warn('创建安全域时查询租户失败:', e);
+        }
+      }
+    } else {
+      if ((payload as any).tenantId) {
+        (entity as any).tenantId = String((payload as any).tenantId);
+        try {
+          const tenant = await tenantRepo().findOne({ where: { id: String((payload as any).tenantId) } });
+          (entity as any).tenantName = tenant?.name || undefined;
+        } catch (e) {
+          console.warn('创建安全域时查询租户失败:', e);
+        }
+      }
+      if ((payload as any).organizationId) {
+        (entity as any).organizationId = String((payload as any).organizationId);
+      }
+    }
+
+    if (ctx && entity.cloudId) {
+      const orgId = ctx.organizationId ? String(ctx.organizationId) : undefined;
+      if (!orgId) {
+        return res.status(400).json({ message: '当前用户缺少组织信息，无法创建安全域' });
+      }
+      const assignment = await assignmentRepo().findOne({
+        where: {
+          organizationId: orgId,
+          cloudId: String(entity.cloudId),
+          status: 'active',
+        },
+      });
+      if (!assignment) {
+        return res.status(403).json({ message: '所选资源池未分配给当前组织' });
+      }
+    }
+
+    if (ctx && entity.vrUuid) {
+      const vr = await vrConfigRepo().findOne({ where: { uuid: String(entity.vrUuid) } });
+      if (!vr) {
+        return res.status(400).json({ message: '所选 VR 实例不存在或未绑定' });
+      }
+      if (vr.tenantId && String(vr.tenantId) !== String(ctx.tenantId)) {
+        return res.status(403).json({ message: '所选 VR 实例不属于当前租户' });
+      }
+      if (ctx.organizationId && vr.organizationId && String(vr.organizationId) !== String(ctx.organizationId)) {
+        return res.status(403).json({ message: '所选 VR 实例不属于当前组织' });
+      }
+    }
 
     // VPC 类型安全域：自动填充 CIDR（兼容云侧 vpcId 或本地 VPC UUID）
     try {
@@ -595,13 +721,41 @@ router.patch('/:id', async (req, res) => {
     const id = req.params.id;
     const partial = req.body as Partial<SecurityDomain>;
     console.log(`Updating SecurityDomain ${id} payload:`, JSON.stringify(partial));
-    const existing = await repo().findOne({ where: { id } });
+    const ctx = getTenantContext(req as any);
+    const where: any = { id };
+    if (ctx) {
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
+    }
+    const existing = await repo().findOne({ where });
     if (!existing) {
       return res.status(404).json({ message: 'SecurityDomain not found' });
     }
     // 忽略历史字段更新：type 不再作为分类依据
     delete (partial as any).type;
+    if (ctx) {
+      delete (partial as any).tenantId;
+      delete (partial as any).organizationId;
+    }
     Object.assign(existing, partial);
+    if (!ctx) {
+      if ((partial as any).tenantId !== undefined) {
+        (existing as any).tenantId = (partial as any).tenantId ? String((partial as any).tenantId) : undefined;
+        if ((partial as any).tenantId) {
+          try {
+            const tenant = await tenantRepo().findOne({ where: { id: String((partial as any).tenantId) } });
+            (existing as any).tenantName = tenant?.name || undefined;
+          } catch (e) {
+            console.warn('更新安全域时查询租户失败:', e);
+          }
+        } else {
+          (existing as any).tenantName = undefined;
+        }
+      }
+      if ((partial as any).organizationId !== undefined) {
+        (existing as any).organizationId = (partial as any).organizationId ? String((partial as any).organizationId) : undefined;
+      }
+    }
     if ((partial as any).vrInstanceIds !== undefined) {
       (existing as any).vrInstanceIds = Array.isArray((partial as any).vrInstanceIds) ? (partial as any).vrInstanceIds.join(',') : (partial as any).vrInstanceIds;
     }
@@ -684,6 +838,12 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const id = req.params.id;
+    const ctx = getTenantContext(req as any);
+    const where: any = { id };
+    if (ctx) {
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
+    }
     // 先解除依赖关系：将引用该安全域的 CEN 附着的 securityDomainId 置空
     try {
       const attachments = await cenAttachRepo().find({ where: { securityDomainId: id } });
@@ -695,9 +855,8 @@ router.delete('/:id', async (req, res) => {
       }
     } catch (e) {
       console.warn('解除 CEN 附着对安全域的依赖失败:', e);
-      // 不阻断删除流程，继续尝试删除
     }
-    await repo().delete({ id });
+    await repo().delete(where);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete security domain', error: String(err) });

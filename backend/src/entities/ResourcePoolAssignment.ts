@@ -25,6 +25,9 @@ export class ResourcePoolAssignment {
   @Column({ type: 'text', nullable: true })
   permissions?: string; // JSON string
 
+  @Column({ type: 'text', nullable: true })
+  namespace?: string;
+
   @Column({ name: 'assigned_by', nullable: true })
   assignedBy?: string;
 

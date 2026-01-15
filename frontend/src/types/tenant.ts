@@ -45,6 +45,7 @@ export interface ResourcePoolAssignment {
   assignedAt: string;
   assignedBy: string;
   permissions: string[];
+  namespace?: string;
   cloudId?: string;
   cloud?: {
     id: string;

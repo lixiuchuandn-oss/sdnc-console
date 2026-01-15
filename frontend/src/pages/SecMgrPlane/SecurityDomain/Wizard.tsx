@@ -3,8 +3,8 @@ import { Button, Card, Divider, Form, Input, Radio, Row, Col, Select, Space, Ste
 import { ArrowLeftOutlined, UserOutlined, ReloadOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { fetchVrRealtimeList, normalizeVrRows } from '../../../services/vrCacheApi';
-import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchHuaweiPorts, fetchCloudProviderSubnetsByVpc, fetchTenants } from '../../../services/api';
+import { fetchSaseGateways } from '../../../services/api';
+import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchHuaweiPorts, fetchCloudProviderSubnetsByVpc, fetchTenants, fetchOrganizationsByTenant, fetchOrganizationResourcePools } from '../../../services/api';
 import { createSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 
 interface VRRowOpt { uuid: string; name: string; }
@@ -36,6 +36,7 @@ const SecurityDomainWizardPage: React.FC = () => {
 
   const [tenants, setTenants] = useState<any[]>([]);
   const [tenantLoading, setTenantLoading] = useState<boolean>(false);
+  const [orgOptions, setOrgOptions] = useState<{ value: string; label: string }[]>([]);
 
   const stepTitle = useMemo(() => {
     if (current === 0) return '设定基础信息';
@@ -53,13 +54,12 @@ const SecurityDomainWizardPage: React.FC = () => {
   const loadVRList = async () => {
     setVrLoading(true);
     try {
-      const res = await fetchVrRealtimeList(50, 1);
-      // Backend returns { code: 200, data: <csm_response> }
-      // CSM response might be { page: [...] } or just [...]
-      console.log('Wizard fetchVrRealtimeList res:', res);
-      const rawData = res?.data; 
-      const list = (rawData?.page || rawData?.list || rawData?.rows || (Array.isArray(rawData) ? rawData : []) || []) as any[];
-      const opts: VRRowOpt[] = normalizeVrRows(list);
+      const res = await fetchSaseGateways();
+      const list = (res?.items || res?.data || res?.list || []) as any[];
+      const opts: VRRowOpt[] = list.map((item: any) => ({
+        uuid: item.uuid || item.vr_unique_id || item.id || '',
+        name: item.name || item.display_name || item.uuid || '未命名VR',
+      })).filter(v => v.uuid);
       setVrOptions(opts);
     } catch (e: any) {
       console.error(e);
@@ -87,9 +87,26 @@ const SecurityDomainWizardPage: React.FC = () => {
   const loadClouds = async () => {
     setCloudLoading(true);
     try {
-      const res = await fetchClouds();
-      const list = (res?.data || res || []);
-      setClouds(Array.isArray(list) ? list : []);
+      const orgId = form.getFieldValue('organizationId');
+      if (orgId) {
+        const res = await fetchOrganizationResourcePools(String(orgId));
+        const list = Array.isArray(res) ? res : (res?.data || res?.items || res?.list || []);
+        const cloudsFromAssignments = (Array.isArray(list) ? list : []).map((a: any) => a.cloud || a.resourcePool || a).filter((c: any) => c && (c.id || c._id || c.uuid || c.cloudId));
+        const seen = new Set<string>();
+        const dedup: any[] = [];
+        for (const c of cloudsFromAssignments) {
+          const id = String(c.id || c._id || c.uuid || c.cloudId || '').trim();
+          if (!id) continue;
+          if (seen.has(id)) continue;
+          seen.add(id);
+          dedup.push(c);
+        }
+        setClouds(dedup);
+      } else {
+        const res = await fetchClouds();
+        const list = (res?.data || res || []);
+        setClouds(Array.isArray(list) ? list : []);
+      }
     } catch (e: any) {
       message.warning('云资源池获取失败');
       setClouds([]);
@@ -722,6 +739,7 @@ const SecurityDomainWizardPage: React.FC = () => {
         tags: undefined,
         description: values.description,
         tenantId: values.tenantId,
+        organizationId: values.organizationId,
         status: 'active',
       };
 
@@ -785,8 +803,50 @@ const SecurityDomainWizardPage: React.FC = () => {
             >
               {current === 0 && (
                 <>
-                  <Form.Item name="tenantId" label="所属租户" rules={[{ required: true, message: '请选择所属租户' }]}> 
-                    <Select placeholder="请选择租户" loading={tenantLoading} options={tenants.map(t => ({ value: t.id || t._id, label: t.name || t.username || '未命名租户' }))} showSearch optionFilterProp="label" />
+                  <Form.Item name="tenantId" label="所属租户" rules={[{ required: true, message: '请选择所属租户' }]}>
+                    <Select
+                      placeholder="请选择租户"
+                      loading={tenantLoading}
+                      options={tenants.map(t => ({ value: t.id || t._id, label: t.name || t.username || '未命名租户' }))}
+                      showSearch
+                      optionFilterProp="label"
+                      onChange={async (tid: string) => {
+                        form.setFieldsValue({ organizationId: undefined });
+                        setOrgOptions([]);
+                        if (!tid) return;
+                        try {
+                          const tree = await fetchOrganizationsByTenant(String(tid));
+                          const flat: any[] = [];
+                          const recur = (list: any[]) => {
+                            for (const o of list) {
+                              flat.push({ id: o.id, name: o.name });
+                              if (Array.isArray(o.children) && o.children.length) recur(o.children);
+                            }
+                          };
+                          recur(Array.isArray(tree) ? tree : []);
+                          setOrgOptions(flat.map(o => ({ value: o.id, label: o.name })));
+                        } catch {
+                          setOrgOptions([]);
+                        }
+                      }}
+                    />
+                  </Form.Item>
+                  <Form.Item name="organizationId" label="所属组织" rules={[{ required: true, message: '请选择所属组织' }]}>
+                    <Select
+                      placeholder="请选择所属组织"
+                      options={orgOptions}
+                      disabled={!form.getFieldValue('tenantId')}
+                      showSearch
+                      optionFilterProp="label"
+                      onChange={(orgId: string) => {
+                        form.setFieldsValue({ cloudId: undefined, vpcId: undefined });
+                        setClouds([]);
+                        setNormalizedVpcs([]);
+                        if (orgId) {
+                          loadClouds();
+                        }
+                      }}
+                    />
                   </Form.Item>
                   <Form.Item name="name" label="安全域名称" rules={[{ required: true, message: '请输入安全域名称' }]}> 
                     <Input placeholder="如：华东生产VPC / 总部办公网" addonAfter={<ReloadOutlined style={{ cursor: 'pointer' }} onClick={() => form.setFieldValue('name', generateRandomName())} title="随机生成名称" />} />

@@ -21,9 +21,8 @@ import {
   SecurityScanOutlined,
   SwapOutlined,
   ShareAltOutlined,
+  NodeIndexOutlined,
 } from '@ant-design/icons';
-import { NodeIndexOutlined } from '@ant-design/icons';
-import TopologyPage from '../Topology';
 import * as echarts from 'echarts';
 import ReactECharts from 'echarts-for-react';
 import { useNavigate } from 'react-router-dom';
@@ -302,10 +301,10 @@ const Dashboard: React.FC = () => {
       // Let's do it in background and update state
       Promise.allSettled(cloudIds.map((id: string) => {
         const cloud = cloudsList.find((c: any) => c.id === id);
-        const provider = String(cloud?.config?.provider || '').toLowerCase();
+        const providerRaw = String(cloud?.config?.provider || '');
         
-        // Only CSM/Cloudmap Security uses the special virtual elements API
-        if (provider === 'cloudmap-security' || provider === 'csm') {
+        // Only CSM uses the special virtual elements API
+        if (providerRaw === 'cloudmap.csm') {
            return fetchCloudmapVirtualElements(id);
         }
 
@@ -361,17 +360,16 @@ const Dashboard: React.FC = () => {
       'tencentcloud': '腾讯云',
       'azure': '微软云',
       'google': '谷歌云',
-      'csm': 'CSM安全资源池',
       'harvester': 'Harvester',
-      'cloudmap': 'Cloudmap边缘云',
-      'cloudmap-private': 'Cloudmap私有云',
-      'cloudmap-security': 'CSM安全资源池',
+      'cloudmap.edge': 'Cloudmap边缘云',
+      'cloudmap.private': 'Cloudmap私有云',
+      'cloudmap.csm': 'CSM安全资源池',
       'Unknown': '未知厂商'
     };
     
     clouds.forEach(c => {
-      const p = c.config?.provider || 'Unknown';
-      map[p] = (map[p] || 0) + 1;
+      const key = String(c.config?.provider || 'Unknown');
+      map[key] = (map[key] || 0) + 1;
     });
     
     return Object.entries(map).map(([key, value]) => ({ 
@@ -451,7 +449,6 @@ const Dashboard: React.FC = () => {
         items={[
           { key: 'overview', label: '多云总览', icon: <AppstoreOutlined /> },
           { key: 'cen', label: 'SDN总览', icon: <SafetyCertificateOutlined /> },
-          { key: 'topology', label: '算力网络拓扑', icon: <NodeIndexOutlined /> },
         ]}
       />
 
@@ -565,8 +562,8 @@ const Dashboard: React.FC = () => {
                          cloud.config?.provider === 'aws' ? <AmazonOutlined style={{ color: '#ff9900' }} /> :
                          cloud.config?.provider === 'huaweicloud' ? <span style={{ fontWeight: 900, fontSize: '14px', color: '#e60012', fontFamily: 'Arial' }}>HW</span> :
                          cloud.config?.provider === 'google' ? <GoogleOutlined style={{ color: '#4285f4' }} /> :
-                         (cloud.config?.provider === 'cloudmap' || cloud.config?.provider === 'cloudmap-private') ? <CloudServerOutlined style={{ color: '#1677ff' }} /> :
-                         (cloud.config?.provider === 'csm' || cloud.config?.provider === 'cloudmap-security') ? <SafetyCertificateOutlined style={{ color: '#52c41a' }} /> :
+                        (cloud.config?.provider === 'cloudmap.edge' || cloud.config?.provider === 'cloudmap.private') ? <CloudServerOutlined style={{ color: '#1677ff' }} /> :
+                        (cloud.config?.provider === 'cloudmap.csm') ? <SafetyCertificateOutlined style={{ color: '#52c41a' }} /> :
                          <DeploymentUnitOutlined style={{ color: '#64748b' }} />}
                       </div>
                       <div className={`status-badge-container ${cloud.status === 'online' || cloud.status === 'active' ? 'online' : 'offline'}`}>
@@ -723,10 +720,6 @@ const Dashboard: React.FC = () => {
             </Row>
           </div>
         </>
-      )}
-
-      {activeTab === 'topology' && (
-        <TopologyPage />
       )}
 
     </div>
