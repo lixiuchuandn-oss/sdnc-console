@@ -12,7 +12,7 @@ import { netClassLabel, netClassColor } from '../../../utils/netClass';
 import '../../common/filters.css';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
 import StdFormModal from '../../../components/StdFormModal';
-import { fetchSaseGateways, fetchTenants } from '../../../services/api';
+import { fetchSaseGateways, fetchTenants, fetchOrganizationsByTenant } from '../../../services/api';
 
 interface VRRow {
   id?: string;
@@ -41,6 +41,8 @@ const LABELS: Record<string, string> = {
   vm_id: '虚拟机ID',
   name: '名称',
   status: '状态',
+  tenant_id: '租户ID',
+  org_id: '组织ID',
   pool_id: '资源池ID',
   pool_name: '资源池',
   cpu: 'CPU(核)',
@@ -73,6 +75,8 @@ const VRPage: React.FC = () => {
   const netClassMapRef = useRef<Record<string, any>>({});
   const [tenantOptions, setTenantOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [tenantLoading, setTenantLoading] = useState<boolean>(false);
+  const [orgNameMap, setOrgNameMap] = useState<Record<string, string>>({});
+  const orgTenantLoadedRef = useRef<Record<string, boolean>>({});
 
   const loadTenants = async () => {
     setTenantLoading(true);
@@ -93,6 +97,45 @@ const VRPage: React.FC = () => {
   useEffect(() => {
     loadTenants();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      if (!tenantOptions.length) return;
+      const newOrgMap: Record<string, string> = {};
+      const tasks = tenantOptions
+        .map(t => String(t.value))
+        .filter(tid => !!tid && !orgTenantLoadedRef.current[tid])
+        .map(async tid => {
+          try {
+            const tree = await fetchOrganizationsByTenant(tid);
+            const list = Array.isArray(tree) ? tree : (Array.isArray((tree as any)?.data) ? (tree as any).data : []);
+            const flat: any[] = [];
+            const recur = (nodes: any[]) => {
+              nodes.forEach((n: any) => {
+                if (!n) return;
+                flat.push(n);
+                if (Array.isArray(n.children) && n.children.length) recur(n.children);
+              });
+            };
+            recur(list);
+            flat.forEach((o: any) => {
+              const id = String(o.id || '');
+              if (!id) return;
+              const name = String(o.name || id);
+              newOrgMap[id] = name;
+            });
+            orgTenantLoadedRef.current[tid] = true;
+          } catch {
+          }
+        });
+      if (tasks.length) {
+        await Promise.all(tasks);
+        if (Object.keys(newOrgMap).length > 0) {
+          setOrgNameMap(prev => ({ ...prev, ...newOrgMap }));
+        }
+      }
+    })();
+  }, [tenantOptions]);
 
   const [currentVrId, setCurrentVrId] = useState<string | null>(null);
   // CE配置弹窗
@@ -298,8 +341,12 @@ const VRPage: React.FC = () => {
       }
 
       setVrs(mergedList);
-      const first = mergedList[0] || {};
-      const cols: ColumnsType<VRRow> = Object.keys(first).map((k) => ({ title: LABELS[k] || k, dataIndex: k, key: k }));
+      const keysSet = new Set<string>();
+      mergedList.forEach(row => {
+        Object.keys(row || {}).forEach(k => keysSet.add(k));
+      });
+      ['tenant_id', 'org_id'].forEach(k => keysSet.add(k));
+      const cols: ColumnsType<VRRow> = Array.from(keysSet).map((k) => ({ title: LABELS[k] || k, dataIndex: k, key: k }));
 
       // 移除可能存在的原始状态列，统一用自定义渲染
       ['status','health_status','healthStatus'].forEach((key)=>{
@@ -419,7 +466,11 @@ const VRPage: React.FC = () => {
           const id = row.uuid || row.vr_unique_id || row.id || row.vm_id;
           const dom = id ? netClassMapRef.current[String(id)] : undefined;
           const nameFromDom = dom ? (dom.organizationName || dom.organization_name) : undefined;
-          return nameFromDom ? <span>{String(nameFromDom)}</span> : '配属';
+          if (nameFromDom) return <span>{String(nameFromDom)}</span>;
+          const oid = row.org_id || (dom ? dom.organizationId : undefined);
+          const nameFromMap = oid ? orgNameMap[String(oid)] : undefined;
+          if (nameFromMap) return <span>{String(nameFromMap)}</span>;
+          return '配属';
         }
       } as any;
       const bindStatusCol = {
@@ -568,6 +619,53 @@ const VRPage: React.FC = () => {
         console.warn('获取角色映射失败:', e?.message || e);
         setRolesMap({});
         rolesMapRef.current = {};
+      }
+
+      // 加载组织名称映射
+      try {
+        const tenantOrgIds: Record<string, Set<string>> = {};
+        mergedList.forEach(vr => {
+          const tid = vr.tenant_id;
+          const oid = vr.org_id;
+          if (!tid || !oid) return;
+          const tKey = String(tid);
+          const oKey = String(oid);
+          if (!tenantOrgIds[tKey]) tenantOrgIds[tKey] = new Set<string>();
+          tenantOrgIds[tKey].add(oKey);
+        });
+
+        const newOrgMap: Record<string, string> = {};
+        const tasks = Object.keys(tenantOrgIds).map(async tid => {
+          if (orgTenantLoadedRef.current[tid]) return;
+          try {
+            const tree = await fetchOrganizationsByTenant(tid);
+            const list = Array.isArray(tree) ? tree : (Array.isArray((tree as any)?.data) ? (tree as any).data : []);
+            const flat: any[] = [];
+            const recur = (nodes: any[]) => {
+              nodes.forEach((n: any) => {
+                if (!n) return;
+                flat.push(n);
+                if (Array.isArray(n.children) && n.children.length) recur(n.children);
+              });
+            };
+            recur(list);
+            flat.forEach((o: any) => {
+              const id = String(o.id || '');
+              if (!id) return;
+              const name = String(o.name || id);
+              newOrgMap[id] = name;
+            });
+            orgTenantLoadedRef.current[tid] = true;
+          } catch (e) {
+            console.warn('获取组织列表失败:', e);
+          }
+        });
+        await Promise.all(tasks);
+        if (Object.keys(newOrgMap).length > 0) {
+          setOrgNameMap(prev => ({ ...prev, ...newOrgMap }));
+        }
+      } catch (e) {
+        console.warn('加载组织名称映射失败:', e);
       }
 
       setPagination({ current: pageNum, pageSize, total: Number((data as any)?.total || mergedList.length) });
@@ -867,7 +965,7 @@ const VRPage: React.FC = () => {
           { key: 'refresh', label: '刷新列表', onClick: () => forceRefresh() },
           { key: 'csmctl', label: '配置 CSMCTL 地址', onClick: handleSettingsOpen }
         ]}
-        defaultHiddenColumns={['uuid', 'version', 'type', 'pool_id', 'pool_name', 'vm_id', 'tenant_id', 'org_id']}
+        defaultHiddenColumns={['uuid', 'version', 'type', 'pool_id', 'pool_name', 'vm_id', 'tenant_id', 'org_id', 'vr_unique_id', 'bind_status']}
       toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"

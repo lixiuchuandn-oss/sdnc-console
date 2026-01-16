@@ -183,7 +183,7 @@ const AccessRolesPage: React.FC = () => {
 
   const handleCreate = async () => {
     const vals = await createForm.validateFields();
-    const payload = { name: vals.name, description: vals.description || '' };
+    const payload = { name: vals.name, description: vals.description || '', scope: vals.scope };
     const token = localStorage.getItem('token');
     const res = await fetch('/api/system/rbac/roles', { method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(payload) });
     if (res.ok) {
@@ -302,8 +302,14 @@ const AccessRolesPage: React.FC = () => {
       />
 
       <StdFormModal title="新建授权角色" open={createOpen} onCancel={()=> setCreateOpen(false)} okText="创建" destroyOnClose width={600} form={createForm} onFinish={handleCreate}>
-        <Form.Item name="name" label="角色名称" rules={[{ required: true, message: '请输入角色名称' }]}> 
+        <Form.Item name="name" label="角色名称" rules={[{ required: true, message: '请输入角色名称' }]}>
           <Input placeholder="例如：安全管理员" />
+        </Form.Item>
+        <Form.Item name="scope" label="角色范围" rules={[{ required: true, message: '请选择角色范围' }]}>
+          <Select placeholder="请选择角色范围">
+            <Select.Option value="system">系统角色</Select.Option>
+            <Select.Option value="tenant">租户角色</Select.Option>
+          </Select>
         </Form.Item>
         <Form.Item name="description" label="描述">
           <Input.TextArea placeholder="角色用途说明（可选）" autoSize={{ minRows: 3, maxRows: 6 }} />

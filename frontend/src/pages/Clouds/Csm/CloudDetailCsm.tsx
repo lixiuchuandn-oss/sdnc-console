@@ -621,7 +621,6 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                 const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
                 window.open(url, 'csm-sso', features);
               }
-              /*
               Modal.info({
                 title: 'SSO 返回',
                 width: '90vw',
@@ -665,7 +664,6 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   </div>
                 )
               });
-              */
             }).catch((e: any) => {
               hide();
               message.error(e?.message || 'SSO 登录失败');

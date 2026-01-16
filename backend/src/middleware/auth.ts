@@ -5,6 +5,7 @@ import { User } from '../entities/User';
 import { TenantUser } from '../entities/TenantUser';
 import { RoleAssignment } from '../entities/RoleAssignment';
 import { RBACRole } from '../entities/RBACRole';
+import { In } from 'typeorm';
 
 export interface AuthRequest extends Request {
   user?: User;
@@ -61,7 +62,7 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
       const roleIds = assigns.map(a => a.roleId);
       let perms: string[] = [];
       if (roleIds.length) {
-        const roles = await roleRepo.findByIds(roleIds as any);
+        const roles = await roleRepo.find({ where: { id: In(roleIds) } });
         for (const r of roles) {
           try {
             const arr = JSON.parse(String(r.permissions || '[]')) as string[];
@@ -69,7 +70,6 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
           } catch {}
         }
       }
-      // 默认权限补充：租户允许访问控制台Pro（只读）
       try {
         if (decoded.role === 'tenant') {
           perms = perms.concat(['clouds.console:read']);

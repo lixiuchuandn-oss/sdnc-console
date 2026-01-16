@@ -109,9 +109,12 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
 
     const method = String(req.method || 'GET').toUpperCase();
     const isRead = method === 'GET' || method === 'HEAD';
-    const isWrite = !isRead; // POST/PUT/PATCH/DELETE
+    const isWrite = !isRead;
 
     const path = String((req.baseUrl || '') + (req.path || '')).toLowerCase();
+    const consoleLike = path.includes('/csm/security/domain/attach/callonsso')
+      || (path.includes('/csm/security/virtual-elements') && path.endsWith('/console'));
+    if (consoleLike) return next();
     const actionBase = (() => {
       if (path.includes('/resources/ecs') || path.includes('/inventory/instances') || path.includes('/resources/ecs-all')) return 'clouds.instances';
       if (path.includes('/resources/vpcs')) return 'clouds.vpcs';

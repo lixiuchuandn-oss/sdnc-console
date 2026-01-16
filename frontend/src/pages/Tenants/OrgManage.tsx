@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Tree, Typography, Descriptions } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Tree, Typography, Descriptions, Transfer } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -7,10 +7,14 @@ import axios from 'axios';
 import PageDetailContainer from '../../components/PageDetailContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
-import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
+import { fetchSaseGateways } from '../../services/api';
 
 const { TextArea } = Input;
+
+type RBACRole = { id: string; name: string; description?: string; scope: 'system' | 'tenant'; status?: 'active' | 'inactive' };
+type Assignment = { id: string; roleId: string; userType: 'system' | 'tenant'; userId: string; createdAt: string };
 
 const OrgManagePage: React.FC = () => {
   const navigate = useNavigate();
@@ -29,6 +33,8 @@ const OrgManagePage: React.FC = () => {
   const [securityLoading, setSecurityLoading] = useState(false);
   const [protectionObjects, setProtectionObjects] = useState<any[]>([]);
   const [securityChains, setSecurityChains] = useState<any[]>([]);
+  const [sdnVrLoading, setSdnVrLoading] = useState(false);
+  const [sdnVrs, setSdnVrs] = useState<any[]>([]);
   const [renameOrgId, setRenameOrgId] = useState<string | null>(null);
   const [renameName, setRenameName] = useState<string>('');
   const [addingForParentId, setAddingForParentId] = useState<string | null>(null);
@@ -43,6 +49,14 @@ const OrgManagePage: React.FC = () => {
   const [securityKeyword, setSecurityKeyword] = useState<string>('');
   const [nsLoading, setNsLoading] = useState<boolean>(false);
   const [nsOptions, setNsOptions] = useState<any[]>([]);
+  const [sdnActiveKey, setSdnActiveKey] = useState<'vr'|'objects'|'chains'>('vr');
+  const [sdnContentOpacity, setSdnContentOpacity] = useState<number>(1);
+  const [tenantRoles, setTenantRoles] = useState<RBACRole[]>([]);
+  const [roleAssignOpen, setRoleAssignOpen] = useState(false);
+  const [roleAssignUser, setRoleAssignUser] = useState<TenantUser | null>(null);
+  const [roleAssignSelected, setRoleAssignSelected] = useState<string[]>([]);
+  const [roleAssignExisting, setRoleAssignExisting] = useState<Assignment[]>([]);
+  const [roleAssignKw, setRoleAssignKw] = useState('');
 
   const fetchTenant = async (id: string) => {
     try {
@@ -77,6 +91,15 @@ const OrgManagePage: React.FC = () => {
         setSelectedKeys([root.id]);
         setSelectedOrg(root);
       }
+    } catch {}
+  };
+
+  const fetchTenantRoles = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/system/rbac/roles', { headers: { Authorization: `Bearer ${token}` } });
+      const list: RBACRole[] = Array.isArray((res.data as any)?.roles) ? (res.data as any).roles : [];
+      setTenantRoles(list.filter(r => r.scope === 'tenant' && String(r.status || 'active') === 'active'));
     } catch {}
   };
 
@@ -138,6 +161,47 @@ const OrgManagePage: React.FC = () => {
     } catch {}
   };
 
+  const openRoleAssign = async (user: TenantUser) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/system/rbac/assignments', {
+        params: { userType: 'tenant', userId: user.id },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const list: Assignment[] = Array.isArray((res.data as any)?.assignments) ? (res.data as any).assignments : [];
+      setRoleAssignUser(user);
+      setRoleAssignExisting(list);
+      setRoleAssignSelected(list.map(it => it.roleId));
+      setRoleAssignOpen(true);
+    } catch {}
+  };
+
+  const saveRoleAssign = async () => {
+    if (!roleAssignUser) return;
+    const token = localStorage.getItem('token');
+    const current = new Set(roleAssignExisting.map(x => x.roleId));
+    const needAdd = roleAssignSelected.filter(id => !current.has(id));
+    const needRemove = roleAssignExisting.filter(x => !roleAssignSelected.includes(x.roleId));
+    try {
+      for (const roleId of needAdd) {
+        await axios.post('/api/system/rbac/assignments', { roleId, userType: 'tenant', userId: roleAssignUser.id }, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      for (const it of needRemove) {
+        await axios.delete(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      Modal.success({ title: '角色赋权已保存' });
+      setRoleAssignOpen(false);
+      setRoleAssignUser(null);
+      setRoleAssignExisting([]);
+      setRoleAssignSelected([]);
+      if (tenantId && selectedOrg) {
+        fetchUsers(tenantId, selectedOrg.id);
+      }
+    } catch {
+      Modal.error({ title: '保存失败', content: '保存角色赋权时发生错误' });
+    }
+  };
+
   const handleDeleteUser = async (userId: string) => {
     if (!tenantId || !selectedOrg) return;
     try {
@@ -174,6 +238,7 @@ const OrgManagePage: React.FC = () => {
     if (!tenantId) return;
     fetchTenant(tenantId);
     fetchOrganizations(tenantId);
+    fetchTenantRoles();
   }, [tenantId]);
 
   useEffect(() => {
@@ -197,7 +262,25 @@ const OrgManagePage: React.FC = () => {
         setSecurityLoading(false);
       }
     })();
+    (async () => {
+      try {
+        setSdnVrLoading(true);
+        const res = await fetchSaseGateways({ tenantId: String(tenantId), organizationId: selectedOrg.id });
+        const items = Array.isArray((res as any)?.items) ? (res as any).items : (Array.isArray(res) ? res : []);
+        setSdnVrs(items);
+      } catch {
+        setSdnVrs([]);
+      } finally {
+        setSdnVrLoading(false);
+      }
+    })();
   }, [selectedOrg?.id, tenantId]);
+
+  useEffect(() => {
+    setSdnContentOpacity(0);
+    const t = setTimeout(() => setSdnContentOpacity(1), 0);
+    return () => clearTimeout(t);
+  }, [sdnActiveKey, selectedOrg?.id]);
 
   const filterOrgs = (orgs: Organization[], keyword: string): Organization[] => {
     const kw = keyword.trim().toLowerCase();
@@ -359,9 +442,14 @@ const OrgManagePage: React.FC = () => {
       render: (_, record: TenantUser) => (
         <Dropdown
           menu={{
-            items: [{ key: 'delete', label: '删除', danger: true }],
+            items: [
+              { key: 'assign', label: '配置角色' },
+              { key: 'delete', label: '删除', danger: true }
+            ],
             onClick: ({ key }) => {
-              if (key === 'delete') {
+              if (key === 'assign') {
+                openRoleAssign(record);
+              } else if (key === 'delete') {
                 Modal.confirm({
                   title: '确认删除用户',
                   content: '删除后将无法恢复，该用户将无法继续访问系统。',
@@ -685,6 +773,131 @@ const OrgManagePage: React.FC = () => {
                   <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>
                 )}
               </Tabs.TabPane>
+              <Tabs.TabPane tab="SDN资源" key="sdn-resources">
+                {selectedOrg ? (
+                  <div style={{ display: 'flex', minHeight: 260 }}>
+                    <div
+                      style={{
+                        width: 200,
+                        borderRight: '1px solid #f0f0f0',
+                        padding: '8px 0',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4
+                      }}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        const order: Array<'vr'|'objects'|'chains'> = ['vr', 'objects', 'chains'];
+                        const idx = order.indexOf(sdnActiveKey);
+                        if (e.key === 'ArrowDown') {
+                          const next = order[(idx + 1) % order.length];
+                          setSdnActiveKey(next);
+                          e.preventDefault();
+                        } else if (e.key === 'ArrowUp') {
+                          const next = order[(idx - 1 + order.length) % order.length];
+                          setSdnActiveKey(next);
+                          e.preventDefault();
+                        }
+                      }}
+                    >
+                      {[
+                        { key: 'vr' as const, label: 'VR / 网关', icon: <GatewayOutlined /> },
+                        { key: 'objects' as const, label: '防护对象', icon: <SafetyCertificateOutlined /> },
+                        { key: 'chains' as const, label: '服务链', icon: <NodeIndexOutlined /> },
+                      ].map(item => {
+                        const active = sdnActiveKey === item.key;
+                        return (
+                          <div
+                            key={item.key}
+                            role="tab"
+                            aria-selected={active}
+                            tabIndex={active ? 0 : -1}
+                            onClick={() => setSdnActiveKey(item.key)}
+                            style={{
+                              height: 40,
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '0 16px',
+                              cursor: 'pointer',
+                              gap: 8,
+                              color: active ? '#1677ff' : 'rgba(0,0,0,0.65)',
+                              background: active ? '#e6f4ff' : 'transparent',
+                              borderLeft: active ? '3px solid #1677ff' : '3px solid transparent'
+                            }}
+                          >
+                            {item.icon}
+                            <span>{item.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div
+                      style={{
+                        flex: 1,
+                        padding: '8px 16px',
+                        transition: 'opacity 0.2s ease',
+                        opacity: sdnContentOpacity
+                      }}
+                    >
+                      {sdnActiveKey === 'vr' && (
+                        <Table
+                          size="small"
+                          bordered
+                          loading={sdnVrLoading}
+                          rowKey={(r: any) => r.vr_unique_id || r.uuid || r.id}
+                          dataSource={sdnVrs}
+                          pagination={{ pageSize: 5 }}
+                          columns={[
+                            { title: '名称', dataIndex: 'name', key: 'name' },
+                            { title: 'VR唯一ID', dataIndex: 'vr_unique_id', key: 'vr_unique_id', ellipsis: true },
+                            { title: '租户ID', dataIndex: 'tenant_id', key: 'tenant_id', ellipsis: true },
+                            { title: '组织ID', dataIndex: 'org_id', key: 'org_id', ellipsis: true },
+                            { title: '绑定状态', dataIndex: 'bind_status', key: 'bind_status', render: (v: string) => {
+                              if (!v) return <Tag>未知</Tag>;
+                              if (v === 'BOUND') return <Tag color="green">已绑定</Tag>;
+                              if (v === 'UNBOUND') return <Tag color="default">未绑定</Tag>;
+                              return <Tag color="orange">{v}</Tag>;
+                            } }
+                          ]}
+                        />
+                      )}
+                      {sdnActiveKey === 'objects' && (
+                        <Table
+                          size="small"
+                          bordered
+                          loading={securityLoading}
+                          rowKey={(r: any) => r.id || r._id}
+                          dataSource={protectionObjects}
+                          pagination={{ pageSize: 5 }}
+                          columns={[
+                            { title: '名称', dataIndex: 'name', key: 'name' },
+                            { title: '类型', dataIndex: 'type', key: 'type' },
+                            { title: '值', dataIndex: 'value', key: 'value' },
+                            { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true }
+                          ]}
+                        />
+                      )}
+                      {sdnActiveKey === 'chains' && (
+                        <Table
+                          size="small"
+                          bordered
+                          loading={securityLoading}
+                          rowKey={(r: any) => r.id || r._id}
+                          dataSource={securityChains}
+                          pagination={{ pageSize: 5 }}
+                          columns={[
+                            { title: '名称', dataIndex: 'name', key: 'name' },
+                            { title: '服务链ID', dataIndex: 'id', key: 'id' },
+                            { title: '状态', dataIndex: 'status', key: 'status' }
+                          ]}
+                        />
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>
+                )}
+              </Tabs.TabPane>
             </Tabs>
             </Card>
           </Col>
@@ -796,6 +1009,53 @@ const OrgManagePage: React.FC = () => {
             }}
           </Form.Item>
         </Form>
+      </StdSideDrawer>
+
+      <StdSideDrawer
+        title="配置权限角色"
+        open={roleAssignOpen}
+        width={800}
+        onClose={() => {
+          setRoleAssignOpen(false);
+          setRoleAssignUser(null);
+          setRoleAssignExisting([]);
+          setRoleAssignSelected([]);
+        }}
+        onOk={saveRoleAssign}
+        okText="保存"
+      >
+        <Form layout="vertical" style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+          <Form.Item label="关键字" style={{ flex: 1, marginBottom: 0 }}>
+            <Input.Search
+              allowClear
+              placeholder="搜索角色名称或说明"
+              value={roleAssignKw}
+              onChange={e => setRoleAssignKw(e.target.value)}
+            />
+          </Form.Item>
+        </Form>
+        <Transfer
+          dataSource={tenantRoles
+            .filter(r => (roleAssignKw ? ((r.name || '').toLowerCase().includes(roleAssignKw.toLowerCase()) || (r.description || '').toLowerCase().includes(roleAssignKw.toLowerCase())) : true))
+            .map(r => ({ key: r.id, title: r.name, description: r.description }))}
+          titles={['角色库', '已选角色']}
+          targetKeys={roleAssignSelected}
+          onChange={next => setRoleAssignSelected(next.map(String))}
+          showSearch
+          filterOption={(inputValue, item) => {
+            const v = inputValue.toLowerCase();
+            return (item.title || '').toLowerCase().includes(v) || (item.description || '').toLowerCase().includes(v);
+          }}
+          style={{ width: '100%' }}
+          listStyle={{ flex: '1 1 0', minWidth: 0, height: 420 }}
+          render={item => (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontWeight: 500 }}>{item.title}</span>
+              <span style={{ color: '#888', fontSize: 12 }}>{item.description || '—'}</span>
+            </div>
+          )}
+        />
+        <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>保存将同步新增与移除的角色赋权</div>
       </StdSideDrawer>
     </PageDetailContainer>
   );

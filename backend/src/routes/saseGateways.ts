@@ -259,6 +259,7 @@ saseGatewayRoutes.get('/info', async (req, res) => {
       };
 
       let chosenCloudId: string | undefined;
+      let csmGroups: any[] = [];
 
       if (allIds.length > 0 || serviceChains.length > 0) {
         const isCsmCloud = (cloud: any) => {
@@ -316,7 +317,8 @@ saseGatewayRoutes.get('/info', async (req, res) => {
             const secretKey = String(cloud.secretKey || '').trim();
             const ignoreTls = !!((cloud as any)?.config?.ignoreTls);
             const groups = await listCsmElementGroups({ endpoint, accessKey, secretKey, ignoreTls } as any);
-            (Array.isArray(groups) ? groups : []).forEach((g: any) => {
+            const arr = Array.isArray(groups) ? groups : [];
+            arr.forEach((g: any) => {
               const gid = String(
                 g?.id ??
                 g?.vm_group_id ??
@@ -332,6 +334,7 @@ saseGatewayRoutes.get('/info', async (req, res) => {
             const matched = allIds.some((sid) => idCandidates(sid).some((k) => groupById.has(k)));
             if (matched) {
               chosenCloudId = String(cloud.id || '').trim() || chosenCloudId;
+              csmGroups = arr;
               break;
             }
           } catch (e) {
@@ -357,21 +360,109 @@ saseGatewayRoutes.get('/info', async (req, res) => {
             break;
           }
         }
-        const type = g ? 'CSM安全网元组' : '未知服务';
-        const vendor = g ? (pick(g, ['vendor', 'manufacturer']) || {}).vendor : undefined;
-        const defenseType = g ? (pick(g, ['defense_type', 'defenseType']) || {}).defense_type : undefined;
-        const neCount = g ? Number(g.ne_count ?? g.neCount ?? 0) : 0;
-        const name =
-          g ? (pick(g, ['name', 'vm_group_name', 'vmGroupName']) || {}).name : `安全网元组-${String(sid).substring(0, 8)}`;
+
+        let vmIds: string[] = [];
+        if (g) {
+          const rawVmIds = (g as any).vm_id_list || (g as any).vmIdList || (g as any).elements || [];
+          if (Array.isArray(rawVmIds)) {
+            vmIds = rawVmIds.map((x: any) => String(x || '').trim()).filter((s: string) => !!s);
+          } else if (typeof rawVmIds === 'string') {
+            vmIds = String(rawVmIds)
+              .split(/[;,]/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+        }
+
+        const elements =
+          g && Array.isArray((g as any).elements)
+            ? (g as any).elements
+            : g && typeof (g as any).vm_id_list === 'string'
+              ? String((g as any).vm_id_list)
+                  .split(';')
+                  .map((s: string) => s.trim())
+                  .filter((s: string) => s)
+              : [];
+
+        const neCount = Number(
+          (g
+            ? pick(g, [
+                'neCount',
+                'count',
+                'Count',
+                'elementCount',
+                'elementsCount',
+                'elements_count',
+                'vm_count',
+                'vmCount'
+              ])
+            : undefined) ??
+            (Array.isArray(elements) ? elements.length : vmIds.length)
+        );
+
+        const vendor = g
+          ? pick(g, ['vendor', 'manufacturer', 'vendor_name', 'vendorName', 'factory', 'brand', 'company', 'maker'])
+          : undefined;
+
+        const defenseRaw = g
+          ? pick(g, [
+              'defenseType',
+              'defense_type',
+              'defend_type',
+              'defendType',
+              'protectType',
+              'protect_type',
+              'protectionType',
+              'protection_type',
+              'securityType',
+              'security_type'
+            ])
+          : undefined;
+
+        const defenseType = (() => {
+          if (defenseRaw === undefined) return undefined;
+          const n = Number(defenseRaw);
+          if (!Number.isNaN(n)) {
+            if (n === 1) return '非流量型';
+            if (n === 2) return '流量型';
+          }
+          const s = String(defenseRaw).trim();
+          return s ? s : undefined;
+        })();
+
+        const typeRaw = g
+          ? pick(g, [
+              'vm_type',
+              'vmType',
+              'type',
+              'groupType',
+              'vm_group_type',
+              'vmGroupType',
+              'productType',
+              'product_type'
+            ])
+          : undefined;
+
+        const type = typeRaw ? String(typeRaw).trim() : g ? 'CSM安全网元组' : '未知服务';
+
+        const nameRaw = g ? pick(g, ['name', 'vm_group_name', 'vmGroupName']) : undefined;
+        const name = nameRaw || `安全网元组-${String(sid).substring(0, 8)}`;
+
+        const webIds = vmIds
+          .map((id) => uuidToObjectIdHex(id))
+          .filter((w): w is string => !!w);
+
         return {
           id: sid,
           name: typeof name === 'object' ? Object.values(name)[0] : name,
           type,
-          vendor,
+          vendor: vendor ?? undefined,
           defenseType,
           neCount,
           source,
           status: 'active',
+          vmIds,
+          webIds,
           raw: g
         };
       };
@@ -383,9 +474,67 @@ saseGatewayRoutes.get('/info', async (req, res) => {
       });
       result.securityServices = allServices;
 
+      const otherServices: any[] = [];
+      if (csmGroups.length > 0) {
+        const usedKeys = new Set<string>();
+        allIds.forEach((sid: string) => {
+          idCandidates(sid).forEach((k) => usedKeys.add(k));
+        });
+        csmGroups.forEach((g: any) => {
+          const gid = String(
+            g?.id ??
+            g?.vm_group_id ??
+            g?.vmGroupId ??
+            g?.vmGroupID ??
+            g?.vm_group_uuid ??
+            g?.vmGroupUuid ??
+            ''
+          ).trim();
+          if (!gid) return;
+          const keys = idCandidates(gid);
+          const isUsed = keys.some((k) => usedKeys.has(k));
+          if (isUsed) return;
+          otherServices.push(normalizeOne(gid, '未分配'));
+        });
+      }
+      (result as any).otherSecurityServices = otherServices;
+
       const ssoCloudId = chosenCloudId || (domain.cloudId ? String(domain.cloudId) : undefined);
+
+      if (domain.cloudId) {
+        try {
+          const computeCloud = await cloudRepo().findOne({ where: { id: String(domain.cloudId) } });
+          if (computeCloud) {
+            (result as any).cloudId = String(domain.cloudId);
+            (result as any).cloudName = computeCloud.name;
+          }
+        } catch (e) {
+          console.warn('SASE Info: Failed to fetch compute cloud info for domain.cloudId=' + domain.cloudId, e);
+        }
+      }
+
       if (ssoCloudId) {
         (result as any).csmCloudId = ssoCloudId;
+        try {
+          const secCloud = await cloudRepo().findOne({ where: { id: ssoCloudId } });
+          if (secCloud) {
+            (result as any).csmCloudName = secCloud.name;
+            const endpoint = String(secCloud.endpoint || '').trim();
+            const ignoreTls = !!((secCloud as any)?.config?.ignoreTls);
+            (result as any).csmInfo = {
+              endpoint,
+              ignoreTls,
+              username: 'admin',
+              encryptedPassword: '+yNpVuicvsiBzpDpeaIq3g==',
+              webPort: '8011',
+              authPath: '/csm/api/v1.0/authentication/auth',
+              getAdminPath: '/csm/api/v1.0/user/getAdmin',
+              ssoPath: '/csm/api/v1.0/security/domain/attach/callOnSSO'
+            };
+          }
+        } catch (e) {
+          console.warn('SASE Info: Failed to fetch CSM cloud info for ssoCloudId=' + ssoCloudId, e);
+        }
         (result as any).ssoEndpoint = `/api/clouds/${ssoCloudId}/csm/security/domain/attach/callOnSSO`;
       }
     } catch (e) {

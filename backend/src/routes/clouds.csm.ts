@@ -424,7 +424,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
     }
   });
 
-  router.post('/:id/csm/security/domain/attach/callOnSSO', checkAdminPermission, async (req: any, res: Response) => {
+  const handleCsmSso = async (req: any, res: Response) => {
     try {
       const { id } = req.params;
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
@@ -435,21 +435,34 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         secretKey: String(cloud.secretKey || '').trim(),
         ignoreTls: !!((cloud as any)?.config?.ignoreTls)
       };
-      const { id: webId, currentLoginWebPort, username, password } = req.body || {};
+      const body = req.body || {};
+      const query = req.query || {};
+      const webIdRaw =
+        body.web_id ??
+        body.webId ??
+        body.id ??
+        query.web_id ??
+        query.webId ??
+        query.id ??
+        query.service_id;
+      const webId = webIdRaw ? String(webIdRaw).trim() : '';
       if (!webId) {
         return res.status(400).json({ message: '缺少 web_id' });
       }
-      const webPort = String(currentLoginWebPort || '8020');
+      const portRaw = body.currentLoginWebPort ?? query.currentLoginWebPort ?? query.port;
+      const webPort = String(portRaw || '8020');
+      const usernameRaw = body.username ?? query.username;
+      const passwordRaw = body.password ?? query.password;
+      const authPwdRaw = body.authPassword ?? query.authPassword;
+      const username = String(usernameRaw || 'admin').trim();
+      const encPwd = String(authPwdRaw || passwordRaw || '+yNpVuicvsiBzpDpeaIq3g==').trim();
       const payloadBase = { id: String(webId), currentLoginWebPort: webPort };
-      const encPwd = String(req.body?.authPassword || password || '+yNpVuicvsiBzpDpeaIq3g==').trim();
-      const preAuthResp = await csmPreAuthLogin(config, String(username || 'admin').trim(), encPwd, webPort);
+      const preAuthResp = await csmPreAuthLogin(config, username, encPwd, webPort);
       console.log('CSM SSO Auth Response:', JSON.stringify(preAuthResp));
       const dataToken = String((preAuthResp?.data ?? preAuthResp?.data?.data ?? '') || '').trim();
-      
+
       if (!dataToken) {
         console.error('CSM SSO Auth Failed: No token returned', preAuthResp);
-        // Fallback or just continue? If we continue, SSO will likely fail.
-        // But maybe we can try cookie login?
       } else {
         console.log('CSM SSO Auth Token obtained');
       }
@@ -464,10 +477,9 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         method: 'POST',
         path: '/csm/api/v1.0/authentication/auth',
         webPort,
-        body: { username: String(username || 'admin').trim(), password: mask(encPwd) }
+        body: { username, password: mask(encPwd) }
       };
 
-      // Step 2: Get Admin Info
       let adminResp: any = {};
       let adminId = '';
       const adminReq = {
@@ -476,15 +488,14 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         webPort,
         headers: dataToken ? { data: dataToken } : undefined
       };
-      
+
       if (dataToken) {
         try {
-          adminResp = await csmRequest(config, '/csm/api/v1.0/user/getAdmin', {}, 'GET', null, { 
-            noAuth: true, 
-            webPort, 
-            extraHeaders: { data: dataToken } 
+          adminResp = await csmRequest(config, '/csm/api/v1.0/user/getAdmin', {}, 'GET', null, {
+            noAuth: true,
+            webPort,
+            extraHeaders: { data: dataToken }
           });
-          // Check various response structures for id
           adminId = String(adminResp?.data?.id ?? adminResp?.id ?? '').trim();
           console.log('CSM Admin ID obtained:', adminId);
         } catch (e) {
@@ -502,8 +513,8 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         headers: dataToken ? { token: dataToken } : undefined
       };
 
-      const loginU = String(username || 'admin').trim();
-      const loginP = String(password || 'cloudmap').trim();
+      const loginU = username;
+      const loginP = String(passwordRaw || 'cloudmap').trim();
       const loginPath = '/user/customUser';
       const loginReq = {
         method: 'POST',
@@ -522,9 +533,9 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
         ssoReq.cookie = loginCookie;
       }
 
-      let result = await csmRequest(config, '/csm/api/v1.0/security/domain/attach/callOnSSO', {}, 'POST', ssoBody, { 
-        noAuth: true, 
-        webPort, 
+      let result = await csmRequest(config, '/csm/api/v1.0/security/domain/attach/callOnSSO', {}, 'POST', ssoBody, {
+        noAuth: true,
+        webPort,
         extraHeaders: dataToken ? { token: dataToken } : undefined,
         cookie: loginCookie || undefined
       });
@@ -554,7 +565,10 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       console.error('CSM SSO Error:', error);
       res.status(500).json({ message: 'SSO 调用失败', error: error.message });
     }
-  });
+  };
+
+  router.post('/:id/csm/security/domain/attach/callOnSSO', checkAdminPermission, handleCsmSso);
+  router.get('/:id/csm/security/domain/attach/callOnSSO', checkAdminPermission, handleCsmSso);
 
   router.delete('/:id/csm/security/service-chains/:chainId', checkAdminPermission, async (req: any, res: Response) => {
     try {
