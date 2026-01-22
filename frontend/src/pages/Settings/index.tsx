@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Typography, Card, Form, Switch, Radio, Select, Button, Input, InputNumber, Divider, App } from 'antd';
 import { SettingOutlined, BgColorsOutlined, BellOutlined, GlobalOutlined, DatabaseOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
-import { getDifyConfig as apiGetDifyConfig, updateDifyConfig as apiUpdateDifyConfig } from '../../services/systemApi';
+import { getDifyConfig as apiGetDifyConfig, updateDifyConfig as apiUpdateDifyConfig, getSystemSetting as apiGetSystemSetting, updateSystemSetting as apiUpdateSystemSetting } from '../../services/systemApi';
 
 const { Title, Paragraph } = Typography;
 
@@ -10,6 +10,7 @@ const Settings: React.FC = () => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [difyForm] = Form.useForm();
+  const [aiSocForm] = Form.useForm();
 
   useEffect(() => {
     (async () => {
@@ -25,8 +26,15 @@ const Settings: React.FC = () => {
           reportsDir: res?.config?.reportsDir || '',
         });
       } catch {}
+      
+      try {
+        const res = await apiGetSystemSetting('ai_soc_base_url');
+        aiSocForm.setFieldsValue({
+          baseUrl: res?.value || 'http://192.168.2.22:5173',
+        });
+      } catch {}
     })();
-  }, [difyForm]);
+  }, [difyForm, aiSocForm]);
 
   const handleSave = (values: any) => {
     console.log('设置已保存:', values);
@@ -81,6 +89,24 @@ const Settings: React.FC = () => {
           <Form.Item label="启用代理" name="enableProxy" valuePropName="checked"> <Switch /> </Form.Item>
           <Form.Item label="请求超时 (毫秒)" name="timeout"> <InputNumber min={1000} step={500} style={{ width: 260 }} /> </Form.Item>
           <Form.Item><Button type="primary" htmlType="submit">保存网络设置</Button></Form.Item>
+        </Form>
+      </Card>
+
+      <Card title={<span><GlobalOutlined /> AI SOC 配置</span>} style={{ marginBottom: 24 }}>
+        <Form form={aiSocForm} layout="vertical" style={{ maxWidth: 480 }} onFinish={async (values) => {
+          try {
+             await apiUpdateSystemSetting('ai_soc_base_url', String(values.baseUrl || '').trim());
+             message.success('AI SOC 配置已保存');
+          } catch (e: any) {
+             message.error(e?.message || '保存失败');
+          }
+        }}>
+          <Form.Item label="AI SOC 服务器地址" name="baseUrl" rules={[{ required: true, message: '请输入服务器地址' }]}>
+            <Input placeholder="http://192.168.2.22:5173" style={{ width: 360 }} />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit">保存 AI SOC 配置</Button>
+          </Form.Item>
         </Form>
       </Card>
 

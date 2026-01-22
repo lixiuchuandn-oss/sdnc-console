@@ -82,21 +82,40 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
     try {
       const { id } = req.params;
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
-      if (!ensureCsm(cloud, res, '仅支持 CSM')) return;
+      // if (!ensureCsm(cloud, res, '仅支持 CSM')) return;
       
+      // Find global CSM cloud
+      const repo = AppDataSource.getRepository(Cloud);
+      const allClouds = await repo.find();
+      const csmCloud = allClouds.find(c => {
+         const p = String((c as any)?.config?.provider || '').trim().toLowerCase();
+         return p === 'cloudmap.csm' || p.includes('csm'); 
+      });
+
+      if (!csmCloud) {
+          return res.status(500).json({ message: '未找到全局 CSM 控制器配置' });
+      }
+
       const config = {
-        endpoint: String(cloud.endpoint || '').trim(),
-        accessKey: String(cloud.accessKey || '').trim(),
-        secretKey: String(cloud.secretKey || '').trim(),
-        ignoreTls: !!((cloud as any)?.config?.ignoreTls)
+        endpoint: String(csmCloud.endpoint || '').trim(),
+        accessKey: String(csmCloud.accessKey || '').trim(),
+        secretKey: String(csmCloud.secretKey || '').trim(),
+        ignoreTls: !!((csmCloud as any)?.config?.ignoreTls)
       };
-      const queryObj: any = {};
-      if (req.query.page_size) queryObj.page_size = Number(req.query.page_size);
-      if (req.query.page_num) queryObj.page_num = Number(req.query.page_num);
-      const items = await listCsmVRPageList(config, queryObj);
-      res.json({ message: '查询成功', data: { items }, capabilities: { isCsm: true } });
+      
+      // Transparent Proxy to CSM VR1 Interface
+      const path = '/V2/ctcontrol/VR1/pagelist';
+      // Forward all query parameters directly, but exclude cache-busting '_t'
+      const queryObj = { ...req.query };
+      delete queryObj._t;
+      
+      // Call csmRequest directly to get raw response
+      const raw = await csmRequest(config, path, queryObj);
+      
+      // Return raw response without any wrapping or transformation
+      res.json(raw);
     } catch (error: any) {
-      console.error('CSM VR pagelist Route Error:', error);
+      console.error('CSM VR pagelist Proxy Error:', error);
       res.status(500).json({ message: 'CSM VR 列表查询失败', error: error.message });
     }
   });

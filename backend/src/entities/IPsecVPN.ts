@@ -25,15 +25,34 @@ export class IPsecVPN {
   })
   status!: IPsecStatus;
 
-  // VR Instance ID (Local Gateway)
+  // Local Network
   @Column()
   vrId!: string;
+
+  @Column({ nullable: true })
+  localVrName!: string;
+
+  @Column({ nullable: true })
+  localPublicIp!: string;
+
+  @Column({ nullable: true })
+  localPrivateIp!: string;
 
   @Column()
   localSubnet!: string;
 
+  // Remote Network
+  @Column({ nullable: true })
+  peerVrId!: string;
+
+  @Column({ nullable: true })
+  peerVrName!: string;
+
   @Column()
   remoteGateway!: string;
+
+  @Column({ nullable: true })
+  remotePrivateIp!: string;
 
   @Column()
   remoteSubnet!: string;
@@ -66,22 +85,6 @@ export class IPsecVPN {
   @Column({ type: 'boolean', default: true })
   dpd!: boolean;
   
-  @Column({ nullable: true })
-  peerVrId!: string;
-
-  // Cached IP Information
-  @Column({ nullable: true })
-  localPublicIp!: string;
-
-  @Column({ nullable: true })
-  localPrivateIp!: string;
-
-  @Column({ nullable: true })
-  peerPublicIp!: string;
-
-  @Column({ nullable: true })
-  peerPrivateIp!: string;
-
   @CreateDateColumn()
   createdAt!: Date;
 

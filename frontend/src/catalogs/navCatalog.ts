@@ -30,7 +30,7 @@ export type Group =
   | '态势中心' 
   | '数据预处理' 
   | '威胁综合分析' 
-  | '安全报告' 
+  | '报告管理' 
   | '全部';
 
 // 平台列表定义
@@ -61,7 +61,7 @@ export const GROUPS: Group[] = [
   '态势中心',
   '数据预处理',
   '威胁综合分析',
-  '安全报告'
+  '报告管理'
 ];
 
 export type RouteItem = {
@@ -79,7 +79,6 @@ export const ROUTE_CATALOG: RouteItem[] = [
 
   // 租户管理 (CNMC)
   { prefix: 'tenants', label: '租户管理', group: '租户管理', platform: 'CNMC' },
-  { prefix: 'tenants.leased-lines', label: '租户专线管理', group: '租户管理', platform: 'CNMC' },
   { prefix: 'tenants.users', label: '子用户管理', group: '租户管理', platform: 'CNMC' },
 
   // 权限管控 (CNMC)
@@ -124,6 +123,9 @@ export const ROUTE_CATALOG: RouteItem[] = [
   { prefix: 'security.traffic.protected-objects', label: '引流对象管理', group: '流量编排', platform: 'SDNCC' },
   { prefix: 'security.traffic.service-chains', label: '服务链编排', group: '流量编排', platform: 'SDNCC' },
   { prefix: 'security.traffic.policies', label: '引流策略管理', group: '流量编排', platform: 'SDNCC' },
+
+  // 报告管理 (CNSOC)
+  { prefix: 'tenants.leased-lines', label: '租户专线报告', group: '报告管理', platform: 'CNSOC' },
 ];
 
 /**

@@ -371,7 +371,10 @@ router.delete('/rbac/assignments/:id', async (req: any, res) => {
 export default router;
 
 // 批量上传告警日志（csv/xls/xlsx）
-const upload = multer({ storage: multer.memoryStorage() });
+const tempUploadsDir = path.join(process.cwd(), 'temp_uploads');
+if (!fs.existsSync(tempUploadsDir)) fs.mkdirSync(tempUploadsDir, { recursive: true });
+const upload = multer({ dest: tempUploadsDir });
+
 router.post('/upload-security-logs', upload.array('files', 50), async (req, res) => {
   try {
     const files = (req.files as Express.Multer.File[]) || [];
@@ -394,11 +397,28 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
     for (const f of files) {
       const base = decodeName(path.basename(f.originalname));
       const target = path.join(logsDir, base);
-      await fs.promises.writeFile(target, f.buffer);
+      // Move from temp to target (rename is atomic on same volume, fast)
+      // If rename fails (cross-device), copy and unlink
+      try {
+        await fs.promises.rename(f.path, target);
+      } catch (err: any) {
+        if (err.code === 'EXDEV') {
+            await fs.promises.copyFile(f.path, target);
+            await fs.promises.unlink(f.path);
+        } else {
+            throw err;
+        }
+      }
       saved.push({ fileName: base, size: f.size, target });
     }
     res.json({ ok: true, count: saved.length, files: saved });
   } catch (e: any) {
+    // Cleanup temp files on error
+    const files = (req.files as Express.Multer.File[]) || [];
+    for (const f of files) {
+      if (f.path) await fs.promises.unlink(f.path).catch(() => {});
+    }
+    console.error('Upload failed:', e);
     res.status(500).json({ message: '保存日志文件失败', error: String(e) });
   }
 });

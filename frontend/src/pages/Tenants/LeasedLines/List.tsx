@@ -193,7 +193,7 @@ const ListPage: React.FC<Props> = ({ onStartTask }) => {
     { title: '租户名称', dataIndex: 'tenantName', key: 'tenantName', sorter: (a, b) => String(a.tenantName).localeCompare(String(b.tenantName)), sortDirections: ['ascend','descend'] },
     { title: '地域', dataIndex: 'region', key: 'region', render: (_: any, r: TenantLeasedLine) => <Tag color="blue">{`${r.province}/${r.city}`}</Tag>, sorter: (a, b) => (String(a.province).localeCompare(String(b.province)) || String(a.city).localeCompare(String(b.city))), sortDirections: ['ascend','descend'] },
     { title: '运营商', dataIndex: 'operator', key: 'operator', render: (v: string) => <Tag color="geekblue">{v}</Tag>, sorter: (a, b) => String(a.operator).localeCompare(String(b.operator)), sortDirections: ['ascend','descend'] },
-    { title: '专线IP', dataIndex: 'ips', key: 'ips', render: (v: string) => <span>{v}</span>, sorter: (a, b) => String(a.ips || '').localeCompare(String(b.ips || '')), sortDirections: ['ascend','descend'] },
+    { title: '专线IP', dataIndex: 'ips', key: 'ips', width: 200, ellipsis: true, render: (v: string) => <span title={v}>{v}</span>, sorter: (a, b) => String(a.ips || '').localeCompare(String(b.ips || '')), sortDirections: ['ascend','descend'] },
     { title: '告警日志', dataIndex: 'hasLog', key: 'hasLog', render: (_: any, r: TenantLeasedLine) => r.hasLog ? <Tag color="green">已上传</Tag> : <Tag color="red">未上传</Tag>, sorter: (a, b) => Number(!!a.hasLog) - Number(!!b.hasLog), sortDirections: ['ascend','descend'] },
     { title: '日志文件', key: 'logFileInfo', render: (_: any, r: TenantLeasedLine) => {
       if (!r.logFileName) return '-';

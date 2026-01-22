@@ -79,6 +79,8 @@ export interface PageContainerProps<T = any> {
   tabBarExtraContent?: React.ReactNode;
   /** 默认隐藏的列 keys */
   defaultHiddenColumns?: string[];
+  /** 强制隐藏分隔线 */
+  hideDivider?: boolean;
 }
 
 const PageContainer = <T extends Record<string, any> = any>({
@@ -113,6 +115,7 @@ const PageContainer = <T extends Record<string, any> = any>({
   onTabChange,
   tabBarExtraContent,
   defaultHiddenColumns,
+  hideDivider,
 }: PageContainerProps<T>) => {
   const loc = useLocation();
   const { token } = theme.useToken();
@@ -296,7 +299,7 @@ const PageContainer = <T extends Record<string, any> = any>({
         </div>
       )}
       
-      {!hideHeader && !tabList && (
+      {!hideHeader && !tabList && !hideDivider && (
         <Divider style={{ margin: '0 0 16px 0' }} />
       )}
 
@@ -342,6 +345,7 @@ const PageContainer = <T extends Record<string, any> = any>({
               bordered
               size="middle"
               {...tableProps}
+              className={`page-container-table ${tableProps.className || ''}`}
               columns={filteredColumns || tableProps.columns}
               pagination={tableProps.pagination !== false ? {
                  size: 'default',

@@ -23,6 +23,22 @@ export const fetchVrRealtimeList = async (pageSize: number = 50, pageNum: number
   return res;
 };
 
+export const upsertVrCache = async (pageNum: number, pageSize: number, data: any) => {
+  const url = `${API_BASE_URL}/api/vr-cache/upsert`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ page_num: pageNum, page_size: pageSize, data }),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  const json = await res.json();
+  return json;
+};
+
 // 规范化为 { uuid, name } 列表，兼容常见字段
 export const normalizeVrRows = (rows: any[]): Array<{ uuid: string; name: string }> => {
   const list = Array.isArray(rows) ? rows : [];

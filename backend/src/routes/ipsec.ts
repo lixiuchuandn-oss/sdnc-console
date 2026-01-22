@@ -1,25 +1,15 @@
 import { Router } from 'express';
+import { In } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { IPsecVPN, IPsecStatus } from '../entities/IPsecVPN';
 import { VRConfig } from '../entities/VRConfig';
+import { SecurityDomain } from '../entities/SecurityDomain';
 import { vrController } from '../services/vrController';
 
 export const ipsecRoutes = Router();
 const repo = () => AppDataSource.getRepository(IPsecVPN);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
-
-// Helper to get config from DB
-const getVRConfigFromDB = async (uuid: string) => {
-  const record = await vrConfigRepo().findOne({ where: { uuid } });
-  if (!record) {
-    throw new Error(`VR config not found in database for UUID: ${uuid}`);
-  }
-  try {
-    return JSON.parse(record.config_json);
-  } catch (e) {
-    throw new Error(`Failed to parse VR config JSON for UUID: ${uuid}`);
-  }
-};
+const sdRepo = () => AppDataSource.getRepository(SecurityDomain);
 
 // Helper to save config to DB
 const saveVRConfigToDB = async (uuid: string, config: any) => {
@@ -40,6 +30,36 @@ const stripMeta = (obj: any) => {
   if (!obj || typeof obj !== 'object') return obj;
   const { msg, code, report_config_status, updateDate, createDate, _id, requestId, ...rest } = obj;
   return rest;
+};
+
+const sanitizeConfig = (config: any) => {
+  if (!config) return config;
+  
+  // Clean up ipv4_route
+  if (config.ipv4_route) {
+    // If it's not an array, or it's empty, delete it to avoid device errors
+    if (!Array.isArray(config.ipv4_route) || config.ipv4_route.length === 0) {
+      delete config.ipv4_route;
+    } else {
+      // Filter and fix format
+      const validRoutes = config.ipv4_route.filter((r: any) => r && typeof r.destination === 'string' && r.destination.trim() !== '');
+      
+      if (validRoutes.length === 0) {
+        delete config.ipv4_route;
+      } else {
+        config.ipv4_route = validRoutes.map((r: any) => {
+          const dest = r.destination.trim();
+          // If it looks like an IP but has no mask, append /32
+          if (dest && !dest.includes('/') && /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(dest)) {
+            console.log(`[IPSEC] Auto-fixing route destination: ${dest} -> ${dest}/32`);
+            return { ...r, destination: `${dest}/32` };
+          }
+          return r;
+        });
+      }
+    }
+  }
+  return config;
 };
 
 const getVRConfigFromDevice = async (uuid: string) => {
@@ -66,6 +86,27 @@ const getVrIps = (config: any) => {
   return { publicIp, privateIp };
 };
 
+// Helper for CIDR to Network
+const ipv4ToInt = (ip: string): number => {
+  const parts = ip.split('.').map(p => parseInt(p, 10));
+  if (parts.length !== 4 || parts.some(n => isNaN(n) || n < 0 || n > 255)) return NaN;
+  return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+};
+const intToIpv4 = (n: number): string => {
+  return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+};
+const cidrToNetwork = (cidr: string): string => {
+  const s = String(cidr || '').trim();
+  const [ip, maskStr] = s.split('/');
+  const mask = parseInt(maskStr || '', 10);
+  if (!ip || isNaN(mask) || mask < 0 || mask > 32) return s;
+  const ipInt = ipv4ToInt(ip);
+  if (isNaN(ipInt)) return s;
+  const maskInt = mask === 0 ? 0 : (~0 << (32 - mask)) >>> 0;
+  const networkInt = (ipInt & maskInt) >>> 0;
+  return `${intToIpv4(networkInt)}/${mask}`;
+};
+
 // Helper to format IPsec response
 const formatIPsecResponse = (
   id: string,
@@ -73,7 +114,8 @@ const formatIPsecResponse = (
   dev: any,  // Device config object
   vrId: string, // Explicit local VR ID
   localVrConfig?: any, // Full local VR config
-  peerVrConfig?: any   // Full peer VR config
+  peerVrConfig?: any,   // Full peer VR config
+  publicIpMap?: Map<string, string>
 ) => {
   const p = (devKeys: string[], dbKey: string) => {
     if (dev) {
@@ -90,11 +132,24 @@ const formatIPsecResponse = (
 
   const localIps = getVrIps(localVrConfig);
   const peerIps = getVrIps(peerVrConfig);
+  
+  // Resolve Peer VR ID
+  const peerVrId = str(p(['peer_vr_id'], 'peerVrId'));
 
   // Helper to prioritize DB value over extracted value
   const val = (dbVal: any, extractedVal: any) => {
     if (dbVal !== undefined && dbVal !== null && dbVal !== '') return String(dbVal);
     if (extractedVal !== undefined && extractedVal !== null && extractedVal !== '') return String(extractedVal);
+    return '';
+  };
+
+  const resolvePublicIp = (dbVal: any, extractedVal: any, targetVrId: string) => {
+    if (dbVal !== undefined && dbVal !== null && dbVal !== '') return String(dbVal);
+    if (extractedVal !== undefined && extractedVal !== null && extractedVal !== '') return String(extractedVal);
+    if (publicIpMap && targetVrId && publicIpMap.has(targetVrId)) {
+        const v = publicIpMap.get(targetVrId);
+        if (v) return v.split(',')[0];
+    }
     return '';
   };
 
@@ -120,17 +175,19 @@ const formatIPsecResponse = (
     
     local: {
       vrId: str(vrId),
+      vrName: str(base.localVrName),
       subnet: str(p(['local_subnet', 'traffic_selectors_local'], 'localSubnet')),
-      publicIp: val(base.localPublicIp, localIps.publicIp),
+      publicIp: resolvePublicIp(base.localPublicIp, localIps.publicIp, vrId),
       privateIp: val(base.localPrivateIp, localIps.privateIp),
     },
     
     peer: {
-      vrId: str(p(['peer_vr_id'], 'peerVrId')),
+      vrId: peerVrId,
+      vrName: str(base.peerVrName),
       gateway: str(p(['remote_gateway', 'ike_remote_ip', 'remote_public_ip'], 'remoteGateway')),
       subnet: str(p(['remote_subnet', 'traffic_selectors_remote'], 'remoteSubnet')),
-      publicIp: val(base.peerPublicIp, peerIps.publicIp),
-      privateIp: val(base.peerPrivateIp, peerIps.privateIp),
+      publicIp: resolvePublicIp(base.remoteGateway, peerIps.publicIp, peerVrId),
+      privateIp: val(base.remotePrivateIp, peerIps.privateIp),
     }
   };
 };
@@ -157,6 +214,18 @@ ipsecRoutes.get('/', async (req, res, next) => {
     });
     if (vrId) vrIds.add(String(vrId));
 
+    // Fetch SecurityDomains
+    const sds = await sdRepo().find({ 
+        where: { vrUuid: In(Array.from(vrIds)) },
+        select: ['vrUuid', 'vrPublicIp']
+    });
+    const publicIpMap = new Map<string, string>();
+    sds.forEach(sd => {
+        if (sd.vrUuid && sd.vrPublicIp) {
+             publicIpMap.set(sd.vrUuid, sd.vrPublicIp);
+        }
+    });
+
     const deviceConfigByVr: Record<string, any> = {};
     for (const id of vrIds) {
       try {
@@ -175,7 +244,7 @@ ipsecRoutes.get('/', async (req, res, next) => {
       
       const peerCfg = row.peerVrId ? deviceConfigByVr[row.peerVrId] : undefined;
       
-      merged.push(formatIPsecResponse(row.id, row, dev, row.vrId, localCfg, peerCfg));
+      merged.push(formatIPsecResponse(row.id, row, dev, row.vrId, localCfg, peerCfg, publicIpMap));
     }
 
     // 2. Add Device-only rows (only for requested vrId or all if generic)
@@ -195,7 +264,7 @@ ipsecRoutes.get('/', async (req, res, next) => {
           // For device-only, we might not know peerVrId easily unless we infer it. 
           // But usually device-only means it's not in DB.
           // We can try to guess peerVrId if we want, but for now leave it empty.
-          merged.push(formatIPsecResponse(generatedId, { createdAt: new Date() }, dev, id, localCfg));
+          merged.push(formatIPsecResponse(generatedId, { createdAt: new Date() }, dev, id, localCfg, undefined, publicIpMap));
         }
       }
     }
@@ -234,68 +303,95 @@ ipsecRoutes.get('/device', async (req, res, next) => {
 
 // Create IPsec VPN
 ipsecRoutes.post('/', async (req, res, next) => {
+  const isStream = String(req.query.stream || '') === '1';
+  if (isStream) {
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+  }
+
+  const sendProgress = (step: number, message: string) => {
+    if (isStream) {
+      res.write(JSON.stringify({ type: 'progress', step, message }) + '\n');
+    }
+  };
+
+  const sendError = (code: number, message: string) => {
+    if (isStream) {
+      res.write(JSON.stringify({ type: 'error', code, message }) + '\n');
+      res.end();
+    } else {
+      res.status(code).json({ message });
+    }
+  };
+
   try {
     console.log('[IPSEC] Create payload:', req.body);
     const { 
       name, description, vrId, localSubnet, remoteGateway, remoteSubnet, 
-      psk, ikeVersion, encryption, authentication, dhGroup, pfs, mode, natTraversal, dpd, peerVrId
+      psk, ikeVersion, encryption, authentication, dhGroup, pfs, mode, natTraversal, dpd, peerVrId,
+      localVrName, peerVrName
     } = req.body || {};
 
     if (!name || !vrId || !localSubnet || !remoteGateway || !remoteSubnet || !psk) {
-      res.status(400).json({ message: 'Missing required fields' });
+      sendError(400, 'Missing required fields');
       return;
     }
 
+    sendProgress(1, '开始下发本端VR配置');
+
     const skipPush = String(process.env.SKIP_VR_PUSH || '').trim() === '1';
+    // 1. Get current config from Device (or DB if device fails?)
+    // Actually we should get from device to be safe, or DB if we are source of truth.
+    // For now, let's try device first.
     let currentConfig: any;
     let peerConfig: any;
     try {
+      console.log(`[IPSEC] Fetching config for VR: ${vrId}`);
       currentConfig = await getVRConfigFromDevice(vrId);
+      console.log(`[IPSEC] Config fetched for VR: ${vrId}`);
     } catch (err: any) {
-      if (skipPush) {
-        try {
-          currentConfig = await getVRConfigFromDB(vrId);
-        } catch {
-          currentConfig = {};
-        }
+      if (err.message && err.message.includes('404')) {
+        console.log(`[IPSEC] VR config not found on device, starting fresh for ${vrId}`);
+        currentConfig = { ipsec: [] };
       } else {
-        res.status(500).json({ message: `无法查询设备现有配置，已终止下发以避免覆盖: ${err.message}` });
+        console.error(`[IPSEC] Failed to fetch current VR config`, err);
+        sendError(500, `Failed to fetch current VR config: ${err.message}`);
         return;
       }
     }
     if (!skipPush) {
       const cleanBase = stripMeta(currentConfig);
+      // Removed DB fallback logic as per user request to avoid reviving stale config
       if (!cleanBase || Object.keys(cleanBase).length === 0) {
-        try {
-          const dbCfg = await getVRConfigFromDB(vrId);
-          if (dbCfg && Object.keys(dbCfg).length) {
-            currentConfig = dbCfg;
-          } else {
-            res.status(409).json({ message: '设备与数据库配置均为空，拒绝下发以避免覆盖，请先回读/保存标准配置' });
-            return;
-          }
-        } catch {
-          res.status(409).json({ message: '设备配置为空且无法读取数据库配置，拒绝下发以避免覆盖' });
-          return;
-        }
+          // If device config is empty, we proceed with it as empty base.
+          // Do NOT fetch from DB.
+          console.log(`[IPSEC] Device config is empty for ${vrId}, proceeding with fresh config.`);
       }
     }
     const originalConfig = JSON.parse(JSON.stringify(stripMeta(currentConfig)));
 
     const newIpsecItem: any = {
-      name,
-      description,
-      local_subnet: localSubnet,
-      remote_gateway: remoteGateway,
-      remote_subnet: remoteSubnet,
-      psk,
-      ike_version: ikeVersion,
-      encryption_algorithm: encryption,
-      authentication_algorithm: authentication,
-      dh_group: dhGroup,
-      pfs,
-      mode,
-      peer_vr_id: peerVrId
+      ID: name, // 使用 ID 字段
+      ike_local_ip: req.body.localPublicIp, // 应该从 body 获取或计算
+      ike_remote_ip: remoteGateway,
+      ike_dpd_delay: 10,
+      ike_dpd_timeout: 30,
+
+      ike_proposal_local: vrId,
+      ike_proposal_remote: {
+        remote_id: peerVrId || 'unknown',
+        pre_shared_key: psk,
+        pubkey: 'pre-shared-key'
+      },
+      traffic_selectors_local: cidrToNetwork(localSubnet),
+      traffic_selectors_remote: cidrToNetwork(remoteSubnet),
+
+      sa_dpd_action: 'restart',
+      sa_esp_proposals: encryption === 'aes-256' ? 'aes256-sha256-modp3072' : 'aes128-sha256-modp3072',
+      'sa-initiate': 'true',
+      'sa-terminate': 'false'
     };
     if (typeof natTraversal !== 'undefined') newIpsecItem.nat_traversal = !!natTraversal;
     if (typeof dpd !== 'undefined') newIpsecItem.dpd = !!dpd;
@@ -304,6 +400,11 @@ ipsecRoutes.post('/', async (req, res, next) => {
       currentConfig.ipsec = [];
     } else if (!Array.isArray(currentConfig.ipsec)) {
       currentConfig.ipsec = [];
+    } else {
+      // Remove existing item with same ID/name to avoid duplicates
+      currentConfig.ipsec = currentConfig.ipsec.filter((item: any) => 
+        String(item.ID || item.name || item.ipsec_name) !== String(name)
+      );
     }
     
     currentConfig.ipsec.push(newIpsecItem);
@@ -311,52 +412,83 @@ ipsecRoutes.post('/', async (req, res, next) => {
     const beforeClean = { ...originalConfig }; delete (beforeClean as any).ipsec;
     const afterClean = { ...stripMeta(currentConfig) }; delete (afterClean as any).ipsec;
     if (JSON.stringify(beforeClean) !== JSON.stringify(afterClean)) {
-      res.status(409).json({ message: '配置异常：非IPsec字段发生变化，已终止下发' });
+      sendError(409, '配置异常：非IPsec字段发生变化，已终止下发');
       return;
     }
 
     if (!skipPush) {
       try {
-        const cleanConfig = stripMeta(currentConfig);
-        await vrController.updateVRConfig(vrId, cleanConfig);
+        const cleanConfig = sanitizeConfig(stripMeta(currentConfig));
+        console.log(`[IPSEC] Pushing config to VR: ${vrId}`);
+        const updateResp = await vrController.updateVRConfig(vrId, cleanConfig);
+        console.log(`[IPSEC] Push response for VR ${vrId}:`, updateResp);
+        if (updateResp && typeof updateResp.code !== 'undefined' && updateResp.code != 0 && updateResp.code != 200) {
+          throw new Error(`Device returned error: ${updateResp.msg || updateResp.message || JSON.stringify(updateResp)}`);
+        }
         await saveVRConfigToDB(vrId, currentConfig);
+        sendProgress(2, '本端VR配置下发成功');
       } catch (err: any) {
         console.error(`[IPSEC] Failed to update local VR config`, { vrId, name }, err);
-        res.status(500).json({ message: `Failed to apply configuration to VR(${vrId}): ${err.message}` });
+        sendError(500, `Failed to apply configuration to VR(${vrId}): ${err.message}`);
         return;
       }
     } else {
       await saveVRConfigToDB(vrId, currentConfig);
+      sendProgress(2, '本端VR配置已保存 (Skip Push)');
     }
 
     if (peerVrId) {
+      sendProgress(3, '开始下发对端VR配置');
       try {
-        peerConfig = await getVRConfigFromDevice(peerVrId);
-        if (!peerConfig || !Object.keys(peerConfig).length) {
-          peerConfig = await getVRConfigFromDB(peerVrId);
+        try {
+          peerConfig = await getVRConfigFromDevice(peerVrId);
+        } catch (err: any) {
+          if (err.message && err.message.includes('404')) {
+            console.log(`[IPSEC] Peer VR config not found on device, using empty default for ${peerVrId}`);
+            peerConfig = { ipsec: [] };
+          } else {
+             throw err;
+          }
         }
+
+        // Only fallback to DB if device fetch FAILED (which is handled by catch above usually)
+        // or if we really want to trust DB when device is empty?
+        // NO. If device returns empty, we should trust it, otherwise we revive deleted garbage from DB.
+        // So we REMOVE the fallback logic that was here:
+        // if (!peerConfig || !Object.keys(peerConfig).length) { peerConfig = await getVRConfigFromDB(peerVrId); }
         
-        const localPublicIp = (currentConfig?.ipsec_preset && currentConfig.ipsec_preset.public_ip) ? String(currentConfig.ipsec_preset.public_ip) : undefined;
-        const peerPublicIp = (peerConfig?.ipsec_preset && peerConfig.ipsec_preset.public_ip) ? String(peerConfig.ipsec_preset.public_ip) : undefined;
+        if (!peerConfig) peerConfig = { ipsec: [] };
+        
+        // Use passed localPublicIp or fallback to local preset public_ip
+        const localPublicIp = req.body.localPublicIp || ((currentConfig?.ipsec_preset && currentConfig.ipsec_preset.public_ip) ? String(currentConfig.ipsec_preset.public_ip) : undefined);
+        const peerPublicIp = req.body.peerPublicIp || ((peerConfig?.ipsec_preset && peerConfig.ipsec_preset.public_ip) ? String(peerConfig.ipsec_preset.public_ip) : undefined);
         
         if (!localPublicIp) {
-          throw new Error(`Local VR missing public_ip in ipsec_preset. Config keys: ${Object.keys(currentConfig || {})}`);
+          console.warn(`Local VR missing public_ip in ipsec_preset. Config keys: ${Object.keys(currentConfig || {})}`);
+          sendError(400, '无法获取本端公网IP（Local Public IP），导致无法生成对端配置。请在请求中显式提供 localPublicIp 或确保本端 VR 已配置预设 IP。');
+          return;
         }
         
         const peerIpsecItem: any = {
-          name,
-          description,
-          local_subnet: remoteSubnet,
-          remote_gateway: localPublicIp,
-          remote_subnet: localSubnet,
-          psk,
-          ike_version: ikeVersion,
-          encryption_algorithm: encryption,
-          authentication_algorithm: authentication,
-          dh_group: dhGroup,
-          pfs,
-          mode,
-          peer_vr_id: vrId
+          ID: name,
+          ike_local_ip: peerPublicIp || remoteGateway,
+          ike_remote_ip: localPublicIp,
+          ike_dpd_delay: 10,
+          ike_dpd_timeout: 30,
+
+          ike_proposal_local: peerVrId,
+          ike_proposal_remote: {
+            remote_id: vrId,
+            pre_shared_key: psk,
+            pubkey: 'pre-shared-key'
+          },
+          traffic_selectors_local: cidrToNetwork(remoteSubnet),
+          traffic_selectors_remote: cidrToNetwork(localSubnet),
+
+          sa_dpd_action: 'restart',
+          sa_esp_proposals: encryption === 'aes-256' ? 'aes256-sha256-modp3072' : 'aes128-sha256-modp3072',
+          'sa-initiate': 'true',
+          'sa-terminate': 'false'
         };
         if (typeof natTraversal !== 'undefined') peerIpsecItem.nat_traversal = !!natTraversal;
         if (typeof dpd !== 'undefined') peerIpsecItem.dpd = !!dpd;
@@ -365,28 +497,40 @@ ipsecRoutes.post('/', async (req, res, next) => {
           peerConfig.ipsec = [];
         } else if (!Array.isArray(peerConfig.ipsec)) {
           peerConfig.ipsec = [];
+        } else {
+          // Remove existing item with same ID/name to avoid duplicates
+          peerConfig.ipsec = peerConfig.ipsec.filter((item: any) => 
+            String(item.ID || item.name || item.ipsec_name) !== String(name)
+          );
         }
         peerConfig.ipsec.push(peerIpsecItem);
 
-        const cleanPeerConfig = stripMeta(peerConfig);
-        await vrController.updateVRConfig(peerVrId, cleanPeerConfig);
+        const cleanPeerConfig = sanitizeConfig(stripMeta(peerConfig));
+        console.log(`[IPSEC] Pushing config to peer VR: ${peerVrId}`, JSON.stringify(cleanPeerConfig));
+        const peerUpdateResp = await vrController.updateVRConfig(peerVrId, cleanPeerConfig);
+        console.log(`[IPSEC] Push response for peer VR ${peerVrId}:`, peerUpdateResp);
+        if (peerUpdateResp && typeof peerUpdateResp.code !== 'undefined' && peerUpdateResp.code != 0 && peerUpdateResp.code != 200) {
+          throw new Error(`Device returned error: ${peerUpdateResp.msg || peerUpdateResp.message || JSON.stringify(peerUpdateResp)}`);
+        }
         await saveVRConfigToDB(peerVrId, peerConfig);
+        sendProgress(4, '对端VR配置下发成功');
       } catch (err: any) {
         console.error(`[IPSEC] Failed to apply configuration to peer VR`, { peerVrId, name }, err);
-        res.status(500).json({ message: `Failed to apply configuration to peer VR(${peerVrId}): ${err.message}` });
+        sendError(500, `Failed to apply configuration to peer VR(${peerVrId}): ${err.message}`);
         return;
       }
     }
 
     // Extract IPs for storage
     const localIps = getVrIps(currentConfig);
-    const peerIps = peerVrId ? getVrIps(peerConfig) : { publicIp: '', privateIp: '' };
 
     const item = repo().create({
       name,
       description,
       vrId,
+      localVrName,
       peerVrId,
+      peerVrName,
       localSubnet,
       remoteGateway,
       remoteSubnet,
@@ -400,11 +544,10 @@ ipsecRoutes.post('/', async (req, res, next) => {
       natTraversal: !!natTraversal,
       dpd: typeof dpd === 'undefined' ? true : !!dpd,
       status: IPsecStatus.ACTIVE,
-      // Store IPs
-      localPublicIp: localIps.publicIp,
-      localPrivateIp: localIps.privateIp,
-      peerPublicIp: peerIps.publicIp,
-      peerPrivateIp: peerIps.privateIp
+      // Use user input first for local public IP
+      localPublicIp: req.body.localPublicIp || localIps.publicIp,
+      localPrivateIp: req.body.localInterfaceIp,
+      remotePrivateIp: req.body.remoteInterfaceIp,
     });
 
     const saved = await repo().save(item);
@@ -418,9 +561,20 @@ ipsecRoutes.post('/', async (req, res, next) => {
       peerConfig
     );
 
-    res.status(201).json(formatted);
-  } catch (e) {
-    next(e);
+    sendProgress(5, '结束');
+    
+    if (isStream) {
+      res.write(JSON.stringify({ type: 'result', data: formatted }) + '\n');
+      res.end();
+    } else {
+      res.status(201).json(formatted);
+    }
+  } catch (e: any) {
+    if (!isStream && !res.headersSent) next(e);
+    else if (isStream && !res.writableEnded) {
+       res.write(JSON.stringify({ type: 'error', code: 500, message: e.message }) + '\n');
+       res.end();
+    }
   }
 });
 
@@ -447,7 +601,9 @@ ipsecRoutes.delete('/:id', async (req, res, next) => {
       const targetName = item ? item.name : String(composite!.name);
       let currentConfig = await getVRConfigFromDevice(targetVrId);
       if (!currentConfig || !Object.keys(currentConfig).length) {
-        currentConfig = await getVRConfigFromDB(targetVrId);
+        // Removed DB fallback. If device config is empty, there is nothing to delete.
+        console.log(`[IPSEC] Device config empty for ${targetVrId}, skipping delete from device.`);
+        currentConfig = { ipsec: [] };
       }
 
       if (currentConfig.ipsec && Array.isArray(currentConfig.ipsec)) {
@@ -466,7 +622,11 @@ ipsecRoutes.delete('/:id', async (req, res, next) => {
 
     if (item && item.peerVrId) {
       try {
-        const peerConfig = await getVRConfigFromDB(item.peerVrId);
+        let peerConfig = await getVRConfigFromDevice(item.peerVrId);
+        if (!peerConfig || !Object.keys(peerConfig).length) {
+             console.log(`[IPSEC] Device config empty for peer ${item.peerVrId}, skipping delete.`);
+             peerConfig = { ipsec: [] };
+        }
         
         if (peerConfig.ipsec && Array.isArray(peerConfig.ipsec)) {
           const initialLength = peerConfig.ipsec.length;

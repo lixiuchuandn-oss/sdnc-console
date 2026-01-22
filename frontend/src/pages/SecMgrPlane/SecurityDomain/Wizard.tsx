@@ -3,7 +3,7 @@ import { Button, Card, Divider, Form, Input, Radio, Row, Col, Select, Space, Ste
 import { ArrowLeftOutlined, UserOutlined, ReloadOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { fetchSaseGateways } from '../../../services/api';
+import { fetchTenantVRs } from '../../../services/api';
 import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchHuaweiPorts, fetchCloudProviderSubnetsByVpc, fetchTenants, fetchOrganizationsByTenant, fetchOrganizationResourcePools } from '../../../services/api';
 import { createSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 
@@ -54,7 +54,7 @@ const SecurityDomainWizardPage: React.FC = () => {
   const loadVRList = async () => {
     setVrLoading(true);
     try {
-      const res = await fetchSaseGateways();
+      const res = await fetchTenantVRs();
       const list = (res?.items || res?.data || res?.list || []) as any[];
       const opts: VRRowOpt[] = list.map((item: any) => ({
         uuid: item.uuid || item.vr_unique_id || item.id || '',

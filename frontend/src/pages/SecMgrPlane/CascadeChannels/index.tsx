@@ -17,7 +17,7 @@ import {
   SearchOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { fetchCens, createCen, deleteCen, attachVpcToCen, fetchTenants, fetchCenAttachments, detachVpcFromCen, fetchCloudProviderVpcs, fetchClouds, updateCen } from '../../../services/api';
+import { fetchCens, createCen, deleteCen, attachVpcToCen, fetchTenants, fetchCenAttachments, detachVpcFromCen, fetchCloudProviderVpcs, fetchClouds, updateCen, fetchServices } from '../../../services/api';
 import { getDomainClass, netClassLabel, netClassColor } from '../../../utils/netClass';
 import { listSecurityDomains } from '../../../services/securityDomainApi';
 
@@ -91,9 +91,8 @@ const CenPage: React.FC = () => {
   const [attachmentCache, setAttachmentCache] = useState<{[k:string]:any[]}>({});
   const [filterForm] = Form.useForm();
 
-  const [vpcTotal,setVpcTotal]=useState(0);
-  const [attachedVpc,setAttachedVpc]=useState(0);
-  const [attachedVpcUnique,setAttachedVpcUnique]=useState(0);
+  const [appTotal, setAppTotal] = useState(0);
+  const [appRunning, setAppRunning] = useState(0);
   const [domainTotal,setDomainTotal]=useState(0);
   const [attachedDomain,setAttachedDomain]=useState(0);
   const [attachedDomainUnique,setAttachedDomainUnique]=useState(0);
@@ -135,27 +134,14 @@ const CenPage: React.FC = () => {
       setPlaneActive(activePlanes);
 
       try {
-        const clouds = await fetchClouds();
-        const arr = await Promise.all((Array.isArray(clouds) ? clouds : []).map((c:any)=> fetchCloudProviderVpcs(String(c.id)).catch(()=>[])));
-        const flat = ([] as any[]).concat(...arr.map((res:any)=> {
-          const raw = res?.data || res || [];
-          if (Array.isArray(raw)) return raw;
-          if (Array.isArray((raw as any)?.Vpcs)) return (raw as any).Vpcs;
-          if (Array.isArray((raw as any)?.vpcs)) return (raw as any).vpcs;
-          if (Array.isArray((raw as any)?.Vpc)) return (raw as any).Vpc;
-          if (Array.isArray((raw as any)?.list)) return (raw as any).list;
-          if (Array.isArray((raw as any)?.items)) return (raw as any).items;
-          if (Array.isArray((res as any)?.data?.Vpcs?.Vpc)) return (res as any)?.data?.Vpcs?.Vpc;
-          if (Array.isArray((res as any)?.data?.vpcs)) return (res as any)?.data?.vpcs;
-          if (Array.isArray((res as any)?.data?.items)) return (res as any)?.data?.items;
-          return [];
-        }));
-        setVpcTotal(flat.length);
+        const apps = await fetchServices();
+        const list = Array.isArray(apps) ? apps : [];
+        setAppTotal(list.length);
+        setAppRunning(list.filter((a:any) => (a.status || 'running') === 'running').length);
       } catch {
-        setVpcTotal(0);
+        setAppTotal(0);
+        setAppRunning(0);
       }
-      setAttachedVpc(attachedTimes);
-      setAttachedVpcUnique(attachedVpcSet.size);
       try{
         const domains = await listSecurityDomains();
         const opts: any[] = Array.isArray(domains) ? domains : [];
@@ -339,7 +325,7 @@ const CenPage: React.FC = () => {
           <Col xs={24} sm={12} md={6}><MetricCard title="级联通道" total={planeTotal} unit="个" used={planeActive} midLabel="未生效" midValue={planeTotal-planeActive} usedLabel="生效" mainColor="#1677ff" /></Col>
           <Col xs={24} sm={12} md={6}><MetricCard title="活跃通道" total={cens.length} unit="个" used={cens.filter(c=>c.status==='available').length} midLabel="创建中" midValue={cens.filter(c=>c.status==='creating').length} usedLabel="可用" mainColor="#1677ff" /></Col>
           <Col xs={24} sm={12} md={6}><MetricCard title="安全域" total={domainTotal} unit="个" used={attachedDomainUnique} midLabel="未挂载" midValue={domainTotal-attachedDomainUnique} usedLabel="已挂载" mainColor="#1677ff" /></Col>
-          <Col xs={24} sm={12} md={6}><MetricCard title="云端VPC" total={vpcTotal} unit="个" used={attachedVpcUnique} midLabel="未挂载" midValue={vpcTotal-attachedVpcUnique} usedLabel="已挂载" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="应用数量" total={appTotal} unit="个" used={appRunning} midLabel="未运行" midValue={appTotal-appRunning} usedLabel="运行中" mainColor="#1677ff" /></Col>
         </Row>
       )}
       toolbarLeft={(

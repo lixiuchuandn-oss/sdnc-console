@@ -81,18 +81,6 @@ export const routeSpecs: RouteSpec[] = [
     parentId: 'tenants-list',
   },
   {
-    id: 'leased-lines',
-    path: '/admin/tenants/leased-lines',
-    element: 'TenantLeasedLinesPage',
-    layout: 'admin',
-    platform: 'CNMC',
-    group: '租户管理',
-    title: '租户专线管理',
-    subtitle: '一站式管理租户专线IP；支持多维筛选/全列排序与批量操作；联动安全报告任务（进度跟踪、下载/取消/删除）；提供CSV导入与日志文件管理。',
-    icon: 'BarChartOutlined',
-    order: 2
-  },
-  {
     id: 'tenant-users',
     path: '/admin/tenants/users',
     element: 'Users',
@@ -393,30 +381,57 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNSOC',
     group: '态势中心',
     title: 'AI SOC总览',
+    subtitle: '全网安全态势的实时监控与可视化大屏',
     icon: 'RadarChartOutlined',
     order: 10
   },
   {
-    id: 'aisoc-preprocessing-raw',
-    path: '/admin/aisoc/preprocessing/raw',
-    element: 'AiSocPlaceholder',
+    id: 'aisoc-data-source',
+    path: '/admin/aisoc/data-source',
+    element: 'AiSocFrame',
     layout: 'admin',
     platform: 'CNSOC',
     group: '数据预处理',
-    title: '原始数据预览',
+    title: '数据源配置',
+    subtitle: '配置和管理安全日志数据的采集来源与接入方式',
     icon: 'DatabaseOutlined',
     order: 10
   },
   {
-    id: 'aisoc-preprocessing-rules',
-    path: '/admin/aisoc/preprocessing/rules',
-    element: 'AiSocPlaceholder',
+    id: 'aisoc-raw-logs',
+    path: '/admin/aisoc/raw-logs',
+    element: 'AiSocFrame',
+    layout: 'admin',
+    platform: 'CNSOC',
+    group: '数据预处理',
+    title: '原始数据预览',
+    subtitle: '查看未经处理的原始安全日志数据流',
+    icon: 'FileTextOutlined',
+    order: 20
+  },
+  {
+    id: 'aisoc-preprocess-rule',
+    path: '/admin/aisoc/preprocess-rule',
+    element: 'AiSocFrame',
     layout: 'admin',
     platform: 'CNSOC',
     group: '数据预处理',
     title: '预处理规则',
+    subtitle: '定义日志数据的清洗、标准化与富化规则',
+    icon: 'CodeOutlined',
+    order: 30
+  },
+  {
+    id: 'aisoc-processed-logs',
+    path: '/admin/aisoc/processed-logs',
+    element: 'AiSocFrame',
+    layout: 'admin',
+    platform: 'CNSOC',
+    group: '数据预处理',
+    title: '预处理后数据',
+    subtitle: '查询经过预处理和标准化的安全日志数据',
     icon: 'FileTextOutlined',
-    order: 20
+    order: 40
   },
   {
     id: 'aisoc-analysis-events',
@@ -426,6 +441,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNSOC',
     group: '威胁综合分析',
     title: '威胁事件分析',
+    subtitle: '基于规则和模型识别出的安全威胁事件',
     icon: 'SafetyCertificateOutlined',
     order: 10
   },
@@ -437,18 +453,32 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNSOC',
     group: '威胁综合分析',
     title: 'ATT&CK框架分析',
+    subtitle: '基于 MITRE ATT&CK 框架的攻击战术与技术分析',
     icon: 'FundProjectionScreenOutlined',
     order: 20
   },
   {
-    id: 'aisoc-reports-download',
-    path: '/admin/aisoc/reports/download',
-    element: 'AiSocPlaceholder',
+    id: 'aisoc-report',
+    path: '/admin/aisoc/report',
+    element: 'AiSocFrame',
     layout: 'admin',
     platform: 'CNSOC',
-    group: '安全报告',
-    title: '报告下载',
+    group: '报告管理',
+    title: '安全报告',
+    subtitle: '生成并下载安全运营日报、周报及月报',
     icon: 'CloudDownloadOutlined',
     order: 10
+  },
+  {
+    id: 'leased-lines',
+    path: '/admin/aisoc/leased-lines',
+    element: 'TenantLeasedLinesPage',
+    layout: 'admin',
+    platform: 'CNSOC',
+    group: '报告管理',
+    title: '租户专线报告',
+    subtitle: '一站式管理租户专线IP；支持多维筛选/全列排序与批量操作；联动安全报告任务（进度跟踪、下载/取消/删除）；提供CSV导入与日志文件管理。',
+    icon: 'BarChartOutlined',
+    order: 20
   }
 ];

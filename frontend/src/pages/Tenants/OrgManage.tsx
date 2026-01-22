@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Tree, Typography, Descriptions, Transfer } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Tree, Typography, Descriptions, Transfer, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -9,7 +9,7 @@ import StdSideDrawer from '../../components/StdSideDrawer';
 import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
 import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
-import { fetchSaseGateways } from '../../services/api';
+import { fetchTenantVRs } from '../../services/api';
 
 const { TextArea } = Input;
 
@@ -241,6 +241,20 @@ const OrgManagePage: React.FC = () => {
     fetchTenantRoles();
   }, [tenantId]);
 
+  const fetchSdnVrs = async () => {
+    if (!selectedOrg?.id || !tenantId) return;
+    try {
+      setSdnVrLoading(true);
+      const res = await fetchTenantVRs({ tenantId: String(tenantId), organizationId: selectedOrg.id });
+      const items = Array.isArray((res as any)?.items) ? (res as any).items : (Array.isArray(res) ? res : []);
+      setSdnVrs(items);
+    } catch {
+      setSdnVrs([]);
+    } finally {
+      setSdnVrLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!selectedOrg?.id) return;
     if (!tenantId) return;
@@ -262,18 +276,7 @@ const OrgManagePage: React.FC = () => {
         setSecurityLoading(false);
       }
     })();
-    (async () => {
-      try {
-        setSdnVrLoading(true);
-        const res = await fetchSaseGateways({ tenantId: String(tenantId), organizationId: selectedOrg.id });
-        const items = Array.isArray((res as any)?.items) ? (res as any).items : (Array.isArray(res) ? res : []);
-        setSdnVrs(items);
-      } catch {
-        setSdnVrs([]);
-      } finally {
-        setSdnVrLoading(false);
-      }
-    })();
+    fetchSdnVrs();
   }, [selectedOrg?.id, tenantId]);
 
   useEffect(() => {
@@ -852,12 +855,36 @@ const OrgManagePage: React.FC = () => {
                             { title: 'VR唯一ID', dataIndex: 'vr_unique_id', key: 'vr_unique_id', ellipsis: true },
                             { title: '租户ID', dataIndex: 'tenant_id', key: 'tenant_id', ellipsis: true },
                             { title: '组织ID', dataIndex: 'org_id', key: 'org_id', ellipsis: true },
-                            { title: '绑定状态', dataIndex: 'bind_status', key: 'bind_status', render: (v: string) => {
+                            { title: '绑定状态', dataIndex: 'bind_status', key: 'bind_status', render: (v: string, r: any) => {
+                              if (r.is_deleted) return <Tag color="error">CSM已删除</Tag>;
                               if (!v) return <Tag>未知</Tag>;
                               if (v === 'BOUND') return <Tag color="green">已绑定</Tag>;
                               if (v === 'UNBOUND') return <Tag color="default">未绑定</Tag>;
                               return <Tag color="orange">{v}</Tag>;
-                            } }
+                            } },
+                            {
+                              title: '操作',
+                              key: 'action',
+                              width: 100,
+                              render: (_: any, r: any) => (
+                                <Button type="link" danger size="small" onClick={() => {
+                                  Modal.confirm({
+                                    title: '确认删除',
+                                    content: '确定要删除该VR绑定记录吗？',
+                                    onOk: async () => {
+                                      try {
+                                        const token = localStorage.getItem('token');
+                                        await axios.delete(`/api/vr-config/${r.uuid}`, { headers: { Authorization: `Bearer ${token}` } });
+                                        message.success('删除成功');
+                                        fetchSdnVrs();
+                                      } catch (e) {
+                                        message.error('删除失败');
+                                      }
+                                    }
+                                  });
+                                }}>删除</Button>
+                              )
+                            }
                           ]}
                         />
                       )}

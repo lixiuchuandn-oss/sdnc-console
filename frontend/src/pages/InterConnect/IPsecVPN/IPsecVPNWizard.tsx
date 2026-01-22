@@ -3,9 +3,8 @@ import { Button, Card, Col, Descriptions, Divider, Form, Input, Radio, Row, Sele
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { vrApi } from '../../../services/vrApi';
-import { getVRConfig } from '../../../services/vrConfigApi';
-import { createIPsecVPN } from '../../../services/api';
-import { ReloadOutlined } from '@ant-design/icons';
+import { createIPsecVPN, API_BASE_URL } from '../../../services/api';
+import { ReloadOutlined, CheckCircleOutlined, LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
 // Tabs 用于配置预览，保持与 SRv6 创建页一致
@@ -24,6 +23,21 @@ const IPsecVPNWizard: React.FC = () => {
   const [peerPreset, setPeerPreset] = useState<any>(null);
   const [localPresetAvailable, setLocalPresetAvailable] = useState<boolean>(false);
   const [useLocalPreset, setUseLocalPreset] = useState<boolean>(false);
+  const [progressSteps, setProgressSteps] = useState([
+    { status: 'wait', description: '开始下发本端VR配置' },
+    { status: 'wait', description: '本端VR配置下发成功' },
+    { status: 'wait', description: '开始下发对端VR配置' },
+    { status: 'wait', description: '对端VR配置下发成功' },
+    { status: 'wait', description: '结束' },
+  ]);
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    };
+  };
 
   const ipv4ToInt = (ip: string): number => {
     const parts = ip.split('.').map(p => parseInt(p, 10));
@@ -110,6 +124,117 @@ const IPsecVPNWizard: React.FC = () => {
     }
   };
 
+  const requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
+    const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123`;
+    const resp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyRaw });
+    const json = await resp.json();
+    const info = (json && json.data) ? json.data : json;
+    if (!resp.ok || !info?.Authorization || !info?.tonce) throw new Error('签名失败');
+    return { Authorization: info.Authorization, tonce: String(info.tonce) };
+  };
+
+  // 辅助函数：解析网卡名称中的 PCI 编号并排序
+  const getSortedPhysicalInterfaces = (interfaces: any[]) => {
+    if (!Array.isArray(interfaces)) return [];
+    
+    return interfaces
+      .filter(iface => {
+        const name = String(iface?.name || '').toLowerCase();
+        // 排除非物理接口
+        return name.startsWith('gigabitethernet') || 
+               name.startsWith('ethernet') || 
+               name.startsWith('ge') ||
+               name.startsWith('ten-gigabitethernet') ||
+               name.startsWith('xe');
+      })
+      .sort((a, b) => {
+        const extractPci = (name: string) => {
+          const match = name.match(/[\d]+\/[\d]+\/[\d]+/);
+          return match ? match[0] : '';
+        };
+        const pciA = extractPci(String(a.name || ''));
+        const pciB = extractPci(String(b.name || ''));
+        if (pciA && pciB) {
+           return pciA.localeCompare(pciB, undefined, { numeric: true, sensitivity: 'base' });
+        }
+        return String(a.name).localeCompare(String(b.name), undefined, { numeric: true });
+      });
+  };
+
+  const fetchVR3Interfaces = async (uuid: string) => {
+    try {
+      const method = 'GET';
+      const other = `uuid=${uuid}`;
+      const path = '/V2/ctcontrol/VR3/VRConfig/list';
+      const info = await requestSign(path, method, other, '');
+      const queryUrl = `/api-proxy${path}?${other}`;
+      const resp = await fetch(queryUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json', 'Authorization': info.Authorization, 'tonce': String(info.tonce) },
+      });
+      const raw = await resp.json().catch(async () => ({ raw: await resp.text() }));
+      const unwrapData = (obj: any) => {
+        let cur = obj;
+        while (cur && typeof cur === 'object' && 'data' in cur) cur = (cur as any).data;
+        return cur;
+      };
+      const data = unwrapData(raw);
+
+      let wanIfObj: any = null;
+      let lanIfObj: any = null;
+
+      // 1. 尝试从 deviceCfg.interfaces 中获取并排序
+      if (data.interfaces && Array.isArray(data.interfaces)) {
+        const sorted = getSortedPhysicalInterfaces(data.interfaces);
+        if (sorted.length > 0) wanIfObj = sorted[0]; // 第一块是 WAN
+        if (sorted.length > 1) lanIfObj = sorted[1]; // 第二块是 LAN
+      } 
+      
+      // 如果 interfaces 为空，尝试从其他 keys 收集 (兜底)
+      if (!wanIfObj && !lanIfObj) {
+          const all: any[] = [];
+          Object.keys(data).forEach(k => {
+              if ((k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) && Array.isArray(data[k])) {
+                  all.push(...data[k]);
+              }
+          });
+          const sorted = getSortedPhysicalInterfaces(all);
+          if (sorted.length > 0) wanIfObj = sorted[0];
+          if (sorted.length > 1) lanIfObj = sorted[1];
+      }
+
+      const ipv4CidrPattern = /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2]\d|3[0-2])$/;
+      const getIp = (iface: any) => {
+        if (!iface) return undefined;
+        // ipv4_static 可能是 CIDR
+        if (iface.ipv4_static && ipv4CidrPattern.test(iface.ipv4_static)) {
+          return iface.ipv4_static.split('/')[0];
+        }
+        return iface.ipv4_static;
+      };
+
+      const getSubnet = (iface: any) => {
+         if (!iface || !iface.ipv4_static) return undefined;
+         if (ipv4CidrPattern.test(iface.ipv4_static)) {
+             return cidrToNetwork(iface.ipv4_static);
+         }
+         return undefined;
+      };
+
+      return {
+        wanIp: getIp(wanIfObj),
+        lanIp: getIp(lanIfObj),
+        wanSubnet: getSubnet(wanIfObj),
+        lanSubnet: getSubnet(lanIfObj),
+        wanIpCidr: wanIfObj?.ipv4_static,
+        lanIpCidr: lanIfObj?.ipv4_static,
+      };
+    } catch (e) {
+      console.error('Fetch VR3 failed:', e);
+      return null;
+    }
+  };
+
   const prefillFromVrPreset = async (which: 'local' | 'remote', vrUuid: string) => {
     // 立即设置 ID，确保即使获取配置失败，表单也能记录选中状态
     if (which === 'local') {
@@ -119,28 +244,42 @@ const IPsecVPNWizard: React.FC = () => {
     }
 
     try {
-      const cfg = await getVRConfig(vrUuid);
-      const preset = cfg?.ipsec_preset || null;
+      // 不再使用数据库预设，完全依赖 VR3 接口扫描
+      // 1. 获取 VR3 接口信息 (包含 LAN IP 和 Subnet)
+      const vr3Info = await fetchVR3Interfaces(vrUuid);
+      
+      const lanIp = vr3Info?.lanIpCidr;       // 例如 192.168.1.1/24 (保留原始IP)
+      const lanSubnet = vr3Info?.lanSubnet;   // 例如 192.168.1.0/24 (生成网段)
+      const wanIp = vr3Info?.wanIp;
+
       if (which === 'local') {
-        setLocalPreset(preset);
-        const hasPreset = !!(preset?.local_subnet || preset?.public_ip);
-        setLocalPresetAvailable(hasPreset);
-        setUseLocalPreset(false);
-        form.setFieldsValue({
-          localSubnet: cidrToNetwork(preset?.local_subnet || form.getFieldValue('localSubnet')),
-          localPublicIp: preset?.public_ip || form.getFieldValue('localPublicIp'),
-        });
+        if (lanSubnet || wanIp) {
+            setLocalPresetAvailable(true);
+            setUseLocalPreset(false);
+            setLocalPreset(vr3Info); // Update debug view
+            form.setFieldsValue({
+              localSubnet: lanSubnet || form.getFieldValue('localSubnet'),
+              localInterfaceIp: lanIp || form.getFieldValue('localInterfaceIp'), // 新增字段：保留 LAN 口 IP
+              localPublicIp: wanIp || form.getFieldValue('localPublicIp'),
+            });
+            message.success('已从设备加载本端网络信息');
+        } else {
+             message.warning('无法从设备获取网络信息，请手动输入');
+        }
       } else {
-        setPeerPreset(preset);
-        const hasPreset = !!(preset?.local_subnet || preset?.public_ip);
-        setPeerPresetAvailable(hasPreset);
-        // 默认使用 VR 预设（关闭手动输入），仅当无预设时才允许手动
-        setUsePeerPreset(false);
-        form.setFieldsValue({
-          remoteSubnet: cidrToNetwork(preset?.local_subnet || form.getFieldValue('remoteSubnet')),
-          // 优先使用 v2 的 public_ip 作为对端设备公网 IP；旧版仍兼容
-          remoteGateway: preset?.public_ip || form.getFieldValue('remoteGateway'),
-        });
+        if (lanSubnet || wanIp) {
+            setPeerPresetAvailable(true);
+            setUsePeerPreset(false);
+            setPeerPreset(vr3Info); // Update debug view
+            form.setFieldsValue({
+              remoteSubnet: lanSubnet || form.getFieldValue('remoteSubnet'),
+              remoteInterfaceIp: lanIp || form.getFieldValue('remoteInterfaceIp'), // 新增字段：保留 LAN 口 IP
+              remoteGateway: wanIp || form.getFieldValue('remoteGateway'),
+            });
+            message.success('已从设备加载对端网络信息');
+        } else {
+             message.warning('无法从设备获取网络信息，请手动输入');
+        }
       }
     } catch (e: any) {
       message.warning((e?.message || '读取VR配置失败') + ` (${which})`);
@@ -152,7 +291,7 @@ const IPsecVPNWizard: React.FC = () => {
       if (current === 0) {
         await form.validateFields(['name']);
       } else if (current === 1) {
-        await form.validateFields(['vrId', 'peerVrId', 'localSubnet', 'remoteGateway', 'remoteSubnet', 'psk']);
+        await form.validateFields(['vrId', 'peerVrId', 'localSubnet', 'remoteGateway', 'remoteSubnet', 'psk', 'localPublicIp']);
       }
       const n = Math.min(2, current + 1);
       setCurrent(n);
@@ -164,18 +303,110 @@ const IPsecVPNWizard: React.FC = () => {
     try {
       const values = await form.validateFields();
       setLoading(true);
+      
+      const localVrName = vrs.find(v => (v.uuid || v.id) === values.vrId)?.name;
+      const peerVrName = vrs.find(v => (v.uuid || v.id) === values.peerVrId)?.name;
+
       const payload = {
         ...values,
+        localVrName,
+        peerVrName,
         localSubnet: cidrToNetwork(values?.localSubnet),
         remoteSubnet: cidrToNetwork(values?.remoteSubnet),
+        // 保留 LAN 口原始 IP
+        localInterfaceIp: values?.localInterfaceIp,
+        remoteInterfaceIp: values?.remoteInterfaceIp,
       };
       console.log('Creating IPsec VPN with payload:', payload);
-      await createIPsecVPN(payload);
-      message.success('IPsec VPN 创建成功');
-      navigate('/admin/interconnect/ipsec');
+      
+      const response = await fetch(`${API_BASE_URL}/api/networks/ipsec?stream=1`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMsg = 'Creation failed';
+        try {
+          const json = JSON.parse(errorText);
+          errorMsg = json.message || errorMsg;
+        } catch {
+          errorMsg = `Request failed (${response.status}): ${errorText.slice(0, 100)}`;
+        }
+        throw new Error(errorMsg);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder('utf-8');
+
+      let isFinished = false;
+      if (reader) {
+        setCurrent(3); // Enter step 4
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunks = decoder.decode(value).split('\n');
+          for (const chunk of chunks) {
+            if (chunk) {
+              try {
+                const data = JSON.parse(chunk);
+                if (data.type === 'progress') {
+                  setProgressSteps(prev => {
+                    const newSteps = [...prev];
+                    if (data.step <= newSteps.length) {
+                         newSteps[data.step - 1] = { ...newSteps[data.step - 1], status: 'finish', description: data.message };
+                         // If there is a next step, set it to process
+                         if (data.step < newSteps.length) {
+                             newSteps[data.step] = { ...newSteps[data.step], status: 'process' };
+                         }
+                    }
+                    return newSteps;
+                  });
+                } else if (data.type === 'error') {
+                  message.error(data.message);
+                  setLoading(false);
+                  isFinished = true;
+                  return; 
+                } else if (data.type === 'result') {
+                  isFinished = true;
+                  message.success('IPsec VPN 创建成功');
+                  setTimeout(() => navigate('/admin/interconnect/ipsec'), 1000);
+                }
+              } catch (e) {
+                console.error('Parse chunk error', e);
+                // Try to see if it's an HTML error page or plain text
+                if (chunk.trim().startsWith('<') || chunk.toLowerCase().includes('error')) {
+                   message.error(`后端响应格式错误: ${chunk.slice(0, 100)}`);
+                   setLoading(false);
+                   isFinished = true;
+                   return;
+                }
+              }
+            }
+          }
+        }
+        
+        if (!isFinished) {
+           message.error('连接异常断开，请检查后端日志或网络状态');
+           // Set current spinning step to error?
+           setProgressSteps(prev => {
+              return prev.map(s => s.status === 'process' ? { ...s, status: 'error', description: '操作超时或中断' } : s);
+           });
+        }
+      } else {
+        // Fallback if no reader (should not happen in modern browsers)
+        message.success('IPsec VPN 创建成功');
+        navigate('/admin/interconnect/ipsec');
+      }
+
     } catch (error: any) {
       console.error('Creation failed:', error);
-      message.error(error?.message || '创建失败');
+      if (error.errorFields) {
+        message.error('请检查表单填写是否完整');
+      } else {
+        message.error(error?.message || '创建失败');
+      }
     } finally {
       setLoading(false);
     }
@@ -196,21 +427,58 @@ const IPsecVPNWizard: React.FC = () => {
   const localPreview = useMemo(() => {
     const v = form.getFieldsValue(true) || {};
     return {
-      name: v.name,
-      vrId: v.vrId,
-      peer_vr_id: v.peerVrId, // 显示对端VR ID，消除用户疑虑
-      localSubnet: v.localSubnet,
-      remote_gateway: v.remoteGateway, // 本端配置也需要知道对端网关
-      remote_subnet: v.remoteSubnet,   // 本端配置也需要知道对端子网
+      ipsec: [
+        {
+          ID: v.name,
+          ike_local_ip: v.localPublicIp || '',
+          ike_remote_ip: v.remoteGateway,
+          ike_dpd_delay: 10,
+          ike_dpd_timeout: 30,
+
+          ike_proposal_local: v.vrId,
+          ike_proposal_remote: {
+            remote_id: v.peerVrId,
+            pre_shared_key: v.psk ? '******' : undefined,
+            pubkey: 'pre-shared-key'
+          },
+          traffic_selectors_local: cidrToNetwork(v.localSubnet),
+          traffic_selectors_remote: cidrToNetwork(v.remoteSubnet),
+
+          sa_dpd_action: 'restart',
+          sa_esp_proposals: v.encryption === 'aes-256' ? 'aes256-sha256-modp3072' : 'aes128-sha256-modp3072',
+          'sa-initiate': 'true',
+          'sa-terminate': 'false'
+        }
+      ]
     };
   }, [form, current]);
   const remotePreview = useMemo(() => {
     const v = form.getFieldsValue(true) || {};
+    if (!v.peerVrId) return {};
     return {
-      peerVrId: v.peerVrId,
-      remoteGateway: v.remoteGateway,
-      remoteSubnet: v.remoteSubnet,
-      psk: v.psk ? '******' : undefined,
+      ipsec: [
+        {
+          ID: v.name,
+          ike_local_ip: v.remoteGateway,
+          ike_remote_ip: v.localPublicIp || '',
+          ike_dpd_delay: 10,
+          ike_dpd_timeout: 30,
+
+          ike_proposal_local: v.peerVrId,
+          ike_proposal_remote: {
+            remote_id: v.vrId,
+            pre_shared_key: v.psk ? '******' : undefined,
+            pubkey: 'pre-shared-key'
+          },
+          traffic_selectors_local: cidrToNetwork(v.remoteSubnet),
+          traffic_selectors_remote: cidrToNetwork(v.localSubnet),
+
+          sa_dpd_action: 'restart',
+          sa_esp_proposals: v.encryption === 'aes-256' ? 'aes256-sha256-modp3072' : 'aes128-sha256-modp3072',
+          'sa-initiate': 'true',
+          'sa-terminate': 'false'
+        }
+      ]
     };
   }, [form, current]);
 
@@ -231,17 +499,20 @@ const IPsecVPNWizard: React.FC = () => {
               direction="vertical"
               size="small"
               current={current}
-              onChange={(idx) => setCurrent(idx)}
+              onChange={(idx) => {
+                 if(current !== 3) setCurrent(idx); // Prevent changing step manually during execution
+              }}
               items={[
                 { title: '基础信息与模式' },
                 { title: '选择本端与对端' },
                 { title: '确认创建' },
+                { title: '配置下发' },
               ]}
             />
           </Card>
         </Col>
         <Col span={12}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>{`第 ${current + 1} 步：${['基础信息与模式','选择本端与对端','确认创建'][current]} 配置编辑`}</span>} variant="outlined">
+          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>{`第 ${current + 1} 步：${['基础信息与模式','选择本端与对端','确认创建','配置下发'][current]}`}</span>} variant="outlined">
             <Form layout="vertical" form={form} hideRequiredMark>
               <div style={{ display: current === 0 ? 'block' : 'none' }}>
                 <Form.Item name="name" label={<span style={{ fontSize: 13, color: '#595959' }}>名称</span>} rules={[{ required: true, message: '请输入VPN名称' }]}>
@@ -278,7 +549,7 @@ const IPsecVPNWizard: React.FC = () => {
                     </Form.Item>
                   </Col>
                   <Col span={12}>
-                    <Form.Item name="localPublicIp" label={<span style={{ fontSize: 13, color: '#595959' }}>本端公网 IP</span>}>
+                    <Form.Item name="localPublicIp" label={<span style={{ fontSize: 13, color: '#595959' }}>本端 WAN 口 IP</span>} rules={[{ required: true, message: '请输入本端 WAN 口 IP' }]}>
                       <Input placeholder="自动读取" disabled={!useLocalPreset && localPresetAvailable} />
                     </Form.Item>
                   </Col>
@@ -286,11 +557,15 @@ const IPsecVPNWizard: React.FC = () => {
                 
                 <Row gutter={12}>
                   <Col span={12}>
-                    <Form.Item name="localSubnet" label={<span style={{ fontSize: 13, color: '#595959' }}>本端子网</span>} rules={[{ required: true, message: '请输入本端子网' }]}>
+                    <Form.Item name="localSubnet" label={<span style={{ fontSize: 13, color: '#595959' }}>本端 LAN 口子网 (自动生成)</span>} rules={[{ required: true, message: '请输入本端 LAN 口 IP' }]}>
                       <Input placeholder="例如: 192.168.1.0/24" disabled={!useLocalPreset && localPresetAvailable} />
                     </Form.Item>
                   </Col>
-                  <Col span={12}></Col>
+                  <Col span={12}>
+                    <Form.Item name="localInterfaceIp" label={<span style={{ fontSize: 13, color: '#595959' }}>本端 LAN 口 IP (保留)</span>}>
+                      <Input placeholder="自动读取接口IP" disabled />
+                    </Form.Item>
+                  </Col>
                 </Row>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
@@ -319,7 +594,7 @@ const IPsecVPNWizard: React.FC = () => {
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item name="remoteGateway" label={<span style={{ fontSize: 13, color: '#595959' }}>对端公网 IP</span>} rules={[{ required: usePeerPreset || !peerPresetAvailable, message: '请输入对端公网 IP' }]}>
+          <Form.Item name="remoteGateway" label={<span style={{ fontSize: 13, color: '#595959' }}>对端 WAN 口 IP</span>} rules={[{ required: usePeerPreset || !peerPresetAvailable, message: '请输入对端 WAN 口 IP' }]}>
             <Input placeholder="例如: 1.2.3.4" disabled={!usePeerPreset && peerPresetAvailable} />
           </Form.Item>
         </Col>
@@ -327,11 +602,15 @@ const IPsecVPNWizard: React.FC = () => {
       
       <Row gutter={12} style={{ marginBottom: 8 }}>
         <Col span={12}>
-          <Form.Item name="remoteSubnet" label={<span style={{ fontSize: 13, color: '#595959' }}>对端子网</span>} rules={[{ required: usePeerPreset || !peerPresetAvailable, message: '请输入对端子网' }]}>
+          <Form.Item name="remoteSubnet" label={<span style={{ fontSize: 13, color: '#595959' }}>对端 LAN 口子网 (自动生成)</span>} rules={[{ required: usePeerPreset || !peerPresetAvailable, message: '请输入对端 LAN 口 IP' }]}>
             <Input placeholder="例如: 10.0.0.0/24" disabled={!usePeerPreset && peerPresetAvailable} />
           </Form.Item>
         </Col>
-        <Col span={12}></Col>
+        <Col span={12}>
+          <Form.Item name="remoteInterfaceIp" label={<span style={{ fontSize: 13, color: '#595959' }}>对端 LAN 口 IP (保留)</span>}>
+            <Input placeholder="自动读取接口IP" disabled />
+          </Form.Item>
+        </Col>
       </Row>
 
                 <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>高级参数配置</div>
@@ -419,11 +698,35 @@ const IPsecVPNWizard: React.FC = () => {
                   <Descriptions.Item label="描述">{form.getFieldValue('description') || '-'}</Descriptions.Item>
                 </Descriptions>
               </div>
+              <div style={{ display: current === 3 ? 'block' : 'none' }}>
+                <Card size="small" title="配置下发进度" bordered={false}>
+                  <ul style={{ listStyle: 'none', padding: 0 }}>
+                    {progressSteps.map((step, index) => (
+                      <li key={index} style={{ display: 'flex', alignItems: 'center', margin: '12px 0' }}>
+                        {step.status === 'finish' ? (
+                          <CheckCircleOutlined style={{ color: '#52c41a', marginRight: '8px', fontSize: 16 }} />
+                        ) : step.status === 'process' ? (
+                          <LoadingOutlined style={{ color: '#1677ff', marginRight: '8px', fontSize: 16 }} />
+                        ) : (
+                          <ClockCircleOutlined style={{ color: '#00000040', marginRight: '8px', fontSize: 16 }} />
+                        )}
+                        <span style={{ 
+                          color: step.status === 'finish' ? '#52c41a' : step.status === 'process' ? '#1677ff' : '#00000040',
+                          fontWeight: step.status === 'process' ? 500 : 400
+                        }}>
+                          {step.description}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              </div>
             </Form>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
               <Space>
-                <Button onClick={() => navigate('/admin/interconnect/ipsec')}>返回列表</Button>
-                {current > 0 && <Button onClick={prev}>上一步</Button>}
+                {current !== 3 && <Button onClick={() => navigate('/admin/interconnect/ipsec')}>返回列表</Button>}
+                {current > 0 && current !== 3 && <Button onClick={prev}>上一步</Button>}
+                {current === 3 && !loading && <Button onClick={prev}>返回修改</Button>}
               </Space>
               <Space>
                 {current < 2 && <Button type="primary" onClick={next}>下一步</Button>}
@@ -447,7 +750,7 @@ const IPsecVPNWizard: React.FC = () => {
                     <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto' }}>
                       {safeStringify({
                         ...localPreview,
-                        localPublicIp: localPreset?.public_ip,
+                        localPublicIp: localPreset?.wanIp,
                       })}
                     </pre>
                   ),
@@ -459,7 +762,7 @@ const IPsecVPNWizard: React.FC = () => {
                     <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto' }}>
                       {safeStringify({
                         ...remotePreview,
-                        remotePublicIp: peerPreset?.public_ip,
+                        remotePublicIp: peerPreset?.wanIp,
                       })}
                     </pre>
                   ),
@@ -470,13 +773,13 @@ const IPsecVPNWizard: React.FC = () => {
                   children: (
                     <div style={{ maxHeight: 400, overflow: 'auto' }}>
                       <div style={{ marginBottom: 12 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff' }}>本端 VR (Preset)</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff' }}>本端 VR (VR3 Info)</div>
                         <pre style={{ fontSize: 11, background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
                           {safeStringify(localPreset)}
                         </pre>
                       </div>
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff' }}>对端 VR (Preset)</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff' }}>对端 VR (VR3 Info)</div>
                         <pre style={{ fontSize: 11, background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
                           {safeStringify(peerPreset)}
                         </pre>

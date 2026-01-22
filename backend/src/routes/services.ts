@@ -76,8 +76,13 @@ router.post('/', async (req, res) => {
     entity.networkPolicyIds = networkPolicyIdsArr.join(',');
     const hostPolicyIdsArr = Array.isArray((payload as any).hostPolicyIds) ? (payload as any).hostPolicyIds : [];
     entity.hostPolicyIds = hostPolicyIdsArr.join(',');
-    const instancesArr = Array.isArray((payload as any).instances) ? (payload as any).instances : [];
-    entity.instances = JSON.stringify(instancesArr);
+    
+    if ((payload as any).serviceAddresses) {
+      entity.instances = JSON.stringify((payload as any).serviceAddresses);
+    } else {
+      const instancesArr = Array.isArray((payload as any).instances) ? (payload as any).instances : [];
+      entity.instances = JSON.stringify(instancesArr);
+    }
     const saved = await repo().save(entity);
 
     // Auto-create ACL if requested
@@ -189,7 +194,16 @@ router.patch('/:id', async (req, res) => {
     if ((partial as any).policyIds !== undefined) existing.policyIds = Array.isArray((partial as any).policyIds) ? (partial as any).policyIds.join(',') : String((partial as any).policyIds || '');
     if ((partial as any).networkPolicyIds !== undefined) existing.networkPolicyIds = Array.isArray((partial as any).networkPolicyIds) ? (partial as any).networkPolicyIds.join(',') : String((partial as any).networkPolicyIds || '');
     if ((partial as any).hostPolicyIds !== undefined) existing.hostPolicyIds = Array.isArray((partial as any).hostPolicyIds) ? (partial as any).hostPolicyIds.join(',') : String((partial as any).hostPolicyIds || '');
-    if (partial.instances !== undefined) existing.instances = Array.isArray(partial.instances) ? JSON.stringify(partial.instances) : String(partial.instances || '');
+    if ((req.body as any).serviceAddresses !== undefined) {
+      existing.instances = JSON.stringify((req.body as any).serviceAddresses);
+    } else if (partial.instances !== undefined) {
+      existing.instances = Array.isArray(partial.instances) ? JSON.stringify(partial.instances) : String(partial.instances || '');
+    }
+
+    if ((req.body as any).servicePorts !== undefined) {
+      const portsArr = Array.isArray((req.body as any).servicePorts) ? (req.body as any).servicePorts : [];
+      existing.servicePorts = JSON.stringify(portsArr);
+    }
     const saved = await repo().save(existing);
     res.json(saved);
   } catch (err) {

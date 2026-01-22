@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
-export type ServiceType = 'vm' | 'container' | 'mixed';
+export type ServiceType = 'vm' | 'container' | 'mixed' | 'service_address';
 export type ServiceStatus = 'running' | 'stopped' | 'degraded';
 
 @Entity('service_catalogs')
@@ -50,6 +50,9 @@ export class ServiceCatalog {
 
   @Column({ type: 'text', nullable: true })
   instances?: string; // JSON 字符串数组，保存虚机/容器实例ID
+
+  @Column({ type: 'text', nullable: true })
+  servicePorts?: string; // JSON 字符串数组，保存服务端口 {protocol, port}
 
   @CreateDateColumn({ type: 'datetime' })
   createdAt!: Date;

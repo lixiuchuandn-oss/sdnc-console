@@ -29,6 +29,7 @@ import EditVRConfig from './pages/InterConnect/VR/EditVRConfig';
 import PEWizard from './pages/InterConnect/VR/PEWizard';
 import CEWizard from './pages/InterConnect/VR/CEWizard';
 import StandardWizard from './pages/InterConnect/VR/StandardWizard';
+import SASEWizard from './pages/InterConnect/VR/SASEWizard';
 import ACLPage from './pages/InterConnect/ACL/index';
 import NATPage from './pages/InterConnect/NAT/index';
 import SecurityDomainPage from './pages/SecMgrPlane/SecurityDomain/index';
@@ -52,9 +53,11 @@ import CloudConsolePage from './pages/Clouds/CloudConsole';
 import HarvesterVNCPage from './pages/Clouds/Harvester/HarvesterVNC';
 import TenantLeasedLinesPage from './pages/Tenants/LeasedLines';
 import OrgManagePage from './pages/Tenants/OrgManage';
+import ApiDocs from './pages/ApiDocs';
 import { routeSpecs } from './routes/RouteSpec';
 import VmCreateWizardModal from './pages/Clouds/Harvester/modals/VmCreateWizardModal';
 import AiSocPlaceholder from './pages/SecOps/AiSocPlaceholder';
+import AiSocFrame from './pages/SecOps/AiSocFrame';
 
 
   
@@ -104,10 +107,13 @@ const AppRoutes: React.FC = () => {
           <Route path="clouds/console" element={<CloudConsolePage />} />
           <Route path="tenants" element={<Tenants />} />
           <Route path="tenants/:tenantId/organizations" element={<OrgManagePage />} />
-          <Route path="tenants/leased-lines" element={<TenantLeasedLinesPage />} />
-          <Route path="tenants/leased-lines/list" element={<TenantLeasedLinesPage />} />
-          <Route path="tenants/leased-lines/tasks" element={<TenantLeasedLinesPage />} />
-          <Route path="tenants/leased-lines/logs" element={<TenantLeasedLinesPage />} />
+          
+          {/* Moved to AI SOC -> Report Management */}
+          <Route path="aisoc/leased-lines" element={<TenantLeasedLinesPage />} />
+          <Route path="aisoc/leased-lines/list" element={<TenantLeasedLinesPage />} />
+          <Route path="aisoc/leased-lines/tasks" element={<TenantLeasedLinesPage />} />
+          <Route path="aisoc/leased-lines/logs" element={<TenantLeasedLinesPage />} />
+
           <Route path="tenants/users" element={<Users />} />
           <Route path="interconnect/srv6" element={<SRv6Page />} />
           <Route path="interconnect/srv6/create" element={<SRv6CreatePage />} />
@@ -119,6 +125,7 @@ const AppRoutes: React.FC = () => {
           <Route path="interconnect/vr/:uuid/role-pe" element={<PEWizard />} />
           <Route path="interconnect/vr/:uuid/role-ce" element={<CEWizard />} />
           <Route path="interconnect/vr/:uuid/role-standard" element={<StandardWizard />} />
+          <Route path="interconnect/vr/:uuid/role-sase" element={<SASEWizard />} />
           <Route path="interconnect/acl" element={<ACLPage />} />
           <Route path="interconnect/nat" element={<NATPage />} />
           <Route path="sec-mgr-plane/security-domain" element={<SecurityDomainPage />} />
@@ -129,13 +136,18 @@ const AppRoutes: React.FC = () => {
           <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
           <Route path="sec-mgr-plane/security-services" element={<SecurityServices />} />
           <Route path="alarms" element={<Alarms />} />
+          <Route path="api-docs" element={<ApiDocs />} />
           {/* AI SOC Integration Placeholders */}
           <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC总览" module="situation_overview" />} />
-          <Route path="aisoc/preprocessing/raw" element={<AiSocPlaceholder title="原始数据预览" module="preprocessing_raw" />} />
-          <Route path="aisoc/preprocessing/rules" element={<AiSocPlaceholder title="预处理规则" module="preprocessing_rules" />} />
+          <Route path="aisoc/data-source" element={<AiSocFrame path="data-source" />} />
+          <Route path="aisoc/raw-logs" element={<AiSocFrame path="raw-logs" />} />
+          <Route path="aisoc/preprocess-rule" element={<AiSocFrame path="preprocess-rule" />} />
+          <Route path="aisoc/processed-logs" element={<AiSocFrame path="processed-logs" />} />
+          
           <Route path="aisoc/analysis/events" element={<AiSocPlaceholder title="威胁事件分析" module="analysis_events" />} />
           <Route path="aisoc/analysis/attack" element={<AiSocPlaceholder title="ATT&CK框架分析" module="analysis_attack" />} />
-          <Route path="aisoc/reports/download" element={<AiSocPlaceholder title="报告下载" module="reports_download" />} />
+          
+          <Route path="aisoc/report" element={<AiSocFrame path="report" />} />
 
           <Route path="settings" element={<Settings />} />
           <Route path="coming-soon" element={<ComingSoon />} />

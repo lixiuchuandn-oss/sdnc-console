@@ -5,7 +5,7 @@ import { VRConfigVersion } from '../entities/VRConfigVersion';
 export const vrConfigVersionRoutes = express.Router();
 
 // 列出某个VR在某个角色下的配置版本（最多返回5个，按时间倒序）
-vrConfigVersionRoutes.get('/version/list', async (req, res, next) => {
+vrConfigVersionRoutes.get('/list', async (req, res, next) => {
   try {
     {
       const role = (req as any).user?.role;
@@ -31,7 +31,7 @@ vrConfigVersionRoutes.get('/version/list', async (req, res, next) => {
 });
 
 // 获取指定版本配置
-vrConfigVersionRoutes.get('/version/get/:id', async (req, res, next) => {
+vrConfigVersionRoutes.get('/get/:id', async (req, res, next) => {
   try {
     {
       const role = (req as any).user?.role;
@@ -56,7 +56,7 @@ vrConfigVersionRoutes.get('/version/get/:id', async (req, res, next) => {
 });
 
 // 保存一个新版本（超过5个则删除最旧的）
-vrConfigVersionRoutes.post('/version/save', async (req, res, next) => {
+vrConfigVersionRoutes.post('/save', async (req, res, next) => {
   try {
     {
       const role = (req as any).user?.role;

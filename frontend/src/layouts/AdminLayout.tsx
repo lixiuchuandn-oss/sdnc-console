@@ -206,6 +206,7 @@ const AdminLayout: React.FC = () => {
         </div>
       </div>
       <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
+        <ApiOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/api-docs')} />
         <BellOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/alarms')} />
         <SettingOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/settings')} />
         {user && (<>
@@ -776,7 +777,7 @@ const AdminLayout: React.FC = () => {
         </div>
       </>
       <Layout>
-        {!(location.pathname.includes('/admin/clouds/ecs') || location.pathname.includes('/admin/clouds/console')) && (
+        {!(location.pathname.includes('/admin/clouds/ecs') || location.pathname.includes('/admin/clouds/console') || location.pathname.includes('/admin/api-docs')) && (
           <Sider collapsible collapsed={collapsed} trigger={null} style={{background:'#F9F9FA', borderRight:'1px solid ' + NAV_DIVIDER_COLOR, position:'sticky', top: isProConsole ? 50 : 64, height:`calc(100vh - ${isProConsole ? 50 : 64}px)`, transition:'all 200ms ease'}}>
             {(() => {
               const center = (visibleCenters.find(c => c.key === activeSidebarKey) || (visibleCenters || [])[0]);

@@ -8,6 +8,7 @@ import '../../common/filters.css';
 import type { ColumnsType } from 'antd/es/table';
 import { getACLRules, createACLRule, deleteACLRule, ACLRule } from '../../../services/networkApi';
 import { vrApi } from '../../../services/vrApi';
+import { fetchVrCachePageList } from '../../../services/vrCacheApi';
 
 const { Option } = Select;
 
@@ -63,13 +64,15 @@ const ACLPage: React.FC = () => {
 
       // 如果远端失败或空，回退到本地缓存
       if (!Array.isArray(vrs) || vrs.length === 0) {
-        const fallback = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/vr-cache/pagelist?page_num=1&page_size=1000`, {
-          credentials: 'include'
-        });
-        const json = await fallback.json();
-        const d = json?.data ?? json;
-        vrs = Array.isArray(d?.page) ? d.page : [];
+        try {
+          const json = await fetchVrCachePageList(1000, 1);
+          const d = json?.data ?? json;
+          vrs = Array.isArray(d?.page) ? d.page : [];
+        } catch (cacheErr) {
+          console.warn('[ACL] Failed to fetch VR cache:', cacheErr);
+        }
       }
+
       // 二级回退：从 VR 配置角色接口读取已知 uuid 列表
       if ((!Array.isArray(vrs) || vrs.length === 0)) {
         const token = localStorage.getItem('token') || '';

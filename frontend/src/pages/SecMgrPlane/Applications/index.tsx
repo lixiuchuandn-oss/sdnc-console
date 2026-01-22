@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Divider, Form, Input, Modal, Select, Space, Table, Tag, message, Dropdown, Typography, Tabs, Alert, Popover, Checkbox } from 'antd';
-import { PlusOutlined, EllipsisOutlined, ReloadOutlined, SafetyCertificateOutlined, GlobalOutlined, DeleteOutlined, FileTextOutlined, SettingOutlined } from '@ant-design/icons';
+import { Button, Divider, Form, Input, Modal, Select, Space, Table, Tag, message, Dropdown, Typography, Tabs, Alert, Popover, Checkbox, Card } from 'antd';
+import { PlusOutlined, EllipsisOutlined, ReloadOutlined, SafetyCertificateOutlined, GlobalOutlined, DeleteOutlined, FileTextOutlined, SettingOutlined, AppstoreOutlined, SecurityScanOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
+import SharedToolbar from '../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { listSecurityDomains } from '../../../services/securityDomainApi';
-import { fetchServices, deleteService, createService, updateService, fetchAllInstances } from '../../../services/api';
+import { fetchServices, deleteService, createService, updateService, fetchAllInstances, fetchCloudProviderEcs } from '../../../services/api';
 import { createACLRule } from '../../../services/networkApi';
 import { AppWizard } from './AppWizard';
+import DiscoveredAssets from './DiscoveredAssets';
 import { useNavigate } from 'react-router-dom';
 import '../../common/filters.css';
 
@@ -17,11 +19,13 @@ interface AppItem {
   name: string;
   domainId: string;
   domainName?: string;
-  type: 'vm' | 'container' | 'mixed';
+  type: 'vm' | 'container' | 'mixed' | 'service_address';
   instanceCount: number;
   status: 'running' | 'stopped' | 'degraded';
   strategies: Array<'RBAC' | 'ABAC'>;
   instances?: string[];
+  serviceAddresses?: Array<{ protocol: string; ip: string; port: string }>;
+  servicePorts?: Array<{ protocol: string; port: string }>;
   description?: string;
   owner?: string;
   version?: string;
@@ -34,9 +38,11 @@ const SecurityApps: React.FC = () => {
   const [domains, setDomains] = useState<{ id: string; name: string }[]>([]);
   const [allDomains, setAllDomains] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('list');
   const [filterForm] = Form.useForm();
   
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingApp, setEditingApp] = useState<AppItem | undefined>(undefined);
   
   const [securityOpen, setSecurityOpen] = useState(false);
   const [policyForm] = Form.useForm();
@@ -50,16 +56,56 @@ const SecurityApps: React.FC = () => {
   const [allPolicies, setAllPolicies] = useState<any[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({});
+  const [ecsIpMap, setEcsIpMap] = useState<Record<string, string>>({});
+  const [discoveredCount, setDiscoveredCount] = useState(0);
   const columnLabels: Record<string, string> = {
     name: '应用名称',
     version: '版本',
     owner: '负责人',
     domainName: '所属安全域',
     type: '部署类型',
+    protocolPort: '协议/端口',
+    ip: 'IP地址',
     instanceCount: '实例数',
     status: '状态',
     strategies: '授权策略',
   };
+
+  useEffect(() => {
+    if (allDomains.length === 0 || apps.length === 0) return;
+    const cloudIds = new Set<string>();
+    apps.forEach(app => {
+        if (app.type === 'vm' || app.type === 'container' || app.type === 'mixed') {
+             const dom = allDomains.find(d => String(d.id) === String(app.domainId));
+             if (dom?.cloudId) cloudIds.add(dom.cloudId);
+        }
+    });
+    
+    cloudIds.forEach(cid => {
+       fetchCloudProviderEcs(cid).then((res: any) => {
+         const list = res?.data?.Instances?.Instance || res?.data?.servers || res?.data?.InstanceSet || res?.data || [];
+         const map: Record<string, string> = {};
+         if (Array.isArray(list)) {
+           list.forEach((inst: any) => {
+             let ip = '';
+             const pubArr = inst?.PublicIpAddress?.IpAddress;
+             const pub = Array.isArray(pubArr) && pubArr.length > 0 ? pubArr[0] : (inst?.EipAddress?.IpAddress || inst?.publicIpAddress || (Array.isArray(inst?.publicIps)?inst.publicIps[0]:null));
+             const priArr = inst?.VpcAttributes?.PrivateIpAddress?.IpAddress;
+             const pri = Array.isArray(priArr) && priArr.length > 0 ? priArr[0] : (inst?.privateIpAddress || (Array.isArray(inst?.privateIps)?inst.privateIps[0]:null));
+             
+             if (pub) ip = pub;
+             else if (pri) ip = pri;
+             
+             const iid = inst?.InstanceId || inst?.id || inst?.uuid;
+             if (iid && ip) {
+                map[iid] = ip;
+             }
+           });
+         }
+         setEcsIpMap(prev => ({ ...prev, ...map }));
+       }).catch(() => {});
+    });
+  }, [apps, allDomains]);
 
   const loadData = async () => {
     setLoading(true);
@@ -72,17 +118,41 @@ const SecurityApps: React.FC = () => {
     try {
       const raws = await fetchServices();
       const normalized = (Array.isArray(raws) ? raws : []).map((s: any) => {
-        const parsedInstances: string[] = (() => { try { return s.instances ? JSON.parse(s.instances) : []; } catch { return []; } })();
+        const parsedInstances: any[] = (() => { try { return s.instances ? JSON.parse(s.instances) : []; } catch { return []; } })();
+        const rawType = String(s.type || '').toLowerCase();
+        let type: AppItem['type'] = 'vm';
+        if (rawType === 'container') type = 'container';
+        else if (rawType === 'mixed') type = 'mixed';
+        else if (rawType === 'service_address') type = 'service_address';
+        
+        const isServiceAddress = type === 'service_address';
+        const instances = isServiceAddress ? [] : parsedInstances;
+        // Robustly extract serviceAddresses: prioritize explicit field, fallback to instances if it contains objects
+        let serviceAddresses: any[] = [];
+        if (isServiceAddress) {
+           if (s.serviceAddresses && Array.isArray(s.serviceAddresses)) {
+               serviceAddresses = s.serviceAddresses;
+           } else if (typeof s.serviceAddresses === 'string') {
+               try { serviceAddresses = JSON.parse(s.serviceAddresses); } catch {}
+           } 
+           
+           if (serviceAddresses.length === 0 && parsedInstances.length > 0) {
+               serviceAddresses = parsedInstances;
+           }
+        }
+
         return {
           id: s.id,
           name: s.name,
           domainId: s.domainId,
           domainName: s.domainName,
-          type: s.type,
-          instanceCount: parsedInstances.length || Number(s.instanceCount || 0),
+          type,
+          instanceCount: isServiceAddress ? serviceAddresses.length : (instances.length || Number(s.instanceCount || 0)),
           status: s.status || 'running',
           strategies: typeof s.strategies === 'string' ? s.strategies.split(',').map((x: string) => x.trim()).filter(Boolean) : (s.strategies || []),
-          instances: parsedInstances,
+          instances,
+          serviceAddresses,
+          servicePorts: (() => { try { return s.servicePorts ? (Array.isArray(s.servicePorts) ? s.servicePorts : JSON.parse(s.servicePorts)) : []; } catch { return []; } })(),
           description: s.description,
           owner: s.owner,
           version: s.version,
@@ -145,10 +215,13 @@ const SecurityApps: React.FC = () => {
     return <Tag color={map[s]}>{txt[s]}</Tag>;
   };
 
-  const typeTag = (t: AppItem['type']) => {
-    const map: any = { vm: 'blue', container: 'cyan', mixed: 'purple' };
-    const txt: any = { vm: '虚机', container: '容器', mixed: '混合' };
-    return <Tag color={map[t]}>{txt[t]}</Tag>;
+  const typeTag = (t: any) => {
+    const key = String(t || '').toLowerCase();
+    const map: any = { vm: 'blue', container: 'cyan', mixed: 'purple', service_address: 'geekblue' };
+    const txt: any = { vm: '虚机', container: '容器', mixed: '混合', service_address: '服务地址' };
+    const color = map[key] || 'default';
+    const label = txt[key] || '未知';
+    return <Tag color={color}>{label}</Tag>;
   };
 
   const columns: any[] = [
@@ -162,6 +235,47 @@ const SecurityApps: React.FC = () => {
     { title: '负责人', dataIndex: 'owner', key: 'owner' },
     { title: '所属安全域', dataIndex: 'domainName', key: 'domainName', render: (t: string) => t || '-' },
     { title: '部署类型', dataIndex: 'type', key: 'type', render: (t: any) => typeTag(t) },
+    { title: '协议/端口', key: 'protocolPort', render: (_: any, r: AppItem) => {
+      let items: any[] = [];
+      if (r.type === 'service_address') {
+        items = r.serviceAddresses || [];
+      } else {
+        items = r.servicePorts || [];
+      }
+      if (!items.length) {
+         if (r.type === 'vm') return 'all';
+         return '-';
+      }
+      const unique = Array.from(new Set(items.map((p: any) => `${p.protocol || '-'}:${p.port || '-'}`)));
+      if (unique.length > 2) {
+         return (
+           <div style={{fontSize: 12}}>
+             {unique.slice(0, 2).map((s: string, i: number) => <div key={i}>{s}</div>)}
+             <div style={{color: '#999'}}>+{unique.length - 2} more</div>
+           </div>
+         );
+      }
+      return unique.map((s: string, i: number) => <div key={i} style={{fontSize: 12}}>{s}</div>);
+    } },
+    { title: 'IP地址', key: 'ip', render: (_: any, r: AppItem) => {
+        let ips: string[] = [];
+        if (r.type === 'service_address') {
+             ips = (r.serviceAddresses || []).map(a => a.ip).filter(Boolean);
+        } else {
+             ips = (r.instances || []).map(id => ecsIpMap[id]).filter(Boolean);
+        }
+        if (!ips.length) return '-';
+        const unique = Array.from(new Set(ips));
+        if (unique.length > 2) {
+          return (
+             <div style={{fontSize: 12}}>
+               {unique.slice(0, 2).map((ip: string, i: number) => <div key={i}>{ip}</div>)}
+               <div style={{color: '#999'}}>+{unique.length - 2} more</div>
+             </div>
+          );
+        }
+        return unique.map((ip: string, i: number) => <div key={i} style={{fontSize: 12}}>{ip}</div>);
+    } },
     { title: '实例数', dataIndex: 'instanceCount', key: 'instanceCount' },
     { title: '状态', dataIndex: 'status', key: 'status', render: (s: any) => statusTag(s) },
     { title: '授权策略', dataIndex: 'strategies', key: 'strategies', render: (arr: AppItem['strategies']) => (
@@ -171,12 +285,18 @@ const SecurityApps: React.FC = () => {
     ) },
     { title: '操作', key: 'act', render: (_: any, r: AppItem) => {
       const items: any[] = [
+        { key: 'edit', label: '编辑', icon: <SettingOutlined /> },
         { key: 'security', label: '安全配置', icon: <SafetyCertificateOutlined /> },
         { key: 'detail', label: '详情', icon: <FileTextOutlined /> },
         { type: 'divider' },
         { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
       ];
       const onClick = ({ key }: any) => {
+        if (key === 'edit') {
+            setEditingApp(r);
+            setCreateOpen(true);
+            return;
+        }
         if (key === 'security') return openSecurity(r);
         if (key === 'detail') return openDetail(r);
         if (key === 'delete') return removeApp(r.id);
@@ -295,77 +415,84 @@ const SecurityApps: React.FC = () => {
     }
   };
 
-  return (
-    <PageContainer
-      titleLevel={3}
-      asCard={false}
-    >
+  const handleCreateFromAsset = (asset: any) => {
+    const partialApp: any = {
+      name: `App-${asset.value}`,
+      type: 'service_address',
+      serviceAddresses: [{ protocol: 'TCP', ip: asset.value, port: asset.port || '80' }],
+      instanceCount: 1,
+      domainId: '',
+      strategies: [],
+      status: 'running',
+      owner: 'admin',
+      version: 'v1'
+    };
+    setEditingApp(partialApp);
+    setCreateOpen(true);
+    setActiveTab('list');
+  };
 
-      <div className="filters-row filters-row--compact">
-        <Form
-          className="filter-tools filter-tools--center"
-          form={filterForm}
-          layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
-          onValuesChange={(_, all) => {
-            setKeyword(all.keyword || '');
-            setDomainFilter(all.domainId || undefined);
-            setStatusFilter(all.status || undefined);
-          }}
-        >
-          <Form.Item name="keyword" label="名称/描述">
-            <Input allowClear placeholder="搜索应用" style={{ width: 200 }} />
-          </Form.Item>
-          <Form.Item name="domainId" label="安全域">
-            <Select allowClear placeholder="全部" style={{ width: 220 }} options={domains.map(d => ({ value: d.id, label: d.name }))} />
-          </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select allowClear placeholder="全部" style={{ width: 180 }}>
-              <Select.Option value="running">运行中</Select.Option>
-              <Select.Option value="stopped">已停止</Select.Option>
-              <Select.Option value="degraded">告警</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
-        <Space className="filter-actions">
-          <Button type="primary" onClick={() => setCreateOpen(true)}>创建应用</Button>
-          <Dropdown
-            menu={{
-              items: [
-                { key: 'refresh', label: '刷新' },
-                { key: 'bulkDel', label: '批量删除', disabled: selectedRowKeys.length === 0 },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'refresh') return forceRefresh();
-                if (key === 'bulkDel') return removeSelectedApps();
-              },
+  const handleLinkToApp = (asset: any) => {
+    message.info('请在应用列表中找到目标应用，点击编辑并添加此IP地址。');
+    setActiveTab('list');
+  };
+
+  const renderList = () => (
+    <>
+      <SharedToolbar
+        left={
+          <Form
+            className="filter-tools"
+            form={filterForm}
+            layout="vertical"
+            style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+            onValuesChange={(_, all) => {
+              setKeyword(all.keyword || '');
+              setDomainFilter(all.domainId || undefined);
+              setStatusFilter(all.status || undefined);
             }}
-            trigger={['click']}
           >
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
-          <Popover
-            placement="bottomRight"
-            trigger="click"
-            content={
-              <div style={{ minWidth: 220 }}>
-                {['name','version','owner','domainName','type','instanceCount','status','strategies'].map((k) => (
-                  <div key={k} style={{ marginBottom: 6 }}>
-                    <Checkbox
-                      checked={visibleCols[k] !== false}
-                      onChange={(e) => setVisibleCols((prev) => ({ ...prev, [k]: e.target.checked }))}
-                    >
-                      {columnLabels[k]}
-                    </Checkbox>
-                  </div>
-                ))}
-              </div>
-            }
-          >
-            <Button icon={<SettingOutlined />} />
-          </Popover>
-        </Space>
-      </div>
+            <Form.Item name="keyword" label="名称/描述" style={{ marginBottom: 0 }}>
+              <Input allowClear placeholder="搜索应用" style={{ width: 200 }} />
+            </Form.Item>
+            <Form.Item name="domainId" label="安全域" style={{ marginBottom: 0 }}>
+              <Select allowClear placeholder="全部" style={{ width: 220 }} options={domains.map(d => ({ value: d.id, label: d.name }))} />
+            </Form.Item>
+            <Form.Item name="status" label="状态" style={{ marginBottom: 0 }}>
+              <Select allowClear placeholder="全部" style={{ width: 180 }}>
+                <Select.Option value="running">运行中</Select.Option>
+                <Select.Option value="stopped">已停止</Select.Option>
+                <Select.Option value="degraded">告警</Select.Option>
+              </Select>
+            </Form.Item>
+          </Form>
+        }
+        primaryAction={{
+          label: <><PlusOutlined /> 创建应用</>,
+          onClick: () => setCreateOpen(true)
+        }}
+        batchActions={{
+          items: [
+            { key: 'bulkDel', label: '批量删除', disabled: selectedRowKeys.length === 0 },
+          ],
+          onMenuClick: (key: string) => {
+            if (key === 'bulkDel') return removeSelectedApps();
+          },
+          disabled: selectedRowKeys.length === 0
+        }}
+        onRefresh={forceRefresh}
+        columnsConfig={{
+          value: Object.keys(columnLabels).filter(k => visibleCols[k] !== false),
+          options: Object.keys(columnLabels).map(k => ({ label: columnLabels[k], value: k })),
+          onChange: (vals: string[]) => {
+            const newCols: Record<string, boolean> = {};
+            Object.keys(columnLabels).forEach(k => {
+              newCols[k] = vals.includes(k);
+            });
+            setVisibleCols(newCols);
+          }
+        }}
+      />
 
       <Table
         columns={displayColumns as any}
@@ -379,11 +506,36 @@ const SecurityApps: React.FC = () => {
           onChange: (keys) => setSelectedRowKeys(keys as string[]),
         }}
       />
+    </>
+  );
+
+  return (
+    <PageContainer
+      titleLevel={3}
+      asCard={false}
+      bordered={false}
+      tabList={[
+        { key: 'list', tab: <span><AppstoreOutlined /> 应用列表 ({apps.length})</span> },
+        { key: 'discovery', tab: <span><SecurityScanOutlined /> 资产发现 {discoveredCount > 0 ? `(${discoveredCount})` : ''}</span> }
+      ]}
+      tabActiveKey={activeTab}
+      onTabChange={setActiveTab}
+    >
+      {activeTab === 'list' ? renderList() : (
+          <DiscoveredAssets 
+            domains={allDomains} 
+            existingApps={apps}
+            onCreateApp={handleCreateFromAsset}
+            onLinkApp={handleLinkToApp}
+            onCountChange={setDiscoveredCount}
+          />
+      )}
 
       <AppWizard 
         open={createOpen} 
-        onClose={() => setCreateOpen(false)} 
+        onClose={() => { setCreateOpen(false); setEditingApp(undefined); }} 
         onSuccess={loadData}
+        editingApp={editingApp}
       />
 
       <Modal

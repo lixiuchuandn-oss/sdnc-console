@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Descriptions, Table, Tag, Empty, Typography, Space, Input, Select, Row, Col, Card, Statistic, Badge, Drawer, message, Button } from 'antd';
-import ReactFlow, { Controls, Background, Handle, Position, ReactFlowProvider, useReactFlow } from 'react-flow-renderer';
+import { Descriptions, Table, Tag, Empty, Typography, Space, Input, Select, Row, Col, Card, Statistic, Badge, Drawer, message, Button, Modal, Form } from 'antd';
+
 import {
   GlobalOutlined,
   ShareAltOutlined,
@@ -22,56 +22,147 @@ import {
   GatewayOutlined,
   PartitionOutlined, 
   FullscreenOutlined,
-  ClusterOutlined
+  ClusterOutlined,
+  EditOutlined,
+  DisconnectOutlined
 } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import { getSecurityDomain } from '../../../../services/securityDomainApi';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import { getSecurityDomain, updateSecurityDomain } from '../../../../services/securityDomainApi';
 import { SecurityDomain } from '../index';
-import { fetchCenAttachments, apiPost, fetchCsmElementGroups } from '../../../../services/api';
+import { apiPost, fetchCsmElementGroups, fetchCloudProviderEcs, fetchCsmVRPageList, fetchTenantVRs } from '../../../../services/api';
 
 const { Title } = Typography;
 const { Search } = Input;
-
-const AutoFitFlow: React.FC<{ nodes: any[]; edges: any[]; nodeTypes: any; fitSignal: string }> = ({ nodes, edges, nodeTypes, fitSignal }) => {
-  const { fitView } = useReactFlow();
-
-  useEffect(() => {
-    const id = window.requestAnimationFrame(() => {
-      fitView({ padding: 0.2, maxZoom: 1.0 });
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [fitView, fitSignal]);
-
-  return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes as any}
-      fitView
-      fitViewOptions={{ padding: 0.2, maxZoom: 1.0 }}
-      minZoom={0.4}
-      maxZoom={1.6}
-      style={{ background: 'transparent', width: '100%', height: '100%' }}
-    >
-      <Controls showInteractive={false} />
-      <Background />
-    </ReactFlow>
-  );
-};
 
 const SecurityDomainDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<SecurityDomain | null>(null);
-  const [selectedCenId, setSelectedCenId] = useState<string | undefined>(undefined);
-  const [attachmentCache, setAttachmentCache] = useState<Record<string, any[]>>({});
-  const [topologyLoading, setTopologyLoading] = useState(false);
-  const [topologyEl, setTopologyEl] = useState<HTMLDivElement | null>(null);
-  const [topologyHeight, setTopologyHeight] = useState(460);
   const [csmElementGroupMap, setCsmElementGroupMap] = useState<Record<string, any>>({});
   const [csmElementGroupsLoading, setCsmElementGroupsLoading] = useState(false);
+  const [ecsIpMap, setEcsIpMap] = useState<Record<string, string>>({});
+  const [changeVrOpen, setChangeVrOpen] = useState(false);
+  const [vrList, setVrList] = useState<any[]>([]);
+  const [vrLoading, setVrLoading] = useState(false);
+  const [changeVrForm] = Form.useForm();
+
+  const loadVrList = async () => {
+    setVrLoading(true);
+    try {
+      // 无论安全域属于什么云（Aliyun/CSM/Huawei），统一获取当前租户名下的所有 VR 实例
+      // 这是一个管理动作，不受底层云厂商接口限制
+      const tenantId = data?.tenantId;
+      const res = await fetchTenantVRs(tenantId ? { tenantId } : {});
+      
+      let list: any[] = [];
+      if (res && Array.isArray(res.items)) {
+          list = res.items;
+      } else if (Array.isArray(res)) {
+          list = res;
+      }
+      
+      // Filter out deleted VRs
+      list = list.filter((item: any) => !item.is_deleted);
+      
+      const options = list.map((item: any) => ({
+        label: `${item.name || item.uuid} ${item.role ? `[${item.role}]` : ''}`,
+        value: item.uuid || item.vr_unique_id,
+      }));
+      setVrList(options);
+    } catch (e: any) {
+      console.error('Failed to load VR list', e);
+      const errMsg = typeof e === 'string' ? e : (e?.message || JSON.stringify(e));
+      message.error(`加载 VR 列表失败: ${errMsg}`);
+    } finally {
+      setVrLoading(false);
+    }
+  };
+
+  const handleChangeVr = async () => {
+    try {
+      const values = await changeVrForm.validateFields();
+      setLoading(true);
+      await updateSecurityDomain(id!, {
+          vrUuid: values.vrUuid,
+          vrName: null, 
+          vrInstanceIds: null, 
+      } as any);
+      message.success('VR 实例已更换');
+      setChangeVrOpen(false);
+      fetchDetail(id!);
+    } catch (e) {
+      console.error('Failed to change VR', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnbindVr = async () => {
+    Modal.confirm({
+      title: '确认解绑 VR',
+      content: '解绑 VR 实例将清除相关的网络配置（ENI/IP），是否继续？',
+      onOk: async () => {
+        setLoading(true);
+        try {
+            await updateSecurityDomain(id!, {
+              vrUuid: '',
+              vrName: null,
+              vrInstanceIds: null,
+              vrPublicEniIds: null,
+              vrPrivateEniIds: null,
+              vrPublicIp: null,
+              vrPrivateIp: null,
+              vrPublicEip: null,
+              vrPublicSubnetCidr: null,
+              vrPrivateSubnetCidr: null
+            } as any);
+            message.success('VR 实例已解绑');
+            fetchDetail(id!);
+        } catch (e) {
+            console.error('Unbind VR failed', e);
+            message.error('解绑失败');
+        } finally {
+            setLoading(false);
+        }
+      }
+    });
+  };
+
+  useEffect(() => {
+    const apps = (data as any)?.appInstances || [];
+    const vmApps = apps.filter((app: any) => app.type === 'vm' || app.type === 'container' || app.type === 'mixed');
+    if (vmApps.length === 0) return;
+    const cloudId = (data as any)?.cloudId;
+    if (!cloudId) return;
+
+    fetchCloudProviderEcs(cloudId)
+      .then((res: any) => {
+        const list = res?.data?.Instances?.Instance || res?.data?.servers || res?.data?.InstanceSet || res?.data || [];
+        const map: Record<string, string> = {};
+        if (Array.isArray(list)) {
+            list.forEach((inst: any) => {
+                let ip = '';
+                const pubArr = inst?.PublicIpAddress?.IpAddress;
+                const pub = Array.isArray(pubArr) && pubArr.length > 0 ? pubArr[0] : (inst?.EipAddress?.IpAddress || inst?.publicIpAddress || (Array.isArray(inst?.publicIps)?inst.publicIps[0]:null));
+                const priArr = inst?.VpcAttributes?.PrivateIpAddress?.IpAddress;
+                const pri = Array.isArray(priArr) && priArr.length > 0 ? priArr[0] : (inst?.privateIpAddress || (Array.isArray(inst?.privateIps)?inst.privateIps[0]:null));
+                
+                if (pub) ip = pub;
+                else if (pri) ip = pri;
+                
+                const iid = inst?.InstanceId || inst?.id || inst?.uuid;
+                if (iid && ip) {
+                    map[String(iid)] = ip;
+                }
+            });
+            setEcsIpMap(prev => ({ ...prev, ...map }));
+        }
+      })
+      .catch(() => {});
+  }, [data?.appInstances, (data as any)?.cloudId]);
 
   useEffect(() => {
     const cloudId = String((data as any)?.cloudId || '').trim();
@@ -99,86 +190,9 @@ const SecurityDomainDetail: React.FC = () => {
       .finally(() => setCsmElementGroupsLoading(false));
   }, [data?.cloudId, (data as any)?.securityServices?.length]);
 
-  useEffect(() => {
-    if (!topologyEl) return;
-    const calc = () => {
-      const rect = topologyEl.getBoundingClientRect();
-      const viewportH = window.visualViewport?.height || window.innerHeight;
-      const h = Math.max(460, Math.floor(viewportH - rect.top - 24));
-      setTopologyHeight(h);
-    };
-    calc();
-    const ro = new ResizeObserver(() => calc());
-    ro.observe(topologyEl);
-    window.addEventListener('resize', calc);
-    window.addEventListener('scroll', calc, true);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', calc);
-      window.removeEventListener('scroll', calc, true);
-    };
-  }, [topologyEl]);
 
-  const topologyNodeTypes = useMemo(() => {
-    return {
-      mainNode: (props: any) => (
-        <div style={{ width: 100, height: 80, borderRadius: 12, background: '#fff', border: '1px solid #e5e5e5', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0, position: 'relative' }}>
-          <div style={{ width: 22, height: 22, borderRadius: '50%', border: '2px solid #1677ff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}>
-            <FullscreenOutlined style={{ fontSize: 14, color: '#1677ff' }} />
-          </div>
-          <label style={{ fontSize: 12, color: '#1f1f1f', fontWeight: 600, width: '100%',  boxSizing: 'border-box', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {props?.data?.vrName || '-'}
-          </label>
-          <div style={{ fontSize: 12, color: '#8c8c8c', width: '100%', boxSizing: 'border-box', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props?.data?.eip || '-'}</div>
-          <Handle type="source" position={Position.Top} id="pub" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
-          <Handle type="target" position={Position.Top} id="pub" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
-        </div>
-      ),
-      domainCard: (props: any) => (
-        <div style={{ width: 160, height: 80, borderRadius: 10, background: '#fff', border: '1px solid #e5e5e5', boxShadow: '0 3px 10px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6, padding: '8px 12px', position: 'relative' }}>
-          <div style={{ fontSize: 12, color: '#1f1f1f', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props?.data?.title || '-'}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', borderRadius: 8, border: '1px solid #e6f0ff', background: '#f7f9ff', maxWidth: 120 }}>
-              <ClusterOutlined style={{ fontSize: 12, color: '#fa8c16' }} />
-              <span style={{ fontSize: 12, color: '#3a3a3a', overflow: 'hidden', textOverflow: 'ellipsis' }}>{props?.data?.vpcCidr || '-'}</span>
-            </span>
-          </div>
-          <Handle type="source" position={Position.Top} id="card" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
-          <Handle type="target" position={Position.Top} id="card" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
-        </div>
-      ),
-      appCard: (props: any) => (
-        <div style={{ width: 160, height: 60, borderRadius: 10, background: '#fff', border: '1px solid #e5e5e5', boxShadow: '0 3px 10px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, padding: '8px 12px', position: 'relative' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AppstoreOutlined style={{ color: '#1677ff' }} />
-            <div style={{ fontSize: 12, color: '#1f1f1f', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props?.data?.title || '-'}</div>
-          </div>
-          <div style={{ fontSize: 12, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props?.data?.subTitle || '-'}</div>
-          <Handle type="source" position={Position.Top} id="app" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
-          <Handle type="target" position={Position.Top} id="app" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
-        </div>
-      ),
-      securityServiceCard: (props: any) => (
-        <div style={{ width: 160, height: 'auto', minHeight: 70, borderRadius: 10, background: '#fff', border: '1px solid #e5e5e5', boxShadow: '0 3px 10px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', position: 'relative' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
-            <Badge count={Number(props?.data?.count || 0)} size="small" overflowCount={999} color="#1677ff">
-              <SafetyCertificateOutlined style={{ color: '#1677ff' }} />
-            </Badge>
-            <div style={{ fontSize: 12, color: '#1f1f1f', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props?.data?.title || '-'}</div>
-          </div>
-          <div style={{ flex: '1 1 auto', display: 'flex', flexWrap: 'wrap', gap: 4, alignContent: 'flex-start' }}>
-            {(Array.isArray(props?.data?.services) ? props.data.services : []).map((name: any, idx: number) => (
-              <Tag key={`${String(name)}-${idx}`} color="blue" style={{ margin: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', lineHeight: '20px' }}>
-                {String(name)}
-              </Tag>
-            ))}
-          </div>
-          <Handle type="source" position={Position.Top} id="svc" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
-          <Handle type="target" position={Position.Top} id="svc" style={{ opacity: 0, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
-        </div>
-      )
-    };
-  }, []);
+
+
 
   useEffect(() => {
     if (id) {
@@ -187,35 +201,12 @@ const SecurityDomainDetail: React.FC = () => {
   }, [id]);
 
   const [rawDetail, setRawDetail] = useState<any>(null);
-  const [attachmentRawCache, setAttachmentRawCache] = useState<Record<string, any>>({});
+
   const [logDrawerOpen, setLogDrawerOpen] = useState(false);
 
-  useEffect(() => {
-    const cascades = (data as any)?.cascadeChannels || [];
-    if (!selectedCenId && Array.isArray(cascades) && cascades.length > 0) {
-      const firstId = String(cascades[0]?.id || '');
-      if (firstId) setSelectedCenId(firstId);
-    }
-  }, [data, selectedCenId]);
 
-  useEffect(() => {
-    const cenId = selectedCenId;
-    if (!cenId) return;
-    const cached = attachmentCache[cenId];
-    if (cached) return;
-    setTopologyLoading(true);
-    fetchCenAttachments(cenId)
-      .then((res: any) => {
-        const list = Array.isArray(res) ? res : (res?.data || []);
-        setAttachmentRawCache(prev => ({ ...prev, [cenId]: res }));
-        setAttachmentCache(prev => ({ ...prev, [cenId]: Array.isArray(list) ? list : [] }));
-      })
-      .catch(() => {
-        setAttachmentRawCache(prev => ({ ...prev, [cenId]: [] }));
-        setAttachmentCache(prev => ({ ...prev, [cenId]: [] }));
-      })
-      .finally(() => setTopologyLoading(false));
-  }, [selectedCenId, selectedCenId ? attachmentCache[selectedCenId] : undefined]);
+
+
 
   const fetchDetail = async (domainId: string) => {
     setLoading(true);
@@ -231,28 +222,85 @@ const SecurityDomainDetail: React.FC = () => {
   };
 
   const overviewContent = (
-    <Descriptions bordered size="small" column={4}>
-      <Descriptions.Item label="名称">{data?.name}</Descriptions.Item>
-      <Descriptions.Item label="类型">{data?.type || '-'}</Descriptions.Item>
-      <Descriptions.Item label="云提供商">{data?.provider || '-'}</Descriptions.Item>
-      <Descriptions.Item label="区域">{data?.region || '-'}</Descriptions.Item>
-      <Descriptions.Item label="所属组织">{data?.organizationName || data?.organizationId || '-'}</Descriptions.Item>
-      <Descriptions.Item label="CIDR">
-        {data?.cidr || (data?.cidr4?.join(', ')) || '-'}
-      </Descriptions.Item>
-      <Descriptions.Item label="IPv6 CIDR">
-        {data?.cidr6?.length ? data.cidr6.join(', ') : '-'}
-      </Descriptions.Item>
-      <Descriptions.Item label="VR 实例">{data?.vrName || data?.vrUuid || '-'}</Descriptions.Item>
-      <Descriptions.Item label="状态">
-        <Tag color={data?.status === 'active' ? 'success' : 'default'}>
-          {data?.status || 'Unknown'}
-        </Tag>
-      </Descriptions.Item>
-      <Descriptions.Item label="描述" span={2}>{data?.description || '-'}</Descriptions.Item>
-      <Descriptions.Item label="创建时间">{data?.createdAt || '-'}</Descriptions.Item>
-      <Descriptions.Item label="更新时间">{data?.updatedAt || '-'}</Descriptions.Item>
-    </Descriptions>
+    <>
+      <Descriptions bordered size="small" column={4}>
+        <Descriptions.Item label="名称">{data?.name}</Descriptions.Item>
+        <Descriptions.Item label="类型">{data?.type || '-'}</Descriptions.Item>
+        <Descriptions.Item label="云提供商">{data?.provider || '-'}</Descriptions.Item>
+        <Descriptions.Item label="区域">{data?.region || '-'}</Descriptions.Item>
+        <Descriptions.Item label="所属组织">{data?.organizationName || data?.organizationId || '-'}</Descriptions.Item>
+        <Descriptions.Item label="CIDR">
+          {data?.cidr || (data?.cidr4?.join(', ')) || '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="IPv6 CIDR">
+          {data?.cidr6?.length ? data.cidr6.join(', ') : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="VR 实例">
+          <Space>
+            {data?.vrName || data?.vrUuid || '-'}
+            <Space size={4}>
+              <Button 
+                type="link" 
+                size="small" 
+                icon={<EditOutlined />} 
+                onClick={() => {
+                  setChangeVrOpen(true);
+                  loadVrList();
+                  changeVrForm.setFieldsValue({ vrUuid: data?.vrUuid });
+                }}
+              >
+                更换
+              </Button>
+              {(data?.vrUuid || data?.vrName) && (
+                <Button 
+                  type="link" 
+                  size="small" 
+                  danger 
+                  icon={<DisconnectOutlined />} 
+                  onClick={handleUnbindVr}
+                >
+                  解绑
+                </Button>
+              )}
+            </Space>
+          </Space>
+        </Descriptions.Item>
+        <Descriptions.Item label="状态">
+          <Tag color={data?.status === 'active' ? 'success' : 'default'}>
+            {data?.status || 'Unknown'}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="描述" span={2}>{data?.description || '-'}</Descriptions.Item>
+        <Descriptions.Item label="创建时间">{data?.createdAt || '-'}</Descriptions.Item>
+        <Descriptions.Item label="更新时间">{data?.updatedAt || '-'}</Descriptions.Item>
+      </Descriptions>
+      <Modal
+        title="更换 VR 实例"
+        open={changeVrOpen}
+        onCancel={() => setChangeVrOpen(false)}
+        onOk={handleChangeVr}
+        confirmLoading={loading}
+      >
+        <Form form={changeVrForm} layout="vertical">
+          <Form.Item 
+            name="vrUuid" 
+            label="选择 VR 实例" 
+            rules={[{ required: true, message: '请选择 VR 实例' }]}
+          >
+            <Select
+              placeholder="请选择 VR"
+              options={vrList}
+              loading={vrLoading}
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+          <div style={{ color: '#888', fontSize: 12 }}>
+            注意：更换 VR 实例将清除原有的网卡绑定信息（ENI/IP），请在更换后确认网络配置。
+          </div>
+        </Form>
+      </Modal>
+    </>
   );
 
   // Common toolbar for sections
@@ -449,6 +497,22 @@ const SecurityDomainDetail: React.FC = () => {
       { title: '策略', dataIndex: 'strategy', key: 'strategy' },
       { title: '拓扑', dataIndex: 'topology', key: 'topology' },
       { title: '状态', dataIndex: 'status', key: 'status' },
+      {
+        title: '操作',
+        key: 'op',
+        width: 100,
+        render: (_: any, r: any) => (
+          <ResourceActionsDropdown
+            size="small"
+            items={[
+              { key: 'detail', label: '查看详情' }
+            ]}
+            onClick={({ key }) => {
+              if (key === 'detail') navigate(`/admin/sec-mgr-plane/cascade-channels/${r.id}`);
+            }}
+          />
+        )
+      }
     ];
     return (
       <PageDetailSection
@@ -648,6 +712,80 @@ const SecurityDomainDetail: React.FC = () => {
       { title: '名称', dataIndex: 'name', key: 'name' },
       { title: '应用ID', dataIndex: 'id', key: 'id' },
       { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => <Tag color="blue">{t?.toUpperCase()}</Tag> },
+      { 
+        title: '协议/端口', 
+        key: 'ports', 
+        render: (_: any, r: any) => {
+          if (r.type === 'service_address') {
+            let addrs = r.serviceAddresses || [];
+            if (!addrs.length) {
+                if (Array.isArray(r.instances) && r.instances.length > 0 && typeof r.instances[0] === 'object') {
+                    addrs = r.instances;
+                } else if (typeof r.instances === 'string') {
+                    try {
+                        const parsed = JSON.parse(r.instances);
+                        if (Array.isArray(parsed)) addrs = parsed;
+                    } catch {}
+                }
+            }
+            if (!addrs.length) return '-';
+            return addrs.map((a: any, idx: number) => (
+                <div key={idx} style={{ fontSize: 12 }}>
+                {a.protocol} : {a.port}
+                </div>
+            ));
+          } else {
+            const ports = (() => { try { return r.servicePorts ? (Array.isArray(r.servicePorts) ? r.servicePorts : JSON.parse(r.servicePorts)) : []; } catch { return []; } })();
+            if (!ports.length) return '-';
+            return ports.map((p: any, idx: number) => (
+              <div key={idx} style={{ fontSize: 12 }}>
+                {p.protocol} : {p.port}
+              </div>
+            ));
+          }
+        }
+      },
+      { 
+        title: 'IP地址', 
+        key: 'ips',
+        render: (_: any, r: any) => {
+          if (r.type === 'service_address') {
+            let addrs = r.serviceAddresses || [];
+            if (!addrs.length) {
+                if (Array.isArray(r.instances) && r.instances.length > 0 && typeof r.instances[0] === 'object') {
+                    addrs = r.instances;
+                } else if (typeof r.instances === 'string') {
+                    try {
+                        const parsed = JSON.parse(r.instances);
+                        if (Array.isArray(parsed)) addrs = parsed;
+                    } catch {}
+                }
+            }
+            if (!addrs.length) return '-';
+            // De-duplicate IPs
+            const ips = Array.from(new Set(addrs.map((a: any) => a.ip).filter(Boolean)));
+            return ips.map((ip: any, idx: number) => <div key={idx} style={{ fontSize: 12 }}>{ip}</div>);
+          } else {
+            // Check instanceIps first
+            let ips = r.instanceIps || [];
+            if (!ips.length && r.instances) {
+               // Try to resolve from map
+               ips = (Array.isArray(r.instances) ? r.instances : []).map((id: string) => ecsIpMap[id]).filter(Boolean);
+            }
+            if (!ips.length) return '-';
+            const unique = Array.from(new Set(ips));
+            if (unique.length > 3) {
+              return (
+                <div style={{ fontSize: 12 }}>
+                  {unique.slice(0, 3).map((ip: any, i: number) => <div key={i}>{ip}</div>)}
+                  <div style={{ color: '#999' }}>+{unique.length - 3} more</div>
+                </div>
+              );
+            }
+            return unique.map((ip: any, idx: number) => <div key={idx} style={{ fontSize: 12 }}>{ip}</div>);
+          }
+        }
+      },
       { title: '实例数', dataIndex: 'instanceCount', key: 'instanceCount' },
       { title: '版本', dataIndex: 'version', key: 'version' },
       { title: '负责人', dataIndex: 'owner', key: 'owner' },
@@ -791,6 +929,27 @@ const SecurityDomainDetail: React.FC = () => {
         }
     };
 
+    const handleRemoveSecurityService = (r: any) => {
+      Modal.confirm({
+        title: '确认移除安全服务',
+        content: `确定要移除安全服务 "${r.name || r.title || r.displayName || r.id}" 吗？`,
+        okType: 'danger',
+        onOk: async () => {
+          try {
+            const currentServices = (data?.securityServices || []).map((s: any) => s.id);
+            const newServices = currentServices.filter((id: string) => id !== r.id).join(',');
+            await updateSecurityDomain(id!, {
+              securityServiceIds: newServices
+            });
+            message.success('移除成功');
+            fetchDetail(id!);
+          } catch (e: any) {
+            message.error(`移除失败: ${e.message}`);
+          }
+        }
+      });
+    };
+
     const columns = [
       { title: '名称', key: 'name', ellipsis: true, render: (_: any, r: any) => String(pick(r, ['name', 'vm_group_name', 'vmGroupName', 'groupName', 'securityServiceName', 'serviceName', 'title', 'displayName']) ?? '-') },
       { title: 'ID', dataIndex: 'id', key: 'id', ellipsis: true },
@@ -826,7 +985,18 @@ const SecurityDomainDetail: React.FC = () => {
           key: 'op',
           width: 100,
           render: (_: any, r: any) => (
-              <Button type="link" size="small" onClick={() => handleSSO(r)}>SSO访问</Button>
+            <ResourceActionsDropdown
+              size="small"
+              items={[
+                { key: 'sso', label: 'SSO访问' },
+                { type: 'divider' },
+                { key: 'remove', label: '移除安全服务', danger: true }
+              ]}
+              onClick={({ key }) => {
+                if (key === 'sso') handleSSO(r);
+                if (key === 'remove') handleRemoveSecurityService(r);
+              }}
+            />
           )
       }
     ];
@@ -913,242 +1083,12 @@ const SecurityDomainDetail: React.FC = () => {
     );
   };
 
-  // 7. 安全域拓扑
-  const renderTopology = () => {
-    const cascades: any[] = ((data as any)?.cascadeChannels || []) as any[];
-    const apps: any[] = ((data as any)?.appInstances || []) as any[];
-    const securityServices: any[] = ((data as any)?.securityServices || []) as any[];
-    const cenId = selectedCenId || (cascades.length ? String(cascades[0]?.id || '') : undefined);
-    const cen = cenId ? cascades.find((c: any) => String(c?.id) === String(cenId)) : undefined;
-
-    const centerX = 520;
-    const centerY = 260;
-    const radius = 200;
-    const currentDomainFallbackDx = 120;
-    const currentDomainFallbackDy = -40;
-    const childRadialGap = 64;
-    const childPerpGap = 56;
-    const mainW = 100, mainH = 80;
-    const cardW = 160, cardH = 80;
-    const mainDomainGap = 24;
-    const topo = String(cen?.topology || 'Mesh');
-    const hubId = cen?.hubId ? String(cen.hubId) : undefined;
-
-    const attachments = cenId ? (attachmentCache[cenId] || []) : [];
-    const attached = attachments.filter((l: any) => l?.status === 'attached' || l?.status === 'attaching');
-    let domList = attached
-      .map((att: any) => ({ att, dom: att?.securityDomain }))
-      .filter((x: any) => x?.dom && String(x.dom?.id || '').trim());
-
-    const currentDomainId = String((data as any)?.id || id || '');
-
-    if (topo === 'Hub-Spoke' && domList.length > 0) {
-      const idx = hubId ? domList.findIndex((d: any) => String(d?.dom?.id) === hubId) : 0;
-      if (idx > -1 && idx < domList.length) {
-        const [hub] = domList.splice(idx, 1);
-        domList.unshift(hub);
-      }
-    }
-
-    const total = domList.length;
-    const mainNodes = domList.map((d: any, idx: number) => {
-      const angle = total ? (idx * 2 * Math.PI) / total : 0;
-      const x = centerX + Math.cos(angle) * radius - mainW / 2;
-      const y = centerY + Math.sin(angle) * radius - mainH / 2;
-      const eip = d?.dom?.vrPublicEip || d?.dom?.vrPublicIp || '-';
-      const vrName = d?.dom?.vrName || d?.dom?.vrUuid || '-';
-      return {
-        id: `main-${String(d?.dom?.id)}`,
-        type: 'mainNode',
-        position: { x, y },
-        data: { eip, vrName }
-      };
-    });
-
-    const domainNodes = domList.map((d: any, idx: number) => {
-      const angle = total ? (idx * 2 * Math.PI) / total : 0;
-      const mainR = Math.sqrt((mainW / 2) ** 2 + (mainH / 2) ** 2);
-      const cardR = Math.sqrt((cardW / 2) ** 2 + (cardH / 2) ** 2);
-      const outerRadius = radius + mainR + cardR + mainDomainGap;
-      const cx = centerX + Math.cos(angle) * outerRadius;
-      const cy = centerY + Math.sin(angle) * outerRadius;
-      const title = d?.dom?.name || '-';
-      const vrName = d?.dom?.vrName || d?.dom?.vrUuid || '-';
-      const vpcCidr = d?.dom?.cidr || (Array.isArray(d?.dom?.cidr4) ? d.dom.cidr4.join(',') : '-') || '-';
-      return {
-        id: `domain-${String(d?.dom?.id)}`,
-        type: 'domainCard',
-        position: { x: cx - cardW / 2, y: cy - cardH / 2 },
-        data: { title: `${title}`, vrName, vpcCidr }
-      };
-    });
-
-    const nodes: any[] = ([] as any[]).concat(mainNodes, domainNodes);
-    const edges: any[] = [];
-
-    if (total >= 2) {
-      if (topo === 'Mesh') {
-        for (let i = 0; i < domList.length; i++) {
-          for (let j = i + 1; j < domList.length; j++) {
-            const a = `main-${String(domList[i]?.dom?.id)}`;
-            const b = `main-${String(domList[j]?.dom?.id)}`;
-            edges.push({ id: `${a}-${b}`, source: a, target: b, sourceHandle: 'pub', targetHandle: 'pub', type: 'straight', style: { stroke: '#1677ff', strokeWidth: 2 } });
-          }
-        }
-      } else {
-        const hub = `main-${String(domList[0]?.dom?.id)}`;
-        for (let i = 1; i < domList.length; i++) {
-          const spoke = `main-${String(domList[i]?.dom?.id)}`;
-          edges.push({ id: `${hub}-${spoke}`, source: hub, target: spoke, sourceHandle: 'pub', targetHandle: 'pub', type: 'straight', style: { stroke: '#1677ff', strokeWidth: 2 } });
-        }
-      }
-    }
-
-    for (let i = 0; i < domList.length; i++) {
-      const mid = `main-${String(domList[i]?.dom?.id)}`;
-      const did = `domain-${String(domList[i]?.dom?.id)}`;
-      edges.push({ id: `${mid}-${did}`, source: mid, target: did, sourceHandle: 'pub', targetHandle: 'card', type: 'straight', style: { stroke: '#bfbfbf', strokeWidth: 1.5 } });
-    }
-
-    const currentDomainNodeId = `domain-${currentDomainId}`;
-    const currentDomainNode = domainNodes.find(n => String(n.id) === currentDomainNodeId);
-    if (!currentDomainNode) {
-      nodes.push({
-        id: currentDomainNodeId,
-        type: 'domainCard',
-        position: { x: centerX + radius + currentDomainFallbackDx, y: centerY + currentDomainFallbackDy },
-        data: { title: `${(data as any)?.name || '安全域'}安全域`, vrName: (data as any)?.vrName || (data as any)?.vrUuid || '-', vpcCidr: (data as any)?.cidr || ((data as any)?.cidr4 || []).join(',') || '-' }
-      });
-    }
-
-    const attachFromDomainNode = currentDomainNode || nodes.find(n => String(n.id) === currentDomainNodeId);
-    const domainCardW = 160;
-    const domainCardH = 80;
-    const calcSupport = (w: number, h: number, ux: number, uy: number) => (w / 2) * Math.abs(ux) + (h / 2) * Math.abs(uy);
-
-    if (attachFromDomainNode) {
-      const parentX = Number(attachFromDomainNode.position?.x ?? centerX);
-      const parentY = Number(attachFromDomainNode.position?.y ?? centerY);
-      const parentCx = parentX + domainCardW / 2;
-      const parentCy = parentY + domainCardH / 2;
-      const dx = parentCx - centerX;
-      const dy = parentCy - centerY;
-      const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      const ux = dx / len;
-      const uy = dy / len;
-      const px = -uy;
-      const py = ux;
-      const baseGap = childRadialGap;
-      const rowGap = childPerpGap;
-      const parentSupport = calcSupport(domainCardW, domainCardH, ux, uy);
-
-      const items: Array<{ id: string; type: string; w: number; h: number; data: any; targetHandle: string; edgeStyle?: any }> = [];
-
-      const svcCount = Array.isArray(securityServices) ? securityServices.length : 0;
-      if (svcCount > 0) {
-        const svcNames = (Array.isArray(securityServices) ? securityServices : [])
-          .map((s: any) => s?.name || s?.title || s?.displayName || s?.id)
-          .filter((x: any) => x !== undefined && x !== null && String(x).trim());
-        items.push({
-          id: 'security-services',
-          type: 'securityServiceCard',
-          w: 220,
-          h: 140,
-          targetHandle: 'svc',
-          data: { title: '安全服务', count: svcCount, services: svcNames },
-          edgeStyle: { stroke: '#fa8c16', strokeWidth: 2 }
-        });
-      }
-
-      (Array.isArray(apps) ? apps : []).forEach((a: any, idx: number) => {
-        const nid = `app-${String(a?.id || idx)}`;
-        const title = a?.name || '密码应用';
-        const subTitle = `${a?.type ? String(a.type) : '-'}${a?.version ? ` / ${a.version}` : ''}`;
-        items.push({ id: nid, type: 'appCard', w: 160, h: 60, targetHandle: 'app', data: { title, subTitle } });
-      });
-
-      if (items.length > 0) {
-        const parentR = Math.sqrt((domainCardW / 2) ** 2 + (domainCardH / 2) ** 2);
-        const childRs = items.map(it => Math.sqrt((it.w / 2) ** 2 + (it.h / 2) ** 2));
-        const maxChildR = childRs.reduce((m, r) => Math.max(m, r), 0);
-        const arc = Math.PI;
-        const minArc = (maxChildR * 2 + rowGap) * items.length;
-        const minRadius = minArc / arc;
-        const radius = Math.max(parentR + maxChildR + baseGap, minRadius);
-
-        const outwardAngle = Math.atan2(uy, ux);
-        const startAngle = outwardAngle - arc / 2;
-        const step = items.length > 1 ? arc / items.length : 0;
-
-        items.forEach((it, idx) => {
-          const ang = items.length > 1 ? (startAngle + (idx + 0.5) * step) : outwardAngle;
-          const cx = parentCx + Math.cos(ang) * radius;
-          const cy = parentCy + Math.sin(ang) * radius;
-          nodes.push({
-            id: it.id,
-            type: it.type,
-            position: { x: cx - it.w / 2, y: cy - it.h / 2 },
-            data: it.data
-          });
-          edges.push({
-            id: `${currentDomainNodeId}-${it.id}`,
-            source: currentDomainNodeId,
-            target: it.id,
-            sourceHandle: 'card',
-            targetHandle: it.targetHandle,
-            type: 'straight',
-            style: it.edgeStyle || { stroke: '#bfbfbf', strokeWidth: 1.5 }
-          });
-        });
-      }
-    }
-
-    return (
-      <PageDetailSection
-        title="安全域拓扑"
-      >
-        <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ color: '#666', fontSize: 12 }}>级联通道</span>
-          <Select
-            size="small"
-            style={{ width: 260 }}
-            value={cenId}
-            onChange={(v) => setSelectedCenId(String(v))}
-            options={cascades.map((c: any) => ({ value: String(c?.id), label: `${c?.name || '级联通道'} (${c?.id || '-'})` }))}
-            placeholder="选择级联通道"
-            allowClear
-          />
-          <span style={{ color: '#666', fontSize: 12 }}>拓扑模式</span>
-          <span style={{ fontSize: 12, color: '#333' }}>{topo || '-'}</span>
-        </div>
-        <div ref={setTopologyEl} style={{ height: topologyHeight, minHeight: 460, border: '1px solid #e8e8e8', borderRadius: 12, background: '#fafafa', backgroundImage: 'radial-gradient(rgba(0,0,0,0.08) 1px, transparent 1px)', backgroundSize: '22px 22px', backgroundPosition: '0 0', overflow: 'hidden', position: 'relative' }}>
-          {(!cenId && apps.length === 0 && (securityServices || []).length === 0) || (topologyLoading && total === 0 && apps.length === 0 && (securityServices || []).length === 0) ? (
-            <div style={{ height: topologyHeight, minHeight: 460, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <Empty description={topologyLoading ? '拓扑加载中' : '暂无关联级联通道或应用实例'} />
-            </div>
-          ) : (
-            <ReactFlowProvider>
-              <AutoFitFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} fitSignal={`${String(cenId || '')}:${nodes.length}:${edges.length}:${topologyHeight}`} />
-            </ReactFlowProvider>
-          )}
-        </div>
-      </PageDetailSection>
-    );
-  };
-
   const tabs = [
     {
       key: 'overview',
       label: '资源总览',
       icon: <DashboardOutlined />,
       children: renderOverview(),
-    },
-
-    {
-      key: 'topology',
-      label: '安全域拓扑',
-      icon: <DeploymentUnitOutlined />,
-      children: renderTopology(),
     },
     {
       key: 'cascade',
@@ -1244,8 +1184,6 @@ const SecurityDomainDetail: React.FC = () => {
       ]}
       onMoreMenuClick={({ key }) => {
         if (key === 'refresh') {
-          setAttachmentCache({});
-          setAttachmentRawCache({});
           if (id) fetchDetail(id);
           return;
         }
@@ -1267,8 +1205,6 @@ const SecurityDomainDetail: React.FC = () => {
                 fetchedAt: new Date().toISOString(),
                 securityDomainId: id,
                 getSecurityDomain: rawDetail,
-                selectedCenId,
-                fetchCenAttachments: selectedCenId ? attachmentRawCache[selectedCenId] : undefined,
               };
               try {
                 return JSON.stringify(payload ?? {}, null, 2);

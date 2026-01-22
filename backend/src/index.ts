@@ -125,7 +125,7 @@ app.use('/api/services', authMiddleware, serviceRoutes);
 app.use('/api/security/traffic', authMiddleware, trafficOrchestrationRoutes);
 app.use('/api/leased-lines', authMiddleware, leasedLineRoutes);
 app.use('/api/system', authMiddleware, systemRoutes);
-app.use('/api/threats', authMiddleware, threatRoutes);
+app.use('/api/threats', threatRoutes);
 
 // 健康检查
 app.get('/health', (req, res) => {

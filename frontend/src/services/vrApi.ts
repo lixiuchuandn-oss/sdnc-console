@@ -21,39 +21,45 @@ export interface AuthInfo {
 
 
 
-// 获取认证信息 - 完全复制test-vr-api.js的实现方式
-export const getAuthInfo = async (pageSize: number = 3, pageNum: number = 1): Promise<AuthInfo> => {
+// 获取认证信息 - 通用版
+export const getAuthInfo = async (
+  path: string = "/V2/ctcontrol/VR1/pagelist",
+  method: string = "GET",
+  other: string = "page_size=3&page_num=1",
+  body?: any
+): Promise<AuthInfo> => {
   logDebug('开始获取认证信息');
   
   try {
-    // 与test-vr-api.js完全相同的参数
     const ACCESS_KEY = "Cloudmap%23123";
     const SECRET_KEY = "Cloudmap%23123";
-    const path = "/V2/ctcontrol/VR1/pagelist";
-    const method = "GET";
-    const other = `page_size=${pageSize}&page_num=${pageNum}`;
     
     // 详细打印参数信息，便于调试
     logDebug(`构建认证参数详情:`);
     logDebug(`  path: ${path}`);
     logDebug(`  method: ${method}`);
     logDebug(`  other: ${other}`);
+    logDebug(`  body: ${body ? JSON.stringify(body) : 'none'}`);
     logDebug(`  ACCESS_KEY: ${ACCESS_KEY}`);
     logDebug(`  SECRET_KEY: ${SECRET_KEY}`);
     
     // 构建URL - 开发环境使用代理路径，生产环境使用直接URL
     const baseUrl = process.env.NODE_ENV === 'development' ? API_PROXY_PATH : API_BASE_URL;
-    const authUrl = `${baseUrl}/api/sign?` +
+    let authUrl = `${baseUrl}/api/sign?` +
       `url=${encodeURIComponent(path)}&` +
       `method=${method}&` +
-      `other=${encodeURIComponent(other)}&` +
       `accessKey=${ACCESS_KEY}&` +
       `secretKey=${SECRET_KEY}`;
     
+    // 只有当 other 不为空时才添加到 URL，避免传递空字符串导致签名不一致
+    if (other) {
+      authUrl += `&other=${encodeURIComponent(other)}`;
+    }
+    
     logDebug(`认证请求URL: ${authUrl}`);
     
-    // 发送POST请求，与test-vr-api.js完全一致
-    const response = await axios.post(authUrl, '', {
+    // 发送POST请求，传递 body 以便后端计算 Body Hash
+    const response = await axios.post(authUrl, body || '', {
       timeout: 15000,
       headers: {
         'Content-Type': 'application/json'
@@ -108,7 +114,10 @@ export const vrApi = {
     logDebug(`获取VR实例列表: pageSize=${pageSize}, pageNum=${pageNum}`);
     try {
       // 获取认证信息
-      const authInfo = await getAuthInfo(pageSize, pageNum);
+      const path = "/V2/ctcontrol/VR1/pagelist";
+      const method = "GET";
+      const other = `page_size=${pageSize}&page_num=${pageNum}`;
+      const authInfo = await getAuthInfo(path, method, other);
       
       logDebug(`使用认证信息: Authorization=${authInfo.Authorization}, tonce=${authInfo.tonce}`);
       
@@ -144,7 +153,8 @@ export const vrApi = {
   // 其他API方法使用相同的认证方式
   getVRInstance: async (vmId: string) => {
     try {
-      const authInfo = await getAuthInfo(1, 1);
+      const path = `/V2/ctcontrol/VR1/${vmId}`;
+      const authInfo = await getAuthInfo(path, 'GET', '');
       const baseUrl = process.env.NODE_ENV === 'development' ? API_PROXY_PATH : API_BASE_URL;
       const response = await axios.get(`${baseUrl}/V2/ctcontrol/VR1/${vmId}`, {
         headers: {
@@ -165,7 +175,8 @@ export const vrApi = {
   
   createVRInstance: async (data: any) => {
     try {
-      const authInfo = await getAuthInfo(1, 1);
+      const path = `/V2/ctcontrol/VR1`;
+      const authInfo = await getAuthInfo(path, 'POST', '', data);
       const baseUrl = process.env.NODE_ENV === 'development' ? API_PROXY_PATH : API_BASE_URL;
       const response = await axios.post(`${baseUrl}/V2/ctcontrol/VR1`, data, {
         headers: {
@@ -186,7 +197,8 @@ export const vrApi = {
   
   updateVRInstance: async (vmId: string, data: any) => {
     try {
-      const authInfo = await getAuthInfo(1, 1);
+      const path = `/V2/ctcontrol/VR1/${vmId}`;
+      const authInfo = await getAuthInfo(path, 'PUT', '', data);
       const baseUrl = process.env.NODE_ENV === 'development' ? API_PROXY_PATH : API_BASE_URL;
       const response = await axios.put(`${baseUrl}/V2/ctcontrol/VR1/${vmId}`, data, {
         headers: {
@@ -207,7 +219,8 @@ export const vrApi = {
   
   deleteVRInstance: async (vmId: string) => {
     try {
-      const authInfo = await getAuthInfo(1, 1);
+      const path = `/V2/ctcontrol/VR1/${vmId}`;
+      const authInfo = await getAuthInfo(path, 'DELETE', '');
       const baseUrl = process.env.NODE_ENV === 'development' ? API_PROXY_PATH : API_BASE_URL;
       const response = await axios.delete(`${baseUrl}/V2/ctcontrol/VR1/${vmId}`, {
         headers: {

@@ -5,6 +5,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { vrApi } from '../../../services/vrApi';
 import { getVRRoles, saveVRConfig, getVRConfig } from '../../../services/vrConfigApi';
+import { fetchVrCachePageList, upsertVrCache } from '../../../services/vrCacheApi';
+
 import { getVR2Config } from '../../../services/vr2Api';
 import { API_BASE_URL } from '../../../services/api';
 
@@ -709,12 +711,7 @@ const SRv6CreatePage: React.FC = () => {
 
           // 写入缓存
           try {
-            const upsertUrl = `${API_BASE_URL}/api/vr-cache/upsert`;
-            await fetch(upsertUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ page_num: pageNum, page_size: pageSize, data: rawRemote })
-            });
+            await upsertVrCache(pageNum, pageSize, rawRemote);
           } catch (cacheErr) {
             console.warn('[VR_CACHE] 远端列表入库失败:', (cacheErr as any)?.message || cacheErr);
           }
@@ -722,9 +719,7 @@ const SRv6CreatePage: React.FC = () => {
           console.warn('二次远端尝试失败，回退读取本地缓存：', (secondErr as any)?.message || secondErr);
           // 远端失败时，尝试读取本地缓存以便“打印列表”可见
           try {
-            const url = `${API_BASE_URL}/api/vr-cache/pagelist?page_num=${pageNum}&page_size=${pageSize}`;
-            const resp = await fetch(url, { method: 'GET' });
-            const json = await resp.json().catch(async () => ({ raw: await resp.text() }));
+            const json = await fetchVrCachePageList(pageSize, pageNum);
             const cacheData: any = (json && (json as any).data) ? (json as any).data : json;
             const cacheRaw = (cacheData && cacheData.data) ? cacheData.data : cacheData;
             const parsed = typeof cacheRaw === 'string' ? safeJsonParse(cacheRaw) : cacheRaw;
@@ -742,6 +737,7 @@ const SRv6CreatePage: React.FC = () => {
             message.error('获取 VR 实例列表失败');
           }
         }
+
       }
       setVrs(list || []);
 

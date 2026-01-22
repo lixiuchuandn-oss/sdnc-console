@@ -115,7 +115,7 @@ SASE 网关（下文统一称为 VR 实例）是安全域与云资源/物理网�
 ### 6.2 获取并写入 VR 唯一 ID
 
 - 本地控制台在用户成功登录后调用平台 API，请求为当前 VR 实例分配唯一 ID 并完成绑定：
--  - API：`POST /api/sase/gateways/bind`
+-  - API：`POST /api/vr-config/bind`
 -  - 请求体：
      - `tenant_id`、`org_id`（可从登录返回的 token 中解析，或显式传入）
      - 设备指纹：`device_fingerprint`（序列号、CPU ID 或证书公钥等）

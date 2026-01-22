@@ -1,18 +1,20 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag, Typography, Tooltip, Badge, Progress, Popover, Checkbox } from 'antd';
+import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, Modal, Tabs, Row, Col, Card, Tag, Typography, Tooltip, Badge, Progress, Popover, Checkbox, TreeSelect, Radio, Spin } from 'antd';
 import type { MenuProps, CheckboxOptionType } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, CheckCircleFilled, ExclamationCircleFilled, CloseCircleFilled, QuestionCircleFilled, ApiOutlined, SettingOutlined, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, CheckCircleFilled, ExclamationCircleFilled, CloseCircleFilled, QuestionCircleFilled, ApiOutlined, SettingOutlined, EyeOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { vrApi } from '../../../services/vrApi';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
 import { getVRRoles, setVRRole, getVRConfig, saveVRConfig } from '../../../services/vrConfigApi';
 import { listSecurityDomains, updateSecurityDomain } from '../../../services/securityDomainApi';
+import { upsertVrCache } from '../../../services/vrCacheApi';
+
 import { netClassLabel, netClassColor } from '../../../utils/netClass';
 import '../../common/filters.css';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
 import StdFormModal from '../../../components/StdFormModal';
-import { fetchSaseGateways, fetchTenants, fetchOrganizationsByTenant } from '../../../services/api';
+import { fetchTenantVRs, fetchTenants, fetchOrganizationsByTenant, bindTenantVR } from '../../../services/api';
 
 interface VRRow {
   id?: string;
@@ -77,6 +79,8 @@ const VRPage: React.FC = () => {
   const [tenantLoading, setTenantLoading] = useState<boolean>(false);
   const [orgNameMap, setOrgNameMap] = useState<Record<string, string>>({});
   const orgTenantLoadedRef = useRef<Record<string, boolean>>({});
+  const tenantOptionsRef = useRef<any[]>([]);
+  const orgNameMapRef = useRef<Record<string, string>>({});
 
   const loadTenants = async () => {
     setTenantLoading(true);
@@ -87,8 +91,10 @@ const VRPage: React.FC = () => {
         ? list.map(t => ({ value: String((t as any).id || (t as any)._id || ''), label: String((t as any).name || (t as any).username || '未命名租户') }))
         : [];
       setTenantOptions(opts);
+      tenantOptionsRef.current = opts;
     } catch (e) {
       setTenantOptions([]);
+      tenantOptionsRef.current = [];
     } finally {
       setTenantLoading(false);
     }
@@ -97,6 +103,14 @@ const VRPage: React.FC = () => {
   useEffect(() => {
     loadTenants();
   }, []);
+
+  useEffect(() => {
+    tenantOptionsRef.current = tenantOptions;
+  }, [tenantOptions]);
+
+  useEffect(() => {
+    orgNameMapRef.current = orgNameMap;
+  }, [orgNameMap]);
 
   useEffect(() => {
     (async () => {
@@ -141,6 +155,13 @@ const VRPage: React.FC = () => {
   // CE配置弹窗
   const [ceModalOpen, setCeModalOpen] = useState(false);
   const [ceForm] = Form.useForm();
+
+  // 元数据查看 Modal
+  const [metadataModalOpen, setMetadataModalOpen] = useState(false);
+  const [currentMetadata, setCurrentMetadata] = useState<{ csmctl: any, vrctl: any, vr3?: any } | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(false);
+
+  // 隧道管理 Modal
   const [tunnelModalOpen, setTunnelModalOpen] = useState(false);
   const [tunnelForm] = Form.useForm();
   // 添加VR实例弹窗
@@ -156,15 +177,25 @@ const VRPage: React.FC = () => {
   const [settingsForm] = Form.useForm();
   const [settingsLoading, setSettingsLoading] = useState(false);
 
+  // 绑定组织弹窗
+  const [bindModalOpen, setBindModalOpen] = useState(false);
+  const [bindForm] = Form.useForm();
+  const [currentBindVr, setCurrentBindVr] = useState<VRRow | null>(null);
+  const [orgTreeData, setOrgTreeData] = useState<any[]>([]);
+
+  // 角色设置 Modal
+  const [roleModalOpen, setRoleModalOpen] = useState(false);
+  const [selectedRoleType, setSelectedRoleType] = useState('标准');
+  const [roleVrUuid, setRoleVrUuid] = useState<string | null>(null);
+
   const getActionMenu = (row: VRRow): MenuProps['items'] => ([
     { key: 'detail', label: '查看设备详情' },
     { key: 'editDevice', label: '编辑设备信息' },
-    { key: 'role', label: '设置角色', children: [
-      { key: 'roleStandard', label: '设为标准模式' },
-      { key: 'rolePE', label: '设为PE模式' },
-      { key: 'roleCE', label: '设为CE模式' },
-    ]},
-    { key: 'editConfig', label: '专家模式' },
+    { key: 'bindOrg', label: '绑定组织' },
+    { key: 'metadata', label: '查看元数据' },
+    { type: 'divider' },
+    { key: 'role', label: '设置角色', danger: true },
+    { key: 'editConfig', label: '专家模式', danger: true },
   ]);
 
   const handleSettingsOpen = async () => {
@@ -203,6 +234,62 @@ const VRPage: React.FC = () => {
 
   const handleRowActionClick = (row: VRRow): MenuProps['onClick'] => ({ key, domEvent }) => {
     domEvent.stopPropagation();
+    if (key === 'metadata') {
+      const id = row.uuid || row.id || row.vm_id;
+      setCurrentMetadata({
+        csmctl: (row as any)._raw_csmctl_info,
+        vrctl: (row as any)._raw_vrctl_info,
+        vr3: null // Reset VR3 data
+      });
+      setMetadataModalOpen(true);
+      
+      // Async fetch VR3 extended info
+      if (id) {
+        setMetadataLoading(true);
+        (async () => {
+          try {
+            const accesskey = 'Cloudmap%23123';
+            const secretkey = 'Cloudmap%23123';
+            const path = '/V2/ctcontrol/VR3/VRConfig/list';
+            const method = 'GET';
+            const other = `uuid=${id}`;
+            
+            const authUrl = `/api-proxy/api/sign?` +
+              `url=${encodeURIComponent(path)}&` +
+              `method=${method}&` +
+              `other=${encodeURIComponent(other)}&` +
+              `accessKey=${accesskey}&` +
+              `secretKey=${secretkey}`;
+              
+            const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '' });
+            const signJson = await signResp.json();
+            const info = (signJson && signJson.data) ? signJson.data : signJson;
+            
+            if (info && info.Authorization && info.tonce) {
+               const queryUrl = `/api-proxy${path}?${other}`;
+               const res = await fetch(queryUrl, {
+                 method: 'GET',
+                 headers: {
+                   'Content-Type': 'application/json',
+                   'Authorization': info.Authorization,
+                   'tonce': String(info.tonce)
+                 }
+               });
+               const json = await res.json();
+               // Unwrap data layer if present
+               const data = (json as any)?.data ?? json;
+               setCurrentMetadata(prev => prev ? { ...prev, vr3: data } : null);
+            }
+          } catch (e) {
+            console.warn('Failed to fetch VR3 metadata:', e);
+            setCurrentMetadata(prev => prev ? { ...prev, vr3: { error: '获取扩展信息失败', details: (e as any).message } } : null);
+          } finally {
+            setMetadataLoading(false);
+          }
+        })();
+      }
+      return;
+    }
     if (key === 'editConfig') {
       const id = row.uuid || row.id || row.vm_id;
       if (id) {
@@ -212,12 +299,18 @@ const VRPage: React.FC = () => {
       }
     } else if (key === 'detail') {
       message.info('查看设备详情（功能待设计）');
-    } else if (key === 'roleStandard' || key === 'rolePE' || key === 'roleCE') {
+    } else if (key === 'role') {
       const id = row.uuid || row.id || row.vm_id;
       if (!id) return message.warning('该行缺少可识别的UUID/ID');
-      if (key === 'roleStandard') navigate(`/admin/interconnect/vr/${id}/role-standard`);
-      if (key === 'rolePE') navigate(`/admin/interconnect/vr/${id}/role-pe`);
-      if (key === 'roleCE') navigate(`/admin/interconnect/vr/${id}/role-ce`);
+      setRoleVrUuid(id);
+      
+      // Default selection logic
+      if (row.role && ['PE','CE','SASE','标准'].includes(row.role)) {
+         setSelectedRoleType(row.role);
+      } else {
+         setSelectedRoleType('标准');
+      }
+      setRoleModalOpen(true);
     } else if (key === 'editDevice') {
       // 仅展示接口返回的设备 ID（与 uuid 区分开）
       const onlyId = row.id;
@@ -234,10 +327,82 @@ const VRPage: React.FC = () => {
         vm_id: row.vm_id || undefined,
       });
       setEditModalOpen(true);
+    } else if (key === 'bindOrg') {
+      setCurrentBindVr(row);
+      const tid = row.tenant_id;
+      const oid = row.org_id;
+      
+      bindForm.setFieldsValue({
+        tenant_id: tid ? String(tid) : undefined,
+        org_id: oid ? String(oid) : undefined,
+        vr_type: row.role || undefined,
+      });
+
+      if (tid) {
+        handleBindTenantChange(String(tid), false); // 加载组织树但不重置 org_id
+      } else {
+        setOrgTreeData([]);
+      }
+      setBindModalOpen(true);
     }
   };
 
+  const handleBindTenantChange = async (tenantId: string, resetOrg: boolean = true) => {
+    if (resetOrg) {
+      bindForm.setFieldsValue({ org_id: undefined });
+    }
+    if (!tenantId) {
+      setOrgTreeData([]);
+      return;
+    }
+    try {
+      const tree = await fetchOrganizationsByTenant(tenantId);
+      const list = Array.isArray(tree) ? tree : (Array.isArray((tree as any)?.data) ? (tree as any).data : []);
+      
+      const mapTree = (nodes: any[]): any[] => {
+        return nodes.map(n => ({
+          value: String(n.id),
+          title: n.name || n.id,
+          children: (n.children && n.children.length) ? mapTree(n.children) : undefined,
+        }));
+      };
+      
+      setOrgTreeData(mapTree(list));
+    } catch (e) {
+      console.error('加载组织失败', e);
+      setOrgTreeData([]);
+    }
+  };
 
+  const submitBind = async () => {
+    try {
+      const values = await bindForm.validateFields();
+      if (!currentBindVr) return;
+      
+      setLoading(true);
+      const vrUuid = currentBindVr.uuid || currentBindVr.id || currentBindVr.vm_id;
+      if (!vrUuid) throw new Error('无法识别VR UUID');
+
+      const payload = {
+        vr_uuid: vrUuid,
+        vm_id: currentBindVr.vm_id,
+        tenant_id: values.tenant_id,
+        org_id: values.org_id,
+        display_name: currentBindVr.name,
+        vr_type: values.vr_type,
+      };
+
+      await bindTenantVR(payload);
+      
+      message.success('绑定组织成功');
+      setBindModalOpen(false);
+      fetchVRInstances(); // 刷新列表
+    } catch (e: any) {
+      message.error(`绑定失败: ${e.message || e}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const submitCEConfig = async () => {
     try {
@@ -262,8 +427,18 @@ const VRPage: React.FC = () => {
     }
   };
 
-  const fetchVRInstances = async (pageNum: number = 1, pageSize: number = 10) => {
-    console.log('[VR_DEBUG] 开始获取VR实例数据（远端直连），页码:', pageNum, '页大小:', pageSize);
+  const getStatusKey = (raw: any) => {
+    const v = String(raw || '').toLowerCase();
+    if (['healthy', 'running', 'ok', 'online', 'active'].includes(v)) return 'running';
+    if (['warning', 'degraded'].includes(v)) return 'warning';
+    if (['error', 'failed', 'unhealthy', 'offline', 'stopped'].includes(v)) return 'stopped';
+    return 'unknown';
+  };
+
+  const fetchVRInstances = async () => {
+    const pageNum = 1;
+    const pageSize = 1000; // 获取1000条数据以支持前端搜索
+    console.log('[VR_DEBUG] 开始获取VR实例数据（远端直连-全量模式），限制:', pageSize);
     setLoading(true);
     try {
       const accesskey = 'Cloudmap%23123';
@@ -315,7 +490,7 @@ const VRPage: React.FC = () => {
 
       let mergedList: VRRow[] = list;
       try {
-        const saseRes = await fetchSaseGateways();
+        const saseRes = await fetchTenantVRs();
         const items = Array.isArray((saseRes as any)?.items) ? (saseRes as any).items : [];
         const map: Record<string, any> = {};
         items.forEach((item: any) => {
@@ -326,21 +501,48 @@ const VRPage: React.FC = () => {
           const id = vr.uuid || vr.id || vr.vm_id;
           if (!id) return vr;
           const extra = map[String(id)];
-          if (!extra) return vr;
+          // if (!extra) return vr; // 即使没有绑定信息，也要返回原始VR
           return {
             ...vr,
-            vr_unique_id: extra.vr_unique_id || extra.uuid || id,
-            tenant_id: extra.tenant_id,
-            org_id: extra.org_id,
-            bind_status: extra.bind_status || vr.bind_status,
+            vr_unique_id: extra?.vr_unique_id || extra?.uuid || id,
+            tenant_id: extra?.tenant_id,
+            org_id: extra?.org_id,
+            bind_status: extra?.bind_status || vr.bind_status,
+            role: extra?.role || vr.role,
+            _raw_vrctl_info: extra,
+            _raw_csmctl_info: vr,
           };
         });
       } catch (e) {
         console.warn('加载 SASE 绑定信息失败', e);
-        mergedList = list;
+        // 出错时，也保留原始信息
+        mergedList = list.map(vr => ({ ...vr, _raw_csmctl_info: vr }));
       }
 
+      // 默认按状态排序：Running > Warning > Stopped > Unknown
+      mergedList.sort((a, b) => {
+        const getWeight = (r: VRRow) => {
+          const k = getStatusKey(r.health_status ?? r.healthStatus ?? r.status);
+          if (k === 'running') return 3;
+          if (k === 'warning') return 2;
+          if (k === 'stopped') return 1;
+          return 0;
+        };
+        return getWeight(b) - getWeight(a); // Descending
+      });
+
       setVrs(mergedList);
+      // 更新 rolesMap 以便同步显示
+      const newRolesMap = { ...rolesMapRef.current };
+      mergedList.forEach(r => {
+        const id = r.uuid || r.id || r.vm_id;
+        if (id && r.role) {
+          newRolesMap[id] = r.role;
+        }
+      });
+      setRolesMap(newRolesMap);
+      rolesMapRef.current = newRolesMap;
+
       const keysSet = new Set<string>();
       mergedList.forEach(row => {
         Object.keys(row || {}).forEach(k => keysSet.add(k));
@@ -349,46 +551,54 @@ const VRPage: React.FC = () => {
       const cols: ColumnsType<VRRow> = Array.from(keysSet).map((k) => ({ title: LABELS[k] || k, dataIndex: k, key: k }));
 
       // 移除可能存在的原始状态列，统一用自定义渲染
-      ['status','health_status','healthStatus'].forEach((key)=>{
+      ['status','health_status','healthStatus', '_raw_vrctl_info', '_raw_csmctl_info'].forEach((key)=>{
         const idx = cols.findIndex((c:any)=> c.dataIndex===key || c.key===key);
         if(idx>=0) cols.splice(idx,1);
       });
 
       // 自定义状态列（Antd Badge），从 health_status/healthStatus/status 读取
       const renderStatus = (raw: any) => {
-        const v = String(raw || '').toLowerCase();
-        if (['healthy', 'running', 'ok', 'online'].includes(v)) {
-          return <Badge status="success" text="Running" />;
-        }
-        if (['warning', 'degraded'].includes(v)) {
-          return <Badge status="warning" text="Warning" />;
-        }
-        if (['error', 'failed', 'unhealthy', 'offline', 'stopped'].includes(v)) {
-          return <Badge status="error" text="Stopped" />;
-        }
-        return <Badge status="default" text="Unknown" />;
+        const key = getStatusKey(raw);
+        if (key === 'running') return <Badge status="success" text="运行中" />;
+        if (key === 'warning') return <Badge status="warning" text="警告" />;
+        if (key === 'stopped') return <Badge status="error" text="已停止" />;
+        return <Badge status="default" text="未知" />;
       };
       const statusCol = {
         title: '状态',
         key: 'health_status',
         dataIndex: 'health_status',
-        render: (_:any,row:VRRow)=> renderStatus(row.health_status ?? row.healthStatus ?? row.status)
+        render: (_:any,row:VRRow)=> renderStatus(row.health_status ?? row.healthStatus ?? row.status),
+        sorter: (a: VRRow, b: VRRow) => {
+          const getWeight = (r: VRRow) => {
+            const k = getStatusKey(r.health_status ?? r.healthStatus ?? r.status);
+            if (k === 'running') return 3;
+            if (k === 'warning') return 2;
+            if (k === 'stopped') return 1;
+            return 0;
+          };
+          return getWeight(a) - getWeight(b);
+        },
+        defaultSortOrder: 'descend',
       } as any;
 
-      // 新增：将ID列改为序号并缩窄宽度；若无ID列则添加序号列
+      // 新增：将ID列改为序号并缩窄宽度；若无ID列则添加序号列 (Removed)
+      // const idIdx = cols.findIndex((c: any) => c.dataIndex === 'id' || c.key === 'id');
+      // const indexBase = (pagination.current - 1) * pagination.pageSize;
+      // const indexCol = {
+      //   title: '序号',
+      //   key: 'id',
+      //   dataIndex: 'id',
+      //   render: (_: any, __: VRRow, index: number) => indexBase + index + 1,
+      // } as any;
+      // if (idIdx >= 0) {
+      //   cols.splice(idIdx, 1, { ...cols[idIdx], ...indexCol });
+      // } else {
+      //   cols.unshift(indexCol);
+      // }
+      // 移除原有的ID列（如果存在）
       const idIdx = cols.findIndex((c: any) => c.dataIndex === 'id' || c.key === 'id');
-      const indexBase = (pagination.current - 1) * pagination.pageSize;
-      const indexCol = {
-        title: '序号',
-        key: 'id',
-        dataIndex: 'id',
-        render: (_: any, __: VRRow, index: number) => indexBase + index + 1,
-      } as any;
-      if (idIdx >= 0) {
-        cols.splice(idIdx, 1, { ...cols[idIdx], ...indexCol });
-      } else {
-        cols.unshift(indexCol);
-      }
+      if (idIdx >= 0) cols.splice(idIdx, 1);
 
       // 追加角色列（基于本地rolesMap渲染）
       const roleCol = {
@@ -413,64 +623,71 @@ const VRPage: React.FC = () => {
         }
       } as any;
 
-      // 追加安全域网络分类列（基于安全域绑定）
-      const netClassCol = {
-        title: '安全域',
-        key: 'netClass',
-        dataIndex: 'netClass',
+      // 整合：归属信息（租户/组织/安全域）
+      const affiliationCol = {
+        title: '归属信息',
+        key: 'affiliation',
+        width: 260,
         render: (_: any, row: VRRow) => {
-          const id = row.uuid || row.id || row.vm_id;
-          const domain = id ? netClassMapRef.current[id] : null;
+          const id = row.uuid || row.vr_unique_id || row.id || row.vm_id;
+          const dom = id ? netClassMapRef.current[String(id)] : undefined;
           
-          // 只有未绑定时显示 Link，已绑定显示纯文本（安全域名称）
-          if (!domain) {
-             return (
-               <Button 
-                 type="link" 
-                 size="small" 
-                 style={{ padding: 0 }} 
-                 onClick={() => {
-                   if (!id) return message.warning('无法识别VR ID');
-                   // 携带 VR 信息跳转到安全域创建页面
-                   const vrName = row.name || id;
-                   navigate(`/admin/sec-mgr-plane/security-domain/new?vrUuid=${encodeURIComponent(id)}&vrName=${encodeURIComponent(vrName)}`);
-                 }}
-               >
-                 点击绑定
-               </Button>
+          // 1. 租户
+          let tenantName = '-';
+          // 逻辑变更：不再优先取安全域的租户，直接取 VR 自身的租户
+          const tid = row.tenant_id;
+          // Use Ref instead of state closure
+          const opts = tenantOptionsRef.current;
+          const nameFromOptions = tid ? (opts.find(t => String(t.value) === String(tid))?.label) : undefined;
+          if (nameFromOptions) tenantName = String(nameFromOptions);
+          
+          // 2. 组织
+          let orgName = '-';
+          // 逻辑变更：不再优先取安全域的组织，直接取 VR 自身的组织
+          const oid = row.org_id;
+          // Use Ref instead of state closure
+          const map = orgNameMapRef.current;
+          const nameFromMap = oid ? map[String(oid)] : undefined;
+          if (nameFromMap) orgName = String(nameFromMap);
+
+          // 3. 安全域
+          let netClassNode: React.ReactNode = null;
+          
+          // 归属信息显示逻辑说明：
+          // 1. 租户/组织：直接显示 VR 自身的归属（由 VR 分配或登录绑定决定）
+          // 2. 安全域：显示关联的安全域，仅作展示，不反向决定租户/组织
+          if (dom) {
+             netClassNode = <Tag color={netClassColor(dom.type)}>{dom.name}</Tag>;
+          } else {
+             netClassNode = (
+               <Space size={4}>
+                 <span style={{ color: 'rgba(0,0,0,0.45)' }}>无安全域</span>
+                 <a 
+                   onClick={() => {
+                     if (!id) return message.warning('无法识别VR ID');
+                     const vrName = row.name || id;
+                     navigate(`/admin/sec-mgr-plane/security-domain/new?vrUuid=${encodeURIComponent(id)}&vrName=${encodeURIComponent(vrName)}`);
+                   }}
+                 >
+                   绑定
+                 </a>
+               </Space>
              );
           }
-          return <span>{domain.name || '未知安全域'}</span>;
-        }
-      } as any;
-
-      const tenantCol = {
-        title: '租户',
-        key: 'tenant',
-        dataIndex: 'tenant_name',
-        render: (_: any, row: VRRow) => {
-          const id = row.uuid || row.vr_unique_id || row.id || row.vm_id;
-          const dom = id ? netClassMapRef.current[String(id)] : undefined;
-          const nameFromDom = dom ? (dom.tenantName || dom.tenant_name) : undefined;
-          if (nameFromDom) return <span>{String(nameFromDom)}</span>;
-          const tid = row.tenant_id || (dom ? dom.tenantId : undefined);
-          const nameFromOptions = tid ? (tenantOptions.find(t => String(t.value) === String(tid))?.label) : undefined;
-          return nameFromOptions ? <span>{String(nameFromOptions)}</span> : '配属';
-        }
-      } as any;
-      const orgCol = {
-        title: '组织',
-        key: 'organization',
-        dataIndex: 'org_name',
-        render: (_: any, row: VRRow) => {
-          const id = row.uuid || row.vr_unique_id || row.id || row.vm_id;
-          const dom = id ? netClassMapRef.current[String(id)] : undefined;
-          const nameFromDom = dom ? (dom.organizationName || dom.organization_name) : undefined;
-          if (nameFromDom) return <span>{String(nameFromDom)}</span>;
-          const oid = row.org_id || (dom ? dom.organizationId : undefined);
-          const nameFromMap = oid ? orgNameMap[String(oid)] : undefined;
-          if (nameFromMap) return <span>{String(nameFromMap)}</span>;
-          return '配属';
+          
+          return (
+            <div style={{ fontSize: '12px' }}>
+               <div style={{ marginBottom: 2 }}>
+                 {/* 显示格式：租户名称 / 组织名称 */}
+                 <Tooltip title={`租户: ${tenantName} / 组织: ${orgName}`}>
+                    <span>{tenantName} / {orgName}</span>
+                 </Tooltip>
+               </div>
+               <div>
+                 {netClassNode}
+               </div>
+            </div>
+          );
         }
       } as any;
       const bindStatusCol = {
@@ -493,7 +710,7 @@ const VRPage: React.FC = () => {
         return null;
       };
 
-      const indexColObj = extractCol('id'); // 序号列
+      // const indexColObj = extractCol('id'); // 序号列 (Removed)
       const nameColObj = extractCol('name');
       const uuidColObj = extractCol('uuid');
       const poolIdColObj = extractCol('pool_id') || extractCol('poolId');
@@ -503,6 +720,9 @@ const VRPage: React.FC = () => {
       const macColObj = extractCol('mac');
       const poolNameColObj = extractCol('pool_name');
       const vmIdColObj = extractCol('vm_id');
+      // 移除可能存在的原始角色列，避免重复
+      extractCol('role');
+      extractCol('vr_type');
 
       // 假列定义
       const cpuCol = {
@@ -564,15 +784,14 @@ const VRPage: React.FC = () => {
         }
       };
 
-      // 构建新的列顺序：序号 -> 名称 -> 状态 -> UUID -> 角色 -> 监控指标 -> MAC -> 版本 -> 类型 -> 安全域 -> 资源池ID -> 其他 -> 操作
+      // 构建新的列顺序：序号 -> 名称 -> 状态 -> UUID -> 角色 -> 归属信息 -> 监控指标 -> MAC -> 版本 -> 类型 -> 资源池ID -> 其他 -> 操作
       const newCols: any[] = [];
-      if (indexColObj) newCols.push(indexColObj);
+      // if (indexColObj) newCols.push(indexColObj); (Removed)
       if (nameColObj) newCols.push(nameColObj);
       newCols.push(statusCol);
       if (uuidColObj) newCols.push(uuidColObj);
       newCols.push(roleCol);
-      newCols.push(tenantCol);
-      newCols.push(orgCol);
+      newCols.push(affiliationCol);
       newCols.push(bindStatusCol);
       
       // 添加监控指标列
@@ -587,7 +806,6 @@ const VRPage: React.FC = () => {
       // 版本及跟随列
       if (versionColObj) newCols.push(versionColObj);
       if (typeColObj) newCols.push(typeColObj);
-      newCols.push(netClassCol);
       if (poolIdColObj) newCols.push(poolIdColObj);
       if (poolNameColObj) newCols.push(poolNameColObj);
       if (vmIdColObj) newCols.push(vmIdColObj);
@@ -668,7 +886,8 @@ const VRPage: React.FC = () => {
         console.warn('加载组织名称映射失败:', e);
       }
 
-      setPagination({ current: pageNum, pageSize, total: Number((data as any)?.total || mergedList.length) });
+      // 前端分页：不强制设置 pagination state，让 Table 自行处理或仅更新 total
+      // setPagination({ current: pageNum, pageSize, total: Number((data as any)?.total || mergedList.length) });
     } catch (error: any) {
       console.error('[VR_DEBUG_ERROR] 远端直连失败:', error);
       message.error(`远端直连失败: ${error.message || '请稍后重试'}`);
@@ -730,7 +949,7 @@ const VRPage: React.FC = () => {
       setAddModalOpen(false);
       addForm.resetFields();
       // 刷新列表
-      await fetchVRInstances(pagination.current, pagination.pageSize);
+      await fetchVRInstances();
     } catch (e: any) {
       if (e?.errorFields) return; // 表单校验错误
       message.error(`注册失败: ${e?.message || e}`);
@@ -793,7 +1012,7 @@ const VRPage: React.FC = () => {
       message.success((json as any)?.msg || '设备信息更新成功');
       setEditModalOpen(false);
       editForm.resetFields();
-      await fetchVRInstances(pagination.current, pagination.pageSize);
+      await fetchVRInstances();
     } catch (e: any) {
       if (e?.errorFields) return; // 表单校验错误
       message.error(`更新失败: ${e?.message || e}`);
@@ -813,19 +1032,12 @@ const VRPage: React.FC = () => {
       console.log('[VR_DEBUG] 远端响应:', remoteResponse);
 
       // 写入数据库缓存
-      const upsertRes = await fetch('/api/vr-cache/upsert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ page_size: pageSize, page_num: pageNum, data: remoteResponse })
-      });
-      const upsertJson = await upsertRes.json();
-      if (!upsertRes.ok || upsertJson.code !== 200) {
-        throw new Error(upsertJson?.msg || `HTTP ${upsertRes.status}`);
-      }
-      message.success(`远端数据已入库（记录ID=${upsertJson.data?.saved_id || '-'}，条目数=${upsertJson.data?.count || 0}）`);
+      await upsertVrCache(pageNum, pageSize, remoteResponse);
+      
+      message.success(`远端数据已入库（刷新缓存成功）`);
 
       // 再次读取缓存并刷新表格
-      await fetchVRInstances(pageNum, pageSize);
+      await fetchVRInstances();
     } catch (error: any) {
       console.error('[VR_DEBUG_ERROR] 远端同步入库失败:', error);
       message.error(`同步入库失败: ${error.message || '请稍后重试'}`);
@@ -836,7 +1048,7 @@ const VRPage: React.FC = () => {
 
   // 页面加载时：先远端拉取并入库一次
   useEffect(() => {
-    fetchVRInstances(pagination.current, pagination.pageSize);
+    fetchVRInstances();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -867,25 +1079,28 @@ const VRPage: React.FC = () => {
   console.log('vrApi服务:', typeof vrApi);
   console.log('vrApi.getVRInstances方法:', typeof vrApi.getVRInstances);
 
-  // 处理分页变化（远端直连）
+  // 处理分页变化（远端直连）- 已切换为前端分页，此函数不再需要，保留空实现以防引用报错
   const handleTableChange = (newPagination: any) => {
-    console.log('========== 处理分页变化（远端直连） ==========');
-    console.log(`新的分页参数: current=${newPagination.current}, pageSize=${newPagination.pageSize}`);
-    fetchVRInstances(newPagination.current, newPagination.pageSize);
+    // console.log('========== 处理分页变化（前端分页） ==========');
   };
 
   // 刷新（远端直连）
   const forceRefresh = () => {
-    console.log('========== 刷新（远端直连） ==========');
-    console.log(`当前分页参数: pageSize=${pagination.pageSize}, pageNum=${pagination.current}`);
-    fetchVRInstances(pagination.current, pagination.pageSize);
+    console.log('========== 刷新（远端直连-全量） ==========');
+    fetchVRInstances();
   };
 
   const filteredVRs = useMemo(() => {
     return vrs.filter((v) => {
       const nameLower = (v.name || '').toLowerCase();
       if (keyword && !nameLower.includes(keyword.toLowerCase())) return false;
-      if (statusFilter && (v.status || '') !== statusFilter) return false;
+      
+      // 状态筛选：统一使用 getStatusKey 转换后比较
+      if (statusFilter) {
+        const key = getStatusKey(v.health_status ?? v.healthStatus ?? v.status);
+        if (key !== statusFilter) return false;
+      }
+
       if (tenantFilter) {
         const id = (v.uuid || v.vr_unique_id || v.id || v.vm_id) as string;
         const dom = id ? netClassMapRef.current[String(id)] : undefined;
@@ -965,7 +1180,7 @@ const VRPage: React.FC = () => {
           { key: 'refresh', label: '刷新列表', onClick: () => forceRefresh() },
           { key: 'csmctl', label: '配置 CSMCTL 地址', onClick: handleSettingsOpen }
         ]}
-        defaultHiddenColumns={['uuid', 'version', 'type', 'pool_id', 'pool_name', 'vm_id', 'tenant_id', 'org_id', 'vr_unique_id', 'bind_status']}
+        defaultHiddenColumns={['mac', 'version', 'type', 'pool_id', 'pool_name', 'vm_id', 'tenant_id', 'org_id', 'vr_unique_id', 'bind_status', 'cpu', 'mem', 'up', 'down']}
       toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"
@@ -1011,25 +1226,73 @@ const VRPage: React.FC = () => {
         </Form>
       )}
       tableProps={{
-        className: "vr-table",
         columns: columns,
         dataSource: filteredVRs,
         rowKey: (r: VRRow) => r.uuid || r.id || r.vm_id || Math.random().toString(36).slice(2),
         pagination: {
-          current: pagination.current,
-          pageSize: pagination.pageSize,
-          total: pagination.total,
+          defaultPageSize: 10,
           showSizeChanger: true,
-          pageSizeOptions: ['10', '20', '50'],
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (total: number) => `共 ${total} 条`,
         },
         loading: loading,
-        onChange: handleTableChange,
         scroll: { x: 'max-content' },
         bordered: true
       }}
     >
 
       {/* CSMCTL Settings Modal */}
+      <Modal
+        title="元数据查看"
+        open={metadataModalOpen}
+        onCancel={() => setMetadataModalOpen(false)}
+        footer={null}
+        width={800}
+      >
+        <Tabs
+          items={[
+            {
+              key: 'csmctl',
+              label: 'CSMCTL 基本信息 (VR1)',
+              children: (
+                <Input.TextArea
+                  value={JSON.stringify(currentMetadata?.csmctl || {}, null, 2)}
+                  autoSize={{ minRows: 10, maxRows: 20 }}
+                  readOnly
+                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
+                />
+              ),
+            },
+            {
+              key: 'vr3',
+              label: 'CSMCTL 扩展信息 (VR3)',
+              children: metadataLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px' }}><Spin tip="正在从设备拉取扩展信息..." /></div>
+              ) : (
+                <Input.TextArea
+                  value={currentMetadata?.vr3 ? JSON.stringify(currentMetadata.vr3, null, 2) : '暂无扩展信息或获取失败'}
+                  autoSize={{ minRows: 10, maxRows: 20 }}
+                  readOnly
+                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
+                />
+              ),
+            },
+            {
+              key: 'vrctl',
+              label: 'VRCTL 数据 (DB)',
+              children: (
+                <Input.TextArea
+                  value={currentMetadata?.vrctl ? JSON.stringify(currentMetadata.vrctl, null, 2) : '暂无绑定数据'}
+                  autoSize={{ minRows: 10, maxRows: 20 }}
+                  readOnly
+                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
+                />
+              ),
+            },
+          ]}
+        />
+      </Modal>
+
       <Modal
         title="CSMCTL 服务地址设置"
         open={settingsModalOpen}
@@ -1226,6 +1489,49 @@ const VRPage: React.FC = () => {
           </Form.Item>
       </StdFormModal>
 
+      {/* 绑定组织弹窗 */}
+      <Modal
+        title="绑定组织"
+        open={bindModalOpen}
+        onOk={submitBind}
+        onCancel={() => { setBindModalOpen(false); bindForm.resetFields(); }}
+        confirmLoading={loading}
+        destroyOnClose
+        width={480}
+      >
+        <Form form={bindForm} layout="vertical">
+          <Form.Item name="tenant_id" label="租户" rules={[{ required: true, message: '请选择租户' }]}>
+            <Select
+              showSearch
+              placeholder="选择租户"
+              optionFilterProp="label"
+              options={tenantOptions}
+              onChange={(val) => handleBindTenantChange(val, true)}
+            />
+          </Form.Item>
+          <Form.Item name="org_id" label="组织" rules={[{ required: true, message: '请选择组织' }]}>
+            <TreeSelect
+              showSearch
+              style={{ width: '100%' }}
+              dropdownStyle={{ maxHeight: 400, overflow: 'auto' }}
+              placeholder="选择组织"
+              allowClear
+              treeDefaultExpandAll
+              treeData={orgTreeData}
+              treeNodeFilterProp="title"
+            />
+          </Form.Item>
+          <Form.Item name="vr_type" label="VR类型">
+            <Select placeholder="选择VR类型（可选）" allowClear>
+              <Select.Option value="标准">标准</Select.Option>
+              <Select.Option value="PE">PE</Select.Option>
+              <Select.Option value="CE">CE</Select.Option>
+              <Select.Option value="SASE">SASE</Select.Option>
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+
 
       {/* CE配置弹窗 */}
       <Modal
@@ -1302,6 +1608,63 @@ const VRPage: React.FC = () => {
             ]}
           />
         </Form>
+      </Modal>
+      {/* 角色设置向导 - 步骤1：选择类型 */}
+      <Modal
+        title="设置角色 - 选择类型"
+        open={roleModalOpen}
+        onCancel={() => setRoleModalOpen(false)}
+        onOk={() => {
+           if (!roleVrUuid) return;
+           let path = '';
+           if (selectedRoleType === '标准') path = 'role-standard';
+           else if (selectedRoleType === 'PE') path = 'role-pe';
+           else if (selectedRoleType === 'CE') path = 'role-ce';
+           else if (selectedRoleType === 'SASE') path = 'role-sase';
+           
+           if (path) {
+              navigate(`/admin/interconnect/vr/${roleVrUuid}/${path}`);
+              setRoleModalOpen(false);
+           } else {
+              message.info('该角色类型的向导暂未开放');
+           }
+        }}
+        okText="下一步"
+        destroyOnClose
+      >
+        <div style={{ padding: '24px 0' }}>
+          <Radio.Group 
+            value={selectedRoleType} 
+            onChange={(e) => setSelectedRoleType(e.target.value)}
+            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+          >
+            <Radio value="标准">
+              <Space direction="vertical" size={0}>
+                <span>标准模式 (Standard)</span>
+                <span style={{ color: '#999', fontSize: 12 }}>基础虚拟路由功能，支持静态路由与接口配置</span>
+              </Space>
+            </Radio>
+            <Radio value="PE">
+              <Space direction="vertical" size={0}>
+                <span>PE 模式 (Provider Edge)</span>
+                <span style={{ color: '#999', fontSize: 12 }}>作为骨干网边缘设备，支持 MP-BGP 与公网互联</span>
+              </Space>
+            </Radio>
+            <Radio value="CE">
+              <Space direction="vertical" size={0}>
+                <span>CE 模式 (Customer Edge)</span>
+                <span style={{ color: '#999', fontSize: 12 }}>作为租户侧接入设备，通过 BGP/OSPF 接入骨干网</span>
+              </Space>
+            </Radio>
+            <Radio value="SASE">
+              <Space direction="vertical" size={0}>
+                <span>SASE 模式</span>
+                <span style={{ color: '#999', fontSize: 12 }}>安全访问服务边缘，提供统一的安全接入与策略控制</span>
+              </Space>
+            </Radio>
+
+          </Radio.Group>
+        </div>
       </Modal>
     </PageContainer>
   );

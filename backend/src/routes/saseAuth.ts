@@ -21,7 +21,7 @@ router.post('/login', async (req: Request, res: Response) => {
       if (!ok) return res.status(401).json({ message: '用户名或密码错误' });
       if (user.status !== 'active') return res.status(401).json({ message: '账户已被禁用' });
 
-      // 登录阶段不执行VR绑定；统一由 /api/sase/gateways/bind 接口完成绑定
+      // 登录阶段不执行VR绑定；统一由 /api/vr-config/bind 接口完成绑定
 
       const payload = {
         role: 'sase_device',

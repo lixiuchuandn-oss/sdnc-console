@@ -35,8 +35,24 @@ D:\Compute.Tower\frontend\src\components\SharedToolbar.tsx
 # 2. 表格
 ## 禁止添加尺寸，使用表格的默认尺寸
 ## 禁止添加列宽
+## 单元格内边距 (Cell Padding)：padding-left 10px (已封装在组件内)
 ## 需要有 border
 ## 行操作菜单触发器 D:\Compute.Tower\frontend\src\components\ResourceActionsDropdown.tsx （如没有则无需添加），禁止修改其尺寸
 ### 查看元数据 点击后展开该实例的元数据
+#### 元数据展示窗口样式规范
+- **弹窗属性**：
+  - 标题：固定为“元数据查看”
+  - 宽度：800px
+  - Footer：设置为 `null`（不显示底部按钮）
+- **内容布局**：
+  - 使用 `Tabs` 组件进行多数据源展示（如：CSMCTL 原始数据、VRCTL 数据等）
+- **数据展示区域**：
+  - 组件：使用 `Input.TextArea`
+  - 属性配置：
+    - `readOnly`: true
+    - `autoSize`: `{ minRows: 10, maxRows: 20 }`
+  - 样式 (`style`)：
+    - `fontFamily`: `'monospace'` (等宽字体，便于代码阅读)
+    - `backgroundColor`: `'#f5f5f5'` (浅灰色背景，区分只读状态)
 ### 行操作菜单，一般操作和风险操作中间要有分隔线
 ## 禁止启用 showQuickJumper

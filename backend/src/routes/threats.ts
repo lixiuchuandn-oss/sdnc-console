@@ -2,8 +2,10 @@ import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import iconv from 'iconv-lite';
+import axios from 'axios';
 import { Readable } from 'stream';
 import { AppDataSource } from '../config/database';
+import { getSystemSetting } from '../config/systemSettings';
 import { ThreatEvent } from '../entities/ThreatEvent';
 import { Tenant } from '../entities/Tenant';
 
@@ -15,6 +17,40 @@ const upload = multer({ dest: 'uploads/' });
 
 const threatRepo = AppDataSource.getRepository(ThreatEvent);
 const tenantRepo = AppDataSource.getRepository(Tenant);
+
+// AI SOC Proxy Route
+router.get('/proxy/api/v1/report-tasks/search/by-tenant', async (req, res) => {
+  try {
+    const tenantCode = req.query.tenant_code;
+    if (!tenantCode) {
+      return res.status(400).json({ message: 'Missing tenant_code parameter' });
+    }
+
+    // Get base URL from settings, default to provided IP if not set
+    let baseUrl = getSystemSetting('ai_soc_base_url');
+    if (!baseUrl) {
+      baseUrl = 'http://192.168.2.22:5000';
+    }
+    // Remove trailing slash if present
+    baseUrl = baseUrl.replace(/\/$/, '');
+
+    const url = `${baseUrl}/api/v1/report-tasks/search/by-tenant`;
+    
+    const response = await axios.get(url, {
+      params: { tenant_code: tenantCode },
+      timeout: 10000
+    });
+
+    res.json(response.data);
+  } catch (error: any) {
+    console.error('AI SOC Proxy Error:', error.message);
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else {
+      res.status(500).json({ message: 'Failed to fetch from AI SOC service', error: error.message });
+    }
+  }
+});
 
 router.post('/import-csv', upload.single('file'), async (req, res) => {
   if (!req.file) {

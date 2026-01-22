@@ -2,8 +2,152 @@ import { Router } from 'express';
 import { AppDataSource } from '../config/database';
 import { VRConfig } from '../entities/VRConfig';
 import { vrController } from '../services/vrController';
+import { vrManagementService } from '../services/vrManagementService';
 
 export const vrConfigRoutes = Router();
+
+function getTenantContext(req: any) {
+  const user = req.user;
+  if (user && (user as any).tenantId) {
+    return {
+      tenantId: String((user as any).tenantId),
+      organizationId: (user as any).organizationId ? String((user as any).organizationId) : undefined
+    };
+  }
+  return null;
+}
+
+// Bind VR to Tenant
+vrConfigRoutes.post('/bind', async (req, res) => {
+  try {
+    const ctx = getTenantContext(req as any);
+    const { vm_id, vr_uuid, tenant_id, org_id, device_fingerprint, display_name, vr_type } = req.body || {};
+
+    let resolvedTenantId = tenant_id as string | undefined;
+    let resolvedOrgId = org_id as string | undefined;
+
+    if (ctx) {
+      resolvedTenantId = ctx.tenantId;
+      resolvedOrgId = ctx.organizationId || resolvedOrgId;
+    }
+
+    // Call shared service
+    const result = await vrManagementService.bindVRToTenant({
+      vr_uuid,
+      tenant_id: resolvedTenantId || '', // Service will validate emptiness
+      org_id: resolvedOrgId,
+      vm_id,
+      device_fingerprint,
+      display_name,
+      vr_type
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error('[VR_CONFIG] bind error', err);
+    if (err.message && err.message.includes('VR已绑定')) {
+        return res.status(409).json({ message: err.message, ...err.details });
+    }
+    if (err.message && (err.message.includes('缺少') || err.message.includes('不支持'))) {
+        return res.status(400).json({ message: err.message });
+    }
+    return res.status(500).json({ message: err?.message || '内部错误' });
+  }
+});
+
+// List VRs (from database)
+vrConfigRoutes.get('/list', async (req, res) => {
+  try {
+    const ctx = getTenantContext(req as any);
+    const repository = AppDataSource.getRepository(VRConfig);
+
+    const where: any = {};
+
+    if (ctx) {
+      where.tenantId = ctx.tenantId;
+      if (ctx.organizationId) {
+        where.organizationId = ctx.organizationId;
+      }
+    } else {
+      const tenantId = req.query.tenantId as string | undefined;
+      const organizationId = req.query.organizationId as string | undefined;
+      if (tenantId) where.tenantId = tenantId;
+      if (organizationId) where.organizationId = organizationId;
+    }
+
+    const list = Object.keys(where).length
+      ? await repository.find({ where, order: { created_at: 'DESC' } })
+      : await repository.find({ order: { created_at: 'DESC' } });
+
+    // 2. Fetch live list from CSM to mark deleted ones
+    let liveUuids: Set<string> | null = null;
+    try {
+      // Fetch a large page to cover most VRs. 
+      // TODO: If VR count > 2000, we need pagination loop or a better API.
+      // Assuming for now < 2000 VRs is typical for this tenant context or global.
+      const liveData = await vrController.getVRList(2000, 1);
+      
+      let items: any[] = [];
+      if (Array.isArray(liveData)) items = liveData;
+      else if (Array.isArray(liveData?.page)) items = liveData.page;
+      else if (Array.isArray(liveData?.items)) items = liveData.items;
+      else if (Array.isArray(liveData?.data)) items = liveData.data;
+
+      if (items.length > 0) {
+        liveUuids = new Set(items.map((it: any) => String(it.uuid || it.vr_unique_id || it.id || '').trim()));
+      }
+    } catch (e) {
+      console.warn('[VR_CONFIG] Failed to fetch live VR list for sync check:', e);
+      // If failed, we assume we can't determine, so we don't mark as deleted (or mark all as unknown?)
+      // We leave liveUuids as null.
+    }
+
+    const data = list.map(item => {
+      const uid = String(item.uuid).trim();
+      // If liveUuids is null (fetch failed), we don't mark as deleted.
+      // If liveUuids is set, and uid is not in it, it's deleted.
+      const isDeleted = liveUuids ? !liveUuids.has(uid) : false;
+
+      return {
+        vr_unique_id: item.uuid,
+        uuid: item.uuid,
+        name: item.name || item.uuid,
+        tenant_id: item.tenantId,
+        org_id: item.organizationId,
+        role: item.role,
+        bind_status: item.bindStatus,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+        is_deleted: isDeleted
+      };
+    });
+
+    return res.json({ items: data });
+  } catch (err: any) {
+    console.error('[VR_CONFIG] list error', err);
+    return res.status(500).json({ message: err?.message || '内部错误' });
+  }
+});
+
+// Delete VR Config (Unbind/Remove from DB)
+vrConfigRoutes.delete('/:uuid', async (req, res) => {
+  try {
+    const { uuid } = req.params;
+    if (!uuid) return res.status(400).json({ message: 'UUID required' });
+
+    const repo = AppDataSource.getRepository(VRConfig);
+    const result = await repo.delete({ uuid });
+
+    if (result.affected === 0) {
+      return res.status(404).json({ message: 'VR config not found' });
+    }
+
+    return res.json({ message: 'ok', uuid });
+  } catch (err: any) {
+    console.error('[VR_CONFIG] delete error', err);
+    return res.status(500).json({ message: err?.message || '内部错误' });
+  }
+});
 
 // Get real-time VR list from controller (csmctl)
 vrConfigRoutes.get('/pagelist', async (req, res) => {
@@ -158,6 +302,31 @@ vrConfigRoutes.get('/:uuid', async (req, res) => {
     return res.json({ code: 200, msg: 'ok', data });
   } catch (err: any) {
     console.error('[VR_CONFIG] get error', err);
+    return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
+  }
+});
+
+// Delete VR config by uuid
+vrConfigRoutes.delete('/:uuid', async (req, res) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+      if (!(role === 'super_admin' || perms.includes('networks.vr-config:write'))) {
+        return res.status(403).json({ message: '权限不足：需要写入权限 networks.vr-config:write' });
+      }
+    }
+    const { uuid } = req.params;
+    const repo = AppDataSource.getRepository(VRConfig);
+    const result = await repo.delete({ uuid });
+    
+    if (result.affected === 0) {
+        return res.status(404).json({ code: 404, msg: '未找到VR配置或删除失败' });
+    }
+
+    return res.json({ code: 200, msg: 'ok', data: { uuid } });
+  } catch (err: any) {
+    console.error('[VR_CONFIG] delete error', err);
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });

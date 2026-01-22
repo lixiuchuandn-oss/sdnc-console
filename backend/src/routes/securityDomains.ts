@@ -19,6 +19,7 @@ import { callAliyunVpc, callAliyunEcs } from '../services/clouds/aliyun/client';
 import { huaweiListVpcs } from '../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../services/clouds/tencentcloud/client';
 import { listCsmElementGroups } from '../services/clouds/csm/client';
+import { vrController } from '../services/vrController';
 
 const router = Router();
 const repo = () => AppDataSource.getRepository(SecurityDomain);
@@ -701,6 +702,43 @@ router.post('/', async (req, res) => {
         entity.provider = (cloud as any)?.config?.provider || (cloud as any)?.provider || undefined;
         entity.region = cloud.region;
 
+        // Ensure VR details (vmId and IPs) are populated if vrUuid is present
+        if (entity.vrUuid) {
+            try {
+                const vrRepo = AppDataSource.getRepository(VRConfig);
+                const vr = await vrRepo.findOne({ where: { uuid: entity.vrUuid } });
+                if (vr) {
+                    if (vr.vmId && !entity.vrInstanceIds) {
+                        entity.vrInstanceIds = vr.vmId;
+                    }
+                    
+                    // Try to fetch IPs from CSM VR Config (Preferred over auto-discovery)
+                    try {
+                        const csmVr = await vrController.getVRConfig(entity.vrUuid);
+                        if (csmVr) {
+                             const wan = csmVr.wan_ip || csmVr.public_ip || csmVr.wanIp || csmVr.publicIp;
+                             const lan = csmVr.lan_ip || csmVr.private_ip || csmVr.lanIp || csmVr.privateIp;
+                             if (wan && !entity.vrPublicIp) entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+                             if (lan && !entity.vrPrivateIp) entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
+                        }
+                    } catch (e) {
+                         // Fallback to local DB config_json
+                         if (vr.config_json) {
+                             try {
+                                 const localConf = JSON.parse(vr.config_json);
+                                 const wan = localConf.wan_ip || localConf.public_ip || localConf.wanIp || localConf.publicIp;
+                                 const lan = localConf.lan_ip || localConf.private_ip || localConf.lanIp || localConf.privateIp;
+                                 if (wan && !entity.vrPublicIp) entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+                                 if (lan && !entity.vrPrivateIp) entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
+                             } catch {}
+                         }
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to populate VR details:', e);
+            }
+        }
+
         // Auto-fill Aliyun details
         if (entity.provider === 'aliyun') {
           await fillAliyunDetails(entity, cloud);
@@ -731,6 +769,74 @@ router.patch('/:id', async (req, res) => {
     if (!existing) {
       return res.status(404).json({ message: 'SecurityDomain not found' });
     }
+    
+    // Check if VR is being changed/unbound
+    if (partial.vrUuid !== undefined && partial.vrUuid !== existing.vrUuid) {
+        if (!partial.vrUuid) {
+            // Unbind VR
+            (existing as any).vrUuid = null;
+            (existing as any).vrName = null;
+            (existing as any).vrInstanceIds = null;
+            (existing as any).vrPublicEniIds = null;
+            (existing as any).vrPrivateEniIds = null;
+            (existing as any).vrPublicIp = null;
+            (existing as any).vrPrivateIp = null;
+            (existing as any).vrPublicEip = null;
+            (existing as any).vrPublicSubnetCidr = null;
+            (existing as any).vrPrivateSubnetCidr = null;
+        } else {
+            // Change VR
+            // 1. Clear old network details first
+            (existing as any).vrPublicEniIds = null;
+            (existing as any).vrPrivateEniIds = null;
+            (existing as any).vrPublicIp = null;
+            (existing as any).vrPrivateIp = null;
+            (existing as any).vrPublicEip = null;
+            (existing as any).vrPublicSubnetCidr = null;
+            (existing as any).vrPrivateSubnetCidr = null;
+
+            // 2. Fetch VR Config to get vmId (instanceId)
+            try {
+                const vrRepo = AppDataSource.getRepository(VRConfig);
+                const vr = await vrRepo.findOne({ where: { uuid: partial.vrUuid } });
+                if (vr) {
+                    // Update partial to ensure Object.assign uses the correct values
+                    partial.vrName = partial.vrName || vr.name || vr.uuid;
+                    if (vr.vmId) {
+                        partial.vrInstanceIds = vr.vmId;
+                    }
+
+                    // Try to fetch IPs from CSM VR Config (Preferred over auto-discovery)
+                    try {
+                        const csmVr = await vrController.getVRConfig(partial.vrUuid!);
+                        if (csmVr) {
+                             // Try common fields for WAN/LAN IPs
+                             const wan = csmVr.wan_ip || csmVr.public_ip || csmVr.wanIp || csmVr.publicIp;
+                             const lan = csmVr.lan_ip || csmVr.private_ip || csmVr.lanIp || csmVr.privateIp;
+                             
+                             if (wan) partial.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+                             if (lan) partial.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
+                        }
+                    } catch (e) {
+                        console.warn('Failed to fetch CSM VR config for IPs:', e);
+                        // Fallback to local DB config_json if available
+                        if (vr.config_json) {
+                             try {
+                                 const localConf = JSON.parse(vr.config_json);
+                                 const wan = localConf.wan_ip || localConf.public_ip || localConf.wanIp || localConf.publicIp;
+                                 const lan = localConf.lan_ip || localConf.private_ip || localConf.lanIp || localConf.privateIp;
+                                 if (wan && !partial.vrPublicIp) partial.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+                                 if (lan && !partial.vrPrivateIp) partial.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
+                             } catch {}
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to fetch VR config for update:', e);
+            }
+        }
+    }
+
     // 忽略历史字段更新：type 不再作为分类依据
     delete (partial as any).type;
     if (ctx) {
@@ -882,6 +988,35 @@ async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
       }
     } catch (e) {
       console.warn('Failed to fill Aliyun VPC CIDR:', e);
+    }
+  }
+
+  // 1.5 Try to fill ENIs from InstanceId if missing (Auto-discovery)
+  if ((!entity.vrPublicEniIds || entity.vrPublicEniIds.trim() === '') && entity.vrInstanceIds) {
+    try {
+      const instanceIds = entity.vrInstanceIds.split(',').map(s => s.trim()).filter(Boolean);
+      if (instanceIds.length > 0) {
+         // DescribeInstances accepts InstanceIds as JSON array string
+         const params: any = { InstanceIds: JSON.stringify(instanceIds) };
+         const insResp: any = await callAliyunEcs({ ...creds, action: 'DescribeInstances', extraParams: params });
+         const instances = insResp?.Instances?.Instance || [];
+         const foundEnis: string[] = [];
+         
+         for (const ins of instances) {
+            const enis = ins?.NetworkInterfaces?.NetworkInterface || [];
+            for (const eni of enis) {
+               if (eni.NetworkInterfaceId) foundEnis.push(eni.NetworkInterfaceId);
+            }
+         }
+         
+         if (foundEnis.length > 0) {
+             // Default to assigning all discovered ENIs to Public (WAN) slot if not specified
+             // User can manually adjust later if needed, but this ensures IPs are fetched.
+             entity.vrPublicEniIds = foundEnis.join(',');
+         }
+      }
+    } catch (e) {
+      console.warn('Failed to auto-discover ENIs from InstanceIds:', e);
     }
   }
 

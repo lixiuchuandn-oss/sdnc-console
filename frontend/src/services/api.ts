@@ -364,6 +364,13 @@ export const updateHuaweiCloudVpc = async (
   return await res.json();
 };
 
+export const fetchSaseDiscoveredAssets = async (params?: any) => {
+  const q = new URLSearchParams();
+  if (params?.cloudId) q.append('cloud_id', params.cloudId);
+  if (params?.domainId) q.append('domain_id', params.domainId);
+  return apiRequest(`/api/sase/gateways/assets?${q.toString()}`);
+};
+
 export const fetchCloudProviderEcs = async (cloudId: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs`, {
@@ -1003,11 +1010,18 @@ export const fetchCsmVRouters = async (cloudId: string, params?: { pool_id?: str
   return await res.json();
 };
 
-export const fetchCsmVRPageList = async (cloudId: string, params?: { page_size?: number; page_num?: number }) => {
+export const fetchCsmVRPageList = async (cloudId: string, params?: any) => {
   const token = localStorage.getItem('token');
   const search = new URLSearchParams();
-  if (params?.page_size !== undefined) search.set('page_size', String(params.page_size));
-  if (params?.page_num !== undefined) search.set('page_num', String(params.page_num));
+  if (params) {
+    Object.keys(params).forEach(key => {
+      if (params[key] !== undefined && params[key] !== null) {
+        search.append(key, String(params[key]));
+      }
+    });
+  }
+  // Prevent caching
+  search.append('_t', String(Date.now()));
   const qs = search.toString() ? `?${search.toString()}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/vr-pagelist${qs}`, {
     method: 'GET',
@@ -1018,13 +1032,14 @@ export const fetchCsmVRPageList = async (cloudId: string, params?: { page_size?:
   return await res.json();
 };
 
-export const fetchSaseGateways = async (params: { tenantId?: string; organizationId?: string } = {}) => {
+export const fetchTenantVRs = async (params: { tenantId?: string; organizationId?: string } = {}) => {
   const token = localStorage.getItem('token');
   const search = new URLSearchParams();
   if (params.tenantId) search.set('tenantId', params.tenantId);
   if (params.organizationId) search.set('organizationId', params.organizationId);
   const qs = search.toString() ? `?${search.toString()}` : '';
-  const res = await fetch(`${API_BASE_URL}/api/sase/gateways/list${qs}`, {
+  // 改为调用通用的 VR 配置接口
+  const res = await fetch(`${API_BASE_URL}/api/vr-config/list${qs}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -1032,6 +1047,31 @@ export const fetchSaseGateways = async (params: { tenantId?: string; organizatio
   if (!res.ok) { throw new Error(await res.text()); }
   return await res.json();
 };
+// 兼容旧名称，逐步废弃
+export const fetchSaseGateways = fetchTenantVRs;
+
+export const bindTenantVR = async (payload: { vm_id?: string; vr_uuid: string; tenant_id: string; org_id?: string; device_fingerprint?: string; display_name?: string; vr_type?: string }) => {
+  const token = localStorage.getItem('token');
+  // 改为调用通用的 VR 绑定接口
+  const res = await fetch(`${API_BASE_URL}/api/vr-config/bind`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text);
+      throw new Error(String(json?.message || json?.error || text));
+    } catch {
+      throw new Error(text);
+    }
+  }
+  return await res.json();
+};
+// 兼容旧名称，逐步废弃
+export const bindSaseGateway = bindTenantVR;
 
 export const detectCsmPoolId = async (cloudId: string) => {
   const token = localStorage.getItem('token');

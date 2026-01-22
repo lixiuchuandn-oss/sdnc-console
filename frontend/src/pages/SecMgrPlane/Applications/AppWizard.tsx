@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Transfer, message, Select, Descriptions, Tag, Row, Col, Card, Divider, Typography, Space } from 'antd';
-import { SafetyCertificateOutlined, GlobalOutlined, DesktopOutlined, CheckCircleOutlined, CheckOutlined, ProfileOutlined, SettingOutlined } from '@ant-design/icons';
-import { fetchAllInstances, createService, fetchClouds, fetchCloudProviderEcs } from '../../../services/api';
+import { SafetyCertificateOutlined, GlobalOutlined, DesktopOutlined, CheckCircleOutlined, CheckOutlined, ProfileOutlined, SettingOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { fetchAllInstances, createService, updateService, fetchClouds, fetchCloudProviderEcs } from '../../../services/api';
 import { listSecurityDomains } from '../../../services/securityDomainApi';
 import { WizardModal } from '../../../components/WizardShell';
 import '../../../pages/Clouds/Harvester/modals/InstanceWizard.css';
@@ -10,6 +10,7 @@ interface AppWizardProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  editingApp?: any;
 }
 
 const { Title, Text } = Typography;
@@ -29,7 +30,7 @@ const MOCK_HOST_POLICIES = [
   { label: '容器运行时防护', value: 'hp-container-runtime', desc: '容器逃逸检测、敏感挂载检测' },
 ];
 
-export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }) => {
+export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess, editingApp }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [domainLoading, setDomainLoading] = useState(false);
@@ -47,21 +48,70 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
   const [formStrategy] = Form.useForm();
   const [formResource] = Form.useForm();
   const selectedDomainId = Form.useWatch?.('domainId', formBasic);
+  const selectedType = Form.useWatch?.('type', formBasic) || formBasic.getFieldValue('type') || 'vm';
 
   useEffect(() => {
     if (open) {
-      setCurrentStep(0);
-      formBasic.resetFields();
-      formStrategy.resetFields();
-      setTargetKeys([]);
-      setBasicInfo({});
-      setStrategyInfo({});
       loadInstances();
       loadDomains();
       loadClouds();
       loadPolicies();
+
+      if (editingApp) {
+        formBasic.setFieldsValue({
+            name: editingApp.name,
+            version: editingApp.version,
+            owner: editingApp.owner,
+            domainId: editingApp.domainId,
+            type: editingApp.type,
+            description: editingApp.description,
+        });
+        setBasicInfo({
+            name: editingApp.name,
+            version: editingApp.version,
+            owner: editingApp.owner,
+            domainId: editingApp.domainId,
+            type: editingApp.type,
+            description: editingApp.description,
+        });
+
+        const allPolicies = editingApp.policyIds || [];
+        const networkPolicies = allPolicies.filter((p:string) => p.startsWith('np-'));
+        const hostPolicies = allPolicies.filter((p:string) => p.startsWith('hp-'));
+        
+        formStrategy.setFieldsValue({
+            strategies: editingApp.strategies || [],
+            networkPolicies: networkPolicies,
+            hostPolicies: hostPolicies,
+        });
+        setStrategyInfo({
+            strategies: editingApp.strategies || [],
+            networkPolicies: networkPolicies,
+            hostPolicies: hostPolicies,
+        });
+
+        if (editingApp.type === 'service_address') {
+             formResource.setFieldsValue({
+                 serviceAddresses: editingApp.serviceAddresses || []
+             });
+        } else {
+             setTargetKeys(editingApp.instances || []);
+             formResource.setFieldsValue({
+                 servicePorts: editingApp.servicePorts || []
+             });
+        }
+        setCurrentStep(0);
+      } else {
+        setCurrentStep(0);
+        formBasic.resetFields();
+        formStrategy.resetFields();
+        formResource.resetFields();
+        setTargetKeys([]);
+        setBasicInfo({});
+        setStrategyInfo({});
+      }
     }
-  }, [open]);
+  }, [open, editingApp]);
 
   const loadClouds = async () => {
     try {
@@ -168,11 +218,14 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
   useEffect(() => {
     // 当安全域发生变化时，重置穿梭框选择，避免误清空已选数据的副作用
     if (selectedDomainId !== undefined) {
+      if (editingApp && String(editingApp.domainId) === String(selectedDomainId)) {
+          return;
+      }
       setTargetKeys([]);
       formResource.setFieldsValue({ instances: [] });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDomainId]);
+  }, [selectedDomainId, editingApp]);
 
   const loadInstances = async () => {
     try {
@@ -217,7 +270,20 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
         setCurrentStep(prev => prev + 1);
       } catch {}
     } else if (currentStep === 1) {
-      setCurrentStep(prev => prev + 1);
+      const basic = formBasic.getFieldsValue();
+      if (basic.type === 'service_address') {
+        try {
+          const values = await formResource.validateFields();
+          const list = Array.isArray(values.serviceAddresses) ? values.serviceAddresses : [];
+          if (!list.length) {
+            message.error('请至少配置一个服务地址');
+            return;
+          }
+          setCurrentStep(prev => prev + 1);
+        } catch {}
+      } else {
+        setCurrentStep(prev => prev + 1);
+      }
     } else if (currentStep === 2) {
       try {
         await formStrategy.validateFields();
@@ -236,14 +302,14 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
     try {
       await formBasic.validateFields();
       const basic = Object.keys(basicInfo).length ? basicInfo : formBasic.getFieldsValue();
+      const resourceType = basic.type || 'vm';
+      
+      // Always validate resource form to ensure ports/addresses are correct
+      await formResource.validateFields();
+
       const strategy = Object.keys(strategyInfo).length ? strategyInfo : formStrategy.getFieldsValue();
       const dom = domains.find((d: any) => String(d.id) === String(basic.domainId));
       const domainName = dom?.name || undefined;
-      
-      const instanceIps = instances
-        .filter(i => targetKeys.includes(i.id))
-        .flatMap(i => i.privateIps || [])
-        .filter(Boolean);
 
       const policyIds = (strategy.policyIds || []).map((x: any) => String(x));
       const networkPolicyIds = (strategy.networkPolicyIds || []).map((x: any) => String(x));
@@ -257,7 +323,7 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
       const strategies: ('RBAC' | 'ABAC')[] = hasAbac ? ['RBAC', 'ABAC'] : ['RBAC'];
 
       // Construct payload
-      const payload = {
+      const payload: any = {
         ...basic,
         domainName,
         strategies,
@@ -271,19 +337,43 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
           allowedSourceCidrs: [], // Default to empty (depends on backend logic or specific policy content)
           defaultAction: networkPolicyIds.includes('np-default-deny') ? 'deny' : 'permit'
         },
-        instanceIps,
-        instances: targetKeys,
-        instanceCount: targetKeys.length,
         status: 'running',
-        type: 'vm'
+        type: resourceType
       };
 
-      await createService(payload);
-      message.success('应用创建成功');
+      if (resourceType === 'service_address') {
+        const resourceValues = formResource.getFieldsValue();
+        const serviceAddresses = Array.isArray(resourceValues.serviceAddresses)
+          ? resourceValues.serviceAddresses.filter((x: any) => x && x.protocol && x.ip && x.port)
+          : [];
+        payload.serviceAddresses = serviceAddresses;
+      } else {
+        const resourceValues = formResource.getFieldsValue();
+        const servicePorts = Array.isArray(resourceValues.servicePorts)
+          ? resourceValues.servicePorts.filter((x: any) => x && x.protocol && x.port)
+          : [];
+        payload.servicePorts = servicePorts;
+
+        const instanceIps = instances
+          .filter(i => targetKeys.includes(i.id))
+          .flatMap(i => i.privateIps || [])
+          .filter(Boolean);
+        payload.instanceIps = instanceIps;
+        payload.instances = targetKeys;
+        payload.instanceCount = targetKeys.length;
+      }
+
+      if (editingApp && editingApp.id) {
+        await updateService(editingApp.id, payload);
+        message.success('应用更新成功');
+      } else {
+        await createService(payload);
+        message.success('应用创建成功');
+      }
       onSuccess();
       onClose();
     } catch (e: any) {
-      message.error(e.message || '创建失败');
+      message.error(e.message || (editingApp ? '更新失败' : '创建失败'));
     } finally {
       setLoading(false);
     }
@@ -366,8 +456,15 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
           </Form.Item>
         </Col>
         <Col span={12}>
-           <Form.Item name="type" label="资源类型">
-            <Select options={[{label:'虚拟机', value:'vm'}, {label:'容器', value:'container'}, {label:'混合', value:'mixed'}]} disabled />
+          <Form.Item name="type" label="资源类型">
+            <Select
+              options={[
+                { label: '虚拟机', value: 'vm' },
+                { label: '容器', value: 'container' },
+                { label: '混合', value: 'mixed' },
+                { label: '服务地址', value: 'service_address' }
+              ]}
+            />
           </Form.Item>
         </Col>
       </Row>
@@ -380,32 +477,136 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
   const Step1 = (
     <Form form={formResource} layout="vertical" preserve style={{ height: 450, display: 'flex', flexDirection: 'column' }}>
       <div style={{ marginBottom: 12, color: '#666' }}>
-        请选择属于该应用的计算资源，关联后将自动下发安全策略。
+        {selectedType === 'service_address'
+          ? '根据应用暴露的服务地址进行关联，请填写协议、IP、端口。'
+          : '请选择属于该应用的资源，关联后将自动下发安全策略。'}
       </div>
       <Form.Item name="instances" hidden>
         <Input type="hidden" />
       </Form.Item>
-      <Transfer
-        dataSource={transferDataSource}
-        titles={['待选资源池', '已关联资源']}
-        targetKeys={targetKeys}
-        onChange={(keys) => { setTargetKeys(keys as string[]); formResource.setFieldsValue({ instances: keys }); }}
-        render={item => (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span>{item.title} <Tag style={{marginLeft: 8}}>{item.tag}</Tag></span>
-            <span style={{ fontSize: 12, color: '#999' }}>{item.description}</span>
+      {selectedType === 'service_address' ? (
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <Form.List name="serviceAddresses">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((field) => (
+                  <Row key={field.key} gutter={8} style={{ marginBottom: 8 }}>
+                    <Col span={6}>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'protocol']}
+                        rules={[{ required: true, message: '请选择协议' }]}
+                      >
+                        <Select placeholder="协议">
+                          <Select.Option value="HTTP">HTTP</Select.Option>
+                          <Select.Option value="HTTPS">HTTPS</Select.Option>
+                          <Select.Option value="TCP">TCP</Select.Option>
+                          <Select.Option value="UDP">UDP</Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    <Col span={10}>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'ip']}
+                        rules={[{ required: true, message: '请输入IP地址' }]}
+                      >
+                        <Input placeholder="IP 地址" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={6}>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'port']}
+                        rules={[{ required: true, message: '请输入端口' }]}
+                      >
+                        <Input placeholder="端口" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={2} style={{ display: 'flex', alignItems: 'center' }}>
+                      <Button type="link" danger onClick={() => remove(field.name)}>
+                        删除
+                      </Button>
+                    </Col>
+                  </Row>
+                ))}
+                <Form.Item>
+                  <Button type="dashed" onClick={() => add()} block>
+                    新增服务地址
+                  </Button>
+                </Form.Item>
+              </>
+            )}
+          </Form.List>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Transfer
+            dataSource={transferDataSource}
+            titles={['待选资源池', '已关联资源']}
+            targetKeys={targetKeys}
+            onChange={(keys) => {
+              setTargetKeys(keys as string[]);
+              formResource.setFieldsValue({ instances: keys });
+            }}
+            render={(item) => (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span>
+                  {item.title} <Tag style={{ marginLeft: 8 }}>{item.tag}</Tag>
+                </span>
+                <span style={{ fontSize: 12, color: '#999' }}>{item.description}</span>
+              </div>
+            )}
+            showSearch
+            filterOption={(inputValue, item) =>
+              item.title.indexOf(inputValue) > -1 || item.description.indexOf(inputValue) > -1
+            }
+            listStyle={{
+              width: '45%',
+              height: 280
+            }}
+            style={{ flex: 1 }}
+          />
+          <div style={{ marginTop: 16, border: '1px solid #f0f0f0', padding: 12, borderRadius: 4, background: '#fafafa' }}>
+            <div style={{ marginBottom: 8, fontWeight: 500, fontSize: 13, color: '#666' }}>服务端口配置 (应用于所有选定实例)</div>
+            <Form.List name="servicePorts">
+              {(fields, { add, remove }) => (
+                <>
+                  {fields.map(({ key, name, ...restField }) => (
+                    <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'protocol']}
+                        rules={[{ required: true, message: '必填' }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select placeholder="协议" style={{ width: 100 }}>
+                          <Select.Option value="TCP">TCP</Select.Option>
+                          <Select.Option value="UDP">UDP</Select.Option>
+                        </Select>
+                      </Form.Item>
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'port']}
+                        rules={[{ required: true, message: '必填' }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Input placeholder="端口 (如 80)" style={{ width: 120 }} />
+                      </Form.Item>
+                      <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', cursor: 'pointer' }} />
+                    </Space>
+                  ))}
+                  <Form.Item style={{ marginBottom: 0 }}>
+                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} size="small">
+                      添加端口
+                    </Button>
+                  </Form.Item>
+                </>
+              )}
+            </Form.List>
           </div>
-        )}
-        showSearch
-        filterOption={(inputValue, item) =>
-          item.title.indexOf(inputValue) > -1 || item.description.indexOf(inputValue) > -1
-        }
-        listStyle={{
-          width: '45%',
-          height: 420,
-        }}
-        style={{ flex: 1 }}
-      />
+        </div>
+      )}
     </Form>
   );
 
@@ -508,7 +709,7 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess }
         <Col span={19} style={{ height: '100%' }}>
           <div className="wizard-section" style={{ paddingLeft: 30, paddingRight: 0 }}>
             <div className="wizard-section-title">
-              {['填写应用基础信息', '关联计算资源', '配置安全策略', '确认并创建'][currentStep]}
+              {['填写应用基础信息', '关联资源', '配置安全策略', '确认并创建'][currentStep]}
             </div>
             <Divider style={{ margin: '12px 0' }} />
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>

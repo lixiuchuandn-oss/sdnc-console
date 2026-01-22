@@ -6,7 +6,7 @@ import { EllipsisOutlined, SettingOutlined, QuestionCircleOutlined } from '@ant-
 import PageContainer from '../../../components/PageContainer';
 import '../../common/filters.css';
 import { vrApi } from '../../../services/vrApi';
-import { fetchSaseGateways } from '../../../services/api';
+import { fetchTenantVRs, fetchCsmVRPageList } from '../../../services/api';
 import { getVRRoles } from '../../../services/vrConfigApi';
 import { fetchCloudProviderVpcs, fetchTenants, fetchOrganizationsByTenant } from '../../../services/api';
 import { listSecurityDomains, createSecurityDomain, updateSecurityDomain, deleteSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
@@ -97,6 +97,12 @@ const SecurityDomainPage: React.FC = () => {
   const [resourcePoolMap, setResourcePoolMap] = useState<Record<string, string>>({});
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
+  // VR Change/Unbind States
+  const [changeVrOpen, setChangeVrOpen] = useState(false);
+  const [selectedDomainForVr, setSelectedDomainForVr] = useState<SecurityDomain | null>(null);
+  const [changeVrForm] = Form.useForm();
+  const [changeVrLoading, setChangeVrLoading] = useState(false);
+
   const initializedRef = useRef(false);
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({
     name: true,
@@ -129,25 +135,33 @@ const SecurityDomainPage: React.FC = () => {
     actions: '操作',
   };
 
-  const loadVRList = async () => {
+  const loadVRList = async (tenantId?: string) => {
     // setVrLoading(true);
     try {
-      const res = await fetchSaseGateways();
-      const list = (res?.items || res?.data || res?.list || []) as any[];
+      // 无论安全域属于什么云，统一获取当前租户名下的所有 VR 实例
+      // 这是一个管理动作，不受底层云厂商接口限制
+      const res = await fetchTenantVRs(tenantId ? { tenantId } : {});
+      
+      let list: any[] = [];
+      if (res && Array.isArray(res.items)) {
+          list = res.items;
+      } else if (Array.isArray(res)) {
+          list = res;
+      }
+      
+      // Filter out deleted VRs
+      list = list.filter((item: any) => !item.is_deleted);
+
       const opts: VRRowOpt[] = list.map((item: any) => ({
-        uuid: item.uuid || item.vr_unique_id || item.id || '',
-        name: item.name || item.display_name || item.uuid || '未命名VR',
+        uuid: item.uuid || item.id || '',
+        name: `${item.name || item.display_name || item.uuid || '未命名VR'}${item.health_status ? ` (${item.health_status})` : ''}`,
       })).filter(v => v.uuid);
       setVrOptions(opts);
-      try {
-        const roles = await getVRRoles(opts.map(o => o.uuid));
-        const ceOpts = opts.filter(o => String(roles?.[o.uuid] || '').toUpperCase() === 'CE');
-        setVrCeOptions(ceOpts);
-      } catch (e) {
-        setVrCeOptions(opts);
-      }
+      setVrCeOptions(opts);
     } catch (err: any) {
-      message.warning('VR 列表获取失败，暂无法在创建安全域时绑定 VR 实例');
+      console.warn('VR list fetch failed', err);
+      const errMsg = typeof err === 'string' ? err : (err?.message || JSON.stringify(err));
+      message.error(`加载 VR 列表失败: ${errMsg}`);
       setVrOptions([]);
       setVrCeOptions([]);
     } finally {
@@ -451,6 +465,63 @@ const SecurityDomainPage: React.FC = () => {
     createForm.resetFields();
   };
 
+  const openChangeVr = (record: SecurityDomain) => {
+    setSelectedDomainForVr(record);
+    setChangeVrOpen(true);
+    // Pass tenantId to load specific VRs
+    loadVRList(record.tenantId);
+    changeVrForm.setFieldsValue({ vrUuid: record.vrUuid });
+  };
+
+  const handleChangeVrSubmit = async () => {
+    if (!selectedDomainForVr) return;
+    try {
+      const values = await changeVrForm.validateFields();
+      setChangeVrLoading(true);
+      await updateSecurityDomain(selectedDomainForVr.id, {
+        vrUuid: values.vrUuid,
+        vrName: null,
+        vrInstanceIds: null,
+      } as any);
+      message.success('VR 实例已更换');
+      setChangeVrOpen(false);
+      reloadDomains();
+    } catch (e) {
+      console.error('Failed to change VR', e);
+      message.error('更换失败');
+    } finally {
+      setChangeVrLoading(false);
+    }
+  };
+
+  const handleUnbindVr = (record: SecurityDomain) => {
+    Modal.confirm({
+      title: '确认解绑 VR',
+      content: '解绑 VR 实例将清除相关的网络配置（ENI/IP），是否继续？',
+      onOk: async () => {
+        try {
+          await updateSecurityDomain(record.id, {
+            vrUuid: '',
+            vrName: null,
+            vrInstanceIds: null,
+            vrPublicEniIds: null,
+            vrPrivateEniIds: null,
+            vrPublicIp: null,
+            vrPrivateIp: null,
+            vrPublicEip: null,
+            vrPublicSubnetCidr: null,
+            vrPrivateSubnetCidr: null
+          } as any);
+          message.success('VR 实例已解绑');
+          reloadDomains();
+        } catch (e) {
+          console.error('Unbind VR failed', e);
+          message.error('解绑失败');
+        }
+      }
+    });
+  };
+
   const displayColumns = useMemo(() => {
     const columns = [
       {
@@ -577,11 +648,16 @@ const SecurityDomainPage: React.FC = () => {
           const items: MenuProps['items'] = [
             { key: 'detail', label: '详情' },
             { key: 'edit', label: '编辑' },
+            { key: 'changeVr', label: '更换 VR 实例' },
+            ...(record.vrUuid ? [{ key: 'unbindVr', label: '解绑 VR 实例' }] : []),
+            { type: 'divider' },
             { key: 'delete', label: '删除', danger: true },
           ];
           const onMenuClick: MenuProps['onClick'] = ({ key }) => {
             if (key === 'detail') return openDetail(record);
             if (key === 'edit') return openEdit(record);
+            if (key === 'changeVr') return openChangeVr(record);
+            if (key === 'unbindVr') return handleUnbindVr(record);
             if (key === 'delete') return removeDomain(record);
           };
           return (
@@ -858,6 +934,29 @@ const SecurityDomainPage: React.FC = () => {
             <Descriptions.Item label="更新时间">{detailData.updatedAt || '-'}</Descriptions.Item>
           </Descriptions>
         )}
+      </Modal>
+      <Modal
+        title="更换 VR 实例"
+        open={changeVrOpen}
+        onCancel={() => setChangeVrOpen(false)}
+        onOk={handleChangeVrSubmit}
+        confirmLoading={changeVrLoading}
+      >
+        <Form form={changeVrForm} layout="vertical">
+          <Form.Item
+            name="vrUuid"
+            label="VR 实例"
+            rules={[{ required: true, message: '请选择 VR 实例' }]}
+            extra="更换 VR 实例可能会改变该安全域的流量出口和互联策略，请谨慎操作。"
+          >
+            <Select
+              showSearch
+              placeholder="请选择 VR 实例"
+              optionFilterProp="label"
+              options={vrOptions.map(v => ({ label: v.name, value: v.uuid }))}
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </PageContainer>
   );

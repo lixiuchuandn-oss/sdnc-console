@@ -230,7 +230,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
                       {t.count !== undefined && (
                         React.isValidElement(t.count)
                           ? t.count
-                          : (Number(t.count) > 0 ? <span style={{ marginLeft: 4, color: 'inherit', fontSize: 12, opacity: 0.8 }}>{t.count}</span> : null)
+                          : (Number(t.count) > 0 ? <span style={{ marginLeft: 4, color: 'inherit', fontSize: 12, opacity: 0.8 }}>({t.count})</span> : null)
                       )}
                     </span>
                   );
