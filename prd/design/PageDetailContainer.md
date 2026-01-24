@@ -1,5 +1,5 @@
 **使用时机**
-当一级功能页面中，所管理的实例的属性非常复杂时，需要引入 PageDetailContainer 组件，对其进行详细描述。如点击某实例
+当一级功能页面中，所管理的实例的属性非常复杂时，需要引入 PageDetailContainer 组件，对其进行详细描述。如点击某实例详情按钮
 该组件包含了页面顶部、tabs 标签、多个资源section 等内容。
 公共组件地址：D:\Compute.Tower\frontend\src\components\PageDetailContainer.tsx
 

@@ -1,119 +1,96 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
-import { VRListCache } from '../entities/VRListCache';
+import { VrCacheBasic } from '../entities/VrCacheBasic';
+import { VrCacheExtended } from '../entities/VrCacheExtended';
+import { VrCacheDevice } from '../entities/VrCacheDevice';
+import { VrCacheService } from '../services/VrCacheService';
 
 export const vrCacheRoutes = Router();
 
-function tryParse(v: any): any {
-  if (typeof v === 'string') {
-    try { return JSON.parse(v); } catch { return v; }
-  }
-  return v;
-}
-
-function extractRows(json: any): any[] {
-  json = tryParse(json);
-  if (!json) return [];
-
-  const candidates: any[] = [];
-  const pushIfArray = (v: any) => { v = tryParse(v); if (Array.isArray(v)) candidates.push(v); };
-
-  // 常见位置
-  pushIfArray(json);
-  pushIfArray((json as any).data);
-  pushIfArray((json as any).list);
-  pushIfArray((json as any).page);
-  pushIfArray((json as any).rows);
-
-  if ((json as any).data) {
-    const d = (json as any).data;
-    pushIfArray(d.list);
-    pushIfArray(d.page);
-    pushIfArray(d.rows);
-    pushIfArray(d.data);
-    pushIfArray(d.items);
-  }
-
-  if ((json as any).result) {
-    const r = (json as any).result;
-    pushIfArray(r.list);
-    pushIfArray(r.page);
-    pushIfArray(r.rows);
-    pushIfArray(r.data);
-    pushIfArray(r.items);
-  }
-
-  // 深度遍历，寻找第一个数组字段
-  if (candidates.length === 0 && typeof json === 'object') {
-    for (const k in json) {
-      const v = tryParse((json as any)[k]);
-      if (Array.isArray(v)) { candidates.push(v); break; }
-      if (v && typeof v === 'object') {
-        for (const kk in v as any) {
-          const vv = tryParse((v as any)[kk]);
-          if (Array.isArray(vv)) { candidates.push(vv); break; }
-        }
-        if (candidates.length) break;
-      }
-    }
-  }
-
-  const rows = candidates[0] || [];
-  return Array.isArray(rows) ? rows : [];
-}
-
-// 保存/更新缓存
-vrCacheRoutes.post('/upsert', async (req, res) => {
+// Trigger sync manually
+vrCacheRoutes.post('/refresh', async (req, res) => {
   try {
-    const { page_num, page_size, data } = req.body || {};
-    if (!page_num || !page_size || typeof data === 'undefined') {
-      return res.status(400).json({ code: 400, msg: '缺少必要参数: page_num, page_size, data' });
-    }
-
-    const repo = AppDataSource.getRepository(VRListCache);
-    let record = await repo.findOne({ where: { page_num, page_size } });
-    const jsonStr = typeof data === 'string' ? data : JSON.stringify(data);
-
-    if (record) {
-      record.data = jsonStr;
-      await repo.save(record);
-    } else {
-      record = repo.create({ page_num, page_size, data: jsonStr });
-      await repo.save(record);
-    }
-
-    const rows = extractRows(typeof data === 'string' ? tryParse(data) : data);
-    return res.json({ code: 200, msg: 'ok', data: { saved_id: record.id, count: rows.length } });
+    await VrCacheService.getInstance().syncAll();
+    res.json({ message: '同步任务已触发', status: 'ok' });
   } catch (err: any) {
-    console.error('[VR_CACHE] upsert error', err);
-    return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
+    console.error('[VR_SYNC] Manual sync error', err);
+    res.status(500).json({ message: 'Sync failed', error: err.message });
   }
 });
 
-// 读取缓存的列表
+// Get paginated list from cache tables
 vrCacheRoutes.get('/pagelist', async (req, res) => {
   try {
-    const page_num = Number(req.query.page_num || 1);
-    const page_size = Number(req.query.page_size || 10);
-    const repo = AppDataSource.getRepository(VRListCache);
-    // 优先按请求的分页查找；若无匹配，回退到最新记录
-    let record = await repo.findOne({ where: { page_num, page_size } });
-    if (!record) {
-      const latest = await repo.find({ order: { updated_at: 'DESC' }, take: 1 });
-      record = latest[0];
-    }
+    const pageNum = Number(req.query.page_num || 1);
+    const pageSize = Number(req.query.page_size || 50);
 
-    if (!record) {
-      return res.json({ code: 200, data: { page: [], total: 0 } });
-    }
+    // 1. 读取三个表的全量数据 (假设数据量不大，全部读入内存合并)
+    // 如果数据量巨大，应该使用 SQL Join，但 TypeORM 对 JSON 字段的解析在 SQL 层比较麻烦
+    // 且当前需求是 "以 VR1 为主键"，内存合并灵活性更高
+    const basicRepo = AppDataSource.getRepository(VrCacheBasic);
+    const extendedRepo = AppDataSource.getRepository(VrCacheExtended);
+    const deviceRepo = AppDataSource.getRepository(VrCacheDevice);
 
-    let json: any;
-    try { json = JSON.parse(record.data); } catch { json = { raw: record.data }; }
-    const rows = extractRows(json);
-    const total = (json && (json as any).data && typeof (json as any).data.total === 'number') ? (json as any).data.total : rows.length;
-    return res.json({ code: 200, data: { page: rows, total } });
+    const [basicRows, extendedRows, deviceRows] = await Promise.all([
+      basicRepo.find(),
+      extendedRepo.find(),
+      deviceRepo.find()
+    ]);
+
+    // 2. 建立索引
+    const extendedMap = new Map(extendedRows.map(r => [r.uuid, JSON.parse(r.data)]));
+    const deviceMap = new Map(deviceRows.map(r => [r.uuid, JSON.parse(r.data)]));
+
+    // 3. 合并数据 (以 Basic 为主)
+    const mergedList = basicRows.map(basic => {
+      const uuid = basic.uuid;
+      const basicData = JSON.parse(basic.data);
+      const extendedData = extendedMap.get(uuid) || null;
+      const deviceData = deviceMap.get(uuid) || null; // 这里是 VRConfig 对象
+
+      return {
+        ...basicData,
+        // 扩展信息合并到顶层 (resourceIndicators, interfaces)
+        ...(extendedData || {}),
+
+        // 确保关键字段存在
+        uuid: uuid,
+        // 合并本地/设备信息
+        name: basicData.name || deviceData?.name || '未命名VR',
+        vr_unique_id: deviceData?.uuid || uuid,
+        tenant_id: deviceData?.tenantId || basicData.tenant_id,
+        org_id: deviceData?.organizationId || basicData.org_id,
+        bind_status: deviceData?.bindStatus || basicData.bind_status,
+        role: deviceData?.role || basicData.role,
+        
+        // 原始信息
+        _raw_csmctl_info: basicData,
+        _raw_vrctl_info: deviceData,
+        
+        // 扩展信息
+        vr3_info: extendedData
+      };
+    });
+
+    // 4. 内存分页
+    const total = mergedList.length;
+    const startIndex = (pageNum - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const pageData = mergedList.slice(startIndex, endIndex);
+
+    return res.json({
+      code: 200,
+      msg: 'ok',
+      data: {
+        page_num: pageNum,
+        page_size: pageSize,
+        total: total,
+        list: pageData
+      }
+    });
+
   } catch (err: any) {
-    console.error('[VR_CACHE] get error', err);
+    console.error('[VR_CACHE] pagelist error', err);
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });

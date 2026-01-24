@@ -3,7 +3,7 @@ import { Button, Card, Divider, Form, Input, Radio, Row, Col, Select, Space, Ste
 import { ArrowLeftOutlined, UserOutlined, ReloadOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { fetchTenantVRs } from '../../../services/api';
+import { fetchVrCachePageList } from '../../../services/vrCacheApi';
 import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchHuaweiPorts, fetchCloudProviderSubnetsByVpc, fetchTenants, fetchOrganizationsByTenant, fetchOrganizationResourcePools } from '../../../services/api';
 import { createSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 
@@ -54,12 +54,14 @@ const SecurityDomainWizardPage: React.FC = () => {
   const loadVRList = async () => {
     setVrLoading(true);
     try {
-      const res = await fetchTenantVRs();
-      const list = (res?.items || res?.data || res?.list || []) as any[];
+      const res = await fetchVrCachePageList(1000, 1);
+      const data = res?.data || res;
+      const list = Array.isArray(data?.page) ? data.page : (Array.isArray(data?.list) ? data.list : []);
+      
       const opts: VRRowOpt[] = list.map((item: any) => ({
         uuid: item.uuid || item.vr_unique_id || item.id || '',
         name: item.name || item.display_name || item.uuid || '未命名VR',
-      })).filter(v => v.uuid);
+      })).filter((v: any) => v.uuid);
       setVrOptions(opts);
     } catch (e: any) {
       console.error(e);

@@ -4,7 +4,7 @@ module.exports = function(app) {
   app.use(
     '/api-proxy',
     createProxyMiddleware({
-      target: 'https://10.20.255.93:8016',
+      target: 'https://47.111.13.103:8016',
       changeOrigin: true,
       secure: false, // 忽略SSL证书验证
       pathRewrite: {

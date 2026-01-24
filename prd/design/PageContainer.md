@@ -25,19 +25,22 @@ D:\Compute.Tower\frontend\src\components\SharedToolbar.tsx
 ## left n：各类的类型选择label（在上，字体14px，字体颜色#000000E0，paddingBottom 8px+ 下拉框（在下）
 ## left 末尾：重置，纯文字链接，底部对齐，总高度30px，无左右padding，无margin
 ## left 的组件 12px gap
+
 ## right 1 主要按钮，纯文字，无icon  （如没有则无需添加）
 ## right 2 批量操作菜单触发器，纯icon <EllipsisOutlined>，无文字  （如没有则无需添加）
 ## right 3 齿轮按钮（列表表头控制），纯icon <SettingOutlined>，无文字。
 - 列选择弹窗改为可换行布局：500px 容器，flex-wrap+gap 控制；选项超宽时自动换行为多行显示。
 - 批量操作菜单，一般操作和风险操作中间要有分隔线
 ## right 4 刷新按钮，纯icon <ReloadOutlined>，无文字 
+## 示例： | 主要按钮 | 批量操作菜单 | 齿轮按钮 | 刷新按钮 |
 
 # 2. 表格
 ## 禁止添加尺寸，使用表格的默认尺寸
 ## 禁止添加列宽
 ## 单元格内边距 (Cell Padding)：padding-left 10px (已封装在组件内)
 ## 需要有 border
-## 行操作菜单触发器 D:\Compute.Tower\frontend\src\components\ResourceActionsDropdown.tsx （如没有则无需添加），禁止修改其尺寸
+## D:\ComputeTower\Compute.Tower\frontend\src\utils\tableStyles.ts 中定义了表格的样式
+## 行操作菜单触发器 D:\ComputeTower\Compute.Tower\frontend\src\components\ResourceActionsDropdown.tsx （如没有则无需添加），禁止修改其尺寸
 ### 查看元数据 点击后展开该实例的元数据
 #### 元数据展示窗口样式规范
 - **弹窗属性**：

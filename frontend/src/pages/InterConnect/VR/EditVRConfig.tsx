@@ -1,26 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Input, Space, message, Divider, Collapse, Switch, Steps, Card, Row, Col } from 'antd';
-import { SaveOutlined, SendOutlined, ArrowLeftOutlined, CopyOutlined, SettingOutlined } from '@ant-design/icons';
+import { Button, Form, Input, Space, message, Divider, Collapse, Switch, Card, Row, Col, Tag, Select } from 'antd';
+import { SaveOutlined, SendOutlined, ArrowLeftOutlined, CopyOutlined, CloudServerOutlined, ClusterOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
- 
+
 import { getVRConfig, saveVRConfig } from '../../../services/vrConfigApi';
-import { vrApi } from '../../../services/vrApi';
 import LinedTextArea from '../../../components/LinedTextArea';
+
+import { getVR2ConfigRaw } from '../../../services/vr2Api';
 
 const EditVRConfig: React.FC = () => {
   const navigate = useNavigate();
   const { uuid } = useParams();
   const [form] = Form.useForm();
-  const [loading, setLoading] = useState(false);
-  const [cleanedResponseText, setCleanedResponseText] = useState('');
-  const [currentStep, setCurrentStep] = useState(0);
-
-  const stepTitle = useMemo(() => {
-    if (currentStep === 0) return '查询现有配置';
-    if (currentStep === 1) return 'VR 配置模板';
-    return '合并预览与下发';
-  }, [currentStep]);
+  const [loading, setLoading] = useState<boolean>(false);
+  
+  // Resource Binding State (Removed from UI, kept for compatibility if needed or removed entirely)
+  const [csmctlConfig, setCsmctlConfig] = useState<any | null>(null);
 
   // PRD: 按配置点拆分的模板文本框（每个键一个文本框，内容为该键对应的JSON片段）
   type SectionKey =
@@ -617,6 +613,9 @@ const EditVRConfig: React.FC = () => {
         return;
       }
       try {
+        // const clouds = await fetchClouds();
+        // setCloudList(clouds);
+
         // 优先加载平台已保存的配置；如果没有则初始化为模板结构
         const existing = await getVRConfig(uuid);
         if (existing && typeof existing === 'object') {
@@ -631,6 +630,25 @@ const EditVRConfig: React.FC = () => {
           });
           setSections(next);
           setEnabledSections(nextEnabled);
+
+          // 加载元数据 (已移除 UI，暂不加载以减少请求)
+          /*
+          if (existing.cloudId) {
+            setCloudId(existing.cloudId);
+            setCloudName(existing.cloudName);
+            fetchVpcList(existing.cloudId);
+            fetchVmList(existing.cloudId);
+          }
+          if (existing.vmId) {
+            setVmId(existing.vmId);
+          }
+          */
+
+          // 自动展开有配置的分组
+          const autoExpanded = GROUPS
+            .filter((g) => g.keys.some((k) => nextEnabled[k]))
+            .map((g) => g.title);
+          setActivePanels(autoExpanded);
         }
       } catch (err: any) {
         message.error(`加载配置失败: ${err.message}`);
@@ -665,7 +683,7 @@ const EditVRConfig: React.FC = () => {
     if (!obj) return;
     setLoading(true);
     try {
-      await saveVRConfig(uuid, obj);
+      await saveVRConfig(uuid, obj, {}); // 移除 cloudId/vmId 绑定
       message.success('配置已保存到平台');
     } catch (err: any) {
       message.error(`保存失败: ${err.message}`);
@@ -680,6 +698,9 @@ const EditVRConfig: React.FC = () => {
     if (!obj) return;
     setLoading(true);
     try {
+      // 先保存到平台
+      await saveVRConfig(uuid, obj, {}); // 移除 cloudId/vmId 绑定
+
       // 改为复用 AuthDirect 的直接认证与请求方式进行下发
       const accesskey = 'Cloudmap%23123';
       const secretkey = 'Cloudmap%23123';
@@ -737,61 +758,22 @@ const EditVRConfig: React.FC = () => {
     if (!uuid) return;
     setLoading(true);
     try {
-      // 直接复用 AuthDirect 的认证与请求方式
-      const accesskey = 'Cloudmap%23123';
-      const secretkey = 'Cloudmap%23123';
-      const path = '/V2/ctcontrol/VR2/VRConfig';
-      const method = 'GET';
-      const other = `uuid=${uuid}`;
-
-      const authUrl = `/api-proxy/api/sign?` +
-        `url=${encodeURIComponent(path)}&` +
-        `method=${method}&` +
-        `other=${encodeURIComponent(other)}&` +
-        `accessKey=${accesskey}&` +
-        `secretKey=${secretkey}`;
-
-      const signResp = await fetch(authUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: ''
-      });
-      const signJson = await signResp.json();
-      const info = (signJson && signJson.data) ? signJson.data : signJson;
-      if (!info || !info.Authorization || !info.tonce) {
-        throw new Error('认证响应数据缺少 Authorization 或 tonce');
-      }
-
-      const queryUrl = `/api-proxy${path}?${other}`;
-      const resp = await fetch(queryUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': info.Authorization,
-          'tonce': String(info.tonce)
-        }
-      });
-      const raw = await resp.json().catch(async () => ({ raw: await resp.text() }));
-      // 将原始接口返回显示到查询页签的只读框中
+      // 使用 getVR2ConfigRaw 获取包含 code/msg 的完整原始响应
+      // 这样用户可以看到真实的后端返回，包括错误码
+      const raw = await getVR2ConfigRaw(uuid);
+      
       if (!raw) {
         message.info('未查询到远端配置');
         return;
       }
-      // 递归剥离多层 data 包裹
-      const unwrapData = (obj: any) => {
-        let cur = obj;
-        while (cur && typeof cur === 'object' && 'data' in cur) {
-          cur = (cur as any).data;
-        }
-        return cur;
-      };
-      // 去除响应中的元数据，仅保留配置主体
-      const stripMeta = (obj: any) => {
-        if (!obj || typeof obj !== 'object') return obj;
-        const { msg, code, report_config_status, updateDate, createDate, _id, requestId, ...rest } = obj as any;
-        return rest;
-      };
-      
+
+      // 检查业务错误码
+      if (typeof raw.code === 'number' && raw.code !== 200 && raw.code !== 0) {
+        message.error(`设备控制器返回错误: ${raw.msg || '未知错误'} (Code: ${raw.code})`);
+      } else {
+        message.success('已查询设备实时配置');
+      }
+ 
       // 辅助：对 CE 元数据进行特定排序，对整体键进行排序
       const sortJsonKeys = (obj: any): any => {
         if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
@@ -855,112 +837,12 @@ const EditVRConfig: React.FC = () => {
         return sorted;
       };
 
-      const unwrapped = unwrapData(raw);
-      const cleaned = stripMeta(unwrapped);
+      // 直接展示完整原始数据（含 code/msg），仅做字段排序
+      const sortedRaw = sortJsonKeys(raw);
+      setCsmctlConfig(sortedRaw);
 
-      // 标准化：把查询返回的统一 interfaces 数组拆分到模板使用的各个接口键
-      const expanded = (() => {
-        const e: any = { ...(cleaned ?? {}) };
-        const ifaces: any[] = Array.isArray(e.interfaces) ? e.interfaces : [];
-        if (ifaces.length > 0) {
-          const buckets: Record<SectionKey, any[]> = {
-            vrf: [],
-            acl: [],
-            ipsec: [],
-            nat_address_group: [],
-            interfaces_BondEthernet: [],
-            subinterfaces_BondEthernet: [],
-            interfaces_TapEthernet: [],
-            subinterfaces_TapEthernet: [],
-            interfaces_memif: [],
-            subinterfaces_memif: [],
-            interfaces_GigabitEthernet: [],
-            subinterfaces_GigabitEthernet: [],
-            interfaces_lo: [],
-            interfaces_Tunnel: [],
-            subinterfaces_Tunnel: [],
-            ipv4_route: [],
-            ipv6_route: [],
-            segment_routing_srv6: [],
-            bgp: [],
-            vrrp: [],
-          } as any;
-
-          ifaces.forEach((item: any) => {
-            const name = String(item?.name || '');
-            const typePart = name.split(' ')[0];
-            const isSub = name.includes('.');
-            const push = (key: SectionKey) => {
-              (buckets as any)[key].push(item);
-            };
-            switch (typePart) {
-              case 'BondEthernet':
-                push(isSub ? 'subinterfaces_BondEthernet' : 'interfaces_BondEthernet');
-                break;
-              case 'TapEthernet':
-                push(isSub ? 'subinterfaces_TapEthernet' : 'interfaces_TapEthernet');
-                break;
-              case 'memif':
-                push(isSub ? 'subinterfaces_memif' : 'interfaces_memif');
-                break;
-              case 'GigabitEthernet':
-                push(isSub ? 'subinterfaces_GigabitEthernet' : 'interfaces_GigabitEthernet');
-                break;
-              case 'lo':
-                push('interfaces_lo');
-                break;
-              case 'Tunnel':
-                push(isSub ? 'subinterfaces_Tunnel' : 'interfaces_Tunnel');
-                break;
-              default:
-                // 未识别类型，暂不分发；保留在原始 interfaces 中
-                break;
-            }
-          });
-
-          // 写回各桶并移除统一的 interfaces 键
-          Object.keys(buckets).forEach((k) => {
-            const key = k as SectionKey;
-            if ((buckets as any)[key] && (buckets as any)[key].length > 0) {
-              e[key] = (buckets as any)[key];
-            }
-          });
-          delete e.interfaces;
-        }
-
-        // 路由标准化：若存在统一 routes，则拆分到 ipv4_route / ipv6_route
-        const routes: any[] = Array.isArray((e as any).routes) ? (e as any).routes : [];
-        if (routes.length > 0) {
-          const ipv4: any[] = [];
-          const ipv6: any[] = [];
-          routes.forEach((r) => {
-            const dest = String(r?.destination || '');
-            if (dest.includes(':')) ipv6.push(r); else ipv4.push(r);
-          });
-          if (ipv4.length > 0) e.ipv4_route = ipv4;
-          if (ipv6.length > 0) e.ipv6_route = ipv6;
-          delete e.routes;
-        }
-        return e;
-      })();
-
-      // 展示标准化后的 JSON，便于与模板一一对应
-      const sortedExpanded = sortJsonKeys(expanded ?? {});
-      setCleanedResponseText(JSON.stringify(sortedExpanded, null, 2));
-
-      // 将远端配置（已标准化）分发到各个模板片段
-      const next: Record<SectionKey, string> = { ...sections } as any;
-      const nextEnabled: Record<SectionKey, boolean> = { ...enabledSections } as any;
-      (Object.keys(DEFAULT_TEMPLATE) as SectionKey[]).forEach((k) => {
-        const hasValue = typeof (expanded as any)?.[k] !== 'undefined';
-        const value = hasValue ? (expanded as any)[k] : DEFAULT_TEMPLATE[k];
-        next[k] = JSON.stringify(value, null, 2);
-        nextEnabled[k] = !!hasValue; // 远端有该配置则启用，否则禁用
-      });
-      setSections(next);
-      setEnabledSections(nextEnabled);
-      message.success('已加载远端配置');
     } catch (err: any) {
+      console.error(err);
       message.error(`查询失败: ${err.message}`);
     } finally {
       setLoading(false);
@@ -969,9 +851,7 @@ const EditVRConfig: React.FC = () => {
 
   return (
     <PageContainer
-      title={<span><SettingOutlined style={{ marginRight: 6, color: '#1677ff' }} />专家模式</span>}
       titleLevel={3}
-      subtitle="用于分步查询、编辑与下发 VR 配置；支持标准化预览、模板分段编辑、启用/禁用配置点，以及保存到平台或直接下发"
       extra={
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button>
@@ -980,159 +860,116 @@ const EditVRConfig: React.FC = () => {
       asCard={false}
     >
       <Row gutter={16}>
-        <Col span={5}>
+        <Col span={12}>
           <Card
             size="small"
-            title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>}
-            variant="outlined"
-            style={{ position: 'sticky', top: 16 }}
-          >
-            <Steps
-              direction="vertical"
-              size="small"
-              current={currentStep}
-              onChange={(idx) => setCurrentStep(idx)}
-              items={[
-                { title: '查询现有配置' },
-                { title: 'VR 配置模板' },
-                { title: '合并预览与下发' },
-              ]}
-            />
-          </Card>
-        </Col>
-        <Col span={19}>
-          <Card
-            size="small"
-            title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>{`第 ${currentStep + 1} 步：${stepTitle}`}</span>}
+            title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>配置编辑 Configuration Editor (DB Cache)</span>}
             variant="outlined"
           >
             <Form form={form} layout="vertical">
-              <Form.Item label="VR UUID">
-                <Input value={uuid} disabled />
-              </Form.Item>
+              <div style={{ marginBottom: 16 }}>
+                <span style={{ fontSize: 12, color: '#888' }}>VR UUID</span>
+                <Input value={uuid} disabled style={{ marginTop: 4 }} />
+              </div>
 
-              {currentStep === 0 && (
-                <>
-                  <Divider />
-                  <Space style={{ marginBottom: 12 }}>
-                    <Button type="primary" onClick={handleQueryExisting} loading={loading}>查询现有配置</Button>
-                    <Button type="default" icon={<CopyOutlined />} onClick={() => copyText(cleanedResponseText || '', '有效VR配置 JSON')}>复制有效配置</Button>
-                  </Space>
-                  <Form.Item label="过滤后的 VR 配置 JSON（只读）">
-                    <LinedTextArea
-                      value={cleanedResponseText}
-                      readOnly
-                      minRows={10}
-                      maxRows={28}
-                      placeholder="只显示有效的 VR 配置内容（已剥离 data 层与元数据）"
-                    />
-                  </Form.Item>
-                </>
-              )}
-
-              {currentStep === 1 && (
-                <>
-                  <Divider />
-                  <Space style={{ marginBottom: 12 }}>
-                    <Button type="default" onClick={expandAll}>展开全部</Button>
-                    <Button type="default" onClick={collapseAll}>折叠全部</Button>
-                  </Space>
-                  <Collapse
-                    activeKey={activePanels}
-                    onChange={(keys) => setActivePanels(Array.isArray(keys) ? (keys as string[]) : [String(keys)])}
-                    items={GROUPS.map((group) => ({
-                      key: group.title,
-                      label: group.title,
-                      children: (
-                        <>
-                          {group.keys.map((key) => (
-                            <Form.Item
-                              key={key}
-                              className={!enabledSections[key] ? 'vr-form-item-compact' : undefined}
-                              label={
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ fontWeight: 600, fontSize: 14 }}>{key}</span>
-                                    <span style={{ fontSize: 12, color: '#8c8c8c' }}>{SECTION_DESC[key]}</span>
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 4 }}>
-                                    <Switch
-                                      size="small"
-                                      checked={!!enabledSections[key]}
-                                      onChange={(checked) => setEnabledSections((prev) => ({ ...prev, [key]: checked }))}
-                                      checkedChildren="启用"
-                                      unCheckedChildren="停用"
-                                    />
-                                    <Button
-                                      size="small"
-                                      type="default"
-                                      icon={<CopyOutlined />}
-                                      disabled={!enabledSections[key]}
-                                      style={{ height: 22, lineHeight: '22px', padding: '0 10px' }}
-                                      onClick={() => copyText(sections[key], `${key} JSON`)}
-                                    >复制</Button>
-                                  </div>
-                                </div>
-                              }
-                            >
-                              {enabledSections[key] && (
-                                <LinedTextArea
-                                  value={sections[key]}
-                                  onChange={(val) => setSectionText(key, val)}
-                                  minRows={6}
-                                  maxRows={24}
-                                  placeholder={`填写 ${key} 的 JSON 结构（只要标识符和结构，不要具体的值）`}
+              {/* 资源关联已移除，专家模式专注于策略配置 */}
+              
+              <Collapse
+                activeKey={activePanels}
+                onChange={(keys) => setActivePanels(Array.isArray(keys) ? (keys as string[]) : [String(keys)])}
+                items={GROUPS.map((group) => {
+                  const hasConfig = group.keys.some((k) => enabledSections[k]);
+                  return {
+                    key: group.title,
+                    label: (
+                      <Space>
+                        {group.title}
+                        {hasConfig && <Tag color="success">有配置</Tag>}
+                      </Space>
+                    ),
+                    children: (
+                      <>
+                        {group.keys.map((key) => (
+                          <Form.Item
+                            key={key}
+                            className={!enabledSections[key] ? 'vr-form-item-compact' : undefined}
+                            label={
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontWeight: 600, fontSize: 14 }}>{key}</span>
+                                <span style={{ fontSize: 12, color: '#8c8c8c' }}>{SECTION_DESC[key]}</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 4 }}>
+                                <Switch
+                                  size="small"
+                                  checked={!!enabledSections[key]}
+                                  onChange={(checked) => setEnabledSections((prev) => ({ ...prev, [key]: checked }))}
+                                  checkedChildren="启用"
+                                  unCheckedChildren="停用"
                                 />
-                              )}
-                            </Form.Item>
-                          ))}
-                        </>
-                      ),
-                    }))}
-                  />
-                </>
-              )}
-
-              {currentStep === 2 && (
-                <>
-                  <Divider />
-                  <Form.Item label={
-                    <Space>
-                      <span>合并后的配置 JSON（只读）</span>
-                      <Button type="default" icon={<CopyOutlined />} onClick={() => copyText(JSON.stringify(mergedConfig, null, 2), '合并配置 JSON')}>复制</Button>
-                    </Space>
-                  }>
-                    <LinedTextArea
-                      value={JSON.stringify(mergedConfig, null, 2)}
-                      readOnly
-                      minRows={12}
-                      maxRows={32}
-                      placeholder="按模板片段合并后的总配置预览"
-                    />
-                  </Form.Item>
-                </>
-              )}
-
+                                <Button
+                                  size="small"
+                                  type="default"
+                                  icon={<CopyOutlined />}
+                                  disabled={!enabledSections[key]}
+                                  style={{ height: 22, lineHeight: '22px', padding: '0 10px' }}
+                                  onClick={() => copyText(sections[key], `${key} JSON`)}
+                                >复制</Button>
+                              </div>
+                            </div>
+                          }
+                        >
+                          {enabledSections[key] && (
+                            <LinedTextArea
+                              value={sections[key]}
+                              onChange={(val) => setSectionText(key, val)}
+                              minRows={6}
+                              maxRows={24}
+                              placeholder={`填写 ${key} 的 JSON 结构（只要标识符和结构，不要具体的值）`}
+                            />
+                          )}
+                        </Form.Item>
+                      ))}
+                    </>
+                  ),
+                };
+              })}
+              />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
                 <Space>
                   <Button onClick={() => navigate('/admin/interconnect/vr')}>返回列表</Button>
-                  {currentStep > 0 && (
-                    <Button onClick={() => setCurrentStep((s) => Math.max(0, s - 1))}>上一步</Button>
-                  )}
+                  <Button onClick={expandAll}>展开全部</Button>
+                  <Button onClick={collapseAll}>折叠全部</Button>
                 </Space>
                 <Space>
-                  {currentStep < 2 && (
-                    <Button type="primary" onClick={() => setCurrentStep((s) => Math.min(2, s + 1))}>下一步</Button>
-                  )}
-                  {currentStep === 2 && (
-                    <>
-                      <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={loading}>仅保存</Button>
-                      <Button danger icon={<SendOutlined />} onClick={handleSaveAndDispatch} loading={loading}>保存并下发</Button>
-                    </>
-                  )}
+                  <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={loading}>仅保存</Button>
+                  <Button danger icon={<SendOutlined />} onClick={handleSaveAndDispatch} loading={loading}>保存并下发</Button>
                 </Space>
               </div>
             </Form>
+          </Card>
+        </Col>
+        <Col span={12}>
+          <Card
+            size="small"
+            title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>实时配置 csmctl configuration</span>}
+            variant="outlined"
+          >
+            <div style={{ marginBottom: 16 }}>
+              <span style={{ fontSize: 12, color: '#888' }}>VR UUID</span>
+              <Input value={uuid} disabled style={{ marginTop: 4 }} />
+            </div>
+            <LinedTextArea
+              value={csmctlConfig ? JSON.stringify(csmctlConfig, null, 2) : '点击下方按钮查询设备实时配置...'}
+              readOnly
+              minRows={18}
+              maxRows={36}
+              placeholder="设备实时配置（只读）"
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8, marginTop: 16 }}>
+              <Button onClick={handleQueryExisting} loading={loading}>查询现有配置</Button>
+              <Button icon={<CopyOutlined />} onClick={() => copyText(csmctlConfig ? JSON.stringify(csmctlConfig, null, 2) : '', '实时配置 JSON')}>复制</Button>
+            </div>
           </Card>
         </Col>
       </Row>

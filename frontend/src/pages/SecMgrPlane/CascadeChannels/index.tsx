@@ -3,18 +3,10 @@ import '../../common/filters.css';
 import { Card, Row, Col, Table, Tag, Space as AntSpace, Button, Modal, Form, Input, message, Select, Badge, Dropdown } from 'antd';
 import PageContainer from '../../../components/PageContainer';
 import { 
-  GlobalOutlined, 
-  PlusOutlined, 
   DeleteOutlined, 
   LinkOutlined, 
-  GatewayOutlined, 
-  DeploymentUnitOutlined, 
-  PartitionOutlined, 
-  SafetyOutlined, 
   EllipsisOutlined, 
   EyeOutlined, 
-  ReloadOutlined,
-  SearchOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { fetchCens, createCen, deleteCen, attachVpcToCen, fetchTenants, fetchCenAttachments, detachVpcFromCen, fetchCloudProviderVpcs, fetchClouds, updateCen, fetchServices } from '../../../services/api';
@@ -356,8 +348,7 @@ const CenPage: React.FC = () => {
       )}
       primaryAction={{ text: '新建级联通道', onClick: ()=>setModalVisible(true) }}
       moreMenuItems={[
-            { key:'refresh', label: '全局刷新', onClick: () => load() },
-            { key: 'bulkDelete', label: '批量删除', danger: true, disabled: selectedRowKeys.length === 0, onClick: () => {
+        { key: 'bulkDelete', label: '批量删除', danger: true, disabled: selectedRowKeys.length === 0, onClick: () => {
               Modal.confirm({
                 title: '确认批量删除',
                 content: `将删除选中的 ${selectedRowKeys.length} 个级联通道，操作不可恢复。`,
@@ -366,24 +357,26 @@ const CenPage: React.FC = () => {
                 onOk: async () => {
                   try {
                     let ok = 0, fail = 0;
-                for (const id of selectedRowKeys) {
-                  try {
-                    await deleteCen(String(id));
-                    ok++;
-                  } catch {
-                    fail++;
+                    for (const id of selectedRowKeys) {
+                      try {
+                        await deleteCen(String(id));
+                        ok++;
+                      } catch {
+                        fail++;
+                      }
+                    }
+                    message.success(`删除成功 ${ok} 个，失败 ${fail} 个`);
+                    setSelectedRowKeys([]);
+                    load();
+                  } catch (e: any) {
+                    message.error('批量删除失败');
                   }
                 }
-                message.success(`删除成功 ${ok} 个，失败 ${fail} 个`);
-                setSelectedRowKeys([]);
-                load();
-              } catch (e: any) {
-                message.error('批量删除失败');
-              }
-            }
-          });
-        } },
+              });
+            } 
+        },
       ]}
+      onRefresh={load}
       actionsSize="middle"
       tableProps={{
         columns: columns as any,

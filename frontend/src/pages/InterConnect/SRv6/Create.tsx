@@ -3,7 +3,6 @@ import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, m
 import { ArrowLeftOutlined, ExportOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { vrApi } from '../../../services/vrApi';
 import { getVRRoles, saveVRConfig, getVRConfig } from '../../../services/vrConfigApi';
 import { fetchVrCachePageList, upsertVrCache } from '../../../services/vrCacheApi';
 
@@ -632,113 +631,20 @@ const SRv6CreatePage: React.FC = () => {
 
   const fetchVRsAndRoles = async (pageSize: number = 100, pageNum: number = 1) => {
     try {
-      // 简化逻辑：直接走远端 VR1 列表，使用实例名称作为下拉显示
-      let list: any[] = [];
-      let rawRemote: any = null; // 用于在远端成功时自动入库缓存
-      try {
-        // 完全对齐“VR实例管理”页的认证与请求方式（手动签名 + fetch）
-        const accesskey = 'Cloudmap%23123';
-        const secretkey = 'Cloudmap%23123';
-        const path = '/V2/ctcontrol/VR1/pagelist';
-        const method = 'GET';
-        const other = `page_size=${pageSize}&page_num=${pageNum}`;
-
-        const authUrl = `/api-proxy/api/sign?` +
-          `url=${encodeURIComponent(path)}&` +
-          `method=${method}&` +
-          `other=${encodeURIComponent(other)}&` +
-          `accessKey=${accesskey}&` +
-          `secretKey=${secretkey}`;
-
-        const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '' });
-        const signJson = await signResp.json();
-        const info = (signJson && (signJson as any).data) ? (signJson as any).data : signJson;
-        if (!info || !info.Authorization || !info.tonce) {
-          throw new Error('认证响应数据缺少 Authorization 或 tonce');
-        }
-
-        const listUrl = `/api-proxy${path}?${other}`;
-        const res = await fetch(listUrl, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            // 与 VR 实例管理页保持一致：不加 Bearer，仅传 Authorization 与小写 tonce
-            'Authorization': info.Authorization,
-            'tonce': String(info.tonce)
-          }
-        });
-        const remoteJson = await res.json().catch(async () => ({ raw: await res.text() }));
-        rawRemote = remoteJson;
-        const remoteData: any = (remoteJson && (remoteJson as any).data) ? (remoteJson as any).data : remoteJson;
-        list = Array.isArray((remoteData as any)?.page)
-          ? (remoteData as any).page
-          : Array.isArray((remoteData as any)?.list)
-          ? (remoteData as any).list
-          : Array.isArray((remoteData as any)?.rows)
-          ? (remoteData as any).rows
-          : Array.isArray(remoteData)
-          ? (remoteData as any[])
-          : [];
-
-        // 远端成功时，自动把原始响应写入后端缓存表 vr_list_cache，方便后续页面回退本地读取
-        try {
-          const upsertUrl = `${API_BASE_URL}/api/vr-cache/upsert`;
-          await fetch(upsertUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ page_num: pageNum, page_size: pageSize, data: rawRemote })
-          });
-        } catch (cacheErr) {
-          // 写缓存失败不阻断页面使用；仅输出调试日志
-          console.warn('[VR_CACHE] 远端列表入库失败:', (cacheErr as any)?.message || cacheErr);
-        }
-      } catch (e) {
-        console.error('获取远端 VR 列表失败：', e);
-        // 二次回退：尝试使用 vrApi 服务方法（axios + 代理）
-        try {
-          const remoteResp: any = await vrApi.getVRInstances(pageSize, pageNum);
-          const remoteData: any = remoteResp?.data ?? remoteResp;
-          rawRemote = remoteResp;
-          list = Array.isArray(remoteData?.page)
-            ? remoteData.page
-            : Array.isArray(remoteData?.list)
-            ? remoteData.list
-            : Array.isArray(remoteData?.rows)
-            ? remoteData.rows
-            : Array.isArray(remoteData)
-            ? (remoteData as any[])
-            : [];
-
-          // 写入缓存
-          try {
-            await upsertVrCache(pageNum, pageSize, rawRemote);
-          } catch (cacheErr) {
-            console.warn('[VR_CACHE] 远端列表入库失败:', (cacheErr as any)?.message || cacheErr);
-          }
-        } catch (secondErr) {
-          console.warn('二次远端尝试失败，回退读取本地缓存：', (secondErr as any)?.message || secondErr);
-          // 远端失败时，尝试读取本地缓存以便“打印列表”可见
-          try {
-            const json = await fetchVrCachePageList(pageSize, pageNum);
-            const cacheData: any = (json && (json as any).data) ? (json as any).data : json;
-            const cacheRaw = (cacheData && cacheData.data) ? cacheData.data : cacheData;
-            const parsed = typeof cacheRaw === 'string' ? safeJsonParse(cacheRaw) : cacheRaw;
-            const rows: any[] = Array.isArray(parsed?.page)
-              ? parsed.page
-              : Array.isArray(parsed?.list)
-              ? parsed.list
-              : Array.isArray(parsed?.rows)
-              ? parsed.rows
-              : Array.isArray(parsed)
-              ? (parsed as any[])
-              : [];
-            list = rows;
-          } catch (ee) {
-            message.error('获取 VR 实例列表失败');
-          }
-        }
-
-      }
+      const json = await fetchVrCachePageList(pageSize, pageNum);
+      const cacheData: any = (json && (json as any).data) ? (json as any).data : json;
+      const cacheRaw = (cacheData && cacheData.data) ? cacheData.data : cacheData;
+      const parsed = typeof cacheRaw === 'string' ? safeJsonParse(cacheRaw) : cacheRaw;
+      const list: any[] = Array.isArray(parsed?.page)
+        ? parsed.page
+        : Array.isArray(parsed?.list)
+        ? parsed.list
+        : Array.isArray(parsed?.rows)
+        ? parsed.rows
+        : Array.isArray(parsed)
+        ? (parsed as any[])
+        : [];
+      
       setVrs(list || []);
 
       // 角色映射严格以 uuid 为键，避免 id/vm_id 与 uuid 的混用导致过滤混乱

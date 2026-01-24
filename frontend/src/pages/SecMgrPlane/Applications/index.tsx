@@ -1,8 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Divider, Form, Input, Modal, Select, Space, Table, Tag, message, Dropdown, Typography, Tabs, Alert, Popover, Checkbox, Card } from 'antd';
-import { PlusOutlined, EllipsisOutlined, ReloadOutlined, SafetyCertificateOutlined, GlobalOutlined, DeleteOutlined, FileTextOutlined, SettingOutlined, AppstoreOutlined, SecurityScanOutlined } from '@ant-design/icons';
+import { 
+  PlusOutlined, 
+  EllipsisOutlined, 
+  ReloadOutlined, 
+  SafetyCertificateOutlined, 
+  DeleteOutlined, 
+  FileTextOutlined, 
+  SettingOutlined,
+  AppstoreOutlined,
+  SecurityScanOutlined
+} from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
-import SharedToolbar from '../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { listSecurityDomains } from '../../../services/securityDomainApi';
 import { fetchServices, deleteService, createService, updateService, fetchAllInstances, fetchCloudProviderEcs } from '../../../services/api';
@@ -55,7 +64,6 @@ const SecurityApps: React.FC = () => {
   const [policyOptions, setPolicyOptions] = useState<{ label: string; value: string }[]>([]);
   const [allPolicies, setAllPolicies] = useState<any[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
-  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({});
   const [ecsIpMap, setEcsIpMap] = useState<Record<string, string>>({});
   const [discoveredCount, setDiscoveredCount] = useState(0);
   const columnLabels: Record<string, string> = {
@@ -307,8 +315,8 @@ const SecurityApps: React.FC = () => {
     } },
   ];
   const displayColumns = useMemo(() => {
-    return (columns as any[]).filter((c) => visibleCols[String(c.key)] !== false);
-  }, [columns, visibleCols]);
+    return (columns as any[]);
+  }, [columns]);
 
   const openSecurity = (app: AppItem) => {
     setCurrentApp(app);
@@ -438,9 +446,11 @@ const SecurityApps: React.FC = () => {
   };
 
   const renderList = () => (
-    <>
-      <SharedToolbar
-        left={
+    <PageContainer
+      hideHeader
+      asCard={false}
+      pagePadding={0}
+      toolbarLeft={(
           <Form
             className="filter-tools"
             form={filterForm}
@@ -466,47 +476,35 @@ const SecurityApps: React.FC = () => {
               </Select>
             </Form.Item>
           </Form>
-        }
-        primaryAction={{
-          label: <><PlusOutlined /> 创建应用</>,
-          onClick: () => setCreateOpen(true)
-        }}
-        batchActions={{
-          items: [
-            { key: 'bulkDel', label: '批量删除', disabled: selectedRowKeys.length === 0 },
-          ],
-          onMenuClick: (key: string) => {
-            if (key === 'bulkDel') return removeSelectedApps();
-          },
-          disabled: selectedRowKeys.length === 0
-        }}
-        onRefresh={forceRefresh}
-        columnsConfig={{
-          value: Object.keys(columnLabels).filter(k => visibleCols[k] !== false),
-          options: Object.keys(columnLabels).map(k => ({ label: columnLabels[k], value: k })),
-          onChange: (vals: string[]) => {
-            const newCols: Record<string, boolean> = {};
-            Object.keys(columnLabels).forEach(k => {
-              newCols[k] = vals.includes(k);
-            });
-            setVisibleCols(newCols);
-          }
-        }}
-      />
-
-      <Table
-        columns={displayColumns as any}
-        dataSource={filtered}
-        rowKey={r => r.id}
-        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }}
-        loading={loading}
-        bordered
-        rowSelection={{
+      )}
+      primaryAction={{
+        text: '创建应用',
+        onClick: () => setCreateOpen(true)
+      }}
+      moreMenuItems={[
+        { 
+          key: 'bulkDel', 
+          label: '批量删除', 
+          danger: true, 
+          disabled: selectedRowKeys.length === 0,
+          onClick: removeSelectedApps 
+        },
+      ]}
+      onRefresh={forceRefresh}
+      tableProps={{
+        columns: displayColumns,
+        dataSource: filtered,
+        rowKey: "id",
+        loading,
+        rowSelection: {
           selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys as string[]),
-        }}
-      />
-    </>
+          onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
+        },
+        pagination: { pageSize: 10, showSizeChanger: true },
+        scroll: { x: 'max-content' }
+      }}
+      defaultHiddenColumns={['strategies', 'version', 'owner']}
+    />
   );
 
   return (

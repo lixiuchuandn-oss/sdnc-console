@@ -168,11 +168,376 @@ import { registerHarvesterRoutes } from './clouds.harvester';
 import { registerCsmRoutes } from './clouds.csm';
 import { registerAliyunRoutes } from './clouds.aliyun';
 import { registerHuaweiRoutes } from './clouds.huaweicloud';
+import { standardResourceService } from '../services/StandardResourceService';
+
+// Helper: Extract standardized identity (id, name) from raw cloud resources
+const extractIdentity = (provider: string, type: 'vm' | 'vpc', r: any) => {
+  let id = '';
+  let name = '';
+
+  if (type === 'vm') {
+    if (provider === 'aliyun') {
+      id = r?.InstanceId;
+      name = r?.InstanceName || r?.HostName;
+    } else if (provider === 'huaweicloud') {
+      id = r?.id;
+      name = r?.name;
+    } else if (provider === 'harvester' || provider === 'cloudmap.private' || provider === 'cloudmap.edge') {
+      id = r?.InstanceId || '';
+      // Harvester name logic (split from ID or Extra.Name)
+      if (id.includes('/')) name = id.split('/').pop() || '';
+      else name = r?.Extra?.Name;
+    } else if (provider === 'cloudmap.csm' || provider === 'cloudmap') {
+      id = r?.InstanceId || r?.id || r?.Id || r?.uuid || '';
+      name = r?.InstanceName || r?.HostName || r?.name || r?.Name;
+    }
+  } else if (type === 'vpc') {
+    if (provider === 'aliyun') {
+      id = r?.VpcId;
+      name = r?.VpcName;
+    } else if (provider === 'huaweicloud') {
+      id = r?.id || r?.VpcId;
+      name = r?.name || r?.VpcName;
+    }
+  }
+
+  // Fallbacks if specific logic didn't find them
+  if (!id) id = r?.id || r?.Id || '';
+  if (!name) name = r?.name || r?.Name || '';
+
+  // Final guarantee: name defaults to ID if ID exists
+  if (id && !name) name = id;
+
+  return { id, name };
+};
 
 registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
 registerCsmRoutes(router, checkAdminPermission);
+
+const fetchInstancesForCloud = async (cloud: Cloud, raw: boolean = false) => {
+  const providerRaw = String((cloud as any)?.config?.provider || '');
+  const provider = providerRaw.toLowerCase();
+  const supported = ['aliyun', 'huaweicloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'];
+
+  if (!supported.includes(provider)) return raw ? { error: 'Unsupported provider' } : [];
+
+  let list: any[] = [];
+  const vpcInfoMap = new Map<string, { name?: string; cidr?: string }>();
+  const vswInfoMap = new Map<string, { name?: string; cidr?: string; vpcId?: string }>();
+
+  if (provider === 'aliyun') {
+    if (!cloud.accessKey || !cloud.secretKey || !cloud.region) return raw ? { error: 'Missing credentials' } : [];
+    const resp: any = await callAliyunEcs({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeInstances', extraParams: { PageNumber: 1, PageSize: 100 } } as any);
+    if (raw) return resp;
+    list = resp?.Instances?.Instance || [];
+    try {
+      const vpcResp: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcs', extraParams: { PageNumber: 1, PageSize: 100 } } as any);
+      const vpcs: any[] = vpcResp?.Vpcs?.Vpc || vpcResp?.VpcSets?.VpcSet || [];
+      for (const v of (Array.isArray(vpcs) ? vpcs : [])) {
+        if (v?.VpcId) vpcInfoMap.set(v.VpcId, { name: v?.VpcName, cidr: v?.CidrBlock });
+      }
+      const vswResp: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVSwitches', extraParams: { PageNumber: 1, PageSize: 100 } } as any);
+      const vsws: any[] = vswResp?.VSwitches?.VSwitch || [];
+      for (const s of (Array.isArray(vsws) ? vsws : [])) {
+        if (s?.VSwitchId) vswInfoMap.set(s.VSwitchId, { name: s?.VSwitchName, cidr: s?.CidrBlock, vpcId: s?.VpcId });
+      }
+    } catch {}
+  } else if (provider === 'huaweicloud') {
+    const projectId = (cloud.config as any)?.projectId;
+    if (!cloud.accessKey || !cloud.secretKey || !projectId) return raw ? { error: 'Missing credentials' } : [];
+    const resp: any = await huaweiListServers({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+    if (raw) return resp;
+    list = resp?.servers || [];
+    try {
+      const vpcResp: any = await huaweiListVpcs({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+      const vpcs: any[] = (vpcResp as any)?.vpcs || (vpcResp as any)?.vpcs?.vpcs || [];
+      for (const v of (Array.isArray(vpcs) ? vpcs : [])) {
+        const vid = v?.id || v?.VpcId;
+        if (vid) vpcInfoMap.set(vid, { name: v?.name || v?.VpcName, cidr: v?.cidr || v?.CidrBlock });
+      }
+    } catch {}
+  } else if (provider === 'harvester') {
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    const version = String((cloud.config as any)?.harvesterVersion || '').trim();
+    const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
+    if (raw) return resp;
+    list = Array.isArray(resp) ? resp : [];
+  } else if (provider === 'cloudmap.csm') {
+    const endpointRaw = String(cloud.endpoint || '').trim();
+    const ak = String(cloud.accessKey || '').trim();
+    const sk = String(cloud.secretKey || '').trim();
+    if (!ak || !sk) { list = []; } else {
+      const ignoreTls = !!((cloud as any)?.config?.ignoreTls);
+      list = await listCsmVms({ endpoint: endpointRaw, accessKey: ak, secretKey: sk, ignoreTls });
+    }
+    if (raw) return list;
+  } else if (provider === 'cloudmap.private' || provider === 'cloudmap.edge') {
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    let version = String((cloud.config as any)?.harvesterVersion || '').trim();
+    if (!version) version = '1.6';
+    const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
+    if (raw) return resp;
+    list = Array.isArray(resp) ? resp : [];
+  }
+
+  const items: any[] = [];
+  for (const r of (Array.isArray(list) ? list : [])) {
+    const norm = await (async () => {
+      if (provider === 'aliyun') {
+        const ips: any[] = r?.VpcAttributes?.PrivateIpAddress?.IpAddress || [];
+        const cpu = (r as any)?.Cpu;
+        const memRaw = (r as any)?.Memory;
+        const memoryGb = typeof memRaw === 'number' ? (memRaw > 256 ? Math.round(memRaw / 1024) : memRaw) : undefined;
+        let usageCpuPct: number | undefined;
+        let usageMemPct: number | undefined;
+        try {
+          const now = new Date();
+          const end = now.toISOString().slice(0, 19) + 'Z';
+          const startDt = new Date(now.getTime() - 5 * 60 * 1000);
+          const start = startDt.toISOString().slice(0, 19) + 'Z';
+          const dims = JSON.stringify([{ instanceId: r?.InstanceId }]);
+          const cpuRes: any = await callAliyunCms({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeMetricList', version: '2019-01-01', extraParams: { Namespace: 'acs_ecs_dashboard', MetricName: 'CPUUtilization', Period: '60', Dimensions: dims, StartTime: start, EndTime: end } } as any);
+          const cpuPointsStr: string = cpuRes?.Datapoints || '[]';
+          const cpuPoints: any[] = JSON.parse(cpuPointsStr);
+          const cpuLatest = cpuPoints.length ? cpuPoints[cpuPoints.length - 1] : undefined;
+          const cpuAvg = cpuLatest?.Average ?? cpuLatest?.Value;
+          usageCpuPct = typeof cpuAvg === 'number' ? Math.min(100, Math.max(0, Math.round(cpuAvg))) : undefined;
+          if (typeof memoryGb === 'number' && memoryGb > 0) {
+            const memRes: any = await callAliyunCms({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeMetricList', version: '2019-01-01', extraParams: { Namespace: 'acs_ecs_dashboard', MetricName: 'memory_usedutilization', Period: '60', Dimensions: dims, StartTime: start, EndTime: end } } as any);
+            const memPointsStr: string = memRes?.Datapoints || '[]';
+            const memPoints: any[] = JSON.parse(memPointsStr);
+            const memLatest = memPoints.length ? memPoints[memPoints.length - 1] : undefined;
+            const memAvg = memLatest?.Average ?? memLatest?.Value;
+            usageMemPct = typeof memAvg === 'number' ? Math.min(100, Math.max(0, Math.round(memAvg))) : undefined;
+          }
+        } catch { }
+        const vswId: string | undefined = r?.VpcAttributes?.VSwitchId || r?.VSwitchId;
+        if (vswId && !vswInfoMap.has(vswId)) {
+          try {
+            const one: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVSwitches', extraParams: { VSwitchId: vswId } } as any);
+            const arr: any[] = one?.VSwitches?.VSwitch || [];
+            const item = Array.isArray(arr) ? arr[0] : undefined;
+            if (item?.VSwitchId) vswInfoMap.set(item.VSwitchId, { name: item?.VSwitchName, cidr: item?.CidrBlock, vpcId: item?.VpcId });
+          } catch { }
+        }
+        const vpcIdAli = r?.VpcId || r?.VpcAttributes?.VpcId || (vswId ? vswInfoMap.get(vswId)?.vpcId : undefined);
+        if (vpcIdAli && !vpcInfoMap.has(vpcIdAli)) {
+          try {
+            const one: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcs', extraParams: { VpcId: vpcIdAli } } as any);
+            const arr: any[] = one?.Vpcs?.Vpc || one?.VpcSets?.VpcSet || [];
+            const item = Array.isArray(arr) ? arr[0] : undefined;
+            if (item?.VpcId) vpcInfoMap.set(item.VpcId, { name: item?.VpcName, cidr: item?.CidrBlock });
+          } catch { }
+        }
+        if (vpcIdAli) {
+          const cached = vpcInfoMap.get(vpcIdAli);
+          if (!cached?.name || cached.name === vpcIdAli) {
+            try {
+              const attr: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcAttribute', extraParams: { VpcId: vpcIdAli } } as any);
+              const name2 = attr?.VpcName || attr?.Vpc?.VpcName;
+              const cidr2 = attr?.CidrBlock || attr?.Vpc?.CidrBlock;
+              vpcInfoMap.set(vpcIdAli, { name: name2 || cached?.name, cidr: cidr2 || cached?.cidr });
+            } catch { }
+          }
+        }
+        const { id, name } = extractIdentity(provider, 'vm', r);
+        return {
+          id,
+          name,
+          provider,
+          cloudId: cloud.id,
+          region: cloud.region,
+          status: r?.Status,
+          vpcId: vpcIdAli,
+          zoneId: r?.ZoneId,
+          instanceType: r?.InstanceType,
+          privateIps: Array.isArray(ips) ? ips : [],
+          createdAt: r?.CreationTime,
+          extra: {
+            vpcId: vpcIdAli,
+            vpcName: (vpcIdAli && vpcInfoMap.get(vpcIdAli)?.name) || vpcIdAli || undefined,
+            vpcCidr: (vpcIdAli && vpcInfoMap.get(vpcIdAli)?.cidr) || r?.VpcAttributes?.CidrBlock || undefined,
+            subnetId: vswId,
+            subnetName: ((r?.VpcAttributes?.VSwitchId || r?.VSwitchId) && vswInfoMap.get(r?.VpcAttributes?.VSwitchId || r?.VSwitchId)?.name) || undefined,
+            subnetCidr: ((r?.VpcAttributes?.VSwitchId || r?.VSwitchId) && vswInfoMap.get(r?.VpcAttributes?.VSwitchId || r?.VSwitchId)?.cidr) || undefined,
+          },
+          cpu: typeof cpu === 'number' ? cpu : undefined,
+          memoryGb,
+          usageCpuPct,
+          usageMemPct,
+          caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true }
+        };
+      } else if (provider === 'cloudmap.csm' || provider === 'cloudmap') {
+        const { id, name } = extractIdentity(provider, 'vm', r);
+        const pri = Array.isArray((r as any)?.IPs) ? (r as any)?.IPs : (Array.isArray((r as any)?.Extra?.IPs) ? (r as any)?.Extra?.IPs : []);
+        const cpuRaw = (r as any)?.CPU ?? (r as any)?.Extra?.CPU ?? (r as any)?.Spec?.CPU;
+        const cpu = typeof cpuRaw === 'number' ? cpuRaw : undefined;
+        const memRaw = (r as any)?.Memory ?? (r as any)?.Extra?.Memory;
+        const memMatch = typeof memRaw === 'string' ? String(memRaw).match(/([0-9]+\.?[0-9]*)/i) : null;
+        const memoryGb = memMatch ? Math.round(parseFloat(memMatch[1])) : (typeof memRaw === 'number' ? memRaw : undefined);
+        const cpuUsagePct = (r as any)?.CpuUsagePct ?? (r as any)?.Extra?.CpuUsagePct;
+        const memUsageStr: string | undefined = (r as any)?.MemUsage ?? (r as any)?.Extra?.MemUsage;
+        const memUsageMiMatch = typeof memUsageStr === 'string' ? memUsageStr.match(/([0-9]+\.?[0-9]*)\s*Mi/i) : null;
+        const memUsageMi = memUsageMiMatch ? parseFloat(memUsageMiMatch[1]) : undefined;
+        const usageMemPct = (typeof memoryGb === 'number' && memoryGb > 0 && typeof memUsageMi === 'number')
+          ? Math.min(100, Math.max(0, Math.round((memUsageMi / (memoryGb * 1024)) * 100)))
+          : undefined;
+        return {
+          id,
+          name,
+          provider,
+          cloudId: cloud.id,
+          region: cloud.region,
+          status: r?.Status || (r as any)?.status || (r as any)?.PowerStatus,
+          vpcId: undefined,
+          zoneId: undefined,
+          instanceType: undefined,
+          privateIps: Array.isArray(pri) ? pri : [],
+          createdAt: (r?.CreationTime || (r as any)?.CreatedAt || (r as any)?.createTime || ((r?.Extra as any)?.CreationTime)) || undefined,
+          extra: { namespace: (r as any)?.namespace, networks: (r as any)?.Networks || (r?.Extra as any)?.Networks, imageType: (r as any)?.ImageType || (r?.Extra as any)?.ImageType, imageVersion: (r as any)?.ImageVersion || (r?.Extra as any)?.ImageVersion },
+          cpu: typeof cpu === 'number' ? cpu : undefined,
+          memoryGb,
+          usageCpuPct: typeof cpuUsagePct === 'number' ? cpuUsagePct : undefined,
+          usageMemPct: usageMemPct,
+          caps: { 'provider.cloudmap.kvm': true }
+        };
+      } else if (provider === 'huaweicloud') {
+        const ipArr = Array.isArray((r as any)?.addresses) ? (r as any)?.addresses : [];
+        const pri = Array.isArray((r as any)?.privateIps) ? (r as any)?.privateIps : [];
+        const ips = pri.length ? pri : ipArr;
+        const flavor = (r as any)?.flavor || {};
+        const cpu = typeof flavor?.vcpus === 'number' ? flavor.vcpus : undefined;
+        const memRaw = typeof flavor?.ram === 'number' ? flavor.ram : undefined;
+        const memoryGb = typeof memRaw === 'number' ? Math.round(memRaw / 1024) : undefined;
+        const { id, name } = extractIdentity(provider, 'vm', r);
+        return {
+          id,
+          name,
+          provider,
+          cloudId: cloud.id,
+          region: cloud.region,
+          status: r?.status,
+          vpcId: (r as any)?.vpcId,
+          zoneId: (r as any)?.az || (r as any)?.availability_zone,
+          instanceType: (r as any)?.flavor?.id || (r as any)?.flavorId,
+          privateIps: Array.isArray(ips) ? ips : [],
+          createdAt: (r as any)?.created || (r as any)?.create_time,
+          extra: { vpcName: ((r as any)?.vpcId && vpcInfoMap.get((r as any)?.vpcId)?.name) || undefined, vpcCidr: ((r as any)?.vpcId && vpcInfoMap.get((r as any)?.vpcId)?.cidr) || undefined },
+          cpu,
+          memoryGb,
+          caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true }
+        };
+      } else if (provider === 'harvester' || provider === 'cloudmap.private' || provider === 'cloudmap.edge') {
+        const { id, name } = extractIdentity(provider, 'vm', r);
+        const ns = id.includes('/') ? id.split('/')[0] : '';
+        const pri = Array.isArray(r?.Extra?.IPs) ? r?.Extra?.IPs : [];
+        const cpu = typeof (r?.Extra as any)?.CPU === 'number' ? (r?.Extra as any).CPU : undefined;
+        const memStr = (r?.Extra as any)?.Memory as string | undefined;
+        const memMatch = typeof memStr === 'string' ? memStr.match(/([0-9]+\.?[0-9]*)/i) : null;
+        const memoryGb = memMatch ? Math.round(parseFloat(memMatch[1])) : undefined;
+        const cpuUsagePct = typeof (r?.Extra as any)?.CpuUsagePct === 'number' ? (r?.Extra as any)?.CpuUsagePct : undefined;
+        const memUsageStr: string | undefined = (r?.Extra as any)?.MemUsage;
+        const memUsageMiMatch = typeof memUsageStr === 'string' ? memUsageStr.match(/([0-9]+\.?[0-9]*)\s*Mi/i) : null;
+        const memUsageMi = memUsageMiMatch ? parseFloat(memUsageMiMatch[1]) : undefined;
+        const usageMemPct = (typeof memoryGb === 'number' && memoryGb > 0 && typeof memUsageMi === 'number')
+          ? Math.min(100, Math.max(0, Math.round((memUsageMi / (memoryGb * 1024)) * 100)))
+          : undefined;
+        return {
+          id,
+          name,
+          provider,
+          cloudId: cloud.id,
+          region: cloud.region,
+          status: r?.Status || (r as any)?.status,
+          vpcId: r?.VpcId || undefined,
+          zoneId: undefined,
+          instanceType: undefined,
+          privateIps: Array.isArray(pri) ? pri : [],
+          createdAt: (r?.CreationTime || ((r?.Extra as any)?.CreationTime)) || undefined,
+          extra: { namespace: ns, subnetName: (r?.Extra as any)?.SubnetName, networks: (r?.Extra as any)?.Networks },
+          cpu,
+          memoryGb,
+          usageCpuPct: cpuUsagePct,
+          usageMemPct: usageMemPct,
+          caps: { 'compute.instanceType': false, 'compute.zone': false, 'network.vpc': true, 'network.fusion': true, 'provider.harvester.multus': true }
+        };
+      }
+      return null;
+    })();
+    if (norm && norm.id) {
+      items.push(norm);
+    }
+  }
+  return items;
+};
+
+const fetchVpcsForCloud = async (cloud: Cloud, raw: boolean = false) => {
+  const providerRaw = String((cloud as any)?.config?.provider || '');
+  const provider = providerRaw.toLowerCase();
+  const supported = ['aliyun', 'huaweicloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'];
+
+  if (!supported.includes(provider)) return raw ? { error: 'Unsupported provider' } : [];
+
+  let list: any[] = [];
+
+  if (provider === 'aliyun') {
+    if (!cloud.accessKey || !cloud.secretKey || !cloud.region) return raw ? { error: 'Missing credentials' } : [];
+    try {
+      const vpcResp: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcs', extraParams: { PageNumber: 1, PageSize: 100 } } as any);
+      if (raw) return vpcResp;
+      list = vpcResp?.Vpcs?.Vpc || vpcResp?.VpcSets?.VpcSet || [];
+    } catch {}
+  } else if (provider === 'huaweicloud') {
+    const projectId = (cloud.config as any)?.projectId;
+    if (!cloud.accessKey || !cloud.secretKey || !projectId) return raw ? { error: 'Missing credentials' } : [];
+    try {
+      const vpcResp: any = await huaweiListVpcs({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+      if (raw) return vpcResp;
+      list = (vpcResp as any)?.vpcs || (vpcResp as any)?.vpcs?.vpcs || [];
+    } catch {}
+  } else if (provider === 'harvester' || provider === 'cloudmap.private' || provider === 'cloudmap.edge') {
+     // For Harvester/Cloudmap, "VPC" might be mapped to "Namespace" conceptually, or it might not support VPCs.
+     // Currently returning empty or mapping namespaces if desired. 
+     // For now, let's assume no explicit VPCs unless we query namespaces.
+     if (raw) return [];
+  }
+
+  const items: any[] = [];
+  for (const r of (Array.isArray(list) ? list : [])) {
+    const { id, name } = extractIdentity(provider, 'vpc', r);
+    const norm = (() => {
+      if (provider === 'aliyun') {
+        return {
+          id,
+          name,
+          cidr: r?.CidrBlock,
+          provider,
+          cloudId: cloud.id,
+          region: cloud.region,
+          status: r?.Status,
+          extra: { routerId: r?.VRouterId }
+        };
+      } else if (provider === 'huaweicloud') {
+        return {
+          id,
+          name,
+          cidr: r?.cidr || r?.CidrBlock,
+          provider,
+          cloudId: cloud.id,
+          region: cloud.region,
+          status: r?.status,
+        };
+      }
+      return null;
+    })();
+    if (norm && norm.id) {
+       items.push(norm);
+    }
+  }
+  return items;
+};
 
 // 获取云资源列表
 router.get('/', checkAdminPermission, async (req: AuthRequest, res: Response) => {
@@ -243,6 +608,64 @@ router.post('/test-connection', checkAdminPermission, async (req: AuthRequest, r
     res.json({ ok: !!r.ok, message: r.message || (r.ok ? '连接成功' : '连接失败') });
   } catch (error: any) {
     res.status(500).json({ ok: false, message: error?.message || '连接测试失败' });
+  }
+});
+
+// 获取标准化查询指令
+router.get('/:id/query-commands', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { types } = req.query; // e.g. types=vpc,vm or types[]=vpc&types[]=vm
+
+    const typeList = Array.isArray(types) ? types : String(types || '').split(',').filter(Boolean);
+    const result: any = { resourcePoolId: id };
+
+    // 默认查询所有类型
+    const queryAll = typeList.length === 0;
+
+    if (queryAll || typeList.includes('vpc')) {
+      try {
+        result.vpcQuery = await standardResourceService.assembleVpcQuery(id);
+      } catch (e: any) {
+        result.vpcQuery = { error: e.message };
+      }
+    }
+
+    if (queryAll || typeList.includes('vm')) {
+       try {
+        result.vmQuery = await standardResourceService.assembleVmQuery(id);
+      } catch (e: any) {
+        result.vmQuery = { error: e.message };
+      }
+    }
+
+    res.json({ message: 'Success', data: result });
+  } catch (error: any) {
+    res.status(500).json({ message: '获取查询指令失败', error: error.message });
+  }
+});
+
+// 获取指定云资源的 VPC 列表 (标准化接口)
+router.get('/:id/resources/vpcs', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+  try {
+    const cloud = await fetchCloudOr404(req.params.id, res);
+    if (!cloud) return;
+    const vpcs = await fetchVpcsForCloud(cloud);
+    res.json(vpcs);
+  } catch (error: any) {
+    res.status(500).json({ message: '获取VPC列表失败', error: error.message });
+  }
+});
+
+// 获取指定云资源的 ECS 实例列表 (标准化接口)
+router.get('/:id/resources/ecs', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+  try {
+    const cloud = await fetchCloudOr404(req.params.id, res);
+    if (!cloud) return;
+    const instances = await fetchInstancesForCloud(cloud);
+    res.json(instances);
+  } catch (error: any) {
+    res.status(500).json({ message: '获取实例列表失败', error: error.message });
   }
 });
 
@@ -343,278 +766,17 @@ router.get('/resources/ecs-all', checkAdminPermission, async (req: AuthRequest, 
   try {
     const cloudRepository = AppDataSource.getRepository(Cloud);
     const clouds = await cloudRepository.find();
-    const supported = ['aliyun','huaweicloud','harvester','cloudmap.private','cloudmap.edge'];
+    
     const items: any[] = [];
     for (const cloud of clouds) {
-      const providerRaw = String((cloud as any)?.config?.provider || '');
-      const provider = providerRaw.toLowerCase();
-      console.log(`[DEBUG] Processing cloud: ${cloud.name}, provider: ${providerRaw}`);
-      if (!supported.includes(provider) && provider !== 'cloudmap.csm') continue;
-      let list: any[] = [];
-      const vpcInfoMap = new Map<string, { name?: string; cidr?: string }>();
-      const vswInfoMap = new Map<string, { name?: string; cidr?: string; vpcId?: string }>();
-      if (provider === 'aliyun') {
-        if (!cloud.accessKey || !cloud.secretKey || !cloud.region) continue;
-        const resp: any = await callAliyunEcs({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeInstances', extraParams: { PageNumber: 1, PageSize: 100 } } as any);
-        list = resp?.Instances?.Instance || [];
-        try {
-          const vpcResp: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcs', extraParams: { PageNumber: 1, PageSize: 100 } } as any);
-          const vpcs: any[] = vpcResp?.Vpcs?.Vpc || vpcResp?.VpcSets?.VpcSet || [];
-          for (const v of (Array.isArray(vpcs) ? vpcs : [])) {
-            if (v?.VpcId) vpcInfoMap.set(v.VpcId, { name: v?.VpcName, cidr: v?.CidrBlock });
-          }
-          const vswResp: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVSwitches', extraParams: { PageNumber: 1, PageSize: 100 } } as any);
-          const vsws: any[] = vswResp?.VSwitches?.VSwitch || [];
-          for (const s of (Array.isArray(vsws) ? vsws : [])) {
-            if (s?.VSwitchId) vswInfoMap.set(s.VSwitchId, { name: s?.VSwitchName, cidr: s?.CidrBlock, vpcId: s?.VpcId });
-          }
-        } catch {}
-      } else if (provider === 'huaweicloud') {
-        const projectId = (cloud.config as any)?.projectId;
-        if (!cloud.accessKey || !cloud.secretKey || !projectId) continue;
-        const resp: any = await huaweiListServers({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
-        list = resp?.servers || [];
-        try {
-          const vpcResp: any = await huaweiListVpcs({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
-          const vpcs: any[] = (vpcResp as any)?.vpcs || (vpcResp as any)?.vpcs?.vpcs || [];
-          for (const v of (Array.isArray(vpcs) ? vpcs : [])) {
-            const vid = v?.id || v?.VpcId;
-            if (vid) vpcInfoMap.set(vid, { name: v?.name || v?.VpcName, cidr: v?.cidr || v?.CidrBlock });
-          }
-        } catch {}
-      } else if (provider === 'harvester') {
-        const insecure = !!(cloud.config as any)?.ignoreTls;
-        const version = String((cloud.config as any)?.harvesterVersion || '').trim();
-        const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
-        list = Array.isArray(resp) ? resp : [];
-      } else if (provider === 'cloudmap.csm') {
-        const endpointRaw = String(cloud.endpoint || '').trim();
-        const ak = String(cloud.accessKey || '').trim();
-        const sk = String(cloud.secretKey || '').trim();
-        if (!ak || !sk) { list = []; } else {
-          const ignoreTls = !!((cloud as any)?.config?.ignoreTls);
-          console.log(`[DEBUG] Calling listCsmVms for ${cloud.name} (${provider})`);
-          list = await listCsmVms({ endpoint: endpointRaw, accessKey: ak, secretKey: sk, ignoreTls });
-        }
-      } else if (provider === 'cloudmap.private' || provider === 'cloudmap.edge') {
-        const insecure = !!(cloud.config as any)?.ignoreTls;
-        let version = String((cloud.config as any)?.harvesterVersion || '').trim();
-        if (!version) version = '1.6';
-        const resp: any[] = await listHarvesterVMsStandard({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure, version } as any);
-        list = Array.isArray(resp) ? resp : [];
-      }
-      for (const r of (Array.isArray(list) ? list : [])) {
-        const norm = await (async () => {
-          if (provider === 'aliyun') {
-            const ips: any[] = r?.VpcAttributes?.PrivateIpAddress?.IpAddress || [];
-            const cpu = (r as any)?.Cpu;
-            const memRaw = (r as any)?.Memory;
-            const memoryGb = typeof memRaw === 'number' ? (memRaw > 256 ? Math.round(memRaw / 1024) : memRaw) : undefined;
-            let usageCpuPct: number | undefined;
-            let usageMemPct: number | undefined;
-            try {
-              const now = new Date();
-              const end = now.toISOString().slice(0,19) + 'Z';
-              const startDt = new Date(now.getTime() - 5 * 60 * 1000);
-              const start = startDt.toISOString().slice(0,19) + 'Z';
-              const dims = JSON.stringify([{ instanceId: r?.InstanceId }]);
-              const cpuRes: any = await callAliyunCms({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeMetricList', version: '2019-01-01', extraParams: { Namespace: 'acs_ecs_dashboard', MetricName: 'CPUUtilization', Period: '60', Dimensions: dims, StartTime: start, EndTime: end } } as any);
-              const cpuPointsStr: string = cpuRes?.Datapoints || '[]';
-              const cpuPoints: any[] = JSON.parse(cpuPointsStr);
-              const cpuLatest = cpuPoints.length ? cpuPoints[cpuPoints.length - 1] : undefined;
-              const cpuAvg = cpuLatest?.Average ?? cpuLatest?.Value;
-              usageCpuPct = typeof cpuAvg === 'number' ? Math.min(100, Math.max(0, Math.round(cpuAvg))) : undefined;
-              if (typeof memoryGb === 'number' && memoryGb > 0) {
-                // 尝试内存使用率（需要云监控Agent）
-                const memRes: any = await callAliyunCms({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeMetricList', version: '2019-01-01', extraParams: { Namespace: 'acs_ecs_dashboard', MetricName: 'memory_usedutilization', Period: '60', Dimensions: dims, StartTime: start, EndTime: end } } as any);
-                const memPointsStr: string = memRes?.Datapoints || '[]';
-                const memPoints: any[] = JSON.parse(memPointsStr);
-                const memLatest = memPoints.length ? memPoints[memPoints.length - 1] : undefined;
-                const memAvg = memLatest?.Average ?? memLatest?.Value;
-                usageMemPct = typeof memAvg === 'number' ? Math.min(100, Math.max(0, Math.round(memAvg))) : undefined;
-              }
-            } catch {}
-            const vswId: string | undefined = r?.VpcAttributes?.VSwitchId || r?.VSwitchId;
-            if (vswId && !vswInfoMap.has(vswId)) {
-              try {
-                const one: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVSwitches', extraParams: { VSwitchId: vswId } } as any);
-                const arr: any[] = one?.VSwitches?.VSwitch || [];
-                const item = Array.isArray(arr) ? arr[0] : undefined;
-                if (item?.VSwitchId) vswInfoMap.set(item.VSwitchId, { name: item?.VSwitchName, cidr: item?.CidrBlock, vpcId: item?.VpcId });
-              } catch {}
-            }
-            const vpcIdAli = r?.VpcId || r?.VpcAttributes?.VpcId || (vswId ? vswInfoMap.get(vswId)?.vpcId : undefined);
-            if (vpcIdAli && !vpcInfoMap.has(vpcIdAli)) {
-              try {
-                const one: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcs', extraParams: { VpcId: vpcIdAli } } as any);
-                const arr: any[] = one?.Vpcs?.Vpc || one?.VpcSets?.VpcSet || [];
-                const item = Array.isArray(arr) ? arr[0] : undefined;
-                if (item?.VpcId) vpcInfoMap.set(item.VpcId, { name: item?.VpcName, cidr: item?.CidrBlock });
-              } catch {}
-            }
-            if (vpcIdAli) {
-              const cached = vpcInfoMap.get(vpcIdAli);
-              if (!cached?.name || cached.name === vpcIdAli) {
-                try {
-                  const attr: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcAttribute', extraParams: { VpcId: vpcIdAli } } as any);
-                  const name2 = attr?.VpcName || attr?.Vpc?.VpcName;
-                  const cidr2 = attr?.CidrBlock || attr?.Vpc?.CidrBlock;
-                  vpcInfoMap.set(vpcIdAli, { name: name2 || cached?.name, cidr: cidr2 || cached?.cidr });
-                } catch {}
-              }
-            }
-            return {
-              id: r?.InstanceId,
-              name: r?.InstanceName || r?.HostName || r?.InstanceId,
-              provider,
-              cloudId: cloud.id,
-              region: cloud.region,
-              status: r?.Status,
-              vpcId: vpcIdAli,
-              zoneId: r?.ZoneId,
-              instanceType: r?.InstanceType,
-              privateIps: Array.isArray(ips) ? ips : [],
-              createdAt: r?.CreationTime,
-              extra: {
-                vpcId: vpcIdAli,
-                vpcName: (vpcIdAli && vpcInfoMap.get(vpcIdAli)?.name) || vpcIdAli || undefined,
-                vpcCidr: (vpcIdAli && vpcInfoMap.get(vpcIdAli)?.cidr) || r?.VpcAttributes?.CidrBlock || undefined,
-                subnetId: vswId,
-                subnetName: ((r?.VpcAttributes?.VSwitchId || r?.VSwitchId) && vswInfoMap.get(r?.VpcAttributes?.VSwitchId || r?.VSwitchId)?.name) || undefined,
-                subnetCidr: ((r?.VpcAttributes?.VSwitchId || r?.VSwitchId) && vswInfoMap.get(r?.VpcAttributes?.VSwitchId || r?.VSwitchId)?.cidr) || undefined,
-              },
-              cpu: typeof cpu === 'number' ? cpu : undefined,
-              memoryGb,
-              usageCpuPct,
-              usageMemPct,
-              caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true }
-            };
-          } else if (provider === 'cloudmap') {
-            const id: string = r?.InstanceId || r?.id || r?.Id || r?.uuid || '';
-            const name: string = r?.InstanceName || r?.HostName || r?.name || r?.Name || id;
-            const pri = Array.isArray((r as any)?.IPs) ? (r as any)?.IPs : (Array.isArray((r as any)?.Extra?.IPs) ? (r as any)?.Extra?.IPs : []);
-            const cpuRaw = (r as any)?.CPU ?? (r as any)?.Extra?.CPU ?? (r as any)?.Spec?.CPU;
-            const cpu = typeof cpuRaw === 'number' ? cpuRaw : undefined;
-            const memRaw = (r as any)?.Memory ?? (r as any)?.Extra?.Memory;
-            const memMatch = typeof memRaw === 'string' ? String(memRaw).match(/([0-9]+\.?[0-9]*)/i) : null;
-            const memoryGb = memMatch ? Math.round(parseFloat(memMatch[1])) : (typeof memRaw === 'number' ? memRaw : undefined);
-            const cpuUsagePct = (r as any)?.CpuUsagePct ?? (r as any)?.Extra?.CpuUsagePct;
-            const memUsageStr: string | undefined = (r as any)?.MemUsage ?? (r as any)?.Extra?.MemUsage;
-            const memUsageMiMatch = typeof memUsageStr === 'string' ? memUsageStr.match(/([0-9]+\.?[0-9]*)\s*Mi/i) : null;
-            const memUsageMi = memUsageMiMatch ? parseFloat(memUsageMiMatch[1]) : undefined;
-            const usageMemPct = (typeof memoryGb === 'number' && memoryGb > 0 && typeof memUsageMi === 'number')
-              ? Math.min(100, Math.max(0, Math.round((memUsageMi / (memoryGb * 1024)) * 100)))
-              : undefined;
-            return {
-              id,
-              name,
-              provider,
-              cloudId: cloud.id,
-              region: cloud.region,
-              status: r?.Status || (r as any)?.status || (r as any)?.PowerStatus,
-              vpcId: undefined,
-              zoneId: undefined,
-              instanceType: undefined,
-              privateIps: Array.isArray(pri) ? pri : [],
-              createdAt: (r?.CreationTime || (r as any)?.CreatedAt || (r as any)?.createTime || ((r?.Extra as any)?.CreationTime)) || undefined,
-              extra: { namespace: (r as any)?.namespace, networks: (r as any)?.Networks || (r?.Extra as any)?.Networks, imageType: (r as any)?.ImageType || (r?.Extra as any)?.ImageType, imageVersion: (r as any)?.ImageVersion || (r?.Extra as any)?.ImageVersion },
-              cpu: typeof cpu === 'number' ? cpu : undefined,
-              memoryGb,
-              usageCpuPct: typeof cpuUsagePct === 'number' ? cpuUsagePct : undefined,
-              usageMemPct: usageMemPct,
-              caps: { 'provider.cloudmap.kvm': true }
-            };
-          }
-          if (provider === 'huaweicloud') {
-            const ipArr = Array.isArray((r as any)?.addresses) ? (r as any)?.addresses : [];
-            const pri = Array.isArray((r as any)?.privateIps) ? (r as any)?.privateIps : [];
-            const ips = pri.length ? pri : ipArr;
-            const flavor = (r as any)?.flavor || {};
-            const cpu = typeof flavor?.vcpus === 'number' ? flavor.vcpus : undefined;
-            const memRaw = typeof flavor?.ram === 'number' ? flavor.ram : undefined;
-            const memoryGb = typeof memRaw === 'number' ? Math.round(memRaw / 1024) : undefined;
-            return {
-              id: r?.id,
-              name: r?.name || r?.id,
-              provider,
-              cloudId: cloud.id,
-              region: cloud.region,
-              status: r?.status,
-              vpcId: (r as any)?.vpcId,
-              zoneId: (r as any)?.az || (r as any)?.availability_zone,
-              instanceType: (r as any)?.flavor?.id || (r as any)?.flavorId,
-              privateIps: Array.isArray(ips) ? ips : [],
-              createdAt: (r as any)?.created || (r as any)?.create_time,
-              extra: { vpcName: ((r as any)?.vpcId && vpcInfoMap.get((r as any)?.vpcId)?.name) || undefined, vpcCidr: ((r as any)?.vpcId && vpcInfoMap.get((r as any)?.vpcId)?.cidr) || undefined },
-              cpu,
-              memoryGb,
-              caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true }
-            };
-          }
-          if (provider === 'tencentcloud') {
-            const ips: any[] = r?.PrivateIpAddresses || [];
-            const cpu = (r as any)?.CPU;
-            const memRaw = (r as any)?.Memory;
-            const memoryGb = typeof memRaw === 'number' ? memRaw : undefined;
-            return {
-              id: r?.InstanceId,
-              name: r?.InstanceName || r?.InstanceId,
-              provider,
-              cloudId: cloud.id,
-              region: cloud.region,
-              status: r?.InstanceState || r?.State || r?.Status,
-              vpcId: r?.VpcId,
-              zoneId: r?.Zone || (r?.Placement && r?.Placement?.Zone),
-              instanceType: r?.InstanceType,
-              privateIps: Array.isArray(ips) ? ips : [],
-              createdAt: r?.CreatedTime || r?.CreateTime,
-              extra: { vpcName: (r?.VpcId && vpcInfoMap.get(r?.VpcId)?.name) || undefined, vpcCidr: (r?.VpcId && vpcInfoMap.get(r?.VpcId)?.cidr) || undefined },
-              cpu: typeof cpu === 'number' ? cpu : undefined,
-              memoryGb,
-              caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true }
-            };
-          }
-          if (provider === 'harvester' || provider === 'cloudmap') {
-            const id: string = r?.InstanceId || '';
-            const ns = id.includes('/') ? id.split('/')[0] : '';
-            const name = id.includes('/') ? id.split('/').pop() : (r?.Extra?.Name || id);
-            const pri = Array.isArray(r?.Extra?.IPs) ? r?.Extra?.IPs : [];
-            const cpu = typeof (r?.Extra as any)?.CPU === 'number' ? (r?.Extra as any).CPU : undefined;
-            const memStr = (r?.Extra as any)?.Memory as string | undefined;
-            const memMatch = typeof memStr === 'string' ? memStr.match(/([0-9]+\.?[0-9]*)/i) : null;
-            const memoryGb = memMatch ? Math.round(parseFloat(memMatch[1])) : undefined;
-            const cpuUsagePct = typeof (r?.Extra as any)?.CpuUsagePct === 'number' ? (r?.Extra as any)?.CpuUsagePct : undefined;
-            const memUsageStr: string | undefined = (r?.Extra as any)?.MemUsage;
-            const memUsageMiMatch = typeof memUsageStr === 'string' ? memUsageStr.match(/([0-9]+\.?[0-9]*)\s*Mi/i) : null;
-            const memUsageMi = memUsageMiMatch ? parseFloat(memUsageMiMatch[1]) : undefined;
-            const usageMemPct = (typeof memoryGb === 'number' && memoryGb > 0 && typeof memUsageMi === 'number')
-              ? Math.min(100, Math.max(0, Math.round((memUsageMi / (memoryGb * 1024)) * 100)))
-              : undefined;
-            return {
-              id,
-              name,
-              provider,
-              cloudId: cloud.id,
-              region: cloud.region,
-              status: r?.Status || (r as any)?.status,
-              vpcId: r?.VpcId || undefined,
-              zoneId: undefined,
-              instanceType: undefined,
-              privateIps: Array.isArray(pri) ? pri : [],
-              createdAt: (r?.CreationTime || ((r?.Extra as any)?.CreationTime)) || undefined,
-              extra: { namespace: ns, subnetName: (r?.Extra as any)?.SubnetName, networks: (r?.Extra as any)?.Networks },
-              cpu,
-              memoryGb,
-              usageCpuPct: cpuUsagePct,
-              usageMemPct: usageMemPct,
-              caps: { 'compute.instanceType': false, 'compute.zone': false, 'network.vpc': true, 'network.fusion': true, 'provider.harvester.multus': true }
-            };
-          }
-          return null;
-        })();
-        if (norm) items.push(norm);
+      try {
+        const instances = await fetchInstancesForCloud(cloud);
+        items.push(...instances);
+      } catch (e) {
+        console.warn(`Failed to fetch instances for cloud ${cloud.name}:`, e);
       }
     }
+    
     res.json({ message: '查询成功', data: items });
   } catch (error: any) {
     res.status(500).json({ message: '查询全部云主机失败', error: error.message });

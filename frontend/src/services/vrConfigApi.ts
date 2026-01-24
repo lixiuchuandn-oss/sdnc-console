@@ -9,7 +9,8 @@ const getAuthHeaders = () => {
 };
 
 export const getVRConfig = async (uuid: string) => {
-  const res = await fetch(`${API_BASE_URL}/api/vr-config/${uuid}`, {
+  // Use the cached endpoint to ensure we get data from DB
+  const res = await fetch(`${API_BASE_URL}/api/vr-config/${uuid}/cached`, {
     method: 'GET',
     headers: getAuthHeaders(),
     credentials: 'include',
@@ -22,11 +23,19 @@ export const getVRConfig = async (uuid: string) => {
   return json?.data ?? null;
 };
 
-export const saveVRConfig = async (uuid: string, config: any) => {
+export const getVRConfigCached = getVRConfig; // Alias for clarity
+
+export const saveVRConfig = async (uuid: string, config: any, meta?: { cloudId?: string; cloudName?: string; vmId?: string }) => {
+  const body: any = { uuid, config };
+  if (meta) {
+    if (meta.cloudId !== undefined) body.cloudId = meta.cloudId;
+    if (meta.cloudName !== undefined) body.cloudName = meta.cloudName;
+    if (meta.vmId !== undefined) body.vmId = meta.vmId;
+  }
   const res = await fetch(`${API_BASE_URL}/api/vr-config/upsert`, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ uuid, config }),
+    body: JSON.stringify(body),
     credentials: 'include',
   });
   if (!res.ok) {
@@ -62,45 +71,4 @@ export const getVRRoles = async (uuids: string[]) => {
   }
   const json = await res.json();
   return (json?.data?.roles ?? {}) as Record<string, string>;
-};
-
-// ===== 版本管理 =====
-export const listVRConfigVersions = async (uuid: string, role: 'PE' | 'CE' | '标准' | 'SASE') => {
-  const qs = `?uuid=${encodeURIComponent(uuid)}&role=${encodeURIComponent(role)}`;
-  const res = await fetch(`${API_BASE_URL}/api/vr-config/version/list${qs}`, {
-    method: 'GET',
-    headers: getAuthHeaders(),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  const json = await res.json();
-  return (json?.versions ?? []) as Array<{ id: number; uuid: string; role: string; config_json: string; created_at: string }>;
-};
-
-export const saveVRConfigVersion = async (uuid: string, role: 'PE' | 'CE' | '标准' | 'SASE', config: any) => {
-  const res = await fetch(`${API_BASE_URL}/api/vr-config/version/save`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ uuid, role, config_json: JSON.stringify(config) }),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-export const getVRConfigVersion = async (id: number) => {
-  const res = await fetch(`${API_BASE_URL}/api/vr-config/version/get/${id}`, {
-    method: 'GET',
-    headers: getAuthHeaders(),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  const json = await res.json();
-  return json?.version ?? null;
 };

@@ -4,14 +4,15 @@ import { DesktopOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, 
 import { startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchAliyunEcsVncUrl } from '../../../../services/api';
 import { statusTag, collectIpv4FromAddresses } from '../../Hw/components/Common';
 
-type Props = {
+export type EcsInsDetSectionProps = {
   cloudId: string;
   instance: any;
   onRefreshAll?: () => Promise<void> | void;
   eips?: any[];
+  secGroups?: any[];
 };
 
-const EcsInsDetSection: React.FC<Props> = ({ cloudId, instance, onRefreshAll, eips }) => {
+const EcsInsDetSection: React.FC<EcsInsDetSectionProps> = ({ cloudId, instance, onRefreshAll, eips, secGroups }) => {
   const { message } = App.useApp();
   const st = String(instance?.Status || instance?.status || '').trim();
   const isRunning = st === 'Running' || st === 'ONLINE';
@@ -47,16 +48,56 @@ const EcsInsDetSection: React.FC<Props> = ({ cloudId, instance, onRefreshAll, ei
   const eipIps = Array.from(new Set([...(eip ? [eip] : []), ...pubFromEips, ...floating]));
   const priArr = instance?.VpcAttributes?.PrivateIpAddress?.IpAddress;
   const priIps = Array.isArray(priArr) ? priArr : [];
+  
+  // Tag Display: Key: Value
   const tagsAli: any[] = Array.isArray(instance?.Tags?.Tag) ? instance!.Tags.Tag : [];
   const tagsNorm: any[] = Array.isArray(instance?.tags) ? instance!.tags : [];
   const tags: any[] = [...tagsAli, ...tagsNorm];
-  const tagValues = tags.map((t: any) => {
-    const key = t?.TagKey ?? t?.Key ?? t?.key;
-    const val = t?.TagValue ?? t?.Value ?? t?.value;
-    return val ?? key;
-  }).filter(Boolean);
-  const createdAt = instance?.CreationTime || instance?.created || instance?.create_time || '';
-  const updatedAt = instance?.Updated || instance?.updated || instance?.update_time || instance?.StartTime || instance?.start_time || '';
+  const tagDisplay = tags.map((t: any) => {
+    const k = t?.TagKey ?? t?.Key ?? t?.key;
+    const v = t?.TagValue ?? t?.Value ?? t?.value;
+    return v ? `${k}: ${v}` : k;
+  }).filter(Boolean).join('; ');
+
+  // Date Formatting
+  const formatDate = (raw: string) => {
+    if (!raw) return '-';
+    try {
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) return d.toLocaleString('zh-CN', { hour12: false });
+    } catch {}
+    return raw;
+  };
+
+  const createdAt = formatDate(instance?.CreationTime || instance?.created || instance?.create_time);
+  const updatedAt = formatDate(instance?.Updated || instance?.updated || instance?.update_time || instance?.StartTime || instance?.start_time);
+  
+  // Expired Time Logic
+  const expiredTimeRaw = instance?.ExpiredTime || '';
+  let expiredTimeNode: React.ReactNode = '-';
+  if (expiredTimeRaw) {
+    try {
+      const d = new Date(expiredTimeRaw);
+      if (!isNaN(d.getTime())) {
+        const now = new Date();
+        const isExpired = d < now;
+        const diffDays = (d.getTime() - now.getTime()) / (1000 * 3600 * 24);
+        const color = isExpired ? '#ff4d4f' : (diffDays < 7 ? '#faad14' : 'inherit');
+        expiredTimeNode = <span style={{ color }}>{d.toLocaleString('zh-CN', { hour12: false })}</span>;
+      } else {
+        expiredTimeNode = expiredTimeRaw;
+      }
+    } catch {
+      expiredTimeNode = expiredTimeRaw;
+    }
+  }
+
+  // Security Group Names
+  const sgIds = instance?.SecurityGroupIds?.SecurityGroupId || instance?.security_groups || [];
+  const sgDisplay = (Array.isArray(sgIds) ? sgIds : []).map((id: string) => {
+    const found = (secGroups || []).find((g: any) => String(g.SecurityGroupId || g.id) === String(id));
+    return found ? `${found.SecurityGroupName || found.name} (${id})` : id;
+  }).join('; ');
 
   return (
     <div>
@@ -82,14 +123,10 @@ const EcsInsDetSection: React.FC<Props> = ({ cloudId, instance, onRefreshAll, ei
         <Descriptions.Item label="公网IP">{(() => { const pub = Array.from(new Set(pubIps.filter(Boolean))); return pub.length ? pub.join(', ') : '-'; })()}</Descriptions.Item>
         <Descriptions.Item label="弹性公网IP">{(() => { const e = eipIps.filter(Boolean); return e.length ? e.join(', ') : '-'; })()}</Descriptions.Item>
         <Descriptions.Item label="镜像">{(() => { const nm = instance?.ImageId || instance?.Image?.ImageName || instance?.metadata?.image_name || '-'; return (<span>{icon}{nm}</span>); })()}</Descriptions.Item>
-        <Descriptions.Item label="安全组">{(() => {
-          const arr = instance?.SecurityGroupIds?.SecurityGroupId;
-          const sgs = Array.isArray(arr) ? arr : (Array.isArray(instance?.security_groups) ? instance!.security_groups : []);
-          return sgs && sgs.length ? sgs.join('；') : '-';
-        })()}</Descriptions.Item>
-        <Descriptions.Item label="标签" span={2}>{tagValues.length ? tagValues.join('；') : '-'}</Descriptions.Item>
-        <Descriptions.Item label="创建时间">{createdAt || '-'}</Descriptions.Item>
-        <Descriptions.Item label="更新时间">{updatedAt || '-'}</Descriptions.Item>
+        <Descriptions.Item label="安全组">{sgDisplay || '-'}</Descriptions.Item>
+        <Descriptions.Item label="标签">{tagDisplay || '-'}</Descriptions.Item>
+        <Descriptions.Item label="创建时间">{createdAt}</Descriptions.Item>
+        <Descriptions.Item label="到期时间">{expiredTimeNode}</Descriptions.Item>
       </Descriptions>
     </div>
   );

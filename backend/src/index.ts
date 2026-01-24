@@ -1,9 +1,11 @@
 import 'reflect-metadata';
+// Force restart for config reload
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import { AppDataSource } from './config/database';
 import { authRoutes } from './routes/auth';
@@ -18,7 +20,6 @@ import { dashboardRoutes } from './routes/dashboard';
 import { vrCacheRoutes } from './routes/vrCache';
 import { vrConfigRoutes } from './routes/vrConfig';
 import { saseGatewayRoutes } from './routes/saseGateways';
-import { vrConfigVersionRoutes } from './routes/vrConfigVersion';
 import { srv6Routes } from './routes/srv6';
 import { ipsecRoutes } from './routes/ipsec';
 import { aclRoutes } from './routes/acl';
@@ -30,6 +31,11 @@ import serviceRoutes from './routes/services';
 import trafficOrchestrationRoutes from './routes/trafficOrchestration';
 import systemRoutes from './routes/system';
 import threatRoutes from './routes/threats';
+// import standardResourceRoutes from './routes/standardResources';
+import apiProxyRoutes from './routes/apiProxy';
+
+import path from 'path';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -47,10 +53,44 @@ app.use(cors({
 }));
 
 // 中间件
-app.use(helmet());
+app.use(compression());
+// Helmet 内容安全策略配置：允许加载外部资源（如图片、脚本等）
+// 在生产环境中托管前端时，如果使用了外部资源（如高德地图、CDN等），需要放宽 defaultSrc
+app.use(
+  helmet({
+    contentSecurityPolicy: false, 
+    crossOriginEmbedderPolicy: false
+  })
+);
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// 静态文件托管（生产环境）
+if (process.env.NODE_ENV === 'production') {
+  // 智能路径检测：优先查找 backend/public，兼容 dist/src/index.js (运行时) 和 src/index.ts (开发时)
+  // 1. 默认尝试 ../public (相对于当前文件)
+  let staticPath = path.join(__dirname, '../public');
+  // 2. 如果当前在 dist/src 下，且 ../public (dist/public) 不存在，则尝试 ../../public (backend/public)
+  const rootPublicPath = path.join(__dirname, '../../public');
+  
+  if (!fs.existsSync(staticPath) && fs.existsSync(rootPublicPath)) {
+    staticPath = rootPublicPath;
+    console.log('Using root public directory for static files:', staticPath);
+  } else {
+    console.log('Using relative public directory for static files:', staticPath);
+  }
+
+  app.use(express.static(staticPath, {
+    maxAge: '1y',
+    etag: true,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    }
+  }));
+}
 
 // 数据库连接并在成功后启动服务（避免在数据源未初始化时处理请求导致 500）
 AppDataSource.initialize()
@@ -58,6 +98,25 @@ AppDataSource.initialize()
     console.log('数据库连接成功');
     // 初始化管理员账户
     await initializeAdmin();
+
+    // 启动云资源同步任务
+    try {
+      const { CloudSyncService } = await import('./services/CloudSyncService');
+      CloudSyncService.getInstance().startSyncJob();
+    } catch (e) {
+      console.warn('启动云资源同步任务失败:', e);
+    }
+
+    // 启动 VR 列表同步任务
+    try {
+      const { VrCacheService } = await import('./services/VrCacheService');
+      // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
+      setTimeout(() => {
+        VrCacheService.getInstance().startSyncJob();
+      }, 10000);
+    } catch (e) {
+      console.warn('启动 VR 列表同步任务失败:', e);
+    }
 
     // 挂载 WebSocket SSH 服务
     try {
@@ -101,6 +160,9 @@ AppDataSource.initialize()
   });
 
 // 路由
+// CSMCTL Proxy Route (Before other routes)
+app.use('/api-proxy', apiProxyRoutes);
+
 app.use('/api/auth', authRoutes);
 app.use('/auth', authRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
@@ -113,7 +175,6 @@ app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 app.use('/api/vr-cache', vrCacheRoutes);
 app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
 // app.use('/api/vr-config', vrConfigRoutes); // Temporary debug: disable auth
-app.use('/api/vr-config/version', authMiddleware, vrConfigVersionRoutes);
 app.use('/api/sase/auth', saseAuthRoutes);
 app.use('/api/sase/gateways', authMiddleware, saseGatewayRoutes);
 app.use('/api/networks/srv6', authMiddleware, srv6Routes);
@@ -126,6 +187,7 @@ app.use('/api/security/traffic', authMiddleware, trafficOrchestrationRoutes);
 app.use('/api/leased-lines', authMiddleware, leasedLineRoutes);
 app.use('/api/system', authMiddleware, systemRoutes);
 app.use('/api/threats', threatRoutes);
+// app.use('/api/standard', authMiddleware, standardResourceRoutes);
 
 // 健康检查
 app.get('/health', (req, res) => {
@@ -134,5 +196,12 @@ app.get('/health', (req, res) => {
 
 // 错误处理
 app.use(errorHandler);
+
+// 前端路由回退（SPA 支持）：所有未匹配 API 的请求返回 index.html
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  });
+}
 
 // 注意：server.listen 已在数据源初始化成功后启动

@@ -73,8 +73,6 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
       } catch {}
     })();
     fetchTasks();
-    const timer = setInterval(() => { fetchTasks(); }, 10000);
-    return () => clearInterval(timer);
   }, []);
 
   const openWorkflowConfig = async () => {

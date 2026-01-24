@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, Space, Typography, theme, Button, Dropdown, Tooltip, Switch } from 'antd';
 import { EllipsisOutlined } from '@ant-design/icons';
-import SharedToolbar, { ColumnOption } from './SharedToolbar';
+import SharedToolbarComponent, { ColumnOption } from './SharedToolbar';
 import { AppstoreOutlined } from '@ant-design/icons';
 
 export type PageDetailSectionProps = {
@@ -192,7 +192,7 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
   const hasToolbar = leftContent || rightContent || onRefresh || columnsConfig || primaryAction || batchActions;
   
   const toolbar = hasToolbar ? (
-    <SharedToolbar 
+    <SharedToolbarComponent 
       left={leftContent} 
       right={rightContent} 
       leftGap={toolbarGapLeft} 

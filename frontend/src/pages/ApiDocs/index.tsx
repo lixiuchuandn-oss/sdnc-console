@@ -32,7 +32,11 @@ const ApiDocs: React.FC = () => {
       label: '多云管理',
       icon: <CloudOutlined />,
       children: [
-        { key: 'cloud-resources', label: '云资源', icon: <DesktopOutlined /> },
+        { key: 'cloud-resources', label: '云资源管理', icon: <DesktopOutlined /> },
+        { key: 'csm-pool', label: 'CSM资源池', icon: <DesktopOutlined /> },
+        { key: 'aliyun-resources', label: '阿里云资源', icon: <CloudOutlined /> },
+        { key: 'huawei-resources', label: '华为云资源', icon: <CloudOutlined /> },
+        { key: 'cloudmap-resources', label: 'Cloudmap/边缘云', icon: <CloudOutlined /> },
       ]
     },
     {

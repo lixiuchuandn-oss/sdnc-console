@@ -140,7 +140,7 @@ const ResourceDetailContainer: React.FC<Props> = ({
       destroyOnHidden
       footer={null}
       centered
-      styles={{ content: { height: '90vh' }, body: { paddingTop: 12, paddingBottom: 0, height: 'calc(82vh)', overflowY: 'auto', overflowX: 'hidden' } }}
+      styles={{ content: { height: '90vh' }, body: {height: 'calc(82vh)', overflowY: 'auto', overflowX: 'hidden' } }}
       title={`${titlePrefix ?? '详情'} · ${vmDetail?.name || vmDetail?.InstanceName || vmDetail?.id || vmDetail?.InstanceId || '-'}`}
     >
       {loading ? (

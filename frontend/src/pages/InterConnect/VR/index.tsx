@@ -10,11 +10,12 @@ import { getVRRoles, setVRRole, getVRConfig, saveVRConfig } from '../../../servi
 import { listSecurityDomains, updateSecurityDomain } from '../../../services/securityDomainApi';
 import { upsertVrCache } from '../../../services/vrCacheApi';
 
-import { netClassLabel, netClassColor } from '../../../utils/netClass';
+import { netClassLabel, netClassColor, getDomainClass } from '../../../utils/netClass';
 import '../../common/filters.css';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
 import StdFormModal from '../../../components/StdFormModal';
-import { fetchTenantVRs, fetchTenants, fetchOrganizationsByTenant, bindTenantVR } from '../../../services/api';
+import { fetchTenants, fetchOrganizationsByTenant, bindTenantVR, fetchOrganizationResourcePools, fetchAvailableResourcePools, fetchCloudProviderEcs, fetchCloudVpcs } from '../../../services/api';
+import { commonTableStyles, commonBadgeStyles, commonTagStyles } from '../../../utils/tableStyles';
 
 interface VRRow {
   id?: string;
@@ -158,7 +159,7 @@ const VRPage: React.FC = () => {
 
   // 元数据查看 Modal
   const [metadataModalOpen, setMetadataModalOpen] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<{ csmctl: any, vrctl: any, vr3?: any } | null>(null);
+  const [currentMetadata, setCurrentMetadata] = useState<{ csmctl: any, vrctl: any, vr3?: any, vr2?: any } | null>(null);
   const [metadataLoading, setMetadataLoading] = useState(false);
 
   // 隧道管理 Modal
@@ -187,6 +188,68 @@ const VRPage: React.FC = () => {
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [selectedRoleType, setSelectedRoleType] = useState('标准');
   const [roleVrUuid, setRoleVrUuid] = useState<string | null>(null);
+  
+  const [resourcePoolOptions, setResourcePoolOptions] = useState<any[]>([]);
+  const [vmOptions, setVmOptions] = useState<any[]>([]);
+  const [editLoading, setEditLoading] = useState(false);
+  
+  const [editMode, setEditMode] = useState<string>('manual');
+  const [selectedSyncPool, setSelectedSyncPool] = useState<string | undefined>();
+  const [selectedSyncVpc, setSelectedSyncVpc] = useState<string | undefined>();
+  const [selectedSyncVm, setSelectedSyncVm] = useState<string | undefined>();
+  const [vpcOptions, setVpcOptions] = useState<any[]>([]);
+  const [rawVms, setRawVms] = useState<any[]>([]);
+
+  const loadResourcePools = async (orgId?: string) => {
+    try {
+      let res;
+      if (orgId) {
+        res = await fetchOrganizationResourcePools(orgId);
+      } else {
+        res = await fetchAvailableResourcePools();
+      }
+      const list = Array.isArray(res) ? res : (res?.data || []);
+      setResourcePoolOptions(list.map((p: any) => {
+        const pool = p.cloud || p;
+        return { 
+          label: `${pool.name} (${pool.id})`, 
+          value: pool.id,
+          originalName: pool.name
+        };
+      }));
+    } catch (e) {
+      console.error('Failed to load resource pools', e);
+      setResourcePoolOptions([]);
+    }
+  };
+
+  const loadVms = async (poolId: string) => {
+    try {
+      const res = await fetchCloudProviderEcs(poolId);
+      const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+      setRawVms(list);
+      setVmOptions(list.map((v: any) => ({ label: v.name || v.id, value: v.id })));
+    } catch (e) {
+      console.error('Failed to load VMs', e);
+      setRawVms([]);
+      setVmOptions([]);
+    }
+  };
+
+  const loadVpcs = async (poolId: string) => {
+    try {
+      const res = await fetchCloudVpcs(poolId);
+      // Harvester/KubeOVN returns { data: { items: [] } } or { items: [] }
+      const list = Array.isArray(res?.data?.items) ? res.data.items : (Array.isArray(res?.data) ? res.data : (Array.isArray(res?.items) ? res.items : []));
+      setVpcOptions(list.map((v: any) => ({
+         label: v.spec?.name || v.metadata?.name || v.name || v.id,
+         value: v.metadata?.name || v.name || v.id
+      })));
+    } catch (e) {
+      console.error('Failed to load VPCs', e);
+      setVpcOptions([]);
+    }
+  };
 
   const getActionMenu = (row: VRRow): MenuProps['items'] => ([
     { key: 'detail', label: '查看设备详情' },
@@ -236,58 +299,87 @@ const VRPage: React.FC = () => {
     domEvent.stopPropagation();
     if (key === 'metadata') {
       const id = row.uuid || row.id || row.vm_id;
+      // 优先使用缓存中的 VR3 信息
+      const cachedVr3 = (row as any).vr3_info;
+      
       setCurrentMetadata({
         csmctl: (row as any)._raw_csmctl_info,
         vrctl: (row as any)._raw_vrctl_info,
-        vr3: null // Reset VR3 data
+        vr3: cachedVr3 || null,
+        vr2: null
       });
       setMetadataModalOpen(true);
       
-      // Async fetch VR3 extended info
-      if (id) {
-        setMetadataLoading(true);
-        (async () => {
-          try {
-            const accesskey = 'Cloudmap%23123';
-            const secretkey = 'Cloudmap%23123';
-            const path = '/V2/ctcontrol/VR3/VRConfig/list';
-            const method = 'GET';
-            const other = `uuid=${id}`;
-            
-            const authUrl = `/api-proxy/api/sign?` +
-              `url=${encodeURIComponent(path)}&` +
-              `method=${method}&` +
-              `other=${encodeURIComponent(other)}&` +
-              `accessKey=${accesskey}&` +
-              `secretKey=${secretkey}`;
-              
-            const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '' });
-            const signJson = await signResp.json();
-            const info = (signJson && signJson.data) ? signJson.data : signJson;
-            
-            if (info && info.Authorization && info.tonce) {
-               const queryUrl = `/api-proxy${path}?${other}`;
-               const res = await fetch(queryUrl, {
-                 method: 'GET',
-                 headers: {
-                   'Content-Type': 'application/json',
-                   'Authorization': info.Authorization,
-                   'tonce': String(info.tonce)
-                 }
-               });
-               const json = await res.json();
-               // Unwrap data layer if present
-               const data = (json as any)?.data ?? json;
-               setCurrentMetadata(prev => prev ? { ...prev, vr3: data } : null);
-            }
-          } catch (e) {
-            console.warn('Failed to fetch VR3 metadata:', e);
-            setCurrentMetadata(prev => prev ? { ...prev, vr3: { error: '获取扩展信息失败', details: (e as any).message } } : null);
-          } finally {
-            setMetadataLoading(false);
+      // Async fetch metadata (VR3 and VR2)
+      setMetadataLoading(true);
+      (async () => {
+        try {
+          const promises: Promise<void>[] = [];
+
+          // 1. Fetch VR3 if not cached
+          if (id && !cachedVr3) {
+            promises.push((async () => {
+              try {
+                const accesskey = 'Cloudmap%23123';
+                const secretkey = 'Cloudmap%23123';
+                const path = '/V2/ctcontrol/VR3/VRConfig/list';
+                const method = 'GET';
+                const other = `uuid=${id}`;
+                
+                const authUrl = `/api-proxy/api/sign?` +
+                  `url=${encodeURIComponent(path)}&` +
+                  `method=${method}&` +
+                  `other=${encodeURIComponent(other)}&` +
+                  `accessKey=${accesskey}&` +
+                  `secretKey=${secretkey}`;
+                  
+                const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '' });
+                const signJson = await signResp.json();
+                const info = (signJson && signJson.data) ? signJson.data : signJson;
+                
+                if (info && info.Authorization && info.tonce) {
+                   const queryUrl = `/api-proxy${path}?${other}`;
+                   const res = await fetch(queryUrl, {
+                     method: 'GET',
+                     headers: {
+                       'Content-Type': 'application/json',
+                       'Authorization': info.Authorization,
+                       'tonce': String(info.tonce)
+                     }
+                   });
+                   const json = await res.json();
+                   const data = (json as any)?.data ?? json;
+                   setCurrentMetadata(prev => prev ? { ...prev, vr3: data } : null);
+                }
+              } catch (e) {
+                console.warn('Failed to fetch VR3 metadata:', e);
+                setCurrentMetadata(prev => prev ? { ...prev, vr3: { error: '获取扩展信息失败', details: (e as any).message } } : null);
+              }
+            })());
           }
-        })();
-      }
+
+          // 2. Fetch VR Config from Local DB (Desired State)
+          if (id) {
+             promises.push((async () => {
+               try {
+                 const data = await getVRConfig(id);
+                 if (data) {
+                    setCurrentMetadata(prev => prev ? { ...prev, vr2: data } : null);
+                 } else {
+                    setCurrentMetadata(prev => prev ? { ...prev, vr2: { error: '暂无配置', details: '本地数据库未找到该VR的配置信息' } } : null);
+                 }
+               } catch (e) {
+                 console.warn('Failed to fetch VR config:', e);
+                 setCurrentMetadata(prev => prev ? { ...prev, vr2: { error: '获取配置失败', details: (e as any).message } } : null);
+               }
+             })());
+          }
+
+          await Promise.allSettled(promises);
+        } finally {
+          setMetadataLoading(false);
+        }
+      })();
       return;
     }
     if (key === 'editConfig') {
@@ -327,6 +419,25 @@ const VRPage: React.FC = () => {
         vm_id: row.vm_id || undefined,
       });
       setEditModalOpen(true);
+      // 默认选中 "manual"
+      setEditMode('manual');
+      // 重置同步相关状态
+      setSelectedSyncPool(undefined);
+      setSelectedSyncVpc(undefined);
+      setSelectedSyncVm(undefined);
+      setVpcOptions([]);
+      setVmOptions([]);
+      
+      // 如果已有 pool_id，尝试自动匹配 Sync 模式的初始值（可选，暂时不自动切换）
+      // Async load options
+      (async () => {
+         setEditLoading(true);
+         try {
+             await loadResourcePools(row.org_id);
+         } finally {
+             setEditLoading(false);
+         }
+      })();
     } else if (key === 'bindOrg') {
       setCurrentBindVr(row);
       const tid = row.tenant_id;
@@ -435,459 +546,358 @@ const VRPage: React.FC = () => {
     return 'unknown';
   };
 
+  const handleManualRefresh = async () => {
+    setLoading(true);
+    message.loading({ content: '正在同步 VR 数据...', key: 'vr_sync' });
+    try {
+      const res = await fetch('/api/vr-cache/refresh', { method: 'POST' });
+      if (!res.ok) throw new Error('同步失败');
+      await fetchVRInstances();
+      message.success({ content: '同步完成', key: 'vr_sync' });
+    } catch (e) {
+      message.error({ content: '同步失败，请稍后重试', key: 'vr_sync' });
+      setLoading(false);
+    }
+  };
+
   const fetchVRInstances = async () => {
-    const pageNum = 1;
-    const pageSize = 1000; // 获取1000条数据以支持前端搜索
-    console.log('[VR_DEBUG] 开始获取VR实例数据（远端直连-全量模式），限制:', pageSize);
     setLoading(true);
     try {
-      const accesskey = 'Cloudmap%23123';
-      const secretkey = 'Cloudmap%23123';
-      const path = '/V2/ctcontrol/VR1/pagelist';
-      const method = 'GET';
-      const other = `page_size=${pageSize}&page_num=${pageNum}`;
-
-      const authUrl = `/api-proxy/api/sign?` +
-        `url=${encodeURIComponent(path)}&` +
-        `method=${method}&` +
-        `other=${encodeURIComponent(other)}&` +
-        `accessKey=${accesskey}&` +
-        `secretKey=${secretkey}`;
-
-      console.log('[VR_DEBUG] 认证URL:', authUrl);
-      const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '' });
-      const signJson = await signResp.json();
-      const info = (signJson && signJson.data) ? signJson.data : signJson;
-      if (!info || !info.Authorization || !info.tonce) {
-        throw new Error('[VR_DEBUG_ERROR] 认证响应数据缺少 Authorization 或 tonce');
-      }
-
-      const listUrl = `/api-proxy${path}?${other}`;
-      console.log('[VR_DEBUG] 列表URL:', listUrl);
-      const res = await fetch(listUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': info.Authorization,
-          'tonce': String(info.tonce)
-        }
-      });
-
-      const response = await res.json();
-      if (!res.ok) throw new Error(response?.msg || `HTTP ${res.status}`);
-
-      console.log('[VR_DEBUG] 远端列表响应:', response);
-      const data = response?.data ?? response;
-      const list: VRRow[] = Array.isArray(data?.page)
-        ? data.page
-        : Array.isArray(data?.list)
-        ? data.list
-        : Array.isArray(data?.rows)
-        ? data.rows
-        : Array.isArray(data)
-        ? (data as VRRow[])
-        : [];
-
-      let mergedList: VRRow[] = list;
-      try {
-        const saseRes = await fetchTenantVRs();
-        const items = Array.isArray((saseRes as any)?.items) ? (saseRes as any).items : [];
-        const map: Record<string, any> = {};
-        items.forEach((item: any) => {
-          const id = item.vr_unique_id || item.uuid;
-          if (id) map[String(id)] = item;
-        });
-        mergedList = list.map(vr => {
-          const id = vr.uuid || vr.id || vr.vm_id;
-          if (!id) return vr;
-          const extra = map[String(id)];
-          // if (!extra) return vr; // 即使没有绑定信息，也要返回原始VR
-          return {
-            ...vr,
-            vr_unique_id: extra?.vr_unique_id || extra?.uuid || id,
-            tenant_id: extra?.tenant_id,
-            org_id: extra?.org_id,
-            bind_status: extra?.bind_status || vr.bind_status,
-            role: extra?.role || vr.role,
-            _raw_vrctl_info: extra,
-            _raw_csmctl_info: vr,
-          };
-        });
-      } catch (e) {
-        console.warn('加载 SASE 绑定信息失败', e);
-        // 出错时，也保留原始信息
-        mergedList = list.map(vr => ({ ...vr, _raw_csmctl_info: vr }));
-      }
-
-      // 默认按状态排序：Running > Warning > Stopped > Unknown
-      mergedList.sort((a, b) => {
-        const getWeight = (r: VRRow) => {
-          const k = getStatusKey(r.health_status ?? r.healthStatus ?? r.status);
-          if (k === 'running') return 3;
-          if (k === 'warning') return 2;
-          if (k === 'stopped') return 1;
-          return 0;
-        };
-        return getWeight(b) - getWeight(a); // Descending
-      });
-
+      const { fetchVrCachePageList } = await import('../../../services/vrCacheApi');
+      const cacheRes = await fetchVrCachePageList(1000, 1);
+      const cacheData = cacheRes?.data || cacheRes;
+      const mergedList = Array.isArray(cacheData?.page) ? cacheData.page : Array.isArray(cacheData?.list) ? cacheData.list : [];
+      
+      console.log('[VR_DEBUG] 读取缓存返回', mergedList.length, '条记录');
       setVrs(mergedList);
-      // 更新 rolesMap 以便同步显示
+
+      // 尝试从缓存恢复 rolesMap
       const newRolesMap = { ...rolesMapRef.current };
-      mergedList.forEach(r => {
-        const id = r.uuid || r.id || r.vm_id;
-        if (id && r.role) {
-          newRolesMap[id] = r.role;
-        }
+      mergedList.forEach((r: any) => {
+         const id = r.uuid || r.id || r.vm_id;
+         if (id && r.role) newRolesMap[id] = r.role;
       });
       setRolesMap(newRolesMap);
       rolesMapRef.current = newRolesMap;
 
-      const keysSet = new Set<string>();
-      mergedList.forEach(row => {
-        Object.keys(row || {}).forEach(k => keysSet.add(k));
-      });
-      ['tenant_id', 'org_id'].forEach(k => keysSet.add(k));
-      const cols: ColumnsType<VRRow> = Array.from(keysSet).map((k) => ({ title: LABELS[k] || k, dataIndex: k, key: k }));
-
-      // 移除可能存在的原始状态列，统一用自定义渲染
-      ['status','health_status','healthStatus', '_raw_vrctl_info', '_raw_csmctl_info'].forEach((key)=>{
-        const idx = cols.findIndex((c:any)=> c.dataIndex===key || c.key===key);
-        if(idx>=0) cols.splice(idx,1);
-      });
-
-      // 自定义状态列（Antd Badge），从 health_status/healthStatus/status 读取
       const renderStatus = (raw: any) => {
         const key = getStatusKey(raw);
-        if (key === 'running') return <Badge status="success" text="运行中" />;
-        if (key === 'warning') return <Badge status="warning" text="警告" />;
-        if (key === 'stopped') return <Badge status="error" text="已停止" />;
-        return <Badge status="default" text="未知" />;
+        if (key === 'running') return <Badge status={commonBadgeStyles.statusMap.success.status} text={<span style={commonBadgeStyles.text}>运行中</span>} />;
+        if (key === 'warning') return <Badge status={commonBadgeStyles.statusMap.warning.status} text={<span style={commonBadgeStyles.text}>警告</span>} />;
+        if (key === 'stopped') return <Badge status={commonBadgeStyles.statusMap.error.status} text={<span style={commonBadgeStyles.text}>已停止</span>} />;
+        return <Badge status={commonBadgeStyles.statusMap.default.status} text={<span style={commonBadgeStyles.text}>未知</span>} />;
       };
-      const statusCol = {
-        title: '状态',
-        key: 'health_status',
-        dataIndex: 'health_status',
-        render: (_:any,row:VRRow)=> renderStatus(row.health_status ?? row.healthStatus ?? row.status),
-        sorter: (a: VRRow, b: VRRow) => {
-          const getWeight = (r: VRRow) => {
-            const k = getStatusKey(r.health_status ?? r.healthStatus ?? r.status);
-            if (k === 'running') return 3;
-            if (k === 'warning') return 2;
-            if (k === 'stopped') return 1;
-            return 0;
-          };
-          return getWeight(a) - getWeight(b);
+
+      const safeParse = (val: any) => {
+          if (typeof val === 'string') {
+            try {
+              return JSON.parse(val);
+            } catch (e) {
+              return null;
+            }
+          }
+          return val;
+      };
+
+      const formatRate = (bps: number) => {
+          if (!bps) return '0 bps';
+          if (bps >= 1000 * 1000) return `${(bps / 1000 / 1000).toFixed(2)} Mbps`;
+          if (bps >= 1000) return `${(bps / 1000).toFixed(2)} Kbps`;
+          return `${bps.toFixed(0)} bps`;
+      };
+
+      const newCols: ColumnsType<VRRow> = [
+        { 
+          title: '名称/UUID', 
+          dataIndex: 'name', 
+          key: 'name', 
+          width: 260, 
+          fixed: 'left',
+          render: (_: any, row: VRRow) => (
+            <div style={commonTableStyles.cellContainer}>
+               <div style={commonTableStyles.primaryText}>{row.name || '-'}</div>
+               <div style={commonTableStyles.secondaryText}>
+                  <Typography.Text copyable={{ text: row.uuid || row.id }} style={commonTableStyles.secondaryText}>
+                    {row.uuid || row.id || '-'}
+                  </Typography.Text>
+               </div>
+            </div>
+          )
         },
-        defaultSortOrder: 'descend',
-      } as any;
-
-      // 新增：将ID列改为序号并缩窄宽度；若无ID列则添加序号列 (Removed)
-      // const idIdx = cols.findIndex((c: any) => c.dataIndex === 'id' || c.key === 'id');
-      // const indexBase = (pagination.current - 1) * pagination.pageSize;
-      // const indexCol = {
-      //   title: '序号',
-      //   key: 'id',
-      //   dataIndex: 'id',
-      //   render: (_: any, __: VRRow, index: number) => indexBase + index + 1,
-      // } as any;
-      // if (idIdx >= 0) {
-      //   cols.splice(idIdx, 1, { ...cols[idIdx], ...indexCol });
-      // } else {
-      //   cols.unshift(indexCol);
-      // }
-      // 移除原有的ID列（如果存在）
-      const idIdx = cols.findIndex((c: any) => c.dataIndex === 'id' || c.key === 'id');
-      if (idIdx >= 0) cols.splice(idIdx, 1);
-
-      // 追加角色列（基于本地rolesMap渲染）
-      const roleCol = {
-        title: '角色',
-        key: 'role',
-        dataIndex: 'role',
-        render: (_: any, row: VRRow) => {
-          const id = row.uuid || row.id || row.vm_id;
-          const m = rolesMapRef.current;
-          const role = (id && m[id]) ? m[id] : '未设置';
-          let color = 'default';
-          let style: React.CSSProperties = {};
-
-          if (role === 'PE') color = 'volcano';
-          else if (role === 'CE') color = 'cyan';
-          else if (role === '标准') color = 'blue';
-          else if (role === 'SASE') color = 'geekblue';
-          else {
-            style = { color: 'rgba(0, 0, 0, 0.45)' };
+        { 
+          title: '状态', 
+          key: 'status', 
+          dataIndex: 'status', 
+          width: 100, 
+          render: (_: any, row: VRRow) => renderStatus(row.health_status ?? row.healthStatus ?? row.status) 
+        },
+        { 
+          title: '角色', 
+          key: 'role', 
+          dataIndex: 'role', 
+          width: 100,
+          render: (_: any, row: VRRow) => {
+            const id = row.uuid || row.id || row.vm_id;
+            const m = rolesMapRef.current;
+            const role = (id && m[id]) ? m[id] : '未设置';
+            let color = 'default';
+            if (role === 'PE') color = 'volcano';
+            else if (role === 'CE') color = 'cyan';
+            else if (role === '标准') color = 'blue';
+            else if (role === 'SASE') color = 'geekblue';
+            return <Tag color={color} style={commonTagStyles.base}>{role}</Tag>;
           }
-          return <Tag color={color} style={style}>{role}</Tag>;
-        }
-      } as any;
+        },
+        {
+            title: '归属信息',
+            key: 'affiliation',
+            width: 260,
+            render: (_: any, row: VRRow) => {
+               // 1. 租户与组织
+               const tid = row.tenant_id;
+               const oid = row.org_id;
+               const tName = tid ? (tenantOptionsRef.current.find(t => String(t.value) === String(tid))?.label || tid) : '未绑定租户';
+               const oName = oid ? (orgNameMapRef.current[String(oid)] || oid) : '未绑定组织';
+               
+               // 2. 安全域
+               const id = row.uuid || row.id || row.vm_id;
+               const domain = id ? netClassMapRef.current[String(id)] : undefined;
+               const cls = domain ? getDomainClass(domain) : 'unbound';
+               const label = domain?.name || netClassLabel(cls);
+               
+               // 3. 组合显示
+               // 格式：
+               // Cloudmap / Cloudmap-根组织
+               // [底层密基安全域] (或者 <a>无安全域 绑定</a>)
+               
+               return (
+                 <div style={commonTableStyles.cellContainer}>
+                   <div style={commonTableStyles.primaryText}>
+                     {tid ? `${tName} / ${oName}` : <span style={commonTableStyles.secondaryText}>{tName}</span>}
+                   </div>
+                   <div>
+                      {cls === 'unbound' ? (
+                        <span>
+                          <span style={commonTableStyles.secondaryText}>无安全域 </span>
+                          <a style={{...commonTableStyles.linkText, fontSize: '12px'}} onClick={(e) => {
+                            e.stopPropagation();
+                            // 触发绑定组织/安全域的逻辑，这里暂时复用绑定组织弹窗
+                            const menu = getActionMenu(row) as any[];
+                            const bindItem = menu.find((i: any) => i.key === 'bindOrg');
+                            if (bindItem) {
+                                const action = handleRowActionClick(row);
+                                if (action) {
+                                    action({ key: 'bindOrg', domEvent: e } as any);
+                                }
+                            }
+                          }}>
+                            绑定
+                          </a>
+                        </span>
+                      ) : (
+                        <Tag color={netClassColor(cls)} style={{ ...commonTagStyles.base, margin: 0 }}>{label}</Tag>
+                      )}
+                    </div>
+                 </div>
+               );
+            }
+          },
+        {
+          title: 'WAN IP',
+          key: 'wan_ip',
+          width: 240,
+          render: (_: any, row: VRRow) => {
+             // Only try interfaces
+             const interfaces = safeParse(row.interfaces);
+             if (Array.isArray(interfaces)) {
+                 // Filter physical interfaces (usually starting with GigabitEthernet)
+                 const physical = interfaces.filter((iface: any) => {
+                     const name = String(iface.name || '').toLowerCase();
+                     return name.startsWith('gigabitethernet') || name.startsWith('ge');
+                 });
+                 
+                 // Sort by name
+                 physical.sort((a: any, b: any) => {
+                     const na = String(a.name || '');
+                     const nb = String(b.name || '');
+                     return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' });
+                 });
 
-      // 整合：归属信息（租户/组织/安全域）
-      const affiliationCol = {
-        title: '归属信息',
-        key: 'affiliation',
-        width: 260,
-        render: (_: any, row: VRRow) => {
-          const id = row.uuid || row.vr_unique_id || row.id || row.vm_id;
-          const dom = id ? netClassMapRef.current[String(id)] : undefined;
-          
-          // 1. 租户
-          let tenantName = '-';
-          // 逻辑变更：不再优先取安全域的租户，直接取 VR 自身的租户
-          const tid = row.tenant_id;
-          // Use Ref instead of state closure
-          const opts = tenantOptionsRef.current;
-          const nameFromOptions = tid ? (opts.find(t => String(t.value) === String(tid))?.label) : undefined;
-          if (nameFromOptions) tenantName = String(nameFromOptions);
-          
-          // 2. 组织
-          let orgName = '-';
-          // 逻辑变更：不再优先取安全域的组织，直接取 VR 自身的组织
-          const oid = row.org_id;
-          // Use Ref instead of state closure
-          const map = orgNameMapRef.current;
-          const nameFromMap = oid ? map[String(oid)] : undefined;
-          if (nameFromMap) orgName = String(nameFromMap);
-
-          // 3. 安全域
-          let netClassNode: React.ReactNode = null;
-          
-          // 归属信息显示逻辑说明：
-          // 1. 租户/组织：直接显示 VR 自身的归属（由 VR 分配或登录绑定决定）
-          // 2. 安全域：显示关联的安全域，仅作展示，不反向决定租户/组织
-          if (dom) {
-             netClassNode = <Tag color={netClassColor(dom.type)}>{dom.name}</Tag>;
-          } else {
-             netClassNode = (
-               <Space size={4}>
-                 <span style={{ color: 'rgba(0,0,0,0.45)' }}>无安全域</span>
-                 <a 
-                   onClick={() => {
-                     if (!id) return message.warning('无法识别VR ID');
-                     const vrName = row.name || id;
-                     navigate(`/admin/sec-mgr-plane/security-domain/new?vrUuid=${encodeURIComponent(id)}&vrName=${encodeURIComponent(vrName)}`);
-                   }}
-                 >
-                   绑定
-                 </a>
-               </Space>
-             );
+                 // First one is WAN
+                 if (physical.length > 0) {
+                     const wan = physical[0];
+                     const name = wan.name || '-';
+                     // Try ipv4_static first, then fallback to other common fields
+                     const v4 = wan.ipv4_static || wan.ip_address || wan.ipAddress || wan.ip || '-';
+                     const v6 = wan.ipv6_static || '-';
+                     
+                     return (
+                         <div style={commonTableStyles.cellContainer}>
+                             <div style={commonTableStyles.linkText}>{name}</div>
+                             <div style={commonTableStyles.secondaryText}>
+                                ipv4_static: {v4}
+                             </div>
+                             <div style={commonTableStyles.secondaryText}>
+                                ipv6_static: {v6}
+                             </div>
+                         </div>
+                     );
+                 }
+             }
+             return '-';
           }
-          
-          return (
-            <div style={{ fontSize: '12px' }}>
-               <div style={{ marginBottom: 2 }}>
-                 {/* 显示格式：租户名称 / 组织名称 */}
-                 <Tooltip title={`租户: ${tenantName} / 组织: ${orgName}`}>
-                    <span>{tenantName} / {orgName}</span>
-                 </Tooltip>
-               </div>
-               <div>
-                 {netClassNode}
-               </div>
-            </div>
-          );
+        },
+        {
+          title: 'CPU',
+          key: 'cpu',
+          render: (_: any, row: any) => {
+             // New logic from resourceIndicators
+             const resourceIndicators = safeParse(row.resourceIndicators);
+             if (resourceIndicators) {
+                 const total = Number(resourceIndicators.cpuTotal || 4);
+                 const percent = Number(resourceIndicators.cpuUsed || 0);
+                 const usage = (total * percent) / 100;
+                 return (
+                   <div style={{ width: '100%' }}>
+                     <div style={{ ...commonTableStyles.cellContainer, flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <span style={commonTableStyles.processingText}>{usage.toFixed(1)} / {total} 核</span>
+                        <span style={commonTableStyles.processingText}>{percent.toFixed(1)}%</span>
+                     </div>
+                     <Progress percent={percent} showInfo={false} size="small" strokeColor={percent > 80 ? '#ff4d4f' : '#1890ff'} />
+                   </div>
+                 );
+             }
+             return '-';
+          }
+        },
+        {
+          title: '内存',
+          key: 'memory',
+          render: (_: any, row: any) => {
+             // New logic from resourceIndicators
+             const resourceIndicators = safeParse(row.resourceIndicators);
+             if (resourceIndicators) {
+                 const totalGB = Number(resourceIndicators.memoryTotal || 0).toFixed(1);
+                 const percent = Number(resourceIndicators.memoryUsed || 0);
+                 const usageGB = (Number(resourceIndicators.memoryTotal || 0) * percent / 100).toFixed(1);
+                 return (
+                   <div style={{ width: '100%' }}>
+                     <div style={{ ...commonTableStyles.cellContainer, flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={commonTableStyles.processingText}>{usageGB} / {totalGB} GB</span>
+                        <span style={commonTableStyles.processingText}>{percent.toFixed(1)}%</span>
+                     </div>
+                     <Progress percent={percent} showInfo={false} size="small" strokeColor={percent > 80 ? '#ff4d4f' : '#1890ff'} />
+                   </div>
+                 );
+             }
+             return '-';
+          }
+        },
+        {
+          title: '接收（总）',
+          key: 'rx_total',
+          render: (_: any, row: any, index: number) => {
+            // Debug log for first row to verify data presence in browser console
+            if (index === 0) {
+               console.log('[VR_DEBUG] Row 0 interfaces raw:', row.interfaces);
+               console.log('[VR_DEBUG] Row 0 parsed:', safeParse(row.interfaces));
+            }
+
+            const interfaces = safeParse(row.interfaces);
+            let rx_pps = 0;
+            let rx_bps = 0;
+            const details: string[] = [];
+
+            if (interfaces && Array.isArray(interfaces)) {
+                interfaces.forEach((iface: any) => {
+                    const name = String(iface.name || '').trim();
+                    if (name.toLowerCase().startsWith('gigabitethernet')) {
+                        const pps = Number(iface.receivePacketsPerSecond || 0);
+                        const bps = Number(iface.receiveRateBps || 0);
+                        rx_pps += pps;
+                        rx_bps += bps;
+                        if (bps > 0 || pps > 0) {
+                             details.push(`${name}: ${formatRate(bps)} / ${pps} pps`);
+                        }
+                    }
+                });
+            }
+
+            const tooltipTitle = details.length > 0 
+                ? <div style={{ fontSize: 12 }}>{details.map((d, i) => <div key={i}>{d}</div>)}</div>
+                : '无流量或无GigabitEthernet接口数据';
+
+            return (
+               <Tooltip title={tooltipTitle}>
+                   <div style={{ cursor: 'pointer' }}>
+                     <div>{rx_pps} pps</div>
+                     <div>{formatRate(rx_bps)}</div>
+                   </div>
+               </Tooltip>
+            );
+          }
+        },
+        {
+          title: '发送（总）',
+          key: 'tx_total',
+          render: (_: any, row: any) => {
+            const interfaces = safeParse(row.interfaces);
+            let tx_pps = 0;
+            let tx_bps = 0;
+            const details: string[] = [];
+
+            if (interfaces && Array.isArray(interfaces)) {
+                interfaces.forEach((iface: any) => {
+                    const name = String(iface.name || '').trim();
+                    if (name.toLowerCase().startsWith('gigabitethernet')) {
+                        const pps = Number(iface.transmitPacketsPerSecond || 0);
+                        const bps = Number(iface.transmitRateBps || 0);
+                        tx_pps += pps;
+                        tx_bps += bps;
+                        if (bps > 0 || pps > 0) {
+                             details.push(`${name}: ${formatRate(bps)} / ${pps} pps`);
+                        }
+                    }
+                });
+            }
+
+            const tooltipTitle = details.length > 0 
+                ? <div style={{ fontSize: 12 }}>{details.map((d, i) => <div key={i}>{d}</div>)}</div>
+                : '无流量或无GigabitEthernet接口数据';
+
+            return (
+               <Tooltip title={tooltipTitle}>
+                   <div style={{ cursor: 'pointer' }}>
+                     <div>{tx_pps} pps</div>
+                     <div>{formatRate(tx_bps)}</div>
+                   </div>
+               </Tooltip>
+            );
+          }
+        },
+        { title: 'MAC', dataIndex: 'mac', key: 'mac', width: 140 },
+        { title: '版本', dataIndex: 'version', key: 'version', width: 100 },
+        { title: '类型', dataIndex: 'type', key: 'type', width: 100 },
+        { title: '资源池', dataIndex: 'pool_name', key: 'pool_name', width: 120 },
+        { title: '资源池ID', dataIndex: 'pool_id', key: 'pool_id', width: 100 },
+        { title: '虚拟机ID', dataIndex: 'vm_id', key: 'vm_id', width: 150 },
+        { title: '租户ID', dataIndex: 'tenant_id', key: 'tenant_id', width: 150 },
+
+        { title: '组织ID', dataIndex: 'org_id', key: 'org_id', width: 150 },
+        {
+          title: '操作',
+          key: 'actions',
+          fixed: 'right',
+          width: 60,
+          render: (_: any, row: VRRow) => (
+            <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
+              <Button type="text" icon={<EllipsisOutlined />} />
+            </Dropdown>
+          )
         }
-      } as any;
-      const bindStatusCol = {
-        title: '绑定状态',
-        key: 'bind_status',
-        dataIndex: 'bind_status',
-        render: (v: string | undefined) => {
-          const value = v || '';
-          if (!value) return <Tag>未知</Tag>;
-          if (value === 'BOUND') return <Tag color="green">已绑定</Tag>;
-          if (value === 'UNBOUND') return <Tag color="default">未绑定</Tag>;
-          return <Tag color="orange">{value}</Tag>;
-        }
-      } as any;
+      ];
 
-      // 提取并移除特定列以便重新排序
-      const extractCol = (key: string) => {
-        const idx = cols.findIndex((c: any) => c.dataIndex === key || c.key === key);
-        if (idx >= 0) return cols.splice(idx, 1)[0];
-        return null;
-      };
-
-      // const indexColObj = extractCol('id'); // 序号列 (Removed)
-      const nameColObj = extractCol('name');
-      const uuidColObj = extractCol('uuid');
-      const poolIdColObj = extractCol('pool_id') || extractCol('poolId');
-      const typeColObj = extractCol('type');
-      const versionColObj = extractCol('version');
-
-      const macColObj = extractCol('mac');
-      const poolNameColObj = extractCol('pool_name');
-      const vmIdColObj = extractCol('vm_id');
-      // 移除可能存在的原始角色列，避免重复
-      extractCol('role');
-      extractCol('vr_type');
-
-      // 假列定义
-      const cpuCol = {
-        title: 'CPU',
-        key: 'cpu',
-        width: 140,
-        render: () => {
-          const total = [2, 4, 8, 16][Math.floor(Math.random() * 4)];
-          const percent = Math.floor(Math.random() * 60) + 10; // 10-70% random
-          const used = (total * percent / 100).toFixed(1);
-          
-          let color = '#1890ff'; // blue
-          if (percent > 80) color = '#ff4d4f'; // red
-          else if (percent > 60) color = '#fa541c'; // volcano
-          
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', fontSize: '12px' }}>
-              <span>{used} / {total} 核</span>
-              <Progress percent={percent} size="small" strokeColor={color} showInfo={false} />
-            </div>
-          );
-        }
-      };
-      const memCol = {
-        title: '内存',
-        key: 'mem',
-        width: 140,
-        render: () => {
-          const total = [4, 8, 16, 32][Math.floor(Math.random() * 4)];
-          const percent = Math.floor(Math.random() * 60) + 20; // 20-80% random
-          const used = (total * percent / 100).toFixed(1);
-
-          let color = '#1890ff'; // blue
-          if (percent > 80) color = '#ff4d4f'; // red
-          else if (percent > 60) color = '#fa541c'; // volcano
-          
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', fontSize: '12px' }}>
-              <span>{used} / {total} GB</span>
-              <Progress percent={percent} size="small" strokeColor={color} showInfo={false} />
-            </div>
-          );
-        }
-      };
-      const upCol = {
-        title: '上行速率',
-        key: 'up',
-        render: () => {
-          const val = (Math.random() * 5).toFixed(1);
-          return <span>{val} Mbps</span>;
-        }
-      };
-      const downCol = {
-        title: '下行速率',
-        key: 'down',
-        render: () => {
-          const val = (Math.random() * 10).toFixed(1);
-          return <span>{val} Mbps</span>;
-        }
-      };
-
-      // 构建新的列顺序：序号 -> 名称 -> 状态 -> UUID -> 角色 -> 归属信息 -> 监控指标 -> MAC -> 版本 -> 类型 -> 资源池ID -> 其他 -> 操作
-      const newCols: any[] = [];
-      // if (indexColObj) newCols.push(indexColObj); (Removed)
-      if (nameColObj) newCols.push(nameColObj);
-      newCols.push(statusCol);
-      if (uuidColObj) newCols.push(uuidColObj);
-      newCols.push(roleCol);
-      newCols.push(affiliationCol);
-      newCols.push(bindStatusCol);
-      
-      // 添加监控指标列
-      newCols.push(cpuCol);
-      newCols.push(memCol);
-      newCols.push(upCol);
-      newCols.push(downCol);
-      
-      // MAC地址放在下行速率右侧
-      if (macColObj) newCols.push(macColObj);
-
-      // 版本及跟随列
-      if (versionColObj) newCols.push(versionColObj);
-      if (typeColObj) newCols.push(typeColObj);
-      if (poolIdColObj) newCols.push(poolIdColObj);
-      if (poolNameColObj) newCols.push(poolNameColObj);
-      if (vmIdColObj) newCols.push(vmIdColObj);
-
-      // 添加剩余列
-      newCols.push(...cols);
-
-      // 追加操作列
-      newCols.push({
-        title: '操作',
-        key: 'actions',
-        fixed: 'right',
-        render: (_: any, row: VRRow) => (
-          <Dropdown menu={{ items: getActionMenu(row), onClick: handleRowActionClick(row) }} trigger={["click"]}>
-            <Button type="text" icon={<EllipsisOutlined />} />
-          </Dropdown>
-        )
-      });
-      
       setColumns(newCols);
-
-      // 拉取角色映射
-      const ids = mergedList.map(r => r.uuid || r.id || r.vm_id).filter(Boolean) as string[];
-      try {
-        const roles = await getVRRoles(ids);
-        setRolesMap(roles || {});
-        rolesMapRef.current = roles || {};
-      } catch (e: any) {
-        console.warn('获取角色映射失败:', e?.message || e);
-        setRolesMap({});
-        rolesMapRef.current = {};
-      }
-
-      // 加载组织名称映射
-      try {
-        const tenantOrgIds: Record<string, Set<string>> = {};
-        mergedList.forEach(vr => {
-          const tid = vr.tenant_id;
-          const oid = vr.org_id;
-          if (!tid || !oid) return;
-          const tKey = String(tid);
-          const oKey = String(oid);
-          if (!tenantOrgIds[tKey]) tenantOrgIds[tKey] = new Set<string>();
-          tenantOrgIds[tKey].add(oKey);
-        });
-
-        const newOrgMap: Record<string, string> = {};
-        const tasks = Object.keys(tenantOrgIds).map(async tid => {
-          if (orgTenantLoadedRef.current[tid]) return;
-          try {
-            const tree = await fetchOrganizationsByTenant(tid);
-            const list = Array.isArray(tree) ? tree : (Array.isArray((tree as any)?.data) ? (tree as any).data : []);
-            const flat: any[] = [];
-            const recur = (nodes: any[]) => {
-              nodes.forEach((n: any) => {
-                if (!n) return;
-                flat.push(n);
-                if (Array.isArray(n.children) && n.children.length) recur(n.children);
-              });
-            };
-            recur(list);
-            flat.forEach((o: any) => {
-              const id = String(o.id || '');
-              if (!id) return;
-              const name = String(o.name || id);
-              newOrgMap[id] = name;
-            });
-            orgTenantLoadedRef.current[tid] = true;
-          } catch (e) {
-            console.warn('获取组织列表失败:', e);
-          }
-        });
-        await Promise.all(tasks);
-        if (Object.keys(newOrgMap).length > 0) {
-          setOrgNameMap(prev => ({ ...prev, ...newOrgMap }));
-        }
-      } catch (e) {
-        console.warn('加载组织名称映射失败:', e);
-      }
-
-      // 前端分页：不强制设置 pagination state，让 Table 自行处理或仅更新 total
-      // setPagination({ current: pageNum, pageSize, total: Number((data as any)?.total || mergedList.length) });
     } catch (error: any) {
       console.error('[VR_DEBUG_ERROR] 远端直连失败:', error);
       message.error(`远端直连失败: ${error.message || '请稍后重试'}`);
@@ -1084,10 +1094,9 @@ const VRPage: React.FC = () => {
     // console.log('========== 处理分页变化（前端分页） ==========');
   };
 
-  // 刷新（远端直连）
+  // 刷新（触发后端同步 + 刷新缓存）
   const forceRefresh = () => {
-    console.log('========== 刷新（远端直连-全量） ==========');
-    fetchVRInstances();
+    handleManualRefresh();
   };
 
   const filteredVRs = useMemo(() => {
@@ -1171,16 +1180,16 @@ const VRPage: React.FC = () => {
   return (
       <PageContainer
         titleLevel={3}
+        defaultHiddenColumns={['mac', 'type', 'pool_name', 'pool_id', 'vm_id', 'tenant_id', 'org_id']}
         primaryAction={{
           text: '新增VR实例',
           onClick: () => setAddModalOpen(true),
           type: 'primary',
         }}
+        onRefresh={() => forceRefresh()}
         moreMenuItems={[
-          { key: 'refresh', label: '刷新列表', onClick: () => forceRefresh() },
           { key: 'csmctl', label: '配置 CSMCTL 地址', onClick: handleSettingsOpen }
         ]}
-        defaultHiddenColumns={['mac', 'version', 'type', 'pool_id', 'pool_name', 'vm_id', 'tenant_id', 'org_id', 'vr_unique_id', 'bind_status', 'cpu', 'mem', 'up', 'down']}
       toolbarLeft={(
         <Form
           className="filter-tools filter-tools--center"
@@ -1283,6 +1292,20 @@ const VRPage: React.FC = () => {
               children: (
                 <Input.TextArea
                   value={currentMetadata?.vrctl ? JSON.stringify(currentMetadata.vrctl, null, 2) : '暂无绑定数据'}
+                  autoSize={{ minRows: 10, maxRows: 20 }}
+                  readOnly
+                  style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
+                />
+              ),
+            },
+            {
+              key: 'vr2',
+              label: 'VRConfig 缓存数据',
+              children: metadataLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px' }}><Spin tip="正在从设备拉取配置信息..." /></div>
+              ) : (
+                <Input.TextArea
+                  value={currentMetadata?.vr2 ? JSON.stringify(currentMetadata.vr2, null, 2) : '暂无缓存数据或获取失败'}
                   autoSize={{ minRows: 10, maxRows: 20 }}
                   readOnly
                   style={{ fontFamily: 'monospace', backgroundColor: '#f5f5f5' }}
@@ -1454,39 +1477,191 @@ const VRPage: React.FC = () => {
         onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
         confirmLoading={loading}
         destroyOnClose
-        width={480}
+        width={720}
       >
-          <Form.Item label="ID">
-            <Input value={currentEditId || ''} disabled placeholder="当前设备ID" />
-          </Form.Item>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="例如：VR1" />
-          </Form.Item>
-          <Form.Item name="uuid" label="UUID" rules={[{ required: true, message: '请输入UUID' }]}>
-            <Input placeholder="例如：54060500FFFB8B0F-5254004a4161" addonAfter={<Button size="small" onClick={() => editForm.setFieldsValue({ uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).slice(2)) })}>生成</Button>} />
-          </Form.Item>
-          <Form.Item name="mac" label="MAC地址" rules={[
-            { required: true, message: '请输入MAC地址' },
-            { pattern: /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}$/,
-              message: '格式示例：00:50:56:C0:00:08 或 00-50-56-C0-00-08' }
-          ]}>
-            <Input placeholder="例如：00-50-56-C0-00-08" />
-          </Form.Item>
-          <Form.Item name="version" label="设备版本号" rules={[{ required: true, message: '请输入设备版本号' }]}> 
-            <Input placeholder="例如：V1.0" />
-          </Form.Item>
-          <Form.Item name="type" label="类型" initialValue="VR">
-            <Select options={[{ value: 'VR', label: 'VR' }]} disabled />
-          </Form.Item>
-          <Form.Item name="pool_id" label="资源池ID">
-            <Input placeholder="例如：f1c3dc08-..." />
-          </Form.Item>
-          <Form.Item name="pool_name" label="资源池名称">
-            <Input placeholder="例如：资源池名称" />
-          </Form.Item>
-          <Form.Item name="vm_id" label="虚机ID">
-            <Input placeholder="例如：e1c3dc08-..." />
-          </Form.Item>
+        <div style={{ overflowX: 'hidden' }}>
+        <Row gutter={24}>
+          <Col span={12}>
+            <Form.Item label="ID">
+              <Input value={currentEditId || ''} disabled placeholder="当前设备ID" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+              <Input placeholder="例如：VR1" />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={24}>
+          <Col span={12}>
+            <Form.Item name="uuid" label="UUID" rules={[{ required: true, message: '请输入UUID' }]}>
+              <Input placeholder="例如：54060500FFFB8B0F-5254004a4161" addonAfter={<Button size="small" onClick={() => editForm.setFieldsValue({ uuid: (window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).slice(2)) })}>生成</Button>} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="mac" label="MAC地址" rules={[
+              { required: true, message: '请输入MAC地址' },
+              { pattern: /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}$/,
+                message: '格式示例：00:50:56:C0:00:08 或 00-50-56-C0-00-08' }
+            ]}>
+              <Input placeholder="例如：00-50-56-C0-00-08" />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={24}>
+          <Col span={12}>
+            <Form.Item name="version" label="设备版本号" rules={[{ required: true, message: '请输入设备版本号' }]}> 
+              <Input placeholder="例如：V1.0" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="type" label="类型" initialValue="VR">
+              <Select options={[{ value: 'VR', label: 'VR' }]} disabled />
+            </Form.Item>
+          </Col>
+        </Row>
+
+          <Divider orientation="left" style={{ margin: '12px 0', fontSize: '14px', fontWeight: 'normal', color: '#666' }}>资源设定</Divider>
+          
+          <Row gutter={24} style={{ marginBottom: 16 }}>
+            <Col span={24}>
+              <Radio.Group 
+                value={editMode} 
+                onChange={(e) => {
+                  setEditMode(e.target.value);
+                  if (e.target.value === 'sync') {
+                    setSelectedSyncPool(undefined);
+                    setSelectedSyncVpc(undefined);
+                    setSelectedSyncVm(undefined);
+                    setVpcOptions([]);
+                    setVmOptions([]);
+                    setRawVms([]);
+                  }
+                }}
+                buttonStyle="solid"
+              >
+                <Radio value="manual">编辑配置</Radio>
+                <Radio value="sync">从现有资源池同步</Radio>
+              </Radio.Group>
+            </Col>
+          </Row>
+          
+          {editMode === 'manual' ? (
+            <>
+              <Row gutter={24}>
+                <Col span={12}>
+                  <Form.Item name="pool_id" label="资源池ID">
+                    <Input placeholder="例如：f1c3dc08-..." />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="pool_name" label="资源池名称">
+                    <Input placeholder="例如：资源池名称" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={24}>
+                <Col span={24}>
+                  <Form.Item name="vm_id" label="虚机ID">
+                    <Input placeholder="例如：e1c3dc08-..." />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          ) : (
+            <>
+              <Row gutter={24}>
+                <Col span={12}>
+                  <Form.Item label="选择资源池" required>
+                    <Select
+                      placeholder="选择资源池"
+                      options={resourcePoolOptions}
+                      loading={editLoading}
+                      value={selectedSyncPool}
+                      onChange={(val, opt: any) => {
+                        setSelectedSyncPool(val);
+                        setSelectedSyncVpc(undefined);
+                        setSelectedSyncVm(undefined);
+                        setVpcOptions([]);
+                        setVmOptions([]);
+                        setRawVms([]);
+                        if (val) {
+                          loadVpcs(val);
+                          loadVms(val);
+                        }
+                      }}
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label="选择 VPC" >
+                    <Select
+                      placeholder="选择 VPC (可选)"
+                      options={vpcOptions}
+                      loading={editLoading}
+                      value={selectedSyncVpc}
+                      onChange={(val) => {
+                        setSelectedSyncVpc(val);
+                        setSelectedSyncVm(undefined);
+                        if (val && rawVms.length > 0) {
+                          // 宽松匹配：匹配 VpcId 或 VpcName
+                          const filtered = rawVms.filter(v => {
+                            const vId = v.VpcId || v.vpcId || v.vpc_id;
+                            const vName = v.VpcName || v.vpcName || v.vpc_name;
+                            return vId === val || vName === val;
+                          });
+                          setVmOptions(filtered.map((v: any) => ({ 
+                            label: v.name && v.id ? `${v.name} (${v.id})` : (v.name || v.id), 
+                            value: v.id 
+                          })));
+                        } else if (!val && rawVms.length > 0) {
+                           setVmOptions(rawVms.map((v: any) => ({ 
+                             label: v.name && v.id ? `${v.name} (${v.id})` : (v.name || v.id), 
+                             value: v.id 
+                           })));
+                        } else {
+                           setVmOptions([]);
+                        }
+                      }}
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={24}>
+                <Col span={24}>
+                  <Form.Item label="选择虚拟机" required>
+                    <Select
+                      placeholder="选择虚拟机"
+                      options={vmOptions}
+                      loading={editLoading}
+                      value={selectedSyncVm}
+                      onChange={(val) => {
+                         setSelectedSyncVm(val);
+                         if (val) {
+                           const poolOpt = resourcePoolOptions.find(p => p.value === selectedSyncPool);
+                           editForm.setFieldsValue({
+                             pool_id: selectedSyncPool,
+                             pool_name: poolOpt?.originalName || poolOpt?.label?.split('(')[0]?.trim(),
+                             vm_id: val
+                           });
+                         }
+                      }}
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          )}
+        </div>
       </StdFormModal>
 
       {/* 绑定组织弹窗 */}

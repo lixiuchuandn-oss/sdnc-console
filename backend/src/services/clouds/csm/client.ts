@@ -77,7 +77,7 @@ export async function csmRequest(
   }
 
   const signStr = `${method}|${path}|${tonce}|${ak}|${queryStr}|${md5Body}`;
-  console.log(`[CSM Debug] Sign String: ${signStr}`);
+  // console.log(`[CSM Debug] Sign String: ${signStr}`);
 
   const signHex = crypto.createHmac('sha256', sk).update(signStr).digest('hex');
   const sigHeader = Buffer.from(`${ak}:${signHex}`).toString('base64');
@@ -87,7 +87,7 @@ export async function csmRequest(
   const reqUrl = `${base}${path}${queryStr ? '?' + queryStr : ''}`;
 
   const displayAuth = options?.basicAuth ? basicHeader : sigHeader;
-  console.log(`[CSM] Request: ${method} ${reqUrl} (Auth: ${displayAuth.substring(0, 20)}...)`);
+  // console.log(`[CSM] Request: ${method} ${reqUrl} (Auth: ${displayAuth.substring(0, 20)}...)`);
 
   try {
     const headers: any = {
@@ -175,7 +175,7 @@ export const listCsmVms = async (config: CsmConfig, queryParams: any = {}) => {
   
   try {
     const raw = await csmRequest(config, path, query);
-    console.log('[CSM Debug] Vms Raw:', JSON.stringify(raw).slice(0, 500));
+    // console.log('[CSM Debug] Vms Raw:', JSON.stringify(raw).slice(0, 500));
     
     // Direct array
     if (Array.isArray(raw)) return raw;

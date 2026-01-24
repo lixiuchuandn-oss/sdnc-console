@@ -9,8 +9,8 @@ function logError(message: string) {
   console.error(`[VR_DEBUG_ERROR] ${message}`);
 }
 
-// 基础URL配置 - 开发环境使用代理路径，生产环境使用直接URL
-const API_BASE_URL = process.env.NODE_ENV === 'development' ? '' : 'https://10.20.255.93:8016';
+// 基础URL配置 - 统一使用后端代理路径，确保云端/本地环境均可访问内网 CSM
+const API_BASE_URL = '/api-proxy';
 const API_PROXY_PATH = '/api-proxy';
 
 // 认证信息接口

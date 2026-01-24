@@ -31,6 +31,12 @@ export class VRConfig {
   deviceFingerprint?: string;
 
   @Column({ type: 'varchar', length: 128, nullable: true })
+  cloudId?: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  cloudName?: string;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
   vmId?: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })

@@ -71,6 +71,15 @@ export class Cloud {
   @Column({ type: 'int', default: 0 })
   usedStorage: number = 0;
 
+  @Column({ type: 'int', default: 0 })
+  vmCount: number = 0;
+
+  @Column({ type: 'int', default: 0 })
+  runningVmCount: number = 0;
+
+  @Column({ nullable: true })
+  lastSyncAt?: Date;
+
   @Column({ nullable: true })
   createdBy?: string;
 

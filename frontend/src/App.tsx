@@ -119,6 +119,7 @@ const AppRoutes: React.FC = () => {
           <Route path="interconnect/srv6/create" element={<SRv6CreatePage />} />
           <Route path="interconnect/ipsec" element={<IPsecVPNPage />} />
           <Route path="interconnect/ipsec/create" element={<IPsecVPNWizard />} />
+          <Route path="interconnect/ipsec/:id/edit" element={<IPsecVPNWizard />} />
           <Route path="interconnect/vr" element={<VRPage />} />
           <Route path="interconnect/vr/add" element={<AddVRInstance />} />
           <Route path="interconnect/vr/:uuid/config" element={<EditVRConfig />} />

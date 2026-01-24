@@ -71,10 +71,25 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
   router.get('/:id/resources/ecs', checkAdminPermission, async (req: any, res: Response, next: any) => {
     try {
       const { id } = req.params;
+      const { PageNumber, PageSize } = req.query || {};
       const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
       if (!isAliyun(cloud)) return next();
       if (!cloud.accessKey || !cloud.secretKey || !cloud.region) return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
       
+      // Native Mode (If pagination params are provided)
+      if (PageNumber || PageSize) {
+        const data = await callAliyunEcs({ 
+          accessKeyId: cloud.accessKey, 
+          accessKeySecret: cloud.secretKey, 
+          regionId: cloud.region, 
+          action: 'DescribeInstances', 
+          extraParams: { PageNumber: PageNumber || 1, PageSize: PageSize || 50 } 
+        } as any);
+        const capabilities = { isHarvester: false, supportsInstanceType: true, supportsZone: true, supportsVpc: true };
+        return res.json({ message: '查询成功', data, capabilities });
+      }
+
+      // Encapsulated Mode (Aggregation)
       const pageSize = 50;
       let page = 1;
       let allInstances: any[] = [];
@@ -187,11 +202,36 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
 
   router.get('/:id/resources/vpcs', checkAdminPermission, async (req: any, res: Response, next: any) => {
     try {
-      const { id } = req.params; const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
+      const { id } = req.params;
+      const { PageNumber, PageSize } = req.query || {};
+      const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
       if (!isAliyun(cloud)) return next();
       if (!cloud.accessKey || !cloud.secretKey) return res.status(400).json({ message: '缺少阿里云访问密钥' });
-      const data = await callAliyunEcs({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcs' } as any);
-      res.json({ message: '查询成功', data });
+      
+      // Native Mode
+      if (PageNumber || PageSize) {
+        const data = await callAliyunEcs({ 
+          accessKeyId: cloud.accessKey, 
+          accessKeySecret: cloud.secretKey, 
+          regionId: cloud.region, 
+          action: 'DescribeVpcs',
+          extraParams: { PageNumber: PageNumber || 1, PageSize: PageSize || 50 }
+        } as any);
+        return res.json({ message: '查询成功', data });
+      }
+
+      // Encapsulated Mode (Aggregation)
+      const pageSize = 50;
+      let page = 1;
+      let all: any[] = [];
+      while (true) {
+        const resp = await callAliyunEcs({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVpcs', extraParams: { PageNumber: page, PageSize: pageSize } } as any);
+        const chunk = resp?.Vpcs?.Vpc || [];
+        all = all.concat(Array.isArray(chunk) ? chunk : []);
+        if (!Array.isArray(chunk) || chunk.length < pageSize) break;
+        page += 1; if (page > 50) break;
+      }
+      res.json({ message: '查询成功', data: { TotalCount: all.length, Vpcs: { Vpc: all } } });
     } catch (error: any) {
       if (res.headersSent) return;
       return res.status(500).json({ message: '查询VPC失败', error: error.message });
@@ -253,9 +293,28 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
 
   router.get('/:id/resources/vswitches', checkAdminPermission, async (req: any, res: Response, next: any) => {
     try {
-      const { id } = req.params; const { vpcId } = (req.query || {}) as any; const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
+      const { id } = req.params; const { vpcId, PageNumber, PageSize } = (req.query || {}) as any; const cloud = await fetchCloudOr404(id, res); if (!cloud) return;
       if (!isAliyun(cloud)) return next();
       if (!cloud.accessKey || !cloud.secretKey) return res.status(400).json({ message: '缺少阿里云访问密钥' });
+      
+      // Native Mode
+      if (PageNumber || PageSize) {
+        const data = await callAliyunVpc({ 
+          accessKeyId: cloud.accessKey, 
+          accessKeySecret: cloud.secretKey, 
+          regionId: cloud.region, 
+          action: 'DescribeVSwitches',
+          extraParams: { 
+            PageNumber: PageNumber || 1, 
+            PageSize: PageSize || 50,
+            ...(vpcId ? { VpcId: vpcId } : {})
+          }
+        } as any);
+        const capabilities = { isHarvester: false, supportsVpc: true, supportsNetworkFusion: false, supportsMultus: false };
+        return res.json({ message: '查询成功', data, capabilities });
+      }
+
+      // Encapsulated Mode (Aggregation)
       const pageSize = 50; let page = 1; let all: any[] = [];
       while (true) {
         const resp = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeVSwitches', extraParams: { PageNumber: page, PageSize: pageSize, ...(vpcId ? { VpcId: vpcId } : {}) } } as any);
@@ -321,9 +380,15 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
 
   // Security Groups
   router.get('/:id/resources/security-groups', checkAdminPermission, async (req: any, res: Response, next: any) => {
-    try { const { id } = req.params; const cloud = await fetchCloudOr404(id, res); if (!cloud) return; if (!isAliyun(cloud)) return next();
+    try { const { id } = req.params; const { PageNumber, PageSize } = req.query || {}; const cloud = await fetchCloudOr404(id, res); if (!cloud) return; if (!isAliyun(cloud)) return next();
       if (!cloud.accessKey || !cloud.secretKey) return res.status(400).json({ message: '本期仅支持阿里云资源查询' });
-      const data = await callAliyunEcs({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeSecurityGroups', extraParams: { PageNumber: 1, PageSize: 50 } } as any);
+      
+      const extraParams: any = {};
+      if (PageNumber) extraParams.PageNumber = PageNumber;
+      if (PageSize) extraParams.PageSize = PageSize;
+      if (!PageNumber && !PageSize) { extraParams.PageNumber = 1; extraParams.PageSize = 50; } // Default behavior
+
+      const data = await callAliyunEcs({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region, action: 'DescribeSecurityGroups', extraParams } as any);
       const capabilities = { isHarvester: false, supportsEip: true };
       res.json({ message: '查询成功', data, capabilities });
     } catch (error: any) { if (res.headersSent) return; return res.status(500).json({ message: '查询SecurityGroups失败', error: error.message }); }

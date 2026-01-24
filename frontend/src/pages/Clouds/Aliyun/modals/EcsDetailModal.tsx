@@ -203,7 +203,16 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
       onCloseModal={onClose}
       visibleTabs={visibleTabs}
       titlePrefix={prefixText}
-      overviewNode={instance ? (<EcsInsDetSection cloudId={cloudId} instance={instance} eips={eips} onRefreshAll={async ()=> { await Promise.all([loadInstance(), loadEnis(), loadEips(), loadSecGroups(), loadDisks(), loadSnapshots()]); }} />) : null}
+      overviewNode={instance ? (
+        // EcsInsDetSection updated to accept secGroups
+        <EcsInsDetSection 
+          cloudId={cloudId} 
+          instance={instance} 
+          eips={eips} 
+          secGroups={secGroups} 
+          onRefreshAll={async ()=> { await Promise.all([loadInstance(), loadEnis(), loadEips(), loadSecGroups(), loadDisks(), loadSnapshots()]); }} 
+        />
+      ) : null}
       tabsItems={(() => {
         const iid = String(instance?.InstanceId || instance?.id || '');
         const ports:string[] = Array.isArray((instance as any)?.network_interfaces)? (instance as any)!.network_interfaces.map((ni:any)=> ni?.port_id).filter(Boolean) : [];

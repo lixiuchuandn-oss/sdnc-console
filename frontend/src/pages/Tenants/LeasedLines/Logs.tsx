@@ -24,8 +24,8 @@ const LogsPage: React.FC = () => {
 
   useEffect(() => {
     fetchLogs();
-    const timer = setInterval(fetchLogs, 5000);
-    return () => { if (timer) clearInterval(timer); };
+    // const timer = setInterval(fetchLogs, 5000);
+    // return () => { if (timer) clearInterval(timer); };
   }, []);
 
   return (

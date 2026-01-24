@@ -149,16 +149,13 @@ const SRv6Page: React.FC = () => {
   const fetchVRsAndRoles = async (pageSize: number = 100, pageNum: number = 1) => {
     setLoading(true);
     try {
-      const resp: any = await vrApi.getVRInstances(pageSize, pageNum);
-      const data: any = resp?.data ?? resp;
+      const { fetchVrCachePageList } = await import('../../../services/vrCacheApi');
+      const resp = await fetchVrCachePageList(1000, 1);
+      const data = resp?.data || resp;
       const list: any[] = Array.isArray(data?.page)
         ? data.page
         : Array.isArray(data?.list)
         ? data.list
-        : Array.isArray(data?.rows)
-        ? data.rows
-        : Array.isArray(data)
-        ? (data as any[])
         : [];
       setVrs(list);
   

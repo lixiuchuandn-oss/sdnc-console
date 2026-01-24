@@ -199,6 +199,22 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
       } catch {}
       return raw || '-';
     }, sorter: (a: any, b: any) => String(a?.CreationTime || a?.created || a?.create_time || '').localeCompare(String(b?.CreationTime || b?.created || b?.create_time || '')) },
+    { title: '到期时间', key: 'etime', render: (_: any, r: any) => {
+      const raw = r?.ExpiredTime || '';
+      if (!raw) return '-';
+      try {
+        const d = new Date(raw);
+        if (d && !isNaN(d.getTime())) {
+          const now = new Date();
+          const isExpired = d < now;
+          // If less than 7 days, show warning color
+          const diffDays = (d.getTime() - now.getTime()) / (1000 * 3600 * 24);
+          const color = isExpired ? '#ff4d4f' : (diffDays < 7 ? '#faad14' : 'inherit');
+          return <span style={{ color }}>{d.toLocaleString('zh-CN', { hour12: false })}</span>;
+        }
+      } catch {}
+      return raw;
+    }, sorter: (a: any, b: any) => String(a?.ExpiredTime || '').localeCompare(String(b?.ExpiredTime || '')) },
     { title: '操作', key: 'actions', render: (_: any, r: any) => {
       const iid = r?.InstanceId || r?.id;
       const st = String(r?.Status || r?.status || '').trim();

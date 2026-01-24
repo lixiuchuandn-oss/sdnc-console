@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider, Table, TableProps, Popover, Checkbox, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined, ClusterOutlined, BorderOuterOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined, ClusterOutlined, BorderOuterOutlined, SafetyCertificateOutlined, ReloadOutlined } from '@ant-design/icons';
 
 export const iconOf = (key?: string) => {
   const m: Record<string, React.ReactNode> = {
@@ -67,6 +67,8 @@ export interface PageContainerProps<T = any> {
   moreMenuItems?: Array<{ key: string; label: React.ReactNode; danger?: boolean; disabled?: boolean; onClick?: () => void }>;
   actionsSize?: 'small' | 'middle' | 'large';
   onBack?: () => void;
+  /** 刷新操作回调 */
+  onRefresh?: () => void;
   /** 标准表格属性，传入此属性将自动渲染标准样式的表格 */
   tableProps?: TableProps<T>;
   /** Tab 列表 */
@@ -109,6 +111,7 @@ const PageContainer = <T extends Record<string, any> = any>({
   moreMenuItems,
   actionsSize = 'middle',
   onBack,
+  onRefresh,
   tableProps,
   tabList,
   tabActiveKey,
@@ -127,21 +130,27 @@ const PageContainer = <T extends Record<string, any> = any>({
 
   const filteredColumns = useMemo(() => {
     if (!tableProps?.columns) return undefined;
-    return tableProps.columns.filter((c: any) => {
-      const k = String(c.key || c.dataIndex || '');
-      return !hiddenColumns.includes(k);
-    });
+    return tableProps.columns
+      .filter((c: any) => {
+        const k = String(c.key || c.dataIndex || '');
+        return !hiddenColumns.includes(k);
+      })
+      .map((c: any) => {
+        // 强制移除列宽，符合设计规范 "禁止添加列宽"
+        const { width, ...rest } = c;
+        return rest;
+      });
   }, [tableProps?.columns, hiddenColumns]);
 
   const columnControllerContent = useMemo(() => (
-    <div style={{ padding: '4px 0', minWidth: 150 }}>
+    <div style={{ padding: '4px 0', width: 500 }}>
       <div style={{ marginBottom: 8, padding: '0 12px', fontWeight: 600 }}>列展示</div>
-      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+      <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 8, padding: '0 12px' }}>
         {tableProps?.columns?.map((c: any, idx) => {
           const k = String(c.key || c.dataIndex || '');
           const title = typeof c.title === 'string' ? c.title : (k || `列 ${idx + 1}`);
           return (
-            <div key={k || idx} style={{ padding: '4px 12px' }}>
+            <div key={k || idx} style={{ minWidth: 100 }}>
               <Checkbox
                 checked={!hiddenColumns.includes(k)}
                 onChange={(e) => {
@@ -180,6 +189,7 @@ const PageContainer = <T extends Record<string, any> = any>({
   const findSpec = (p: string) => routeSpecs.find(s => pathMatch(s.path, p));
   const currentSpec = useMemo(() => findSpec(loc.pathname), [loc.pathname]);
   const autoCrumbs = useMemo(() => {
+    if (breadcrumb) return breadcrumb;
     if (!currentSpec) return [{ label: <HomeOutlined />, href: '/' }];
     const lbl = currentSpec.breadcrumbLabel || currentSpec.title || currentSpec.id;
     const parent = currentSpec.parentId ? routeSpecs.find(s => s.id === currentSpec.parentId) : undefined;
@@ -205,14 +215,13 @@ const PageContainer = <T extends Record<string, any> = any>({
   };
 
   const actionsNode = toolbarRight ?? (
-    (primaryAction || (moreMenuItems && moreMenuItems.length > 0) || tableProps || secondaryActions) ? (
+    (primaryAction || (moreMenuItems && moreMenuItems.length > 0) || tableProps || secondaryActions || onRefresh) ? (
       <Space>
         {secondaryActions}
         {primaryAction && (
           <Button
             type={primaryAction.type || 'primary'}
             size={actionsSize}
-            icon={primaryAction.icon}
             disabled={primaryAction.disabled}
             onClick={primaryAction.onClick}
           >
@@ -222,13 +231,21 @@ const PageContainer = <T extends Record<string, any> = any>({
         {(moreMenuItems && moreMenuItems.length > 0) && (
           <Dropdown
             menu={{
-              items: moreMenuItems.map((m) => ({
-                key: m.key,
-                label: m.label,
-                danger: m.danger,
-                disabled: m.disabled,
-                onClick: m.onClick ? () => m.onClick?.() : undefined,
-              })),
+              items: moreMenuItems.flatMap((m, idx) => {
+                const items: any[] = [];
+                // 如果当前是危险操作，且前一个不是，插入分隔线
+                if (idx > 0 && m.danger && !moreMenuItems[idx - 1].danger) {
+                  items.push({ type: 'divider' });
+                }
+                items.push({
+                  key: m.key,
+                  label: m.label,
+                  danger: m.danger,
+                  disabled: m.disabled,
+                  onClick: m.onClick ? () => m.onClick?.() : undefined,
+                });
+                return items;
+              }),
             }}
           >
             <Button size={actionsSize} icon={<EllipsisOutlined />} />
@@ -238,6 +255,9 @@ const PageContainer = <T extends Record<string, any> = any>({
           <Popover trigger="click" placement="bottomRight" content={columnControllerContent}>
             <Button size={actionsSize} icon={<SettingOutlined />} />
           </Popover>
+        )}
+        {onRefresh && (
+          <Button size={actionsSize} icon={<ReloadOutlined />} onClick={onRefresh} />
         )}
       </Space>
     ) : null
@@ -263,7 +283,7 @@ const PageContainer = <T extends Record<string, any> = any>({
           </Space>
           <Space>
             {extra}
-            {onBack && <Button icon={<ArrowLeftOutlined />} onClick={onBack} />}
+            {onBack && <Button icon={<ArrowLeftOutlined />} onClick={onBack}>返回</Button>}
           </Space>
         </div>
       )}
@@ -343,16 +363,15 @@ const PageContainer = <T extends Record<string, any> = any>({
           {tableProps && (
             <Table
               bordered
-              size="middle"
               {...tableProps}
               className={`page-container-table ${tableProps.className || ''}`}
               columns={filteredColumns || tableProps.columns}
               pagination={tableProps.pagination !== false ? {
                  size: 'default',
                  showSizeChanger: true,
-                 showQuickJumper: true,
                  showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-                 ...(typeof tableProps.pagination === 'object' ? tableProps.pagination : {})
+                 ...(typeof tableProps.pagination === 'object' ? tableProps.pagination : {}),
+                 showQuickJumper: false, // 强制禁用，符合设计规范
               } : false}
             />
           )}

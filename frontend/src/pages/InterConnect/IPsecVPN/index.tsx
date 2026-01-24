@@ -29,21 +29,24 @@ interface IPsecVPNRow {
     natTraversal?: boolean;
     dpd?: boolean;
   };
-  local: {
-    vrId: string;
-    vrName?: string;
-    subnet: string;
-    publicIp?: string;
-    privateIp?: string;
-  };
-  peer: {
-    vrId?: string;
-    vrName?: string;
-    gateway: string;
-    subnet: string;
-    publicIp?: string;
-    privateIp?: string;
-  };
+  
+  localVrId: string;
+  localVrName?: string;
+  localVrWanName?: string;
+  localVrWanIP?: string;
+  localVrWanEIP?: string;
+  localVrLanName?: string;
+  localVrLanIP?: string;
+  localVrLanSubnet: string;
+
+  peerVrId?: string;
+  peerVrName?: string;
+  peerVrWanName?: string;
+  peerVrWanIP: string;
+  peerVrWanEIP?: string;
+  peerVrLanName?: string;
+  peerVrLanIP?: string;
+  peerVrLanSubnet: string;
 }
 
 const IPsecVPNPage: React.FC = () => {
@@ -63,9 +66,15 @@ const IPsecVPNPage: React.FC = () => {
   const [topoLocalCfg, setTopoLocalCfg] = useState<any>(null);
   const [topoPeerCfg, setTopoPeerCfg] = useState<any>(null);
   const [topoLoading, setTopoLoading] = useState<boolean>(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   
   // PageContainer handles column visibility
-  const defaultHiddenColumns = ['ikeVersion', 'encryption', 'authentication', 'dhGroup', 'pfs', 'mode', 'natTraversal', 'dpd', 'description', 'createdAt', 'updatedAt', 'psk', 'localPrivate', 'peerPrivate'];
+  const defaultHiddenColumns = [
+    'localVrWanName', 'localVrLanName', 'localVrLanIP',
+    'peerVrWanName', 'peerVrLanName', 'peerVrLanIP',
+    'ikeVersion', 'encryption', 'authentication', 'dhGroup', 'pfs', 'mode', 'natTraversal', 'dpd', 
+    'description', 'createdAt', 'updatedAt', 'psk'
+  ];
 
   const handleDelete = (row: IPsecVPNRow) => {
     Modal.confirm({
@@ -85,7 +94,32 @@ const IPsecVPNPage: React.FC = () => {
     });
   };
 
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) return;
+    Modal.confirm({
+      title: '确认批量删除',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要删除选中的 ${selectedRowKeys.length} 个 IPsec VPN 吗？`,
+      onOk: async () => {
+        try {
+          // Sequential delete to avoid overwhelming backend or race conditions
+          for (const key of selectedRowKeys) {
+             await deleteIPsecVPN(String(key));
+          }
+          message.success('批量删除成功');
+          setSelectedRowKeys([]); // Clear selection
+          fetchData();
+        } catch (error) {
+          console.error('Batch delete failed:', error);
+          message.error('批量删除过程中出现错误');
+          fetchData(); // Refresh anyway
+        }
+      }
+    });
+  };
+
   const getActionMenu = (row: IPsecVPNRow): MenuProps['items'] => ([
+    { key: 'edit', label: '编辑' },
     { key: 'viewConfig', label: '查看本端VR配置' },
     { key: 'viewPeerConfig', label: '查看对端VR配置' },
     { type: 'divider' },
@@ -103,13 +137,13 @@ const IPsecVPNPage: React.FC = () => {
           setTopoRow(row);
           setTopoOpen(true);
           try {
-            const localCfg = await getVR2Config(String(row.local.vrId));
+            const localCfg = await getVR2Config(String(row.localVrId));
             setTopoLocalCfg(localCfg);
           } catch {
             setTopoLocalCfg(null);
           }
           try {
-            const peerId = String(row.peer.vrId || '').trim();
+            const peerId = String(row.peerVrId || '').trim();
             if (peerId) {
               const peerCfg = await getVR2Config(peerId);
               setTopoPeerCfg(peerCfg);
@@ -123,15 +157,15 @@ const IPsecVPNPage: React.FC = () => {
         })();
         break;
       case 'viewConfig':
-        if (row.local.vrId) {
-          navigate(`/admin/interconnect/vr/${encodeURIComponent(row.local.vrId)}/config`);
+        if (row.localVrId) {
+          navigate(`/admin/interconnect/vr/${encodeURIComponent(row.localVrId)}/config`);
         } else {
           message.warning('缺少本端 VR 标识');
         }
         break;
       case 'viewPeerConfig':
         {
-          const peerId = String(row.peer.vrId || '').trim();
+          const peerId = String(row.peerVrId || '').trim();
           if (peerId) {
             navigate(`/admin/interconnect/vr/${encodeURIComponent(peerId)}/config`);
           } else {
@@ -140,7 +174,7 @@ const IPsecVPNPage: React.FC = () => {
         }
         break;
       case 'edit':
-        message.info(`编辑: ${row.name} (暂未实现)`);
+        navigate(`/admin/interconnect/ipsec/${row.id}/edit`);
         break;
       case 'delete':
         handleDelete(row);
@@ -158,21 +192,27 @@ const IPsecVPNPage: React.FC = () => {
       </Tag>
     )},
     // 本端信息
-    { title: '本端VR名称/UUID', dataIndex: ['local', 'vrId'], key: 'localVr', width: 220, render: (id: string) => {
+    { title: '本端VR名称/UUID', dataIndex: 'localVrId', key: 'localVr', width: 220, render: (id: string) => {
         const name = vrNameMap[id];
         return name ? (<div>{name}<br/><span style={{fontSize: '12px', color: '#999'}}>{id}</span></div>) : (id || '—');
     }},
-    { title: '本端WAN口IP', dataIndex: ['local', 'publicIp'], key: 'localPublic', width: 140, render: (v: string) => v || '—' },
-    { title: '本端LAN口网段', dataIndex: ['local', 'subnet'], key: 'localSubnet', width: 160, render: (v: string) => v || '—' },
-    { title: '本端LAN口IP', dataIndex: ['local', 'privateIp'], key: 'localPrivate', width: 140, render: (v: string) => v || '—' },
+    { title: '本端WAN口名称', dataIndex: 'localVrWanName', key: 'localVrWanName', width: 140, render: (v: string) => v || '—' },
+    { title: '本端WAN口IP', dataIndex: 'localVrWanIP', key: 'localVrWanIP', width: 140, render: (v: string) => v || '—' },
+    { title: '本端EIP', dataIndex: 'localVrWanEIP', key: 'localVrWanEIP', width: 140, render: (v: string) => v || '—' },
+    { title: '本端LAN口网段', dataIndex: 'localVrLanSubnet', key: 'localVrLanSubnet', width: 160, render: (v: string) => v || '—' },
+    { title: '本端LAN口名称', dataIndex: 'localVrLanName', key: 'localVrLanName', width: 140, render: (v: string) => v || '—' },
+    { title: '本端LAN口IP', dataIndex: 'localVrLanIP', key: 'localVrLanIP', width: 140, render: (v: string) => v || '—' },
     // 对端信息
-    { title: '对端VR名称/UUID', dataIndex: ['peer', 'vrId'], key: 'peerVr', width: 220, render: (id: string) => {
+    { title: '对端VR名称/UUID', dataIndex: 'peerVrId', key: 'peerVr', width: 220, render: (id: string) => {
         const name = vrNameMap[id];
         return name ? (<div>{name}<br/><span style={{fontSize: '12px', color: '#999'}}>{id}</span></div>) : (id || '—');
     }},
-    { title: '对端WAN口IP', dataIndex: ['peer', 'publicIp'], key: 'peerPublic', width: 140, render: (v: string, row: IPsecVPNRow) => v || row.peer.gateway || '—' },
-    { title: '对端LAN口网段', dataIndex: ['peer', 'subnet'], key: 'peerSubnet', width: 160, render: (v: string) => v || '—' },
-    { title: '对端LAN口IP', dataIndex: ['peer', 'privateIp'], key: 'peerPrivate', width: 140, render: (v: string) => v || '—' },
+    { title: '对端WAN口名称', dataIndex: 'peerVrWanName', key: 'peerVrWanName', width: 140, render: (v: string) => v || '—' },
+    { title: '对端WAN口IP', dataIndex: 'peerVrWanIP', key: 'peerVrWanIP', width: 140, render: (v: string) => v || '—' },
+    { title: '对端EIP', dataIndex: 'peerVrWanEIP', key: 'peerVrWanEIP', width: 140, render: (v: string) => v || '—' },
+    { title: '对端LAN口网段', dataIndex: 'peerVrLanSubnet', key: 'peerVrLanSubnet', width: 160, render: (v: string) => v || '—' },
+    { title: '对端LAN口名称', dataIndex: 'peerVrLanName', key: 'peerVrLanName', width: 140, render: (v: string) => v || '—' },
+    { title: '对端LAN口IP', dataIndex: 'peerVrLanIP', key: 'peerVrLanIP', width: 140, render: (v: string) => v || '—' },
     // 次要信息（默认隐藏）
     { title: 'IKE版本', dataIndex: ['ike', 'version'], key: 'ikeVersion', width: 90 },
     { title: 'PSK', dataIndex: ['ike', 'psk'], key: 'psk', width: 120 },
@@ -218,16 +258,13 @@ const IPsecVPNPage: React.FC = () => {
     fetchData();
     (async () => {
       try {
-        const resp: any = await vrApi.getVRInstances(100, 1);
-        const data: any = resp?.data ?? resp;
+        const { fetchVrCachePageList } = await import('../../../services/vrCacheApi');
+        const resp = await fetchVrCachePageList(1000, 1);
+        const data = resp?.data || resp;
         const list: any[] = Array.isArray(data?.page)
           ? data.page
           : Array.isArray(data?.list)
           ? data.list
-          : Array.isArray(data?.rows)
-          ? data.rows
-          : Array.isArray(data)
-          ? (data as any[])
           : [];
         const map: Record<string, string> = {};
         list.forEach((vr: any) => {
@@ -237,20 +274,10 @@ const IPsecVPNPage: React.FC = () => {
         });
         setVrNameMap(map);
       } catch (e) {
-        console.error('Failed to fetch VR list', e);
+        console.error('Failed to fetch VR list from cache', e);
       }
     })();
   }, []);
-
-  const moreMenu: MenuProps = {
-    items: [
-      {
-        key: 'refresh',
-        label: '刷新列表',
-        onClick: fetchData
-      }
-    ]
-  };
 
   return (
     <PageContainer
@@ -261,8 +288,15 @@ const IPsecVPNPage: React.FC = () => {
         onClick: () => navigate('/admin/interconnect/ipsec/create'),
         type: 'primary',
       }}
+      onRefresh={fetchData}
       moreMenuItems={[
-        { key: 'refresh', label: '刷新列表', onClick: fetchData }
+        { 
+          key: 'batchDelete', 
+          label: '批量删除', 
+          danger: true, 
+          disabled: selectedRowKeys.length === 0,
+          onClick: handleBatchDelete
+        }
       ]}
       defaultHiddenColumns={defaultHiddenColumns}
       toolbarLeft={(
@@ -301,15 +335,19 @@ const IPsecVPNPage: React.FC = () => {
               <Select.Option value="ikev2">IKEv2</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="localPublicIp" label="本端WAN口IP">
-            <Input allowClear placeholder="输入IP" style={{ width: 150 }} />
+          <Form.Item name="localPublicIp" label="本端IP">
+            <Input allowClear placeholder="输入WAN IP或EIP" style={{ width: 150 }} />
           </Form.Item>
-          <Form.Item name="peerGateway" label="对端WAN口IP">
-            <Input allowClear placeholder="输入IP" style={{ width: 150 }} />
+          <Form.Item name="peerGateway" label="对端IP">
+            <Input allowClear placeholder="输入WAN IP或EIP" style={{ width: 150 }} />
           </Form.Item>
         </Form>
       )}
       tableProps={{
+        rowSelection: {
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+        },
         columns: columns,
         dataSource: data.filter(d => {
           // Keyword filter
@@ -318,7 +356,7 @@ const IPsecVPNPage: React.FC = () => {
           if (kw) {
             const fields = [
               d.name, d.description || '',
-              d.local.vrId || '', d.peer.vrId || ''
+              d.localVrId || '', d.peerVrId || ''
             ].map(s => String(s || '').toLowerCase());
             matchKw = fields.some(s => s.includes(kw));
           }
@@ -338,14 +376,16 @@ const IPsecVPNPage: React.FC = () => {
           // Local Public IP filter
           let matchLocalIp = true;
           if (localPublicIpFilter) {
-            matchLocalIp = String(d.local.publicIp || '').includes(localPublicIpFilter);
+            const wan = String(d.localVrWanIP || '');
+            const eip = String(d.localVrWanEIP || '');
+            matchLocalIp = wan.includes(localPublicIpFilter) || eip.includes(localPublicIpFilter);
           }
 
           // Peer Gateway filter
           let matchPeerGw = true;
           if (peerGatewayFilter) {
-            const gw = String(d.peer.gateway || '');
-            const pub = String(d.peer.publicIp || '');
+            const gw = String(d.peerVrWanIP || '');
+            const pub = String(d.peerVrWanEIP || '');
             matchPeerGw = gw.includes(peerGatewayFilter) || pub.includes(peerGatewayFilter);
           }
 
@@ -370,17 +410,23 @@ const IPsecVPNPage: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div><strong>状态</strong><div><Tag color={detailRow.status === 'active' ? 'green' : detailRow.status === 'inactive' ? 'default' : detailRow.status === 'creating' ? 'blue' : 'red'}>{detailRow.status}</Tag></div></div>
             <div><strong>ID</strong><div>{detailRow.id}</div></div>
-            <div><strong>本端VR</strong><div>{vrNameMap[detailRow.local.vrId] || detailRow.local.vrId}</div></div>
-            <div><strong>本端VR ID</strong><div>{detailRow.local.vrId}</div></div>
-            <div><strong>本端WAN口IP</strong><div>{detailRow.local.publicIp || '—'}</div></div>
-            <div><strong>本端LAN口IP</strong><div>{detailRow.local.privateIp || '—'}</div></div>
-            <div><strong>本端LAN口网段</strong><div>{detailRow.local.subnet}</div></div>
+            <div><strong>本端VR</strong><div>{vrNameMap[detailRow.localVrId] || detailRow.localVrId}</div></div>
+            <div><strong>本端VR ID</strong><div>{detailRow.localVrId}</div></div>
+            <div><strong>本端WAN口名称</strong><div>{detailRow.localVrWanName || '—'}</div></div>
+            <div><strong>本端WAN口IP</strong><div>{detailRow.localVrWanIP || '—'}</div></div>
+            <div><strong>本端EIP</strong><div>{detailRow.localVrWanEIP || '—'}</div></div>
+            <div><strong>本端LAN口名称</strong><div>{detailRow.localVrLanName || '—'}</div></div>
+            <div><strong>本端LAN口IP</strong><div>{detailRow.localVrLanIP || '—'}</div></div>
+            <div><strong>本端LAN口网段</strong><div>{detailRow.localVrLanSubnet}</div></div>
 
-            <div><strong>对端VR</strong><div>{detailRow.peer.vrId ? (vrNameMap[detailRow.peer.vrId] || detailRow.peer.vrId) : '—'}</div></div>
-            <div><strong>对端VR ID</strong><div>{detailRow.peer.vrId || '—'}</div></div>
-            <div><strong>对端WAN口IP</strong><div>{detailRow.peer.gateway}</div></div>
-            <div><strong>对端LAN口IP</strong><div>{detailRow.peer.privateIp || '—'}</div></div>
-            <div><strong>对端LAN口网段</strong><div>{detailRow.peer.subnet}</div></div>
+            <div><strong>对端VR</strong><div>{detailRow.peerVrId ? (vrNameMap[detailRow.peerVrId] || detailRow.peerVrId) : '—'}</div></div>
+            <div><strong>对端VR ID</strong><div>{detailRow.peerVrId || '—'}</div></div>
+            <div><strong>对端WAN口名称</strong><div>{detailRow.peerVrWanName || '—'}</div></div>
+            <div><strong>对端WAN口IP</strong><div>{detailRow.peerVrWanIP}</div></div>
+            <div><strong>对端EIP</strong><div>{detailRow.peerVrWanEIP || '—'}</div></div>
+            <div><strong>对端LAN口名称</strong><div>{detailRow.peerVrLanName || '—'}</div></div>
+            <div><strong>对端LAN口IP</strong><div>{detailRow.peerVrLanIP || '—'}</div></div>
+            <div><strong>对端LAN口网段</strong><div>{detailRow.peerVrLanSubnet}</div></div>
             <div><strong>IKE版本</strong><div>{detailRow.ike.version}</div></div>
             <div><strong>PSK</strong><div>{detailRow.ike.psk}</div></div>
             <div><strong>加密算法</strong><div>{detailRow.ike.encryption}</div></div>
@@ -408,17 +454,17 @@ const IPsecVPNPage: React.FC = () => {
           <div style={{ height: 420 }}>
             <ReactFlow
               nodes={[
-                { id: 'localVR', position: { x: 60, y: 80 }, data: { label: `${vrNameMap[topoRow.local.vrId] || topoRow.local.vrId}\n(${topoRow.local.vrId})\n${String(topoLocalCfg?.ipsec_preset?.public_ip || '')}` }, type: 'default' },
-                { id: 'localSubnet', position: { x: 280, y: 80 }, data: { label: topoRow.local.subnet || '—' }, type: 'default' },
-                { id: 'remoteGateway', position: { x: 500, y: 80 }, data: { label: topoRow.peer.gateway || '—' }, type: 'default' },
+                { id: 'localVR', position: { x: 60, y: 80 }, data: { label: `${vrNameMap[topoRow.localVrId] || topoRow.localVrId}\n(${topoRow.localVrId})\n${String(topoLocalCfg?.ipsec_preset?.public_ip || '')}` }, type: 'default' },
+                { id: 'localSubnet', position: { x: 280, y: 80 }, data: { label: topoRow.localVrLanSubnet || '—' }, type: 'default' },
+                { id: 'remoteGateway', position: { x: 500, y: 80 }, data: { label: topoRow.peerVrWanIP || '—' }, type: 'default' },
                 { id: 'remoteVR', position: { x: 500, y: 220 }, data: { label: (() => {
-                  const ip = String(topoRow.peer.gateway || '').trim();
-                  const id = topoRow.peer.vrId || '';
+                  const ip = String(topoRow.peerVrWanIP || '').trim();
+                  const id = topoRow.peerVrId || '';
                   const name = id ? (vrNameMap[id] || id) : (ip || '—');
                   const peerPub = String(topoPeerCfg?.ipsec_preset?.public_ip || '');
                   return `${name}\n(${id || '—'})\n${peerPub}`;
                 })() }, type: 'default' },
-                { id: 'remoteSubnet', position: { x: 700, y: 80 }, data: { label: topoRow.peer.subnet || '—' }, type: 'default' },
+                { id: 'remoteSubnet', position: { x: 700, y: 80 }, data: { label: topoRow.peerVrLanSubnet || '—' }, type: 'default' },
               ]}
               edges={[
                 { id: 'e1', source: 'localVR', target: 'localSubnet' },

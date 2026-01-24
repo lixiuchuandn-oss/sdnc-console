@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Button, Checkbox, Descriptions, Dropdown, Form, Input, message, Modal, Popover, Select, Space, Table, Tag, Tooltip } from 'antd';
+import { Button, Descriptions, Dropdown, Form, Input, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
-import { EllipsisOutlined, SettingOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import '../../common/filters.css';
 import { vrApi } from '../../../services/vrApi';
-import { fetchTenantVRs, fetchCsmVRPageList } from '../../../services/api';
+import { fetchCsmVRPageList } from '../../../services/api';
+import { fetchVrCachePageList } from '../../../services/vrCacheApi';
 import { getVRRoles } from '../../../services/vrConfigApi';
 import { fetchCloudProviderVpcs, fetchTenants, fetchOrganizationsByTenant } from '../../../services/api';
 import { listSecurityDomains, createSecurityDomain, updateSecurityDomain, deleteSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
@@ -104,53 +105,34 @@ const SecurityDomainPage: React.FC = () => {
   const [changeVrLoading, setChangeVrLoading] = useState(false);
 
   const initializedRef = useRef(false);
-  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({
-    name: true,
-    category: true,
-    providerRegion: true,
-    tenant: true,
-    organization: true,
-    source: true,
-    cidr4: true,
-    cidr6: false,
-    tags: false,
-    vr: true,
-    status: true,
-    createdAt: false,
-    actions: true,
-  });
-  const columnLabels: Record<string, string> = {
-    name: '名称',
-    category: '分类',
-    providerRegion: '云厂商/地域',
-    tenant: '租户',
-    organization: '组织',
-    source: '网络来源',
-    cidr4: 'IPv4 CIDR',
-    cidr6: 'IPv6 CIDR',
-    tags: '标签',
-    vr: '绑定 VR 实例',
-    status: '状态',
-    createdAt: '创建时间',
-    actions: '操作',
-  };
 
   const loadVRList = async (tenantId?: string) => {
     // setVrLoading(true);
     try {
       // 无论安全域属于什么云，统一获取当前租户名下的所有 VR 实例
       // 这是一个管理动作，不受底层云厂商接口限制
-      const res = await fetchTenantVRs(tenantId ? { tenantId } : {});
+      const res = await fetchVrCachePageList(1000, 1);
       
       let list: any[] = [];
-      if (res && Array.isArray(res.items)) {
-          list = res.items;
-      } else if (Array.isArray(res)) {
-          list = res;
+      const data = res?.data || res;
+      if (data && Array.isArray(data.page)) {
+          list = data.page;
+      } else if (data && Array.isArray(data.list)) {
+          list = data.list;
+      } else if (Array.isArray(data)) {
+          list = data;
       }
       
       // Filter out deleted VRs
       list = list.filter((item: any) => !item.is_deleted);
+
+      // If tenantId is provided, filter by it if the field exists
+      if (tenantId) {
+         list = list.filter((item: any) => {
+             const tid = item.tenant_id || item.tenantId;
+             return !tid || String(tid) === String(tenantId);
+         });
+      }
 
       const opts: VRRowOpt[] = list.map((item: any) => ({
         uuid: item.uuid || item.id || '',
@@ -522,8 +504,8 @@ const SecurityDomainPage: React.FC = () => {
     });
   };
 
-  const displayColumns = useMemo(() => {
-    const columns = [
+  const columns = useMemo(() => {
+    return [
       {
         title: '名称',
         dataIndex: 'name',
@@ -668,15 +650,41 @@ const SecurityDomainPage: React.FC = () => {
         },
       },
     ];
-    return columns.filter((c) => visibleCols[String(c.key)] !== false);
-  }, [createForm, vrOptions, vrCeOptions, visibleCols, openEdit, removeDomain]);
+  }, [createForm, vrOptions, vrCeOptions, openEdit, removeDomain]);
 
   return (
     <PageContainer
       titleLevel={3}
       asCard={false}
-    >
-      <div className="filters-row filters-row--compact">
+      defaultHiddenColumns={['cidr6', 'tags', 'createdAt']}
+      primaryAction={{
+        text: '新建安全域',
+        onClick: () => navigate('/admin/sec-mgr-plane/security-domain/new'),
+      }}
+      moreMenuItems={[
+        {
+          key: 'bulkDel',
+          label: '批量删除',
+          danger: true,
+          disabled: selectedRowKeys.length === 0,
+          onClick: removeSelectedDomains,
+        },
+      ]}
+      onRefresh={forceRefresh}
+      tableProps={{
+        loading,
+        rowKey: 'id',
+        dataSource: filteredDomains,
+        columns: columns as any,
+        bordered: true,
+        className: 'vr-table',
+        rowSelection: {
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+        },
+        pagination: { pageSize: 8, showSizeChanger: true, pageSizeOptions: ['8', '16', '32'] },
+      }}
+      toolbarLeft={
         <Form
           className="filter-tools filter-tools--center"
           layout="vertical"
@@ -715,58 +723,8 @@ const SecurityDomainPage: React.FC = () => {
             />
           </Form.Item>
         </Form>
-        <Space className="filter-actions">
-          <Button type="primary" onClick={() => navigate('/admin/sec-mgr-plane/security-domain/new')}>新建安全域</Button>
-          <Dropdown
-            menu={{
-              items: [
-                { key: 'refresh', label: '刷新' },
-                { key: 'bulkDel', label: '批量删除', disabled: selectedRowKeys.length === 0 },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'refresh') return forceRefresh();
-                if (key === 'bulkDel') return removeSelectedDomains();
-              },
-            }}
-            trigger={['click']}
-          >
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
-          <Popover
-            placement="bottomRight"
-            trigger="click"
-            content={
-              <div style={{ minWidth: 220 }}>
-                {['name','category','providerRegion','source','cidr4','cidr6','tags','vr','status','createdAt'].map((k) => (
-                  <div key={k} style={{ marginBottom: 6 }}>
-                    <Checkbox
-                      checked={visibleCols[k] !== false}
-                      onChange={(e) => setVisibleCols((prev) => ({ ...prev, [k]: e.target.checked }))}
-                    >
-                      {columnLabels[k]}
-                    </Checkbox>
-                  </div>
-                ))}
-              </div>
-            }
-          >
-            <Button icon={<SettingOutlined />} />
-          </Popover>
-        </Space>
-      </div>
-      <Table
-        bordered
-        className="vr-table"
-        rowKey="id"
-        loading={loading}
-        dataSource={filteredDomains}
-        columns={displayColumns as any}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        }}
-        pagination={{ pageSize: 8, showSizeChanger: true, pageSizeOptions: ['8', '16', '32'] }}
-      />
+      }
+    >
 
       <Modal
         title={editing ? '编辑安全域' : '编辑安全域'}

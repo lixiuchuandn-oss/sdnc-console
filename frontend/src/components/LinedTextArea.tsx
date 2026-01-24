@@ -7,6 +7,8 @@ type Props = {
   placeholder?: string;
   minRows?: number;
   maxRows?: number;
+  style?: React.CSSProperties;
+  className?: string;
 };
 
 const LinedTextArea: React.FC<Props> = ({
@@ -16,6 +18,8 @@ const LinedTextArea: React.FC<Props> = ({
   placeholder,
   minRows = 6,
   maxRows = 24,
+  style,
+  className,
 }) => {
   const lineCount = useMemo(() => (value ? value.split('\n').length : 1), [value]);
   const rows = useMemo(() => Math.min(Math.max(lineCount, minRows), maxRows), [lineCount, minRows, maxRows]);
@@ -36,7 +40,7 @@ const LinedTextArea: React.FC<Props> = ({
   const lines = Array.from({ length: lineCount }, (_, i) => i + 1);
 
   return (
-    <div className="lined-textarea">
+    <div className={`lined-textarea ${className || ''}`} style={style}>
       <div className="lined-textarea-gutter" ref={gutterRef}>
         {lines.map((n) => (
           <div key={n} className="lined-textarea-line">{n}</div>

@@ -9,7 +9,7 @@ import StdSideDrawer from '../../components/StdSideDrawer';
 import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
 import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
-import { fetchTenantVRs } from '../../services/api';
+import { fetchVrCachePageList } from '../../services/vrCacheApi';
 
 const { TextArea } = Input;
 
@@ -245,8 +245,25 @@ const OrgManagePage: React.FC = () => {
     if (!selectedOrg?.id || !tenantId) return;
     try {
       setSdnVrLoading(true);
-      const res = await fetchTenantVRs({ tenantId: String(tenantId), organizationId: selectedOrg.id });
-      const items = Array.isArray((res as any)?.items) ? (res as any).items : (Array.isArray(res) ? res : []);
+      const res = await fetchVrCachePageList(1000, 1);
+      const data = res?.data || res;
+      let items: any[] = [];
+      
+      if (data && Array.isArray(data.page)) {
+          items = data.page;
+      } else if (data && Array.isArray(data.list)) {
+          items = data.list;
+      } else if (Array.isArray(data)) {
+          items = data;
+      }
+
+      // Filter by tenantId and organizationId
+      items = items.filter((item: any) => {
+        const tid = String(item.tenant_id || item.tenantId || '');
+        const oid = String(item.org_id || item.organizationId || '');
+        return tid === String(tenantId) && oid === String(selectedOrg.id);
+      });
+
       setSdnVrs(items);
     } catch {
       setSdnVrs([]);

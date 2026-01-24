@@ -289,51 +289,21 @@ const Dashboard: React.FC = () => {
       const statNat = natArr.filter((r: any) => String(r.type || '').toLowerCase() === 'static').length;
       setNatDist([{ name: 'SNAT', value: snat }, { name: 'DNAT', value: dnat }, { name: '静态NAT', value: statNat }]);
       
-      // Load instance stats asynchronously and count per cloud
+      // Load instance stats from cached fields
       let totalRunning = 0;
       let totalInstances = 0;
       const counts: Record<string, number> = {};
-      
-      // We only fetch for the first few clouds to avoid overwhelming the backend
-      const cloudIds = (cloudsList || []).slice(0, 10).map((c: any) => c.id);
-      
-      // Fire and forget instance fetch for quick UI load, or wait? 
-      // Let's do it in background and update state
-      Promise.allSettled(cloudIds.map((id: string) => {
-        const cloud = cloudsList.find((c: any) => c.id === id);
-        const providerRaw = String(cloud?.config?.provider || '');
-        
-        // Only CSM uses the special virtual elements API
-        if (providerRaw === 'cloudmap.csm') {
-           return fetchCloudmapVirtualElements(id);
-        }
 
-        // Try to use inventory API first as it's lighter, fallback to provider if needed (via backend inventory sync)
-        return fetchInventoryInstancesByCloud(id);
-      })).then((results) => {
-        results.forEach((res: any, index) => {
-          if (res.status === 'fulfilled') {
-             // Handle various response structures
-             const raw = res.value;
-             const list = Array.isArray(raw?.data) ? raw.data : 
-                          Array.isArray(raw?.items) ? raw.items :
-                          Array.isArray(raw?.data?.items) ? raw.data.items :
-                          Array.isArray(raw) ? raw : [];
-                          
-             const cloudId = cloudIds[index];
-             counts[cloudId] = list.length;
-             
-             totalInstances += list.length;
-             totalRunning += list.filter((i: any) => {
-                const s = String(i.status || i.state || '').toLowerCase();
-                // 0: stopped, 1: running (for some apis)
-                return s.includes('run') || s === 'active' || s === 'on' || s === '1' || i.status === 1;
-             }).length;
-          }
-        });
-        setInstanceStats({ running: totalRunning, total: totalInstances });
-        setInstanceCounts(counts);
+      (cloudsList || []).forEach((c: any) => {
+        const count = Number(c.vmCount || 0);
+        const running = Number(c.runningVmCount || 0);
+        counts[c.id] = count;
+        totalInstances += count;
+        totalRunning += running;
       });
+      
+      setInstanceStats({ running: totalRunning, total: totalInstances });
+      setInstanceCounts(counts);
 
     } catch (err) {
       console.error(err);

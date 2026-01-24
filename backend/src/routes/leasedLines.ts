@@ -1688,29 +1688,22 @@ leasedLineRoutes.get('/security-report/tasks', async (req: any, res) => {
         name = base || undefined;
         const ext = path.extname(base).replace(/^\./,'').toLowerCase();
         format = ext || undefined;
-        try {
-          const head = await fetch(url, { method: 'HEAD', headers: difyKey ? { 'Authorization': `Bearer ${difyKey}` } : undefined });
-          let len = head.headers.get('content-length');
-          if (!len) {
-            const dl = await fetch(url, { method: 'GET', headers: difyKey ? { 'Authorization': `Bearer ${difyKey}` } : undefined });
-            len = dl.headers.get('content-length');
-            try { (dl as any).body?.cancel?.(); } catch {}
-          }
-          if (len) sizeBytes = Number(len);
-        } catch {}
+        // 移除列表接口中的实时 HTTP 请求以提升性能
+        // try {
+        //   const head = await fetch(url, { method: 'HEAD', headers: difyKey ? { 'Authorization': `Bearer ${difyKey}` } : undefined });
+        //   let len = head.headers.get('content-length');
+        //   if (!len) {
+        //     const dl = await fetch(url, { method: 'GET', headers: difyKey ? { 'Authorization': `Bearer ${difyKey}` } : undefined });
+        //     len = dl.headers.get('content-length');
+        //     try { (dl as any).body?.cancel?.(); } catch {}
+        //   }
+        //   if (len) sizeBytes = Number(len);
+        // } catch {}
         // 从节点中提取更准确的文件名和大小
         try {
-          const arr = t.streamLines || [];
-          let node: any = undefined;
-          if (Array.isArray(arr) && arr.length) {
-            for (let i = arr.length - 1; i >= 0; i--) {
-              const it = arr[i];
-              let obj: any = it;
-              if (typeof it === 'string') { let s = String(it).trim(); if (s.startsWith('data:')) s = s.slice(5).trim(); try { obj = JSON.parse(s); } catch {} }
-              if (obj?.event === 'workflow_finished') { node = obj; break; }
-            }
-            if (!node) { const last = arr[arr.length - 1]; if (typeof last === 'string') { let s = String(last).trim(); if (s.startsWith('data:')) s = s.slice(5).trim(); try { node = JSON.parse(s); } catch { node = last; } } else { node = last; } }
-          }
+          // 复用前面已解析的 node，避免重复解析 streamLines
+          // const arr = t.streamLines || []; ...
+          
           const outs = node?.data?.outputs || node?.outputs || {};
           const files = node?.files || node?.data?.files || outs?.files || [];
           const f0: any = Array.isArray(files) && files.length ? files[0] : undefined;

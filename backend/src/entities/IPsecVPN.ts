@@ -7,7 +7,7 @@ export enum IPsecStatus {
   ERROR = 'error',
 }
 
-@Entity()
+@Entity({ name: 'vr_ipsec_vpn' })
 export class IPsecVPN {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -27,35 +27,59 @@ export class IPsecVPN {
 
   // Local Network
   @Column()
-  vrId!: string;
+  localVrId!: string; // Renamed from vrId
 
   @Column({ nullable: true })
   localVrName!: string;
 
   @Column({ nullable: true })
-  localPublicIp!: string;
+  localVrWanName!: string; // New
 
   @Column({ nullable: true })
-  localPrivateIp!: string;
+  localVrWanIP!: string; // Renamed from localPublicIp
+
+  @Column({ nullable: true })
+  localVrWanEIP!: string; // New/Renamed
+
+  @Column({ nullable: true })
+  localVrLanName!: string; // New
+
+  @Column({ nullable: true })
+  localVrLanIP!: string; // Renamed from localPrivateIp
 
   @Column()
-  localSubnet!: string;
+  localVrLanSubnet!: string; // Renamed from localSubnet
 
-  // Remote Network
+  @Column({ type: 'boolean', default: false })
+  localIkeRemoteIpAny!: boolean; // Kept for logic
+
+  // Remote Network (Peer)
   @Column({ nullable: true })
   peerVrId!: string;
 
   @Column({ nullable: true })
   peerVrName!: string;
 
+  @Column({ nullable: true })
+  peerVrWanName!: string; // New
+
   @Column()
-  remoteGateway!: string;
+  peerVrWanIP!: string; // Renamed from remoteGateway
 
   @Column({ nullable: true })
-  remotePrivateIp!: string;
+  peerVrWanEIP!: string; // Renamed from remoteEip
+
+  @Column({ nullable: true })
+  peerVrLanName!: string; // New
+
+  @Column({ nullable: true })
+  peerVrLanIP!: string; // Renamed from remotePrivateIp
 
   @Column()
-  remoteSubnet!: string;
+  peerVrLanSubnet!: string; // Renamed from remoteSubnet
+
+  @Column({ type: 'boolean', default: false })
+  remoteIkeRemoteIpAny!: boolean; // Kept for logic (maybe rename to peerVrIkeRemoteIpAny?) -> Keeping for now to minimize logic drift unless necessary. User didn't specify.
 
   // Security Params
   @Column()

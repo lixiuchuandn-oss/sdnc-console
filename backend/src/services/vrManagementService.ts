@@ -90,6 +90,22 @@ export const vrManagementService = {
 
     await repository.save(record);
 
+    // Sync to VrCacheDevice (New 3-table architecture)
+    try {
+      // 动态导入以避免循环依赖或加载顺序问题
+      const { VrCacheDevice } = await import('../entities/VrCacheDevice');
+      const deviceRepo = AppDataSource.getRepository(VrCacheDevice);
+      let deviceRecord = await deviceRepo.findOne({ where: { uuid: record.uuid } });
+      if (!deviceRecord) {
+        deviceRecord = deviceRepo.create({ uuid: record.uuid });
+      }
+      deviceRecord.data = JSON.stringify(record);
+      await deviceRepo.save(deviceRecord);
+    } catch (e) {
+      console.error('[VR_MGM] Failed to sync to VrCacheDevice', e);
+      // Don't fail the main operation
+    }
+
     return {
       vr_unique_id: record.uuid,
       tenant_id: record.tenantId || null,

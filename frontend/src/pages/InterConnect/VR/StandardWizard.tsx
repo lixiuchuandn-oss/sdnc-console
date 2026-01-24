@@ -549,9 +549,7 @@ const StandardWizard: React.FC = () => {
 
   return (
     <PageContainer
-      title={<span><SettingOutlined style={{ marginRight: 6, color: '#1677ff' }} />设置角色向导（标准模式）</span>}
       titleLevel={3}
-      subtitle="预置 IPsec 所需的非协商参数，用于后续建链快速预填"
       extra={<Button icon={<ReloadOutlined />} onClick={() => refreshDeviceData()}>刷新设备回读</Button>}
       onBack={() => navigate(-1)}
       asCard={false}

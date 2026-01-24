@@ -22,7 +22,7 @@ const defaultApiBase = (() => {
 export const API_BASE_URL = defaultApiBase;
 
 // 获取认证token
-const getAuthHeaders = () => {
+export const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
@@ -148,6 +148,10 @@ export const fetchUsers = async () => {
 // 获取租户数据
 export const fetchTenants = async () => {
   return await apiRequest('/api/tenants');
+};
+
+export const fetchAvailableResourcePools = async () => {
+  return await apiRequest('/api/tenants/available-resource-pools');
 };
 
 // User Spaces
@@ -369,6 +373,22 @@ export const fetchSaseDiscoveredAssets = async (params?: any) => {
   if (params?.cloudId) q.append('cloud_id', params.cloudId);
   if (params?.domainId) q.append('domain_id', params.domainId);
   return apiRequest(`/api/sase/gateways/assets?${q.toString()}`);
+};
+
+export const fetchCloudVpcs = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
 };
 
 export const fetchCloudProviderEcs = async (cloudId: string) => {

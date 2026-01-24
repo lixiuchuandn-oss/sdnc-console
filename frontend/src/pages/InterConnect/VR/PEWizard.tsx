@@ -568,10 +568,7 @@ const PEWizard: React.FC = () => {
 
   return (
     <PageContainer
-      title={<span><SettingOutlined style={{ marginRight: 6, color: '#1677ff' }} />设置角色向导（PE模式）</span>}
       titleLevel={3}
-      subtitle="设定 SRv6 标识、公网与内网接口、静态路由与私网BGP"
-      icon={undefined}
       extra={<Button icon={<ReloadOutlined />} onClick={() => fetchInterfaces()}>刷新设备回读</Button>}
       onBack={() => navigate(-1)}
       asCard={false}

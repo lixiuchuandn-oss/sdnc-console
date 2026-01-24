@@ -453,10 +453,7 @@ const CEWizard: React.FC = () => {
 
   return (
     <PageContainer
-      title={<span><SettingOutlined style={{ marginRight: 6, color: '#1677ff' }} />设置角色向导（CE模式）</span>}
       titleLevel={3}
-      subtitle="设定外网与内网接口基础参数"
-      icon={undefined}
       extra={<Button icon={<ReloadOutlined />} onClick={() => refreshDeviceData()}>刷新设备回读</Button>}
       onBack={() => navigate(-1)}
       asCard={false}

@@ -3,7 +3,7 @@ import https from 'https';
 import { getSystemSetting } from '../config/systemSettings';
 import { csmRequest, CsmConfig } from './clouds/csm/client';
 
-const DEFAULT_URL = 'https://10.20.255.93:8016';
+const DEFAULT_URL = 'https://47.111.13.103:8016';
 const ACCESS_KEY = "Cloudmap%23123";
 const SECRET_KEY = "Cloudmap%23123";
 
@@ -24,7 +24,7 @@ const getClient = () => {
   });
 };
 
-interface AuthInfo {
+export interface AuthInfo {
   Authorization: string;
   tonce: number;
 }
@@ -54,42 +54,88 @@ export const vrController = {
   },
 
   getVRConfig: async (uuid: string) => {
+    const config: CsmConfig = {
+      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      accessKey: ACCESS_KEY,
+      secretKey: SECRET_KEY,
+      ignoreTls: true
+    };
+    
     const path = `/V2/ctcontrol/VR2/VRConfig`;
-    const method = 'GET';
-    const other = `uuid=${uuid}`;
-    
-    const auth = await vrController.getAuthInfo(path, method, other);
-    
-    const client = getClient();
-    const response = await client.get(`${path}?${other}`, {
-      headers: {
-        'Authorization': auth.Authorization,
-        'tonce': auth.tonce
-      }
-    });
-    const raw = response.data;
-    const dataField = raw && raw.data ? raw.data : raw;
-    return dataField;
+    const query = { uuid };
+
+    // Use csmRequest (curl-based) to avoid axios signature issues
+    let lastError;
+    for (let i = 0; i < 3; i++) {
+        try {
+            const raw = await csmRequest(config, path, query, 'GET');
+            const dataField = raw && raw.data ? raw.data : raw;
+            
+            // Check for signature error in response content
+            if (dataField && dataField.code === 10005) {
+                throw new Error(`Signature mismatch: ${dataField.msg}`);
+            }
+            
+            return dataField;
+        } catch (e: any) {
+            console.warn(`[CSMCTL] getVRConfig retry ${i+1}/3 failed for ${uuid}: ${e.message}`);
+            lastError = e;
+            await new Promise(r => setTimeout(r, 1000));
+        }
+    }
+    throw lastError || new Error('Failed to fetch VR config after retries');
   },
 
-  updateVRConfig: async (uuid: string, data: any) => {
+  updateVRConfig: async (uuid: string, data: any): Promise<{ status: number; headers: any; data: any }> => {
     const path = `/V2/ctcontrol/VR2/VRConfig`;
     const method = 'POST';
-    const other = ''; // POST has no query params usually for this API, based on usage patterns
+    const other = `uuid=${uuid}`;
     
     const body = { uuid, ...data };
     
+    // Log raw payload as requested for debugging
+    console.log(`[CSM_RAW_PAYLOAD] POST ${path}?${other}`, JSON.stringify(body, null, 2));
+
     const auth = await vrController.getAuthInfo(path, method, other, body);
     
     const client = getClient();
-    const response = await client.post(path, body, {
+    const response = await client.post(`${path}?${other}`, body, {
       headers: {
         'Authorization': auth.Authorization,
         'tonce': auth.tonce
       }
     });
     
-    return response.data;
+    // Return full response for debugging transparency
+    return {
+      status: response.status,
+      headers: response.headers,
+      data: response.data
+    };
+  },
+
+  // 获取所有 VR3 配置列表（非单个查询）
+  getVR3List: async (pageSize: number = 1000, pageNum: number = 1) => {
+    // 使用 csmRequest 统一签名逻辑，解决 signature_hash 不一致问题
+    const config: CsmConfig = {
+      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      accessKey: ACCESS_KEY,
+      secretKey: SECRET_KEY,
+      ignoreTls: true
+    };
+    
+    const path = '/V2/ctcontrol/VR3/VRConfig/list';
+    const query = { page_size: pageSize, page_num: pageNum };
+
+    try {
+      console.log(`[VR_CONTROLLER] getVR3List via csmRequest: ${path}`, query);
+      const raw = await csmRequest(config, path, query);
+      const dataField = raw && raw.data ? raw.data : raw;
+      return dataField;
+    } catch (error: any) {
+      console.error(`[VR_CONTROLLER] getVR3List error:`, error.message);
+      throw error;
+    }
   },
 
   getVRList: async (pageSize: number = 50, pageNum: number = 1) => {

@@ -31,7 +31,8 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { getSecurityDomain, updateSecurityDomain } from '../../../../services/securityDomainApi';
 import { SecurityDomain } from '../index';
-import { apiPost, fetchCsmElementGroups, fetchCloudProviderEcs, fetchCsmVRPageList, fetchTenantVRs } from '../../../../services/api';
+import { apiPost, fetchCsmElementGroups, fetchCloudProviderEcs, fetchCsmVRPageList } from '../../../../services/api';
+import { fetchVrCachePageList } from '../../../../services/vrCacheApi';
 
 const { Title } = Typography;
 const { Search } = Input;
@@ -52,16 +53,17 @@ const SecurityDomainDetail: React.FC = () => {
   const loadVrList = async () => {
     setVrLoading(true);
     try {
-      // 无论安全域属于什么云（Aliyun/CSM/Huawei），统一获取当前租户名下的所有 VR 实例
-      // 这是一个管理动作，不受底层云厂商接口限制
-      const tenantId = data?.tenantId;
-      const res = await fetchTenantVRs(tenantId ? { tenantId } : {});
+      // 使用 vrcache 获取 VR 列表
+      const res = await fetchVrCachePageList(1000, 1);
       
       let list: any[] = [];
-      if (res && Array.isArray(res.items)) {
-          list = res.items;
-      } else if (Array.isArray(res)) {
-          list = res;
+      const data = res?.data || res;
+      if (data && Array.isArray(data.page)) {
+          list = data.page;
+      } else if (data && Array.isArray(data.list)) {
+          list = data.list;
+      } else if (Array.isArray(data)) {
+          list = data;
       }
       
       // Filter out deleted VRs
