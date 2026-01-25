@@ -23,3 +23,9 @@ Thumbs.db
 /frontend/coverage/
 /frontend/.env
 /frontend/.env*
+
+# Ignore temporary test artifacts and debug scripts in backend
+/backend/tests/scripts/
+/backend/tests/artifacts/
+
+
