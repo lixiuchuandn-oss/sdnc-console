@@ -10,8 +10,16 @@ srv6Routes.get('/', async (req, res, next) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.srv6:read') || perms.includes('networks.srv6:write'))) {
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.srv6:read') ||
+          perms.includes('networks.srv6:write')
+        )
+      ) {
         return res.status(403).json({ message: '权限不足：需要读取权限 networks.srv6:read' });
       }
     }
@@ -27,7 +35,9 @@ srv6Routes.post('/', async (req, res, next) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
       if (!(role === 'super_admin' || perms.includes('networks.srv6:write'))) {
         return res.status(403).json({ message: '权限不足：需要写入权限 networks.srv6:write' });
       }
@@ -37,7 +47,14 @@ srv6Routes.post('/', async (req, res, next) => {
       res.status(400).json({ message: '缺少必要字段：name, peA, peB, ceA, ceB' });
       return;
     }
-    const item = repo().create({ name, peA: String(peA), peB: String(peB), ceA: String(ceA), ceB: String(ceB), status: Srv6Status.CREATING });
+    const item = repo().create({
+      name,
+      peA: String(peA),
+      peB: String(peB),
+      ceA: String(ceA),
+      ceB: String(ceB),
+      status: Srv6Status.CREATING,
+    });
     const saved = await repo().save(item);
     // 模拟异步完成：短暂延迟后置为 available
     setTimeout(async () => {
@@ -58,8 +75,16 @@ srv6Routes.get('/:id', async (req, res, next) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.srv6:read') || perms.includes('networks.srv6:write'))) {
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.srv6:read') ||
+          perms.includes('networks.srv6:write')
+        )
+      ) {
         return res.status(403).json({ message: '权限不足：需要读取权限 networks.srv6:read' });
       }
     }
@@ -80,7 +105,9 @@ srv6Routes.delete('/:id', async (req, res, next) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
       if (!(role === 'super_admin' || perms.includes('networks.srv6:write'))) {
         return res.status(403).json({ message: '权限不足：需要写入权限 networks.srv6:write' });
       }

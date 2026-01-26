@@ -10,7 +10,8 @@ import CloudDetailHarvester from './Harvester/CloudDetailHarvester';
 import CloudDetailAliyun from './Aliyun/CloudDetailAliyun';
 import CloudDetailCsm from './Csm/CloudDetailCsm';
 import CloudDetailCloudmap from './Cloudmap/CloudDetailCloudmap';
-import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderSubnets, fetchCloudProviderRouteEntries, createCloudProviderVpc, createCloudProviderVSwitch, fetchCloudProviderSubnetsByVpc, deleteCloudProviderVpc, updateCloudProviderVpc, deleteCloudProviderVSwitch, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEnis, createCloudProviderEni, updateCloudProviderEni, deleteCloudProviderEni, fetchCloudProviderNetworkAcls, createCloudProviderNetworkAcl, updateCloudProviderNetworkAcl, deleteCloudProviderNetworkAcl, createCloudProviderSecurityGroup, updateCloudProviderSecurityGroup, deleteCloudProviderSecurityGroup, fetchHarvesterNads, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchHarvesterHealth, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchAliyunEcsVncUrl } from '../../services/api';
+import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSubnetsByVpc, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchHarvesterNads, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchHarvesterHealth, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchCloudProviderEcsVncUrl } from '../../services/api';
+import { fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries, createCloudProviderVpc, createCloudProviderVSwitch, deleteCloudProviderVpc, updateCloudProviderVpc, deleteCloudProviderVSwitch, fetchCloudProviderEnis, createCloudProviderEni, updateCloudProviderEni, deleteCloudProviderEni, fetchCloudProviderNetworkAcls, createCloudProviderNetworkAcl, updateCloudProviderNetworkAcl, deleteCloudProviderNetworkAcl, createCloudProviderSecurityGroup, updateCloudProviderSecurityGroup, deleteCloudProviderSecurityGroup, startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs } from '../../services/aliyunApi';
 
 interface AliyunVpc {
   VpcId: string;
@@ -1289,9 +1290,9 @@ const CloudDetail: React.FC = () => {
                                 const isHuawei = String(provider || '').toLowerCase().includes('huawei');
                                 const isHarvester = String(provider || '').toLowerCase().includes('harvester');
                                 if ((isAliyun || isHuawei) && id && iid) {
-                                  try {
-                                    const json = await fetchAliyunEcsVncUrl(id!, iid);
-                                    const url = json?.data?.VncUrl || json?.data?.vncUrl;
+                                try {
+                                  const json = await fetchCloudProviderEcsVncUrl(id!, iid);
+                                  const url = json?.data?.VncUrl || json?.data?.vncUrl;
                                     if (url) {
                                       const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
                                       const h = Math.max(800, (window.screen?.availHeight || 900) - 80);

@@ -3,7 +3,7 @@ import { App, Button, Space, Table, Modal, Input, Select, Tag, Badge, Typography
 import { ReloadOutlined, HddOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchCloudProviderDisks } from '../../../../services/api';
+import { fetchCloudProviderDisks } from '../../../../services/aliyunApi';
 
 type Props = {
   cloudId: string;

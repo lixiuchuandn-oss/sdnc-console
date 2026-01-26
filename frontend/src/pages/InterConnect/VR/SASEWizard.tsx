@@ -3,8 +3,7 @@ import { Button, Card, Descriptions, Form, Input, message, Row, Col, Space, Step
 import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { getVRConfig, saveVRConfig, setVRRole } from '../../../services/vrConfigApi';
-import { getVR2Config } from '../../../services/vr2Api';
+import { getVRConfig, saveVRConfig, setVRRole, getVR2Config } from '../../../services/virtualRouterApi';
 
 const SASEWizard: React.FC = () => {
   const navigate = useNavigate();

@@ -32,7 +32,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import { getSecurityDomain, updateSecurityDomain } from '../../../../services/securityDomainApi';
 import { SecurityDomain } from '../index';
 import { apiPost, fetchCsmElementGroups, fetchCloudProviderEcs, fetchCsmVRPageList } from '../../../../services/api';
-import { fetchVrCachePageList } from '../../../../services/vrCacheApi';
+import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
 
 const { Title } = Typography;
 const { Search } = Input;

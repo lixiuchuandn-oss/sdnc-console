@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Dropdown, Input, Modal, Select, Table, Switch, Space, Typography } from 'antd';
 import { MoreOutlined, ReloadOutlined, EllipsisOutlined, CloudServerOutlined } from '@ant-design/icons';
-import { API_BASE_URL, fetchAliyunEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
+import { API_BASE_URL } from '../../../../services/api';
+import { startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs, fetchAliyunEcsVncUrl } from '../../../../services/aliyunApi';
 import PageDetailSection, { LiveSwitch, RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import EcsDetailModal from '../modals/EcsDetailModal';
@@ -250,10 +251,10 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
               } catch (e: any) { message.error(e?.message || '获取VNC地址失败'); }
               return;
             }
-            if (key === 'start') { try { await startCloudProviderEcs(cloudId, iid); message.success('启动指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '启动失败'); } return; }
-            if (key === 'stop') { try { await stopCloudProviderEcs(cloudId, iid, false); message.success('停止指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '停止失败'); } return; }
-            if (key === 'reboot') { try { await rebootCloudProviderEcs(cloudId, iid, false); message.success('重启指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '重启失败'); } return; }
-            if (key === 'delete') { Modal.confirm({ title: '确认删除该实例？', onOk: async ()=> { try { await deleteCloudProviderEcs(cloudId, iid); message.success('删除成功'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '删除失败'); } } }); return; }
+            if (key === 'start') { try { await startAliyunEcs(cloudId, iid); message.success('启动指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '启动失败'); } return; }
+            if (key === 'stop') { try { await stopAliyunEcs(cloudId, iid, false); message.success('停止指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '停止失败'); } return; }
+            if (key === 'reboot') { try { await rebootAliyunEcs(cloudId, iid, false); message.success('重启指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '重启失败'); } return; }
+            if (key === 'delete') { Modal.confirm({ title: '确认删除该实例？', onOk: async ()=> { try { await deleteAliyunEcs(cloudId, iid); message.success('删除成功'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '删除失败'); } } }); return; }
           }}
         />
       );
@@ -303,10 +304,10 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
                   for (const r of targets) {
                     const iid = r?.InstanceId || r?.id;
                     if (!iid) continue;
-                    if (key === 'batch_start') await startCloudProviderEcs(cloudId, iid);
-                    else if (key === 'batch_stop') await stopCloudProviderEcs(cloudId, iid, false);
-                    else if (key === 'batch_reboot') await rebootCloudProviderEcs(cloudId, iid, false);
-                    else if (key === 'batch_delete') await deleteCloudProviderEcs(cloudId, iid);
+                    if (key === 'batch_start') await startAliyunEcs(cloudId, iid);
+            else if (key === 'batch_stop') await stopAliyunEcs(cloudId, iid, false);
+            else if (key === 'batch_reboot') await rebootAliyunEcs(cloudId, iid, false);
+            else if (key === 'batch_delete') await deleteAliyunEcs(cloudId, iid);
                   }
                   message.success('批量操作已下发');
                   await onRefreshAll();

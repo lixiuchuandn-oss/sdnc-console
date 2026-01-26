@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Select, Space, Table, Tag } from 'antd';
 import { CheckOutlined, CloseOutlined, EditOutlined, ClusterOutlined } from '@ant-design/icons';
-import { fetchCloudProviderVpcs, updateHuaweiCloudVpc, deleteCloudProviderVpc } from '../../../../services/api';
+import { fetchCloudProviderVpcs, deleteCloudProviderVpc } from '../../../../services/api';
+import { updateHuaweiCloudVpc } from '../../../../services/huaweiApi';
 import SharedToolbar from '../../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';

@@ -1,7 +1,8 @@
 import React from 'react';
 import { App, Form, Input, Select } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { fetchCloudProviderVpcs, createHuaweiCloudVpc } from '../../../../services/api';
+import { fetchCloudProviderVpcs } from '../../../../services/api';
+import { createHuaweiCloudVpc } from '../../../../services/huaweiApi';
 import { normalizeErr } from '../utils/net';
 
 type Props = {

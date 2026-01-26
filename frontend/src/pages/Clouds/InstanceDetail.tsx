@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Descriptions, Divider, Empty, message, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import PageContainer from '../../components/PageContainer';
 import { useNavigate, useParams } from 'react-router-dom';
-import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis } from '../../services/api';
+import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud } from '../../services/api';
+import { fetchCloudProviderEnis } from '../../services/aliyunApi';
 
 const InstanceDetail: React.FC = () => {
   const navigate = useNavigate();

@@ -16,7 +16,7 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
     const headerToken = req.headers.authorization?.replace('Bearer ', '');
     const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
     const token = headerToken || queryToken;
-    
+
     if (!token) {
       return res.status(401).json({ message: '未提供认证令牌' });
     }
@@ -58,8 +58,10 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
       const assignRepo = AppDataSource.getRepository(RoleAssignment);
       const roleRepo = AppDataSource.getRepository(RBACRole);
       const isTenant = decoded.role === 'tenant';
-      const assigns = await assignRepo.find({ where: { userType: isTenant ? 'tenant' : 'system', userId: user.id } });
-      const roleIds = assigns.map(a => a.roleId);
+      const assigns = await assignRepo.find({
+        where: { userType: isTenant ? 'tenant' : 'system', userId: user.id },
+      });
+      const roleIds = assigns.map((a) => a.roleId);
       let perms: string[] = [];
       if (roleIds.length) {
         const roles = await roleRepo.find({ where: { id: In(roleIds) } });

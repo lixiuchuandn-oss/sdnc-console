@@ -41,7 +41,7 @@ router.get('/recent-activities', async (_req: AuthRequest, res: Response) => {
     // 统一格式 { time, action, user, status }
     const activities: any[] = [];
 
-    recentClouds.forEach(c => {
+    recentClouds.forEach((c) => {
       activities.push({
         time: (c.updatedAt || c.createdAt).toISOString(),
         action: `云资源 ${c.name} 更新`,
@@ -50,7 +50,7 @@ router.get('/recent-activities', async (_req: AuthRequest, res: Response) => {
       });
     });
 
-    recentUsers.forEach(u => {
+    recentUsers.forEach((u) => {
       if (u.lastLoginAt) {
         activities.push({
           time: u.lastLoginAt.toISOString(),
@@ -77,74 +77,110 @@ router.get('/cloud-usage', async (_req: AuthRequest, res: Response) => {
 
     // 取出中心云和边缘云
     const clouds = await cloudRepo.find({
-      where: { type: In([ 'central','edge' ]) }
+      where: { type: In(['central', 'edge']) },
     } as any);
 
     // 按类型聚合
-    const aggregate: Record<string, { name: string; totalCpu: number; usedCpu: number; totalMemory: number; usedMemory: number; totalStorage: number; usedStorage: number; status: string }> = {
-      central: { name: '中心云', totalCpu:0, usedCpu:0, totalMemory:0, usedMemory:0, totalStorage:0, usedStorage:0, status: 'online' },
-      edge: { name: '边缘云', totalCpu:0, usedCpu:0, totalMemory:0, usedMemory:0, totalStorage:0, usedStorage:0, status: 'online' }
+    const aggregate: Record<
+      string,
+      {
+        name: string;
+        totalCpu: number;
+        usedCpu: number;
+        totalMemory: number;
+        usedMemory: number;
+        totalStorage: number;
+        usedStorage: number;
+        status: string;
+      }
+    > = {
+      central: {
+        name: '中心云',
+        totalCpu: 0,
+        usedCpu: 0,
+        totalMemory: 0,
+        usedMemory: 0,
+        totalStorage: 0,
+        usedStorage: 0,
+        status: 'online',
+      },
+      edge: {
+        name: '边缘云',
+        totalCpu: 0,
+        usedCpu: 0,
+        totalMemory: 0,
+        usedMemory: 0,
+        totalStorage: 0,
+        usedStorage: 0,
+        status: 'online',
+      },
     };
 
     // in cloud-usage route, before aggregate loop, fetch allocations
     const usRepo = AppDataSource.getRepository(UserSpace);
     const allocRepo = AppDataSource.getRepository(UserSpaceAllocation);
 
-    const cloudIds = clouds.map(c=>c.id);
+    const cloudIds = clouds.map((c) => c.id);
     // 获取这些云下的用户空间 id
     const userSpaces = await usRepo.find({ where: { cloudId: In(cloudIds) } });
-    const userSpaceIds = userSpaces.map(u=>u.id);
+    const userSpaceIds = userSpaces.map((u) => u.id);
 
     let allocations: UserSpaceAllocation[] = [];
-    if(userSpaceIds.length>0){
+    if (userSpaceIds.length > 0) {
       allocations = await allocRepo.find({ where: { userSpaceId: In(userSpaceIds) } as any });
     }
 
     // 汇总分配到对应 cloud
-    const allocSumByCloud: Record<string,{cpu:number;memory:number;storage:number}> = {};
-    userSpaces.forEach(us=>{ allocSumByCloud[us.cloudId] = allocSumByCloud[us.cloudId] || {cpu:0,memory:0,storage:0};});
-    allocations.forEach(a=>{
-      const us = userSpaces.find(u=>u.id===a.userSpaceId);
-      if(!us) return;
+    const allocSumByCloud: Record<string, { cpu: number; memory: number; storage: number }> = {};
+    userSpaces.forEach((us) => {
+      allocSumByCloud[us.cloudId] = allocSumByCloud[us.cloudId] || {
+        cpu: 0,
+        memory: 0,
+        storage: 0,
+      };
+    });
+    allocations.forEach((a) => {
+      const us = userSpaces.find((u) => u.id === a.userSpaceId);
+      if (!us) return;
       const sum = allocSumByCloud[us.cloudId];
       sum.cpu += a.cpu || 0;
       sum.memory += a.memory || 0;
       sum.storage += a.storage || 0;
     });
 
-    clouds.forEach(c=>{
-      const key = c.type as 'central'|'edge';
+    clouds.forEach((c) => {
+      const key = c.type as 'central' | 'edge';
       const entry = aggregate[key];
       entry.totalCpu += c.totalCpu || 0;
       entry.totalMemory += c.totalMemory || 0;
       entry.totalStorage += c.totalStorage || 0;
 
-      const allocSum = allocSumByCloud[c.id] || {cpu:0,memory:0,storage:0};
+      const allocSum = allocSumByCloud[c.id] || { cpu: 0, memory: 0, storage: 0 };
       entry.usedCpu += allocSum.cpu;
       entry.usedMemory += allocSum.memory;
       entry.usedStorage += allocSum.storage;
 
-      if(c.status !== 'online') entry.status = 'maintenance';
+      if (c.status !== 'online') entry.status = 'maintenance';
     });
 
-    const result = Object.values(aggregate).map(item=>({
+    const result = Object.values(aggregate).map((item) => ({
       name: item.name,
       status: item.status,
       cpu: {
         used: item.usedCpu,
         total: item.totalCpu,
-        percent: item.totalCpu? Math.round(item.usedCpu/item.totalCpu*100):0,
+        percent: item.totalCpu ? Math.round((item.usedCpu / item.totalCpu) * 100) : 0,
       },
-      memory:{
+      memory: {
         used: item.usedMemory,
         total: item.totalMemory,
-        percent: item.totalMemory? Math.round(item.usedMemory/item.totalMemory*100):0,
+        percent: item.totalMemory ? Math.round((item.usedMemory / item.totalMemory) * 100) : 0,
       },
-      storage:{
+      storage: {
         used: item.usedStorage,
         total: item.totalStorage,
-        percent: item.totalStorage? Math.round(item.usedStorage/item.totalStorage*100):0,
-      }
+        percent: item.totalStorage ? Math.round((item.usedStorage / item.totalStorage) * 100) : 0,
+      },
     }));
 
     res.json(result);

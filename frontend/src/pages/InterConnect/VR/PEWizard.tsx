@@ -3,8 +3,7 @@ import { Button, Card, Descriptions, Form, Input, InputNumber, Radio, Space, Ste
 import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { getVR2Config } from '../../../services/vr2Api';
-import { getVRConfig, saveVRConfig, setVRRole } from '../../../services/vrConfigApi';
+import { getVR2Config, getVRConfig, saveVRConfig, setVRRole } from '../../../services/virtualRouterApi';
 
 const PEWizard: React.FC = () => {
   const navigate = useNavigate();

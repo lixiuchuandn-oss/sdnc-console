@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
 import { UserSpace } from './UserSpace';
 
 @Entity('user_space_allocations')
@@ -9,8 +17,8 @@ export class UserSpaceAllocation {
   @Column({ name: 'user_space_id' })
   userSpaceId!: string;
 
-  @Column({ 
-    type: 'simple-enum', 
+  @Column({
+    type: 'simple-enum',
     enum: ['cpu', 'memory', 'storage'],
   })
   type!: 'cpu' | 'memory' | 'storage';
@@ -33,7 +41,7 @@ export class UserSpaceAllocation {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
-  @ManyToOne(() => UserSpace, userSpace => userSpace.allocations)
+  @ManyToOne(() => UserSpace, (userSpace) => userSpace.allocations)
   @JoinColumn({ name: 'user_space_id' })
   userSpace?: UserSpace;
 }

@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
 import { Tenant } from './Tenant';
 import { Organization } from './Organization';
 
@@ -19,10 +27,10 @@ export class TenantUser {
   @Column({ length: 255 })
   password!: string;
 
-  @Column({ 
-    type: 'simple-enum', 
+  @Column({
+    type: 'simple-enum',
     enum: ['admin', 'user', 'viewer'],
-    default: 'user'
+    default: 'user',
   })
   role!: 'admin' | 'user' | 'viewer';
 
@@ -32,10 +40,10 @@ export class TenantUser {
   @Column({ name: 'tenant_id' })
   tenantId!: string;
 
-  @Column({ 
-    type: 'simple-enum', 
+  @Column({
+    type: 'simple-enum',
     enum: ['active', 'inactive'],
-    default: 'active'
+    default: 'active',
   })
   status!: 'active' | 'inactive';
 
@@ -48,11 +56,11 @@ export class TenantUser {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
-  @ManyToOne(() => Tenant, tenant => tenant.users)
+  @ManyToOne(() => Tenant, (tenant) => tenant.users)
   @JoinColumn({ name: 'tenant_id' })
   tenant?: Tenant;
 
-  @ManyToOne(() => Organization, organization => organization.users)
+  @ManyToOne(() => Organization, (organization) => organization.users)
   @JoinColumn({ name: 'organization_id' })
   organization?: Organization;
-} 
+}

@@ -10,7 +10,8 @@ const router = Router();
 
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { username, password, device_fingerprint, tenant_id, org_id, vm_id, display_name } = req.body || {};
+    const { username, password, device_fingerprint, tenant_id, org_id, vm_id, display_name } =
+      req.body || {};
 
     // 模式1：账号密码登录（返回租户与组织信息）
     if (username && password) {
@@ -33,7 +34,9 @@ router.post('/login', async (req: Request, res: Response) => {
         name: display_name ? String(display_name) : undefined,
       };
       const expiresSeconds = 3600;
-      const token = jwt.sign(payload as any, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: expiresSeconds });
+      const token = jwt.sign(payload as any, process.env.JWT_SECRET || 'your-secret-key', {
+        expiresIn: expiresSeconds,
+      });
       let tenantName: string | undefined;
       let orgName: string | undefined;
       try {
@@ -52,7 +55,7 @@ router.post('/login', async (req: Request, res: Response) => {
         tenant_id: user.tenantId,
         org_id: user.organizationId,
         tenant_name: tenantName,
-        org_name: orgName
+        org_name: orgName,
       });
     }
 

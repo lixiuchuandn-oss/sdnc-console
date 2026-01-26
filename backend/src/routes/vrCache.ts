@@ -34,15 +34,15 @@ vrCacheRoutes.get('/pagelist', async (req, res) => {
     const [basicRows, extendedRows, deviceRows] = await Promise.all([
       basicRepo.find(),
       extendedRepo.find(),
-      deviceRepo.find()
+      deviceRepo.find(),
     ]);
 
     // 2. 建立索引
-    const extendedMap = new Map(extendedRows.map(r => [r.uuid, JSON.parse(r.data)]));
-    const deviceMap = new Map(deviceRows.map(r => [r.uuid, JSON.parse(r.data)]));
+    const extendedMap = new Map(extendedRows.map((r) => [r.uuid, JSON.parse(r.data)]));
+    const deviceMap = new Map(deviceRows.map((r) => [r.uuid, JSON.parse(r.data)]));
 
     // 3. 合并数据 (以 Basic 为主)
-    const mergedList = basicRows.map(basic => {
+    const mergedList = basicRows.map((basic) => {
       const uuid = basic.uuid;
       const basicData = JSON.parse(basic.data);
       const extendedData = extendedMap.get(uuid) || null;
@@ -62,13 +62,13 @@ vrCacheRoutes.get('/pagelist', async (req, res) => {
         org_id: deviceData?.organizationId || basicData.org_id,
         bind_status: deviceData?.bindStatus || basicData.bind_status,
         role: deviceData?.role || basicData.role,
-        
+
         // 原始信息
         _raw_csmctl_info: basicData,
         _raw_vrctl_info: deviceData,
-        
+
         // 扩展信息
-        vr3_info: extendedData
+        vr3_info: extendedData,
       };
     });
 
@@ -85,10 +85,9 @@ vrCacheRoutes.get('/pagelist', async (req, res) => {
         page_num: pageNum,
         page_size: pageSize,
         total: total,
-        list: pageData
-      }
+        list: pageData,
+      },
     });
-
   } catch (err: any) {
     console.error('[VR_CACHE] pagelist error', err);
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });

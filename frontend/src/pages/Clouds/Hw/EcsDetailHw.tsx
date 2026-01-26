@@ -4,7 +4,8 @@ import ReactECharts from 'echarts-for-react';
 import { DesktopOutlined, LineChartOutlined, NodeIndexOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DeleteOutlined, WindowsOutlined, CodeOutlined, SafetyCertificateOutlined, GlobalOutlined, CloudServerOutlined, HddOutlined, CopyOutlined, EyeOutlined, AuditOutlined } from '@ant-design/icons';
 import SecurityGroupRuleManageDrawer from './drawers/SecurityGroupRuleManageDrawer';
 import { statusTag, EllipsisText, collectIpv4FromAddresses } from './components/Common';
-import { startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl, fetchHuaweiPorts, fetchCloudProviderEips, fetchCloudProviderEcs, updateHuaweiPortSourceDestCheck, unbindHuaweiEip, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup, setHuaweiPortSecurityGroups, showCloudProviderSecurityGroup } from '../../../services/api';
+import { startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl, fetchCloudProviderEips, fetchCloudProviderEcs } from '../../../services/api';
+import { fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, unbindHuaweiEip, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup, setHuaweiPortSecurityGroups, showCloudProviderSecurityGroup } from '../../../services/huaweiApi';
 
 type EcsDetailHwProps = {
   cloudId: string;

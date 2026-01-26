@@ -14,8 +14,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.cen:read') || perms.includes('networks.cen:write'))) {
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.cen:read') ||
+          perms.includes('networks.cen:write')
+        )
+      ) {
         return res.status(403).json({ message: '权限不足：需要读取权限 networks.cen:read' });
       }
     }
@@ -33,7 +41,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
       if (!(role === 'super_admin' || perms.includes('networks.cen:write'))) {
         return res.status(403).json({ message: '权限不足：需要写入权限 networks.cen:write' });
       }
@@ -43,7 +53,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: '缺少 tenantId' });
     }
     const repo = AppDataSource.getRepository(CloudEnterpriseNetwork);
-    const cen = repo.create({ name, description, tenantId, strategy: strategy || 'SRv6', status: CenStatus.CREATING });
+    const cen = repo.create({
+      name,
+      description,
+      tenantId,
+      strategy: strategy || 'SRv6',
+      status: CenStatus.CREATING,
+    });
     await repo.save(cen);
 
     // 模拟创建过程
@@ -86,7 +102,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const force = String((req.query as any)?.force || '').toLowerCase() === '1' || String((req.query as any)?.force || '').toLowerCase() === 'true';
+    const force =
+      String((req.query as any)?.force || '').toLowerCase() === '1' ||
+      String((req.query as any)?.force || '').toLowerCase() === 'true';
     const repo = AppDataSource.getRepository(CloudEnterpriseNetwork);
     const cen = await repo.findOne({ where: { id } });
     if (!cen) return res.status(404).json({ message: 'CEN 不存在' });
@@ -94,8 +112,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const attachments = await attachRepo.find({ where: { cenId: id } });
 
     if (!force && attachments.length > 0) {
-      return res.status(400).json({ 
-        message: `无法删除互联通道，该通道已关联 ${attachments.length} 个安全域，请先解除关联` 
+      return res.status(400).json({
+        message: `无法删除互联通道，该通道已关联 ${attachments.length} 个安全域，请先解除关联`,
       });
     }
 
@@ -105,7 +123,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
     await repo.remove(cen);
-    await logOperation(req, 'Delete CEN', `删除云企业网: ${cen.name} (ID: ${id})，关联安全域已解绑`, true);
+    await logOperation(
+      req,
+      'Delete CEN',
+      `删除云企业网: ${cen.name} (ID: ${id})，关联安全域已解绑`,
+      true,
+    );
     res.json({ message: force ? '已强制删除：已释放挂载安全域并删除 CEN' : 'CEN 删除成功' });
   } catch (err) {
     console.error('删除 CEN 失败:', err);
@@ -119,11 +142,11 @@ router.get('/:id/attachments', async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const repo = AppDataSource.getRepository(CenAttachment);
     const list = await repo.find({ where: { cenId: id }, relations: ['vpc', 'securityDomain'] });
-    
+
     // Transform response to clean up structure as requested
-    const result = list.map(att => {
+    const result = list.map((att) => {
       const domain: any = att.securityDomain ? { ...att.securityDomain } : {};
-      
+
       // Inject CEN ID and Attachment ID into domain object
       domain.cenId = att.cenId;
       domain.attachmentId = att.id; // Needed for frontend actions (e.g. unbind)
@@ -136,7 +159,7 @@ router.get('/:id/attachments', async (req: AuthRequest, res: Response) => {
       return {
         id: att.id,
         status: att.status,
-        securityDomain: domain
+        securityDomain: domain,
         // Exclude root level vpcId, vpc, cenId, etc.
       };
     });
@@ -176,7 +199,13 @@ router.post('/:id/attachments', async (req: AuthRequest, res: Response) => {
     }
 
     const attachRepo = AppDataSource.getRepository(CenAttachment);
-    const attachment = attachRepo.create({ cenId: id, vpcId: vpcId || undefined, status: CenAttachmentStatus.ATTACHING, securityDomainId: securityDomainId || undefined, securityDomain: securityDomain || undefined });
+    const attachment = attachRepo.create({
+      cenId: id,
+      vpcId: vpcId || undefined,
+      status: CenAttachmentStatus.ATTACHING,
+      securityDomainId: securityDomainId || undefined,
+      securityDomain: securityDomain || undefined,
+    });
     await attachRepo.save(attachment);
 
     // 模拟附加过程
@@ -186,7 +215,10 @@ router.post('/:id/attachments', async (req: AuthRequest, res: Response) => {
     }, 2000);
 
     // 返回包含关系的最新对象，便于前端渲染
-    const created = await attachRepo.findOne({ where: { id: attachment.id }, relations: ['vpc', 'securityDomain'] });
+    const created = await attachRepo.findOne({
+      where: { id: attachment.id },
+      relations: ['vpc', 'securityDomain'],
+    });
     res.status(201).json({ message: 'VPC 附加中', attachment: created || attachment });
   } catch (err) {
     console.error('附加失败:', err);

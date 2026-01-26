@@ -3,8 +3,9 @@ import { Button, Card, Divider, Form, Input, Radio, Row, Col, Select, Space, Ste
 import { ArrowLeftOutlined, UserOutlined, ReloadOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { fetchVrCachePageList } from '../../../services/vrCacheApi';
-import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchHuaweiPorts, fetchCloudProviderSubnetsByVpc, fetchTenants, fetchOrganizationsByTenant, fetchOrganizationResourcePools } from '../../../services/api';
+import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
+import { fetchClouds, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderSubnets, fetchCloudProviderEcs, fetchCloudProviderSubnetsByVpc, fetchTenants, fetchOrganizationsByTenant, fetchOrganizationResourcePools } from '../../../services/api';
+import { fetchHuaweiPorts } from '../../../services/huaweiApi';
 import { createSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 
 interface VRRowOpt { uuid: string; name: string; }

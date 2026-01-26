@@ -21,14 +21,14 @@ export class StandardResourceService {
   async getResourcePoolOptions() {
     const repo = AppDataSource.getRepository(Cloud);
     const clouds = await repo.find({
-      select: ['id', 'name', 'type', 'config', 'region'] // Optimized select
+      select: ['id', 'name', 'type', 'config', 'region'], // Optimized select
     });
 
-    return clouds.map(c => ({
+    return clouds.map((c) => ({
       id: c.id,
       name: c.name,
       provider: (c.config as any)?.provider || c.type,
-      region: c.region
+      region: c.region,
     }));
   }
 
@@ -40,14 +40,14 @@ export class StandardResourceService {
     if (!cloud) throw new Error('Resource pool not found');
 
     const provider = String((cloud.config as any)?.provider || '').toLowerCase();
-    
+
     // Standardized API Endpoint on our own platform that proxies the request
     // This allows "other features" to call this internal API
     const internalApiUrl = `/api/clouds/${cloud.id}/resources/vpcs`;
 
     // If the user literally means "Backend Interface Function" that returns the COMMAND to be executed by the caller:
     // We can return the metadata describing how to fetch.
-    
+
     return {
       description: `Query VPCs for cloud ${cloud.name} (${provider})`,
       type: 'http_request',
@@ -55,9 +55,9 @@ export class StandardResourceService {
         url: internalApiUrl,
         method: 'GET',
         headers: {
-          'Content-Type': 'application/json'
-        }
-      }
+          'Content-Type': 'application/json',
+        },
+      },
     };
   }
 
@@ -69,7 +69,7 @@ export class StandardResourceService {
     if (!cloud) throw new Error('Resource pool not found');
 
     const provider = String((cloud.config as any)?.provider || '').toLowerCase();
-    
+
     // For VMs, we have ecs-all or provider specific endpoints
     const internalApiUrl = `/api/clouds/${cloud.id}/resources/ecs`;
 
@@ -80,9 +80,9 @@ export class StandardResourceService {
         url: internalApiUrl,
         method: 'GET',
         headers: {
-          'Content-Type': 'application/json'
-        }
-      }
+          'Content-Type': 'application/json',
+        },
+      },
     };
   }
 

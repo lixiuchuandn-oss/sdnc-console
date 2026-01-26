@@ -1,11 +1,18 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+} from 'typeorm';
 import { Cloud } from './Cloud';
 import { Tenant } from './Tenant';
 import { Organization } from './Organization';
 
 export enum VpcStatus {
   CREATING = 'creating',
-  READY = 'ready'
+  READY = 'ready',
 }
 
 @Entity('vpcs')
@@ -19,13 +26,13 @@ export class VpcNetwork {
   @Column()
   cidrBlock!: string;
 
-  @Column({ type:'text', nullable:true })
+  @Column({ type: 'text', nullable: true })
   description?: string;
 
   @Column({
-    type:'simple-enum',
+    type: 'simple-enum',
     enum: VpcStatus,
-    default: VpcStatus.CREATING
+    default: VpcStatus.CREATING,
   })
   status!: VpcStatus;
 
@@ -38,18 +45,18 @@ export class VpcNetwork {
   @Column()
   cloudId!: string;
 
-  @ManyToOne(()=>Cloud)
+  @ManyToOne(() => Cloud)
   cloud!: Cloud;
 
   @Column()
   tenantId!: string;
 
-  @ManyToOne(()=>Tenant)
+  @ManyToOne(() => Tenant)
   tenant!: Tenant;
 
-  @Column({ nullable:true })
+  @Column({ nullable: true })
   organizationId?: string;
 
-  @ManyToOne(()=>Organization, { nullable:true })
+  @ManyToOne(() => Organization, { nullable: true })
   organization?: Organization;
-} 
+}

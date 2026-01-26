@@ -8,7 +8,7 @@ export class RoleAssignment {
   @Column({ name: 'role_id' })
   roleId!: string;
 
-  @Column({ type: 'simple-enum', enum: ['system','tenant'] })
+  @Column({ type: 'simple-enum', enum: ['system', 'tenant'] })
   userType!: 'system' | 'tenant';
 
   @Column({ name: 'user_id' })

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Table, Spin } from 'antd';
 import { DeploymentUnitOutlined, GlobalOutlined, HddOutlined, SafetyOutlined, LineChartOutlined, FileSearchOutlined } from '@ant-design/icons';
-import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, fetchCloudProviderEnis, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchAliyunEcsMetrics, fetchAliyunEcsHistoryEvents } from '../../../../services/api';
+import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderSnapshots } from '../../../../services/api';
+import { fetchCloudProviderEnis, fetchAliyunEcsMetrics, fetchAliyunEcsHistoryEvents } from '../../../../services/aliyunApi';
 import { fetchCloudProviderSecurityGroups } from '../../../../services/securityGroups';
 import ResourceDetailContainer from '../../../../components/ResourceDetailContainer';
 import EcsInsDetSection from '../sections/EcsInsDetSection';

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Modal, Select, Space, Table, Tooltip, Form, Checkbox, InputNumber, Switch } from 'antd';
 import { ReloadOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
-import { associateAliyunEip, unassociateAliyunEip, createCloudProviderEni, attachCloudProviderEni, detachCloudProviderEni, fetchCloudProviderEnis, updateCloudProviderEni } from '../../../../services/api';
+import { createCloudProviderEni, attachCloudProviderEni, detachCloudProviderEni, fetchCloudProviderEnis, updateCloudProviderEni, associateAliyunEip, unassociateAliyunEip } from '../../../../services/aliyunApi';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import StdFormModal from '../../../../components/StdFormModal';

@@ -53,9 +53,19 @@ router.get('/', async (req, res) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.security-domain:read') || perms.includes('networks.security-domain:write'))) {
-        return res.status(403).json({ message: '权限不足：需要读取权限 networks.security-domain:read' });
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.security-domain:read') ||
+          perms.includes('networks.security-domain:write')
+        )
+      ) {
+        return res
+          .status(403)
+          .json({ message: '权限不足：需要读取权限 networks.security-domain:read' });
       }
     }
     const ctx = getTenantContext(req as any);
@@ -81,24 +91,46 @@ router.get('/', async (req, res) => {
             const provider = (cloud as any)?.config?.provider || (cloud as any)?.provider;
             const region = cloud?.region;
             if (provider === 'aliyun' && cloud?.accessKey && cloud?.secretKey && region) {
-              const resp: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: region, action: 'DescribeVpcs', extraParams: { VpcId: String(dom.vpcId) } });
+              const resp: any = await callAliyunVpc({
+                accessKeyId: cloud.accessKey,
+                accessKeySecret: cloud.secretKey,
+                regionId: region,
+                action: 'DescribeVpcs',
+                extraParams: { VpcId: String(dom.vpcId) },
+              });
               const arr: any[] = resp?.Vpcs?.Vpc || resp?.VpcSets?.VpcSet || [];
               const one = Array.isArray(arr) ? arr[0] : undefined;
               vpcCidr = String(one?.CidrBlock || '').trim();
               vpcCloudId = cloud.id;
             } else if (provider === 'huaweicloud') {
-              const ak = cloud?.accessKey; const sk = cloud?.secretKey; const projectId = (cloud as any)?.config?.projectId; const regionId = region;
+              const ak = cloud?.accessKey;
+              const sk = cloud?.secretKey;
+              const projectId = (cloud as any)?.config?.projectId;
+              const regionId = region;
               if (ak && sk && projectId && regionId) {
                 const resp: any = await huaweiListVpcs({ ak, sk, region: regionId, projectId });
                 const list: any[] = (resp as any)?.vpcs || (resp as any)?.vpcs?.vpcs || [];
-                const one = (Array.isArray(list) ? list : []).find((v:any)=> String(v?.id||v?.VpcId).trim() === String(dom.vpcId).trim());
+                const one = (Array.isArray(list) ? list : []).find(
+                  (v: any) => String(v?.id || v?.VpcId).trim() === String(dom.vpcId).trim(),
+                );
                 vpcCidr = String(one?.cidr || one?.CidrBlock || '').trim();
                 vpcCloudId = cloud.id;
               }
-            } else if (provider === 'tencentcloud' && cloud?.accessKey && cloud?.secretKey && region) {
-              const resp: any = await tencentListVpcs({ secretId: cloud.accessKey, secretKey: cloud.secretKey, region });
+            } else if (
+              provider === 'tencentcloud' &&
+              cloud?.accessKey &&
+              cloud?.secretKey &&
+              region
+            ) {
+              const resp: any = await tencentListVpcs({
+                secretId: cloud.accessKey,
+                secretKey: cloud.secretKey,
+                region,
+              });
               const list: any[] = (resp as any)?.VpcSet || [];
-              const one = (Array.isArray(list) ? list : []).find((v:any)=> String(v?.VpcId).trim() === String(dom.vpcId).trim());
+              const one = (Array.isArray(list) ? list : []).find(
+                (v: any) => String(v?.VpcId).trim() === String(dom.vpcId).trim(),
+              );
               vpcCidr = String(one?.CidrBlock || '').trim();
               vpcCloudId = cloud.id;
             }
@@ -128,7 +160,8 @@ router.get('/', async (req, res) => {
         try {
           const cloud = await cloudRepo().findOne({ where: { id: dom.cloudId } });
           if (cloud) {
-            dom.provider = (cloud as any)?.config?.provider || (cloud as any)?.provider || undefined;
+            dom.provider =
+              (cloud as any)?.config?.provider || (cloud as any)?.provider || undefined;
             dom.region = cloud.region;
           }
         } catch (e) {
@@ -176,9 +209,19 @@ router.get('/:id', async (req, res) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.security-domain:read') || perms.includes('networks.security-domain:write'))) {
-        return res.status(403).json({ message: '权限不足：需要读取权限 networks.security-domain:read' });
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.security-domain:read') ||
+          perms.includes('networks.security-domain:write')
+        )
+      ) {
+        return res
+          .status(403)
+          .json({ message: '权限不足：需要读取权限 networks.security-domain:read' });
       }
     }
 
@@ -217,98 +260,119 @@ router.get('/:id', async (req, res) => {
     const result = { ...item } as any;
     // Transform cidr6 string to array
     if (typeof result.cidr6 === 'string' && result.cidr6) {
-        result.cidr6 = result.cidr6.split(',').map((s: string) => s.trim()).filter((s: string) => s);
+      result.cidr6 = result.cidr6
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s);
     } else {
-        result.cidr6 = [];
+      result.cidr6 = [];
     }
 
     // Populate cidr4 array for frontend compatibility
     if (result.cidr) {
-        result.cidr4 = [result.cidr];
+      result.cidr4 = [result.cidr];
     } else {
-        result.cidr4 = [];
+      result.cidr4 = [];
     }
 
     // Fetch associated Cascade Channels (CENs)
     try {
-        const attachments = await cenAttachRepo().find({
-            where: { securityDomainId: id },
-            relations: ['cen']
-        });
-        result.cascadeChannels = attachments.map(a => a.cen).filter(c => c);
+      const attachments = await cenAttachRepo().find({
+        where: { securityDomainId: id },
+        relations: ['cen'],
+      });
+      result.cascadeChannels = attachments.map((a) => a.cen).filter((c) => c);
     } catch (e) {
-        console.warn('Failed to fetch cascade channels:', e);
-        result.cascadeChannels = [];
+      console.warn('Failed to fetch cascade channels:', e);
+      result.cascadeChannels = [];
     }
 
     // Fetch associated SRv6 Tunnels
     // Match by VR UUID or IPs (PE/CE)
     result.srv6Tunnels = [];
     try {
-        const matchConditions: any[] = [];
-        if (result.vrUuid) {
-            matchConditions.push({ peA: result.vrUuid }, { peB: result.vrUuid }, { ceA: result.vrUuid }, { ceB: result.vrUuid });
-        }
-        if (result.vrPublicIp) {
-            const ips = String(result.vrPublicIp).split(',').map(s => s.trim()).filter(s => s);
-            ips.forEach(ip => matchConditions.push({ peA: ip }, { peB: ip }, { ceA: ip }, { ceB: ip }));
-        }
-        if (matchConditions.length > 0) {
-            result.srv6Tunnels = await srv6Repo().find({ where: matchConditions });
-        }
+      const matchConditions: any[] = [];
+      if (result.vrUuid) {
+        matchConditions.push(
+          { peA: result.vrUuid },
+          { peB: result.vrUuid },
+          { ceA: result.vrUuid },
+          { ceB: result.vrUuid },
+        );
+      }
+      if (result.vrPublicIp) {
+        const ips = String(result.vrPublicIp)
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s);
+        ips.forEach((ip) =>
+          matchConditions.push({ peA: ip }, { peB: ip }, { ceA: ip }, { ceB: ip }),
+        );
+      }
+      if (matchConditions.length > 0) {
+        result.srv6Tunnels = await srv6Repo().find({ where: matchConditions });
+      }
     } catch (e) {
-        console.warn('Failed to fetch SRv6 tunnels:', e);
+      console.warn('Failed to fetch SRv6 tunnels:', e);
     }
-    
+
     // Fetch associated Cloud Instances (CloudInstanceInventory)
     // Relation is based on cloudId and vpcId
     if (result.cloudId && result.vpcId) {
-        console.log(`[SecurityDomain] Fetching cloud instances for cloudId=${result.cloudId} vpcId=${result.vpcId}`);
-        try {
-            const instances = await inventoryRepo().find({
-                where: {
-                    cloudId: result.cloudId,
-                    vpcId: result.vpcId
-                }
-            });
-            console.log(`[SecurityDomain] Found ${instances.length} cloud instances`);
-            result.cloudInstances = instances;
-        } catch (e) {
-            console.warn('Failed to fetch cloud instances for security domain:', e);
-            result.cloudInstances = [];
-        }
-    } else {
-        console.log(`[SecurityDomain] Skip fetching cloud instances: cloudId=${result.cloudId} vpcId=${result.vpcId}`);
+      console.log(
+        `[SecurityDomain] Fetching cloud instances for cloudId=${result.cloudId} vpcId=${result.vpcId}`,
+      );
+      try {
+        const instances = await inventoryRepo().find({
+          where: {
+            cloudId: result.cloudId,
+            vpcId: result.vpcId,
+          },
+        });
+        console.log(`[SecurityDomain] Found ${instances.length} cloud instances`);
+        result.cloudInstances = instances;
+      } catch (e) {
+        console.warn('Failed to fetch cloud instances for security domain:', e);
         result.cloudInstances = [];
+      }
+    } else {
+      console.log(
+        `[SecurityDomain] Skip fetching cloud instances: cloudId=${result.cloudId} vpcId=${result.vpcId}`,
+      );
+      result.cloudInstances = [];
     }
 
     // Fetch associated Application Instances (ServiceCatalog)
     // Relation is based on domainId
     try {
-        const services = await serviceRepo().find({ where: { domainId: id } });
-        result.appInstances = services;
+      const services = await serviceRepo().find({ where: { domainId: id } });
+      result.appInstances = services;
     } catch (e) {
-        console.warn('Failed to fetch app instances (services):', e);
-        result.appInstances = [];
+      console.warn('Failed to fetch app instances (services):', e);
+      result.appInstances = [];
     }
 
     // Fetch associated Service Chains (ServiceChain)
     // Relation is based on domainId OR protectionTargets matching ID/Name
     try {
-        const chains = await chainRepo().createQueryBuilder('chain')
-            .where('chain.domainId = :id', { id })
-            .orWhere('chain.protectionTargets LIKE :searchId', { searchId: `%${id}%` })
-            .orWhere('chain.protectionTargets LIKE :searchName', { searchName: `%${result.name}%` })
-            .getMany();
-        result.serviceChains = chains;
+      const chains = await chainRepo()
+        .createQueryBuilder('chain')
+        .where('chain.domainId = :id', { id })
+        .orWhere('chain.protectionTargets LIKE :searchId', { searchId: `%${id}%` })
+        .orWhere('chain.protectionTargets LIKE :searchName', { searchName: `%${result.name}%` })
+        .getMany();
+      result.serviceChains = chains;
     } catch (e) {
-        console.warn('Failed to fetch service chains:', e);
-        result.serviceChains = [];
+      console.warn('Failed to fetch service chains:', e);
+      result.serviceChains = [];
     }
 
     try {
       const directIds: string[] = result.securityServiceIds
-        ? result.securityServiceIds.split(',').map((s: string) => s.trim()).filter(Boolean)
+        ? result.securityServiceIds
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
         : [];
       const chainIds = new Set<string>();
 
@@ -320,7 +384,15 @@ router.get('/:id', async (req, res) => {
               if (Array.isArray(parsed)) {
                 parsed.forEach((s: any) => {
                   if (s && typeof s === 'object') {
-                    const id = String(s?.id ?? s?.vm_group_id ?? s?.vmGroupId ?? s?.vmGroupID ?? s?.vm_group_uuid ?? s?.vmGroupUuid ?? '').trim();
+                    const id = String(
+                      s?.id ??
+                        s?.vm_group_id ??
+                        s?.vmGroupId ??
+                        s?.vmGroupID ??
+                        s?.vm_group_uuid ??
+                        s?.vmGroupUuid ??
+                        '',
+                    ).trim();
                     if (id) chainIds.add(id);
                     return;
                   }
@@ -329,7 +401,15 @@ router.get('/:id', async (req, res) => {
                 });
               } else {
                 if (parsed && typeof parsed === 'object') {
-                  const id = String(parsed?.id ?? parsed?.vm_group_id ?? parsed?.vmGroupId ?? parsed?.vmGroupID ?? parsed?.vm_group_uuid ?? parsed?.vmGroupUuid ?? '').trim();
+                  const id = String(
+                    parsed?.id ??
+                      parsed?.vm_group_id ??
+                      parsed?.vmGroupId ??
+                      parsed?.vmGroupID ??
+                      parsed?.vm_group_uuid ??
+                      parsed?.vmGroupUuid ??
+                      '',
+                  ).trim();
                   if (id) chainIds.add(id);
                 } else {
                   const id = String(parsed ?? '').trim();
@@ -346,15 +426,22 @@ router.get('/:id', async (req, res) => {
       const allIds = Array.from(new Set<string>([...directIds, ...Array.from(chainIds)]));
 
       const groupById = new Map<string, any>();
-      const toKey = (s: any) => String(s ?? '').trim().toLowerCase();
+      const toKey = (s: any) =>
+        String(s ?? '')
+          .trim()
+          .toLowerCase();
       const uuidToObjectIdHex = (uuidStr: string): string | null => {
         try {
-          const s = String(uuidStr || '').trim().toLowerCase();
-          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s)) return null;
+          const s = String(uuidStr || '')
+            .trim()
+            .toLowerCase();
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s))
+            return null;
           const hex = s.replace(/-/g, '');
           const bytes = Buffer.from(hex, 'hex');
           if (bytes.length !== 16) return null;
-          if (!(bytes[6] === 0x40 && bytes[7] === 0x00 && bytes[8] === 0x80 && bytes[9] === 0x00)) return null;
+          if (!(bytes[6] === 0x40 && bytes[7] === 0x00 && bytes[8] === 0x80 && bytes[9] === 0x00))
+            return null;
           const obj = Buffer.alloc(12);
           bytes.copy(obj, 0, 0, 6);
           bytes.copy(obj, 6, 10, 16);
@@ -374,7 +461,9 @@ router.get('/:id', async (req, res) => {
       try {
         if (allIds.length > 0 || ((result as any)?.serviceChains?.length ?? 0) > 0) {
           const isCsmCloud = (cloud: any) => {
-            const pvRaw = String((cloud as any)?.config?.provider || (cloud as any)?.provider || '').trim().toLowerCase();
+            const pvRaw = String((cloud as any)?.config?.provider || (cloud as any)?.provider || '')
+              .trim()
+              .toLowerCase();
             return pvRaw === 'cloudmap.csm';
           };
 
@@ -391,8 +480,8 @@ router.get('/:id', async (req, res) => {
             new Set(
               (((result as any)?.serviceChains as any[]) || [])
                 .map((c: any) => String(c?.clusterName || '').trim())
-                .filter(Boolean)
-            )
+                .filter(Boolean),
+            ),
           );
           if (chainPoolKeys.length > 0) {
             const byId = await cloudRepo()
@@ -403,7 +492,9 @@ router.get('/:id', async (req, res) => {
               if (c && isCsmCloud(c)) candidateClouds.push(c);
             });
 
-            const foundIds = new Set<string>((Array.isArray(byId) ? byId : []).map((c: any) => String(c?.id || '').trim()));
+            const foundIds = new Set<string>(
+              (Array.isArray(byId) ? byId : []).map((c: any) => String(c?.id || '').trim()),
+            );
             const missingAsNames = chainPoolKeys.filter((k) => !foundIds.has(k));
             if (missingAsNames.length > 0) {
               const byName = await cloudRepo()
@@ -417,7 +508,9 @@ router.get('/:id', async (req, res) => {
           }
 
           if ((result as any)?.resourcePool) {
-            const rpCloud = await cloudRepo().findOne({ where: { id: String((result as any).resourcePool) } });
+            const rpCloud = await cloudRepo().findOne({
+              where: { id: String((result as any).resourcePool) },
+            });
             if (rpCloud && isCsmCloud(rpCloud)) candidateClouds.push(rpCloud);
           }
 
@@ -448,11 +541,24 @@ router.get('/:id', async (req, res) => {
             const endpoint = String(cloud.endpoint || '').trim();
             const accessKey = String(cloud.accessKey || '').trim();
             const secretKey = String(cloud.secretKey || '').trim();
-            const ignoreTls = !!((cloud as any)?.config?.ignoreTls);
+            const ignoreTls = !!(cloud as any)?.config?.ignoreTls;
 
-            const groups = await listCsmElementGroups({ endpoint, accessKey, secretKey, ignoreTls } as any);
+            const groups = await listCsmElementGroups({
+              endpoint,
+              accessKey,
+              secretKey,
+              ignoreTls,
+            } as any);
             (Array.isArray(groups) ? groups : []).forEach((g: any) => {
-              const gid = String(g?.id ?? g?.vm_group_id ?? g?.vmGroupId ?? g?.vmGroupID ?? g?.vm_group_uuid ?? g?.vmGroupUuid ?? '').trim();
+              const gid = String(
+                g?.id ??
+                  g?.vm_group_id ??
+                  g?.vmGroupId ??
+                  g?.vmGroupID ??
+                  g?.vm_group_uuid ??
+                  g?.vmGroupUuid ??
+                  '',
+              ).trim();
               if (!gid) return;
               idCandidates(gid).forEach((k) => groupById.set(k, g));
             });
@@ -476,14 +582,48 @@ router.get('/:id', async (req, res) => {
       const normalizeOne = (sid: string, source: string) => {
         const keyList = idCandidates(sid);
         const g = keyList.map((k) => groupById.get(k)).find(Boolean) || {};
-        const elements = Array.isArray(g?.elements) ? g.elements : (typeof g?.vm_id_list === 'string' ? String(g.vm_id_list).split(';').filter((s: string) => s.trim()) : []);
+        const elements = Array.isArray(g?.elements)
+          ? g.elements
+          : typeof g?.vm_id_list === 'string'
+            ? String(g.vm_id_list)
+                .split(';')
+                .filter((s: string) => s.trim())
+            : [];
         const neCount = Number(
-          pick(g, ['neCount', 'count', 'Count', 'elementCount', 'elementsCount', 'elements_count', 'vm_count', 'vmCount']) ??
-          (Array.isArray(elements) ? elements.length : 0)
+          pick(g, [
+            'neCount',
+            'count',
+            'Count',
+            'elementCount',
+            'elementsCount',
+            'elements_count',
+            'vm_count',
+            'vmCount',
+          ]) ?? (Array.isArray(elements) ? elements.length : 0),
         );
 
-        const vendor = pick(g, ['vendor', 'manufacturer', 'vendor_name', 'vendorName', 'factory', 'brand', 'company', 'maker']);
-        const defenseRaw = pick(g, ['defenseType', 'defense_type', 'defend_type', 'defendType', 'protectType', 'protect_type', 'protectionType', 'protection_type', 'securityType', 'security_type']);
+        const vendor = pick(g, [
+          'vendor',
+          'manufacturer',
+          'vendor_name',
+          'vendorName',
+          'factory',
+          'brand',
+          'company',
+          'maker',
+        ]);
+        const defenseRaw = pick(g, [
+          'defenseType',
+          'defense_type',
+          'defend_type',
+          'defendType',
+          'protectType',
+          'protect_type',
+          'protectionType',
+          'protection_type',
+          'securityType',
+          'security_type',
+        ]);
         const defenseType = ((): string | undefined => {
           if (defenseRaw === undefined) return undefined;
           const n = Number(defenseRaw);
@@ -494,8 +634,20 @@ router.get('/:id', async (req, res) => {
           const s = String(defenseRaw).trim();
           return s ? s : undefined;
         })();
-        const type = pick(g, ['vm_type', 'vmType', 'type', 'groupType', 'vm_group_type', 'vmGroupType', 'productType', 'product_type']) || 'CSM安全网元组';
-        const name = pick(g, ['name', 'vm_group_name', 'vmGroupName']) || `安全网元组-${String(sid).substring(0, 8)}`;
+        const type =
+          pick(g, [
+            'vm_type',
+            'vmType',
+            'type',
+            'groupType',
+            'vm_group_type',
+            'vmGroupType',
+            'productType',
+            'product_type',
+          ]) || 'CSM安全网元组';
+        const name =
+          pick(g, ['name', 'vm_group_name', 'vmGroupName']) ||
+          `安全网元组-${String(sid).substring(0, 8)}`;
 
         return {
           id: sid,
@@ -505,7 +657,7 @@ router.get('/:id', async (req, res) => {
           defenseType: defenseType ?? undefined,
           neCount,
           source,
-          status: 'active'
+          status: 'active',
         };
       };
 
@@ -528,27 +680,27 @@ router.get('/:id', async (req, res) => {
     // Fetch associated NAT Rules (NATRule)
     // Match by vrId (SecurityDomain.vrUuid)
     try {
-        if (result.vrUuid) {
-            result.natRules = await natRepo().find({ where: { vrId: result.vrUuid } });
-        } else {
-            result.natRules = [];
-        }
-    } catch (e) {
-        console.warn('Failed to fetch NAT rules:', e);
+      if (result.vrUuid) {
+        result.natRules = await natRepo().find({ where: { vrId: result.vrUuid } });
+      } else {
         result.natRules = [];
+      }
+    } catch (e) {
+      console.warn('Failed to fetch NAT rules:', e);
+      result.natRules = [];
     }
 
     // Fetch associated Network ACL Rules (ACLRule)
     // Match by vrId (SecurityDomain.vrUuid)
     try {
-        if (result.vrUuid) {
-            result.aclRules = await aclRepo().find({ where: { vrId: result.vrUuid } });
-        } else {
-            result.aclRules = [];
-        }
-    } catch (e) {
-        console.warn('Failed to fetch ACL rules:', e);
+      if (result.vrUuid) {
+        result.aclRules = await aclRepo().find({ where: { vrId: result.vrUuid } });
+      } else {
         result.aclRules = [];
+      }
+    } catch (e) {
+      console.warn('Failed to fetch ACL rules:', e);
+      result.aclRules = [];
     }
 
     res.json(result);
@@ -575,13 +727,27 @@ router.post('/', async (req, res) => {
     entity.cidr6 = (payload as any).cidr6;
     entity.vrUuid = payload.vrUuid;
     entity.vrName = payload.vrName;
-    (entity as any).vrInstanceIds = Array.isArray((payload as any).vrInstanceIds) ? (payload as any).vrInstanceIds.join(',') : (payload as any).vrInstanceIds;
-    (entity as any).vrPublicEniIds = Array.isArray((payload as any).vrPublicEniIds) ? (payload as any).vrPublicEniIds.join(',') : (payload as any).vrPublicEniIds;
-    (entity as any).vrPrivateEniIds = Array.isArray((payload as any).vrPrivateEniIds) ? (payload as any).vrPrivateEniIds.join(',') : (payload as any).vrPrivateEniIds;
-    (entity as any).vrPublicIp = Array.isArray((payload as any).vrPublicIp) ? (payload as any).vrPublicIp.join(',') : (payload as any).vrPublicIp;
-    (entity as any).vrPrivateIp = Array.isArray((payload as any).vrPrivateIp) ? (payload as any).vrPrivateIp.join(',') : (payload as any).vrPrivateIp;
-    (entity as any).vrPublicSubnetCidr = Array.isArray((payload as any).vrPublicSubnetCidr) ? (payload as any).vrPublicSubnetCidr.join(',') : (payload as any).vrPublicSubnetCidr;
-    (entity as any).vrPrivateSubnetCidr = Array.isArray((payload as any).vrPrivateSubnetCidr) ? (payload as any).vrPrivateSubnetCidr.join(',') : (payload as any).vrPrivateSubnetCidr;
+    (entity as any).vrInstanceIds = Array.isArray((payload as any).vrInstanceIds)
+      ? (payload as any).vrInstanceIds.join(',')
+      : (payload as any).vrInstanceIds;
+    (entity as any).vrPublicEniIds = Array.isArray((payload as any).vrPublicEniIds)
+      ? (payload as any).vrPublicEniIds.join(',')
+      : (payload as any).vrPublicEniIds;
+    (entity as any).vrPrivateEniIds = Array.isArray((payload as any).vrPrivateEniIds)
+      ? (payload as any).vrPrivateEniIds.join(',')
+      : (payload as any).vrPrivateEniIds;
+    (entity as any).vrPublicIp = Array.isArray((payload as any).vrPublicIp)
+      ? (payload as any).vrPublicIp.join(',')
+      : (payload as any).vrPublicIp;
+    (entity as any).vrPrivateIp = Array.isArray((payload as any).vrPrivateIp)
+      ? (payload as any).vrPrivateIp.join(',')
+      : (payload as any).vrPrivateIp;
+    (entity as any).vrPublicSubnetCidr = Array.isArray((payload as any).vrPublicSubnetCidr)
+      ? (payload as any).vrPublicSubnetCidr.join(',')
+      : (payload as any).vrPublicSubnetCidr;
+    (entity as any).vrPrivateSubnetCidr = Array.isArray((payload as any).vrPrivateSubnetCidr)
+      ? (payload as any).vrPrivateSubnetCidr.join(',')
+      : (payload as any).vrPrivateSubnetCidr;
     entity.resourcePool = payload.resourcePool;
     entity.purpose = payload.purpose;
     entity.tags = payload.tags;
@@ -607,7 +773,9 @@ router.post('/', async (req, res) => {
       if ((payload as any).tenantId) {
         (entity as any).tenantId = String((payload as any).tenantId);
         try {
-          const tenant = await tenantRepo().findOne({ where: { id: String((payload as any).tenantId) } });
+          const tenant = await tenantRepo().findOne({
+            where: { id: String((payload as any).tenantId) },
+          });
           (entity as any).tenantName = tenant?.name || undefined;
         } catch (e) {
           console.warn('创建安全域时查询租户失败:', e);
@@ -643,7 +811,11 @@ router.post('/', async (req, res) => {
       if (vr.tenantId && String(vr.tenantId) !== String(ctx.tenantId)) {
         return res.status(403).json({ message: '所选 VR 实例不属于当前租户' });
       }
-      if (ctx.organizationId && vr.organizationId && String(vr.organizationId) !== String(ctx.organizationId)) {
+      if (
+        ctx.organizationId &&
+        vr.organizationId &&
+        String(vr.organizationId) !== String(ctx.organizationId)
+      ) {
         return res.status(403).json({ message: '所选 VR 实例不属于当前组织' });
       }
     }
@@ -659,24 +831,46 @@ router.post('/', async (req, res) => {
           const provider = (cloud as any)?.config?.provider || (cloud as any)?.provider;
           const region = cloud?.region;
           if (provider === 'aliyun' && cloud?.accessKey && cloud?.secretKey && region) {
-            const resp: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: region, action: 'DescribeVpcs', extraParams: { VpcId: String(entity.vpcId) } });
+            const resp: any = await callAliyunVpc({
+              accessKeyId: cloud.accessKey,
+              accessKeySecret: cloud.secretKey,
+              regionId: region,
+              action: 'DescribeVpcs',
+              extraParams: { VpcId: String(entity.vpcId) },
+            });
             const arr: any[] = resp?.Vpcs?.Vpc || resp?.VpcSets?.VpcSet || [];
             const one = Array.isArray(arr) ? arr[0] : undefined;
             vpcCidr = String(one?.CidrBlock || '').trim();
             vpcCloudId = cloud.id;
           } else if (provider === 'huaweicloud') {
-            const ak = cloud?.accessKey; const sk = cloud?.secretKey; const projectId = (cloud as any)?.config?.projectId; const regionId = region;
+            const ak = cloud?.accessKey;
+            const sk = cloud?.secretKey;
+            const projectId = (cloud as any)?.config?.projectId;
+            const regionId = region;
             if (ak && sk && projectId && regionId) {
               const resp: any = await huaweiListVpcs({ ak, sk, region: regionId, projectId });
               const list: any[] = (resp as any)?.vpcs || (resp as any)?.vpcs?.vpcs || [];
-              const one = (Array.isArray(list) ? list : []).find((v:any)=> String(v?.id||v?.VpcId).trim() === String(entity.vpcId).trim());
+              const one = (Array.isArray(list) ? list : []).find(
+                (v: any) => String(v?.id || v?.VpcId).trim() === String(entity.vpcId).trim(),
+              );
               vpcCidr = String(one?.cidr || one?.CidrBlock || '').trim();
               vpcCloudId = cloud.id;
             }
-          } else if (provider === 'tencentcloud' && cloud?.accessKey && cloud?.secretKey && region) {
-            const resp: any = await tencentListVpcs({ secretId: cloud.accessKey, secretKey: cloud.secretKey, region });
+          } else if (
+            provider === 'tencentcloud' &&
+            cloud?.accessKey &&
+            cloud?.secretKey &&
+            region
+          ) {
+            const resp: any = await tencentListVpcs({
+              secretId: cloud.accessKey,
+              secretKey: cloud.secretKey,
+              region,
+            });
             const list: any[] = (resp as any)?.VpcSet || [];
-            const one = (Array.isArray(list) ? list : []).find((v:any)=> String(v?.VpcId).trim() === String(entity.vpcId).trim());
+            const one = (Array.isArray(list) ? list : []).find(
+              (v: any) => String(v?.VpcId).trim() === String(entity.vpcId).trim(),
+            );
             vpcCidr = String(one?.CidrBlock || '').trim();
             vpcCloudId = cloud.id;
           }
@@ -704,39 +898,51 @@ router.post('/', async (req, res) => {
 
         // Ensure VR details (vmId and IPs) are populated if vrUuid is present
         if (entity.vrUuid) {
-            try {
-                const vrRepo = AppDataSource.getRepository(VRConfig);
-                const vr = await vrRepo.findOne({ where: { uuid: entity.vrUuid } });
-                if (vr) {
-                    if (vr.vmId && !entity.vrInstanceIds) {
-                        entity.vrInstanceIds = vr.vmId;
-                    }
-                    
-                    // Try to fetch IPs from CSM VR Config (Preferred over auto-discovery)
-                    try {
-                        const csmVr = await vrController.getVRConfig(entity.vrUuid);
-                        if (csmVr) {
-                             const wan = csmVr.wan_ip || csmVr.public_ip || csmVr.wanIp || csmVr.publicIp;
-                             const lan = csmVr.lan_ip || csmVr.private_ip || csmVr.lanIp || csmVr.privateIp;
-                             if (wan && !entity.vrPublicIp) entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
-                             if (lan && !entity.vrPrivateIp) entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
-                        }
-                    } catch (e) {
-                         // Fallback to local DB config_json
-                         if (vr.config_json) {
-                             try {
-                                 const localConf = JSON.parse(vr.config_json);
-                                 const wan = localConf.wan_ip || localConf.public_ip || localConf.wanIp || localConf.publicIp;
-                                 const lan = localConf.lan_ip || localConf.private_ip || localConf.lanIp || localConf.privateIp;
-                                 if (wan && !entity.vrPublicIp) entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
-                                 if (lan && !entity.vrPrivateIp) entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
-                             } catch {}
-                         }
-                    }
+          try {
+            const vrRepo = AppDataSource.getRepository(VRConfig);
+            const vr = await vrRepo.findOne({ where: { uuid: entity.vrUuid } });
+            if (vr) {
+              if (vr.vmId && !entity.vrInstanceIds) {
+                entity.vrInstanceIds = vr.vmId;
+              }
+
+              // Try to fetch IPs from CSM VR Config (Preferred over auto-discovery)
+              try {
+                const csmVr = await vrController.getVRConfig(entity.vrUuid);
+                if (csmVr) {
+                  const wan = csmVr.wan_ip || csmVr.public_ip || csmVr.wanIp || csmVr.publicIp;
+                  const lan = csmVr.lan_ip || csmVr.private_ip || csmVr.lanIp || csmVr.privateIp;
+                  if (wan && !entity.vrPublicIp)
+                    entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+                  if (lan && !entity.vrPrivateIp)
+                    entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
                 }
-            } catch (e) {
-                console.warn('Failed to populate VR details:', e);
+              } catch (e) {
+                // Fallback to local DB config_json
+                if (vr.config_json) {
+                  try {
+                    const localConf = JSON.parse(vr.config_json);
+                    const wan =
+                      localConf.wan_ip ||
+                      localConf.public_ip ||
+                      localConf.wanIp ||
+                      localConf.publicIp;
+                    const lan =
+                      localConf.lan_ip ||
+                      localConf.private_ip ||
+                      localConf.lanIp ||
+                      localConf.privateIp;
+                    if (wan && !entity.vrPublicIp)
+                      entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+                    if (lan && !entity.vrPrivateIp)
+                      entity.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
+                  } catch {}
+                }
+              }
             }
+          } catch (e) {
+            console.warn('Failed to populate VR details:', e);
+          }
         }
 
         // Auto-fill Aliyun details
@@ -769,72 +975,82 @@ router.patch('/:id', async (req, res) => {
     if (!existing) {
       return res.status(404).json({ message: 'SecurityDomain not found' });
     }
-    
+
     // Check if VR is being changed/unbound
     if (partial.vrUuid !== undefined && partial.vrUuid !== existing.vrUuid) {
-        if (!partial.vrUuid) {
-            // Unbind VR
-            (existing as any).vrUuid = null;
-            (existing as any).vrName = null;
-            (existing as any).vrInstanceIds = null;
-            (existing as any).vrPublicEniIds = null;
-            (existing as any).vrPrivateEniIds = null;
-            (existing as any).vrPublicIp = null;
-            (existing as any).vrPrivateIp = null;
-            (existing as any).vrPublicEip = null;
-            (existing as any).vrPublicSubnetCidr = null;
-            (existing as any).vrPrivateSubnetCidr = null;
-        } else {
-            // Change VR
-            // 1. Clear old network details first
-            (existing as any).vrPublicEniIds = null;
-            (existing as any).vrPrivateEniIds = null;
-            (existing as any).vrPublicIp = null;
-            (existing as any).vrPrivateIp = null;
-            (existing as any).vrPublicEip = null;
-            (existing as any).vrPublicSubnetCidr = null;
-            (existing as any).vrPrivateSubnetCidr = null;
+      if (!partial.vrUuid) {
+        // Unbind VR
+        (existing as any).vrUuid = null;
+        (existing as any).vrName = null;
+        (existing as any).vrInstanceIds = null;
+        (existing as any).vrPublicEniIds = null;
+        (existing as any).vrPrivateEniIds = null;
+        (existing as any).vrPublicIp = null;
+        (existing as any).vrPrivateIp = null;
+        (existing as any).vrPublicEip = null;
+        (existing as any).vrPublicSubnetCidr = null;
+        (existing as any).vrPrivateSubnetCidr = null;
+      } else {
+        // Change VR
+        // 1. Clear old network details first
+        (existing as any).vrPublicEniIds = null;
+        (existing as any).vrPrivateEniIds = null;
+        (existing as any).vrPublicIp = null;
+        (existing as any).vrPrivateIp = null;
+        (existing as any).vrPublicEip = null;
+        (existing as any).vrPublicSubnetCidr = null;
+        (existing as any).vrPrivateSubnetCidr = null;
 
-            // 2. Fetch VR Config to get vmId (instanceId)
-            try {
-                const vrRepo = AppDataSource.getRepository(VRConfig);
-                const vr = await vrRepo.findOne({ where: { uuid: partial.vrUuid } });
-                if (vr) {
-                    // Update partial to ensure Object.assign uses the correct values
-                    partial.vrName = partial.vrName || vr.name || vr.uuid;
-                    if (vr.vmId) {
-                        partial.vrInstanceIds = vr.vmId;
-                    }
-
-                    // Try to fetch IPs from CSM VR Config (Preferred over auto-discovery)
-                    try {
-                        const csmVr = await vrController.getVRConfig(partial.vrUuid!);
-                        if (csmVr) {
-                             // Try common fields for WAN/LAN IPs
-                             const wan = csmVr.wan_ip || csmVr.public_ip || csmVr.wanIp || csmVr.publicIp;
-                             const lan = csmVr.lan_ip || csmVr.private_ip || csmVr.lanIp || csmVr.privateIp;
-                             
-                             if (wan) partial.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
-                             if (lan) partial.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
-                        }
-                    } catch (e) {
-                        console.warn('Failed to fetch CSM VR config for IPs:', e);
-                        // Fallback to local DB config_json if available
-                        if (vr.config_json) {
-                             try {
-                                 const localConf = JSON.parse(vr.config_json);
-                                 const wan = localConf.wan_ip || localConf.public_ip || localConf.wanIp || localConf.publicIp;
-                                 const lan = localConf.lan_ip || localConf.private_ip || localConf.lanIp || localConf.privateIp;
-                                 if (wan && !partial.vrPublicIp) partial.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
-                                 if (lan && !partial.vrPrivateIp) partial.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
-                             } catch {}
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn('Failed to fetch VR config for update:', e);
+        // 2. Fetch VR Config to get vmId (instanceId)
+        try {
+          const vrRepo = AppDataSource.getRepository(VRConfig);
+          const vr = await vrRepo.findOne({ where: { uuid: partial.vrUuid } });
+          if (vr) {
+            // Update partial to ensure Object.assign uses the correct values
+            partial.vrName = partial.vrName || vr.name || vr.uuid;
+            if (vr.vmId) {
+              partial.vrInstanceIds = vr.vmId;
             }
+
+            // Try to fetch IPs from CSM VR Config (Preferred over auto-discovery)
+            try {
+              const csmVr = await vrController.getVRConfig(partial.vrUuid!);
+              if (csmVr) {
+                // Try common fields for WAN/LAN IPs
+                const wan = csmVr.wan_ip || csmVr.public_ip || csmVr.wanIp || csmVr.publicIp;
+                const lan = csmVr.lan_ip || csmVr.private_ip || csmVr.lanIp || csmVr.privateIp;
+
+                if (wan) partial.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+                if (lan) partial.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
+              }
+            } catch (e) {
+              console.warn('Failed to fetch CSM VR config for IPs:', e);
+              // Fallback to local DB config_json if available
+              if (vr.config_json) {
+                try {
+                  const localConf = JSON.parse(vr.config_json);
+                  const wan =
+                    localConf.wan_ip ||
+                    localConf.public_ip ||
+                    localConf.wanIp ||
+                    localConf.publicIp;
+                  const lan =
+                    localConf.lan_ip ||
+                    localConf.private_ip ||
+                    localConf.lanIp ||
+                    localConf.privateIp;
+                  if (wan && !partial.vrPublicIp)
+                    partial.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
+                  if (lan && !partial.vrPrivateIp)
+                    partial.vrPrivateIp = Array.isArray(lan) ? lan.join(',') : String(lan);
+                } catch {}
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to fetch VR config for update:', e);
         }
+      }
     }
 
     // 忽略历史字段更新：type 不再作为分类依据
@@ -846,10 +1062,14 @@ router.patch('/:id', async (req, res) => {
     Object.assign(existing, partial);
     if (!ctx) {
       if ((partial as any).tenantId !== undefined) {
-        (existing as any).tenantId = (partial as any).tenantId ? String((partial as any).tenantId) : undefined;
+        (existing as any).tenantId = (partial as any).tenantId
+          ? String((partial as any).tenantId)
+          : undefined;
         if ((partial as any).tenantId) {
           try {
-            const tenant = await tenantRepo().findOne({ where: { id: String((partial as any).tenantId) } });
+            const tenant = await tenantRepo().findOne({
+              where: { id: String((partial as any).tenantId) },
+            });
             (existing as any).tenantName = tenant?.name || undefined;
           } catch (e) {
             console.warn('更新安全域时查询租户失败:', e);
@@ -859,23 +1079,35 @@ router.patch('/:id', async (req, res) => {
         }
       }
       if ((partial as any).organizationId !== undefined) {
-        (existing as any).organizationId = (partial as any).organizationId ? String((partial as any).organizationId) : undefined;
+        (existing as any).organizationId = (partial as any).organizationId
+          ? String((partial as any).organizationId)
+          : undefined;
       }
     }
     if ((partial as any).vrInstanceIds !== undefined) {
-      (existing as any).vrInstanceIds = Array.isArray((partial as any).vrInstanceIds) ? (partial as any).vrInstanceIds.join(',') : (partial as any).vrInstanceIds;
+      (existing as any).vrInstanceIds = Array.isArray((partial as any).vrInstanceIds)
+        ? (partial as any).vrInstanceIds.join(',')
+        : (partial as any).vrInstanceIds;
     }
     if ((partial as any).vrPublicEniIds !== undefined) {
-      (existing as any).vrPublicEniIds = Array.isArray((partial as any).vrPublicEniIds) ? (partial as any).vrPublicEniIds.join(',') : (partial as any).vrPublicEniIds;
+      (existing as any).vrPublicEniIds = Array.isArray((partial as any).vrPublicEniIds)
+        ? (partial as any).vrPublicEniIds.join(',')
+        : (partial as any).vrPublicEniIds;
     }
     if ((partial as any).vrPrivateEniIds !== undefined) {
-      (existing as any).vrPrivateEniIds = Array.isArray((partial as any).vrPrivateEniIds) ? (partial as any).vrPrivateEniIds.join(',') : (partial as any).vrPrivateEniIds;
+      (existing as any).vrPrivateEniIds = Array.isArray((partial as any).vrPrivateEniIds)
+        ? (partial as any).vrPrivateEniIds.join(',')
+        : (partial as any).vrPrivateEniIds;
     }
     if ((partial as any).vrPublicSubnetCidr !== undefined) {
-      (existing as any).vrPublicSubnetCidr = Array.isArray((partial as any).vrPublicSubnetCidr) ? (partial as any).vrPublicSubnetCidr.join(',') : (partial as any).vrPublicSubnetCidr;
+      (existing as any).vrPublicSubnetCidr = Array.isArray((partial as any).vrPublicSubnetCidr)
+        ? (partial as any).vrPublicSubnetCidr.join(',')
+        : (partial as any).vrPublicSubnetCidr;
     }
     if ((partial as any).vrPrivateSubnetCidr !== undefined) {
-      (existing as any).vrPrivateSubnetCidr = Array.isArray((partial as any).vrPrivateSubnetCidr) ? (partial as any).vrPrivateSubnetCidr.join(',') : (partial as any).vrPrivateSubnetCidr;
+      (existing as any).vrPrivateSubnetCidr = Array.isArray((partial as any).vrPrivateSubnetCidr)
+        ? (partial as any).vrPrivateSubnetCidr.join(',')
+        : (partial as any).vrPrivateSubnetCidr;
     }
     if (partial.securityServiceIds !== undefined) {
       existing.securityServiceIds = partial.securityServiceIds;
@@ -892,17 +1124,28 @@ router.patch('/:id', async (req, res) => {
           const provider = (cloud as any)?.config?.provider || (cloud as any)?.provider;
           const region = cloud?.region;
           if (provider === 'aliyun' && cloud?.accessKey && cloud?.secretKey && region) {
-            const resp: any = await callAliyunVpc({ accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: region, action: 'DescribeVpcs', extraParams: { VpcId: String(existing.vpcId) } });
+            const resp: any = await callAliyunVpc({
+              accessKeyId: cloud.accessKey,
+              accessKeySecret: cloud.secretKey,
+              regionId: region,
+              action: 'DescribeVpcs',
+              extraParams: { VpcId: String(existing.vpcId) },
+            });
             const arr: any[] = resp?.Vpcs?.Vpc || resp?.VpcSets?.VpcSet || [];
             const one = Array.isArray(arr) ? arr[0] : undefined;
             vpcCidr = String(one?.CidrBlock || '').trim();
             vpcCloudId = cloud.id;
           } else if (provider === 'huaweicloud') {
-            const ak = cloud?.accessKey; const sk = cloud?.secretKey; const projectId = (cloud as any)?.config?.projectId; const regionId = region;
+            const ak = cloud?.accessKey;
+            const sk = cloud?.secretKey;
+            const projectId = (cloud as any)?.config?.projectId;
+            const regionId = region;
             if (ak && sk && projectId && regionId) {
               const resp: any = await huaweiListVpcs({ ak, sk, region: regionId, projectId });
               const list: any[] = (resp as any)?.vpcs || (resp as any)?.vpcs?.vpcs || [];
-              const one = (Array.isArray(list) ? list : []).find((v:any)=> String(v?.id||v?.VpcId).trim() === String(existing.vpcId).trim());
+              const one = (Array.isArray(list) ? list : []).find(
+                (v: any) => String(v?.id || v?.VpcId).trim() === String(existing.vpcId).trim(),
+              );
               vpcCidr = String(one?.cidr || one?.CidrBlock || '').trim();
               vpcCloudId = cloud.id;
             }
@@ -923,7 +1166,8 @@ router.patch('/:id', async (req, res) => {
     if (existing.cloudId) {
       const cloud = await cloudRepo().findOne({ where: { id: existing.cloudId } });
       if (cloud) {
-        existing.provider = (cloud as any)?.config?.provider || (cloud as any)?.provider || undefined;
+        existing.provider =
+          (cloud as any)?.config?.provider || (cloud as any)?.provider || undefined;
         existing.region = cloud.region;
 
         // Auto-fill Aliyun details
@@ -972,16 +1216,28 @@ router.delete('/:id', async (req, res) => {
 // Helper: Fill Aliyun Details (CIDR, ENI IPs, Subnets)
 async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
   if (!cloud || !cloud.accessKey || !cloud.secretKey || !cloud.region) return;
-  const creds = { accessKeyId: cloud.accessKey, accessKeySecret: cloud.secretKey, regionId: cloud.region };
+  const creds = {
+    accessKeyId: cloud.accessKey,
+    accessKeySecret: cloud.secretKey,
+    regionId: cloud.region,
+  };
 
   // 1. Fill VPC CIDR if missing
-  if (entity.vpcMode === 'existing' && entity.vpcId && (!entity.cidr || entity.cidr.trim() === '')) {
+  if (
+    entity.vpcMode === 'existing' &&
+    entity.vpcId &&
+    (!entity.cidr || entity.cidr.trim() === '')
+  ) {
     try {
       let targetVpcId = entity.vpcId;
       const vpcRepo = AppDataSource.getRepository(VpcNetwork);
       const localVpc = await vpcRepo.findOne({ where: { id: entity.vpcId } });
 
-      const resp: any = await callAliyunVpc({ ...creds, action: 'DescribeVpcs', extraParams: { VpcId: targetVpcId } });
+      const resp: any = await callAliyunVpc({
+        ...creds,
+        action: 'DescribeVpcs',
+        extraParams: { VpcId: targetVpcId },
+      });
       const arr: any[] = resp?.Vpcs?.Vpc || resp?.VpcSets?.VpcSet || [];
       if (arr.length > 0 && arr[0].CidrBlock) {
         entity.cidr = arr[0].CidrBlock;
@@ -994,26 +1250,33 @@ async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
   // 1.5 Try to fill ENIs from InstanceId if missing (Auto-discovery)
   if ((!entity.vrPublicEniIds || entity.vrPublicEniIds.trim() === '') && entity.vrInstanceIds) {
     try {
-      const instanceIds = entity.vrInstanceIds.split(',').map(s => s.trim()).filter(Boolean);
+      const instanceIds = entity.vrInstanceIds
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       if (instanceIds.length > 0) {
-         // DescribeInstances accepts InstanceIds as JSON array string
-         const params: any = { InstanceIds: JSON.stringify(instanceIds) };
-         const insResp: any = await callAliyunEcs({ ...creds, action: 'DescribeInstances', extraParams: params });
-         const instances = insResp?.Instances?.Instance || [];
-         const foundEnis: string[] = [];
-         
-         for (const ins of instances) {
-            const enis = ins?.NetworkInterfaces?.NetworkInterface || [];
-            for (const eni of enis) {
-               if (eni.NetworkInterfaceId) foundEnis.push(eni.NetworkInterfaceId);
-            }
-         }
-         
-         if (foundEnis.length > 0) {
-             // Default to assigning all discovered ENIs to Public (WAN) slot if not specified
-             // User can manually adjust later if needed, but this ensures IPs are fetched.
-             entity.vrPublicEniIds = foundEnis.join(',');
-         }
+        // DescribeInstances accepts InstanceIds as JSON array string
+        const params: any = { InstanceIds: JSON.stringify(instanceIds) };
+        const insResp: any = await callAliyunEcs({
+          ...creds,
+          action: 'DescribeInstances',
+          extraParams: params,
+        });
+        const instances = insResp?.Instances?.Instance || [];
+        const foundEnis: string[] = [];
+
+        for (const ins of instances) {
+          const enis = ins?.NetworkInterfaces?.NetworkInterface || [];
+          for (const eni of enis) {
+            if (eni.NetworkInterfaceId) foundEnis.push(eni.NetworkInterfaceId);
+          }
+        }
+
+        if (foundEnis.length > 0) {
+          // Default to assigning all discovered ENIs to Public (WAN) slot if not specified
+          // User can manually adjust later if needed, but this ensures IPs are fetched.
+          entity.vrPublicEniIds = foundEnis.join(',');
+        }
       }
     } catch (e) {
       console.warn('Failed to auto-discover ENIs from InstanceIds:', e);
@@ -1021,15 +1284,27 @@ async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
   }
 
   // 2. Fill ENI Details (IPs, Subnets)
-  const pubEnis = (entity.vrPublicEniIds || '').split(',').map((s: string) => s.trim()).filter(Boolean);
-  const priEnis = (entity.vrPrivateEniIds || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+  const pubEnis = (entity.vrPublicEniIds || '')
+    .split(',')
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+  const priEnis = (entity.vrPrivateEniIds || '')
+    .split(',')
+    .map((s: string) => s.trim())
+    .filter(Boolean);
   const allEnis = [...new Set([...pubEnis, ...priEnis])];
 
   if (allEnis.length > 0) {
     try {
       const params: any = {};
-      allEnis.forEach((id, i) => { params[`NetworkInterfaceId.${i + 1}`] = id; });
-      const eniResp: any = await callAliyunEcs({ ...creds, action: 'DescribeNetworkInterfaces', extraParams: params });
+      allEnis.forEach((id, i) => {
+        params[`NetworkInterfaceId.${i + 1}`] = id;
+      });
+      const eniResp: any = await callAliyunEcs({
+        ...creds,
+        action: 'DescribeNetworkInterfaces',
+        extraParams: params,
+      });
       const enis = eniResp?.NetworkInterfaceSets?.NetworkInterfaceSet || [];
 
       const eniMap = new Map<string, any>();
@@ -1043,8 +1318,14 @@ async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
       const subnetMap = new Map<string, string>();
       if (vswIds.size > 0) {
         const vswParams: any = {};
-        Array.from(vswIds).forEach((id, i) => { vswParams[`VSwitchId.${i + 1}`] = id; });
-        const vswResp: any = await callAliyunVpc({ ...creds, action: 'DescribeVSwitches', extraParams: vswParams });
+        Array.from(vswIds).forEach((id, i) => {
+          vswParams[`VSwitchId.${i + 1}`] = id;
+        });
+        const vswResp: any = await callAliyunVpc({
+          ...creds,
+          action: 'DescribeVSwitches',
+          extraParams: vswParams,
+        });
         const vsws = vswResp?.VSwitches?.VSwitch || [];
         for (const v of vsws) {
           subnetMap.set(v.VSwitchId, v.CidrBlock);
@@ -1066,13 +1347,15 @@ async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
             // Check for Associated EIP
             if (eni.AssociatedPublicIp && eni.AssociatedPublicIp.PublicIpAddress) {
               eips.push(eni.AssociatedPublicIp.PublicIpAddress);
-            } else if (eni.PublicIpAddress) { // Classic network fallback
-               eips.push(eni.PublicIpAddress);
+            } else if (eni.PublicIpAddress) {
+              // Classic network fallback
+              eips.push(eni.PublicIpAddress);
             }
           }
         }
         if (ips.length > 0 && !entity.vrPublicIp) entity.vrPublicIp = ips.join(',');
-        if (cidrs.length > 0 && !entity.vrPublicSubnetCidr) entity.vrPublicSubnetCidr = cidrs.join(',');
+        if (cidrs.length > 0 && !entity.vrPublicSubnetCidr)
+          entity.vrPublicSubnetCidr = cidrs.join(',');
         if (eips.length > 0 && !entity.vrPublicEip) entity.vrPublicEip = eips.join(',');
       }
 
@@ -1089,7 +1372,8 @@ async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
           }
         }
         if (ips.length > 0 && !entity.vrPrivateIp) entity.vrPrivateIp = ips.join(',');
-        if (cidrs.length > 0 && !entity.vrPrivateSubnetCidr) entity.vrPrivateSubnetCidr = cidrs.join(',');
+        if (cidrs.length > 0 && !entity.vrPrivateSubnetCidr)
+          entity.vrPrivateSubnetCidr = cidrs.join(',');
       }
     } catch (e) {
       console.warn('Failed to fill Aliyun ENI info:', e);

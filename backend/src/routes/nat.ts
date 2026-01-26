@@ -24,7 +24,7 @@ const getVRConfigFromDB = async (uuid: string) => {
 const saveVRConfigToDB = async (uuid: string, config: any) => {
   let record = await vrConfigRepo().findOne({ where: { uuid } });
   const jsonStr = JSON.stringify(config);
-  
+
   if (record) {
     record.config_json = jsonStr;
     await vrConfigRepo().save(record);
@@ -42,7 +42,7 @@ const stripMeta = (obj: any) => {
 
 const getVRConfigFromDevice = async (uuid: string) => {
   const resp = await vrController.getVRConfig(uuid);
-  const data = (resp && resp.data) ? resp.data : resp;
+  const data = resp && resp.data ? resp.data : resp;
   if (!data || typeof data !== 'object') return {};
   return stripMeta(data);
 };
@@ -61,10 +61,20 @@ natRoutes.get('/', async (req, res, next) => {
 // Create NAT Rule
 natRoutes.post('/', async (req, res, next) => {
   try {
-    const { 
-      name, description, vrId, type, interface: iface,
-      originalSourceIp, originalDestinationIp, originalSourcePort, originalDestinationPort,
-      translatedSourceIp, translatedDestinationIp, translatedSourcePort, translatedDestinationPort
+    const {
+      name,
+      description,
+      vrId,
+      type,
+      interface: iface,
+      originalSourceIp,
+      originalDestinationIp,
+      originalSourcePort,
+      originalDestinationPort,
+      translatedSourceIp,
+      translatedDestinationIp,
+      translatedSourcePort,
+      translatedDestinationPort,
     } = req.body || {};
 
     if (!name || !vrId || !type) {
@@ -85,7 +95,9 @@ natRoutes.post('/', async (req, res, next) => {
           currentConfig = {};
         }
       } else {
-        res.status(500).json({ message: `无法查询设备现有配置，已终止下发以避免覆盖: ${err.message}` });
+        res
+          .status(500)
+          .json({ message: `无法查询设备现有配置，已终止下发以避免覆盖: ${err.message}` });
         return;
       }
     }
@@ -103,11 +115,11 @@ natRoutes.post('/', async (req, res, next) => {
       translated_source_ip: translatedSourceIp,
       translated_destination_ip: translatedDestinationIp,
       translated_source_port: translatedSourcePort,
-      translated_destination_port: translatedDestinationPort
+      translated_destination_port: translatedDestinationPort,
     };
 
     // 3. Merge into existing config
-    // Assuming 'nat_rules' or 'nat' array in VR config. 
+    // Assuming 'nat_rules' or 'nat' array in VR config.
     // Given previous context showed 'nat_address_group', let's assume a 'nat' section exists or we create it.
     // We'll use a 'nat' array for now as a generic container.
     if (!currentConfig.nat) {
@@ -121,17 +133,17 @@ natRoutes.post('/', async (req, res, next) => {
       if (Object.keys(currentConfig.nat).length === 0) {
         currentConfig.nat = [];
       } else {
-         // It might be an object. Let's try to append to a specific key based on type?
-         // Or just append to a 'rules' key?
-         // To be safe, let's use a specific key 'nat_rules' if 'nat' is occupied by object structure?
-         // No, let's stick to 'nat' array. If it breaks, we fix it.
-         // Actually, let's look at how we treat IPsec. It's an array.
-         // So 'nat' as an array of rules is the most logical pattern for this Controller.
-         currentConfig.nat = []; // Resetting if it was an object? No, that's dangerous.
-         // Let's assume it IS an array.
+        // It might be an object. Let's try to append to a specific key based on type?
+        // Or just append to a 'rules' key?
+        // To be safe, let's use a specific key 'nat_rules' if 'nat' is occupied by object structure?
+        // No, let's stick to 'nat' array. If it breaks, we fix it.
+        // Actually, let's look at how we treat IPsec. It's an array.
+        // So 'nat' as an array of rules is the most logical pattern for this Controller.
+        currentConfig.nat = []; // Resetting if it was an object? No, that's dangerous.
+        // Let's assume it IS an array.
       }
     }
-    
+
     // Check for duplicate name
     const existingIndex = currentConfig.nat.findIndex((r: any) => r.name === name);
     if (existingIndex >= 0) {
@@ -148,7 +160,9 @@ natRoutes.post('/', async (req, res, next) => {
         await saveVRConfigToDB(vrId, currentConfig);
       } catch (err: any) {
         console.error(`[NAT] Failed to update VR config`, { vrId, name }, err);
-        res.status(500).json({ message: `Failed to apply configuration to VR(${vrId}): ${err.message}` });
+        res
+          .status(500)
+          .json({ message: `Failed to apply configuration to VR(${vrId}): ${err.message}` });
         return;
       }
     } else {
@@ -169,7 +183,7 @@ natRoutes.post('/', async (req, res, next) => {
       translatedSourceIp,
       translatedDestinationIp,
       translatedSourcePort,
-      translatedDestinationPort
+      translatedDestinationPort,
     });
 
     const saved = await repo().save(item);
@@ -197,7 +211,7 @@ natRoutes.delete('/:id', async (req, res, next) => {
       if (currentConfig.nat && Array.isArray(currentConfig.nat)) {
         const initialLength = currentConfig.nat.length;
         currentConfig.nat = currentConfig.nat.filter((r: any) => r.name !== item.name);
-        
+
         if (currentConfig.nat.length < initialLength) {
           const skipPush = String(process.env.SKIP_VR_PUSH || '').trim() === '1';
           if (!skipPush) {

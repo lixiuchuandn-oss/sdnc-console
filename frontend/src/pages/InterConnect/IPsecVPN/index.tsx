@@ -7,8 +7,7 @@ import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
 import '../../common/filters.css';
 import { fetchIPsecVPNs, fetchIPsecVPNsMerged, deleteIPsecVPN } from '../../../services/api';
-import { vrApi } from '../../../services/vrApi';
-import { getVR2Config } from '../../../services/vr2Api';
+import { vrApi, getVR2Config, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import ReactFlow, { Background, Controls } from 'react-flow-renderer';
 
 interface IPsecVPNRow {
@@ -258,7 +257,6 @@ const IPsecVPNPage: React.FC = () => {
     fetchData();
     (async () => {
       try {
-        const { fetchVrCachePageList } = await import('../../../services/vrCacheApi');
         const resp = await fetchVrCachePageList(1000, 1);
         const data = resp?.data || resp;
         const list: any[] = Array.isArray(data?.page)

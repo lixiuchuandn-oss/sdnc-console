@@ -1,60 +1,52 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Button, Form, Input, Select, Table, Tag, message, Modal, Space, Row, Col, InputNumber, Divider, Dropdown, Checkbox, Popover } from 'antd';
+import { Button, Form, Input, Select, Table, Tag, message, Modal, Space, Row, Col, InputNumber, Divider, Dropdown, Checkbox, Popover, Tabs, Card, List, Tooltip, Descriptions, Badge } from 'antd';
 import type { MenuProps } from 'antd';
-import { DeleteOutlined, EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EllipsisOutlined, SettingOutlined, PlusOutlined, RocketOutlined, FolderOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import '../../common/filters.css';
 import type { ColumnsType } from 'antd/es/table';
-import { getACLRules, createACLRule, deleteACLRule, ACLRule } from '../../../services/networkApi';
-import { vrApi } from '../../../services/vrApi';
-import { fetchVrCachePageList } from '../../../services/vrCacheApi';
+import { 
+  getACLRules, createACLRule, deleteACLRule, ACLRule,
+  getACLGroups, createACLGroup, deleteACLGroup, addACLRuleToGroup, pushACLConfig, ACLGroup
+} from '../../../services/networkApi';
+import { vrApi, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 
 const { Option } = Select;
 
 const ACLPage: React.FC = () => {
-  const [data, setData] = useState<ACLRule[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState('groups');
+
+  // --- Common State ---
   const [vrList, setVrList] = useState<any[]>([]);
   const [vrNameMap, setVrNameMap] = useState<Record<string, string>>({});
+  
+  // --- Groups State ---
+  const [groups, setGroups] = useState<ACLGroup[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
+  const [groupForm] = Form.useForm();
+  
+  // --- Rules State ---
+  const [rules, setRules] = useState<ACLRule[]>([]);
+  const [rulesLoading, setRulesLoading] = useState<boolean>(false);
   const [keyword, setKeyword] = useState<string>('');
   const [vrFilter, setVrFilter] = useState<string | undefined>();
   const [actionFilter, setActionFilter] = useState<'permit' | 'deny' | undefined>();
   const [protocolFilter, setProtocolFilter] = useState<'tcp' | 'udp' | 'icmp' | 'any' | undefined>();
   const [filterForm] = Form.useForm();
   
-  // PageContainer handles column visibility
-  const defaultHiddenColumns: string[] = [];
-
-  // Columns control
-  const defaultCheckedColumns = ['priority', 'name', 'vrId', 'action', 'protocol', 'sourceIp', 'destinationIp', 'sourcePort', 'destinationPort', 'ops'];
-  const [checkedColumns, setCheckedColumns] = useState<any[]>(defaultCheckedColumns);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('acl_columns_settings');
-    if (saved) {
-      try {
-        setCheckedColumns(JSON.parse(saved));
-      } catch (e) {
-        console.warn('Failed to parse saved columns settings', e);
-      }
-    }
-  }, []);
-
-  const onColumnCheckChange = (checkedValues: any[]) => {
-    setCheckedColumns(checkedValues);
-    localStorage.setItem('acl_columns_settings', JSON.stringify(checkedValues));
-  };
-  
-  // Create Drawer State
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [createForm] = Form.useForm();
+  // Rule Creation State
+  const [ruleDrawerOpen, setRuleDrawerOpen] = useState(false);
+  const [createRuleForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
+  const [targetGroup, setTargetGroup] = useState<ACLGroup | null>(null);
 
-  // Fetch VRs
+  // --- Fetch Logic ---
+
   const fetchVRs = async () => {
     try {
-      // 优先从远端控制器获取
       const res: any = await vrApi.getVRInstances(1000, 1);
       const dataObj = res?.data ?? res;
       let vrs = Array.isArray(dataObj?.page) ? dataObj.page : 
@@ -62,7 +54,6 @@ const ACLPage: React.FC = () => {
                 Array.isArray(dataObj?.rows) ? dataObj.rows :
                 Array.isArray(dataObj) ? dataObj : [];
 
-      // 如果远端失败或空，回退到本地缓存
       if (!Array.isArray(vrs) || vrs.length === 0) {
         try {
           const json = await fetchVrCachePageList(1000, 1);
@@ -73,17 +64,20 @@ const ACLPage: React.FC = () => {
         }
       }
 
-      // 二级回退：从 VR 配置角色接口读取已知 uuid 列表
       if ((!Array.isArray(vrs) || vrs.length === 0)) {
         const token = localStorage.getItem('token') || '';
-        const resRoles = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/vr-config/roles`, {
-          headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-          credentials: 'include'
-        });
-        const jsonRoles = await resRoles.json();
-        const roles = jsonRoles?.data?.roles || {};
-        const uuids = Object.keys(roles || {});
-        vrs = uuids.map(u => ({ uuid: u, name: u }));
+        try {
+            const resRoles = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/vr-config/roles`, {
+            headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+            credentials: 'include'
+            });
+            const jsonRoles = await resRoles.json();
+            const roles = jsonRoles?.data?.roles || {};
+            const uuids = Object.keys(roles || {});
+            vrs = uuids.map(u => ({ uuid: u, name: u }));
+        } catch (e) {
+            console.warn('Failed to fetch roles', e);
+        }
       }
 
       setVrList(vrs);
@@ -101,34 +95,146 @@ const ACLPage: React.FC = () => {
     }
   };
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchGroups = async () => {
+    setGroupsLoading(true);
+    try {
+      const res = await getACLGroups();
+      const list = Array.isArray(res) ? res : (res as any)?.data || [];
+      setGroups(list);
+    } catch (e: any) {
+      message.error('加载 ACL 组失败: ' + (e.message || 'Unknown error'));
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
+  const fetchRules = async () => {
+    setRulesLoading(true);
     try {
       const list = await getACLRules();
-      const normalized = Array.isArray(list)
-        ? list
-        : Array.isArray((list as any)?.data)
-          ? (list as any).data
-          : Array.isArray((list as any)?.list)
-            ? (list as any).list
-            : Array.isArray((list as any)?.rows)
-              ? (list as any).rows
-              : [];
-      setData(normalized);
+      const normalized = Array.isArray(list) ? list : (list as any)?.data || [];
+      setRules(normalized);
     } catch (e: any) {
-      console.error(e);
       message.error('加载 ACL 列表失败: ' + (e.message || 'Unknown error'));
     } finally {
-      setLoading(false);
+      setRulesLoading(false);
     }
   };
 
   useEffect(() => {
     fetchVRs();
-    fetchData();
+    fetchGroups();
+    fetchRules();
   }, []);
 
-  const handleDelete = (row: ACLRule) => {
+  // --- Group Handlers ---
+
+  const handleCreateGroup = async () => {
+    try {
+      const values = await groupForm.validateFields();
+      setSubmitting(true);
+      await createACLGroup(values);
+      message.success('ACL 组创建成功');
+      setGroupDrawerOpen(false);
+      groupForm.resetFields();
+      fetchGroups();
+    } catch (e: any) {
+      if (!e.errorFields) message.error('创建失败: ' + e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteGroup = (group: ACLGroup) => {
+    Modal.confirm({
+      title: '确认删除 ACL 组',
+      content: `确定要删除 ACL 组 "${group.name}" 吗？组内的规则也会被删除。`,
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await deleteACLGroup(group.id);
+          message.success('删除成功');
+          fetchGroups();
+          fetchRules(); // Refresh rules as well since they are deleted
+        } catch (e: any) {
+          message.error('删除失败: ' + e.message);
+        }
+      }
+    });
+  };
+
+  const handleDeploy = (vrId: string) => {
+    if (!vrId) {
+      message.error('未关联 VR，无法下发');
+      return;
+    }
+    Modal.confirm({
+      title: '确认下发配置',
+      content: '将根据数据库中的 ACL 配置全量覆盖该 VR 的 ACL 设置。请确认。',
+      okText: '立即下发',
+      cancelText: '取消',
+      onOk: async () => {
+        const hide = message.loading('正在下发配置...', 0);
+        try {
+          const res = await pushACLConfig(vrId);
+          hide();
+          Modal.success({
+            title: '下发成功',
+            content: (
+              <div style={{ maxHeight: 400, overflow: 'auto' }}>
+                <pre>{JSON.stringify(res.data || res, null, 2)}</pre>
+              </div>
+            ),
+            width: 600
+          });
+        } catch (e: any) {
+          hide();
+          Modal.error({
+            title: '下发失败',
+            content: e.message
+          });
+        }
+      }
+    });
+  };
+
+  // --- Rule Handlers ---
+
+  const handleOpenCreateRule = (group?: ACLGroup) => {
+    setTargetGroup(group || null);
+    createRuleForm.resetFields();
+    if (group && group.vrId) {
+      createRuleForm.setFieldsValue({ vrId: group.vrId });
+    }
+    setRuleDrawerOpen(true);
+  };
+
+  const handleCreateRule = async () => {
+    try {
+      const values = await createRuleForm.validateFields();
+      setSubmitting(true);
+      
+      if (targetGroup) {
+        await addACLRuleToGroup(targetGroup.id, values);
+      } else {
+        await createACLRule(values);
+      }
+      
+      message.success('规则创建成功');
+      setRuleDrawerOpen(false);
+      createRuleForm.resetFields();
+      fetchRules();
+      if (targetGroup) fetchGroups(); // Refresh groups to update rule list
+    } catch (e: any) {
+      if (!e.errorFields) message.error('创建失败: ' + e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteRule = (row: ACLRule) => {
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除 ACL 规则 "${row.name}" 吗？`,
@@ -139,40 +245,47 @@ const ACLPage: React.FC = () => {
         try {
           await deleteACLRule(row.id);
           message.success('删除成功');
-          fetchData();
+          fetchRules();
+          fetchGroups(); // Refresh groups in case rule was in a group
         } catch (error: any) {
-          console.error(error);
           message.error('删除失败: ' + (error.message || 'Unknown error'));
         }
       }
     });
   };
 
-  const handleCreate = async () => {
-    try {
-      const values = await createForm.validateFields();
-      setSubmitting(true);
-      await createACLRule(values);
-      message.success('创建成功');
-      setDrawerOpen(false);
-      createForm.resetFields();
-      fetchData();
-    } catch (error: any) {
-      console.error(error);
-      if (error.errorFields) {
-        // Validation error
-      } else {
-        message.error('创建失败: ' + (error.message || 'Unknown error'));
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  // --- Columns ---
 
-  const fullColumns: ColumnsType<ACLRule> = [
+  const groupColumns: ColumnsType<ACLGroup> = [
+    { title: '组名称', dataIndex: 'name', key: 'name', width: 200, render: (t) => <b>{t}</b> },
+    { title: '所属VR', dataIndex: 'vrId', key: 'vrId', width: 200, render: (v) => v ? (vrNameMap[v] || v) : <span style={{color:'#ccc'}}>未绑定</span> },
+    { title: '描述', dataIndex: 'description', key: 'description' },
+    { title: '规则数', key: 'rules', width: 100, render: (_, r) => <Badge count={r.rules?.length || 0} showZero color="blue" /> },
+    { title: '操作', key: 'ops', width: 150, render: (_, r) => (
+      <Space>
+        <Tooltip title="添加规则">
+          <Button type="text" icon={<PlusOutlined />} onClick={() => handleOpenCreateRule(r)} />
+        </Tooltip>
+        <Tooltip title="下发配置">
+          <Button type="text" icon={<RocketOutlined />} onClick={() => r.vrId && handleDeploy(r.vrId)} disabled={!r.vrId} />
+        </Tooltip>
+        <ResourceActionsDropdown
+          items={[
+            { key: 'delete', label: '删除组', danger: true }
+          ]}
+          onClick={({ key }) => {
+            if (key === 'delete') handleDeleteGroup(r);
+          }}
+        />
+      </Space>
+    )}
+  ];
+
+  const ruleColumns: ColumnsType<ACLRule> = [
     { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80, sorter: (a, b) => a.priority - b.priority },
     { title: '名称', dataIndex: 'name', key: 'name', width: 150 },
     { title: '所属VR', dataIndex: 'vrId', key: 'vrId', width: 150, render: (v) => vrNameMap[v] || v },
+    { title: '所属组', dataIndex: 'group', key: 'group', width: 150, render: (g) => g ? <Tag color="blue">{g.name}</Tag> : '-' },
     { title: '动作', dataIndex: 'action', key: 'action', width: 100, render: (act) => (
       <Tag color={act === 'permit' ? 'green' : 'red'}>{act.toUpperCase()}</Tag>
     )},
@@ -182,13 +295,19 @@ const ACLPage: React.FC = () => {
     { title: '源端口', dataIndex: 'sourcePort', key: 'sourcePort' },
     { title: '目的端口', dataIndex: 'destinationPort', key: 'destinationPort' },
     { title: '操作', key: 'ops', width: 100, render: (_, row) => (
-      <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(row)} />
+      <ResourceActionsDropdown
+        items={[
+          { key: 'delete', label: '删除', danger: true }
+        ]}
+        onClick={({ key }) => {
+          if (key === 'delete') handleDeleteRule(row);
+        }}
+      />
     )}
   ];
 
-  const columns = fullColumns;
-
-  const filteredData = data.filter((r) => {
+  // Filtering for Rules Tab
+  const filteredRules = rules.filter((r) => {
     if (keyword && !String(r.name || '').toLowerCase().includes(keyword.toLowerCase())) return false;
     if (vrFilter && r.vrId !== vrFilter) return false;
     if (actionFilter && r.action !== actionFilter) return false;
@@ -203,36 +322,27 @@ const ACLPage: React.FC = () => {
     setProtocolFilter(undefined);
   };
 
-  const moreMenu: MenuProps = {
-    items: [
-      {
-        key: 'refresh',
-        label: '刷新列表',
-        onClick: fetchData
-      },
-      {
-        key: 'reset',
-        label: '重置筛选',
-        onClick: resetFilters
-      }
-    ]
-  };
-
   return (
     <PageContainer
       titleLevel={3}
       asCard={false}
-      primaryAction={{
-        text: '新建 ACL',
-        onClick: () => setDrawerOpen(true),
+      onRefresh={() => { fetchGroups(); fetchRules(); }}
+      primaryAction={activeTab === 'groups' ? {
+        text: '新建 ACL 组',
+        onClick: () => setGroupDrawerOpen(true),
+        type: 'primary',
+      } : {
+        text: '新建 ACL 规则',
+        onClick: () => handleOpenCreateRule(),
         type: 'primary',
       }}
-      moreMenuItems={[
-        { key: 'refresh', label: '刷新列表', onClick: fetchData },
-        { key: 'reset', label: '重置筛选', onClick: resetFilters }
+      tabList={[
+        { key: 'groups', tab: <span><FolderOutlined />ACL 组管理</span> },
+        { key: 'rules', tab: <span><UnorderedListOutlined />所有规则列表</span> }
       ]}
-      defaultHiddenColumns={[]} // ACL columns seem to be all visible by default in previous code (defaultCheckedColumns had all)
-      toolbarLeft={(
+      tabActiveKey={activeTab}
+      onTabChange={setActiveTab}
+      toolbarLeft={activeTab === 'rules' && (
         <Form
           className="filter-tools filter-tools--center"
           form={filterForm}
@@ -273,26 +383,85 @@ const ACLPage: React.FC = () => {
           </Form.Item>
         </Form>
       )}
-      tableProps={{
-        dataSource: filteredData,
-        columns: columns,
-        rowKey: "id",
-        loading: loading,
-        pagination: { defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'] },
-        scroll: { x: 'max-content' },
-        bordered: true
-      }}
     >
+      {activeTab === 'groups' && (
+        <Card bodyStyle={{ padding: 0 }} bordered={false}>
+          <Table
+            dataSource={groups}
+            columns={groupColumns}
+            rowKey="id"
+            loading={groupsLoading}
+            pagination={{ pageSize: 10 }}
+            expandable={{
+              expandedRowRender: (record) => (
+                <div style={{ margin: 0 }}>
+                  <p style={{ marginBottom: 8 }}><b>{record.name} 的规则列表:</b></p>
+                  <Table
+                    size="small"
+                    columns={ruleColumns.filter(c => c.key !== 'group' && c.key !== 'vrId')} // Hide redundant columns
+                    dataSource={record.rules || []}
+                    rowKey="id"
+                    pagination={false}
+                  />
+                </div>
+              ),
+              rowExpandable: (record) => (record.rules?.length || 0) > 0,
+            }}
+          />
+        </Card>
+      )}
+      
+      {activeTab === 'rules' && (
+        <Card bodyStyle={{ padding: 0 }} bordered={false}>
+          <Table
+            dataSource={filteredRules}
+            columns={ruleColumns}
+            rowKey="id"
+            loading={rulesLoading}
+            pagination={{ pageSize: 20 }}
+            scroll={{ x: 'max-content' }}
+          />
+        </Card>
+      )}
 
+      {/* Group Drawer */}
       <StdSideDrawer
-        title="新建 ACL 规则"
-        width={600}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onOk={handleCreate}
+        title="新建 ACL 组"
+        width={500}
+        open={groupDrawerOpen}
+        onClose={() => setGroupDrawerOpen(false)}
+        onOk={handleCreateGroup}
         okText={submitting ? "提交中..." : "提交"}
       >
-        <Form form={createForm} layout="vertical">
+        <Form form={groupForm} layout="vertical">
+          <Form.Item name="name" label="组名称" rules={[{ required: true }]}>
+            <Input placeholder="输入 ACL 组名称" />
+          </Form.Item>
+          <Form.Item name="vrId" label="所属 VR" rules={[{ required: true }]}>
+            <Select placeholder="选择 VR 实例">
+              {vrList.map(v => {
+                const id = v.uuid || v.id || v.vm_id;
+                const name = v.name || id;
+                return id ? (<Option key={id} value={id}>{name}</Option>) : null;
+              })}
+            </Select>
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+        </Form>
+      </StdSideDrawer>
+
+      {/* Rule Drawer */}
+      <StdSideDrawer
+        title={targetGroup ? `新建规则 (所属组: ${targetGroup.name})` : "新建 ACL 规则"}
+        width={600}
+        open={ruleDrawerOpen}
+        onClose={() => setRuleDrawerOpen(false)}
+        onOk={handleCreateRule}
+        okText={submitting ? "提交中..." : "提交"}
+      >
+        <Form form={createRuleForm} layout="vertical">
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="name" label="规则名称" rules={[{ required: true }]}>
@@ -301,7 +470,7 @@ const ACLPage: React.FC = () => {
             </Col>
             <Col span={12}>
               <Form.Item name="vrId" label="所属 VR" rules={[{ required: true }]}>
-                <Select placeholder="选择 VR 实例">
+                <Select placeholder="选择 VR 实例" disabled={!!targetGroup}>
                   {vrList.map(v => {
                     const id = v.uuid || v.id || v.vm_id;
                     const name = v.name || id;

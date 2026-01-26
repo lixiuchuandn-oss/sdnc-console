@@ -3,7 +3,8 @@ import { Button, Divider, Form, Input, Select, Space, Table, Dropdown, Modal, Al
 import { DesktopOutlined, ReloadOutlined, EllipsisOutlined, GlobalOutlined, PlusOutlined, CloudUploadOutlined, CloudServerOutlined, ClusterOutlined, HddOutlined, DatabaseOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderVpcs, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderEnis, fetchAllInstances, fetchInventoryInstancesByCloud, refreshInventoryInstances, refreshInventoryInstancesSlow, fetchAliyunEcsVncUrl } from '../../services/api';
+import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderVpcs, fetchCloudProviderEips, fetchCloudProviderDisks, fetchAllInstances, fetchInventoryInstancesByCloud, refreshInventoryInstances, refreshInventoryInstancesSlow, fetchCloudProviderEcsVncUrl } from '../../services/api';
+import { fetchCloudProviderEnis, fetchAliyunEcsVncUrl } from '../../services/aliyunApi';
 import '../common/filters.css';
 import './CloudConsole.css';
 
@@ -554,7 +555,7 @@ const CloudConsolePage: React.FC = () => {
               const isHuawei = providerNowRaw.includes('huawei');
               if ((isAliyun || isHuawei) && currentCloudId && iid) {
                 try {
-                  const json = await fetchAliyunEcsVncUrl(currentCloudId!, iid);
+                  const json = await fetchCloudProviderEcsVncUrl(currentCloudId!, iid);
                   const url = json?.data?.VncUrl || json?.data?.vncUrl;
                   if (url) {
                     const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);

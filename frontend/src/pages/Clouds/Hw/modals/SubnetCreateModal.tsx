@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { App, Form, Input, Select } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { fetchCloudProviderSubnets, createHuaweiCloudSubnet } from '../../../../services/api';
+import { fetchCloudProviderSubnets } from '../../../../services/api';
+import { createHuaweiCloudSubnet } from '../../../../services/huaweiApi';
 import { parseCidrNum, samePrefix, rangesOverlap, normalizeErr } from '../utils/net';
 
 type Props = {

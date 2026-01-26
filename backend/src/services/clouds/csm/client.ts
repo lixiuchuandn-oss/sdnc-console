@@ -11,8 +11,15 @@ export interface CsmConfig {
 }
 
 // Helper for CSM signature
-function md5Lower(s: string) { return crypto.createHash('md5').update(s || '').digest('hex'); }
-function ts16() { return (Date.now() + '000').slice(0, 16); }
+function md5Lower(s: string) {
+  return crypto
+    .createHash('md5')
+    .update(s || '')
+    .digest('hex');
+}
+function ts16() {
+  return (Date.now() + '000').slice(0, 16);
+}
 
 // Generic request helper
 export async function csmRequest(
@@ -21,17 +28,26 @@ export async function csmRequest(
   queryObj: any = {},
   method: string = 'GET',
   body: any = null,
-  options?: { basicAuth?: boolean; includeCookie?: boolean; cookie?: string; webPort?: string; noAuth?: boolean; extraHeaders?: Record<string,string> }
+  options?: {
+    basicAuth?: boolean;
+    includeCookie?: boolean;
+    cookie?: string;
+    webPort?: string;
+    noAuth?: boolean;
+    extraHeaders?: Record<string, string>;
+  },
 ) {
   const { endpoint, accessKey, secretKey, ignoreTls } = config;
   const endpointRaw = String(endpoint || '').trim();
-  
+
   const ak = decodeURIComponent(accessKey || '');
   const sk = decodeURIComponent(secretKey || '');
 
   let base = (() => {
     try {
-      const u = endpointRaw.startsWith('http') ? new URL(endpointRaw) : new URL(`https://${endpointRaw}`);
+      const u = endpointRaw.startsWith('http')
+        ? new URL(endpointRaw)
+        : new URL(`https://${endpointRaw}`);
       if (options?.webPort) u.port = String(options.webPort);
       return `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
     } catch {
@@ -53,27 +69,27 @@ export async function csmRequest(
   if (!ak || !sk) throw new Error('Missing CSM credentials');
 
   const agent = new https.Agent({ rejectUnauthorized: !ignoreTls });
-  
+
   const sKeys = Object.keys(queryObj).sort();
-  
+
   // For the actual request, we use '&' separator
-  const queryStr = sKeys.map(k => `${k}=${queryObj[k]}`).join('&');
+  const queryStr = sKeys.map((k) => `${k}=${queryObj[k]}`).join('&');
 
   // LOCAL SIGNING (Replaces remote signer)
   // Format: METHOD|URL|TONCE|ACCESS_KEY|QUERY_PARAMS|BODY_HASH
   const tonce = (Date.now() * 1000).toString();
-  
+
   let md5Body = '';
   if (body) {
-      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-      // Only hash if not empty? Or always hash if body exists?
-      // Assuming empty string for empty/null body (GET), and MD5 for actual body (POST)
-      // If body is empty object {}, JSON.stringify is "{}". MD5("{}")?
-      // For now, let's assume if method is GET/DELETE, body is ignored/empty.
-      // If POST/PUT, we use body.
-      if (['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
-          md5Body = crypto.createHash('md5').update(bodyStr).digest('hex');
-      }
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    // Only hash if not empty? Or always hash if body exists?
+    // Assuming empty string for empty/null body (GET), and MD5 for actual body (POST)
+    // If body is empty object {}, JSON.stringify is "{}". MD5("{}")?
+    // For now, let's assume if method is GET/DELETE, body is ignored/empty.
+    // If POST/PUT, we use body.
+    if (['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
+      md5Body = crypto.createHash('md5').update(bodyStr).digest('hex');
+    }
   }
 
   const signStr = `${method}|${path}|${tonce}|${ak}|${queryStr}|${md5Body}`;
@@ -91,27 +107,31 @@ export async function csmRequest(
 
   try {
     const headers: any = {
-        'tonce': tonceHeader,
-        'X-Request-ID': uuidv4(),
-        'Platform': 'ComputeTower',
-        'User-Agent': 'PostmanRuntime/7.29.2',
-        'Cache-Control': 'no-cache',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        ...(options?.cookie ? { 'Cookie': options.cookie } : (options?.includeCookie ? { 'Cookie': 'sessionid_vpc=cf752941-f66c-4890-b388-eb9d55c0ca35' } : {})),
-        'Accept': '*/*'
+      tonce: tonceHeader,
+      'X-Request-ID': uuidv4(),
+      Platform: 'ComputeTower',
+      'User-Agent': 'PostmanRuntime/7.29.2',
+      'Cache-Control': 'no-cache',
+      'Accept-Encoding': 'gzip, deflate, br',
+      Connection: 'keep-alive',
+      ...(options?.cookie
+        ? { Cookie: options.cookie }
+        : options?.includeCookie
+          ? { Cookie: 'sessionid_vpc=cf752941-f66c-4890-b388-eb9d55c0ca35' }
+          : {}),
+      Accept: '*/*',
     };
     if (!options?.noAuth) {
-      headers['Authorization'] = (options?.basicAuth ? `Basic ${basicHeader}` : sigHeader);
+      headers['Authorization'] = options?.basicAuth ? `Basic ${basicHeader}` : sigHeader;
     }
     if (options?.extraHeaders) {
       for (const [k, v] of Object.entries(options.extraHeaders)) {
         headers[k] = v;
       }
     }
-    
+
     if (['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
-        headers['Content-Type'] = 'application/json;charset=utf-8';
+      headers['Content-Type'] = 'application/json;charset=utf-8';
     }
 
     const resp = await axios({
@@ -125,23 +145,30 @@ export async function csmRequest(
     });
     return resp.data;
   } catch (error: any) {
-    if (error.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' || error.message?.includes('self-signed certificate')) {
+    if (
+      error.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+      error.message?.includes('self-signed certificate')
+    ) {
       console.warn('[CSM] Self-signed certificate detected, retrying with ignoreTls=true...');
       const insecureAgent = new https.Agent({ rejectUnauthorized: false });
-      
+
       const retryHeaders: any = {
-          'tonce': tonceHeader,
-          'X-Request-ID': uuidv4(),
-          'Platform': 'ComputeTower',
-          'User-Agent': 'PostmanRuntime/7.29.2',
-          'Cache-Control': 'no-cache',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          ...(options?.cookie ? { 'Cookie': options.cookie } : (options?.includeCookie ? { 'Cookie': 'sessionid_vpc=cf752941-f66c-4890-b388-eb9d55c0ca35' } : {})),
-          'Accept': '*/*'
+        tonce: tonceHeader,
+        'X-Request-ID': uuidv4(),
+        Platform: 'ComputeTower',
+        'User-Agent': 'PostmanRuntime/7.29.2',
+        'Cache-Control': 'no-cache',
+        'Accept-Encoding': 'gzip, deflate, br',
+        Connection: 'keep-alive',
+        ...(options?.cookie
+          ? { Cookie: options.cookie }
+          : options?.includeCookie
+            ? { Cookie: 'sessionid_vpc=cf752941-f66c-4890-b388-eb9d55c0ca35' }
+            : {}),
+        Accept: '*/*',
       };
       if (!options?.noAuth) {
-        retryHeaders['Authorization'] = (options?.basicAuth ? `Basic ${basicHeader}` : sigHeader);
+        retryHeaders['Authorization'] = options?.basicAuth ? `Basic ${basicHeader}` : sigHeader;
       }
       if (options?.extraHeaders) {
         for (const [k, v] of Object.entries(options.extraHeaders)) {
@@ -150,7 +177,7 @@ export async function csmRequest(
       }
 
       if (['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
-          retryHeaders['Content-Type'] = 'application/json;charset=utf-8';
+        retryHeaders['Content-Type'] = 'application/json;charset=utf-8';
       }
 
       const resp = await axios({
@@ -159,11 +186,15 @@ export async function csmRequest(
         headers: retryHeaders,
         data: body,
         httpsAgent: insecureAgent,
-        timeout: 10000
+        timeout: 10000,
       });
       return resp.data;
     }
-    console.error('[CSM] Request Error:', error.response?.status, error.response?.data || error.message);
+    console.error(
+      '[CSM] Request Error:',
+      error.response?.status,
+      error.response?.data || error.message,
+    );
     throw error;
   }
 }
@@ -172,20 +203,20 @@ export const listCsmVms = async (config: CsmConfig, queryParams: any = {}) => {
   // VM04/vms seems to be the correct endpoint for VMs
   const path = '/V2/ctcontrol/VM04/vms';
   const query = { page_size: 1000, page_num: 1, ...queryParams };
-  
+
   try {
     const raw = await csmRequest(config, path, query);
     // console.log('[CSM Debug] Vms Raw:', JSON.stringify(raw).slice(0, 500));
-    
+
     // Direct array
     if (Array.isArray(raw)) return raw;
-    
+
     // Wrapped in data
     const data = raw?.data;
     if (Array.isArray(data)) return data;
     if (Array.isArray(data?.items)) return data.items;
     if (Array.isArray(data?.page)) return data.page;
-    
+
     // Direct page property (no data wrapper)
     if (Array.isArray(raw?.page)) return raw.page;
     if (Array.isArray(raw?.items)) return raw.items;
@@ -216,33 +247,72 @@ export const listCsmVRouters = async (config: CsmConfig, queryParams: any = {}) 
   const endpoints = [
     '/V2/ctcontrol/VM06/vrouters',
     '/V2/ctcontrol/VM06/vrouter/list',
-    '/V2/ctcontrol/VM06/vrouter' // Fallback
+    '/V2/ctcontrol/VM06/vrouter', // Fallback
   ];
   const query = { page_size: 1000, page_num: 1, ...queryParams };
-  
+
   let list: any[] = [];
   let found = false;
 
   for (const path of endpoints) {
     try {
       const raw = await csmRequest(config, path, query);
-      console.log(`[CSM Debug] vRouters raw response for ${path}:`, JSON.stringify(raw).slice(0, 500));
-      
-      if (Array.isArray(raw)) { list = raw; found = true; break; }
-      
+      console.log(
+        `[CSM Debug] vRouters raw response for ${path}:`,
+        JSON.stringify(raw).slice(0, 500),
+      );
+
+      if (Array.isArray(raw)) {
+        list = raw;
+        found = true;
+        break;
+      }
+
       const data = raw?.data;
-      if (Array.isArray(data)) { list = data; found = true; break; }
-      
+      if (Array.isArray(data)) {
+        list = data;
+        found = true;
+        break;
+      }
+
       // Check for common pagination keys
-      if (Array.isArray(data?.items)) { list = data.items; found = true; break; }
-      if (Array.isArray(data?.page)) { list = data.page; found = true; break; }
-      if (Array.isArray(data?.vrouters)) { list = data.vrouters; found = true; break; }
-      if (Array.isArray(data?.v_routers)) { list = data.v_routers; found = true; break; }
-      
+      if (Array.isArray(data?.items)) {
+        list = data.items;
+        found = true;
+        break;
+      }
+      if (Array.isArray(data?.page)) {
+        list = data.page;
+        found = true;
+        break;
+      }
+      if (Array.isArray(data?.vrouters)) {
+        list = data.vrouters;
+        found = true;
+        break;
+      }
+      if (Array.isArray(data?.v_routers)) {
+        list = data.v_routers;
+        found = true;
+        break;
+      }
+
       // Check top level keys
-      if (Array.isArray(raw?.items)) { list = raw.items; found = true; break; }
-      if (Array.isArray(raw?.page)) { list = raw.page; found = true; break; }
-      if (Array.isArray(raw?.vrouters)) { list = raw.vrouters; found = true; break; }
+      if (Array.isArray(raw?.items)) {
+        list = raw.items;
+        found = true;
+        break;
+      }
+      if (Array.isArray(raw?.page)) {
+        list = raw.page;
+        found = true;
+        break;
+      }
+      if (Array.isArray(raw?.vrouters)) {
+        list = raw.vrouters;
+        found = true;
+        break;
+      }
     } catch (e: any) {
       console.log(`[CSM Debug] Failed to list vRouters from ${path}: ${e.message}`);
     }
@@ -255,27 +325,31 @@ export const listCsmVRouters = async (config: CsmConfig, queryParams: any = {}) 
   const chunkSize = 5;
   for (let i = 0; i < list.length; i += chunkSize) {
     const chunk = list.slice(i, i + chunkSize);
-    const results = await Promise.all(chunk.map(async (item: any) => {
-      const vid = item.vrouter_id || item.id || item.uuid || item.Id;
-      if (!vid) return item;
-      
-      // If already has detail fields, skip
-      if (item.vm_list && item.vrouter_port_list) return item;
+    const results = await Promise.all(
+      chunk.map(async (item: any) => {
+        const vid = item.vrouter_id || item.id || item.uuid || item.Id;
+        if (!vid) return item;
 
-      if (!vid) {
-        console.warn('[CSM Debug] vRouter item missing ID:', JSON.stringify(item));
+        // If already has detail fields, skip
+        if (item.vm_list && item.vrouter_port_list) return item;
+
+        if (!vid) {
+          console.warn('[CSM Debug] vRouter item missing ID:', JSON.stringify(item));
+          return item;
+        }
+
+        const detail = await getCsmVRouterDetail(config, vid);
+        if (detail) {
+          const vmCount = Array.isArray(detail.vm_list) ? detail.vm_list.length : 0;
+          const portCount = Array.isArray(detail.vrouter_port_list)
+            ? detail.vrouter_port_list.length
+            : 0;
+          console.log(`[CSM Debug] Enriched vRouter ${vid}: ${vmCount} VMs, ${portCount} ports`);
+          return { ...item, ...detail };
+        }
         return item;
-      }
-
-      const detail = await getCsmVRouterDetail(config, vid);
-      if (detail) {
-        const vmCount = Array.isArray(detail.vm_list) ? detail.vm_list.length : 0;
-        const portCount = Array.isArray(detail.vrouter_port_list) ? detail.vrouter_port_list.length : 0;
-        console.log(`[CSM Debug] Enriched vRouter ${vid}: ${vmCount} VMs, ${portCount} ports`);
-        return { ...item, ...detail };
-      }
-      return item;
-    }));
+      }),
+    );
     detailedList.push(...results);
   }
 
@@ -289,7 +363,7 @@ export const getCsmPoolInfo = async (config: CsmConfig) => {
     const vrQuery = { page_num: 1, page_size: 1 };
     const vrRaw = await csmRequest(config, vrPath, vrQuery, 'GET');
     const vrData = vrRaw?.data || vrRaw;
-    
+
     if (vrData?.page && vrData.page.length > 0) {
       return vrData.page[0]; // Returns object with pool_id
     }
@@ -309,20 +383,39 @@ export const getCsmPoolInfo = async (config: CsmConfig) => {
   }
 };
 
-export const csmSsoLogin = async (config: CsmConfig, payload: { id: string; currentLoginWebPort: string }, extraHeaders?: Record<string,string>) => {
+export const csmSsoLogin = async (
+  config: CsmConfig,
+  payload: { id: string; currentLoginWebPort: string },
+  extraHeaders?: Record<string, string>,
+) => {
   const path = '/csm/api/v1.0/security/domain/attach/callOnSSO';
-  return await csmRequest(config, path, {}, 'POST', {
-    id: payload.id,
-    currentLoginWebPort: payload.currentLoginWebPort,
-  }, { basicAuth: true, includeCookie: false, webPort: payload.currentLoginWebPort, extraHeaders });
+  return await csmRequest(
+    config,
+    path,
+    {},
+    'POST',
+    {
+      id: payload.id,
+      currentLoginWebPort: payload.currentLoginWebPort,
+    },
+    { basicAuth: true, includeCookie: false, webPort: payload.currentLoginWebPort, extraHeaders },
+  );
 };
 
-export const csmAdminLogin = async (config: CsmConfig, username: string, password: string, webPort?: string, loginPath?: string) => {
+export const csmAdminLogin = async (
+  config: CsmConfig,
+  username: string,
+  password: string,
+  webPort?: string,
+  loginPath?: string,
+) => {
   const { endpoint, ignoreTls } = config;
   const endpointRaw = String(endpoint || '').trim();
   const base = (() => {
     try {
-      const u = endpointRaw.startsWith('http') ? new URL(endpointRaw) : new URL(`https://${endpointRaw}`);
+      const u = endpointRaw.startsWith('http')
+        ? new URL(endpointRaw)
+        : new URL(`https://${endpointRaw}`);
       if (webPort) u.port = String(webPort);
       const host = `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
       return host;
@@ -332,7 +425,13 @@ export const csmAdminLogin = async (config: CsmConfig, username: string, passwor
     }
   })();
   const agent = new https.Agent({ rejectUnauthorized: !ignoreTls });
-  const tryUrls = [String(loginPath || '/user/customUser'), '/csm/login', '/login', '/uaa/login', '/csm/uaa/login'];
+  const tryUrls = [
+    String(loginPath || '/user/customUser'),
+    '/csm/login',
+    '/login',
+    '/uaa/login',
+    '/csm/uaa/login',
+  ];
   const body = new URLSearchParams({ username, password }).toString();
   const jsonBody = { username, password };
   let baseCookie = '';
@@ -342,15 +441,15 @@ export const csmAdminLogin = async (config: CsmConfig, username: string, passwor
         method: 'GET',
         url: `${base}${p}`,
         headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
         httpsAgent: agent,
         maxRedirects: 0,
-        validateStatus: (s) => s >= 200 && s < 400
+        validateStatus: (s) => s >= 200 && s < 400,
       });
       const preCookies: string[] = pre.headers?.['set-cookie'] || [];
       if (Array.isArray(preCookies) && preCookies.length) {
-        const pairs = preCookies.map(s => String(s).split(';')[0]).filter(Boolean);
+        const pairs = preCookies.map((s) => String(s).split(';')[0]).filter(Boolean);
         baseCookie = pairs.join('; ');
       }
       const html = String(pre.data || '');
@@ -361,18 +460,21 @@ export const csmAdminLogin = async (config: CsmConfig, username: string, passwor
         method: 'POST',
         url: `${base}${p}`,
         headers: {
-          'Content-Type': p === '/user/customUser' ? 'application/json;charset=utf-8' : 'application/x-www-form-urlencoded',
-          'Accept': '*/*',
-          ...(baseCookie ? { 'Cookie': baseCookie } : {}),
-          ...(csrf ? { 'X-CSRF-TOKEN': csrf } : {})
+          'Content-Type':
+            p === '/user/customUser'
+              ? 'application/json;charset=utf-8'
+              : 'application/x-www-form-urlencoded',
+          Accept: '*/*',
+          ...(baseCookie ? { Cookie: baseCookie } : {}),
+          ...(csrf ? { 'X-CSRF-TOKEN': csrf } : {}),
         },
         data: p === '/user/customUser' ? jsonBody : form,
         httpsAgent: agent,
         maxRedirects: 0,
-        validateStatus: (s) => s >= 200 && s < 400
+        validateStatus: (s) => s >= 200 && s < 400,
       });
       const setCookies: string[] = resp.headers?.['set-cookie'] || [];
-      const pairs = setCookies.map(s => String(s).split(';')[0]).filter(Boolean);
+      const pairs = setCookies.map((s) => String(s).split(';')[0]).filter(Boolean);
       const cookie = [baseCookie, ...pairs].filter(Boolean).join('; ');
       if (cookie) return cookie;
     } catch {}
@@ -382,16 +484,16 @@ export const csmAdminLogin = async (config: CsmConfig, username: string, passwor
         url: `${base}${p}`,
         headers: {
           'Content-Type': 'application/json;charset=utf-8',
-          'Accept': 'application/json,*/*;q=0.8',
-          ...(baseCookie ? { 'Cookie': baseCookie } : {})
+          Accept: 'application/json,*/*;q=0.8',
+          ...(baseCookie ? { Cookie: baseCookie } : {}),
         },
         data: jsonBody,
         httpsAgent: agent,
         maxRedirects: 0,
-        validateStatus: (s) => s >= 200 && s < 400
+        validateStatus: (s) => s >= 200 && s < 400,
       });
       const setCookies: string[] = respJson.headers?.['set-cookie'] || [];
-      const pairs = setCookies.map(s => String(s).split(';')[0]).filter(Boolean);
+      const pairs = setCookies.map((s) => String(s).split(';')[0]).filter(Boolean);
       const cookie = [baseCookie, ...pairs].filter(Boolean).join('; ');
       if (cookie) return cookie;
     } catch {}
@@ -403,16 +505,16 @@ export const csmAdminLogin = async (config: CsmConfig, username: string, passwor
         url: `${base}${p}`,
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': '*/*'
+          Accept: '*/*',
         },
         data: body,
         httpsAgent: agent,
         maxRedirects: 0,
-        validateStatus: (s) => s >= 200 && s < 400
+        validateStatus: (s) => s >= 200 && s < 400,
       });
       const setCookies: string[] = resp.headers?.['set-cookie'] || [];
       if (Array.isArray(setCookies) && setCookies.length) {
-        const pairs = setCookies.map(s => String(s).split(';')[0]).filter(Boolean);
+        const pairs = setCookies.map((s) => String(s).split(';')[0]).filter(Boolean);
         const cookie = pairs.join('; ');
         if (cookie) return cookie;
       }
@@ -421,7 +523,12 @@ export const csmAdminLogin = async (config: CsmConfig, username: string, passwor
   return '';
 };
 
-export const csmPreAuthLogin = async (config: CsmConfig, username: string, encryptedPassword: string, webPort?: string) => {
+export const csmPreAuthLogin = async (
+  config: CsmConfig,
+  username: string,
+  encryptedPassword: string,
+  webPort?: string,
+) => {
   const path = '/csm/api/v1.0/authentication/auth';
   const body = { username, password: encryptedPassword };
   try {
@@ -445,52 +552,58 @@ export const getCsmHostDetail = async (config: CsmConfig, hostId: string) => {
 };
 
 export const listCsmHosts = async (config: CsmConfig) => {
-    // VM02/hosts might be for physical hosts
-    const path = '/V2/ctcontrol/VM02/hosts'; // Adjust if needed
-    const query = { page_size: 1000, page_num: 1 };
-    
-    let list: any[] = [];
-    try {
-      const raw = await csmRequest(config, path, query);
-      const data = raw?.data;
-      if (Array.isArray(data)) list = data;
-      else if (Array.isArray(data?.items)) list = data.items;
-      else if (Array.isArray(data?.page)) list = data.page;
-      else list = [];
-    } catch (e) {
-      console.error('[CSM Debug] Hosts Error:', e);
-      return [];
-    }
+  // VM02/hosts might be for physical hosts
+  const path = '/V2/ctcontrol/VM02/hosts'; // Adjust if needed
+  const query = { page_size: 1000, page_num: 1 };
 
-    if (!list.length) return [];
+  let list: any[] = [];
+  try {
+    const raw = await csmRequest(config, path, query);
+    const data = raw?.data;
+    if (Array.isArray(data)) list = data;
+    else if (Array.isArray(data?.items)) list = data.items;
+    else if (Array.isArray(data?.page)) list = data.page;
+    else list = [];
+  } catch (e) {
+    console.error('[CSM Debug] Hosts Error:', e);
+    return [];
+  }
 
-    // Enhance with details
-    const detailedList: any[] = [];
-    const chunkSize = 5;
-    for (let i = 0; i < list.length; i += chunkSize) {
-      const chunk = list.slice(i, i + chunkSize);
-      const results = await Promise.all(chunk.map(async (item: any) => {
+  if (!list.length) return [];
+
+  // Enhance with details
+  const detailedList: any[] = [];
+  const chunkSize = 5;
+  for (let i = 0; i < list.length; i += chunkSize) {
+    const chunk = list.slice(i, i + chunkSize);
+    const results = await Promise.all(
+      chunk.map(async (item: any) => {
         const hid = item.host_id || item.id || item.Id || item.uuid;
         if (!hid) return item;
-        
+
         // If already has detail fields (e.g. cpu_usage), skip
         if (item.cpu_usage !== undefined && item.mem_usage !== undefined) return item;
 
         const detail = await getCsmHostDetail(config, hid);
         return detail ? { ...item, ...detail } : item;
-      }));
-      detailedList.push(...results);
-    }
-    
-    return detailedList;
+      }),
+    );
+    detailedList.push(...results);
+  }
+
+  return detailedList;
 };
 
-export const operateCsmVm = async (config: CsmConfig, vmId: string, action: 'start' | 'stop' | 'reboot') => {
+export const operateCsmVm = async (
+  config: CsmConfig,
+  vmId: string,
+  action: 'start' | 'stop' | 'reboot',
+) => {
   // Guessing the path pattern: /V2/ctcontrol/VM04/vms/{id}/{action}
   // action: start, stop, restart (reboot)
   const act = action === 'reboot' ? 'restart' : action;
   const path = `/V2/ctcontrol/VM04/vms/${vmId}/${act}`;
-  
+
   try {
     const raw = await csmRequest(config, path, {}, 'POST');
     return raw;
@@ -515,26 +628,29 @@ export const listCsmElementGroups = async (config: CsmConfig) => {
   // Correct API: GET /V2/ctcontrol/VM05/vm-groups
   const path = '/V2/ctcontrol/VM05/vm-groups';
   const query = { page_size: 1000, page_num: 1 };
-  
+
   try {
     const raw = await csmRequest(config, path, query);
     console.log('[CSM Debug] VM Groups Raw:', JSON.stringify(raw).slice(0, 500));
-    
+
     // Handle nested page structure as per example
     // { "page": { "page": [ ... ] } }
     let groups: any[] = [];
     if (Array.isArray(raw?.page?.page)) groups = raw.page.page;
     else if (Array.isArray(raw?.data?.page)) groups = raw.data.page;
-    
     // Fallback for standard structures
     else if (Array.isArray(raw)) groups = raw;
     else if (Array.isArray(raw?.data)) groups = raw.data;
     else if (Array.isArray(raw?.data?.items)) groups = raw.data.items;
     else if (Array.isArray(raw?.data?.page)) groups = raw.data.page;
     else if (Array.isArray(raw?.page)) groups = raw.page;
-    
-    return groups.map(g => {
-      const elements = g.vm_id_list ? String(g.vm_id_list).split(';').filter((s: string) => s.trim()) : (g.elements || []);
+
+    return groups.map((g) => {
+      const elements = g.vm_id_list
+        ? String(g.vm_id_list)
+            .split(';')
+            .filter((s: string) => s.trim())
+        : g.elements || [];
       return {
         ...g, // Preserve original fields
         id: g.vm_group_id || g.id,
@@ -542,7 +658,7 @@ export const listCsmElementGroups = async (config: CsmConfig) => {
         elements,
         count: elements.length,
         // Frontend uses 'count' or 'Count' or elements.length
-        Count: elements.length 
+        Count: elements.length,
       };
     });
   } catch (e: any) {
@@ -556,10 +672,10 @@ export const listCsmServiceChains = async (config: CsmConfig, queryParams: any =
     '/V2/ctcontrol/VM08/service-chains', // Working endpoint (returns { data: { page: [...] } })
     '/V2/ctcontrol/SC01/service-chains',
     '/V2/ctcontrol/SC01/chains',
-    '/V2/ctcontrol/SC03/service-chains'
+    '/V2/ctcontrol/SC03/service-chains',
   ];
   const query = { page_size: 1000, page_num: 1, ...queryParams };
-  
+
   for (const p of endpoints) {
     try {
       const raw = await csmRequest(config, p, query);
@@ -607,11 +723,12 @@ export const listCsmVRPageList = async (config: CsmConfig, queryParams: any = {}
   }
 };
 
-export const deleteCsmServiceChain = async (config: CsmConfig, serviceChainId: string, queryParams: any = {}) => {
-  const endpoints = [
-    '/V2/ctcontrol/VM08/service-chain',
-    '/V1.0/ctcontrol/VM08/service-chain'
-  ];
+export const deleteCsmServiceChain = async (
+  config: CsmConfig,
+  serviceChainId: string,
+  queryParams: any = {},
+) => {
+  const endpoints = ['/V2/ctcontrol/VM08/service-chain', '/V1.0/ctcontrol/VM08/service-chain'];
   const query = { service_chain_id: serviceChainId, ...queryParams };
   for (const p of endpoints) {
     try {
@@ -622,7 +739,11 @@ export const deleteCsmServiceChain = async (config: CsmConfig, serviceChainId: s
   throw new Error('删除服务链失败：未命中可用端点');
 };
 
-export const createCsmServiceChain = async (config: CsmConfig, payload: any, queryParams: any = {}) => {
+export const createCsmServiceChain = async (
+  config: CsmConfig,
+  payload: any,
+  queryParams: any = {},
+) => {
   const endpoints = [
     '/V2/ctcontrol/VM08/service-chains',
     '/V2/ctcontrol/VM08/service-chain',
@@ -630,7 +751,7 @@ export const createCsmServiceChain = async (config: CsmConfig, payload: any, que
     '/V2/ctcontrol/SC01/service-chains',
     '/V2/ctcontrol/SC03/service-chains',
     '/V2/ctcontrol/VSW01/service-chains',
-    '/V2/ctcontrol/VSW02/service-chains'
+    '/V2/ctcontrol/VSW02/service-chains',
   ];
   for (const p of endpoints) {
     try {
@@ -641,14 +762,18 @@ export const createCsmServiceChain = async (config: CsmConfig, payload: any, que
   throw new Error('创建服务链失败：未命中可用端点');
 };
 
-export const createCsmServiceChainRawBody = async (config: CsmConfig, payload: any, queryParams: any = {}) => {
+export const createCsmServiceChainRawBody = async (
+  config: CsmConfig,
+  payload: any,
+  queryParams: any = {},
+) => {
   const endpoints = [
     '/V2/ctcontrol/VM08/service-chain',
     '/V1.0/ctcontrol/VM08/service-chain',
     '/V2/ctcontrol/SC01/service-chains',
     '/V2/ctcontrol/SC03/service-chains',
     '/V2/ctcontrol/VSW01/service-chains',
-    '/V2/ctcontrol/VSW02/service-chains'
+    '/V2/ctcontrol/VSW02/service-chains',
   ];
   for (const p of endpoints) {
     try {
@@ -697,142 +822,146 @@ export const getCsmAssetDetail = async (config: CsmConfig, assetId: string) => {
 };
 
 export const listCsmAssets = async (config: CsmConfig, queryParams: any = {}) => {
-    // 6.7.4 查询资源池下的资产列表
-    // Spec History:
-    // 1. User provided Plural: GET /V2/ctcontrol/VM07/customer/networks
-    // 2. User provided Singular (latest): GET /V2/ctcontrol/VM07/customer/network (Title: Query Detail List, Desc: Query Asset List)
-    // We try multiple endpoints to be robust.
-    
-    const assetsMap = new Map<string, any>();
-    const networkToChainMap = new Map<string, string>();
+  // 6.7.4 查询资源池下的资产列表
+  // Spec History:
+  // 1. User provided Plural: GET /V2/ctcontrol/VM07/customer/networks
+  // 2. User provided Singular (latest): GET /V2/ctcontrol/VM07/customer/network (Title: Query Detail List, Desc: Query Asset List)
+  // We try multiple endpoints to be robust.
 
-    const endpoints = [
-        '/V2/ctcontrol/VM07/customer/networks',  // Plural (User's explicit instruction: Query Asset List)
-        '/V2/ctcontrol/VM07/customer/network',   // Singular (Fallback)
-        '/V2/ctcontrol/VM07/customer/networks/list',
-        '/V2/ctcontrol/VM07/customer/network/list'
-    ];
+  const assetsMap = new Map<string, any>();
+  const networkToChainMap = new Map<string, string>();
 
-    // 1. Query VM07 List
-    let list: any[] = [];
-    let successEndpoint = '';
+  const endpoints = [
+    '/V2/ctcontrol/VM07/customer/networks', // Plural (User's explicit instruction: Query Asset List)
+    '/V2/ctcontrol/VM07/customer/network', // Singular (Fallback)
+    '/V2/ctcontrol/VM07/customer/networks/list',
+    '/V2/ctcontrol/VM07/customer/network/list',
+  ];
 
-    const { page_size = 1000, page_num = 1, pool_id } = queryParams;
-    const query: any = { page_size, page_num };
-    if (pool_id) query.pool_id = pool_id;
+  // 1. Query VM07 List
+  let list: any[] = [];
+  let successEndpoint = '';
 
-    for (const path of endpoints) {
-        try {
-            const raw = await csmRequest(config, path, query);
-            
-            // Debug Log
-            const rawStr = JSON.stringify(raw).slice(0, 500);
-            console.log(`[CSM Debug] Trying Asset Endpoint: ${path} | Response: ${rawStr}`);
+  const { page_size = 1000, page_num = 1, pool_id } = queryParams;
+  const query: any = { page_size, page_num };
+  if (pool_id) query.pool_id = pool_id;
 
-            let currentList: any[] = [];
-            let found = false;
-
-            // Strategy 1: Standard Page Wrapper
-            if (raw?.data?.page && Array.isArray(raw.data.page)) {
-                currentList = raw.data.page;
-                found = true;
-            } 
-            // Strategy 2: Direct Data Array
-            else if (Array.isArray(raw?.data)) {
-                currentList = raw.data;
-                found = true;
-            } 
-            // Strategy 3: Items Array
-            else if (Array.isArray(raw?.data?.items)) {
-                currentList = raw.data.items;
-                found = true;
-            }
-            // Strategy 4: Top Level Array
-            else if (Array.isArray(raw)) {
-                currentList = raw;
-                found = true;
-            }
-            // Strategy 5: Single Object (Detail-like) treated as List of 1
-                    // Only if it has an ID and looks like an asset
-                    else if (raw?.data?.network_id || raw?.data?.id) {
-                        console.warn(`[CSM Warning] Endpoint ${path} returned a single object (Detail format) instead of a list. Treating as list of 1.`);
-                        currentList = [raw.data];
-                        found = true;
-                    }
-                    else if (raw?.network_id || raw?.id) {
-                        console.warn(`[CSM Warning] Endpoint ${path} returned a single object (Detail format) instead of a list. Treating as list of 1.`);
-                        currentList = [raw];
-                        found = true;
-                    }
-
-            if (found) {
-                // If we found something (or empty list but valid structure), use it
-                // We assume empty list is valid if structure matched (e.g. data.page exists but empty)
-                // But here we rely on found=true which implies we extracted an array or object
-                if (currentList.length > 0 || (raw?.data?.page && Array.isArray(raw.data.page))) {
-                    list = currentList;
-                    successEndpoint = path;
-                    break; 
-                }
-            }
-        } catch (e: any) {
-            // console.warn(`[CSM Debug] Failed endpoint ${path}: ${e.message}`);
-        }
-    }
-
-    if (!successEndpoint) {
-        console.warn('[CSM] All VM07 Asset endpoints failed or returned invalid data.');
-    } else {
-        console.log(`[CSM] Successfully fetched assets from: ${successEndpoint}, Count: ${list.length}`);
-    }
-
-    list.forEach((item: any) => {
-        const id = item.network_id || item.id;
-        if (id) assetsMap.set(id, item);
-    });
-
-    // 2. Query VM08 Service Chains (Optional decoration)
+  for (const path of endpoints) {
     try {
-        const chainPath = '/V2/ctcontrol/VM08/service-chains';
-        const chainQuery = { page_size: 100, page_num: 1 };
+      const raw = await csmRequest(config, path, query);
 
-        const chainRaw = await csmRequest(config, chainPath, chainQuery);
-        
-        let chains: any[] = [];
-        const chainData = chainRaw?.data;
-        if (Array.isArray(chainData)) chains = chainData;
-        else if (Array.isArray(chainData?.items)) chains = chainData.items;
-        else if (Array.isArray(chainData?.page)) chains = chainData.page;
+      // Debug Log
+      const rawStr = JSON.stringify(raw).slice(0, 500);
+      console.log(`[CSM Debug] Trying Asset Endpoint: ${path} | Response: ${rawStr}`);
 
-        chains.forEach((chain: any) => {
-            const chainId = chain.service_chain_id || chain.id;
-            if (chain.network_ids) {
-                const ids = String(chain.network_ids).split(';');
-                ids.forEach(id => {
-                    const trimmed = id.trim();
-                    if (trimmed) networkToChainMap.set(trimmed, chainId);
-                });
-            }
-        });
+      let currentList: any[] = [];
+      let found = false;
 
-    } catch (e) {
-        // Silent fail for decoration
+      // Strategy 1: Standard Page Wrapper
+      if (raw?.data?.page && Array.isArray(raw.data.page)) {
+        currentList = raw.data.page;
+        found = true;
+      }
+      // Strategy 2: Direct Data Array
+      else if (Array.isArray(raw?.data)) {
+        currentList = raw.data;
+        found = true;
+      }
+      // Strategy 3: Items Array
+      else if (Array.isArray(raw?.data?.items)) {
+        currentList = raw.data.items;
+        found = true;
+      }
+      // Strategy 4: Top Level Array
+      else if (Array.isArray(raw)) {
+        currentList = raw;
+        found = true;
+      }
+      // Strategy 5: Single Object (Detail-like) treated as List of 1
+      // Only if it has an ID and looks like an asset
+      else if (raw?.data?.network_id || raw?.data?.id) {
+        console.warn(
+          `[CSM Warning] Endpoint ${path} returned a single object (Detail format) instead of a list. Treating as list of 1.`,
+        );
+        currentList = [raw.data];
+        found = true;
+      } else if (raw?.network_id || raw?.id) {
+        console.warn(
+          `[CSM Warning] Endpoint ${path} returned a single object (Detail format) instead of a list. Treating as list of 1.`,
+        );
+        currentList = [raw];
+        found = true;
+      }
+
+      if (found) {
+        // If we found something (or empty list but valid structure), use it
+        // We assume empty list is valid if structure matched (e.g. data.page exists but empty)
+        // But here we rely on found=true which implies we extracted an array or object
+        if (currentList.length > 0 || (raw?.data?.page && Array.isArray(raw.data.page))) {
+          list = currentList;
+          successEndpoint = path;
+          break;
+        }
+      }
+    } catch (e: any) {
+      // console.warn(`[CSM Debug] Failed endpoint ${path}: ${e.message}`);
     }
+  }
 
-    // 3. Convert
-    const finalAssets = Array.from(assetsMap.values()).map((item: any) => {
-        const valStr = item.value ? (item.port ? `${item.value}:${item.port}` : item.value) : '';
-        const id = item.network_id || item.id;
-        return {
-            ...item,
-            id: id,
-            name: item.name || valStr || 'Unknown Asset',
-            ip: item.value,
-            type: item.type || 'Asset',
-            displayValue: valStr,
-            serviceChainId: networkToChainMap.get(id)
-        };
+  if (!successEndpoint) {
+    console.warn('[CSM] All VM07 Asset endpoints failed or returned invalid data.');
+  } else {
+    console.log(
+      `[CSM] Successfully fetched assets from: ${successEndpoint}, Count: ${list.length}`,
+    );
+  }
+
+  list.forEach((item: any) => {
+    const id = item.network_id || item.id;
+    if (id) assetsMap.set(id, item);
+  });
+
+  // 2. Query VM08 Service Chains (Optional decoration)
+  try {
+    const chainPath = '/V2/ctcontrol/VM08/service-chains';
+    const chainQuery = { page_size: 100, page_num: 1 };
+
+    const chainRaw = await csmRequest(config, chainPath, chainQuery);
+
+    let chains: any[] = [];
+    const chainData = chainRaw?.data;
+    if (Array.isArray(chainData)) chains = chainData;
+    else if (Array.isArray(chainData?.items)) chains = chainData.items;
+    else if (Array.isArray(chainData?.page)) chains = chainData.page;
+
+    chains.forEach((chain: any) => {
+      const chainId = chain.service_chain_id || chain.id;
+      if (chain.network_ids) {
+        const ids = String(chain.network_ids).split(';');
+        ids.forEach((id) => {
+          const trimmed = id.trim();
+          if (trimmed) networkToChainMap.set(trimmed, chainId);
+        });
+      }
     });
+  } catch (e) {
+    // Silent fail for decoration
+  }
 
-    return finalAssets;
+  // 3. Convert
+  const finalAssets = Array.from(assetsMap.values()).map((item: any) => {
+    const valStr = item.value ? (item.port ? `${item.value}:${item.port}` : item.value) : '';
+    const id = item.network_id || item.id;
+    return {
+      ...item,
+      id: id,
+      name: item.name || valStr || 'Unknown Asset',
+      ip: item.value,
+      type: item.type || 'Asset',
+      displayValue: valStr,
+      serviceChainId: networkToChainMap.get(id),
+    };
+  });
+
+  return finalAssets;
 };

@@ -3,7 +3,7 @@ import { App, Button, Dropdown, Input, Select, Table, Space } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, ClusterOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchCloudProviderVpcs, deleteCloudProviderVpc } from '../../../../services/api';
+import { fetchCloudProviderVpcs, deleteCloudProviderVpc, updateCloudProviderVpc } from '../../../../services/aliyunApi';
 import { statusTag } from '../../Hw/components/Common';
 
 type VpcSectionAliyunProps = {

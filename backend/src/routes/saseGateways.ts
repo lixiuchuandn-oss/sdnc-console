@@ -21,7 +21,9 @@ function getTenantContext(req: any) {
   if (user && (user as any).tenantId) {
     return {
       tenantId: String((user as any).tenantId),
-      organizationId: (user as any).organizationId ? String((user as any).organizationId) : undefined
+      organizationId: (user as any).organizationId
+        ? String((user as any).organizationId)
+        : undefined,
     };
   }
   return null;
@@ -48,17 +50,17 @@ saseGatewayRoutes.post('/bind', async (req, res) => {
       vm_id,
       device_fingerprint,
       display_name,
-      vr_type: 'SASE' // Force SASE type for this legacy endpoint
+      vr_type: 'SASE', // Force SASE type for this legacy endpoint
     });
 
     return res.json(result);
   } catch (err: any) {
     console.error('[SASE] bind error', err);
     if (err.message && err.message.includes('VR已绑定')) {
-        return res.status(409).json({ message: err.message, ...err.details });
+      return res.status(409).json({ message: err.message, ...err.details });
     }
     if (err.message && (err.message.includes('缺少') || err.message.includes('不支持'))) {
-        return res.status(400).json({ message: err.message });
+      return res.status(400).json({ message: err.message });
     }
     return res.status(500).json({ message: err?.message || 'Internal Error' });
   }
@@ -67,7 +69,7 @@ saseGatewayRoutes.post('/bind', async (req, res) => {
 saseGatewayRoutes.post('/report-assets', async (req, res) => {
   try {
     const { vr_unique_id, assets } = req.body || {};
-    
+
     if (!vr_unique_id) {
       return res.status(400).json({ message: 'Missing vr_unique_id' });
     }
@@ -79,23 +81,23 @@ saseGatewayRoutes.post('/report-assets', async (req, res) => {
     let domainId: string | undefined;
     let cloudId: string | undefined;
     try {
-        const domain = await domainRepo().findOne({ where: { vrUuid: vr_unique_id } });
-        if (domain) {
-            domainId = domain.id;
-            cloudId = domain.cloudId ? String(domain.cloudId) : undefined;
-        }
+      const domain = await domainRepo().findOne({ where: { vrUuid: vr_unique_id } });
+      if (domain) {
+        domainId = domain.id;
+        cloudId = domain.cloudId ? String(domain.cloudId) : undefined;
+      }
     } catch (e) {
-        console.warn('Failed to resolve domain for asset reporting', e);
+      console.warn('Failed to resolve domain for asset reporting', e);
     }
 
     // 2. Sync Assets to Local DB (Tower)
     const results = { success: 0, failed: 0, errors: [] as string[] };
-    
+
     for (const asset of assets) {
       try {
         // Support both 'value' and 'ip' fields for the IP address
         const ip = String(asset.value || asset.ip || '').trim();
-        if (!ip) continue; 
+        if (!ip) continue;
 
         const type = asset.type || 'ip';
         const ipType = asset.ip_type || 'ipv4';
@@ -107,53 +109,55 @@ saseGatewayRoutes.post('/report-assets', async (req, res) => {
         // If 'ports' array exists, use it. Otherwise use single 'port' field or default to null (no port)
         let portsToSave: Array<string | null> = [];
         if (Array.isArray(asset.ports) && asset.ports.length > 0) {
-            portsToSave = asset.ports.map((p: any) => p.port ? String(p.port).trim() : null).filter(Boolean);
+          portsToSave = asset.ports
+            .map((p: any) => (p.port ? String(p.port).trim() : null))
+            .filter(Boolean);
         } else if (asset.port) {
-            portsToSave = [String(asset.port).trim()];
+          portsToSave = [String(asset.port).trim()];
         } else {
-            portsToSave = [null]; // No port specified
+          portsToSave = [null]; // No port specified
         }
 
         // Deduplicate ports
         portsToSave = [...new Set(portsToSave)];
 
         for (const port of portsToSave) {
-            // Check if exists
-            const query: any = { vrUuid: vr_unique_id, ip };
-            query.port = port || null; // Match specific port or no port (null)
+          // Check if exists
+          const query: any = { vrUuid: vr_unique_id, ip };
+          query.port = port || null; // Match specific port or no port (null)
 
-            let existing = await assetRepo().findOne({ where: query });
-            
-            if (existing) {
-                existing.lastSeen = new Date();
-                existing.status = 'active';
-                if (domainId) existing.domainId = domainId;
-                if (cloudId) existing.cloudId = cloudId;
-                if (type) existing.type = type;
-                if (ipType) existing.ipType = ipType;
-                if (os) existing.os = os;
-                if (mac) existing.mac = mac;
-                if (hostname) existing.hostname = hostname;
-                
-                await assetRepo().save(existing);
-            } else {
-                const newAsset = assetRepo().create({
-                    vrUuid: vr_unique_id,
-                    ip,
-                    port: port || undefined, 
-                    domainId,
-                    cloudId,
-                    type,
-                    ipType,
-                    os,
-                    mac,
-                    hostname,
-                    status: 'active',
-                    firstSeen: new Date(),
-                    lastSeen: new Date()
-                });
-                await assetRepo().save(newAsset);
-            }
+          let existing = await assetRepo().findOne({ where: query });
+
+          if (existing) {
+            existing.lastSeen = new Date();
+            existing.status = 'active';
+            if (domainId) existing.domainId = domainId;
+            if (cloudId) existing.cloudId = cloudId;
+            if (type) existing.type = type;
+            if (ipType) existing.ipType = ipType;
+            if (os) existing.os = os;
+            if (mac) existing.mac = mac;
+            if (hostname) existing.hostname = hostname;
+
+            await assetRepo().save(existing);
+          } else {
+            const newAsset = assetRepo().create({
+              vrUuid: vr_unique_id,
+              ip,
+              port: port || undefined,
+              domainId,
+              cloudId,
+              type,
+              ipType,
+              os,
+              mac,
+              hostname,
+              status: 'active',
+              firstSeen: new Date(),
+              lastSeen: new Date(),
+            });
+            await assetRepo().save(newAsset);
+          }
         }
 
         results.success++;
@@ -164,11 +168,10 @@ saseGatewayRoutes.post('/report-assets', async (req, res) => {
       }
     }
 
-    return res.json({ 
-      message: `Reported ${assets.length} assets (Stored in Tower)`, 
-      results 
+    return res.json({
+      message: `Reported ${assets.length} assets (Stored in Tower)`,
+      results,
     });
-
   } catch (err: any) {
     console.error('[SASE] report-assets error', err);
     return res.status(500).json({ message: err?.message || 'Internal Error' });
@@ -179,8 +182,9 @@ saseGatewayRoutes.post('/report-assets', async (req, res) => {
 saseGatewayRoutes.get('/assets', async (req, res) => {
   try {
     const { domain_id, cloud_id } = req.query;
-    
-    const query = assetRepo().createQueryBuilder('asset')
+
+    const query = assetRepo()
+      .createQueryBuilder('asset')
       .leftJoinAndMapOne('asset.gateway', VRConfig, 'vr', 'vr.uuid = asset.vrUuid')
       .orderBy('asset.lastSeen', 'DESC');
 
@@ -225,7 +229,9 @@ saseGatewayRoutes.get('/info', async (req, res) => {
     // 2. Find Security Domain bound to this VR
     const domain = await domainRepo().findOne({ where: { vrUuid: vrUniqueId } });
     if (!domain) {
-      return res.status(404).json({ message: 'No Security Domain bound to this VR', vr_uuid: vrUniqueId });
+      return res
+        .status(404)
+        .json({ message: 'No Security Domain bound to this VR', vr_uuid: vrUniqueId });
     }
 
     const result = { ...domain } as any;
@@ -247,7 +253,10 @@ saseGatewayRoutes.get('/info', async (req, res) => {
     // 4. Resolve Security Services and SSO endpoint for this domain
     try {
       const directIds: string[] = domain.securityServiceIds
-        ? domain.securityServiceIds.split(',').map((s: string) => s.trim()).filter(Boolean)
+        ? domain.securityServiceIds
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
         : [];
       const chainIds = new Set<string>();
 
@@ -261,12 +270,12 @@ saseGatewayRoutes.get('/info', async (req, res) => {
                   if (s && typeof s === 'object') {
                     const id = String(
                       s?.id ??
-                      s?.vm_group_id ??
-                      s?.vmGroupId ??
-                      s?.vmGroupID ??
-                      s?.vm_group_uuid ??
-                      s?.vmGroupUuid ??
-                      ''
+                        s?.vm_group_id ??
+                        s?.vmGroupId ??
+                        s?.vmGroupID ??
+                        s?.vm_group_uuid ??
+                        s?.vmGroupUuid ??
+                        '',
                     ).trim();
                     if (id) chainIds.add(id);
                     return;
@@ -278,12 +287,12 @@ saseGatewayRoutes.get('/info', async (req, res) => {
                 if (parsed && typeof parsed === 'object') {
                   const id = String(
                     parsed?.id ??
-                    parsed?.vm_group_id ??
-                    parsed?.vmGroupId ??
-                    parsed?.vmGroupID ??
-                    parsed?.vm_group_uuid ??
-                    parsed?.vmGroupUuid ??
-                    ''
+                      parsed?.vm_group_id ??
+                      parsed?.vmGroupId ??
+                      parsed?.vmGroupID ??
+                      parsed?.vm_group_uuid ??
+                      parsed?.vmGroupUuid ??
+                      '',
                   ).trim();
                   if (id) chainIds.add(id);
                 } else {
@@ -305,15 +314,22 @@ saseGatewayRoutes.get('/info', async (req, res) => {
 
       const allIds = Array.from(new Set<string>([...directIds, ...Array.from(chainIds)]));
       const groupById = new Map<string, any>();
-      const toKey = (s: any) => String(s ?? '').trim().toLowerCase();
+      const toKey = (s: any) =>
+        String(s ?? '')
+          .trim()
+          .toLowerCase();
       const uuidToObjectIdHex = (uuidStr: string): string | null => {
         try {
-          const s = String(uuidStr || '').trim().toLowerCase();
-          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s)) return null;
+          const s = String(uuidStr || '')
+            .trim()
+            .toLowerCase();
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s))
+            return null;
           const hex = s.replace(/-/g, '');
           const bytes = Buffer.from(hex, 'hex');
           if (bytes.length !== 16) return null;
-          if (!(bytes[6] === 0x40 && bytes[7] === 0x00 && bytes[8] === 0x80 && bytes[9] === 0x00)) return null;
+          if (!(bytes[6] === 0x40 && bytes[7] === 0x00 && bytes[8] === 0x80 && bytes[9] === 0x00))
+            return null;
           const obj = Buffer.alloc(12);
           bytes.copy(obj, 0, 0, 6);
           bytes.copy(obj, 6, 10, 16);
@@ -336,7 +352,9 @@ saseGatewayRoutes.get('/info', async (req, res) => {
 
       if (allIds.length > 0 || serviceChains.length > 0) {
         const isCsmCloud = (cloud: any) => {
-          const pvRaw = String((cloud as any)?.config?.provider || (cloud as any)?.provider || '').trim().toLowerCase();
+          const pvRaw = String((cloud as any)?.config?.provider || (cloud as any)?.provider || '')
+            .trim()
+            .toLowerCase();
           return pvRaw === 'cloudmap.csm';
         };
         const hasCreds = (cloud: any) => {
@@ -351,8 +369,8 @@ saseGatewayRoutes.get('/info', async (req, res) => {
           new Set(
             (serviceChains as any[])
               .map((c: any) => String(c?.clusterName || '').trim())
-              .filter(Boolean)
-          )
+              .filter(Boolean),
+          ),
         );
         if (chainPoolKeys.length > 0) {
           const byId = await cloudRepo()
@@ -388,18 +406,23 @@ saseGatewayRoutes.get('/info', async (req, res) => {
             const endpoint = String(cloud.endpoint || '').trim();
             const accessKey = String(cloud.accessKey || '').trim();
             const secretKey = String(cloud.secretKey || '').trim();
-            const ignoreTls = !!((cloud as any)?.config?.ignoreTls);
-            const groups = await listCsmElementGroups({ endpoint, accessKey, secretKey, ignoreTls } as any);
+            const ignoreTls = !!(cloud as any)?.config?.ignoreTls;
+            const groups = await listCsmElementGroups({
+              endpoint,
+              accessKey,
+              secretKey,
+              ignoreTls,
+            } as any);
             const arr = Array.isArray(groups) ? groups : [];
             arr.forEach((g: any) => {
               const gid = String(
                 g?.id ??
-                g?.vm_group_id ??
-                g?.vmGroupId ??
-                g?.vmGroupID ??
-                g?.vm_group_uuid ??
-                g?.vmGroupUuid ??
-                ''
+                  g?.vm_group_id ??
+                  g?.vmGroupId ??
+                  g?.vmGroupID ??
+                  g?.vm_group_uuid ??
+                  g?.vmGroupUuid ??
+                  '',
               ).trim();
               if (!gid) return;
               idCandidates(gid).forEach((k) => groupById.set(k, g));
@@ -436,7 +459,8 @@ saseGatewayRoutes.get('/info', async (req, res) => {
 
         let vmIds: string[] = [];
         if (g) {
-          const rawVmIds = (g as any).vm_id_list || (g as any).vmIdList || (g as any).elements || [];
+          const rawVmIds =
+            (g as any).vm_id_list || (g as any).vmIdList || (g as any).elements || [];
           if (Array.isArray(rawVmIds)) {
             vmIds = rawVmIds.map((x: any) => String(x || '').trim()).filter((s: string) => !!s);
           } else if (typeof rawVmIds === 'string') {
@@ -467,14 +491,22 @@ saseGatewayRoutes.get('/info', async (req, res) => {
                 'elementsCount',
                 'elements_count',
                 'vm_count',
-                'vmCount'
+                'vmCount',
               ])
-            : undefined) ??
-            (Array.isArray(elements) ? elements.length : vmIds.length)
+            : undefined) ?? (Array.isArray(elements) ? elements.length : vmIds.length),
         );
 
         const vendor = g
-          ? pick(g, ['vendor', 'manufacturer', 'vendor_name', 'vendorName', 'factory', 'brand', 'company', 'maker'])
+          ? pick(g, [
+              'vendor',
+              'manufacturer',
+              'vendor_name',
+              'vendorName',
+              'factory',
+              'brand',
+              'company',
+              'maker',
+            ])
           : undefined;
 
         const defenseRaw = g
@@ -488,7 +520,7 @@ saseGatewayRoutes.get('/info', async (req, res) => {
               'protectionType',
               'protection_type',
               'securityType',
-              'security_type'
+              'security_type',
             ])
           : undefined;
 
@@ -512,7 +544,7 @@ saseGatewayRoutes.get('/info', async (req, res) => {
               'vm_group_type',
               'vmGroupType',
               'productType',
-              'product_type'
+              'product_type',
             ])
           : undefined;
 
@@ -521,9 +553,7 @@ saseGatewayRoutes.get('/info', async (req, res) => {
         const nameRaw = g ? pick(g, ['name', 'vm_group_name', 'vmGroupName']) : undefined;
         const name = nameRaw || `安全网元组-${String(sid).substring(0, 8)}`;
 
-        const webIds = vmIds
-          .map((id) => uuidToObjectIdHex(id))
-          .filter((w): w is string => !!w);
+        const webIds = vmIds.map((id) => uuidToObjectIdHex(id)).filter((w): w is string => !!w);
 
         return {
           id: sid,
@@ -536,7 +566,7 @@ saseGatewayRoutes.get('/info', async (req, res) => {
           status: 'active',
           vmIds,
           webIds,
-          raw: g
+          raw: g,
         };
       };
 
@@ -556,12 +586,12 @@ saseGatewayRoutes.get('/info', async (req, res) => {
         csmGroups.forEach((g: any) => {
           const gid = String(
             g?.id ??
-            g?.vm_group_id ??
-            g?.vmGroupId ??
-            g?.vmGroupID ??
-            g?.vm_group_uuid ??
-            g?.vmGroupUuid ??
-            ''
+              g?.vm_group_id ??
+              g?.vmGroupId ??
+              g?.vmGroupID ??
+              g?.vm_group_uuid ??
+              g?.vmGroupUuid ??
+              '',
           ).trim();
           if (!gid) return;
           const keys = idCandidates(gid);
@@ -582,7 +612,10 @@ saseGatewayRoutes.get('/info', async (req, res) => {
             (result as any).cloudName = computeCloud.name;
           }
         } catch (e) {
-          console.warn('SASE Info: Failed to fetch compute cloud info for domain.cloudId=' + domain.cloudId, e);
+          console.warn(
+            'SASE Info: Failed to fetch compute cloud info for domain.cloudId=' + domain.cloudId,
+            e,
+          );
         }
       }
 
@@ -593,7 +626,7 @@ saseGatewayRoutes.get('/info', async (req, res) => {
           if (secCloud) {
             (result as any).csmCloudName = secCloud.name;
             const endpoint = String(secCloud.endpoint || '').trim();
-            const ignoreTls = !!((secCloud as any)?.config?.ignoreTls);
+            const ignoreTls = !!(secCloud as any)?.config?.ignoreTls;
             (result as any).csmInfo = {
               endpoint,
               ignoreTls,
@@ -602,13 +635,14 @@ saseGatewayRoutes.get('/info', async (req, res) => {
               webPort: '8011',
               authPath: '/csm/api/v1.0/authentication/auth',
               getAdminPath: '/csm/api/v1.0/user/getAdmin',
-              ssoPath: '/csm/api/v1.0/security/domain/attach/callOnSSO'
+              ssoPath: '/csm/api/v1.0/security/domain/attach/callOnSSO',
             };
           }
         } catch (e) {
           console.warn('SASE Info: Failed to fetch CSM cloud info for ssoCloudId=' + ssoCloudId, e);
         }
-        (result as any).ssoEndpoint = `/api/clouds/${ssoCloudId}/csm/security/domain/attach/callOnSSO`;
+        (result as any).ssoEndpoint =
+          `/api/clouds/${ssoCloudId}/csm/security/domain/attach/callOnSSO`;
       }
     } catch (e) {
       console.warn('Failed to resolve security services:', e);

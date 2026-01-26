@@ -3,12 +3,11 @@ import { Button, Divider, Form, Input, Select, Space, Table, message, Dropdown, 
 import type { MenuProps, CheckboxOptionType } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, CheckCircleFilled, ExclamationCircleFilled, CloseCircleFilled, QuestionCircleFilled, ApiOutlined, SettingOutlined, EyeOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { vrApi } from '../../../services/vrApi';
+import { vrApi } from '../../../services/virtualRouterApi';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
-import { getVRRoles, setVRRole, getVRConfig, saveVRConfig } from '../../../services/vrConfigApi';
+import { getVRRoles, setVRRole, getVRConfig, saveVRConfig, upsertVrCache, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import { listSecurityDomains, updateSecurityDomain } from '../../../services/securityDomainApi';
-import { upsertVrCache } from '../../../services/vrCacheApi';
 
 import { netClassLabel, netClassColor, getDomainClass } from '../../../utils/netClass';
 import '../../common/filters.css';
@@ -563,7 +562,6 @@ const VRPage: React.FC = () => {
   const fetchVRInstances = async () => {
     setLoading(true);
     try {
-      const { fetchVrCachePageList } = await import('../../../services/vrCacheApi');
       const cacheRes = await fetchVrCachePageList(1000, 1);
       const cacheData = cacheRes?.data || cacheRes;
       const mergedList = Array.isArray(cacheData?.page) ? cacheData.page : Array.isArray(cacheData?.list) ? cacheData.list : [];

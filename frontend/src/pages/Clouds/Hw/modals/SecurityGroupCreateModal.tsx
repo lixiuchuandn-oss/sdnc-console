@@ -1,7 +1,8 @@
 import React from 'react';
 import { App, Form, Input } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { fetchCloudProviderSecurityGroups, createHuaweiCloudSecurityGroup } from '../../../../services/api';
+import { fetchCloudProviderSecurityGroups } from '../../../../services/api';
+import { createHuaweiCloudSecurityGroup } from '../../../../services/huaweiApi';
 import { normalizeErr } from '../utils/net';
 
 type Props = {

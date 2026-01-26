@@ -19,7 +19,15 @@ router.get('/dify-config', async (_req, res) => {
 
 router.patch('/dify-config', async (req, res) => {
   const { baseUrl, apiKey, workflowId, logsDir, reportsDir, mode, fileVarName } = req.body as any;
-  const next = setDifyConfig({ baseUrl, apiKey, workflowId, logsDir, reportsDir, mode, fileVarName });
+  const next = setDifyConfig({
+    baseUrl,
+    apiKey,
+    workflowId,
+    logsDir,
+    reportsDir,
+    mode,
+    fileVarName,
+  });
   const safe = { ...next } as any;
   res.json({ config: { ...safe, apiKey: !!next.apiKey ? '****' : '' } });
 });
@@ -41,56 +49,99 @@ router.get('/rbac/actions', async (_req, res) => {
   const candidates: string[] = [];
   const scanned: string[] = [];
   const details: Record<string, Array<{ method: string; path: string; file: string }>> = {};
-  const add = (x: string) => { if (x && !candidates.includes(x)) candidates.push(x); };
-  const addScanned = (x: string) => { if (!x) return; if (!scanned.includes(x)) scanned.push(x); add(x); };
+  const add = (x: string) => {
+    if (x && !candidates.includes(x)) candidates.push(x);
+  };
+  const addScanned = (x: string) => {
+    if (!x) return;
+    if (!scanned.includes(x)) scanned.push(x);
+    add(x);
+  };
   const curated: string[] = [
     // 运维平台/系统与用户
-    'ops.dashboard:read','ops.dashboard:write',
-    'users:read','users:write',
-    'user-spaces:read','user-spaces:write',
+    'ops.dashboard:read',
+    'ops.dashboard:write',
+    'users:read',
+    'users:write',
+    'user-spaces:read',
+    'user-spaces:write',
     // 租户与租户资源
-    'tenants:read','tenants:write',
+    'tenants:read',
+    'tenants:write',
     'tenants.leased-lines.list:read',
     'tenants.leased-lines.manage:write',
-    'tenants.leased-lines.reports:read','tenants.leased-lines.reports:write',
+    'tenants.leased-lines.reports:read',
+    'tenants.leased-lines.reports:write',
     'tenants.leased-lines.alert-logs:read',
     // 云与资源（统一命名：domain.feature:verb）
-    'clouds:read','clouds:write',
-    'clouds.instances:read','clouds.instances:write',
-    'clouds.vpcs:read','clouds.vpcs:write',
-    'clouds.eips:read','clouds.eips:write',
-    'clouds.disks:read','clouds.disks:write',
-    'clouds.security-groups:read','clouds.security-groups:write',
-    'clouds.load-balancers:read','clouds.load-balancers:write',
-    'clouds.images:read','clouds.images:write',
-    'clouds.vswitches:read','clouds.vswitches:write',
-    'clouds.enis:read','clouds.enis:write',
-    'clouds.network-acls:read','clouds.network-acls:write',
-    'clouds.snapshots:read','clouds.snapshots:write',
-    'clouds.route-entries:read','clouds.route-entries:write',
-    'clouds.nat-gateways:read','clouds.nat-gateways:write',
+    'clouds:read',
+    'clouds:write',
+    'clouds.instances:read',
+    'clouds.instances:write',
+    'clouds.vpcs:read',
+    'clouds.vpcs:write',
+    'clouds.eips:read',
+    'clouds.eips:write',
+    'clouds.disks:read',
+    'clouds.disks:write',
+    'clouds.security-groups:read',
+    'clouds.security-groups:write',
+    'clouds.load-balancers:read',
+    'clouds.load-balancers:write',
+    'clouds.images:read',
+    'clouds.images:write',
+    'clouds.vswitches:read',
+    'clouds.vswitches:write',
+    'clouds.enis:read',
+    'clouds.enis:write',
+    'clouds.network-acls:read',
+    'clouds.network-acls:write',
+    'clouds.snapshots:read',
+    'clouds.snapshots:write',
+    'clouds.route-entries:read',
+    'clouds.route-entries:write',
+    'clouds.nat-gateways:read',
+    'clouds.nat-gateways:write',
     // 网络：跨地域互联与安全面
-    'networks.vpcs:read','networks.vpcs:write',
-    'networks.cen:read','networks.cen:write',
-    'networks.cen.attachments:read','networks.cen.attachments:write',
-    'networks.security-domain:read','networks.security-domain:write',
-    'networks.srv6:read','networks.srv6:write',
-    'networks.vr-config:read','networks.vr-config:write',
-    'networks.route-tables:read','networks.route-tables:write',
-    'networks.acl:read','networks.acl:write',
-    'networks.vswitches:read','networks.vswitches:write',
+    'networks.vpcs:read',
+    'networks.vpcs:write',
+    'networks.cen:read',
+    'networks.cen:write',
+    'networks.cen.attachments:read',
+    'networks.cen.attachments:write',
+    'networks.security-domain:read',
+    'networks.security-domain:write',
+    'networks.srv6:read',
+    'networks.srv6:write',
+    'networks.vr-config:read',
+    'networks.vr-config:write',
+    'networks.route-tables:read',
+    'networks.route-tables:write',
+    'networks.acl:read',
+    'networks.acl:write',
+    'networks.vswitches:read',
+    'networks.vswitches:write',
     // 安全服务与日志
-    'security.services:read','security.services:write',
-    'security.logs:read','security.logs:write',
-    'security.policies:read','security.policies:write',
-    'security.apps:read','security.apps:write',
+    'security.services:read',
+    'security.services:write',
+    'security.logs:read',
+    'security.logs:write',
+    'security.policies:read',
+    'security.policies:write',
+    'security.apps:read',
+    'security.apps:write',
     // 安全运营
-    'secops.dashboard:read','secops.dashboard:write',
-    'secops.alerts:read','secops.alerts:write',
-    'secops.rules:read','secops.rules:write',
+    'secops.dashboard:read',
+    'secops.dashboard:write',
+    'secops.alerts:read',
+    'secops.alerts:write',
+    'secops.rules:read',
+    'secops.rules:write',
     // 可信数据空间
-    'trust.spaces:read','trust.spaces:write',
-    'trust.datasets:read','trust.datasets:write'
+    'trust.spaces:read',
+    'trust.spaces:write',
+    'trust.datasets:read',
+    'trust.datasets:write',
   ];
   const baseMap: Record<string, string> = {};
   const buildBaseMap = async (file: string) => {
@@ -102,14 +153,19 @@ router.get('/rbac/actions', async (_req, res) => {
       const uses: Array<{ var: string; name: string }> = [];
       {
         let m: RegExpExecArray | null;
-        while ((m = importRegexDefault.exec(text))) { uses.push({ var: m[1], name: m[2] }); }
+        while ((m = importRegexDefault.exec(text))) {
+          uses.push({ var: m[1], name: m[2] });
+        }
       }
       {
         let m2: RegExpExecArray | null;
         while ((m2 = importRegexNamed.exec(text))) {
-          const namesRaw = String(m2[1] || '').split(',').map(s => s.trim()).filter(Boolean);
+          const namesRaw = String(m2[1] || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
           const fileName = m2[2];
-          namesRaw.forEach(n => {
+          namesRaw.forEach((n) => {
             const alias = n.includes(' as ') ? n.split(' as ')[1].trim() : n.split(/\s+/)[0].trim();
             if (alias) uses.push({ var: alias, name: fileName });
           });
@@ -120,7 +176,7 @@ router.get('/rbac/actions', async (_req, res) => {
       while ((um = useRegex.exec(text))) {
         const base = um[1].replace(/^["']|["']$/g, '');
         const varName = um[2];
-        const u = uses.find(x => x.var === varName);
+        const u = uses.find((x) => x.var === varName);
         if (u) baseMap[u.name] = base;
       }
     } catch {}
@@ -157,9 +213,13 @@ router.get('/rbac/actions', async (_req, res) => {
           const routeRegexB = /\.(get|post|patch|put|delete)\(\s*(["'`])([^"'`]+)\2/g;
           {
             let rm: RegExpExecArray | null;
-            while ((rm = routeRegexA.exec(text))) { routes.push({ idx: rm.index, method: rm[1], path: rm[3] }); }
-            while ((rm = routeRegexB.exec(text))) { routes.push({ idx: rm.index, method: rm[1], path: rm[3] }); }
-            routes.sort((a,b)=> a.idx - b.idx);
+            while ((rm = routeRegexA.exec(text))) {
+              routes.push({ idx: rm.index, method: rm[1], path: rm[3] });
+            }
+            while ((rm = routeRegexB.exec(text))) {
+              routes.push({ idx: rm.index, method: rm[1], path: rm[3] });
+            }
+            routes.sort((a, b) => a.idx - b.idx);
           }
           let m: RegExpExecArray | null;
           while ((m = regex.exec(text))) {
@@ -168,13 +228,19 @@ router.get('/rbac/actions', async (_req, res) => {
             let nearest: { idx: number; method: string; path: string } | undefined = undefined;
             for (let i = routes.length - 1; i >= 0; i--) {
               const r = routes[i];
-              if (r.idx <= m.index) { nearest = r; break; }
+              if (r.idx <= m.index) {
+                nearest = r;
+                break;
+              }
             }
             if (!nearest && routes.length > 0) {
               let forward: { idx: number; method: string; path: string } | undefined = undefined;
               for (let i = 0; i < routes.length; i++) {
                 const r = routes[i];
-                if (r.idx >= m.index) { forward = r; break; }
+                if (r.idx >= m.index) {
+                  forward = r;
+                  break;
+                }
               }
               nearest = forward || routes[0];
             }
@@ -182,18 +248,21 @@ router.get('/rbac/actions', async (_req, res) => {
               const rel = path.relative(process.cwd(), full).replace(/\\/g, '/');
               const routeNameMatch = rel.match(/routes\/([^\/\.]+)/);
               const routeName = routeNameMatch ? routeNameMatch[1] : undefined;
-              const base = routeName ? (baseMap[routeName] || '') : '';
-              if (!base) { continue; }
+              const base = routeName ? baseMap[routeName] || '' : '';
+              if (!base) {
+                continue;
+              }
               const fullPath = normalizeFullPath(base, nearest.path || '');
-              const verb = (/^get|head$/i.test(nearest.method)) ? 'read' : 'write';
+              const verb = /^get|head$/i.test(nearest.method) ? 'read' : 'write';
               const baseAct = rawAct.split(':')[0];
               const act = `${baseAct}:${verb}`;
               const one = { method: nearest.method.toUpperCase(), path: fullPath, file: rel };
               const arr = details[act] || [];
-              const idx = arr.findIndex(x => x.method === one.method && x.path === one.path);
+              const idx = arr.findIndex((x) => x.method === one.method && x.path === one.path);
               if (idx >= 0) {
                 const existing = arr[idx];
-                const preferNew = existing.file.startsWith('dist/') && !one.file.startsWith('dist/');
+                const preferNew =
+                  existing.file.startsWith('dist/') && !one.file.startsWith('dist/');
                 if (preferNew) arr[idx] = one;
               } else {
                 arr.push(one);
@@ -205,7 +274,7 @@ router.get('/rbac/actions', async (_req, res) => {
           const addDetail = (act: string, method: string, fullPath: string, rel: string) => {
             const one = { method: method.toUpperCase(), path: fullPath, file: rel };
             const arr = details[act] || [];
-            const idx = arr.findIndex(x => x.method === one.method && x.path === one.path);
+            const idx = arr.findIndex((x) => x.method === one.method && x.path === one.path);
             if (idx >= 0) {
               const existing = arr[idx];
               const preferNew = existing.file.startsWith('dist/') && !one.file.startsWith('dist/');
@@ -226,23 +295,32 @@ router.get('/rbac/actions', async (_req, res) => {
               const p = fullPath.toLowerCase();
               let actionBase = '';
               if (routeName === 'clouds') {
-                if (p.includes('/resources/ecs') || p.includes('/inventory/instances') || p.includes('/resources/ecs-all')) actionBase = 'clouds.instances';
+                if (
+                  p.includes('/resources/ecs') ||
+                  p.includes('/inventory/instances') ||
+                  p.includes('/resources/ecs-all')
+                )
+                  actionBase = 'clouds.instances';
                 else if (p.includes('/resources/vpcs')) actionBase = 'clouds.vpcs';
-                else if (p.includes('/resources/vswitches') || p.includes('/resources/subnets')) actionBase = 'clouds.vswitches';
-                else if (p.includes('/resources/security-groups')) actionBase = 'clouds.security-groups';
+                else if (p.includes('/resources/vswitches') || p.includes('/resources/subnets'))
+                  actionBase = 'clouds.vswitches';
+                else if (p.includes('/resources/security-groups'))
+                  actionBase = 'clouds.security-groups';
                 else if (p.includes('/resources/enis')) actionBase = 'clouds.enis';
                 else if (p.includes('/resources/network-acls')) actionBase = 'clouds.network-acls';
                 else if (p.includes('/resources/eips')) actionBase = 'clouds.eips';
-                else if (p.includes('/resources/loadbalancers')) actionBase = 'clouds.load-balancers';
+                else if (p.includes('/resources/loadbalancers'))
+                  actionBase = 'clouds.load-balancers';
                 else if (p.includes('/resources/nat-gateways')) actionBase = 'clouds.nat-gateways';
                 else if (p.includes('/resources/route-tables')) actionBase = 'clouds.route-tables';
-                else if (p.includes('/resources/route-entries')) actionBase = 'clouds.route-entries';
+                else if (p.includes('/resources/route-entries'))
+                  actionBase = 'clouds.route-entries';
                 else if (p.includes('/resources/disks')) actionBase = 'clouds.disks';
                 else if (p.includes('/resources/snapshots')) actionBase = 'clouds.snapshots';
                 else actionBase = 'clouds';
               }
               if (!actionBase) continue;
-              const verb = (/^get|head$/i.test(r.method)) ? 'read' : 'write';
+              const verb = /^get|head$/i.test(r.method) ? 'read' : 'write';
               const act = `${actionBase}:${verb}`;
               add(act);
               addDetail(act, r.method, fullPath, rel);
@@ -270,13 +348,20 @@ router.get('/rbac/roles', async (req, res) => {
 // 创建角色（仅超级管理员）
 router.post('/rbac/roles', async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) return res.status(403).json({ message: '权限不足' });
+    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+      return res.status(403).json({ message: '权限不足' });
     const { name, description, scope = 'system', permissions = [] } = req.body as any;
     if (!name?.trim()) return res.status(400).json({ message: '角色名称不能为空' });
     const repo = AppDataSource.getRepository(RBACRole);
     const existed = await repo.findOne({ where: { name } });
     if (existed) return res.status(400).json({ message: '角色名称已存在' });
-    const row = repo.create({ name, description, scope, permissions: JSON.stringify(permissions), status: 'active' });
+    const row = repo.create({
+      name,
+      description,
+      scope,
+      permissions: JSON.stringify(permissions),
+      status: 'active',
+    });
     const saved = await repo.save(row);
     res.status(201).json(saved);
   } catch (e: any) {
@@ -287,7 +372,8 @@ router.post('/rbac/roles', async (req: any, res) => {
 // 更新角色（仅超级管理员）
 router.put('/rbac/roles/:id', async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) return res.status(403).json({ message: '权限不足' });
+    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+      return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const { name, description, scope, permissions, status } = req.body as any;
     const repo = AppDataSource.getRepository(RBACRole);
@@ -297,7 +383,11 @@ router.put('/rbac/roles/:id', async (req: any, res) => {
     row.description = description ?? row.description;
     row.scope = scope ?? row.scope;
     row.status = status ?? row.status;
-    if (permissions) { try { row.permissions = JSON.stringify(permissions); } catch {} }
+    if (permissions) {
+      try {
+        row.permissions = JSON.stringify(permissions);
+      } catch {}
+    }
     const saved = await repo.save(row);
     res.json(saved);
   } catch (e: any) {
@@ -308,7 +398,8 @@ router.put('/rbac/roles/:id', async (req: any, res) => {
 // 删除角色（仅超级管理员）
 router.delete('/rbac/roles/:id', async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) return res.status(403).json({ message: '权限不足' });
+    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+      return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
@@ -323,7 +414,8 @@ router.delete('/rbac/roles/:id', async (req: any, res) => {
 // 为用户分配角色（仅超级管理员）
 router.post('/rbac/assignments', async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) return res.status(403).json({ message: '权限不足' });
+    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+      return res.status(403).json({ message: '权限不足' });
     const { roleId, userType, userId } = req.body as any;
     if (!roleId || !userType || !userId) return res.status(400).json({ message: '缺少必要参数' });
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
@@ -350,11 +442,11 @@ router.get('/rbac/assignments', async (req: any, res) => {
   }
 });
 
-
 // 取消分配角色（仅超级管理员）
 router.delete('/rbac/assignments/:id', async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) return res.status(403).json({ message: '权限不足' });
+    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+      return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
     const row = await assignRepo.findOne({ where: { id } });
@@ -403,10 +495,10 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
         await fs.promises.rename(f.path, target);
       } catch (err: any) {
         if (err.code === 'EXDEV') {
-            await fs.promises.copyFile(f.path, target);
-            await fs.promises.unlink(f.path);
+          await fs.promises.copyFile(f.path, target);
+          await fs.promises.unlink(f.path);
         } else {
-            throw err;
+          throw err;
         }
       }
       saved.push({ fileName: base, size: f.size, target });
@@ -430,14 +522,16 @@ router.get('/security-logs', async (_req, res) => {
     const logsDir = cfg.logsDir || path.join(process.cwd(), 'data', 'security-logs');
     await fs.promises.mkdir(logsDir, { recursive: true }).catch(() => {});
     const names = await fs.promises.readdir(logsDir).catch(() => [] as string[]);
-    const entries = await Promise.all(names.map(async (name) => {
-      const full = path.join(logsDir, name);
-      const stat = await fs.promises.stat(full).catch(() => undefined as any);
-      if (!stat || !stat.isFile()) return undefined as any;
-      const ext = path.extname(name).toLowerCase();
-      if (!['.csv','.xls','.xlsx'].includes(ext)) return undefined as any;
-      return { fileName: name, sizeBytes: stat.size, modifiedAt: stat.mtimeMs, ext };
-    }));
+    const entries = await Promise.all(
+      names.map(async (name) => {
+        const full = path.join(logsDir, name);
+        const stat = await fs.promises.stat(full).catch(() => undefined as any);
+        if (!stat || !stat.isFile()) return undefined as any;
+        const ext = path.extname(name).toLowerCase();
+        if (!['.csv', '.xls', '.xlsx'].includes(ext)) return undefined as any;
+        return { fileName: name, sizeBytes: stat.size, modifiedAt: stat.mtimeMs, ext };
+      }),
+    );
     res.json({ logs: entries.filter(Boolean) });
   } catch (err) {
     res.status(500).json({ message: '读取失败', error: String(err) });

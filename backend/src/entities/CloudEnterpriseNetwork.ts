@@ -1,9 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+} from 'typeorm';
 import { Tenant } from './Tenant';
 
 export enum CenStatus {
   CREATING = 'creating',
-  AVAILABLE = 'available'
+  AVAILABLE = 'available',
 }
 
 @Entity('cens')
@@ -45,4 +52,4 @@ export class CloudEnterpriseNetwork {
 
   @UpdateDateColumn()
   updatedAt!: Date;
-} 
+}

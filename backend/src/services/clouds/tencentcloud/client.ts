@@ -66,7 +66,9 @@ export async function tencentListSubnets(opts: TencentOptions, params: Record<st
   }
 }
 
-export async function testTencentConnection(opts: TencentOptions): Promise<{ ok: boolean; message?: string }>{
+export async function testTencentConnection(
+  opts: TencentOptions,
+): Promise<{ ok: boolean; message?: string }> {
   try {
     const data = await tencentListVpcs(opts, { Limit: '1', Offset: '0' });
     const ok = !!(data && (Array.isArray((data as any)?.VpcSet) || (data as any)?.TotalCount >= 0));

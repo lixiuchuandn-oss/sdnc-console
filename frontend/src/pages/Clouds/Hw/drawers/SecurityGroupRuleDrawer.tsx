@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { App, Form, Input, InputNumber, Select, Dropdown, Button, Space } from 'antd';
 import StdSideDrawer from '../../../../components/StdSideDrawer';
-import { showCloudProviderSecurityGroup, createHuaweiCloudSecurityGroupRule, updateHuaweiCloudSecurityGroupRule } from '../../../../services/api';
+import { showCloudProviderSecurityGroup, createHuaweiCloudSecurityGroupRule, updateHuaweiCloudSecurityGroupRule } from '../../../../services/huaweiApi';
 import { normalizeErr } from '../utils/net';
 
 type Props = {

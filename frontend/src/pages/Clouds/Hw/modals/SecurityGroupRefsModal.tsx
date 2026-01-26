@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Modal, Select, Space, Table } from 'antd';
 import { collectIpv4FromAddresses } from '../components/Common';
-import { fetchHuaweiPorts, addHuaweiPortSecurityGroup, fetchCloudProviderEips } from '../../../../services/api';
+import { fetchCloudProviderEips } from '../../../../services/api';
+import { fetchHuaweiPorts, addHuaweiPortSecurityGroup } from '../../../../services/huaweiApi';
 import { normalizeErr } from '../utils/net';
 
 type Props = {

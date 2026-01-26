@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Space, Select, Switch, Popover, Checkbox } from 'antd';
 import { ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
-import { fetchAliyunEcsMetrics } from '../../../../services/api';
+import { fetchAliyunEcsMetrics } from '../../../../services/aliyunApi';
 type Props = { cloudId: string; instance: any; metrics?: any[]; onRefresh?: () => void | Promise<void>; };
 const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics, onRefresh }) => {
   const iid = String(instance?.InstanceId || instance?.id || '');

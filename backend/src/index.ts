@@ -23,6 +23,7 @@ import { saseGatewayRoutes } from './routes/saseGateways';
 import { srv6Routes } from './routes/srv6';
 import { ipsecRoutes } from './routes/ipsec';
 import { aclRoutes } from './routes/acl';
+import { aclGroupRoutes } from './routes/aclGroups';
 import { natRoutes } from './routes/nat';
 import { saseAuthRoutes } from './routes/saseAuth';
 import securityDomainRoutes from './routes/securityDomains';
@@ -45,12 +46,14 @@ const server = http.createServer(app);
 
 // CORS configuration
 // 开发阶段放宽到允许所有来源，避免CORS拦截调试请求
-app.use(cors({
-  origin: true,
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS']
-}));
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  }),
+);
 
 // 中间件
 app.use(compression());
@@ -58,9 +61,9 @@ app.use(compression());
 // 在生产环境中托管前端时，如果使用了外部资源（如高德地图、CDN等），需要放宽 defaultSrc
 app.use(
   helmet({
-    contentSecurityPolicy: false, 
-    crossOriginEmbedderPolicy: false
-  })
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }),
 );
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
@@ -73,7 +76,7 @@ if (process.env.NODE_ENV === 'production') {
   let staticPath = path.join(__dirname, '../public');
   // 2. 如果当前在 dist/src 下，且 ../public (dist/public) 不存在，则尝试 ../../public (backend/public)
   const rootPublicPath = path.join(__dirname, '../../public');
-  
+
   if (!fs.existsSync(staticPath) && fs.existsSync(rootPublicPath)) {
     staticPath = rootPublicPath;
     console.log('Using root public directory for static files:', staticPath);
@@ -81,15 +84,17 @@ if (process.env.NODE_ENV === 'production') {
     console.log('Using relative public directory for static files:', staticPath);
   }
 
-  app.use(express.static(staticPath, {
-    maxAge: '1y',
-    etag: true,
-    setHeaders: (res, filePath) => {
-      if (filePath.endsWith('.html')) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      }
-    }
-  }));
+  app.use(
+    express.static(staticPath, {
+      maxAge: '1y',
+      etag: true,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    }),
+  );
 }
 
 // 数据库连接并在成功后启动服务（避免在数据源未初始化时处理请求导致 500）
@@ -180,6 +185,7 @@ app.use('/api/sase/gateways', authMiddleware, saseGatewayRoutes);
 app.use('/api/networks/srv6', authMiddleware, srv6Routes);
 app.use('/api/networks/ipsec', authMiddleware, ipsecRoutes);
 app.use('/api/networks/acl', authMiddleware, aclRoutes);
+app.use('/api/networks/acl-groups', authMiddleware, aclGroupRoutes);
 app.use('/api/networks/nat', authMiddleware, natRoutes);
 app.use('/api/security-domains', authMiddleware, securityDomainRoutes);
 app.use('/api/services', authMiddleware, serviceRoutes);

@@ -1,6 +1,7 @@
 import React from 'react';
 import { App, Button, Descriptions, Modal, Select, Space } from 'antd';
-import { bindHuaweiEip, unbindHuaweiEip, fetchCloudProviderEips, fetchHuaweiPorts } from '../../../../services/api';
+import { fetchCloudProviderEips } from '../../../../services/api';
+import { bindHuaweiEip, unbindHuaweiEip, fetchHuaweiPorts } from '../../../../services/huaweiApi';
 
 type Props = {
   open: boolean;

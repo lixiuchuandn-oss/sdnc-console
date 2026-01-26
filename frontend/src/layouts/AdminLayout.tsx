@@ -13,7 +13,8 @@ import { getRequiredActionForPath, hasPermissionForAction } from '../utils/acces
 import { ROUTE_CATALOG, RouteItem, PLATFORMS, PLATFORM_LABELS, GROUPS } from '../catalogs/navCatalog';
 import { routeSpecs } from '../routes/RouteSpec';
 import { iconOf } from '../components/PageContainer';
-import { fetchClouds, fetchInventoryInstancesByCloud, refreshInventoryInstances, fetchAllInstances, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, fetchAliyunEcsVncUrl } from '../services/api';
+import { fetchClouds, fetchInventoryInstancesByCloud, refreshInventoryInstances, fetchAllInstances, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs } from '../services/api';
+import { fetchAliyunEcsVncUrl } from '../services/aliyunApi';
 
 const { Header, Sider, Content } = Layout;
 

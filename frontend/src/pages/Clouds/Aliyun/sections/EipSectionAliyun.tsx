@@ -3,7 +3,7 @@ import { App, Button, Input, Table, Modal } from 'antd';
 import { MoreOutlined, GlobalOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchCloudProviderEips } from '../../../../services/api';
+import { fetchCloudProviderEips } from '../../../../services/aliyunApi';
 import { statusTag } from '../../Hw/components/Common';
 
 type EipSectionAliyunProps = {

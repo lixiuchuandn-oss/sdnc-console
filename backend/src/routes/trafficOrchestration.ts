@@ -20,10 +20,10 @@ const getTenantContext = (req: any) => {
   if (user && (user as any).tenantId) {
     return {
       tenantId: (user as any).tenantId,
-      organizationId: (user as any).organizationId
+      organizationId: (user as any).organizationId,
     };
   }
-  // If user is system admin, they might pass tenantId/orgId in query or body, 
+  // If user is system admin, they might pass tenantId/orgId in query or body,
   // or we might want to return null to indicate no restriction (or handle differently).
   // For now, let's assume system admins can see everything, but if they want to create, they must provide it.
   return null;
@@ -36,7 +36,7 @@ router.get('/security-zones', async (req, res) => {
   try {
     const ctx = getTenantContext(req);
     const where: any = {};
-    
+
     if (ctx) {
       where.tenantId = ctx.tenantId;
       where.organizationId = ctx.organizationId;
@@ -48,17 +48,22 @@ router.get('/security-zones', async (req, res) => {
 
     const list = await zoneRepo().find({ where, order: { createdAt: 'DESC' } });
 
-    const tenantIds = Array.from(new Set(list.map(z => z.tenantId).filter((id): id is string => !!id)));
+    const tenantIds = Array.from(
+      new Set(list.map((z) => z.tenantId).filter((id): id is string => !!id)),
+    );
     let tenantMap: Record<string, string> = {};
     if (tenantIds.length) {
-      const tenants = await tenantRepo().find({ where: tenantIds.map(id => ({ id })) as any });
-      tenantMap = tenants.reduce((acc, t) => {
-        acc[t.id] = t.name;
-        return acc;
-      }, {} as Record<string, string>);
+      const tenants = await tenantRepo().find({ where: tenantIds.map((id) => ({ id })) as any });
+      tenantMap = tenants.reduce(
+        (acc, t) => {
+          acc[t.id] = t.name;
+          return acc;
+        },
+        {} as Record<string, string>,
+      );
     }
 
-    const augmented = list.map(z => ({
+    const augmented = list.map((z) => ({
       ...z,
       tenantName: z.tenantId ? tenantMap[z.tenantId] || undefined : undefined,
     }));
@@ -100,7 +105,7 @@ router.post('/security-zones', async (req, res) => {
   try {
     const ctx = getTenantContext(req);
     const payload = req.body;
-    
+
     const entity = new SecurityZone();
     entity.name = payload.name;
     entity.description = payload.description;
@@ -111,9 +116,9 @@ router.post('/security-zones', async (req, res) => {
       entity.tenantId = ctx.tenantId;
       entity.organizationId = ctx.organizationId;
     } else {
-        // Allow admin to set tenant/org if provided, otherwise leave null (system level?)
-        if (payload.tenantId) entity.tenantId = payload.tenantId;
-        if (payload.organizationId) entity.organizationId = payload.organizationId;
+      // Allow admin to set tenant/org if provided, otherwise leave null (system level?)
+      if (payload.tenantId) entity.tenantId = payload.tenantId;
+      if (payload.organizationId) entity.organizationId = payload.organizationId;
     }
 
     const saved = await zoneRepo().save(entity);
@@ -129,8 +134,8 @@ router.patch('/security-zones/:id', async (req, res) => {
     const ctx = getTenantContext(req);
     const where: any = { id: req.params.id };
     if (ctx) {
-        where.tenantId = ctx.tenantId;
-        where.organizationId = ctx.organizationId;
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
     }
     const entity = await zoneRepo().findOne({ where });
     if (!entity) return res.status(404).json({ message: 'Security Zone not found' });
@@ -154,8 +159,8 @@ router.delete('/security-zones/:id', async (req, res) => {
     const ctx = getTenantContext(req);
     const where: any = { id: req.params.id };
     if (ctx) {
-        where.tenantId = ctx.tenantId;
-        where.organizationId = ctx.organizationId;
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
     }
     const result = await zoneRepo().delete(where);
     if (result.affected === 0) return res.status(404).json({ message: 'Security Zone not found' });
@@ -180,7 +185,11 @@ router.get('/protection-objects', async (req, res) => {
     if (req.query.type) where.type = req.query.type;
     if (req.query.securityZoneId) where.securityZoneId = req.query.securityZoneId;
 
-    const list = await objRepo().find({ where, order: { createdAt: 'DESC' }, relations: ['securityZone'] });
+    const list = await objRepo().find({
+      where,
+      order: { createdAt: 'DESC' },
+      relations: ['securityZone'],
+    });
     res.json(list);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch protection objects', error: String(err) });
@@ -192,7 +201,7 @@ router.post('/protection-objects', async (req, res) => {
   try {
     const ctx = getTenantContext(req);
     const payload = req.body;
-    
+
     const entity = new ProtectionObject();
     entity.name = payload.name;
     entity.type = payload.type;
@@ -204,8 +213,8 @@ router.post('/protection-objects', async (req, res) => {
       entity.tenantId = ctx.tenantId;
       entity.organizationId = ctx.organizationId;
     } else {
-        if (payload.tenantId) entity.tenantId = payload.tenantId;
-        if (payload.organizationId) entity.organizationId = payload.organizationId;
+      if (payload.tenantId) entity.tenantId = payload.tenantId;
+      if (payload.organizationId) entity.organizationId = payload.organizationId;
     }
 
     const saved = await objRepo().save(entity);
@@ -221,8 +230,8 @@ router.patch('/protection-objects/:id', async (req, res) => {
     const ctx = getTenantContext(req);
     const where: any = { id: req.params.id };
     if (ctx) {
-        where.tenantId = ctx.tenantId;
-        where.organizationId = ctx.organizationId;
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
     }
     const entity = await objRepo().findOne({ where });
     if (!entity) return res.status(404).json({ message: 'Protection Object not found' });
@@ -247,11 +256,12 @@ router.delete('/protection-objects/:id', async (req, res) => {
     const ctx = getTenantContext(req);
     const where: any = { id: req.params.id };
     if (ctx) {
-        where.tenantId = ctx.tenantId;
-        where.organizationId = ctx.organizationId;
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
     }
     const result = await objRepo().delete(where);
-    if (result.affected === 0) return res.status(404).json({ message: 'Protection Object not found' });
+    if (result.affected === 0)
+      return res.status(404).json({ message: 'Protection Object not found' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete protection object', error: String(err) });
@@ -272,7 +282,11 @@ router.get('/service-chains', async (req, res) => {
     if (req.query.keyword) where.name = Like(`%${req.query.keyword}%`);
     if (req.query.securityZoneId) where.securityZoneId = req.query.securityZoneId;
 
-    const list = await chainRepo().find({ where, order: { createdAt: 'DESC' }, relations: ['securityZone', 'tenant', 'organization'] });
+    const list = await chainRepo().find({
+      where,
+      order: { createdAt: 'DESC' },
+      relations: ['securityZone', 'tenant', 'organization'],
+    });
     res.json(list);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch service chains', error: String(err) });
@@ -284,7 +298,7 @@ router.post('/service-chains', async (req, res) => {
   try {
     const ctx = getTenantContext(req);
     const payload = req.body;
-    
+
     const entity = new ServiceChain();
     entity.name = payload.name;
     entity.clusterName = payload.clusterName;
@@ -294,7 +308,7 @@ router.post('/service-chains', async (req, res) => {
     entity.securityZoneId = payload.securityZoneId;
     entity.domainId = payload.domainId;
     entity.domainName = payload.domainName;
-    
+
     entity.steeringMode = payload.steeringMode;
     entity.securityServices = payload.securityServices; // JSON/Text
     entity.protectionTargets = payload.protectionTargets; // JSON/Text
@@ -303,8 +317,8 @@ router.post('/service-chains', async (req, res) => {
       entity.tenantId = ctx.tenantId;
       entity.organizationId = ctx.organizationId;
     } else {
-        if (payload.tenantId) entity.tenantId = payload.tenantId;
-        if (payload.organizationId) entity.organizationId = payload.organizationId;
+      if (payload.tenantId) entity.tenantId = payload.tenantId;
+      if (payload.organizationId) entity.organizationId = payload.organizationId;
     }
 
     const saved = await chainRepo().save(entity);
@@ -320,8 +334,8 @@ router.patch('/service-chains/:id', async (req, res) => {
     const ctx = getTenantContext(req);
     const where: any = { id: req.params.id };
     if (ctx) {
-        where.tenantId = ctx.tenantId;
-        where.organizationId = ctx.organizationId;
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
     }
     const entity = await chainRepo().findOne({ where });
     if (!entity) return res.status(404).json({ message: 'Service Chain not found' });
@@ -335,10 +349,11 @@ router.patch('/service-chains/:id', async (req, res) => {
     if (payload.securityZoneId !== undefined) entity.securityZoneId = payload.securityZoneId;
     if (payload.domainId !== undefined) entity.domainId = payload.domainId;
     if (payload.domainName !== undefined) entity.domainName = payload.domainName;
-    
+
     if (payload.steeringMode !== undefined) entity.steeringMode = payload.steeringMode;
     if (payload.securityServices !== undefined) entity.securityServices = payload.securityServices;
-    if (payload.protectionTargets !== undefined) entity.protectionTargets = payload.protectionTargets;
+    if (payload.protectionTargets !== undefined)
+      entity.protectionTargets = payload.protectionTargets;
 
     const saved = await chainRepo().save(entity);
     res.json(saved);
@@ -353,8 +368,8 @@ router.delete('/service-chains/:id', async (req, res) => {
     const ctx = getTenantContext(req);
     const where: any = { id: req.params.id };
     if (ctx) {
-        where.tenantId = ctx.tenantId;
-        where.organizationId = ctx.organizationId;
+      where.tenantId = ctx.tenantId;
+      where.organizationId = ctx.organizationId;
     }
     const result = await chainRepo().delete(where);
     if (result.affected === 0) return res.status(404).json({ message: 'Service Chain not found' });

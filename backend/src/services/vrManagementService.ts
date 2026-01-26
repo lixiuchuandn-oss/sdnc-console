@@ -23,15 +23,8 @@ export interface BindResult {
 
 export const vrManagementService = {
   bindVRToTenant: async (payload: BindVRPayload): Promise<BindResult> => {
-    const { 
-      vr_uuid, 
-      tenant_id, 
-      org_id, 
-      vm_id, 
-      device_fingerprint, 
-      display_name, 
-      vr_type 
-    } = payload;
+    const { vr_uuid, tenant_id, org_id, vm_id, device_fingerprint, display_name, vr_type } =
+      payload;
 
     if (!tenant_id) {
       throw new Error('缺少租户信息 tenant_id');
@@ -59,7 +52,7 @@ export const vrManagementService = {
     if (!record) {
       record = repository.create({
         uuid: vrUniqueId,
-        config_json: '{}'
+        config_json: '{}',
       });
     }
 
@@ -70,7 +63,7 @@ export const vrManagementService = {
         vr_unique_id: record.uuid,
         tenant_id: record.tenantId,
         org_id: record.organizationId,
-        bind_status: record.bindStatus
+        bind_status: record.bindStatus,
       };
       throw error;
     }
@@ -83,7 +76,7 @@ export const vrManagementService = {
     record.deviceFingerprint = device_fingerprint || record.deviceFingerprint;
     record.vmId = vm_id || record.vmId;
     record.bindStatus = 'BOUND';
-    
+
     if (validRole) {
       record.role = validRole;
     }
@@ -113,7 +106,7 @@ export const vrManagementService = {
       display_name: record.name || '',
       device_fingerprint: record.deviceFingerprint || null,
       bind_status: record.bindStatus || 'UNBOUND',
-      vr_type: record.role || null
+      vr_type: record.role || null,
     };
-  }
+  },
 };

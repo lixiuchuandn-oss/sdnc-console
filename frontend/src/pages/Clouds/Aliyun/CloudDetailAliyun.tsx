@@ -15,7 +15,8 @@ import RouteTableSectionAliyun, { Icon as RouteTableIcon, Label as RouteTableLab
 import SnapshotSectionAliyun, { Icon as SnapshotIcon, Label as SnapshotLabel } from './sections/SnapshotSectionAliyun';
 // import disk section
 import { statusTag, collectIpv4FromAddresses } from '../Hw/components/Common';
-import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots } from '../../../services/api';
+import { fetchClouds } from '../../../services/api';
+import { fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots, fetchCloudProviderVSwitches } from '../../../services/aliyunApi';
 import EcsInsDetSection from './sections/EcsInsDetSection';
 import SecurityGroupDetailModalAliyun from './modals/SecurityGroupDetailModalAliyun';
 import RouteTableCreateModalAliyun from './modals/RouteTableCreateModalAliyun';

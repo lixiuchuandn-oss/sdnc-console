@@ -7,7 +7,7 @@ import StdSideDrawer from '../../../components/StdSideDrawer';
 import '../../common/filters.css';
 import type { ColumnsType } from 'antd/es/table';
 import { getNATRules, createNATRule, deleteNATRule, NATRule } from '../../../services/networkApi';
-import { vrApi } from '../../../services/vrApi';
+import { vrApi } from '../../../services/virtualRouterApi';
 
 const { Option } = Select;
 const { Text } = Typography;

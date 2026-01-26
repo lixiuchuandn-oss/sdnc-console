@@ -1,16 +1,22 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 export enum CloudType {
   CENTRAL = 'central',
   EDGE = 'edge',
   HYBRID = 'hybrid',
-  SECURITY_POOL = 'security_pool'
+  SECURITY_POOL = 'security_pool',
 }
 
 export enum CloudStatus {
   ONLINE = 'online',
   OFFLINE = 'offline',
-  MAINTENANCE = 'maintenance'
+  MAINTENANCE = 'maintenance',
 }
 
 @Entity('clouds')
@@ -21,20 +27,20 @@ export class Cloud {
   @Column()
   name!: string;
 
-  @Column({ type: 'text'})
+  @Column({ type: 'text' })
   description!: string;
 
   @Column({
     type: 'simple-enum',
     enum: CloudType,
-    default: CloudType.CENTRAL
+    default: CloudType.CENTRAL,
   })
   type!: CloudType;
 
   @Column({
     type: 'simple-enum',
     enum: CloudStatus,
-    default: CloudStatus.ONLINE
+    default: CloudStatus.ONLINE,
   })
   status!: CloudStatus;
 

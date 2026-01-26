@@ -1,4 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  OneToMany,
+  JoinColumn,
+} from 'typeorm';
 import { Tenant } from './Tenant';
 import { TenantUser } from './TenantUser';
 import { ResourcePoolAssignment } from './ResourcePoolAssignment';
@@ -26,10 +35,10 @@ export class Organization {
   @Column({ name: 'tenant_id' })
   tenantId!: string;
 
-  @Column({ 
-    type: 'simple-enum', 
+  @Column({
+    type: 'simple-enum',
     enum: ['active', 'inactive'],
-    default: 'active'
+    default: 'active',
   })
   status!: 'active' | 'inactive';
 
@@ -39,20 +48,20 @@ export class Organization {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
-  @ManyToOne(() => Tenant, tenant => tenant.organizations)
+  @ManyToOne(() => Tenant, (tenant) => tenant.organizations)
   @JoinColumn({ name: 'tenant_id' })
   tenant?: Tenant;
 
-  @ManyToOne(() => Organization, organization => organization.children)
+  @ManyToOne(() => Organization, (organization) => organization.children)
   @JoinColumn({ name: 'parent_id' })
   parent?: Organization;
 
-  @OneToMany(() => Organization, organization => organization.parent)
+  @OneToMany(() => Organization, (organization) => organization.parent)
   children?: Organization[];
 
-  @OneToMany(() => TenantUser, user => user.organization)
+  @OneToMany(() => TenantUser, (user) => user.organization)
   users?: TenantUser[];
 
-  @OneToMany(() => ResourcePoolAssignment, assignment => assignment.organization)
+  @OneToMany(() => ResourcePoolAssignment, (assignment) => assignment.organization)
   resourcePoolAssignments?: ResourcePoolAssignment[];
-} 
+}

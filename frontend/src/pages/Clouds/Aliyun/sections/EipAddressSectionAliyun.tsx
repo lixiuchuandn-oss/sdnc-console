@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Popover, Select, Space, Table } from 'antd';
 import { ReloadOutlined, GlobalOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import { associateAliyunEip, unassociateAliyunEip } from '../../../../services/api';
+import { associateAliyunEip, unassociateAliyunEip } from '../../../../services/aliyunApi';
 
 type Props = {
   cloudId: string;

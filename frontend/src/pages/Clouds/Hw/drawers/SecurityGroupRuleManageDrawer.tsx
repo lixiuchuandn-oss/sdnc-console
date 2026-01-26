@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Space, Table, Tabs } from 'antd';
 import { EllipsisOutlined } from '@ant-design/icons';
 import StdSideDrawer from '../../../../components/StdSideDrawer';
-import { showCloudProviderSecurityGroup, createHuaweiCloudSecurityGroupRule, deleteHuaweiCloudSecurityGroupRule } from '../../../../services/api';
+import { showCloudProviderSecurityGroup, createHuaweiCloudSecurityGroupRule, deleteHuaweiCloudSecurityGroupRule } from '../../../../services/huaweiApi';
 import { normalizeErr } from '../utils/net';
 import SecurityGroupRuleDrawer from './SecurityGroupRuleDrawer';
 

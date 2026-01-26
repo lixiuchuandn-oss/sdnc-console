@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
 import { Organization } from './Organization';
 import { Cloud } from './Cloud';
 
@@ -34,10 +42,10 @@ export class ResourcePoolAssignment {
   @Column({ name: 'assigned_at', type: 'datetime', nullable: true })
   assignedAt?: Date;
 
-  @Column({ 
-    type: 'simple-enum', 
+  @Column({
+    type: 'simple-enum',
     enum: ['active', 'inactive'],
-    default: 'active'
+    default: 'active',
   })
   status!: 'active' | 'inactive';
 
@@ -47,7 +55,7 @@ export class ResourcePoolAssignment {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
-  @ManyToOne(() => Organization, organization => organization.resourcePoolAssignments)
+  @ManyToOne(() => Organization, (organization) => organization.resourcePoolAssignments)
   @JoinColumn({ name: 'organization_id' })
   organization?: Organization;
 

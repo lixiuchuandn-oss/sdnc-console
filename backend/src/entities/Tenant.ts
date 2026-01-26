@@ -1,4 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { Organization } from './Organization';
 import { TenantUser } from './TenantUser';
 import { UserSpace } from './UserSpace';
@@ -14,10 +21,10 @@ export class Tenant {
   @Column({ type: 'text', nullable: true })
   description?: string;
 
-  @Column({ 
-    type: 'simple-enum', 
+  @Column({
+    type: 'simple-enum',
     enum: ['active', 'inactive', 'suspended'],
-    default: 'active'
+    default: 'active',
   })
   status!: 'active' | 'inactive' | 'suspended';
 
@@ -30,12 +37,12 @@ export class Tenant {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
-  @OneToMany(() => Organization, organization => organization.tenant)
+  @OneToMany(() => Organization, (organization) => organization.tenant)
   organizations?: Organization[];
 
-  @OneToMany(() => TenantUser, user => user.tenant)
+  @OneToMany(() => TenantUser, (user) => user.tenant)
   users?: TenantUser[];
 
-  @OneToMany(() => UserSpace, userSpace => userSpace.tenant)
+  @OneToMany(() => UserSpace, (userSpace) => userSpace.tenant)
   userSpaces?: UserSpace[];
 }

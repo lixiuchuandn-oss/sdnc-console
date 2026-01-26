@@ -4,10 +4,10 @@ import { SaveOutlined, SendOutlined, ArrowLeftOutlined, CopyOutlined, CloudServe
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 
-import { getVRConfig, saveVRConfig } from '../../../services/vrConfigApi';
+import { getVRConfig, saveVRConfig } from '../../../services/virtualRouterApi';
 import LinedTextArea from '../../../components/LinedTextArea';
 
-import { getVR2ConfigRaw } from '../../../services/vr2Api';
+import { getVR2ConfigRaw } from '../../../services/virtualRouterApi';
 
 const EditVRConfig: React.FC = () => {
   const navigate = useNavigate();

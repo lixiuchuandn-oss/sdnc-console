@@ -9,7 +9,7 @@ import StdSideDrawer from '../../components/StdSideDrawer';
 import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
 import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
-import { fetchVrCachePageList } from '../../services/vrCacheApi';
+import { fetchVrCachePageList } from '../../services/virtualRouterApi';
 
 const { TextArea } = Input;
 

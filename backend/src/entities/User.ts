@@ -1,16 +1,24 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToMany, JoinTable } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToMany,
+  JoinTable,
+} from 'typeorm';
 import { Cloud } from './Cloud';
 
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
   TENANT = 'tenant',
-  LEASED_LINES_ADMIN = 'leased_lines_admin'
+  LEASED_LINES_ADMIN = 'leased_lines_admin',
 }
 
 export enum UserStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',
-  SUSPENDED = 'suspended'
+  SUSPENDED = 'suspended',
 }
 
 @Entity('users')
@@ -33,14 +41,14 @@ export class User {
   @Column({
     type: 'simple-enum',
     enum: UserRole,
-    default: UserRole.TENANT
+    default: UserRole.TENANT,
   })
   role!: UserRole;
 
   @Column({
     type: 'simple-enum',
     enum: UserStatus,
-    default: UserStatus.ACTIVE
+    default: UserStatus.ACTIVE,
   })
   status!: UserStatus;
 
@@ -57,7 +65,7 @@ export class User {
   @JoinTable({
     name: 'user_clouds',
     joinColumn: { name: 'user_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'cloud_id', referencedColumnName: 'id' }
+    inverseJoinColumn: { name: 'cloud_id', referencedColumnName: 'id' },
   })
   accessibleClouds!: Cloud[];
 

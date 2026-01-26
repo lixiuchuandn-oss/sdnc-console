@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { App, Form, Input } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { fetchCloudProviderVpcs, updateHuaweiCloudVpc } from '../../../../services/api';
+import { fetchCloudProviderVpcs } from '../../../../services/api';
+import { updateHuaweiCloudVpc } from '../../../../services/huaweiApi';
 import { normalizeErr } from '../utils/net';
 
 type Props = {

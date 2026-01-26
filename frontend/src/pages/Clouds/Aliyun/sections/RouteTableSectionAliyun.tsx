@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Space, Table } from 'antd';
 import { BranchesOutlined } from '@ant-design/icons';
-import { fetchCloudProviderRouteTables, deleteCloudProviderRouteTable } from '../../../../services/api';
+import { fetchCloudProviderRouteTables, deleteCloudProviderRouteTable } from '../../../../services/aliyunApi';
 import SharedToolbar from '../../../../components/SharedToolbar';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';

@@ -16,14 +16,14 @@ export async function callAliyunEcs(options: AliyunRpcOptions): Promise<any> {
     regionId,
     action,
     version = '2014-05-26',
-    extraParams = {}
+    extraParams = {},
   } = options;
 
   const client = new RPCClient({
     accessKeyId,
     accessKeySecret,
     endpoint: 'https://ecs.aliyuncs.com',
-    apiVersion: version
+    apiVersion: version,
   });
 
   const params = { RegionId: regionId, ...extraParams } as Record<string, any>;
@@ -44,14 +44,14 @@ export async function callAliyunSlb(options: AliyunRpcOptions): Promise<any> {
     regionId,
     action,
     version = '2014-05-15',
-    extraParams = {}
+    extraParams = {},
   } = options;
 
   const client = new RPCClient({
     accessKeyId,
     accessKeySecret,
     endpoint: 'https://slb.aliyuncs.com',
-    apiVersion: version
+    apiVersion: version,
   });
 
   const params = { RegionId: regionId, ...extraParams } as Record<string, any>;
@@ -72,14 +72,14 @@ export async function callAliyunVpc(options: AliyunRpcOptions): Promise<any> {
     regionId,
     action,
     version = '2016-04-28',
-    extraParams = {}
+    extraParams = {},
   } = options;
 
   const client = new RPCClient({
     accessKeyId,
     accessKeySecret,
     endpoint: 'https://vpc.aliyuncs.com',
-    apiVersion: version
+    apiVersion: version,
   });
 
   const params = { RegionId: regionId, ...extraParams } as Record<string, any>;
@@ -92,9 +92,15 @@ export async function callAliyunVpc(options: AliyunRpcOptions): Promise<any> {
     throw new Error(code ? `${code}: ${message}` : message);
   }
 }
-export async function testAliyunConnection(opts: AliyunRpcOptions): Promise<{ ok: boolean; message?: string }>{
+export async function testAliyunConnection(
+  opts: AliyunRpcOptions,
+): Promise<{ ok: boolean; message?: string }> {
   try {
-    const data = await callAliyunEcs({ ...opts, action: 'DescribeVpcs', extraParams: { PageSize: 1 } });
+    const data = await callAliyunEcs({
+      ...opts,
+      action: 'DescribeVpcs',
+      extraParams: { PageSize: 1 },
+    });
     const ok = !!(data && (data.TotalCount !== undefined || data.Vpcs || data.VpcSets));
     return { ok, message: ok ? '连接成功' : '连接失败，返回数据不完整' };
   } catch (err: any) {
@@ -102,21 +108,23 @@ export async function testAliyunConnection(opts: AliyunRpcOptions): Promise<{ ok
   }
 }
 
-export async function callAliyunCms(options: AliyunRpcOptions & { namespace?: string }): Promise<any> {
+export async function callAliyunCms(
+  options: AliyunRpcOptions & { namespace?: string },
+): Promise<any> {
   const {
     accessKeyId,
     accessKeySecret,
     regionId,
     action,
     version = '2019-01-01',
-    extraParams = {}
+    extraParams = {},
   } = options;
 
   const client = new RPCClient({
     accessKeyId,
     accessKeySecret,
     endpoint: 'https://metrics.aliyuncs.com',
-    apiVersion: version
+    apiVersion: version,
   });
 
   const params = { RegionId: regionId, ...extraParams } as Record<string, any>;

@@ -3,10 +3,7 @@ import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, m
 import { ArrowLeftOutlined, ExportOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { getVRRoles, saveVRConfig, getVRConfig } from '../../../services/vrConfigApi';
-import { fetchVrCachePageList, upsertVrCache } from '../../../services/vrCacheApi';
-
-import { getVR2Config } from '../../../services/vr2Api';
+import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, upsertVrCache, getVR2Config } from '../../../services/virtualRouterApi';
 import { API_BASE_URL } from '../../../services/api';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回

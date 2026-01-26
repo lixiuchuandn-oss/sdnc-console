@@ -27,12 +27,16 @@ export function initVncWsServer(server: http.Server) {
       }
     } catch (err: any) {
       // 由于 noVNC 期待纯二进制流，这里仅关闭连接并设置关闭原因，避免发送 JSON 文本
-      try { ws.close(1011, err?.message || '鉴权失败'); } catch {}
+      try {
+        ws.close(1011, err?.message || '鉴权失败');
+      } catch {}
       return;
     }
 
     if (!host || !port) {
-      try { ws.close(1002, '缺少 host 或 port'); } catch {}
+      try {
+        ws.close(1002, '缺少 host 或 port');
+      } catch {}
       return;
     }
 
@@ -42,8 +46,12 @@ export function initVncWsServer(server: http.Server) {
     const closeBoth = (code: number, reason?: string) => {
       if (closed) return;
       closed = true;
-      try { socket.destroy(); } catch {}
-      try { ws.close(code, reason); } catch {}
+      try {
+        socket.destroy();
+      } catch {}
+      try {
+        ws.close(code, reason);
+      } catch {}
     };
 
     // 建立到 VNC 服务器的 TCP 连接
@@ -65,7 +73,9 @@ export function initVncWsServer(server: http.Server) {
       closeBoth(1000, 'VNC 连接关闭');
     });
     socket.on('data', (data: Buffer) => {
-      try { ws.send(data, { binary: true, compress: false }); } catch {
+      try {
+        ws.send(data, { binary: true, compress: false });
+      } catch {
         // 如果发送失败，关闭连接
         closeBoth(1011, 'WS 发送失败');
       }
@@ -74,7 +84,9 @@ export function initVncWsServer(server: http.Server) {
     // WebSocket → TCP：原样写入二进制
     ws.on('message', (raw: RawData) => {
       const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as any);
-      try { socket.write(buf); } catch {
+      try {
+        socket.write(buf);
+      } catch {
         closeBoth(1011, 'TCP 写入失败');
       }
     });

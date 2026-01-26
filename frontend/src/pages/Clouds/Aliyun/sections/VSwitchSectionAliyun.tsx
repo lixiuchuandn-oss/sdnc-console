@@ -3,7 +3,7 @@ import { App, Button, Dropdown, Input, Select, Table } from 'antd';
 import { MoreOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchCloudProviderVSwitches, deleteCloudProviderVSwitch } from '../../../../services/api';
+import { fetchCloudProviderVSwitches, deleteCloudProviderVSwitch } from '../../../../services/aliyunApi';
 import { statusTag } from '../../Hw/components/Common';
 
 type VSwitchSectionAliyunProps = {

@@ -21,7 +21,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       role: u.role,
       status: u.status,
       createdAt: u.createdAt,
-      builtIn: u.username === 'admin'
+      builtIn: u.username === 'admin',
     }));
 
     res.json(users);
@@ -36,10 +36,10 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
     const tenantUserRepository = AppDataSource.getRepository(TenantUser);
     const organizationRepository = AppDataSource.getRepository(Organization);
     const tenantRepository = AppDataSource.getRepository(Tenant);
-    
+
     // 获取所有租户用户
     const tenantUsers = await tenantUserRepository.find({
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
 
     // 获取所有组织和租户信息
@@ -49,20 +49,20 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
     // 构建映射关系
     const orgMap = new Map();
     const tenantMap = new Map();
-    
-    organizations.forEach(org => {
+
+    organizations.forEach((org) => {
       orgMap.set(org.id, org);
     });
-    
-    tenants.forEach(tenant => {
+
+    tenants.forEach((tenant) => {
       tenantMap.set(tenant.id, tenant);
     });
 
     // 组装用户信息
-    const enrichedUsers = tenantUsers.map(user => {
+    const enrichedUsers = tenantUsers.map((user) => {
       const organization = orgMap.get(user.organizationId);
       const tenant = tenantMap.get(user.tenantId);
-      
+
       return {
         id: user.id,
         username: user.username,
@@ -71,16 +71,20 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
         role: user.role,
         status: user.status,
         createdAt: user.createdAt,
-        tenant: tenant ? {
-          id: tenant.id,
-          name: tenant.name,
-          description: tenant.description
-        } : null,
-        organization: organization ? {
-          id: organization.id,
-          name: organization.name,
-          level: organization.level
-        } : null
+        tenant: tenant
+          ? {
+              id: tenant.id,
+              name: tenant.name,
+              description: tenant.description,
+            }
+          : null,
+        organization: organization
+          ? {
+              id: organization.id,
+              name: organization.name,
+              level: organization.level,
+            }
+          : null,
       };
     });
 
@@ -110,13 +114,13 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         role: 'tenant',
         status: tu.status,
         createdAt: tu.createdAt,
-        lastLoginAt: tu.lastLoginAt
+        lastLoginAt: tu.lastLoginAt,
       };
     } else {
       const userRepository = AppDataSource.getRepository(User);
       const user = await userRepository.findOne({
         where: { id: req.user.id },
-        relations: ['accessibleClouds']
+        relations: ['accessibleClouds'],
       });
       if (!user) return res.status(404).json({ message: '用户不存在' });
       resp = {
@@ -128,7 +132,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         status: user.status,
         accessibleClouds: user.accessibleClouds,
         createdAt: user.createdAt,
-        lastLoginAt: user.lastLoginAt
+        lastLoginAt: user.lastLoginAt,
       };
     }
 
@@ -210,7 +214,15 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const hashed = await bcrypt.hash(password, 10);
     const user = userRepository.create({ username, email, password: hashed, fullName, role });
     const saved = await userRepository.save(user);
-    res.status(201).json({ id: saved.id, username: saved.username, email: saved.email, fullName: saved.fullName, role: saved.role });
+    res
+      .status(201)
+      .json({
+        id: saved.id,
+        username: saved.username,
+        email: saved.email,
+        fullName: saved.fullName,
+        role: saved.role,
+      });
   } catch (e: any) {
     res.status(500).json({ message: '创建用户失败', error: String(e) });
   }
@@ -278,7 +290,15 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const saved = await userRepository.save(user);
-    res.json({ id: saved.id, username: saved.username, email: saved.email, fullName: saved.fullName, role: saved.role, status: saved.status, password: saved.password });
+    res.json({
+      id: saved.id,
+      username: saved.username,
+      email: saved.email,
+      fullName: saved.fullName,
+      role: saved.role,
+      status: saved.status,
+      password: saved.password,
+    });
   } catch (e: any) {
     res.status(500).json({ message: '更新用户失败', error: String(e) });
   }

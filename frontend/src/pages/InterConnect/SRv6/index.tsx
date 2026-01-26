@@ -5,8 +5,7 @@ import { EllipsisOutlined, ClusterOutlined, BranchesOutlined, RadarChartOutlined
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
-import { vrApi } from '../../../services/vrApi';
-import { getVRRoles } from '../../../services/vrConfigApi';
+import { vrApi, getVRRoles, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 // 复用 VR 页的样式（filters-row / filter-tools / filter-actions / vr-table）
 import '../../common/filters.css';
 
@@ -149,7 +148,6 @@ const SRv6Page: React.FC = () => {
   const fetchVRsAndRoles = async (pageSize: number = 100, pageNum: number = 1) => {
     setLoading(true);
     try {
-      const { fetchVrCachePageList } = await import('../../../services/vrCacheApi');
       const resp = await fetchVrCachePageList(1000, 1);
       const data = resp?.data || resp;
       const list: any[] = Array.isArray(data?.page)

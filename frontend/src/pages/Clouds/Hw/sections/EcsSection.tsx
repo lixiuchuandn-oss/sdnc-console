@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Modal, Select, Space, Table, Typography } from 'antd';
 import { CloudServerOutlined } from '@ant-design/icons';
 import { statusTag, collectIpv4FromAddresses } from '../components/Common';
-import { fetchAliyunEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
+import { fetchCloudProviderEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
 import SharedToolbar from '../../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';
@@ -122,7 +122,7 @@ const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onO
             }
             if (key === 'webvnc') {
               try {
-                const json = await fetchAliyunEcsVncUrl(cloudId, iid);
+                const json = await fetchCloudProviderEcsVncUrl(cloudId, iid);
                 const url = json?.data?.VncUrl || json?.data?.vncUrl;
                 if (url) {
                   const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);

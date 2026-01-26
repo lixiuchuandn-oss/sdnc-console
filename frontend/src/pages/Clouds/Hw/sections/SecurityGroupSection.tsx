@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Space, Table } from 'antd';
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSecurityGroups } from '../../../../services/securityGroups';
-import { deleteHuaweiCloudSecurityGroup } from '../../../../services/api';
+import { deleteHuaweiCloudSecurityGroup } from '../../../../services/huaweiApi';
 import SharedToolbar from '../../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { RowActionsButton } from '../../../../components/PageDetailSection';

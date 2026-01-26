@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Col, Descriptions, Divider, Form, Input, Radio, Row, Select, Space, Spin, Steps, Switch, Tabs, message, Checkbox } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
-import { fetchVrCachePageList } from '../../../services/vrCacheApi';
+import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import { createIPsecVPN, API_BASE_URL } from '../../../services/api';
 import { ReloadOutlined, CheckCircleOutlined, LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
 

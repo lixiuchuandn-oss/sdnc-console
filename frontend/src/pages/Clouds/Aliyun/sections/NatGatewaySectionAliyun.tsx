@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
 import { MoreOutlined, SwapOutlined } from '@ant-design/icons';
-import { fetchCloudProviderNatGateways } from '../../../../services/api';
+import { fetchCloudProviderNatGateways } from '../../../../services/aliyunApi';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';

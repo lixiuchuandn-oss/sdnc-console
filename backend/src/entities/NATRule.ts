@@ -1,9 +1,15 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 export enum NATType {
   SNAT = 'snat',
   DNAT = 'dnat',
-  STATIC = 'static'
+  STATIC = 'static',
 }
 
 @Entity()
@@ -24,7 +30,7 @@ export class NATRule {
   @Column({
     type: 'simple-enum',
     enum: NATType,
-    default: NATType.SNAT
+    default: NATType.SNAT,
   })
   type!: NATType;
 

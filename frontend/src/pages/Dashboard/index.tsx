@@ -39,7 +39,7 @@ import {
 import { fetchCenAttachments } from '../../services/api';
 import { getACLRules, getNATRules } from '../../services/networkApi';
 import { fetchServiceChains } from '../../services/trafficOrchestration';
-import { fetchVrRealtimeList } from '../../services/vrCacheApi';
+import { fetchVrRealtimeList } from '../../services/virtualRouterApi';
 import './Dashboard.css';
 
 const { Text, Title } = Typography;

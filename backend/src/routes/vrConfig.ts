@@ -22,19 +22,19 @@ vrConfigRoutes.get('/:uuid/cached', async (req, res) => {
 
     let configData = {};
     try {
-        configData = JSON.parse(record.config_json);
+      configData = JSON.parse(record.config_json);
     } catch (e) {
-        configData = { error: 'Invalid JSON in DB', raw: record.config_json };
+      configData = { error: 'Invalid JSON in DB', raw: record.config_json };
     }
 
-    return res.json({ 
-        code: 200, 
-        msg: 'ok', 
-        data: configData,
-        meta: {
-            updatedAt: record.updated_at,
-            role: record.role
-        }
+    return res.json({
+      code: 200,
+      msg: 'ok',
+      data: configData,
+      meta: {
+        updatedAt: record.updated_at,
+        role: record.role,
+      },
     });
   } catch (err: any) {
     console.error('[VR_CONFIG] get cached error', err);
@@ -47,7 +47,9 @@ function getTenantContext(req: any) {
   if (user && (user as any).tenantId) {
     return {
       tenantId: String((user as any).tenantId),
-      organizationId: (user as any).organizationId ? String((user as any).organizationId) : undefined
+      organizationId: (user as any).organizationId
+        ? String((user as any).organizationId)
+        : undefined,
     };
   }
   return null;
@@ -57,7 +59,8 @@ function getTenantContext(req: any) {
 vrConfigRoutes.post('/bind', async (req, res) => {
   try {
     const ctx = getTenantContext(req as any);
-    const { vm_id, vr_uuid, tenant_id, org_id, device_fingerprint, display_name, vr_type } = req.body || {};
+    const { vm_id, vr_uuid, tenant_id, org_id, device_fingerprint, display_name, vr_type } =
+      req.body || {};
 
     let resolvedTenantId = tenant_id as string | undefined;
     let resolvedOrgId = org_id as string | undefined;
@@ -75,17 +78,17 @@ vrConfigRoutes.post('/bind', async (req, res) => {
       vm_id,
       device_fingerprint,
       display_name,
-      vr_type
+      vr_type,
     });
 
     return res.json(result);
   } catch (err: any) {
     console.error('[VR_CONFIG] bind error', err);
     if (err.message && err.message.includes('VR已绑定')) {
-        return res.status(409).json({ message: err.message, ...err.details });
+      return res.status(409).json({ message: err.message, ...err.details });
     }
     if (err.message && (err.message.includes('缺少') || err.message.includes('不支持'))) {
-        return res.status(400).json({ message: err.message });
+      return res.status(400).json({ message: err.message });
     }
     return res.status(500).json({ message: err?.message || '内部错误' });
   }
@@ -119,7 +122,7 @@ vrConfigRoutes.get('/list', async (req, res) => {
     const extendedRepo = AppDataSource.getRepository(VrCacheExtended);
     const extendedRows = await extendedRepo.find();
     const extendedMap: Record<string, any> = {};
-    extendedRows.forEach(row => {
+    extendedRows.forEach((row) => {
       try {
         extendedMap[row.uuid] = JSON.parse(row.data);
       } catch (e) {
@@ -130,11 +133,11 @@ vrConfigRoutes.get('/list', async (req, res) => {
     // 2. Fetch live list from CSM to mark deleted ones
     let liveUuids: Set<string> | null = null;
     try {
-      // Fetch a large page to cover most VRs. 
+      // Fetch a large page to cover most VRs.
       // TODO: If VR count > 2000, we need pagination loop or a better API.
       // Assuming for now < 2000 VRs is typical for this tenant context or global.
       const liveData = await vrController.getVRList(2000, 1);
-      
+
       let items: any[] = [];
       if (Array.isArray(liveData)) items = liveData;
       else if (Array.isArray(liveData?.page)) items = liveData.page;
@@ -142,7 +145,9 @@ vrConfigRoutes.get('/list', async (req, res) => {
       else if (Array.isArray(liveData?.data)) items = liveData.data;
 
       if (items.length > 0) {
-        liveUuids = new Set(items.map((it: any) => String(it.uuid || it.vr_unique_id || it.id || '').trim()));
+        liveUuids = new Set(
+          items.map((it: any) => String(it.uuid || it.vr_unique_id || it.id || '').trim()),
+        );
       }
     } catch (e) {
       console.warn('[VR_CONFIG] Failed to fetch live VR list for sync check:', e);
@@ -150,12 +155,12 @@ vrConfigRoutes.get('/list', async (req, res) => {
       // We leave liveUuids as null.
     }
 
-    const data = list.map(item => {
+    const data = list.map((item) => {
       const uid = String(item.uuid).trim();
       // If liveUuids is null (fetch failed), we don't mark as deleted.
       // If liveUuids is set, and uid is not in it, it's deleted.
       const isDeleted = liveUuids ? !liveUuids.has(uid) : false;
-      
+
       const extendedData = extendedMap[uid] || {};
 
       return {
@@ -171,7 +176,7 @@ vrConfigRoutes.get('/list', async (req, res) => {
         is_deleted: isDeleted,
         // Extended properties
         resourceIndicators: extendedData.resourceIndicators,
-        interfaces: extendedData.interfaces
+        interfaces: extendedData.interfaces,
       };
     });
 
@@ -204,15 +209,23 @@ vrConfigRoutes.delete('/:uuid', async (req, res) => {
 
 // Get real-time VR list from controller (csmctl)
 vrConfigRoutes.get('/pagelist', async (req, res) => {
-    try {
-      {
-        const role = (req as any).user?.role;
-        const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-        if (!(role === 'super_admin' || perms.includes('networks.vr-config:read') || perms.includes('networks.vr-config:write'))) {
-          return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
-        }
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.vr-config:read') ||
+          perms.includes('networks.vr-config:write')
+        )
+      ) {
+        return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
       }
-      const pageNum = Number(req.query.page_num || 1);
+    }
+    const pageNum = Number(req.query.page_num || 1);
     const pageSize = Number(req.query.page_size || 50);
 
     const data = await vrController.getVRList(pageSize, pageNum);
@@ -229,7 +242,9 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
       if (!(role === 'super_admin' || perms.includes('networks.vr-config:write'))) {
         return res.status(403).json({ message: '权限不足：需要写入权限 networks.vr-config:write' });
       }
@@ -253,12 +268,12 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
       if (vmId !== undefined) record.vmId = vmId;
       await repo.save(record);
     } else {
-      record = repo.create({ 
-        uuid, 
+      record = repo.create({
+        uuid,
         config_json: jsonStr,
         cloudId: cloudId || undefined,
         cloudName: cloudName || undefined,
-        vmId: vmId || undefined
+        vmId: vmId || undefined,
       });
       await repo.save(record);
     }
@@ -275,7 +290,9 @@ vrConfigRoutes.post('/set-role', async (req, res) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
       if (!(role === 'super_admin' || perms.includes('networks.vr-config:write'))) {
         return res.status(403).json({ message: '权限不足：需要写入权限 networks.vr-config:write' });
       }
@@ -312,18 +329,31 @@ vrConfigRoutes.get('/roles', async (req, res) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.vr-config:read') || perms.includes('networks.vr-config:write'))) {
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.vr-config:read') ||
+          perms.includes('networks.vr-config:write')
+        )
+      ) {
         return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
       }
     }
     const uuidsParam = String(req.query.uuids || '').trim();
-    const uuids = uuidsParam ? uuidsParam.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+    const uuids = uuidsParam
+      ? uuidsParam
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
 
     const repo = AppDataSource.getRepository(VRConfig);
     let records: VRConfig[];
     if (uuids && uuids.length) {
-      records = await repo.find({ where: uuids.map(u => ({ uuid: u })) });
+      records = await repo.find({ where: uuids.map((u) => ({ uuid: u })) });
     } else {
       records = await repo.find();
     }
@@ -344,8 +374,16 @@ vrConfigRoutes.get('/:uuid', async (req, res) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.vr-config:read') || perms.includes('networks.vr-config:write'))) {
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.vr-config:read') ||
+          perms.includes('networks.vr-config:write')
+        )
+      ) {
         return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
       }
     }
@@ -361,7 +399,7 @@ vrConfigRoutes.get('/:uuid', async (req, res) => {
     } catch {
       data = record.config_json;
     }
-    
+
     // Mix in metadata fields
     if (typeof data === 'object' && data !== null) {
       if (record.cloudId) data.cloudId = record.cloudId;
@@ -381,16 +419,24 @@ vrConfigRoutes.get('/:uuid/realtime', async (req, res) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
-      if (!(role === 'super_admin' || perms.includes('networks.vr-config:read') || perms.includes('networks.vr-config:write'))) {
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.vr-config:read') ||
+          perms.includes('networks.vr-config:write')
+        )
+      ) {
         return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
       }
     }
     const { uuid } = req.params;
-    
+
     // Call controller to get raw config from CSMCTL
     const data = await vrController.getVRConfig(uuid);
-    
+
     // Return raw data directly
     return res.json({ code: 200, msg: 'ok', data });
   } catch (err: any) {
@@ -405,7 +451,9 @@ vrConfigRoutes.delete('/:uuid', async (req, res) => {
   try {
     {
       const role = (req as any).user?.role;
-      const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
       if (!(role === 'super_admin' || perms.includes('networks.vr-config:write'))) {
         return res.status(403).json({ message: '权限不足：需要写入权限 networks.vr-config:write' });
       }
@@ -413,9 +461,9 @@ vrConfigRoutes.delete('/:uuid', async (req, res) => {
     const { uuid } = req.params;
     const repo = AppDataSource.getRepository(VRConfig);
     const result = await repo.delete({ uuid });
-    
+
     if (result.affected === 0) {
-        return res.status(404).json({ code: 404, msg: '未找到VR配置或删除失败' });
+      return res.status(404).json({ code: 404, msg: '未找到VR配置或删除失败' });
     }
 
     return res.json({ code: 200, msg: 'ok', data: { uuid } });

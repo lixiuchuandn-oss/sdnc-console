@@ -1,7 +1,7 @@
 import React from 'react';
 import { App, Form, Input, Select } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { fetchCloudProviderRouteTables, createCloudProviderRouteTable } from '../../../../services/api';
+import { fetchCloudProviderRouteTables, createCloudProviderRouteTable } from '../../../../services/aliyunApi';
 
 type Props = {
   open: boolean;

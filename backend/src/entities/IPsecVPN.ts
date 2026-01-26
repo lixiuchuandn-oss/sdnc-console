@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 export enum IPsecStatus {
   CREATING = 'creating',
@@ -21,7 +27,7 @@ export class IPsecVPN {
   @Column({
     type: 'simple-enum',
     enum: IPsecStatus,
-    default: IPsecStatus.CREATING
+    default: IPsecStatus.CREATING,
   })
   status!: IPsecStatus;
 
@@ -102,13 +108,13 @@ export class IPsecVPN {
 
   @Column({ default: 'tunnel' })
   mode!: string;
-  
+
   @Column({ type: 'boolean', default: false })
   natTraversal!: boolean;
-  
+
   @Column({ type: 'boolean', default: true })
   dpd!: boolean;
-  
+
   @CreateDateColumn()
   createdAt!: Date;
 

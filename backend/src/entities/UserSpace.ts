@@ -1,4 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  OneToMany,
+  JoinColumn,
+} from 'typeorm';
 import { Tenant } from './Tenant';
 import { Cloud } from './Cloud';
 import { UserSpaceAllocation } from './UserSpaceAllocation';
@@ -29,10 +38,10 @@ export class UserSpace {
   @Column({ type: 'int', default: 0 })
   storageQuota!: number; // GB
 
-  @Column({ 
-    type: 'simple-enum', 
+  @Column({
+    type: 'simple-enum',
     enum: ['active', 'inactive'],
-    default: 'active'
+    default: 'active',
   })
   status!: 'active' | 'inactive';
 
@@ -42,7 +51,7 @@ export class UserSpace {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
-  @ManyToOne(() => Tenant, tenant => tenant.userSpaces)
+  @ManyToOne(() => Tenant, (tenant) => tenant.userSpaces)
   @JoinColumn({ name: 'tenant_id' })
   tenant?: Tenant;
 
@@ -50,6 +59,6 @@ export class UserSpace {
   @JoinColumn({ name: 'cloud_id' })
   cloud?: Cloud;
 
-  @OneToMany(() => UserSpaceAllocation, allocation => allocation.userSpace)
+  @OneToMany(() => UserSpaceAllocation, (allocation) => allocation.userSpace)
   allocations?: UserSpaceAllocation[];
 }

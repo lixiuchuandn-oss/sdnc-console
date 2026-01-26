@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Select, Space, Table } from 'antd';
 import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
 import { DeploymentUnitOutlined } from '@ant-design/icons';
-import { fetchCloudProviderLoadBalancers } from '../../../../services/api';
+import { fetchCloudProviderLoadBalancers } from '../../../../services/aliyunApi';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';

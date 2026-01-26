@@ -18,7 +18,7 @@ router.get('/available-resource-pools', async (req, res) => {
     console.log('获取可分配资源池列表请求');
     const cloudRepository = AppDataSource.getRepository(Cloud);
     const resourcePools = await cloudRepository.find({
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
 
     console.log('找到资源池数量:', resourcePools.length);
@@ -34,9 +34,9 @@ router.get('/', async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
     const tenants = await tenantRepository.find({
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
-    
+
     res.json(tenants);
   } catch (error) {
     console.error('获取租户列表失败:', error);
@@ -48,14 +48,14 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { name, description } = req.body;
-    
+
     if (!name?.trim()) {
       return res.status(400).json({ message: '租户名称不能为空' });
     }
 
     const tenantRepository = AppDataSource.getRepository(Tenant);
     const organizationRepository = AppDataSource.getRepository(Organization);
-    
+
     // 检查租户名称是否已存在
     const existingTenant = await tenantRepository.findOne({ where: { name } });
     if (existingTenant) {
@@ -66,9 +66,9 @@ router.post('/', async (req, res) => {
     const tenant = tenantRepository.create({
       name,
       description,
-      status: 'active'
+      status: 'active',
     });
-    
+
     const savedTenant = await tenantRepository.save(tenant);
 
     // 为租户创建根组织
@@ -77,18 +77,18 @@ router.post('/', async (req, res) => {
       description: `${name} 的根组织`,
       level: 1,
       tenantId: savedTenant.id,
-      status: 'active'
+      status: 'active',
     });
-    
+
     const savedRootOrg = await organizationRepository.save(rootOrganization);
-    
+
     // 更新租户的根组织ID
     savedTenant.rootOrganizationId = savedRootOrg.id;
     await tenantRepository.save(savedTenant);
 
     res.status(201).json({
       ...savedTenant,
-      rootOrganization: savedRootOrg
+      rootOrganization: savedRootOrg,
     });
   } catch (error) {
     console.error('创建租户失败:', error);
@@ -101,35 +101,35 @@ router.get('/with-leased-lines', async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
     const leasedLineRepository = AppDataSource.getRepository(TenantLeasedLine);
-    
+
     // 获取所有租户
     const tenants = await tenantRepository.find({
       order: { createdAt: 'DESC' },
-      select: ['id', 'name']
+      select: ['id', 'name'],
     });
-    
+
     // 获取所有专线
     const leasedLines = await leasedLineRepository.find();
-    
+
     // 构建 tenantId -> ips 映射
     const leasedLineMap = new Map<string, string[]>();
-    
-    leasedLines.forEach(line => {
+
+    leasedLines.forEach((line) => {
       if (line.tenantId) {
         const currentIps = leasedLineMap.get(line.tenantId) || [];
         if (line.ips) {
-            currentIps.push(line.ips);
+          currentIps.push(line.ips);
         }
         leasedLineMap.set(line.tenantId, currentIps);
       }
     });
-    
-    const result = tenants.map(tenant => ({
+
+    const result = tenants.map((tenant) => ({
       id: tenant.id,
       name: tenant.name,
-      leasedLineIps: leasedLineMap.get(tenant.id) || []
+      leasedLineIps: leasedLineMap.get(tenant.id) || [],
     }));
-    
+
     res.json(result);
   } catch (error) {
     console.error('获取租户专线IP信息失败:', error);
@@ -142,7 +142,7 @@ router.get('/:id', async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
     const tenant = await tenantRepository.findOne({
-      where: { id: req.params.id }
+      where: { id: req.params.id },
     });
 
     if (!tenant) {
@@ -161,7 +161,7 @@ router.put('/:id', async (req, res) => {
   try {
     const { name, description, status } = req.body;
     const tenantRepository = AppDataSource.getRepository(Tenant);
-    
+
     const tenant = await tenantRepository.findOne({ where: { id: req.params.id } });
     if (!tenant) {
       return res.status(404).json({ message: '租户不存在' });
@@ -193,7 +193,7 @@ router.delete('/:id', async (req, res) => {
     const organizationRepository = AppDataSource.getRepository(Organization);
     const userRepository = AppDataSource.getRepository(TenantUser);
     const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
-    
+
     const tenant = await tenantRepository.findOne({ where: { id: req.params.id } });
     if (!tenant) {
       return res.status(404).json({ message: '租户不存在' });
@@ -201,7 +201,7 @@ router.delete('/:id', async (req, res) => {
 
     // 获取租户下的所有组织
     const organizations = await organizationRepository.find({ where: { tenantId: req.params.id } });
-    
+
     // 删除所有组织的资源池分配
     for (const org of organizations) {
       const assignments = await assignmentRepository.find({ where: { organizationId: org.id } });
@@ -215,12 +215,12 @@ router.delete('/:id', async (req, res) => {
     for (const user of users) {
       await userRepository.remove(user);
     }
-    
+
     // 删除相关的组织
     for (const org of organizations) {
       await organizationRepository.remove(org);
     }
-    
+
     // 删除租户
     await tenantRepository.remove(tenant);
 
@@ -237,7 +237,7 @@ router.get('/:id/organizations', async (req, res) => {
     const organizationRepository = AppDataSource.getRepository(Organization);
     const organizations = await organizationRepository.find({
       where: { tenantId: req.params.id },
-      order: { level: 'ASC', parentId: 'ASC', orderIndex: 'ASC', createdAt: 'ASC' }
+      order: { level: 'ASC', parentId: 'ASC', orderIndex: 'ASC', createdAt: 'ASC' },
     });
 
     // 构建组织树
@@ -249,7 +249,7 @@ router.get('/:id/organizations', async (req, res) => {
         ...org,
         children: [],
         userCount: 0,
-        resourcePoolCount: 0
+        resourcePoolCount: 0,
       });
     });
 
@@ -277,28 +277,28 @@ router.post('/:id/organizations', async (req, res) => {
   try {
     const { name, description, parentId } = req.body;
     const tenantId = req.params.id;
-    
+
     if (!name?.trim()) {
       return res.status(400).json({ message: '组织名称不能为空' });
     }
 
     const organizationRepository = AppDataSource.getRepository(Organization);
-    
+
     // 确定组织级别
     let level = 1;
     if (parentId) {
       const parentOrg = await organizationRepository.findOne({
-        where: { id: parentId }
+        where: { id: parentId },
       });
-      
+
       if (!parentOrg) {
         return res.status(400).json({ message: '父组织不存在' });
       }
-      
+
       if (parentOrg.level >= 4) {
         return res.status(400).json({ message: '组织层级不能超过4级' });
       }
-      
+
       level = parentOrg.level + 1;
     }
 
@@ -308,7 +308,9 @@ router.post('/:id/organizations', async (req, res) => {
       const siblings = await organizationRepository.find({ where: { parentId } });
       orderIndex = siblings.length;
     } else {
-      const roots = await organizationRepository.find({ where: { tenantId, parentId: null as any } });
+      const roots = await organizationRepository.find({
+        where: { tenantId, parentId: null as any },
+      });
       orderIndex = roots.length;
     }
 
@@ -319,7 +321,7 @@ router.post('/:id/organizations', async (req, res) => {
       parentId,
       tenantId,
       status: 'active',
-      orderIndex
+      orderIndex,
     });
 
     const savedOrganization = await organizationRepository.save(organization);
@@ -334,7 +336,12 @@ router.post('/:id/organizations', async (req, res) => {
 router.put('/organizations/:orgId', async (req, res) => {
   try {
     const { orgId } = req.params;
-    const { name, description, parentId, orderIndex } = req.body as { name?: string; description?: string; parentId?: string | null; orderIndex?: number };
+    const { name, description, parentId, orderIndex } = req.body as {
+      name?: string;
+      description?: string;
+      parentId?: string | null;
+      orderIndex?: number;
+    };
 
     const organizationRepository = AppDataSource.getRepository(Organization);
     const org = await organizationRepository.findOne({ where: { id: orgId } });
@@ -379,8 +386,10 @@ router.put('/organizations/:orgId', async (req, res) => {
     // 重排同级顺序
     const sameParentId = saved.parentId || null;
     const siblings = await organizationRepository.find({
-      where: sameParentId ? { parentId: sameParentId } : { parentId: null as any, tenantId: saved.tenantId },
-      order: { orderIndex: 'ASC', createdAt: 'ASC' }
+      where: sameParentId
+        ? { parentId: sameParentId }
+        : { parentId: null as any, tenantId: saved.tenantId },
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
     });
     for (let i = 0; i < siblings.length; i++) {
       const s = siblings[i];
@@ -463,11 +472,11 @@ router.get('/:tenantId/organizations/:orgId/users', async (req, res) => {
   try {
     const userRepository = AppDataSource.getRepository(TenantUser);
     const users = await userRepository.find({
-      where: { 
+      where: {
         organizationId: req.params.orgId,
-        tenantId: req.params.tenantId 
+        tenantId: req.params.tenantId,
       },
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
 
     res.json(users);
@@ -482,21 +491,18 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
   try {
     const { username, email, fullName, password, role } = req.body;
     const { tenantId, orgId } = req.params;
-    
+
     if (!username?.trim() || !email?.trim() || !fullName?.trim() || !password?.trim()) {
       return res.status(400).json({ message: '用户名、邮箱、姓名和密码不能为空' });
     }
 
     const userRepository = AppDataSource.getRepository(TenantUser);
-    
+
     // 检查用户名和邮箱是否已存在
     const existingUser = await userRepository.findOne({
-      where: [
-        { username },
-        { email }
-      ]
+      where: [{ username }, { email }],
     });
-    
+
     if (existingUser) {
       return res.status(400).json({ message: '用户名或邮箱已存在' });
     }
@@ -512,11 +518,11 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
       role: role || 'user',
       organizationId: orgId,
       tenantId,
-      status: 'active'
+      status: 'active',
     });
 
     const savedUser = await userRepository.save(user);
-    
+
     // 返回时不包含密码
     const { password: _, ...userWithoutPassword } = savedUser;
     res.status(201).json(userWithoutPassword);
@@ -530,14 +536,14 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
 router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
   try {
     const { tenantId, orgId, userId } = req.params;
-    
+
     const userRepository = AppDataSource.getRepository(TenantUser);
     const user = await userRepository.findOne({
-      where: { 
+      where: {
         id: userId,
         organizationId: orgId,
-        tenantId: tenantId
-      }
+        tenantId: tenantId,
+      },
     });
 
     if (!user) {
@@ -566,7 +572,7 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
     // 验证组织是否存在
     const organizationRepository = AppDataSource.getRepository(Organization);
     const organization = await organizationRepository.findOne({
-      where: { id: orgId }
+      where: { id: orgId },
     });
 
     if (!organization) {
@@ -576,7 +582,7 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
     // 验证资源池是否存在
     const cloudRepository = AppDataSource.getRepository(Cloud);
     const resourcePools = await cloudRepository.find({
-      where: resourcePoolIds.map(id => ({ id }))
+      where: resourcePoolIds.map((id) => ({ id })),
     });
 
     if (resourcePools.length !== resourcePoolIds.length) {
@@ -587,9 +593,11 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       const p = String(pv || '').toLowerCase();
       return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
     };
-    if (resourcePools.some(c => isHarvesterLike((c as any)?.config?.provider))) {
+    if (resourcePools.some((c) => isHarvesterLike((c as any)?.config?.provider))) {
       if (!namespace || !String(namespace).trim()) {
-        return res.status(400).json({ message: 'Harvester / Cloudmap 资源池分配需要指定命名空间（namespace）' });
+        return res
+          .status(400)
+          .json({ message: 'Harvester / Cloudmap 资源池分配需要指定命名空间（namespace）' });
       }
     }
 
@@ -603,12 +611,12 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
         where: {
           organizationId: orgId,
           // 与实体字段保持一致：cloudId
-          cloudId: resourcePoolId
-        }
+          cloudId: resourcePoolId,
+        },
       });
 
       if (!existingAssignment) {
-        const targetCloud = resourcePools.find(c => c.id === resourcePoolId);
+        const targetCloud = resourcePools.find((c) => c.id === resourcePoolId);
         const assignment: any = assignmentRepository.create({
           id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
           organizationId: orgId,
@@ -616,7 +624,7 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
           cloudId: resourcePoolId,
           assignedBy: req.user?.id || 'system',
           permissions: permissions || ['read', 'use'],
-          assignedAt: new Date()
+          assignedAt: new Date(),
         });
         if (targetCloud && isHarvesterLike((targetCloud as any)?.config?.provider) && namespace) {
           assignment.namespace = String(namespace).trim();
@@ -633,10 +641,10 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       console.log('保存的分配记录:', JSON.stringify(assignments, null, 2));
     }
 
-    res.json({ 
+    res.json({
       message: '资源池分配成功',
       assignedCount: assignments.length,
-      skippedCount: resourcePoolIds.length - assignments.length
+      skippedCount: resourcePoolIds.length - assignments.length,
     });
   } catch (error) {
     console.error('资源池分配失败:', error);
@@ -654,7 +662,7 @@ router.get('/organizations/:orgId/resource-pools', async (req, res) => {
     const assignments = await assignmentRepository.find({
       where: { organizationId: orgId },
       // 与实体关系保持一致：cloud
-      relations: ['cloud']
+      relations: ['cloud'],
     });
 
     console.log('找到的分配记录数量:', assignments.length);
@@ -670,7 +678,10 @@ router.get('/organizations/:orgId/resource-pools', async (req, res) => {
           if (Array.isArray(parsed)) arr = parsed as string[];
         } catch {}
         if (!arr.length) {
-          arr = String(v).split(',').map((s: string) => s.trim()).filter((s: string) => !!s);
+          arr = String(v)
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter((s: string) => !!s);
         }
       }
       return { ...a, permissions: arr };
@@ -692,8 +703,8 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
       where: {
         organizationId: orgId,
         // 与实体字段保持一致：cloudId
-        cloudId: poolId
-      }
+        cloudId: poolId,
+      },
     });
 
     if (!assignment) {
@@ -708,7 +719,5 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
     res.status(500).json({ message: '移除资源池分配失败' });
   }
 });
-
-
 
 export { router as tenantRoutes };

@@ -1,7 +1,7 @@
 import React from 'react';
 import { App, Form, Input, Select } from 'antd';
 import StdSideDrawer from '../../../../components/StdSideDrawer';
-import { fetchCloudProviderRouteEntries, modCloudProviderRouteEntry } from '../../../../services/api';
+import { fetchCloudProviderRouteEntries, modCloudProviderRouteEntry } from '../../../../services/aliyunApi';
 import { collectInstanceIpv4 } from '../../Hw/components/Common';
 
 type Props = {

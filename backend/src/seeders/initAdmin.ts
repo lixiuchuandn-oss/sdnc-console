@@ -7,7 +7,7 @@ export async function initializeAdmin() {
     const userRepository = AppDataSource.getRepository(User);
 
     const existingAdmin = await userRepository.findOne({
-      where: { role: UserRole.SUPER_ADMIN }
+      where: { role: UserRole.SUPER_ADMIN },
     });
 
     if (!existingAdmin) {
@@ -18,7 +18,7 @@ export async function initializeAdmin() {
         fullName: '系统管理员',
         password: hashedPassword,
         role: UserRole.SUPER_ADMIN,
-        status: UserStatus.ACTIVE
+        status: UserStatus.ACTIVE,
       });
 
       await userRepository.save(admin);

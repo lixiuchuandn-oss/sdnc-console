@@ -258,115 +258,7 @@ export const updateCloudProviderVpc = async (cloudId: string, vpcId: string, pay
   return await apiPatch(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`, payload);
 };
 
-// 云资源池：查询单个 VPC（华为云）
-export const showCloudProviderVpc = async (cloudId: string, vpcId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`, {
-    method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
 
-// 云资源池：查询单个 安全组（华为云）
-export const showCloudProviderSecurityGroup = async (cloudId: string, sgId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}`, {
-    method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const createHuaweiCloudSecurityGroup = async (
-  cloudId: string,
-  payload: { name: string; description?: string; enterprise_project_id?: string }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ security_group: payload }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const deleteHuaweiCloudSecurityGroup = async (
-  cloudId: string,
-  sgId: string
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}`, {
-    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const createHuaweiCloudSecurityGroupRule = async (
-  cloudId: string,
-  sgId: string,
-  payload: { direction: string; protocol?: string; ethertype?: string; port_range_min?: number; port_range_max?: number; remote_ip_prefix?: string; remote_group_id?: string; description?: string }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}/rules`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ rule: payload }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const deleteHuaweiCloudSecurityGroupRule = async (
-  cloudId: string,
-  sgId: string,
-  ruleId: string
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}/rules/${encodeURIComponent(ruleId)}`, {
-    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const updateHuaweiCloudSecurityGroupRule = async (
-  cloudId: string,
-  sgId: string,
-  ruleId: string,
-  payload: { direction: string; protocol?: string; ethertype?: string; port_range_min?: number; port_range_max?: number; remote_ip_prefix?: string; remote_group_id?: string; description?: string }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}/rules/${encodeURIComponent(ruleId)}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ rule: payload }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-// 云资源池：创建 VPC（华为云）
-export const createHuaweiCloudVpc = async (
-  cloudId: string,
-  payload: { cidr: string; ipv6_cidr?: string; name?: string; description?: string; enterprise_project_id?: string; tags?: string[]; block_service_endpoint_states?: string; enable_network_address_usage_metrics?: boolean }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ vpc: payload }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-// 云资源池：更新 VPC（华为云）
-export const updateHuaweiCloudVpc = async (
-  cloudId: string,
-  vpcId: string,
-  payload: { name?: string; description?: string; cidr?: string; enterprise_project_id?: string; tags?: string[]; block_service_endpoint_states?: string; enable_network_address_usage_metrics?: boolean }
-) => {
-  const token = localStorage.getItem('token');
-  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`;
-  const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ vpc: payload }), credentials: 'include' as RequestCredentials });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
 
 export const fetchSaseDiscoveredAssets = async (params?: any) => {
   const q = new URLSearchParams();
@@ -458,9 +350,24 @@ export const rebootCloudProviderEcs = async (cloudId: string, instanceId: string
   return await res.json();
 };
 
-export const fetchAliyunEcsVncUrl = async (cloudId: string, instanceId: string) => {
+export const fetchCloudProviderEcsVncUrl = async (cloudId: string, instanceId: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/vnc-url`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+
+
+
+
+export const fetchCloudProviderEips = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/eips`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -474,71 +381,220 @@ export const fetchAliyunEcsVncUrl = async (cloudId: string, instanceId: string) 
   return await res.json();
 };
 
-export const fetchCloudProviderEcsVncUrl = async (cloudId: string, instanceId: string) => {
+export const fetchCloudProviderLoadBalancers = async (cloudId: string) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/vnc-url`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/loadbalancers`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
     credentials: 'include',
   });
-  if (!res.ok) { throw new Error(await res.text()); }
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
   return await res.json();
 };
 
-export const fetchHuaweiEcsMetrics = async (cloudId: string, instanceId: string) => {
+export const fetchCloudProviderNatGateways = async (cloudId: string) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/metrics`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/nat-gateways`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
     credentials: 'include',
   });
-  if (!res.ok) { throw new Error(await res.text()); }
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
   return await res.json();
 };
 
-export const fetchHuaweiCesMetrics = async (cloudId: string, instanceId: string, payload?: any) => {
+export const fetchCloudProviderRouteTables = async (cloudId: string) => {
   const token = localStorage.getItem('token');
-  const body = payload || {};
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/ces-metrics`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+export const fetchCloudProviderRouteEntries = async (cloudId: string, routeTableId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries?routeTableId=${encodeURIComponent(routeTableId)}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+export const addCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { type: string; destination: string; nexthop: string; description?: string }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const updateCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, oldRoute: { destination: string; nexthop: string }, newRoute: { type: string; destination: string; nexthop: string; description?: string }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, oldRoute, newRoute }), credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const modCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { type: string; destination: string; nexthop: string; description?: string }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const deleteCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { destination: string; nexthop: string }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const createCloudProviderRouteTable = async (
+  cloudId: string,
+  payload: { vpcId: string; name?: string; description?: string; routes?: Array<{ type: string; destination: string; nexthop: string; description?: string }> }
+) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload), credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const updateCloudProviderRouteTable = async (
+  cloudId: string,
+  routeTableId: string,
+  payload: { name?: string; description?: string; routes?: Array<{ type: string; destination: string; nexthop: string; description?: string }> }
+) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload), credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const associateCloudProviderRouteTable = async (cloudId: string, routeTableId: string, subnetIds: string[]) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}/associate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ subnetIds }), credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const disassociateCloudProviderRouteTable = async (cloudId: string, routeTableId: string, subnetIds: string[]) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}/disassociate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ subnetIds }), credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const deleteCloudProviderRouteTable = async (cloudId: string, routeTableId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const fetchCloudProviderNetworkAcls = async (cloudId: string, params?: { vpcId?: string }) => {
+  const qs = params?.vpcId ? `?vpcId=${encodeURIComponent(params.vpcId)}` : '';
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/network-acls${qs}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+export const createCloudProviderNetworkAcl = async (
+  cloudId: string,
+  payload: { vpcId: string; name: string; description?: string }
+) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/network-acls`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    body: JSON.stringify(body),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    body: JSON.stringify(payload),
     credentials: 'include',
   });
-  if (!res.ok) { throw new Error(await res.text()); }
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
   return await res.json();
 };
 
-export const fetchHuaweiCesAvailableMetrics = async (cloudId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/ces-available-metrics`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
+export const updateCloudProviderNetworkAcl = async (
+  cloudId: string,
+  aclId: string,
+  payload: { name?: string; description?: string }
+) => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}`, payload);
 };
 
-export const fetchHuaweiEcsAuditLogs = async (cloudId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/audit-logs`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
+export const deleteCloudProviderNetworkAcl = async (cloudId: string, aclId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}`);
 };
 
-export const fetchHuaweiEcsAuditTraces = async (cloudId: string, instanceId: string, params?: { start?: number; end?: number; limit?: number; traceName?: string }) => {
+export const deleteCloudProviderEcs = async (cloudId: string, instanceId: string, deleteImage?: boolean) => {
+  let url = `/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}`;
+  if (deleteImage !== undefined) {
+    url += `?deleteImage=${deleteImage}`;
+  }
+  return await apiDelete(url);
+};
+
+export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?: string }) => {
   const token = localStorage.getItem('token');
   const qs: string[] = [];
-  if (params?.start != null) qs.push(`start=${encodeURIComponent(String(params.start))}`);
-  if (params?.end != null) qs.push(`end=${encodeURIComponent(String(params.end))}`);
-  if (params?.limit != null) qs.push(`limit=${encodeURIComponent(String(params.limit))}`);
-  if (params?.traceName != null && String(params.traceName).trim()) qs.push(`trace_name=${encodeURIComponent(String(params.traceName))}`);
-  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/audit-traces${qs.length ? ('?' + qs.join('&')) : ''}`;
+  if (params?.vpcId) qs.push(`vpcId=${encodeURIComponent(params.vpcId)}`);
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/enis${qs.length ? ('?' + qs.join('&')) : ''}`;
   const res = await fetch(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
@@ -548,109 +604,8 @@ export const fetchHuaweiEcsAuditTraces = async (cloudId: string, instanceId: str
   return await res.json();
 };
 
-export const fetchAliyunEcsMetrics = async (cloudId: string, instanceId: string, params?: { metric?: string; period?: number; start?: number; end?: number }) => {
-  const token = localStorage.getItem('token');
-  const qs: string[] = [];
-  if (params?.metric) qs.push(`metric=${encodeURIComponent(params.metric)}`);
-  if (params?.period != null) qs.push(`period=${encodeURIComponent(String(params.period))}`);
-  if (params?.start != null) qs.push(`start=${encodeURIComponent(String(params.start))}`);
-  if (params?.end != null) qs.push(`end=${encodeURIComponent(String(params.end))}`);
-  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/metrics${qs.length ? ('?' + qs.join('&')) : ''}`;
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
-};
 
-export const attachCloudProviderEni = async (cloudId: string, eniId: string, instanceId: string, options?: { trunkNetworkInstanceId?: string; networkCardIndex?: number; waitForNetworkConfigurationReady?: boolean }) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/enis/${encodeURIComponent(eniId)}/attach`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    body: JSON.stringify({ instanceId, ...options }),
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
-};
 
-export const detachCloudProviderEni = async (cloudId: string, eniId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/enis/${encodeURIComponent(eniId)}/detach`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    body: JSON.stringify({ instanceId }),
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
-};
-
-export const fetchAliyunEcsHistoryEvents = async (cloudId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/history-events`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
-};
-
-export const fetchHuaweiPorts = async (cloudId: string, params?: { deviceId?: string }) => {
-  const token = localStorage.getItem('token');
-  const qs = params?.deviceId ? `?deviceId=${encodeURIComponent(params.deviceId)}` : '';
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ports${qs}`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
-};
-
-export const bindHuaweiEip = async (cloudId: string, eipId: string, portId: string) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(eipId)}/bind`, { port_id: portId });
-};
-
-export const unbindHuaweiEip = async (cloudId: string, eipId: string) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(eipId)}/unbind`, {});
-};
-
-export const updateHuaweiPortSourceDestCheck = async (
-  cloudId: string,
-  portId: string,
-  payload: { enabled?: boolean; allowed_ip?: string }
-) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/ports/${encodeURIComponent(portId)}/source-dest-check`, payload);
-};
-
-export const addHuaweiPortSecurityGroup = async (
-  cloudId: string,
-  portId: string,
-  sgId: string
-) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/ports/${encodeURIComponent(portId)}/security-groups`, { add: sgId });
-};
-
-export const removeHuaweiPortSecurityGroup = async (
-  cloudId: string,
-  portId: string,
-  sgId: string
-) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/ports/${encodeURIComponent(portId)}/security-groups`, { remove: sgId });
-};
-
-export const setHuaweiPortSecurityGroups = async (
-  cloudId: string,
-  portId: string,
-  sgIds: string[]
-) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/ports/${encodeURIComponent(portId)}/security-groups`, { set: sgIds });
-};
 
 export const fetchHarvesterNads = async (cloudId: string) => {
   const token = localStorage.getItem('token');
@@ -1321,65 +1276,6 @@ export const fetchHarvesterUsbResources = async (cloudId: string) => {
   return await res.json();
 };
 
-export const deleteCloudProviderEcs = async (cloudId: string, instanceId: string, deleteImage?: boolean) => {
-  const token = localStorage.getItem('token');
-  let url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}`;
-  if (deleteImage) {
-    url += `?deleteImage=true`;
-  }
-  const res = await fetch(url, {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-export const fetchCloudProviderVSwitches = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vswitches`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-// 云资源池：创建云端 VSwitch（当前支持阿里云）
-export const createCloudProviderVSwitch = async (cloudId: string, payload: { VpcId: string; ZoneId: string; CidrBlock: string; VSwitchName?: string; Description?: string }) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vswitches`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify(payload),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-// 云资源池：删除云端 VSwitch（当前支持阿里云）
-export const deleteCloudProviderVSwitch = async (cloudId: string, vswitchId: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/vswitches/${encodeURIComponent(vswitchId)}`);
-};
-
 // 华为云：子网（与阿里云 vswitches 对应）
 export const fetchCloudProviderSubnets = async (cloudId: string) => {
   const token = localStorage.getItem('token');
@@ -1413,6 +1309,7 @@ export const fetchCloudProviderSubnetsByVpc = async (cloudId: string, vpcId: str
   }
   return await res.json();
 };
+
 
 // 华为云：创建子网
 export const createHuaweiCloudSubnet = async (
@@ -1462,66 +1359,6 @@ export const fetchCloudProviderSecurityGroups = async (cloudId: string) => {
   return await res.json();
 };
 
-// 安全组（Aliyun 首期）创建
-export const createCloudProviderSecurityGroup = async (
-  cloudId: string,
-  payload: { vpcId: string; name: string; description?: string }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify(payload),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-// 安全组（Aliyun 首期）更新（名称/描述）
-export const updateCloudProviderSecurityGroup = async (
-  cloudId: string,
-  sgId: string,
-  payload: { name?: string; description?: string }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${sgId}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify(payload),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-// 安全组（Aliyun 首期）删除
-export const deleteCloudProviderSecurityGroup = async (cloudId: string, sgId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${sgId}`, {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
 export const fetchCloudProviderSecurityGroupDetail = async (cloudId: string, sgId: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}`, {
@@ -1538,295 +1375,9 @@ export const fetchCloudProviderSecurityGroupDetail = async (cloudId: string, sgI
   return await res.json();
 };
 
-export const createCloudProviderSecurityGroupRule = async (cloudId: string, sgId: string, payload: any) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}/rules`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify(payload),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
 
-export const deleteCloudProviderSecurityGroupRule = async (cloudId: string, sgId: string, payload: any) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}/rules`, {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify(payload),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
 
-// 云资源池：查询阿里云 弹性网卡（ENI）列表（支持按 VPC/VSwitch/ECS 过滤）
-export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?: string; vSwitchId?: string; instanceId?: string } & Record<string, any>) => {
-  const qs = (() => {
-    const p: string[] = [];
-    if (params?.vpcId) p.push(`vpcId=${encodeURIComponent(params.vpcId)}`);
-    if (params?.vSwitchId) p.push(`vSwitchId=${encodeURIComponent(params.vSwitchId)}`);
-    if (params?.instanceId) p.push(`instanceId=${encodeURIComponent(params.instanceId)}`);
-    if (params) {
-      Object.keys(params).forEach(k => {
-        if (k !== 'vpcId' && k !== 'vSwitchId' && k !== 'instanceId' && params[k] !== undefined) {
-          p.push(`${k}=${encodeURIComponent(String(params[k]))}`);
-        }
-      });
-    }
-    return p.length ? `?${p.join('&')}` : '';
-  })();
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/enis${qs}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
 
-// 云资源池：创建阿里云 弹性网卡（ENI）
-export const createCloudProviderEni = async (
-  cloudId: string,
-  payload: { vSwitchId: string; securityGroupId: string; name?: string; description?: string; ipv4Address?: string }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/enis`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify(payload),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-// 云资源池：更新阿里云 弹性网卡（ENI）属性（名称/描述）
-export const updateCloudProviderEni = async (
-  cloudId: string,
-  eniId: string,
-  payload: { name?: string; description?: string; sourceDestCheck?: boolean }
-) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/enis/${encodeURIComponent(eniId)}`, payload);
-};
-
-// 云资源池：删除阿里云 弹性网卡（ENI）
-export const deleteCloudProviderEni = async (cloudId: string, eniId: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/enis/${encodeURIComponent(eniId)}`);
-};
-
-export const fetchCloudProviderEips = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/eips`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-export const associateAliyunEip = async (cloudId: string, allocationId: string, payload: { InstanceId?: string; NetworkInterfaceId?: string; PrivateIpAddress?: string }) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(allocationId)}/associate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    body: JSON.stringify(payload || {}),
-    credentials: 'include',
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-export const unassociateAliyunEip = async (cloudId: string, allocationId: string, payload?: { InstanceId?: string; NetworkInterfaceId?: string; PrivateIpAddress?: string }) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(allocationId)}/unassociate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    body: JSON.stringify(payload || {}),
-    credentials: 'include',
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const fetchCloudProviderLoadBalancers = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/loadbalancers`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-export const fetchCloudProviderNatGateways = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/nat-gateways`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-export const fetchCloudProviderRouteTables = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-// 路由表条目（详细路由）
-export const fetchCloudProviderRouteEntries = async (cloudId: string, routeTableId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries?routeTableId=${encodeURIComponent(routeTableId)}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-export const addCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { type: string; destination: string; nexthop: string; description?: string }) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const updateCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, oldRoute: { destination: string; nexthop: string }, newRoute: { type: string; destination: string; nexthop: string; description?: string }) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, oldRoute, newRoute }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const modCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { type: string; destination: string; nexthop: string; description?: string }) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const deleteCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { destination: string; nexthop: string }) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
-    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-export const createCloudProviderRouteTable = async (
-  cloudId: string,
-  payload: { vpcId: string; name?: string; description?: string; routes?: Array<{ type: string; destination: string; nexthop: string; description?: string }> }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const updateCloudProviderRouteTable = async (
-  cloudId: string,
-  routeTableId: string,
-  payload: { name?: string; description?: string; routes?: Array<{ type: string; destination: string; nexthop: string; description?: string }> }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const associateCloudProviderRouteTable = async (cloudId: string, routeTableId: string, subnetIds: string[]) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}/associate`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ subnetIds }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const disassociateCloudProviderRouteTable = async (cloudId: string, routeTableId: string, subnetIds: string[]) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}/disassociate`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ subnetIds }), credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
-
-export const deleteCloudProviderRouteTable = async (cloudId: string, routeTableId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}`, {
-    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
-};
 
 // 全部资源池云主机聚合
 export const fetchAllInstances = async () => {
@@ -1897,58 +1448,7 @@ export const refreshInventoryInstancesSlow = async () => {
   return await res.json();
 };
 
-// 云资源池：查询阿里云 网络 ACL 列表（支持按 VPC 过滤）
-export const fetchCloudProviderNetworkAcls = async (cloudId: string, params?: { vpcId?: string }) => {
-  const qs = params?.vpcId ? `?vpcId=${encodeURIComponent(params.vpcId)}` : '';
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/network-acls${qs}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
 
-// 云资源池：创建阿里云 网络 ACL
-export const createCloudProviderNetworkAcl = async (
-  cloudId: string,
-  payload: { vpcId: string; name: string; description?: string }
-) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/network-acls`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    },
-    body: JSON.stringify(payload),
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-  return await res.json();
-};
-
-// 云资源池：更新阿里云 网络 ACL 属性
-export const updateCloudProviderNetworkAcl = async (
-  cloudId: string,
-  aclId: string,
-  payload: { name?: string; description?: string }
-) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}`, payload);
-};
-
-// 云资源池：删除阿里云 网络 ACL
-export const deleteCloudProviderNetworkAcl = async (cloudId: string, aclId: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}`);
-};
 
 export const fetchCloudProviderDisks = async (cloudId: string) => {
   const token = localStorage.getItem('token');

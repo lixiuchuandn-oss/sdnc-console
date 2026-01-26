@@ -16,7 +16,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     // 检查用户是否已存在
     const existingUser = await userRepository.findOne({
-      where: [{ username }, { email }]
+      where: [{ username }, { email }],
     });
 
     if (existingUser) {
@@ -32,7 +32,7 @@ router.post('/register', async (req: Request, res: Response) => {
       email,
       password: hashedPassword,
       fullName,
-      role
+      role,
     });
 
     await userRepository.save(user);
@@ -41,7 +41,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const token = jwt.sign(
       { userId: user.id, role: user.role },
       process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '24h' }
+      { expiresIn: '24h' },
     );
 
     res.status(201).json({
@@ -52,8 +52,8 @@ router.post('/register', async (req: Request, res: Response) => {
         username: user.username,
         email: user.email,
         fullName: user.fullName,
-        role: user.role
-      }
+        role: user.role,
+      },
     });
   } catch (error: any) {
     res.status(500).json({ message: '注册失败', error: error.message });
@@ -68,20 +68,28 @@ router.post('/login', async (req: Request, res: Response) => {
     const userRepository = AppDataSource.getRepository(User);
     const tenantRepo = AppDataSource.getRepository(TenantUser);
 
-    const adminCandidate = await userRepository.findOne({ where: [{ username }, { email: username }] });
-    const tenantCandidate: any = await tenantRepo.findOne({ where: [{ username }, { email: username }] });
+    const adminCandidate = await userRepository.findOne({
+      where: [{ username }, { email: username }],
+    });
+    const tenantCandidate: any = await tenantRepo.findOne({
+      where: [{ username }, { email: username }],
+    });
 
     let loginUser: any = null;
     let role: string = '';
 
     // 1) 如果管理员表存在且密码匹配 → 认为是管理员/超级管理员
-    if (adminCandidate && await bcrypt.compare(password, adminCandidate.password)) {
+    if (adminCandidate && (await bcrypt.compare(password, adminCandidate.password))) {
       loginUser = adminCandidate;
       role = adminCandidate.role;
     }
 
     // 2) 否则尝试租户表
-    if (!loginUser && tenantCandidate && await bcrypt.compare(password, tenantCandidate.password)) {
+    if (
+      !loginUser &&
+      tenantCandidate &&
+      (await bcrypt.compare(password, tenantCandidate.password))
+    ) {
       loginUser = tenantCandidate;
       role = 'tenant';
     }
@@ -91,7 +99,10 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     // 状态检查（租户用户有 status 字段，管理员用户字段名可能不同）
-    if ((loginUser.status && loginUser.status !== 'active') || (loginUser.status && loginUser.status !== 'active')) {
+    if (
+      (loginUser.status && loginUser.status !== 'active') ||
+      (loginUser.status && loginUser.status !== 'active')
+    ) {
       return res.status(401).json({ message: '账户已被禁用' });
     }
 
@@ -106,7 +117,7 @@ router.post('/login', async (req: Request, res: Response) => {
     const token = jwt.sign(
       { userId: loginUser.id, role },
       process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '24h' }
+      { expiresIn: '24h' },
     );
 
     res.json({
@@ -117,12 +128,12 @@ router.post('/login', async (req: Request, res: Response) => {
         username: loginUser.username,
         email: loginUser.email,
         fullName: loginUser.fullName,
-        role
-      }
+        role,
+      },
     });
   } catch (error: any) {
     res.status(500).json({ message: '登录失败', error: error.message });
   }
 });
 
-export { router as authRoutes }; 
+export { router as authRoutes };
