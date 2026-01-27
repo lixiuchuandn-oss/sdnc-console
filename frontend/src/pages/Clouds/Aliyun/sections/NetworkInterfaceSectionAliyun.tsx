@@ -72,6 +72,11 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       return v !== undefined && v !== null && String(v).trim() !== '';
     });
   };
+
+  console.log('[DEBUG] NetworkInterfaceSectionAliyun eniList:', eniList);
+  console.log('[DEBUG] NetworkInterfaceSectionAliyun filteredEniList:', filteredEniList);
+  console.log('[DEBUG] NetworkInterfaceSectionAliyun raw instance:', instance);
+
   const cols: any[] = [];
   if (hasAny(r => r?.NetworkInterfaceId || r?.id || r?.Id)) {
     cols.push({ title: '网卡ID', key: 'id', render: (_: any, r: any) => r?.NetworkInterfaceId || r?.id || r?.Id || '-' });
@@ -88,15 +93,37 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
   if (hasAny(r => r?.ZoneId)) {
     cols.push({ title: '可用区', key: 'zone', render: (_: any, r: any) => r?.ZoneId || '-' });
   }
-  if (hasAny(r => r?.PrimaryIpAddress)) {
-    cols.push({ title: '主私有IP', key: 'primary_ip', render: (_: any, r: any) => r?.PrimaryIpAddress || '-' });
-  }
-  if (hasAny(r => r?.PrivateIpAddress?.IpAddress)) {
-    cols.push({ title: '私有IP', key: 'pri', render: (_: any, r: any) => {
-      const arr = Array.isArray(r?.PrivateIpAddress?.IpAddress) ? r.PrivateIpAddress.IpAddress : [];
-      return Array.isArray(arr) && arr.length ? arr.join(', ') : '-';
-    } });
-  }
+  // Always show Primary IP
+  cols.push({ title: '主私有IP', key: 'primary_ip', render: (_: any, r: any) => {
+    const val = r?.PrimaryIpAddress || r?.primaryIpAddress || r?.primary_ip_address;
+    // 如果没有明确的 PrimaryIpAddress，尝试使用 PrivateIpAddress (如果是字符串)
+    if (!val && typeof r?.PrivateIpAddress === 'string') return r.PrivateIpAddress;
+    if (!val && typeof r?.privateIpAddress === 'string') return r.privateIpAddress;
+    return val || '-';
+  } });
+
+  // Always show Private IP
+  cols.push({ title: '私有IP', key: 'pri', render: (_: any, r: any) => {
+    // 1. Try PrivateIpAddress.IpAddress (Array) - DescribeInstances pattern
+    if (Array.isArray(r?.PrivateIpAddress?.IpAddress)) return r.PrivateIpAddress.IpAddress.join(', ');
+    
+    // 2. Try PrivateIpSets.PrivateIpSet (Array) - DescribeNetworkInterfaces pattern
+    if (Array.isArray(r?.PrivateIpSets?.PrivateIpSet)) {
+      return r.PrivateIpSets.PrivateIpSet.map((x: any) => x?.PrivateIpAddress || x).filter(Boolean).join(', ');
+    }
+    
+    // 3. Try PrivateIpSets (Array) - Simplified pattern
+    if (Array.isArray(r?.PrivateIpSets)) return r.PrivateIpSets.join(', ');
+
+    // 4. Try privateIpAddresses (Array)
+    if (Array.isArray(r?.privateIpAddresses)) return r.privateIpAddresses.join(', ');
+    
+    // 5. Fallback to simple string
+    const val = r?.PrivateIpAddress || r?.privateIpAddress || r?.ip_address;
+    if (typeof val === 'string') return val;
+    
+    return '-';
+  } });
   if (Array.isArray(eips) && eips.length && hasAny(r => r?.NetworkInterfaceId || r?.Id || r?.id)) {
     cols.push({ title: '绑定EIP', key: 'eip', render: (_: any, r: any) => {
       const niId = r?.NetworkInterfaceId || r?.Id || r?.id || '';
@@ -118,8 +145,8 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       return ips.length ? ips.join(', ') : '-';
     } });
   }
-  if (hasAny(r => r?.MacAddress)) {
-    cols.push({ title: 'MAC地址', key: 'mac', render: (_: any, r: any) => r?.MacAddress || '-' });
+  if (hasAny(r => r?.MacAddress || r?.macAddress || r?.mac_address)) {
+    cols.push({ title: 'MAC地址', key: 'mac', render: (_: any, r: any) => r?.MacAddress || r?.macAddress || r?.mac_address || '-' });
   }
   if (hasAny(r => r?.Type)) {
     cols.push({ title: '类型', key: 'type', render: (_: any, r: any) => r?.Type || '-' });

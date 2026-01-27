@@ -78,8 +78,8 @@ export class VrCacheService {
       // Debug log for response structure
       if (csmData) {
         // 用户要求完整显示，不截断
-        const debugStr = JSON.stringify(csmData);
-        console.log(`[VR_SYNC] VR1 响应预览: ${debugStr}`);
+        // const debugStr = JSON.stringify(csmData);
+        // console.log(`[VR_SYNC] VR1 响应预览: ${debugStr}`);
       } else {
         console.warn('[VR_SYNC] VR1 响应为空');
       }
@@ -107,6 +107,26 @@ export class VrCacheService {
     }
   }
 
+  // Helper to sort interfaces by PCI slot or name
+  private sortInterfaces(interfaces: any[]) {
+    if (!Array.isArray(interfaces)) return [];
+    return interfaces.sort((a, b) => {
+      // Try pci_slot, pci_bus, bus_info, or just name (eth0, eth1)
+      const pciA = a.pci_slot || a.pci_bus || a.bus_info || a.pci || '';
+      const pciB = b.pci_slot || b.pci_bus || b.bus_info || b.pci || '';
+      if (pciA && pciB) {
+        return pciA.localeCompare(pciB);
+      }
+      // Fallback to name (eth0 < eth1)
+      const nameA = a.name || a.iface || '';
+      const nameB = b.name || b.iface || '';
+      if (nameA && nameB) {
+        return nameA.localeCompare(nameB, undefined, { numeric: true });
+      }
+      return 0;
+    });
+  }
+
   // 同步 VR3 扩展信息 (CSMCTL -> VrCacheExtended)
   private async syncExtendedCache() {
     console.log('[VR_SYNC] 开始同步 VR3 扩展信息...');
@@ -119,8 +139,8 @@ export class VrCacheService {
       // Debug log for response structure
       if (csmData) {
         // 用户要求完整显示，不截断
-        const debugStr = JSON.stringify(csmData);
-        console.log(`[VR_SYNC] VR3 响应预览: ${debugStr}`);
+        // const debugStr = JSON.stringify(csmData);
+        // console.log(`[VR_SYNC] VR3 响应预览: ${debugStr}`);
       }
 
       const rows = extractRows(csmData);
@@ -132,6 +152,12 @@ export class VrCacheService {
       const entities = rows
         .map((row: any) => {
           const id = row.uuid || row.id;
+          
+          // Sort interfaces if present
+          if (row.interfaces && Array.isArray(row.interfaces)) {
+            row.interfaces = this.sortInterfaces(row.interfaces);
+          }
+
           return repo.create({
             uuid: id,
             data: JSON.stringify(row),

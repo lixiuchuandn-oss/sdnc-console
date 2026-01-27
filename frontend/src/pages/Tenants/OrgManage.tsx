@@ -553,7 +553,9 @@ const OrgManagePage: React.FC = () => {
       subtitle="集中管理租户组织架构信息，提供用户与资源池的生命周期管理能力"
       overviewContent={
         <Descriptions bordered size="small" column={4}>
+          <Descriptions.Item label="租户ID"><Typography.Text copyable>{tenant?.id || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="租户名称">{tenant?.name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="组织ID"><Typography.Text copyable>{selectedOrg?.id || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="组织名称">{selectedOrg?.name || '-'}</Descriptions.Item>
           <Descriptions.Item label="用户数量">{users.length}</Descriptions.Item>
           <Descriptions.Item label="资源池数量">{assignments.length}</Descriptions.Item>

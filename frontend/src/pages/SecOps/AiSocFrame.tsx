@@ -17,10 +17,13 @@ const AiSocFrame: React.FC<Props> = ({ path }) => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await getSystemSetting('ai_soc_base_url');
-        setBaseUrl(res?.value || 'http://192.168.2.22:5173');
+        const [frontRes, baseRes] = await Promise.all([
+          getSystemSetting('ai_soc_frontend_url'),
+          getSystemSetting('ai_soc_base_url')
+        ]);
+        setBaseUrl(frontRes?.value || baseRes?.value || 'http://192.168.2.22:3000');
       } catch (e) {
-        setBaseUrl('http://192.168.2.22:5173');
+        setBaseUrl('http://192.168.2.22:3000');
       } finally {
         setLoading(false);
       }

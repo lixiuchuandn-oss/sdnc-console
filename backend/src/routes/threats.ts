@@ -27,9 +27,9 @@ router.get('/proxy/api/v1/report-tasks/search/by-tenant', async (req, res) => {
     }
 
     // Get base URL from settings, default to provided IP if not set
-    let baseUrl = getSystemSetting('ai_soc_base_url');
+    let baseUrl = getSystemSetting('ai_soc_backend_url') || getSystemSetting('ai_soc_base_url');
     if (!baseUrl) {
-      baseUrl = 'http://192.168.2.22:5000';
+      baseUrl = 'http://192.168.2.22:3000';
     }
     // Remove trailing slash if present
     baseUrl = baseUrl.replace(/\/$/, '');

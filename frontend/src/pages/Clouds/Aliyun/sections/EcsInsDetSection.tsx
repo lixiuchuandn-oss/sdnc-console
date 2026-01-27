@@ -48,6 +48,46 @@ const EcsInsDetSection: React.FC<EcsInsDetSectionProps> = ({ cloudId, instance, 
   const eipIps = Array.from(new Set([...(eip ? [eip] : []), ...pubFromEips, ...floating]));
   const priArr = instance?.VpcAttributes?.PrivateIpAddress?.IpAddress;
   const priIps = Array.isArray(priArr) ? priArr : [];
+
+  // Enhanced Private IP Collection
+  const allPriIps = new Set<string>();
+  // 1. VpcAttributes
+  priIps.forEach((ip: string) => allPriIps.add(ip));
+  // 2. NetworkInterfaces
+  const nicsRaw: any[] = Array.isArray(instance?.NetworkInterfaces?.NetworkInterface) 
+    ? instance.NetworkInterfaces.NetworkInterface 
+    : (Array.isArray(instance?.network_interfaces) ? instance.network_interfaces : []);
+  nicsRaw.forEach((nic: any) => {
+    if (nic?.PrimaryIpAddress) allPriIps.add(nic.PrimaryIpAddress);
+    if (nic?.primaryIpAddress) allPriIps.add(nic.primaryIpAddress);
+    const sets = nic?.PrivateIpSets?.PrivateIpSet;
+    if (Array.isArray(sets)) {
+      sets.forEach((s: any) => {
+        if (s?.PrivateIpAddress) allPriIps.add(s.PrivateIpAddress);
+      });
+    }
+  });
+  // 3. InnerIpAddress (Classic Network)
+  const innerIps = instance?.InnerIpAddress?.IpAddress;
+  if (Array.isArray(innerIps)) innerIps.forEach((ip: string) => allPriIps.add(ip));
+  // 4. Flat fields
+  if (instance?.privateIpAddress) allPriIps.add(instance.privateIpAddress);
+  if (instance?.private_ip_address) allPriIps.add(instance.private_ip_address);
+  // 5. OpenStack/Generic "addresses"
+  if (Array.isArray(fixed)) fixed.forEach((ip: string) => allPriIps.add(ip));
+
+  const finalPriIps = Array.from(allPriIps).filter(Boolean);
+
+  // MAC Address Logic
+  const macsRaw: any[] = Array.isArray(instance?.NetworkInterfaces?.NetworkInterface) 
+    ? instance.NetworkInterfaces.NetworkInterface 
+    : (Array.isArray(instance?.network_interfaces) ? instance.network_interfaces : []);
+  
+  const macList = macsRaw.map((n:any) => n?.MacAddress || n?.mac_address || n?.macAddress).filter(Boolean);
+  if (instance?.MacAddress) macList.push(instance.MacAddress);
+  if (instance?.mac_address) macList.push(instance.mac_address);
+  
+  const macDisplay = Array.from(new Set(macList)).join('; ');
   
   // Tag Display: Key: Value
   const tagsAli: any[] = Array.isArray(instance?.Tags?.Tag) ? instance!.Tags.Tag : [];
@@ -119,9 +159,10 @@ const EcsInsDetSection: React.FC<EcsInsDetSectionProps> = ({ cloudId, instance, 
         <Descriptions.Item label="规格">{specText || '-'}</Descriptions.Item>
         <Descriptions.Item label="可用区">{zoneId}</Descriptions.Item>
         <Descriptions.Item label="VPC">{vpcId || '-'}</Descriptions.Item>
-        <Descriptions.Item label="私网IP">{(() => { const pri = (fixed.length ? fixed : priIps).filter(Boolean); return pri.length ? pri.join(', ') : '-'; })()}</Descriptions.Item>
+        <Descriptions.Item label="私网IP">{finalPriIps.length ? finalPriIps.join(', ') : '-'}</Descriptions.Item>
         <Descriptions.Item label="公网IP">{(() => { const pub = Array.from(new Set(pubIps.filter(Boolean))); return pub.length ? pub.join(', ') : '-'; })()}</Descriptions.Item>
         <Descriptions.Item label="弹性公网IP">{(() => { const e = eipIps.filter(Boolean); return e.length ? e.join(', ') : '-'; })()}</Descriptions.Item>
+        <Descriptions.Item label="MAC地址">{macDisplay || '-'}</Descriptions.Item>
         <Descriptions.Item label="镜像">{(() => { const nm = instance?.ImageId || instance?.Image?.ImageName || instance?.metadata?.image_name || '-'; return (<span>{icon}{nm}</span>); })()}</Descriptions.Item>
         <Descriptions.Item label="安全组">{sgDisplay || '-'}</Descriptions.Item>
         <Descriptions.Item label="标签">{tagDisplay || '-'}</Descriptions.Item>

@@ -262,6 +262,7 @@ const IPsecVPNWizard: React.FC = () => {
           dhGroup: '14',
           pfs: 'group14',
           mode: 'tunnel',
+          dpd: true,
         });
       }
     })();
@@ -632,8 +633,10 @@ const IPsecVPNWizard: React.FC = () => {
           // 2. 次优先级: 对端 EIP (若启用并存在) -> peerVrWanEIP
           // 3. 默认: 对端 WAN IP (peerVrWanIP)
           ike_remote_ip: isLocalAny ? '0.0.0.0' : (v.enableRemoteEip ? v.peerVrWanEIP : v.peerVrWanIP),
-          ike_dpd_delay: 10,
-          ike_dpd_timeout: 30,
+          ...(v.dpd ? {
+            ike_dpd_delay: 10,
+            ike_dpd_timeout: 30,
+          } : {}),
 
           ike_proposal_local: v.localVrId,
           ike_proposal_remote: {
@@ -669,8 +672,10 @@ const IPsecVPNWizard: React.FC = () => {
           // 1. 勾选 "允许任意" -> 0.0.0.0
           // 2. 否则 -> 本端 Public IP (EIP 优先)
           ike_remote_ip: isRemoteAny ? '0.0.0.0' : (v.enableLocalEip ? v.localVrWanEIP : (v.localVrWanIP || '')),
-          ike_dpd_delay: 10,
-          ike_dpd_timeout: 30,
+          ...(v.dpd ? {
+            ike_dpd_delay: 10,
+            ike_dpd_timeout: 30,
+          } : {}),
 
           ike_proposal_local: v.peerVrId,
           ike_proposal_remote: {

@@ -95,14 +95,21 @@ const Settings: React.FC = () => {
       <Card title={<span><GlobalOutlined /> AI SOC 配置</span>} style={{ marginBottom: 24 }}>
         <Form form={aiSocForm} layout="vertical" style={{ maxWidth: 480 }} onFinish={async (values) => {
           try {
-             await apiUpdateSystemSetting('ai_soc_base_url', String(values.baseUrl || '').trim());
+             const p1 = apiUpdateSystemSetting('ai_soc_frontend_url', String(values.frontendUrl || '').trim());
+             const p2 = apiUpdateSystemSetting('ai_soc_backend_url', String(values.backendUrl || '').trim());
+             // Maintain backward compatibility
+             const p3 = apiUpdateSystemSetting('ai_soc_base_url', String(values.backendUrl || '').trim());
+             await Promise.all([p1, p2, p3]);
              message.success('AI SOC 配置已保存');
           } catch (e: any) {
              message.error(e?.message || '保存失败');
           }
         }}>
-          <Form.Item label="AI SOC 服务器地址" name="baseUrl" rules={[{ required: true, message: '请输入服务器地址' }]}>
-            <Input placeholder="http://192.168.2.22:5173" style={{ width: 360 }} />
+          <Form.Item label="AI SOC 前端嵌入地址" name="frontendUrl" rules={[{ required: true, message: '请输入前端嵌入地址' }]} extra="用于在系统界面中嵌入显示 AI SOC 页面 (浏览器可访问地址)">
+            <Input placeholder="http://192.168.2.22:3000" style={{ width: 360 }} />
+          </Form.Item>
+          <Form.Item label="AI SOC 后端接口地址" name="backendUrl" rules={[{ required: true, message: '请输入后端接口地址' }]} extra="用于后端服务器调用 AI SOC 接口 (服务器间通信地址)">
+            <Input placeholder="http://192.168.2.22:3000" style={{ width: 360 }} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit">保存 AI SOC 配置</Button>

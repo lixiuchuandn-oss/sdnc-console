@@ -17,6 +17,11 @@ interface IPsecVPNRow {
   description?: string;
   createdAt: string;
   updatedAt?: string;
+  ipsecInBytes?: number;
+  ipsecInPackets?: number;
+  ipsecOutBytes?: number;
+  ipsecOutPackets?: number;
+  ipsecUpdateDate?: string;
   ike: {
     version: string;
     psk: string;
@@ -190,6 +195,13 @@ const IPsecVPNPage: React.FC = () => {
         {s === 'active' ? '活跃' : s === 'inactive' ? '未激活' : s === 'creating' ? '创建中' : '错误'}
       </Tag>
     )},
+    { title: '报文(入/出)', key: 'ipsecPackets', width: 140, render: (_: any, r: IPsecVPNRow) => (
+      <span>{(r.ipsecInPackets ?? 0)}/{(r.ipsecOutPackets ?? 0)}</span>
+    )},
+    { title: '字节(入/出)', key: 'ipsecBytes', width: 160, render: (_: any, r: IPsecVPNRow) => (
+      <span>{(r.ipsecInBytes ?? 0)}/{(r.ipsecOutBytes ?? 0)}</span>
+    )},
+    { title: '检测时间', dataIndex: 'ipsecUpdateDate', key: 'ipsecUpdateDate', width: 180, render: (d?: string) => d ? new Date(d).toLocaleString() : '—' },
     // 本端信息
     { title: '本端VR名称/UUID', dataIndex: 'localVrId', key: 'localVr', width: 220, render: (id: string) => {
         const name = vrNameMap[id];
@@ -197,7 +209,7 @@ const IPsecVPNPage: React.FC = () => {
     }},
     { title: '本端WAN口名称', dataIndex: 'localVrWanName', key: 'localVrWanName', width: 140, render: (v: string) => v || '—' },
     { title: '本端WAN口IP', dataIndex: 'localVrWanIP', key: 'localVrWanIP', width: 140, render: (v: string) => v || '—' },
-    { title: '本端EIP', dataIndex: 'localVrWanEIP', key: 'localVrWanEIP', width: 140, render: (v: string) => v || '—' },
+    { title: '本端EIP', dataIndex: 'localVrWanEIP', key: 'localVrWanEIP', width: 140, render: (v: string) => v || '未配置' },
     { title: '本端LAN口网段', dataIndex: 'localVrLanSubnet', key: 'localVrLanSubnet', width: 160, render: (v: string) => v || '—' },
     { title: '本端LAN口名称', dataIndex: 'localVrLanName', key: 'localVrLanName', width: 140, render: (v: string) => v || '—' },
     { title: '本端LAN口IP', dataIndex: 'localVrLanIP', key: 'localVrLanIP', width: 140, render: (v: string) => v || '—' },
@@ -208,7 +220,7 @@ const IPsecVPNPage: React.FC = () => {
     }},
     { title: '对端WAN口名称', dataIndex: 'peerVrWanName', key: 'peerVrWanName', width: 140, render: (v: string) => v || '—' },
     { title: '对端WAN口IP', dataIndex: 'peerVrWanIP', key: 'peerVrWanIP', width: 140, render: (v: string) => v || '—' },
-    { title: '对端EIP', dataIndex: 'peerVrWanEIP', key: 'peerVrWanEIP', width: 140, render: (v: string) => v || '—' },
+    { title: '对端EIP', dataIndex: 'peerVrWanEIP', key: 'peerVrWanEIP', width: 140, render: (v: string) => v || '未配置' },
     { title: '对端LAN口网段', dataIndex: 'peerVrLanSubnet', key: 'peerVrLanSubnet', width: 160, render: (v: string) => v || '—' },
     { title: '对端LAN口名称', dataIndex: 'peerVrLanName', key: 'peerVrLanName', width: 140, render: (v: string) => v || '—' },
     { title: '对端LAN口IP', dataIndex: 'peerVrLanIP', key: 'peerVrLanIP', width: 140, render: (v: string) => v || '—' },
@@ -412,7 +424,7 @@ const IPsecVPNPage: React.FC = () => {
             <div><strong>本端VR ID</strong><div>{detailRow.localVrId}</div></div>
             <div><strong>本端WAN口名称</strong><div>{detailRow.localVrWanName || '—'}</div></div>
             <div><strong>本端WAN口IP</strong><div>{detailRow.localVrWanIP || '—'}</div></div>
-            <div><strong>本端EIP</strong><div>{detailRow.localVrWanEIP || '—'}</div></div>
+            <div><strong>本端EIP</strong><div>{detailRow.localVrWanEIP || '未配置'}</div></div>
             <div><strong>本端LAN口名称</strong><div>{detailRow.localVrLanName || '—'}</div></div>
             <div><strong>本端LAN口IP</strong><div>{detailRow.localVrLanIP || '—'}</div></div>
             <div><strong>本端LAN口网段</strong><div>{detailRow.localVrLanSubnet}</div></div>
@@ -421,7 +433,7 @@ const IPsecVPNPage: React.FC = () => {
             <div><strong>对端VR ID</strong><div>{detailRow.peerVrId || '—'}</div></div>
             <div><strong>对端WAN口名称</strong><div>{detailRow.peerVrWanName || '—'}</div></div>
             <div><strong>对端WAN口IP</strong><div>{detailRow.peerVrWanIP}</div></div>
-            <div><strong>对端EIP</strong><div>{detailRow.peerVrWanEIP || '—'}</div></div>
+            <div><strong>对端EIP</strong><div>{detailRow.peerVrWanEIP || '未配置'}</div></div>
             <div><strong>对端LAN口名称</strong><div>{detailRow.peerVrLanName || '—'}</div></div>
             <div><strong>对端LAN口IP</strong><div>{detailRow.peerVrLanIP || '—'}</div></div>
             <div><strong>对端LAN口网段</strong><div>{detailRow.peerVrLanSubnet}</div></div>

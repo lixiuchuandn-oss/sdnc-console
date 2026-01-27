@@ -477,6 +477,13 @@ const TenantsPage: React.FC = () => {
   // 租户表格列定义
   const tenantColumns: ColumnsType<Tenant> = [
     {
+      title: 'ID',
+      dataIndex: 'id',
+      key: 'id',
+      width: 180,
+      render: (text: string) => <Typography.Text copyable style={{ fontSize: 12 }}>{text}</Typography.Text>
+    },
+    {
       title: '租户',
       dataIndex: 'name',
       key: 'name',

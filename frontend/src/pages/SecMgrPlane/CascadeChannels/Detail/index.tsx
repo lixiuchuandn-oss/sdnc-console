@@ -18,7 +18,7 @@ import ReactFlow, { Controls, Handle, Position, EdgeProps } from 'react-flow-ren
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import SharedToolbar from '../../../../components/SharedToolbar';
-import { attachVpcToCen, deleteCen, detachVpcFromCen, fetchCenAttachments, fetchCens, fetchTenants, updateCen, apiPost, fetchCsmElementGroups, fetchServices, fetchCloudProviderEcs } from '../../../../services/api';
+import { attachVpcToCen, deleteCen, detachVpcFromCen, fetchCenAttachments, fetchCens, fetchTenants, updateCen, apiPost, fetchCsmElementGroups, fetchServices, fetchCloudProviderEcs, fetchIPsecVPNsMerged } from '../../../../services/api';
 import { fetchAiThreatEvents, AiThreatEvent } from '../../../../services/aiSocApi';
 import { listSecurityDomains, getSecurityDomain } from '../../../../services/securityDomainApi';
 import { getDomainClass, netClassColor, netClassLabel } from '../../../../utils/netClass';
@@ -129,6 +129,9 @@ const CenDetailPage: React.FC = () => {
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [currentReport, setCurrentReport] = useState<string>('');
   const [threatKeyword, setThreatKeyword] = useState('');
+
+  const [ipsecVpns, setIpsecVpns] = useState<any[]>([]);
+  const [ipsecLoading, setIpsecLoading] = useState(false);
 
   const [topologyEl, setTopologyEl] = useState<HTMLDivElement | null>(null);
   const [topologyHeight, setTopologyHeight] = useState(460);
@@ -303,6 +306,35 @@ const CenDetailPage: React.FC = () => {
     return allDomains.find((d) => String(d.id) === String(domId));
   };
 
+  useEffect(() => {
+    if (attachments.length === 0) {
+      setIpsecVpns([]);
+      return;
+    }
+
+    const vrIds = new Set<string>();
+    attachments.forEach(att => {
+      const dom = domainOfAttachment(att);
+      if (dom?.vrUuid) {
+        vrIds.add(dom.vrUuid);
+      }
+    });
+
+    if (vrIds.size === 0) {
+      setIpsecVpns([]);
+      return;
+    }
+
+    setIpsecLoading(true);
+    Promise.all(Array.from(vrIds).map(vid => fetchIPsecVPNsMerged({ vrId: vid }).catch(() => [])))
+      .then(results => {
+        const merged = results.flat();
+        const unique = Array.from(new Map(merged.map((item: any) => [item.id, item])).values());
+        setIpsecVpns(unique);
+      })
+      .finally(() => setIpsecLoading(false));
+  }, [attachments, allDomains]);
+
   const refreshDetailAttachments = async (cenId?: string) => {
     const cid = String(cenId || cen?.id || '');
     if (!cid) return;
@@ -463,13 +495,13 @@ const CenDetailPage: React.FC = () => {
           vrName: d.vrName,
           vrUuid: d.vrUuid,
           vrInstanceIds: d.vrInstanceIds,
-          vrPublicEniIds: d.vrPublicEniIds,
-          vrPrivateEniIds: d.vrPrivateEniIds,
-          vrPublicIp: d.vrPublicIp,
-          vrPublicEip: d.vrPublicEip,
-          vrPrivateIp: d.vrPrivateIp,
-          vrPublicSubnetCidr: d.vrPublicSubnetCidr,
-          vrPrivateSubnetCidr: d.vrPrivateSubnetCidr,
+        vrPublicEniIds: d.vrPublicEniIds,
+        vrPrivateEniIds: d.vrPrivateEniIds,
+        vrPublicIp: d.vrPublicIp,
+        vrPublicEip: d.vrPublicEip,
+        vrPrivateIp: d.vrPrivateIp,
+        vrPublicSubnetCidr: d.vrPublicSubnetCidr,
+        vrPrivateSubnetCidr: d.vrPrivateSubnetCidr,
         }));
         setAllDomains(opts);
         const normalizedAttachments = Array.isArray(attachList) ? attachList : [];
@@ -1111,6 +1143,30 @@ const CenDetailPage: React.FC = () => {
         )
       },
       {
+        key: 'ipsec',
+        label: 'IPsec VPN',
+        icon: <GatewayOutlined />,
+        count: ipsecVpns.length || 0,
+        children: (
+          <PageDetailSection>
+            <Table
+              dataSource={ipsecVpns}
+              rowKey="id"
+              loading={ipsecLoading}
+              columns={[
+                { title: '名称', dataIndex: 'name', key: 'name' },
+                { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === 'active' ? 'success' : 'default'}>{s}</Tag> },
+                { title: '本端 VR', dataIndex: 'localVrName', key: 'localVrName' },
+                { title: '对端 IP', dataIndex: 'peerVrWanIP', key: 'peerVrWanIP' },
+                { title: '本端子网', dataIndex: 'localVrLanSubnet', key: 'localVrLanSubnet' },
+                { title: '对端子网', dataIndex: 'peerVrLanSubnet', key: 'peerVrLanSubnet' },
+              ]}
+              pagination={{ pageSize: 10 }}
+            />
+          </PageDetailSection>
+        )
+      },
+      {
         key: 'topology',
         label: '级联通道拓扑',
         icon: <BranchesOutlined />,
@@ -1323,10 +1379,10 @@ const CenDetailPage: React.FC = () => {
         )
       }
     ];
-  }, [cen, tenants, allDomains, attachments, domainKeyword, detailRefreshing, attachedForTopo, topologyHeight, filteredApps, appKeyword, filteredServices, serviceKeyword, topologyData, threatEvents, threatLoading, filteredThreats, threatKeyword]);
+  }, [cen, tenants, allDomains, attachments, domainKeyword, detailRefreshing, attachedForTopo, topologyHeight, filteredApps, appKeyword, filteredServices, serviceKeyword, topologyData, threatEvents, threatLoading, filteredThreats, threatKeyword, ipsecVpns, ipsecLoading]);
 
   const tabFromUrl = String(searchParams.get('tab') || 'metrics');
-  const activeTabKey = ['metrics', 'domains', 'topology', 'apps', 'services', 'threats'].includes(tabFromUrl) ? tabFromUrl : 'metrics';
+  const activeTabKey = ['metrics', 'domains', 'ipsec', 'topology', 'apps', 'services', 'threats'].includes(tabFromUrl) ? tabFromUrl : 'metrics';
 
   return (
     <>

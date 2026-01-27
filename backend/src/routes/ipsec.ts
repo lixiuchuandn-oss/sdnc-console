@@ -3,13 +3,14 @@ import { In } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { IPsecVPN, IPsecStatus } from '../entities/IPsecVPN';
 import { VRConfig } from '../entities/VRConfig';
-import { SecurityDomain } from '../entities/SecurityDomain';
+
 import { vrController } from '../services/vrController';
+import { VrCacheExtended } from '../entities/VrCacheExtended';
 
 export const ipsecRoutes = Router();
 const repo = () => AppDataSource.getRepository(IPsecVPN);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
-const sdRepo = () => AppDataSource.getRepository(SecurityDomain);
+
 
 // Helper to save config to DB
 const saveVRConfigToDB = async (uuid: string, config: any) => {
@@ -71,72 +72,15 @@ const getVRConfigFromDevice = async (uuid: string) => {
   return stripMeta(data);
 };
 
-// Helper to parse interface name for sorting (e.g., GigabitEthernet 2/2/0 -> [2, 2, 0])
-const parseInterfaceName = (name: string): number[] => {
-  const matches = name.match(/(\d+)/g);
-  if (!matches) return [Infinity]; // Put non-numbered at the end
-  return matches.map(Number);
-};
-
-// Helper to compare two interface names based on their numeric components (PCI order)
-const compareInterfaces = (a: any, b: any) => {
-  const numsA = parseInterfaceName(a.name);
-  const numsB = parseInterfaceName(b.name);
-
-  const len = Math.min(numsA.length, numsB.length);
-  for (let i = 0; i < len; i++) {
-    if (numsA[i] !== numsB[i]) {
-      return numsA[i] - numsB[i];
-    }
+// Helper to extract IPs from VrCacheExtended data
+const getVrWanIp = (data: any): string => {
+  if (!data || !Array.isArray(data.interfaces)) return '';
+  // Strict rule: Use the first interface (smallest PCI) as WAN
+  const firstIf = data.interfaces[0];
+  if (firstIf && firstIf.ipv4_static) {
+    return firstIf.ipv4_static.split('/')[0];
   }
-  return numsA.length - numsB.length;
-};
-
-// Helper to extract IPs from VR config
-const getVrIps = (config: any) => {
-  let publicIp = '';
-  let privateIp = '';
-
-  // Priority: PCI Order Rule (First = WAN, Second = LAN)
-  if (Array.isArray(config?.interfaces)) {
-    // Filter for physical interfaces (ignore memif, loopback, etc.)
-    const physicalInterfaces = config.interfaces.filter((iface: any) => {
-      const name = (iface.name || '').toLowerCase();
-      return (
-        !name.includes('memif') &&
-        !name.includes('loopback') &&
-        !name.includes('null') &&
-        !name.includes('vlan') &&
-        iface.status === 'up'
-      ); // Only consider UP interfaces to get valid IPs.
-    });
-
-    // Sort by Name/PCI Number
-    physicalInterfaces.sort(compareInterfaces);
-
-    console.log(
-      '[IPSEC] Sorted Physical Interfaces:',
-      physicalInterfaces.map((i: any) => i.name),
-    );
-
-    // WAN is the 1st interface
-    if (physicalInterfaces.length > 0) {
-      const wanIface = physicalInterfaces[0];
-      const ipWithMask = String(wanIface.ipv4_static || '');
-      const ip = ipWithMask.split('/')[0];
-      if (ip) publicIp = ip;
-    }
-
-    // LAN is the 2nd interface
-    if (physicalInterfaces.length > 1) {
-      const lanIface = physicalInterfaces[1];
-      const ipWithMask = String(lanIface.ipv4_static || '');
-      const ip = ipWithMask.split('/')[0];
-      if (ip) privateIp = ip;
-    }
-  }
-
-  return { publicIp, privateIp };
+  return '';
 };
 
 // Helper for CIDR to Network
@@ -168,7 +112,7 @@ const formatIPsecResponse = (
   vrId: string, // Explicit local VR ID
   localVrConfig?: any, // Full local VR config
   peerVrConfig?: any, // Full peer VR config
-  publicIpMap?: Map<string, string>,
+  vrCacheMap?: Map<string, { wan: string; lan: string }>,
 ) => {
   const p = (devKeys: string[], dbKey: string) => {
     if (dev) {
@@ -183,28 +127,30 @@ const formatIPsecResponse = (
   const str = (v: any) => (v === undefined || v === null ? '' : String(v));
   const bool = (v: any) => !!v;
 
-  const localIps = getVrIps(localVrConfig);
-  const peerIps = getVrIps(peerVrConfig);
-
   // Resolve Peer VR ID
   const peerVrId = str(p(['peer_vr_id'], 'peerVrId'));
 
+  const getCachedIps = (id: string) => {
+    if (vrCacheMap && id && vrCacheMap.has(id)) {
+      return vrCacheMap.get(id) || { wan: '', lan: '' };
+    }
+    return { wan: '', lan: '' };
+  };
+
+  const localCached = getCachedIps(vrId);
+  const peerCached = getCachedIps(peerVrId);
+
   // Helper to prioritize DB value over extracted value
-  const val = (dbVal: any, extractedVal: any) => {
+  const val = (dbVal: any, cachedVal: string) => {
     if (dbVal !== undefined && dbVal !== null && dbVal !== '') return String(dbVal);
-    if (extractedVal !== undefined && extractedVal !== null && extractedVal !== '')
-      return String(extractedVal);
+    if (cachedVal) return String(cachedVal);
     return '';
   };
 
-  const resolvePublicIp = (dbVal: any, extractedVal: any, targetVrId: string) => {
+  const resolvePublicIp = (dbVal: any, cachedVal: string) => {
+    // Priority: VrCacheExtended (Cached) -> DB Value
+    if (cachedVal) return String(cachedVal);
     if (dbVal !== undefined && dbVal !== null && dbVal !== '') return String(dbVal);
-    if (extractedVal !== undefined && extractedVal !== null && extractedVal !== '')
-      return String(extractedVal);
-    if (publicIpMap && targetVrId && publicIpMap.has(targetVrId)) {
-      const v = publicIpMap.get(targetVrId);
-      if (v) return v.split(',')[0];
-    }
     return '';
   };
 
@@ -212,7 +158,7 @@ const formatIPsecResponse = (
     id: id,
     name: str(p(['name', 'ipsec_name', 'ID'], 'name')),
     description: str(p(['description'], 'description')),
-    status: IPsecStatus.ACTIVE,
+    status: IPsecStatus.INACTIVE,
     createdAt: base.createdAt || new Date(),
     updatedAt: base.updatedAt || new Date(),
 
@@ -232,20 +178,20 @@ const formatIPsecResponse = (
     localVrId: str(vrId),
     localVrName: str(base.localVrName),
     localVrWanName: str(base.localVrWanName),
-    localVrWanIP: resolvePublicIp(base.localVrWanIP, localIps.publicIp, vrId),
+    localVrWanIP: resolvePublicIp(base.localVrWanIP, localCached.wan),
     localVrWanEIP: str(base.localVrWanEIP),
     localVrLanName: str(base.localVrLanName),
-    localVrLanIP: val(base.localVrLanIP, localIps.privateIp),
+    localVrLanIP: val(base.localVrLanIP, localCached.lan),
     localVrLanSubnet: str(p(['local_subnet', 'traffic_selectors_local'], 'localVrLanSubnet')),
     localIkeRemoteIpAny: bool(base.localIkeRemoteIpAny),
 
     peerVrId: peerVrId,
     peerVrName: str(base.peerVrName),
     peerVrWanName: str(base.peerVrWanName),
-    peerVrWanIP: resolvePublicIp(base.peerVrWanIP, peerIps.publicIp, peerVrId),
+    peerVrWanIP: resolvePublicIp(base.peerVrWanIP, peerCached.wan),
     peerVrWanEIP: str(base.peerVrWanEIP),
     peerVrLanName: str(base.peerVrLanName),
-    peerVrLanIP: val(base.peerVrLanIP, peerIps.privateIp),
+    peerVrLanIP: val(base.peerVrLanIP, peerCached.lan),
     peerVrLanSubnet: str(p(['remote_subnet', 'traffic_selectors_remote'], 'peerVrLanSubnet')),
     remoteIkeRemoteIpAny: bool(base.remoteIkeRemoteIpAny),
   };
@@ -281,15 +227,42 @@ ipsecRoutes.get('/', async (req, res, next) => {
     });
     if (targetVrId) vrIds.add(String(targetVrId));
 
-    // Fetch SecurityDomains
-    const sds = await sdRepo().find({
-      where: { vrUuid: In(Array.from(vrIds)) },
-      select: ['vrUuid', 'vrPublicIp'],
-    });
-    const publicIpMap = new Map<string, string>();
-    sds.forEach((sd) => {
-      if (sd.vrUuid && sd.vrPublicIp) {
-        publicIpMap.set(sd.vrUuid, sd.vrPublicIp);
+    // Fetch VR Cache Extended for both IPs and Stats
+    const extRepo = AppDataSource.getRepository(VrCacheExtended);
+    const extendedRows = await extRepo.find({ where: { uuid: In(Array.from(vrIds)) } });
+
+    const vrCacheMap = new Map<string, { wan: string; lan: string }>();
+    const ipsecStatsMap: Record<string, Record<string, any>> = {};
+
+    extendedRows.forEach((row) => {
+      try {
+        const data = JSON.parse(row.data);
+        const vrId = String(data?.uuid || row.uuid);
+
+        // Extract IPs
+        const wan = getVrWanIp(data);
+        const lan = String(
+          data.lan_ip || data.private_ip || data.lanIp || data.privateIp || '',
+        ).split('/')[0];
+
+        vrCacheMap.set(vrId, { wan, lan });
+
+        // Extract Stats
+        const ipsecArr = Array.isArray(data?.ipsec) ? data.ipsec : [];
+        ipsecArr.forEach((t: any) => {
+          const name = String(t?.id || '');
+          if (!name) return;
+          if (!ipsecStatsMap[vrId]) ipsecStatsMap[vrId] = {};
+          ipsecStatsMap[vrId][name] = {
+            inBytes: Number(t?.in?.bytes || 0),
+            inPackets: Number(t?.in?.packets || 0),
+            outBytes: Number(t?.out?.bytes || 0),
+            outPackets: Number(t?.out?.packets || 0),
+            updateDate: data?.updateDate || undefined,
+          };
+        });
+      } catch (e) {
+        // ignore
       }
     });
 
@@ -303,6 +276,8 @@ ipsecRoutes.get('/', async (req, res, next) => {
       }
     }
 
+
+
     const merged: any[] = [];
     // 1. Merge DB rows with Device data
     for (const row of list) {
@@ -313,9 +288,27 @@ ipsecRoutes.get('/', async (req, res, next) => {
 
       const peerCfg = row.peerVrId ? deviceConfigByVr[row.peerVrId] : undefined;
 
-      merged.push(
-        formatIPsecResponse(row.id, row, dev, row.localVrId, localCfg, peerCfg, publicIpMap),
+      const obj: any = formatIPsecResponse(
+        row.id,
+        row,
+        dev,
+        row.localVrId,
+        localCfg,
+        peerCfg,
+        vrCacheMap,
       );
+      const stats = ipsecStatsMap[String(row.localVrId)]?.[String(obj.name)];
+      if (stats) {
+        obj.ipsecInBytes = stats.inBytes;
+        obj.ipsecInPackets = stats.inPackets;
+        obj.ipsecOutBytes = stats.outBytes;
+        obj.ipsecOutPackets = stats.outPackets;
+        obj.ipsecUpdateDate = stats.updateDate;
+        const totalPackets = Number(stats.inPackets || 0) + Number(stats.outPackets || 0);
+        obj.status =
+          totalPackets > 0 || stats.updateDate ? IPsecStatus.ACTIVE : IPsecStatus.INACTIVE;
+      }
+      merged.push(obj);
     }
 
     // 2. Add Device-only rows (only for requested vrId or all if generic)
@@ -333,17 +326,26 @@ ipsecRoutes.get('/', async (req, res, next) => {
         );
         if (!exists) {
           const generatedId = `${id}:${name}`;
-          merged.push(
-            formatIPsecResponse(
-              generatedId,
-              { createdAt: new Date() },
-              dev,
-              id,
-              localCfg,
-              undefined,
-              publicIpMap,
-            ),
+          const obj: any = formatIPsecResponse(
+            generatedId,
+            { createdAt: new Date() },
+            dev,
+            id,
+            localCfg,
+            undefined,
+            vrCacheMap,
           );
+          const stats = ipsecStatsMap[String(id)]?.[String(obj.name)];
+          if (stats) {
+            obj.ipsecInBytes = stats.inBytes;
+            obj.ipsecInPackets = stats.inPackets;
+            obj.ipsecOutBytes = stats.outBytes;
+            obj.ipsecOutPackets = stats.outPackets;
+            obj.ipsecUpdateDate = stats.updateDate;
+            const totalPackets = Number(stats.inPackets || 0) + Number(stats.outPackets || 0);
+            obj.status = (totalPackets > 0 || stats.updateDate) ? IPsecStatus.ACTIVE : IPsecStatus.INACTIVE;
+          }
+          merged.push(obj);
         }
       }
     }
@@ -503,13 +505,30 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
       return;
     }
 
+    // Fetch VrCacheExtended for IP resolution
+    let localExtended: any = null;
+    let peerExtended: any = null;
+    try {
+      const extRepo = AppDataSource.getRepository(VrCacheExtended);
+      const lExt = await extRepo.findOne({ where: { uuid: localVrId } });
+      if (lExt && lExt.data) localExtended = JSON.parse(lExt.data);
+
+      if (peerVrId) {
+        const pExt = await extRepo.findOne({ where: { uuid: peerVrId } });
+        if (pExt && pExt.data) peerExtended = JSON.parse(pExt.data);
+      }
+    } catch (e) {
+      console.warn('[IPSEC] Failed to fetch VrCacheExtended', e);
+    }
+
     const originalConfig = JSON.parse(JSON.stringify(stripMeta(currentConfig)));
 
     // Determine ike_local_ip
-    let finalLocalIp = localVrWanIP;
-    if (!finalLocalIp && currentConfig) {
-      const localIps = getVrIps(currentConfig);
-      finalLocalIp = localIps.publicIp;
+    const finalLocalIp = getVrWanIp(localExtended);
+    if (finalLocalIp) {
+        console.log(`[IPSEC] Using Local WAN IP from VrCacheExtended: ${finalLocalIp}`);
+    } else {
+        console.warn(`[IPSEC] Local VR Cache IP missing in VrCacheExtended for ${localVrId}`);
     }
 
     // Determine ike_remote_ip
@@ -518,18 +537,19 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
 
     if (localIkeRemoteIpAny) {
       finalRemoteIp = '0.0.0.0';
-    } else if (localVrWanEIP && peerVrWanEIP) {
-      // Logic adjustment? No, peerVrWanEIP is what we want to use if set.
-      // User Input Logic: if peerVrWanEIP is provided, use it?
-      // Wait, existing logic used `remoteEip`. Now it's `peerVrWanEIP`.
+    } else if (peerVrWanEIP) {
       finalRemoteIp = peerVrWanEIP;
     } else if (peerVrId) {
+      const extendedPeerIp = getVrWanIp(peerExtended);
+      if (extendedPeerIp) {
+        finalRemoteIp = extendedPeerIp;
+        console.log(`[IPSEC] Using Peer WAN IP from VrCacheExtended: ${finalRemoteIp}`);
+      }
+      
       try {
         const peerRecord = await vrConfigRepo().findOne({ where: { uuid: peerVrId } });
         if (peerRecord && peerRecord.config_json) {
           peerConfig = JSON.parse(peerRecord.config_json);
-          const pIps = getVrIps(peerConfig);
-          if (pIps.publicIp) finalRemoteIp = pIps.publicIp;
         }
       } catch (err) {}
     }
@@ -538,8 +558,6 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
       ID: name,
       ike_local_ip: finalLocalIp,
       ike_remote_ip: finalRemoteIp,
-      ike_dpd_delay: 10,
-      ike_dpd_timeout: 30,
       ike_proposal_local: localVrId,
       ike_proposal_remote: {
         remote_id: peerVrId || 'unknown',
@@ -554,6 +572,12 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
       'sa-initiate': 'true',
       'sa-terminate': 'false',
     };
+
+    if (dpd) {
+      newIpsecItem.ike_dpd_delay = 10;
+      newIpsecItem.ike_dpd_timeout = 30;
+    }
+
     if (typeof natTraversal !== 'undefined')
       newIpsecItem['nat-traversal'] = natTraversal ? 'true' : 'false';
 
@@ -585,20 +609,20 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
               : { ipsec: [] };
         }
 
-        let finalPeerLocalIp = peerVrWanIP;
-        const pIps = getVrIps(peerConfig);
-        if (pIps.publicIp) finalPeerLocalIp = pIps.publicIp;
+        let finalPeerLocalIp = getVrWanIp(peerExtended);
+        if (finalPeerLocalIp) {
+            console.log(`[IPSEC] Using Peer WAN IP from VrCacheExtended: ${finalPeerLocalIp}`);
+        } else {
+            console.warn(`[IPSEC] Peer VR Cache IP missing in VrCacheExtended for ${peerVrId}`);
+        }
 
-        let finalPeerRemoteIp = localVrWanIP;
+        let finalPeerRemoteIp = finalLocalIp; // Use the already resolved local IP from cache
         if (remoteIkeRemoteIpAny) {
           finalPeerRemoteIp = '0.0.0.0';
         } else if (localVrWanEIP) {
           finalPeerRemoteIp = localVrWanEIP;
-        } else if (!finalPeerRemoteIp && currentConfig) {
-          const lIps = getVrIps(currentConfig);
-          if (lIps.publicIp) finalPeerRemoteIp = lIps.publicIp;
-        }
-
+        } 
+        
         if (!finalPeerRemoteIp) {
           sendError(400, '无法获取本端公网IP');
           return;
@@ -650,7 +674,7 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
     vpn.localVrId = localVrId;
     vpn.localVrName = localVrName;
     vpn.localVrWanName = localVrWanName;
-    vpn.localVrWanIP = localVrWanIP || finalLocalIp;
+    vpn.localVrWanIP = finalLocalIp;
     vpn.localVrWanEIP = localVrWanEIP;
     vpn.localVrLanName = localVrLanName;
     vpn.localVrLanIP = localVrLanIP;
@@ -660,7 +684,8 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
     vpn.peerVrId = peerVrId;
     vpn.peerVrName = peerVrName;
     vpn.peerVrWanName = peerVrWanName;
-    vpn.peerVrWanIP = peerVrWanIP;
+    // Store the actual device WAN IP (not EIP/Any)
+    vpn.peerVrWanIP = peerVrId ? getVrWanIp(peerExtended) : peerVrWanIP;
     vpn.peerVrWanEIP = peerVrWanEIP;
     vpn.peerVrLanName = peerVrLanName;
     vpn.peerVrLanIP = peerVrLanIP;
@@ -757,21 +782,6 @@ ipsecRoutes.delete('/:id', async (req, res) => {
                       item['nat-traversal'] = item['nat-traversal'] ? 'true' : 'false';
                     if (typeof item['sa-initiate'] === 'boolean')
                       item['sa-initiate'] = item['sa-initiate'] ? 'true' : 'false';
-                    if (item.ike_dpd_delay !== undefined && item['ike-dpd-delay'] === undefined) {
-                      item['ike-dpd-delay'] = item.ike_dpd_delay;
-                      delete item.ike_dpd_delay;
-                    }
-                    if (
-                      item.ike_dpd_timeout !== undefined &&
-                      item['ike-dpd-timeout'] === undefined
-                    ) {
-                      item['ike-dpd-timeout'] = item.ike_dpd_timeout;
-                      delete item.ike_dpd_timeout;
-                    }
-                    if (item.ike_dpd_action !== undefined && item['ike-dpd-action'] === undefined) {
-                      item['ike-dpd-action'] = item.ike_dpd_action;
-                      delete item.ike_dpd_action;
-                    }
                   });
                 }
 
@@ -821,21 +831,6 @@ ipsecRoutes.delete('/:id', async (req, res) => {
                       item['nat-traversal'] = item['nat-traversal'] ? 'true' : 'false';
                     if (typeof item['sa-initiate'] === 'boolean')
                       item['sa-initiate'] = item['sa-initiate'] ? 'true' : 'false';
-                    if (item.ike_dpd_delay !== undefined && item['ike-dpd-delay'] === undefined) {
-                      item['ike-dpd-delay'] = item.ike_dpd_delay;
-                      delete item.ike_dpd_delay;
-                    }
-                    if (
-                      item.ike_dpd_timeout !== undefined &&
-                      item['ike-dpd-timeout'] === undefined
-                    ) {
-                      item['ike-dpd-timeout'] = item.ike_dpd_timeout;
-                      delete item.ike_dpd_timeout;
-                    }
-                    if (item.ike_dpd_action !== undefined && item['ike-dpd-action'] === undefined) {
-                      item['ike-dpd-action'] = item.ike_dpd_action;
-                      delete item.ike_dpd_action;
-                    }
                   });
                 }
 
@@ -969,11 +964,28 @@ ipsecRoutes.post('/', async (req, res, next) => {
 
     const originalConfig = JSON.parse(JSON.stringify(stripMeta(currentConfig)));
 
+    // Fetch VrCacheExtended for IP resolution
+    let localExtended: any = null;
+    let peerExtended: any = null;
+    try {
+      const extRepo = AppDataSource.getRepository(VrCacheExtended);
+      const lExt = await extRepo.findOne({ where: { uuid: localVrId } });
+      if (lExt && lExt.data) localExtended = JSON.parse(lExt.data);
+
+      if (peerVrId) {
+        const pExt = await extRepo.findOne({ where: { uuid: peerVrId } });
+        if (pExt && pExt.data) peerExtended = JSON.parse(pExt.data);
+      }
+    } catch (e) {
+      console.warn('[IPSEC] Failed to fetch VrCacheExtended', e);
+    }
+
     // Determine ike_local_ip
-    let finalLocalIp = localVrWanIP;
-    if (!finalLocalIp && currentConfig) {
-      const localIps = getVrIps(currentConfig);
-      finalLocalIp = localIps.publicIp;
+    const finalLocalIp = getVrWanIp(localExtended);
+    if (finalLocalIp) {
+      console.log(`[IPSEC] Using Local WAN IP from VrCacheExtended: ${finalLocalIp}`);
+    } else {
+      console.warn(`[IPSEC] Local VR Cache IP missing in VrCacheExtended for ${localVrId}`);
     }
 
     // Determine ike_remote_ip
@@ -1000,12 +1012,13 @@ ipsecRoutes.post('/', async (req, res, next) => {
         }
 
         if (peerConfig) {
-          const pIps = getVrIps(peerConfig);
-          if (pIps.publicIp) {
-            finalRemoteIp = pIps.publicIp;
-            console.log(
-              `[IPSEC] Using Peer WAN IP from DB Cache (PCI Sort) for ike_remote_ip: ${finalRemoteIp}`,
-            );
+          if (!finalRemoteIp) {
+            finalRemoteIp = getVrWanIp(peerExtended);
+            if (finalRemoteIp) {
+              console.log(
+                `[IPSEC] Using Peer WAN IP from VrCacheExtended for ike_remote_ip: ${finalRemoteIp}`,
+              );
+            }
           }
         } else {
           console.warn(`[IPSEC] Peer VR ${peerVrId} not found in DB cache.`);
@@ -1090,22 +1103,22 @@ ipsecRoutes.post('/', async (req, res, next) => {
 
         if (!peerConfig) peerConfig = { ipsec: [] };
 
-        let finalPeerLocalIp = peerVrWanIP;
-        const pIps = getVrIps(peerConfig);
-        if (pIps.publicIp) {
-          finalPeerLocalIp = pIps.publicIp;
+        let finalPeerLocalIp = getVrWanIp(peerExtended);
+        if (finalPeerLocalIp) {
+            console.log(`[IPSEC] Using Peer WAN IP from VrCacheExtended: ${finalPeerLocalIp}`);
+        } else {
+            console.warn(`[IPSEC] Peer VR Cache IP missing in VrCacheExtended for ${peerVrId}`);
         }
 
-        let finalPeerRemoteIp = localVrWanIP;
+        let finalPeerRemoteIp = finalLocalIp; // Use the already resolved local IP from cache
         if (remoteIkeRemoteIpAny) {
           finalPeerRemoteIp = '0.0.0.0';
         } else if (localVrWanEIP) {
           finalPeerRemoteIp = localVrWanEIP;
-        } else if (!finalPeerRemoteIp && currentConfig) {
-          const lIps = getVrIps(currentConfig);
-          if (lIps.publicIp) {
-            finalPeerRemoteIp = lIps.publicIp;
-          }
+        } 
+        
+        if (!finalPeerRemoteIp) {
+           finalPeerRemoteIp = getVrWanIp(localExtended);
         }
 
         if (!finalPeerRemoteIp) {
@@ -1123,9 +1136,6 @@ ipsecRoutes.post('/', async (req, res, next) => {
           ID: name,
           ike_local_ip: finalPeerLocalIp,
           ike_remote_ip: finalPeerRemoteIp,
-          ike_dpd_delay: 10,
-          ike_dpd_timeout: 30,
-
           ike_proposal_local: peerVrId,
           ike_proposal_remote: {
             remote_id: localVrId,
@@ -1141,6 +1151,12 @@ ipsecRoutes.post('/', async (req, res, next) => {
           'sa-initiate': 'false',
           'sa-terminate': 'false',
         };
+
+        if (dpd) {
+          peerIpsecItem.ike_dpd_delay = 10;
+          peerIpsecItem.ike_dpd_timeout = 30;
+        }
+
         if (typeof natTraversal !== 'undefined')
           peerIpsecItem['nat-traversal'] = natTraversal ? 'true' : 'false';
 
@@ -1164,15 +1180,13 @@ ipsecRoutes.post('/', async (req, res, next) => {
       }
     }
 
-    const localIps = getVrIps(currentConfig);
-
     const item = repo().create({
       name,
       description,
       localVrId,
       localVrName,
       localVrWanName,
-      localVrWanIP: req.body.localVrWanIP || localIps.publicIp,
+      localVrWanIP: finalLocalIp,
       localVrWanEIP,
       localVrLanName,
       localVrLanIP: req.body.localVrLanIP,
@@ -1182,7 +1196,7 @@ ipsecRoutes.post('/', async (req, res, next) => {
       peerVrId,
       peerVrName,
       peerVrWanName,
-      peerVrWanIP: req.body.peerVrWanIP,
+      peerVrWanIP: peerVrId ? getVrWanIp(peerExtended) : req.body.peerVrWanIP,
       peerVrWanEIP,
       peerVrLanName,
       peerVrLanIP: req.body.peerVrLanIP,
@@ -1249,18 +1263,6 @@ ipsecRoutes.get('/deploy/preview', async (req: Request, res: Response, next: Nex
           item['nat-traversal'] = item['nat-traversal'] ? 'true' : 'false';
         if (typeof item['sa-initiate'] === 'boolean')
           item['sa-initiate'] = item['sa-initiate'] ? 'true' : 'false';
-        if (item.ike_dpd_delay !== undefined && item['ike-dpd-delay'] === undefined) {
-          item['ike-dpd-delay'] = item.ike_dpd_delay;
-          delete item.ike_dpd_delay;
-        }
-        if (item.ike_dpd_timeout !== undefined && item['ike-dpd-timeout'] === undefined) {
-          item['ike-dpd-timeout'] = item.ike_dpd_timeout;
-          delete item.ike_dpd_timeout;
-        }
-        if (item.ike_dpd_action !== undefined && item['ike-dpd-action'] === undefined) {
-          item['ike-dpd-action'] = item.ike_dpd_action;
-          delete item.ike_dpd_action;
-        }
       });
     }
 
@@ -1290,18 +1292,6 @@ ipsecRoutes.post('/deploy/push', async (req: Request, res: Response, next: NextF
           item['nat-traversal'] = item['nat-traversal'] ? 'true' : 'false';
         if (typeof item['sa-initiate'] === 'boolean')
           item['sa-initiate'] = item['sa-initiate'] ? 'true' : 'false';
-        if (item.ike_dpd_delay !== undefined && item['ike-dpd-delay'] === undefined) {
-          item['ike-dpd-delay'] = item.ike_dpd_delay;
-          delete item.ike_dpd_delay;
-        }
-        if (item.ike_dpd_timeout !== undefined && item['ike-dpd-timeout'] === undefined) {
-          item['ike-dpd-timeout'] = item.ike_dpd_timeout;
-          delete item.ike_dpd_timeout;
-        }
-        if (item.ike_dpd_action !== undefined && item['ike-dpd-action'] === undefined) {
-          item['ike-dpd-action'] = item.ike_dpd_action;
-          delete item.ike_dpd_action;
-        }
       });
     }
 

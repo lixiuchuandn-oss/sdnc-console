@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { In } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { SecurityDomain } from '../entities/SecurityDomain';
 import { Cloud } from '../entities/Cloud';
@@ -15,6 +16,7 @@ import { Tenant } from '../entities/Tenant';
 import { Organization } from '../entities/Organization';
 import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
 import { VRConfig } from '../entities/VRConfig';
+import { VrCacheExtended } from '../entities/VrCacheExtended';
 import { callAliyunVpc, callAliyunEcs } from '../services/clouds/aliyun/client';
 import { huaweiListVpcs } from '../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../services/clouds/tencentcloud/client';
@@ -36,6 +38,42 @@ const tenantRepo = () => AppDataSource.getRepository(Tenant);
 const orgRepo = () => AppDataSource.getRepository(Organization);
 const assignmentRepo = () => AppDataSource.getRepository(ResourcePoolAssignment);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
+
+const transformVrFields = (obj: any) => {
+  [
+    'vrInstanceIds',
+    'vrPublicEniIds',
+    'vrPrivateEniIds',
+    'vrPublicSubnetCidr',
+    'vrPrivateSubnetCidr',
+  ].forEach((key) => {
+    if (typeof obj[key] === 'string' && obj[key]) {
+      obj[key] = obj[key]
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s);
+    } else if (!obj[key]) {
+      obj[key] = [];
+    }
+  });
+
+  // Ensure vrPublicIp and vrPrivateIp are single strings (take first if multiple)
+  ['vrPublicIp', 'vrPrivateIp'].forEach((key) => {
+    if (typeof obj[key] === 'string' && obj[key]) {
+      const arr = obj[key]
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s);
+      obj[key] = arr.length > 0 ? arr[0] : '';
+    } else if (Array.isArray(obj[key])) {
+       // If already array (e.g. from some other transform), take first
+       obj[key] = obj[key].length > 0 ? obj[key][0] : '';
+    } else if (!obj[key]) {
+      obj[key] = '';
+    }
+  });
+  return obj;
+};
 
 const getTenantContext = (req: any) => {
   const user = req.user;
@@ -198,7 +236,43 @@ router.get('/', async (req, res) => {
       }
     }
 
-    res.json(list);
+    // Batch fetch VR Cache Extended for all domains with vrUuid
+    const vrUuids = list.map((d) => d.vrUuid).filter((u) => u);
+    const vrCacheMap = new Map<string, any>();
+    if (vrUuids.length > 0) {
+      try {
+        const vrCacheRepo = AppDataSource.getRepository(VrCacheExtended);
+        const caches = await vrCacheRepo.find({ where: { uuid: In(vrUuids) } });
+        caches.forEach((c) => {
+          if (c.data) {
+            try {
+              vrCacheMap.set(c.uuid, JSON.parse(c.data));
+            } catch {}
+          }
+        });
+      } catch (e) {
+        console.warn('批量获取VR缓存失败:', e);
+      }
+    }
+
+    const resultList = list.map((item) => {
+      const resItem = { ...item } as any;
+      if (resItem.vrUuid && vrCacheMap.has(resItem.vrUuid)) {
+        const data = vrCacheMap.get(resItem.vrUuid);
+        let wan = '';
+        if (Array.isArray(data.interfaces) && data.interfaces.length > 0) {
+           const firstIf = data.interfaces[0];
+           if (firstIf && firstIf.ipv4_static) {
+             wan = firstIf.ipv4_static.split('/')[0];
+           }
+        }
+        const lan = data.lan_ip || data.private_ip || data.lanIp || data.privateIp;
+        if (wan) resItem.vrPublicIp = String(wan);
+        if (lan) resItem.vrPrivateIp = String(lan);
+      }
+      return transformVrFields(resItem);
+    });
+    res.json(resultList);
   } catch (err) {
     res.status(500).json({ message: 'Failed to list security domains', error: String(err) });
   }
@@ -258,6 +332,30 @@ router.get('/:id', async (req, res) => {
     }
 
     const result = { ...item } as any;
+
+    // Fetch VrCacheExtended for real-time IP info
+    if (result.vrUuid) {
+      try {
+        const vrCacheRepo = AppDataSource.getRepository(VrCacheExtended);
+        const cache = await vrCacheRepo.findOne({ where: { uuid: result.vrUuid } });
+        if (cache && cache.data) {
+           const data = JSON.parse(cache.data);
+           let wan = '';
+           if (Array.isArray(data.interfaces) && data.interfaces.length > 0) {
+              const firstIf = data.interfaces[0];
+              if (firstIf && firstIf.ipv4_static) {
+                wan = firstIf.ipv4_static.split('/')[0];
+              }
+           }
+           const lan = data.lan_ip || data.private_ip || data.lanIp || data.privateIp;
+           if (wan) result.vrPublicIp = String(wan);
+           if (lan) result.vrPrivateIp = String(lan);
+        }
+      } catch (e) {
+        console.warn('详情查询获取VR缓存失败:', e);
+      }
+    }
+
     // Transform cidr6 string to array
     if (typeof result.cidr6 === 'string' && result.cidr6) {
       result.cidr6 = result.cidr6
@@ -703,6 +801,35 @@ router.get('/:id', async (req, res) => {
       result.aclRules = [];
     }
 
+    // Override VR IPs from VrCacheExtended if available (Source of Truth)
+    if (result.vrUuid) {
+      try {
+        const vrCacheRepo = AppDataSource.getRepository(VrCacheExtended);
+        const cachedVr = await vrCacheRepo.findOne({ where: { uuid: result.vrUuid } });
+        if (cachedVr && cachedVr.data) {
+          const data = JSON.parse(cachedVr.data);
+          let wan = '';
+          
+          // Try to find WAN IP from interfaces (smallest PCI number -> first interface)
+          if (Array.isArray(data.interfaces) && data.interfaces.length > 0) {
+             // Assume the list is already sorted by PCI/name or take the first one
+             const firstIf = data.interfaces[0];
+             if (firstIf && firstIf.ipv4_static) {
+               // ipv4_static might be "10.0.1.95/24", we need "10.0.1.95"
+               wan = firstIf.ipv4_static.split('/')[0];
+             }
+          }
+
+          const lan = data.lan_ip || data.private_ip || data.lanIp || data.privateIp;
+          if (wan) result.vrPublicIp = String(wan);
+          if (lan) result.vrPrivateIp = String(lan);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch VR Cache for IPs:', e);
+      }
+    }
+
+    transformVrFields(result);
     res.json(result);
   } catch (err) {
     res.status(500).json({ message: 'Failed to get security domain', error: String(err) });
