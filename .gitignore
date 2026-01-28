@@ -28,4 +28,8 @@ Thumbs.db
 /backend/tests/scripts/
 /backend/tests/artifacts/
 
+# Ignore backend diagnostic scripts
+/backend/scripts/
+/backend/verify_acl.js
+
 

@@ -606,7 +606,6 @@ const SecurityDomainDetail: React.FC = () => {
           rowKey="id"
           locale={{ emptyText: '暂无关联 NAT 实例' }} 
           bordered
-          size="middle"
           pagination={{ pageSize: 10, size: 'default' }}
         />
       </PageDetailSection>
@@ -635,7 +634,6 @@ const SecurityDomainDetail: React.FC = () => {
           rowKey="id"
           locale={{ emptyText: '暂无关联网络 ACL 实例' }} 
           bordered
-          size="middle"
           pagination={{ pageSize: 10, size: 'default' }}
         />
       </PageDetailSection>
@@ -661,7 +659,6 @@ const SecurityDomainDetail: React.FC = () => {
           rowKey="id"
           locale={{ emptyText: '暂无关联旁路阻断策略实例' }} 
           bordered
-          size="middle"
           pagination={{ pageSize: 10, size: 'default' }}
         />
       </PageDetailSection>
@@ -701,7 +698,6 @@ const SecurityDomainDetail: React.FC = () => {
           rowKey="id"
           locale={{ emptyText: '暂无关联云主机实例' }} 
           bordered
-          size="middle"
           pagination={{ pageSize: 10, size: 'default' }}
         />
       </PageDetailSection>

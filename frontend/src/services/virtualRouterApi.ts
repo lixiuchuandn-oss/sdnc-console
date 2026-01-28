@@ -324,7 +324,7 @@ export const fetchVrCachePageList = async (pageSize: number = 50, pageNum: numbe
   const url = `${API_BASE_URL}/api/vr-cache/pagelist?page_size=${pageSize}&page_num=${pageNum}`;
   const res = await fetch(url, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getBaseAuthHeaders(),
     credentials: 'include',
   });
   if (!res.ok) {

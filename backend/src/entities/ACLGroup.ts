@@ -16,6 +16,9 @@ export class ACLGroup {
   @Column()
   name!: string;
 
+  @Column({ type: 'int', nullable: true })
+  aclId!: number;
+
   @Column({ nullable: true })
   description!: string;
 
@@ -29,6 +32,9 @@ export class ACLGroup {
 
   @OneToMany(() => ACLRule, (rule) => rule.group)
   rules!: ACLRule[];
+
+  @OneToMany('ACLGroupBinding', 'aclGroup')
+  bindings!: ACLGroupBinding[];
 
   @CreateDateColumn()
   createdAt!: Date;

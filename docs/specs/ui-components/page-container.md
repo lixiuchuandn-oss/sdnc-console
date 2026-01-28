@@ -37,8 +37,10 @@ D:\Compute.Tower\frontend\src\components\SharedToolbar.tsx
 # 2. 表格
 ## 禁止添加尺寸，使用表格的默认尺寸
 ## 禁止添加列宽
+## 禁止添加阴影
+## 禁止添加卡片背景
+## 必须有 border
 ## 单元格内边距 (Cell Padding)：padding-left 10px (已封装在组件内)
-## 需要有 border
 ## D:\ComputeTower\Compute.Tower\frontend\src\utils\tableStyles.ts 中定义了表格的样式
 ## 行操作菜单触发器 D:\ComputeTower\Compute.Tower\frontend\src\components\ResourceActionsDropdown.tsx （如没有则无需添加），禁止修改其尺寸
 ### 查看元数据 点击后展开该实例的元数据

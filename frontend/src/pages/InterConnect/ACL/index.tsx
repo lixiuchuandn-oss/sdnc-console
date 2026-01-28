@@ -9,8 +9,10 @@ import '../../common/filters.css';
 import type { ColumnsType } from 'antd/es/table';
 import { 
   getACLRules, createACLRule, deleteACLRule, ACLRule,
-  getACLGroups, createACLGroup, deleteACLGroup, addACLRuleToGroup, pushACLConfig, ACLGroup
+  getACLGroups, createACLGroup, deleteACLGroup, addACLRuleToGroup, pushACLConfig, ACLGroup,
+  bindACLGroupToVR, unbindACLGroupFromVR
 } from '../../../services/networkApi';
+import type { ACLGroupBinding } from '../../../services/networkApi';
 import { vrApi, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 
 const { Option } = Select;
@@ -27,6 +29,17 @@ const ACLPage: React.FC = () => {
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
   const [groupForm] = Form.useForm();
+  
+  // --- Binding State ---
+  const [bindDrawerOpen, setBindDrawerOpen] = useState(false);
+  const [currentBindingGroup, setCurrentBindingGroup] = useState<ACLGroup | null>(null);
+  const [bindForm] = Form.useForm();
+  const [bindingSubmitting, setBindingSubmitting] = useState(false);
+
+  // --- Group Filter State ---
+  const [groupKeyword, setGroupKeyword] = useState('');
+  const [groupVrFilter, setGroupVrFilter] = useState<string | undefined>();
+  const [groupFilterForm] = Form.useForm();
   
   // --- Rules State ---
   const [rules, setRules] = useState<ACLRule[]>([]);
@@ -47,38 +60,12 @@ const ACLPage: React.FC = () => {
 
   const fetchVRs = async () => {
     try {
-      const res: any = await vrApi.getVRInstances(1000, 1);
-      const dataObj = res?.data ?? res;
-      let vrs = Array.isArray(dataObj?.page) ? dataObj.page : 
-                Array.isArray(dataObj?.list) ? dataObj.list : 
-                Array.isArray(dataObj?.rows) ? dataObj.rows :
-                Array.isArray(dataObj) ? dataObj : [];
-
-      if (!Array.isArray(vrs) || vrs.length === 0) {
-        try {
-          const json = await fetchVrCachePageList(1000, 1);
-          const d = json?.data ?? json;
-          vrs = Array.isArray(d?.page) ? d.page : [];
-        } catch (cacheErr) {
-          console.warn('[ACL] Failed to fetch VR cache:', cacheErr);
-        }
-      }
-
-      if ((!Array.isArray(vrs) || vrs.length === 0)) {
-        const token = localStorage.getItem('token') || '';
-        try {
-            const resRoles = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/vr-config/roles`, {
-            headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-            credentials: 'include'
-            });
-            const jsonRoles = await resRoles.json();
-            const roles = jsonRoles?.data?.roles || {};
-            const uuids = Object.keys(roles || {});
-            vrs = uuids.map(u => ({ uuid: u, name: u }));
-        } catch (e) {
-            console.warn('Failed to fetch roles', e);
-        }
-      }
+      const json = await fetchVrCachePageList(1000, 1);
+      const dataObj = json?.data ?? json;
+      const vrs = Array.isArray(dataObj?.page) ? dataObj.page : 
+                 Array.isArray(dataObj?.list) ? dataObj.list : 
+                 Array.isArray(dataObj?.rows) ? dataObj.rows : 
+                 Array.isArray(dataObj) ? dataObj : [];
 
       setVrList(vrs);
       const map: Record<string, string> = {};
@@ -89,7 +76,7 @@ const ACLPage: React.FC = () => {
       });
       setVrNameMap(map);
     } catch (e) {
-      console.error('Failed to fetch VRs', e);
+      console.error('Failed to fetch VRs from cache', e);
       setVrList([]);
       setVrNameMap({});
     }
@@ -148,7 +135,7 @@ const ACLPage: React.FC = () => {
   const handleDeleteGroup = (group: ACLGroup) => {
     Modal.confirm({
       title: '确认删除 ACL 组',
-      content: `确定要删除 ACL 组 "${group.name}" 吗？组内的规则也会被删除。`,
+      content: `确定要删除 ACL 组 "${group.name}" 吗？组内的规则也会被删除。同时会解除所有关联的 VR。`,
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
@@ -160,6 +147,49 @@ const ACLPage: React.FC = () => {
           fetchRules(); // Refresh rules as well since they are deleted
         } catch (e: any) {
           message.error('删除失败: ' + e.message);
+        }
+      }
+    });
+  };
+
+  // --- Binding Handlers ---
+
+  const handleOpenBind = (group: ACLGroup) => {
+    setCurrentBindingGroup(group);
+    bindForm.resetFields();
+    setBindDrawerOpen(true);
+  };
+
+  const handleSubmitBind = async () => {
+    try {
+      const values = await bindForm.validateFields();
+      setBindingSubmitting(true);
+      if (currentBindingGroup) {
+        await bindACLGroupToVR(currentBindingGroup.id, values.vrId);
+        message.success('关联成功');
+        setBindDrawerOpen(false);
+        fetchGroups();
+      }
+    } catch (e: any) {
+      if (!e.errorFields) message.error('关联失败: ' + e.message);
+    } finally {
+      setBindingSubmitting(false);
+    }
+  };
+
+  const handleUnbind = (group: ACLGroup, vrId: string) => {
+    Modal.confirm({
+      title: '确认解除关联',
+      content: '解除关联后，该 ACL 组将不再应用于此 VR。',
+      okText: '解除关联',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await unbindACLGroupFromVR(group.id, vrId);
+          message.success('解除关联成功');
+          fetchGroups();
+        } catch (e: any) {
+          message.error('解除关联失败: ' + e.message);
         }
       }
     });
@@ -257,11 +287,34 @@ const ACLPage: React.FC = () => {
   // --- Columns ---
 
   const groupColumns: ColumnsType<ACLGroup> = [
-    { title: '组名称', dataIndex: 'name', key: 'name', width: 200, render: (t) => <b>{t}</b> },
-    { title: '所属VR', dataIndex: 'vrId', key: 'vrId', width: 200, render: (v) => v ? (vrNameMap[v] || v) : <span style={{color:'#ccc'}}>未绑定</span> },
+    { title: '组名称', dataIndex: 'name', key: 'name', render: (t) => <b>{t}</b> },
+    { title: '所属VR', dataIndex: 'vrId', key: 'vrId', render: (v, r) => {
+        // Primary VR
+        const primary = v ? (
+          <Tag color="blue" key="primary" style={{ marginRight: 4 }}>
+            {vrNameMap[v] || v} (主)
+          </Tag>
+        ) : null;
+        
+        // Bound VRs
+        const bounds = r.bindings?.map((b: ACLGroupBinding) => (
+          <Tag color="cyan" key={b.id} closable onClose={() => handleUnbind(r, b.vrId)} style={{ marginRight: 4 }}>
+            {vrNameMap[b.vrId] || b.vrId}
+          </Tag>
+        ));
+        
+        return (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {primary}
+            {bounds}
+            {!primary && !bounds?.length && <span style={{color:'#ccc'}}>未绑定</span>}
+          </div>
+        );
+    }},
+    { title: 'ACL ID', dataIndex: 'aclId', key: 'aclId' },
     { title: '描述', dataIndex: 'description', key: 'description' },
-    { title: '规则数', key: 'rules', width: 100, render: (_, r) => <Badge count={r.rules?.length || 0} showZero color="blue" /> },
-    { title: '操作', key: 'ops', width: 150, render: (_, r) => (
+    { title: '规则数', key: 'rules', render: (_, r) => <Badge count={r.rules?.length || 0} showZero color="blue" /> },
+    { title: '操作', key: 'ops', render: (_, r) => (
       <Space>
         <Tooltip title="添加规则">
           <Button type="text" icon={<PlusOutlined />} onClick={() => handleOpenCreateRule(r)} />
@@ -271,10 +324,12 @@ const ACLPage: React.FC = () => {
         </Tooltip>
         <ResourceActionsDropdown
           items={[
+            { key: 'bind', label: '关联其他 VR' },
             { key: 'delete', label: '删除组', danger: true }
           ]}
           onClick={({ key }) => {
             if (key === 'delete') handleDeleteGroup(r);
+            if (key === 'bind') handleOpenBind(r);
           }}
         />
       </Space>
@@ -282,19 +337,19 @@ const ACLPage: React.FC = () => {
   ];
 
   const ruleColumns: ColumnsType<ACLRule> = [
-    { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80, sorter: (a, b) => a.priority - b.priority },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 150 },
-    { title: '所属VR', dataIndex: 'vrId', key: 'vrId', width: 150, render: (v) => vrNameMap[v] || v },
-    { title: '所属组', dataIndex: 'group', key: 'group', width: 150, render: (g) => g ? <Tag color="blue">{g.name}</Tag> : '-' },
-    { title: '动作', dataIndex: 'action', key: 'action', width: 100, render: (act) => (
+    { title: '优先级', dataIndex: 'priority', key: 'priority', sorter: (a, b) => a.priority - b.priority },
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '所属VR', dataIndex: 'vrId', key: 'vrId', render: (v) => vrNameMap[v] || v },
+    { title: '所属组', dataIndex: 'group', key: 'group', render: (g) => g ? <Tag color="blue">{g.name}</Tag> : '-' },
+    { title: '动作', dataIndex: 'action', key: 'action', render: (act) => (
       <Tag color={act === 'permit' ? 'green' : 'red'}>{act.toUpperCase()}</Tag>
     )},
-    { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 100, render: (p) => <Tag>{p.toUpperCase()}</Tag> },
+    { title: '协议', dataIndex: 'protocol', key: 'protocol', render: (p) => <Tag>{p.toUpperCase()}</Tag> },
     { title: '源IP', dataIndex: 'sourceIp', key: 'sourceIp' },
     { title: '目的IP', dataIndex: 'destinationIp', key: 'destinationIp' },
     { title: '源端口', dataIndex: 'sourcePort', key: 'sourcePort' },
     { title: '目的端口', dataIndex: 'destinationPort', key: 'destinationPort' },
-    { title: '操作', key: 'ops', width: 100, render: (_, row) => (
+    { title: '操作', key: 'ops', render: (_, row) => (
       <ResourceActionsDropdown
         items={[
           { key: 'delete', label: '删除', danger: true }
@@ -316,11 +371,31 @@ const ACLPage: React.FC = () => {
   });
 
   const resetFilters = () => {
+    filterForm.resetFields();
     setKeyword('');
     setVrFilter(undefined);
     setActionFilter(undefined);
     setProtocolFilter(undefined);
   };
+  
+  const resetGroupFilters = () => {
+    groupFilterForm.resetFields();
+    setGroupKeyword('');
+    setGroupVrFilter(undefined);
+  };
+  
+  // Filtering for Groups Tab
+  const filteredGroups = useMemo(() => {
+    return groups.filter(g => {
+      if (groupKeyword && !g.name.toLowerCase().includes(groupKeyword.toLowerCase())) return false;
+      if (groupVrFilter && g.vrId !== groupVrFilter) return false;
+      return true;
+    });
+  }, [groups, groupKeyword, groupVrFilter]);
+
+  const renderLabel = (text: string) => (
+    <span style={{ color: '#000000E0', fontSize: 14 }}>{text}</span>
+  );
 
   return (
     <PageContainer
@@ -337,12 +412,55 @@ const ACLPage: React.FC = () => {
         type: 'primary',
       }}
       tabList={[
-        { key: 'groups', tab: <span><FolderOutlined />ACL 组管理</span> },
-        { key: 'rules', tab: <span><UnorderedListOutlined />所有规则列表</span> }
+        { 
+          key: 'groups', 
+          tab: (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <FolderOutlined style={{ marginRight: 0 }} />
+              ACL 组管理
+              <span>({groups.length})</span>
+            </span>
+          )
+        },
+        { 
+          key: 'rules', 
+          tab: (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <UnorderedListOutlined style={{ marginRight: 0 }} />
+              所有规则列表
+              <span>({rules.length})</span>
+            </span>
+          )
+        }
       ]}
       tabActiveKey={activeTab}
       onTabChange={setActiveTab}
-      toolbarLeft={activeTab === 'rules' && (
+      toolbarLeft={(activeTab === 'groups' && (
+        <Form
+          className="filter-tools filter-tools--center"
+          form={groupFilterForm}
+          layout="vertical"
+          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          onValuesChange={(_, all) => {
+            setGroupKeyword(all.keyword || '');
+            setGroupVrFilter(all.vrId || undefined);
+          }}
+        >
+          <Form.Item name="keyword" label={renderLabel("名称")}>
+            <Input allowClear placeholder="搜索组名称" style={{ width: 200 }} />
+          </Form.Item>
+          <Form.Item name="vrId" label={renderLabel("所属VR")}>
+            <Select allowClear placeholder="选择 VR" style={{ width: 180 }}>
+              {vrList.map(v => {
+                const id = v.uuid || v.id || v.vm_id;
+                const name = v.name || id;
+                return id ? (<Option key={id} value={id}>{name}</Option>) : null;
+              })}
+            </Select>
+          </Form.Item>
+          <Button type="link" onClick={resetGroupFilters} style={{ height: 30, padding: 0, margin: 0, alignSelf: 'flex-end' }}>重置</Button>
+        </Form>
+      )) || (activeTab === 'rules' && (
         <Form
           className="filter-tools filter-tools--center"
           form={filterForm}
@@ -355,10 +473,10 @@ const ACLPage: React.FC = () => {
             setProtocolFilter(all.protocol || undefined);
           }}
         >
-          <Form.Item name="keyword" label="名称">
+          <Form.Item name="keyword" label={renderLabel("名称")}>
             <Input allowClear placeholder="搜索名称" style={{ width: 200 }} />
           </Form.Item>
-          <Form.Item name="vrId" label="所属VR">
+          <Form.Item name="vrId" label={renderLabel("所属VR")}>
             <Select allowClear placeholder="选择 VR" style={{ width: 180 }}>
               {vrList.map(v => {
                 const id = v.uuid || v.id || v.vm_id;
@@ -367,13 +485,13 @@ const ACLPage: React.FC = () => {
               })}
             </Select>
           </Form.Item>
-          <Form.Item name="action" label="动作">
+          <Form.Item name="action" label={renderLabel("动作")}>
             <Select allowClear placeholder="选择动作" style={{ width: 140 }}>
               <Option value="permit">Permit</Option>
               <Option value="deny">Deny</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="protocol" label="协议">
+          <Form.Item name="protocol" label={renderLabel("协议")}>
             <Select allowClear placeholder="选择协议" style={{ width: 140 }}>
               <Option value="any">Any</Option>
               <Option value="tcp">TCP</Option>
@@ -381,47 +499,46 @@ const ACLPage: React.FC = () => {
               <Option value="icmp">ICMP</Option>
             </Select>
           </Form.Item>
+          <Button type="link" onClick={resetFilters} style={{ height: 30, padding: 0, margin: 0, alignSelf: 'flex-end' }}>重置</Button>
         </Form>
-      )}
+      ))}
     >
       {activeTab === 'groups' && (
-        <Card bodyStyle={{ padding: 0 }} bordered={false}>
-          <Table
-            dataSource={groups}
-            columns={groupColumns}
-            rowKey="id"
-            loading={groupsLoading}
-            pagination={{ pageSize: 10 }}
-            expandable={{
-              expandedRowRender: (record) => (
-                <div style={{ margin: 0 }}>
-                  <p style={{ marginBottom: 8 }}><b>{record.name} 的规则列表:</b></p>
-                  <Table
-                    size="small"
-                    columns={ruleColumns.filter(c => c.key !== 'group' && c.key !== 'vrId')} // Hide redundant columns
-                    dataSource={record.rules || []}
-                    rowKey="id"
-                    pagination={false}
-                  />
-                </div>
-              ),
-              rowExpandable: (record) => (record.rules?.length || 0) > 0,
-            }}
-          />
-        </Card>
+        <Table
+          dataSource={filteredGroups}
+          columns={groupColumns}
+          rowKey="id"
+          loading={groupsLoading}
+          bordered
+          pagination={{ pageSize: 10 }}
+          expandable={{
+            expandedRowRender: (record) => (
+              <div style={{ margin: 0 }}>
+                <p style={{ marginBottom: 8 }}><b>{record.name} 的规则列表:</b></p>
+                <Table
+                  bordered
+                  columns={ruleColumns.filter(c => c.key !== 'group' && c.key !== 'vrId')} // Hide redundant columns
+                  dataSource={record.rules || []}
+                  rowKey="id"
+                  pagination={false}
+                />
+              </div>
+            ),
+            rowExpandable: (record) => (record.rules?.length || 0) > 0,
+          }}
+        />
       )}
       
       {activeTab === 'rules' && (
-        <Card bodyStyle={{ padding: 0 }} bordered={false}>
-          <Table
-            dataSource={filteredRules}
-            columns={ruleColumns}
-            rowKey="id"
-            loading={rulesLoading}
-            pagination={{ pageSize: 20 }}
-            scroll={{ x: 'max-content' }}
-          />
-        </Card>
+        <Table
+          dataSource={filteredRules}
+          columns={ruleColumns}
+          rowKey="id"
+          loading={rulesLoading}
+          bordered
+          pagination={{ pageSize: 20 }}
+          scroll={{ x: 'max-content' }}
+        />
       )}
 
       {/* Group Drawer */}
@@ -432,6 +549,8 @@ const ACLPage: React.FC = () => {
         onClose={() => setGroupDrawerOpen(false)}
         onOk={handleCreateGroup}
         okText={submitting ? "提交中..." : "提交"}
+        maskClosable={false}
+        confirmLoading={submitting}
       >
         <Form form={groupForm} layout="vertical">
           <Form.Item name="name" label="组名称" rules={[{ required: true }]}>
@@ -445,6 +564,9 @@ const ACLPage: React.FC = () => {
                 return id ? (<Option key={id} value={id}>{name}</Option>) : null;
               })}
             </Select>
+          </Form.Item>
+          <Form.Item name="aclId" label="ACL ID" rules={[{ required: true, type: 'number', min: 1001, max: 4000, message: '请输入 1001-4000 之间的数字' }]}>
+            <InputNumber placeholder="1001-4000" style={{ width: '100%' }} min={1001} max={4000} />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} />
@@ -460,6 +582,8 @@ const ACLPage: React.FC = () => {
         onClose={() => setRuleDrawerOpen(false)}
         onOk={handleCreateRule}
         okText={submitting ? "提交中..." : "提交"}
+        maskClosable={false}
+        confirmLoading={submitting}
       >
         <Form form={createRuleForm} layout="vertical">
           <Row gutter={16}>
@@ -538,6 +662,36 @@ const ACLPage: React.FC = () => {
 
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} />
+          </Form.Item>
+        </Form>
+      </StdSideDrawer>
+
+      {/* Binding Drawer */}
+      <StdSideDrawer
+        title={`关联 ACL 组: ${currentBindingGroup?.name}`}
+        width={500}
+        open={bindDrawerOpen}
+        onClose={() => setBindDrawerOpen(false)}
+        onOk={handleSubmitBind}
+        okText={bindingSubmitting ? "提交中..." : "提交"}
+        maskClosable={false}
+        confirmLoading={bindingSubmitting}
+      >
+        <Form form={bindForm} layout="vertical">
+          <Form.Item name="vrId" label="选择 VR" rules={[{ required: true }]}>
+            <Select placeholder="选择 VR 实例">
+              {vrList.filter(v => {
+                const vid = v.uuid || v.id || v.vm_id;
+                // Exclude primary VR and already bound VRs
+                if (currentBindingGroup?.vrId === vid) return false;
+               if (currentBindingGroup?.bindings?.some((b: ACLGroupBinding) => b.vrId === vid)) return false;
+                return true;
+              }).map(v => {
+                const id = v.uuid || v.id || v.vm_id;
+                const name = v.name || id;
+                return id ? (<Option key={id} value={id}>{name}</Option>) : null;
+              })}
+            </Select>
           </Form.Item>
         </Form>
       </StdSideDrawer>

@@ -57,7 +57,7 @@ const Login: React.FC = () => {
             <Form.Item>
               <Button
                 type="primary"
-                onClick={()=>form.submit()}
+                htmlType="submit"
                 loading={loading}
                 block
                 size="large"

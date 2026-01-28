@@ -3,6 +3,7 @@ import { AppDataSource } from '../config/database';
 import { ACLRule, ACLAction, ACLProtocol } from '../entities/ACLRule';
 import { VRConfig } from '../entities/VRConfig';
 import { vrController } from '../services/vrController';
+import { syncACLToVRConfig, syncGroupToVRs } from './aclGroups';
 
 export const aclRoutes = Router();
 const repo = () => AppDataSource.getRepository(ACLRule);
@@ -79,11 +80,20 @@ aclRoutes.post('/', async (req, res, next) => {
       res.status(400).json({ message: 'Missing required fields' });
       return;
     }
+    
+    // Strict enforcement: Rules must belong to a group
+    // The preferred way is POST /api/acl-groups/:id/rules, but if this endpoint is used, groupId is required.
+    const { groupId } = req.body;
+    if (!groupId) {
+       res.status(400).json({ message: 'Rules must belong to an ACL Group (groupId is required)' });
+       return;
+    }
 
     const item = repo().create({
       name,
       description,
       vrId,
+      groupId, 
       priority: Number(priority) || 100,
       action: action || ACLAction.PERMIT,
       protocol: protocol || ACLProtocol.ANY,
@@ -94,13 +104,13 @@ aclRoutes.post('/', async (req, res, next) => {
     });
     await repo().save(item);
 
-    // Note: This endpoint NO LONGER pushes to device automatically if we follow the new pattern.
-    // However, to maintain backward compatibility with "Quick Add", we might want to keep push?
-    // User says "Trigger push later...". So ideally we just save to DB.
-    // But existing UI might expect push.
-    // For now, I will assume the new UI uses the new flow.
-    // The existing code I overwrote had complex push logic.
-    // I should probably simplify it to just DB save for consistency with "Save then Push".
+    // Sync to VR Config
+    if (groupId) {
+      await syncGroupToVRs(groupId);
+    } else {
+      // Should not happen due to validation above, but fallback
+      await syncACLToVRConfig(vrId);
+    }
 
     res.status(201).json(item);
   } catch (e) {
@@ -117,7 +127,14 @@ aclRoutes.delete('/:id', async (req, res, next) => {
       res.status(404).json({ message: 'Rule not found' });
       return;
     }
+    const vrId = item.vrId;
     await repo().remove(item);
+
+    // Sync to VR Config
+    if (vrId) {
+      await syncACLToVRConfig(vrId);
+    }
+
     res.status(204).send();
   } catch (e) {
     next(e);
@@ -133,46 +150,12 @@ aclRoutes.post('/deploy/push', async (req, res, next) => {
       return;
     }
 
-    // 1. Fetch all rules for this VR (including those in groups)
-    const rules = await repo().find({
-      where: { vrId },
-      order: { priority: 'ASC' },
-    });
+    // 1. Sync latest state to VR Config (Source of Truth)
+    // This ensures groups and loose rules are correctly formatted in config_json
+    const fullConfig = await syncACLToVRConfig(vrId);
 
-    // 2. Convert to VR Config Format
-    const aclConfig = rules.map((r) => ({
-      name: r.name,
-      priority: r.priority,
-      action: r.action,
-      protocol: r.protocol,
-      source_ip: r.sourceIp || 'any',
-      destination_ip: r.destinationIp || 'any',
-      source_port: r.sourcePort || 'any',
-      destination_port: r.destinationPort || 'any',
-    }));
-
-    // 3. Fetch current VR Config
-    let baseConfig: any = {};
-    try {
-      baseConfig = await getVRConfigFromDevice(vrId);
-    } catch (e) {
-      console.warn('Failed to fetch from device, trying DB cache');
-      try {
-        baseConfig = await getVRConfigFromDB(vrId);
-      } catch {
-        baseConfig = {};
-      }
-    }
-
-    if (!baseConfig || Object.keys(baseConfig).length === 0) {
-      baseConfig = {};
-    }
-
-    // 4. Update ACL section
-    baseConfig.acl = aclConfig;
-
-    // 5. Push to Device
-    const cleanConfig = stripMeta(baseConfig);
+    // 2. Push to Device
+    const cleanConfig = stripMeta(fullConfig);
     try {
       await vrController.updateVRConfig(vrId, cleanConfig);
     } catch (err: any) {
@@ -180,9 +163,6 @@ aclRoutes.post('/deploy/push', async (req, res, next) => {
       res.status(500).json({ message: `Failed to apply configuration to VR: ${err.message}` });
       return;
     }
-
-    // 6. Save to DB Cache
-    await saveVRConfigToDB(vrId, baseConfig);
 
     res.json({ status: 'success', data: cleanConfig });
   } catch (e) {

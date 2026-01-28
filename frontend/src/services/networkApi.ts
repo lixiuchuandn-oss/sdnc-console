@@ -2,12 +2,20 @@ import { apiRequest, apiPost, apiDelete, apiPatch } from './api';
 
 // --- ACL APIs ---
 
+export interface ACLGroupBinding {
+  id: string;
+  aclGroupId: string;
+  vrId: string;
+}
+
 export interface ACLGroup {
   id: string;
   name: string;
+  aclId?: number;
   description?: string;
   vrId?: string;
   rules?: ACLRule[];
+  bindings?: ACLGroupBinding[];
   createdAt: string;
   updatedAt: string;
 }
@@ -44,6 +52,14 @@ export const updateACLGroup = async (id: string, data: Partial<ACLGroup>) => {
 
 export const deleteACLGroup = async (id: string) => {
   return await apiDelete(`/api/networks/acl-groups/${id}`);
+};
+
+export const bindACLGroupToVR = async (groupId: string, vrId: string) => {
+  return await apiPost(`/api/networks/acl-groups/${groupId}/bind`, { vrId });
+};
+
+export const unbindACLGroupFromVR = async (groupId: string, vrId: string) => {
+  return await apiPost(`/api/networks/acl-groups/${groupId}/unbind`, { vrId });
 };
 
 export const getACLGroupRules = async (groupId: string) => {

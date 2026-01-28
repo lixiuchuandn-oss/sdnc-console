@@ -14,9 +14,14 @@ type StdSideDrawerProps = {
   cancelText?: string;
   headerDivider?: boolean;
   styles?: DrawerProps['styles'];
+  maskClosable?: boolean;
+  confirmLoading?: boolean;
 };
 
-const StdSideDrawer: React.FC<StdSideDrawerProps> = ({ open, title, width = 1200, placement = 'right', onClose, children, onOk, okText = '保存', cancelText = '取消', styles }) => {
+const StdSideDrawer: React.FC<StdSideDrawerProps> = ({ 
+  open, title, width = 1200, placement = 'right', onClose, children, onOk, 
+  okText = '保存', cancelText = '取消', styles, maskClosable = true, confirmLoading = false 
+}) => {
   return (
     <Drawer
       title={typeof title === 'string' ? (<span style={{ fontWeight: 400 }}>{title}</span>) : title}
@@ -25,6 +30,7 @@ const StdSideDrawer: React.FC<StdSideDrawerProps> = ({ open, title, width = 1200
       onClose={onClose}
       destroyOnClose
       width={width}
+      maskClosable={maskClosable}
       styles={{
         footer: { height: 60, padding: '0 16px', background: '#fff', display: 'flex', alignItems: 'center' },
         ...(styles || {})
@@ -32,7 +38,7 @@ const StdSideDrawer: React.FC<StdSideDrawerProps> = ({ open, title, width = 1200
       footer={(
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, width: '100%' }}>
           <Button onClick={onClose}>{cancelText}</Button>
-          <Button type="primary" onClick={onOk}>{okText}</Button>
+          <Button type="primary" onClick={onOk} loading={confirmLoading}>{okText}</Button>
         </div>
       )}
     >
