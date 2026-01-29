@@ -32,8 +32,8 @@ Thumbs.db
 /backend/scripts/
 /backend/verify_acl.js
 
-# Ignore deployment output
-/deployment/output/
+# Ignore deployment directory (local only)
+/deployment/
 
 # Ignore release artifacts
 /release/*.zip
