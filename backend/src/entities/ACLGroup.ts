@@ -7,6 +7,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { ACLRule } from './ACLRule';
+import { ACLGroupBinding } from './ACLGroupBinding';
 
 @Entity()
 export class ACLGroup {
@@ -33,7 +34,7 @@ export class ACLGroup {
   @OneToMany(() => ACLRule, (rule) => rule.group)
   rules!: ACLRule[];
 
-  @OneToMany('ACLGroupBinding', 'aclGroup')
+  @OneToMany(() => ACLGroupBinding, (binding) => binding.aclGroup)
   bindings!: ACLGroupBinding[];
 
   @CreateDateColumn()
