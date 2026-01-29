@@ -102,6 +102,9 @@ router.get('/rbac/actions', async (_req, res) => {
     'clouds.route-entries:write',
     'clouds.nat-gateways:read',
     'clouds.nat-gateways:write',
+    // 云主机控制台
+    'clouds.console:read',
+    'clouds.console:write',
     // 网络：跨地域互联与安全面
     'networks.vpcs:read',
     'networks.vpcs:write',
@@ -143,6 +146,8 @@ router.get('/rbac/actions', async (_req, res) => {
     'trust.datasets:read',
     'trust.datasets:write',
   ];
+  curated.forEach(addScanned);
+
   const baseMap: Record<string, string> = {};
   const buildBaseMap = async (file: string) => {
     try {

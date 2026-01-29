@@ -40,3 +40,19 @@
 .filter-actions .ant-btn {
   padding: 0 12px;
 }
+
+/* 重置按钮：纯文字链接，底部对齐，高度32px，垂直居中，无padding/margin */
+.filter-reset-link {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: #1677ff;
+  transition: color 0.2s;
+}
+
+.filter-reset-link:hover {
+  color: #4096ff;
+}

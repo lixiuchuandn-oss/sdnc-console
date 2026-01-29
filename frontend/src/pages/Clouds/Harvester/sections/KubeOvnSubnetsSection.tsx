@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Tag, Space, Input, Select } from 'antd';
+import { Table, Tag, Space, Input, Select, Button } from 'antd';
+import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 
 type Props = {
   subnets: any[];
   loading: boolean;
+  onRefresh?: () => void;
 };
 
-const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, loading }) => {
+const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, loading, onRefresh }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [vpc, setVpc] = useState<string | undefined>(undefined);
   const [protocol, setProtocol] = useState<string | undefined>(undefined);
@@ -69,6 +71,12 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, loading }) => {
           <Select allowClear placeholder="DHCP" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={dhcp} onChange={(v)=> setDhcp(v)} style={{ width: 200 }} />
         </>
       )}
+      toolbarRight={(
+        <>
+          <Button icon={<SettingOutlined />} />
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+        </>
+      )}
     >
       <Table
         className="kv-section-table"
@@ -86,7 +94,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, loading }) => {
         ] as any}
         dataSource={filtered}
         loading={loading}
-        pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
     </PageDetailSection>
   );

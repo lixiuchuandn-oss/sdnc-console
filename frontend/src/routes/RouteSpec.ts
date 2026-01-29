@@ -30,6 +30,11 @@ export const routeSpecs: RouteSpec[] = [
     title: '云主机控制台',
     breadcrumbLabel: '云主机控制台',
     icon: 'DesktopOutlined',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write'
+    },
     order: 10
   },
   {
@@ -66,6 +71,11 @@ export const routeSpecs: RouteSpec[] = [
     title: '租户管理',
     subtitle: '租户（Tenant）用于隔离不同组织或项目的资源与权限，支持组织架构、用户与角色管理、资源池分配等。',
     icon: 'TeamOutlined',
+    requiredActions: {
+      page: 'tenants:read',
+      read: 'tenants:read',
+      write: 'tenants:write'
+    },
     order: 1
   },
   {
@@ -89,6 +99,11 @@ export const routeSpecs: RouteSpec[] = [
     group: '租户管理',
     title: '子用户管理',
     icon: 'UserSwitchOutlined',
+    requiredActions: {
+      page: 'users:read',
+      read: 'users:read',
+      write: 'users:write'
+    },
     order: 3
   },
   {

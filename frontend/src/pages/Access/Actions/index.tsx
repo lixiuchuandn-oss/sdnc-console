@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Form, Input, Select, Space, Table, Tag, Tree } from 'antd';
-import { ApiOutlined } from '@ant-design/icons';
+import { ApiOutlined, ReloadOutlined } from '@ant-design/icons';
  
 import axios from 'axios';
 import { routeSpecs } from '../../../routes/RouteSpec';
 import PageContainer from '../../../components/PageContainer';
-import { PLATFORMS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../../catalogs/navCatalog';
+import { PLATFORMS, PLATFORM_LABELS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../../catalogs/navCatalog';
 import '../../common/filters.css';
 
 type ApiItem = { method: string; path: string; file: string };
@@ -13,9 +13,9 @@ type ActionItem = { key: string; action: string; group: string; feature: string;
 
  
 
-const mapGroupOf = (val: string): string => groupOf(val) || '';
+const mapGroupOf = (val: string): string => groupOf(val.split(':')[0]) || '';
 
-const mapPlatformOf = (val: string): string => platformOf(val) || '';
+const mapPlatformOf = (val: string): string => platformOf(val.split(':')[0]) || '';
 
 const featureOf = (resource: string): string => featureLabelOf(resource);
 
@@ -57,61 +57,75 @@ const AccessActionsPage: React.FC = () => {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [filterForm] = Form.useForm();
 
-  useEffect(() => {
-    const load = async () => {
-      const baseItems: ActionItem[] = [];
-      routeSpecs.forEach(spec => {
-        const ra = spec.requiredActions || {};
-        const add = (val?: string) => {
-          const a = typeof val === 'string' ? val : '';
-          if (!a) return;
-          baseItems.push({
-            key: `${a}::${spec.id}`,
-            action: a,
-            group: spec.group || mapGroupOf(a),
-            feature: spec.title || featureOf(a.split(':')[0] || a),
-            platform: spec.platform || mapPlatformOf(a),
-            desc: describeAction(a),
-            bound: false,
-            apis: [],
-          });
-        };
-        add(ra.page);
-        add(ra.read);
-        add(ra.write);
-      });
-
-      try {
-        const token = localStorage.getItem('token');
-        const resp = await axios.get('/api/system/rbac/actions', {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  const load = async () => {
+    const baseItems: ActionItem[] = [];
+    routeSpecs.forEach(spec => {
+      const ra = spec.requiredActions || {};
+      const addedActions = new Set<string>(); // prevent duplicates within same spec
+      const add = (val?: string) => {
+        const a = typeof val === 'string' ? val : '';
+        if (!a) return;
+        if (addedActions.has(a)) return;
+        addedActions.add(a);
+        baseItems.push({
+          key: `${a}::${spec.id}`,
+          action: a,
+          group: spec.group || mapGroupOf(a),
+          feature: spec.title || featureOf(a.split(':')[0] || a),
+          platform: spec.platform || mapPlatformOf(a),
+          desc: describeAction(a),
+          bound: false,
+          apis: [],
         });
-        const scannedArr: string[] = Array.isArray(resp.data?.scanned) ? resp.data.scanned : [];
-        const details: Record<string, ApiItem[]> = (resp.data?.details && typeof resp.data.details === 'object') ? resp.data.details : {};
-        const itemsBase = baseItems.map(it => ({
-          ...it,
-          bound: scannedArr.includes(it.action),
-          apis: details[it.action] || [],
+      };
+      // Explicitly prioritize READ/WRITE first to avoid "Page Access" description if they are same
+      add(ra.read);
+      add(ra.write);
+      add(ra.page);
+    });
+
+    try {
+      const token = localStorage.getItem('token');
+      const resp = await axios.get('/api/system/rbac/actions', {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const scannedArr: string[] = Array.isArray(resp.data?.scanned) ? resp.data.scanned : [];
+      const details: Record<string, ApiItem[]> = (resp.data?.details && typeof resp.data.details === 'object') ? resp.data.details : {};
+      const itemsBase = baseItems.map(it => ({
+        ...it,
+        bound: scannedArr.includes(it.action),
+        apis: details[it.action] || [],
+      }));
+      const existingActions = new Set(itemsBase.map(x => x.action));
+      const extraItems: ActionItem[] = scannedArr
+        .filter(a => !existingActions.has(a))
+        .map(a => ({
+          key: `${a}::scanned`,
+          action: a,
+          group: mapGroupOf(a),
+          feature: featureOf(a.split(':')[0] || a),
+          platform: mapPlatformOf(a),
+          desc: describeAction(a),
+          bound: true,
+          apis: details[a] || [],
         }));
-        const existingActions = new Set(itemsBase.map(x => x.action));
-        const extraItems: ActionItem[] = scannedArr
-          .filter(a => !existingActions.has(a))
-          .map(a => ({
-            key: `${a}::scanned`,
-            action: a,
-            group: mapGroupOf(a),
-            feature: featureOf(a.split(':')[0] || a),
-            platform: mapPlatformOf(a),
-            desc: describeAction(a),
-            bound: true,
-            apis: details[a] || [],
-          }));
-        const items = itemsBase.concat(extraItems);
-        setList(items);
-      } catch {
-        setList(baseItems);
-      }
-    };
+      const items = itemsBase.concat(extraItems);
+      setList(items);
+    } catch {
+      setList(baseItems);
+    }
+  };
+
+  // Reset all filters when platform changes
+  useEffect(() => {
+    setActiveGroup('全部');
+    setActiveFeature(undefined);
+    setActiveAction(undefined);
+    setSelectedTreeKeys(['grp:全部']);
+    filterForm.setFieldsValue({ group: '全部' });
+  }, [activePlatform]);
+
+  useEffect(() => {
     load();
   }, []);
 
@@ -120,6 +134,7 @@ const AccessActionsPage: React.FC = () => {
     return list
       .filter(x => activePlatform === '全部' || x.platform === activePlatform)
       .filter(x => activeGroup === '全部' || x.group === activeGroup)
+      // When filtering by feature, ensure it matches EXACTLY, to avoid cross-contamination
       .filter(x => !activeFeature || x.feature === activeFeature)
       .filter(x => !activeAction || x.action === activeAction)
       .filter(x => activeStatus === '全部' || (activeStatus === '已绑定' ? !!x.bound : !x.bound))
@@ -163,7 +178,7 @@ const AccessActionsPage: React.FC = () => {
       <div style={{ display: 'flex', gap: 0 }}>
         <div style={{ width: 260, minWidth: 260, flex: '0 0 260px', borderRight: '1px solid #f0f0f0', paddingRight: 12, overflowY: 'auto' }}>
           <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 8 }}>
-            <Select value={activePlatform} onChange={(v)=> { setActivePlatform(v); setSelectedTreeKeys(['grp:全部']); setActiveGroup('全部'); filterForm.setFieldsValue({ group: '全部' }); }} style={{ width: '100%' }} options={platforms.map(p => ({ value: p, label: p }))} placeholder="选择顶级目录" />
+            <Select value={activePlatform} onChange={(v)=> setActivePlatform(v)} style={{ width: '100%' }} options={platforms.map(p => ({ value: p, label: PLATFORM_LABELS[p] || p }))} placeholder="选择顶级目录" />
           </Space>
           <Tree
             treeData={treeData as any}
@@ -230,14 +245,22 @@ const AccessActionsPage: React.FC = () => {
               <Form.Item name="status" label="状态" initialValue={activeStatus}>
                 <Select style={{ width: 160 }} options={[{ value: '全部', label: '全部' }, { value: '已绑定', label: '已绑定' }]} />
               </Form.Item>
+              <a className="filter-reset-link" onClick={() => { 
+                setKw(''); 
+                setActiveGroup('全部'); 
+                setActiveStatus('全部'); 
+                setActiveFeature(undefined); 
+                setActiveAction(undefined); 
+                setSelectedTreeKeys(['grp:全部']); 
+                filterForm.setFieldsValue({ group: '全部', status: '全部' }); 
+              }}>重置</a>
             </Form>
             <Space className="filter-actions">
-              <Button size="middle" onClick={() => { setKw(''); setActiveGroup('全部'); setActiveStatus('全部'); setActiveFeature(undefined); setActiveAction(undefined); setSelectedTreeKeys(['grp:全部']); filterForm.setFieldsValue({ group: '全部', status: '全部' }); }}>重置</Button>
+              <Button icon={<ReloadOutlined />} onClick={load} />
             </Space>
           </div>
           <Table
-            className="vr-table vr-table--middle"
-            size="middle"
+            className="vr-table"
             rowKey={(r:any)=> r.key || r.id || Math.random().toString(36).slice(2)}
             dataSource={rows}
             expandable={{
@@ -261,10 +284,10 @@ const AccessActionsPage: React.FC = () => {
             }}
             columns={[
               { title:'权限原子', dataIndex:'action' },
-              { title:'功能', dataIndex:'feature', width: 140 },
-              { title:'分组', dataIndex:'group', width: 140 },
+              { title:'功能', dataIndex:'feature' },
+              { title:'分组', dataIndex:'group' },
               { title:'描述', dataIndex:'desc' },
-              { title:'状态', key:'status', width: 100, render: (_:any, r:any) => (<Tag color={r.bound? 'green':'gold'}>{r.bound? '已绑定':'策划'}</Tag>) },
+              { title:'状态', key:'status', render: (_:any, r:any) => (<Tag color={r.bound? 'green':'gold'}>{r.bound? '已绑定':'策划'}</Tag>) },
             ] as any}
             pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'], size: 'default' }}
             scroll={{ x: 'max-content' }}

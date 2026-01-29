@@ -632,6 +632,59 @@ export const fetchHarvesterNamespaces = async (cloudId: string) => {
   return await res.json();
 };
 
+export const createHarvesterNamespace = async (cloudId: string, payload: { name: string; labels?: Record<string,string>; annotations?: Record<string,string> }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload || {}),
+    credentials: 'include',
+  });
+  const text = await res.text();
+  let json: any = text;
+  try { json = JSON.parse(text); } catch {}
+  if (!res.ok) {
+    throw new Error(typeof json === 'string' ? json : (json?.error || json?.message || '请求失败'));
+  }
+  return json;
+};
+
+export const updateHarvesterNamespace = async (cloudId: string, name: string, payload: { labels?: Record<string,string>; annotations?: Record<string,string> }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces/${encodeURIComponent(name)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload || {}),
+    credentials: 'include',
+  });
+  const text = await res.text();
+  let json: any = text;
+  try { json = JSON.parse(text); } catch {}
+  if (!res.ok) {
+    throw new Error(typeof json === 'string' ? json : (json?.error || json?.message || '请求失败'));
+  }
+  return json;
+};
+
+export const deleteHarvesterNamespace = async (cloudId: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text);
+      throw new Error(json?.message || json?.error || text);
+    } catch {
+      throw new Error(text);
+    }
+  }
+  return await res.json();
+};
+
 export const fetchHarvesterVolumes = async (cloudId: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/volumes`, {

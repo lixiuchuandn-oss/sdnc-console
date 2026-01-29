@@ -28,6 +28,8 @@ export {
   createVolumeSnapshot,
   updatePVCSpec,
   clonePVC,
+  createHarvesterNamespace,
+  deleteHarvesterNamespace,
 } from './resources';
 export {
   listHarvesterNodesStandard,

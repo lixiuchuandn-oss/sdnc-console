@@ -16,7 +16,9 @@ import {
   Space,
 } from 'antd';
 import { 
-  EllipsisOutlined
+  EllipsisOutlined,
+  SettingOutlined,
+  ReloadOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { Tenant, Organization, TenantUser, CreateTenantRequest, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
@@ -26,6 +28,8 @@ import PageContainer from '../../components/PageContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import SharedToolbar from '../../components/SharedToolbar';
 import '../common/filters.css';
+
+import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 
 const { TextArea } = Input;
 // const { TabPane } = Tabs;
@@ -477,13 +481,6 @@ const TenantsPage: React.FC = () => {
   // 租户表格列定义
   const tenantColumns: ColumnsType<Tenant> = [
     {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 180,
-      render: (text: string) => <Typography.Text copyable style={{ fontSize: 12 }}>{text}</Typography.Text>
-    },
-    {
       title: '租户',
       dataIndex: 'name',
       key: 'name',
@@ -494,6 +491,12 @@ const TenantsPage: React.FC = () => {
           </Button>
         </div>
       )
+    },
+    {
+      title: 'ID',
+      dataIndex: 'id',
+      key: 'id',
+      render: (text: string) => <Typography.Text copyable style={{ fontSize: 12 }}>{text}</Typography.Text>
     },
     {
       title: '状态',
@@ -533,39 +536,35 @@ const TenantsPage: React.FC = () => {
       title: '操作',
       key: 'action',
       render: (_, record: Tenant) => (
-        <Dropdown
-          menu={{
-            items: [
-              { key: 'edit', label: '编辑' },
-              { key: 'delete', label: '删除', danger: true },
-              { key: 'orgManage', label: '组织管理' },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'edit') {
-                setEditingTenant(record);
-                tenantForm.setFieldsValue(record);
-                setTenantDrawerOpen(true);
-                return;
-              }
-              if (key === 'delete') {
-                Modal.confirm({
-                  title: '确认删除租户',
-                  content: '删除后将无法恢复，相关的组织和用户也会被删除。',
-                  okText: '删除',
-                  cancelText: '取消',
-                  onOk: async () => { await handleDeleteTenant(record.id); },
-                });
-                return;
-              }
-              if (key === 'orgManage') {
-                navigate(`/admin/tenants/${record.id}/organizations`);
-                return;
-              }
+        <ResourceActionsDropdown
+          items={[
+            { key: 'edit', label: '编辑' },
+            { key: 'delete', label: '删除', danger: true },
+            { key: 'orgManage', label: '组织管理' },
+          ]}
+          onClick={({ key }) => {
+            if (key === 'edit') {
+              setEditingTenant(record);
+              tenantForm.setFieldsValue(record);
+              setTenantDrawerOpen(true);
+              return;
+            }
+            if (key === 'delete') {
+              Modal.confirm({
+                title: '确认删除租户',
+                content: '删除后将无法恢复，相关的组织和用户也会被删除。',
+                okText: '删除',
+                cancelText: '取消',
+                onOk: async () => { await handleDeleteTenant(record.id); },
+              });
+              return;
+            }
+            if (key === 'orgManage') {
+              navigate(`/admin/tenants/${record.id}/organizations`);
+              return;
             }
           }}
-        >
-          <Button type="link" size="small" icon={<EllipsisOutlined />} />
-        </Dropdown>
+        />
       ),
     },
   ];
@@ -635,14 +634,19 @@ const TenantsPage: React.FC = () => {
 
   // 过滤后的租户列表
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [idFilter, setIdFilter] = useState<string>('');
+  
   const handleFilterChange = (_: any, all: any) => {
     setTenantSearch(all.keyword || '');
     setStatusFilter(all.status || undefined);
+    setIdFilter(all.id || '');
   };
+  
   const filteredTenants = tenants.filter(t => {
     const okKeyword = t.name.toLowerCase().includes(tenantSearch.toLowerCase()) || (t.description || '').toLowerCase().includes(tenantSearch.toLowerCase());
     const okStatus = !statusFilter || t.status === statusFilter;
-    return okKeyword && okStatus;
+    const okId = !idFilter || t.id.toLowerCase().includes(idFilter.toLowerCase());
+    return okKeyword && okStatus && okId;
   });
 
   useEffect(() => {
@@ -675,18 +679,21 @@ const TenantsPage: React.FC = () => {
             style={{ rowGap:12, columnGap:12, display:'flex', alignItems:'flex-end' }}
             onValuesChange={handleFilterChange}
           >
-            <Form.Item name="keyword" label="租户名称">
+            <Form.Item name="keyword" label="租户名称" style={{ marginBottom: 0, paddingBottom: 8 }}>
               <Input allowClear placeholder="支持模糊查询" style={{ width:200 }} />
             </Form.Item>
-            <Form.Item name="status" label="状态">
+            <Form.Item name="id" label="ID" style={{ marginBottom: 0, paddingBottom: 8 }}>
+              <Input allowClear placeholder="请输入ID" style={{ width:200 }} />
+            </Form.Item>
+            <Form.Item name="status" label="状态" style={{ marginBottom: 0, paddingBottom: 8 }}>
               <Select allowClear placeholder="选择状态" style={{ width:200 }}>
                 <Select.Option value="active">活跃</Select.Option>
                 <Select.Option value="inactive">非活跃</Select.Option>
                 <Select.Option value="suspended">暂停</Select.Option>
               </Select>
             </Form.Item>
-            <Form.Item>
-              <Button type="link" style={{ padding:0 }} onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); setStatusFilter(undefined); }}>重置</Button>
+            <Form.Item style={{ marginBottom: 0 }}>
+              <Button type="link" style={{ padding:0, height: '30px', lineHeight: '30px' }} onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); setStatusFilter(undefined); setIdFilter(''); }}>重置</Button>
             </Form.Item>
           </Form>
         )}
@@ -696,17 +703,17 @@ const TenantsPage: React.FC = () => {
             <Dropdown
               menu={{
                 items: [
-                  { key: 'refresh', label: '刷新' },
                   { key: 'batchDelete', label: '批量删除', danger: true, disabled: selectedTenantRowKeys.length === 0 },
                 ],
                 onClick: ({ key }) => {
-                  if (key === 'refresh') { fetchTenants(); return; }
                   if (key === 'batchDelete') { handleBatchDeleteTenants(); return; }
                 }
               }}
             >
-              <Button icon={<EllipsisOutlined />} loading={loading}>更多</Button>
+              <Button icon={<EllipsisOutlined />} />
             </Dropdown>
+            <Button icon={<SettingOutlined />} />
+            <Button icon={<ReloadOutlined />} onClick={fetchTenants} loading={loading} />
           </Space>
         )}
       />
@@ -721,8 +728,6 @@ const TenantsPage: React.FC = () => {
             rowKey="id"
             rowSelection={{ selectedRowKeys: selectedTenantRowKeys, onChange: (keys)=> setSelectedTenantRowKeys(keys as string[]) }}
             pagination={{ pageSize:10 }}
-            style={{ width: '100%', fontSize: 14 }}
-            className="tenant-table"
           />
         </Col>
         {/* 右侧说明卡片去除，直接以行操作菜单进入抽屉 */}

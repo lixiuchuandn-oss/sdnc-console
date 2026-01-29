@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Select, Tag } from 'antd';
+import { Table, Input, Select, Tag, Button } from 'antd';
+import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 
 type Props = {
   nads: any[];
   loading: boolean;
+  onRefresh?: () => void;
 };
 
-const NadsSection: React.FC<Props> = ({ nads, loading }) => {
+const NadsSection: React.FC<Props> = ({ nads, loading, onRefresh }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [ipamFilter, setIpamFilter] = useState<string>('');
@@ -41,6 +43,12 @@ const NadsSection: React.FC<Props> = ({ nads, loading }) => {
           <Select allowClear placeholder="IPAM类型" value={ipamFilter || undefined} onChange={(v)=>setIpamFilter(v||'')} style={{ width: 200 }} options={[{ value: '', label: '全部' }, ...ipamOptions.map(s=>({ value: s.toLowerCase(), label: netTypeText(s) }))]} />
         </>
       )}
+      toolbarRight={(
+        <>
+          <Button icon={<SettingOutlined />} />
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+        </>
+      )}
     >
       <Table
         className="kv-section-table"
@@ -57,7 +65,7 @@ const NadsSection: React.FC<Props> = ({ nads, loading }) => {
         ] as any}
         dataSource={filtered}
         loading={loading}
-        pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
     </PageDetailSection>
   );

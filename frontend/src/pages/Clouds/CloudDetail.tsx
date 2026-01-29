@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Divider, Tabs, Descriptions, Modal, Form, Input, Checkbox, Select, Popconfirm, Dropdown, Radio, InputNumber, App } from 'antd';
 import { CloudOutlined, HomeOutlined, GlobalOutlined, ReloadOutlined, ArrowLeftOutlined, CloudUploadOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, HddOutlined, DeploymentUnitOutlined, SwapOutlined, BranchesOutlined, NodeIndexOutlined, CameraOutlined, UnorderedListOutlined, EditOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../components/PageDetailContainer';
+import NamespacesTab from './Harvester/sections/NamespacesTab';
 import { bc, build } from '../../components/Breadcrumbs';
 import { normalizeVpcs } from '../../utils/cloudNormalize';
 import CloudDetailHw from './Hw/CloudDetailHw';
@@ -688,7 +689,7 @@ const CloudDetail: React.FC = () => {
     return (<CloudDetailCsm cloudId={id} />);
   }
   if ((provider === 'cloudmap.edge' || provider === 'cloudmap.private') && id) {
-    return (<CloudDetailHarvester cloudId={id} defaultProvider={provider} />);
+    return (<CloudDetailCloudmap cloudId={id} />);
   }
   if ((provider === 'harvester') && id) {
     return (<CloudDetailHarvester cloudId={id} defaultProvider={provider} />);
@@ -2132,6 +2133,11 @@ const CloudDetail: React.FC = () => {
               )
             }])
             , ...(provider === 'harvester' ? [
+            {
+              key: 'namespaces',
+              label: 'Namespaces',
+              children: <NamespacesTab cloudId={id!} />
+            },
             {
               key: 'harvester_nodes',
               label: '节点',

@@ -83,6 +83,7 @@ export const requestJson = (
   token: string,
   insecure: boolean = false,
   body?: any,
+  customHeaders?: Record<string, string>,
 ) => {
   return new Promise<any>((resolve, reject) => {
     const data = body ? Buffer.from(JSON.stringify(body)) : undefined;
@@ -96,6 +97,7 @@ export const requestJson = (
           ...(data
             ? { 'Content-Type': 'application/json', 'Content-Length': String(data.length) }
             : {}),
+          ...(customHeaders || {}),
         },
         rejectUnauthorized: !insecure,
       },

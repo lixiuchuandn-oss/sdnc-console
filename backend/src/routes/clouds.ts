@@ -5,6 +5,7 @@ import { AppDataSource } from '../config/database';
 import { Cloud, CloudType, CloudStatus } from '../entities/Cloud';
 import { CloudInstanceInventory } from '../entities/CloudInstanceInventory';
 import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
+import { UserSpace } from '../entities/UserSpace';
 import { AuthRequest } from '../middleware/auth';
 import { UserRole } from '../entities/User';
 
@@ -73,7 +74,7 @@ const testCloudConnectionUnified = async (args: {
   if (provider === 'cloudmap.private' || provider === 'cloudmap.edge') {
     const t = await testHarvesterConnection({
       endpoint: args.endpoint || '',
-      token: args.secretKey || '',
+      token: args.config?.apiToken || args.config?.token || args.secretKey || '',
       insecure: !!args.config?.ignoreTls,
     });
     return { ok: !!t.ok, message: t.message || '' };
@@ -81,7 +82,7 @@ const testCloudConnectionUnified = async (args: {
   if (provider === 'harvester') {
     const t = await testHarvesterConnection({
       endpoint: args.endpoint || '',
-      token: args.secretKey || '',
+      token: args.config?.apiToken || args.config?.token || args.secretKey || '',
       insecure: !!args.config?.ignoreTls,
     });
     return { ok: !!t.ok, message: t.message || '' };
@@ -149,15 +150,20 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
     if (role === UserRole.SUPER_ADMIN) return next();
 
     const method = String(req.method || 'GET').toUpperCase();
-    const isRead = method === 'GET' || method === 'HEAD';
-    const isWrite = !isRead;
+    let isRead = method === 'GET' || method === 'HEAD';
 
     const path = String((req.baseUrl || '') + (req.path || '')).toLowerCase();
-    const consoleLike =
-      path.includes('/csm/security/domain/attach/callonsso') ||
-      (path.includes('/csm/security/virtual-elements') && path.endsWith('/console'));
-    if (consoleLike) return next();
     const actionBase = (() => {
+      if (
+        path.includes('/csm/security/domain/attach/callonsso') ||
+        (path.includes('/csm/security/virtual-elements') && path.endsWith('/console')) ||
+        path.endsWith('/vnc-url')
+      ) {
+        // 特殊逻辑：获取控制台/VNC地址虽然是GET请求，但属于“建立连接”的敏感操作
+        // 因此强制归类为 Write 权限（clouds.console:write），以区分“查看列表(Read)”与“远程连接(Write)”
+        isRead = false;
+        return 'clouds.console';
+      }
       if (
         path.includes('/resources/ecs') ||
         path.includes('/inventory/instances') ||
@@ -183,6 +189,15 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
     const need = isRead
       ? [`${actionBase}:read`, 'clouds:read']
       : [`${actionBase}:write`, 'clouds:write'];
+
+    // Special case: Listing clouds (root 'clouds' action) should be allowed 
+    // if the user has specific sub-resource access that requires cloud context.
+    // e.g. Console page needs to list clouds to show instances.
+    if (actionBase === 'clouds' && isRead) {
+      need.push('clouds.console:read');
+      need.push('clouds.instances:read');
+    }
+
     const ok = need.some((a) => perms.includes(a));
     if (!ok) {
       const required = need[0];
@@ -215,7 +230,9 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
       perms.includes('clouds.disks:read') ||
       perms.includes('clouds.disks:write') ||
       perms.includes('clouds.snapshots:read') ||
-      perms.includes('clouds.snapshots:write');
+      perms.includes('clouds.snapshots:write') ||
+      perms.includes('clouds.console:read') ||
+      perms.includes('clouds.console:write');
     next();
   } catch {
     return res.status(403).json({ message: '权限不足' });
@@ -1056,7 +1073,7 @@ router.delete('/:id', checkAdminPermission, async (req: AuthRequest, res: Respon
     const { id } = req.params;
 
     const cloudRepository = AppDataSource.getRepository(Cloud);
-    const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
+    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
 
     const cloud = await cloudRepository.findOne({
       where: { id },
@@ -1066,8 +1083,8 @@ router.delete('/:id', checkAdminPermission, async (req: AuthRequest, res: Respon
       return res.status(404).json({ message: '云资源不存在' });
     }
 
-    // 检查是否有资源池分配（与实体字段保持一致：cloudId）
-    const assignments = await assignmentRepository.find({
+    // 检查是否有资源池分配（UserSpace check）
+    const assignments = await userSpaceRepository.find({
       where: { cloudId: id },
     });
 

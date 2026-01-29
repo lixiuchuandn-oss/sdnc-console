@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Space, Input, Select } from 'antd';
+import { Table, Space, Input, Select, Button } from 'antd';
+import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 
 type Props = {
   vpcs: any[];
   loading: boolean;
+  onRefresh?: () => void;
 };
 
-const KubeOvnVpcsSection: React.FC<Props> = ({ vpcs, loading }) => {
+const KubeOvnVpcsSection: React.FC<Props> = ({ vpcs, loading, onRefresh }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [ns, setNs] = useState<string | undefined>(undefined);
   const [standalone, setStandalone] = useState<string | undefined>(undefined);
@@ -51,6 +53,12 @@ const KubeOvnVpcsSection: React.FC<Props> = ({ vpcs, loading }) => {
           <Select allowClear placeholder="独立模式" options={[{ label:'是', value:'yes' }, { label:'否', value:'no' }]} value={standalone} onChange={(v)=> setStandalone(v)} style={{ width: 200 }} />
         </>
       )}
+      toolbarRight={(
+        <>
+          <Button icon={<SettingOutlined />} />
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+        </>
+      )}
     >
       <Table
         className="kv-section-table"
@@ -65,7 +73,7 @@ const KubeOvnVpcsSection: React.FC<Props> = ({ vpcs, loading }) => {
         ] as any}
         dataSource={filtered}
         loading={loading}
-        pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
     </PageDetailSection>
   );

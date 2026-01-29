@@ -3,6 +3,7 @@ import axios from 'axios';
 import https from 'https';
 import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
+import { HarvesterNamespace } from '../entities/HarvesterNamespace';
 import {
   listHarvesterVMsStandard,
   listHarvesterNADsStandard,
@@ -303,6 +304,105 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
       }
     },
   );
+  router.get(
+    '/:id/resources/harvester/namespaces/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+        const candidates = [
+          `${origin}/api/v1/namespaces/${name}`,
+          `${origin}/v1/core.v1.namespaces/${name}`,
+          `${origin}/v1/harvester/core.v1.namespaces/${name}`,
+          `${origin}/k8s/clusters/local/api/v1/namespaces/${name}`,
+        ];
+        let json: any = null;
+        let lastErr: any = null;
+        for (const url of candidates) {
+          try {
+            json = await getJsonOnce(url, cloud.secretKey || '', insecure);
+            if (json) break;
+          } catch (e: any) {
+            lastErr = e;
+          }
+        }
+        if (!json && lastErr) {
+             // 404 is valid if not found
+             if (Number(lastErr?.status) === 404) {
+                 return res.status(404).json({ message: '命名空间不存在' });
+             }
+             throw lastErr;
+        }
+        res.json({ message: '查询成功', data: json });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询命名空间详情失败', error: error.message });
+      }
+    },
+  );
+
+  router.patch(
+    '/:id/resources/harvester/namespaces/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, name } = req.params;
+        const { labels, annotations } = req.body;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源修改')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+        const candidates = [
+          `${origin}/api/v1/namespaces/${name}`,
+          `${origin}/v1/core.v1.namespaces/${name}`,
+        ];
+        const body = {
+          metadata: {
+            labels: labels && typeof labels === 'object' ? labels : undefined,
+            annotations: annotations && typeof annotations === 'object' ? annotations : undefined,
+          },
+        };
+        let json: any = null;
+        let lastErr: any = null;
+        for (const url of candidates) {
+          try {
+            json = await requestJson('PATCH', url, cloud.secretKey || '', insecure, body, {
+              'Content-Type': 'application/merge-patch+json',
+            });
+            if (json) break;
+          } catch (e: any) {
+            lastErr = e;
+          }
+        }
+        if (!json && lastErr) {
+          return res.status(500).json({ message: '修改命名空间失败', error: lastErr?.message });
+        }
+        res.json({ message: '修改成功', data: json });
+      } catch (error: any) {
+        res.status(500).json({ message: '修改命名空间失败', error: error.message });
+      }
+    },
+  );
+
   router.delete(
     '/:id/resources/ecs/:instanceId',
     checkAdminPermission,
@@ -388,14 +488,143 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           }
         }
         if (!json && lastErr) throw lastErr;
-        const items: any[] = Array.isArray(json?.data)
+        let items: any[] = Array.isArray(json?.data)
           ? json?.data
           : Array.isArray(json?.items)
             ? json?.items
             : [];
+        
+        // Enrich with local DB info
+        try {
+          const repo = AppDataSource.getRepository(HarvesterNamespace);
+          const dbItems = await repo.find({ where: { cloudId: id } });
+          const userNamespaces = new Set(dbItems.map(i => i.name));
+          
+          items = items.map(item => {
+             const name = item?.metadata?.name || item?.name;
+             const isUser = userNamespaces.has(name);
+             return { ...item, type: isUser ? 'user' : 'system' };
+          });
+        } catch (e) {
+           console.warn('Failed to fetch HarvesterNamespace records', e);
+        }
+
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询命名空间失败', error: error.message });
+      }
+    },
+  );
+  router.post(
+    '/:id/resources/harvester/namespaces',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { name, labels, annotations } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源创建')) return;
+        const nm = String(name || '').trim();
+        const ok = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(nm) && nm.length > 0 && nm.length <= 63;
+        if (!ok) return res.status(400).json({ message: '非法的命名空间名称（DNS-1123）' });
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+        const candidates = [
+          `${origin}/api/v1/namespaces`,
+          `${origin}/v1/core.v1.namespaces`,
+          `${origin}/v1/harvester/core.v1.namespaces`,
+          `${origin}/k8s/clusters/local/api/v1/namespaces`,
+        ];
+        const body = {
+          apiVersion: 'v1',
+          kind: 'Namespace',
+          metadata: {
+            name: nm,
+            labels: labels && typeof labels === 'object' ? labels : undefined,
+            annotations: annotations && typeof annotations === 'object' ? annotations : undefined,
+          },
+        };
+        let json: any = null;
+        let lastErr: any = null;
+        for (const url of candidates) {
+          try {
+            json = await requestJson('POST', url, cloud.secretKey || '', insecure, body);
+            if (json) break;
+          } catch (e: any) {
+            lastErr = e;
+          }
+        }
+        if (!json && lastErr) {
+          const status = Number(lastErr?.status || 0);
+          const lower = String(lastErr?.message || '').toLowerCase();
+          let msg = '创建命名空间失败';
+          if (status === 403 || lower.includes('forbidden')) msg = '创建失败：权限不足（403）';
+          else if (status === 409 || lower.includes('already exists')) msg = '创建失败：命名空间已存在（409）';
+          else if (status === 422 || lower.includes('invalid')) msg = '创建失败：参数非法（422）';
+          return res.status(500).json({ message: msg, error: lastErr?.message });
+        }
+        res.json({ message: '创建成功', data: json });
+      } catch (error: any) {
+        res.status(500).json({ message: '创建命名空间失败', error: error.message });
+      }
+    },
+  );
+
+  router.delete(
+    '/:id/resources/harvester/namespaces/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+        const candidates = [
+          `${origin}/api/v1/namespaces/${name}`,
+          `${origin}/v1/core.v1.namespaces/${name}`,
+          `${origin}/v1/harvester/core.v1.namespaces/${name}`,
+          `${origin}/k8s/clusters/local/api/v1/namespaces/${name}`,
+        ];
+        let json: any = null;
+        let lastErr: any = null;
+        let success = false;
+        for (const url of candidates) {
+          try {
+            json = await requestJson('DELETE', url, cloud.secretKey || '', insecure);
+            success = true;
+            break; 
+          } catch (e: any) {
+            lastErr = e;
+            // 404 means already deleted
+            if (Number(e?.status) === 404) {
+                success = true;
+                break;
+            }
+          }
+        }
+        if (!success && lastErr) {
+           return res.status(500).json({ message: '删除命名空间失败', error: lastErr?.message });
+        }
+        res.json({ message: '删除成功', data: json });
+      } catch (error: any) {
+        res.status(500).json({ message: '删除命名空间失败', error: error.message });
       }
     },
   );

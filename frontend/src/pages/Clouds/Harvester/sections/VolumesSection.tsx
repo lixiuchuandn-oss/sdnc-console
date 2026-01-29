@@ -1,6 +1,6 @@
 ﻿import React, { useMemo, useState, useEffect } from 'react';
 import { Table, Tag, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Switch } from 'antd';
-import { EllipsisOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import { attachHarvesterVolumeToVm, attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, fetchHarvesterStorageClasses, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume } from '../../../../services/api';
 
@@ -184,12 +184,11 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, onRef
             trigger={["click"]}
             menu={{
               items: [
-                { key: 'refresh', label: '刷新' },
+                { type: 'divider' },
                 { key: 'batchDelete', label: '批量删除', disabled: selectedRowKeys.length === 0, danger: true },
               ],
               onClick: async ({ key }) => {
                 try {
-                  if (key === 'refresh') { onRefresh?.(); return; }
                   if (key === 'batchDelete') {
                     const targets = (Array.isArray(volumes) ? volumes : []).filter((r:any)=> selectedRowKeys.includes(r?.name || r?.metadata?.name));
                     if (targets.length === 0) { message.info('请先选择要删除的卷'); return; }
@@ -225,6 +224,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, onRef
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
+          <Button icon={<SettingOutlined />} />
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
         </>
       )}
     >
@@ -336,7 +337,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, onRef
       ] as any}
       dataSource={filtered}
       loading={loading}
-      pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+      pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
     />
     </PageDetailSection>
   );

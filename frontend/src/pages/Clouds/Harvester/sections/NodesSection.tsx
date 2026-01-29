@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Tag, Input, Select } from 'antd';
+import { Table, Tag, Input, Select, Button } from 'antd';
+import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 
 type Props = {
   nodes: any[];
   loading: boolean;
+  onRefresh?: () => void;
 };
 
-const NodesSection: React.FC<Props> = ({ nodes, loading }) => {
+const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
   const [readyFilter, setReadyFilter] = useState<string>('');
@@ -98,6 +100,12 @@ const NodesSection: React.FC<Props> = ({ nodes, loading }) => {
           <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> setReadyFilter(v || '')} style={{ width: 200 }} options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
         </>
       )}
+      toolbarRight={(
+        <>
+          <Button icon={<SettingOutlined />} />
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+        </>
+      )}
     >
     <Table
       className="kv-section-table"
@@ -115,7 +123,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading }) => {
       ] as any}
       dataSource={filtered}
       loading={loading}
-      pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+      pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
     />
     </PageDetailSection>
   );

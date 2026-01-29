@@ -5,8 +5,10 @@ import { LockOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import PageContainer from '../../../components/PageContainer';
 import StdFormModal from '../../../components/StdFormModal';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import '../../common/filters.css';
-import { PLATFORMS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../../catalogs/navCatalog';
+import { GROUPS, platformOf, groupOf, featureLabelOf } from '../../../catalogs/navCatalog';
+import PermissionTreeTransfer from '../../../components/TreeTransfer';
 
 type Policy = {
   id: string;
@@ -21,7 +23,7 @@ type Policy = {
   };
 };
 
-const mapGroupOf = (val: string): string => groupOf(val) || '';
+const mapGroupOf = (val: string): string => groupOf(val.split(':')[0]) || '';
 
 const featureNameOf = (resource: string): string => featureLabelOf(resource);
 
@@ -45,8 +47,6 @@ const describeAction = (action: string): string => {
   if (op === 'write') return `创建、修改、删除${f}`;
   return `${f}操作`;
 };
-
-const mapPlatformOf = (val: string): string => platformOf(val) || '';
 
 const computeSystemPoliciesFrom = (actions: string[]): Policy[] => {
   const byGroup = new Map<string, string[]>();
@@ -94,8 +94,6 @@ const computeSystemPoliciesFrom = (actions: string[]): Policy[] => {
   return list;
 };
 
- 
-
 const AccessPoliciesPage: React.FC = () => {
   const [policies, setPolicies] = useState<Policy[]>(() => {
     try {
@@ -112,6 +110,7 @@ const AccessPoliciesPage: React.FC = () => {
   const [type, setType] = useState<'all' | '系统策略' | '自定义策略'>('all');
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
+  const [filterForm] = Form.useForm();
   const [selectedActions, setSelectedActions] = useState<string[]>([]);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null);
@@ -119,19 +118,7 @@ const AccessPoliciesPage: React.FC = () => {
   const [assignPolicy, setAssignPolicy] = useState<Policy | null>(null);
   const [assignTargetKeys, setAssignTargetKeys] = useState<React.Key[]>([]);
   const [assignKw, setAssignKw] = useState('');
-  const [assignGroup, setAssignGroup] = useState<string>('全部');
-  const [assignPlatform, setAssignPlatform] = useState<string>('全部');
-  const [assignFeature, setAssignFeature] = useState<string>('全部');
   const [assignVerb, setAssignVerb] = useState<string>('全部');
-  const featureOptions = useMemo(() => {
-    const base = actionAtoms
-      .filter(a => assignPlatform === '全部' || mapPlatformOf(a) === assignPlatform)
-      .filter(a => assignGroup === '全部' || mapGroupOf(a) === assignGroup)
-      .filter(a => assignVerb === '全部' || a.endsWith(`:${assignVerb}`));
-    const set = new Set<string>();
-    base.forEach(a => set.add(featureNameOf(a.split(':')[0] || a)));
-    return ['全部', ...Array.from(set)];
-  }, [actionAtoms, assignPlatform, assignGroup, assignVerb]);
 
   useEffect(() => {
     try {
@@ -243,9 +230,6 @@ const AccessPoliciesPage: React.FC = () => {
     if (!p || p.type !== '自定义策略') return;
     setAssignPolicy(p);
     setAssignTargetKeys(Array.isArray(p.actions) ? p.actions : []);
-    setAssignGroup('全部');
-    setAssignPlatform('全部');
-    setAssignFeature('全部');
     setAssignKw('');
     setAssignOpen(true);
   };
@@ -272,6 +256,7 @@ const AccessPoliciesPage: React.FC = () => {
     >
       <div className="filters-row">
         <Form
+          form={filterForm}
           className="filter-tools filter-tools--center"
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
@@ -290,24 +275,29 @@ const AccessPoliciesPage: React.FC = () => {
           <Form.Item name="group" label="分组" initialValue={activeGroup}>
             <Select showSearch optionFilterProp="label" style={{ width: 220 }} options={groups.map(g => ({ value: g, label: g }))} />
           </Form.Item>
+          <a className="filter-reset-link" onClick={() => {
+            setKw('');
+            setType('all');
+            setActiveGroup('全部');
+            filterForm.resetFields();
+          }}>重置</a>
         </Form>
         <Space className="filter-actions">
-          <Button type="primary" size="middle" icon={<PlusOutlined />} onClick={() => { setSelectedActions([]); setCreateOpen(true); }}>新建策略</Button>
-          <Button size="middle" icon={<ReloadOutlined />} onClick={() => { /* 保留刷新入口 */ }}>刷新</Button>
+          <Button type="primary" onClick={() => { setSelectedActions([]); setCreateOpen(true); }}>新建策略</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => { /* 保留刷新入口 */ }} />
         </Space>
       </div>
 
       <Table
-        className="vr-table vr-table--middle"
-        size="middle"
+        className="vr-table"
         rowKey={(r:any)=> r.key || r.id || Math.random().toString(36).slice(2)}
         dataSource={rows}
         columns={[
-          { title:'序号', key:'index', width:70, render: (_:any, __:any, index:number)=> index+1 },
+          { title:'序号', key:'index', render: (_:any, __:any, index:number)=> index+1 },
           { title:'策略名称', dataIndex:'name' },
-          { title:'策略类型', dataIndex:'type', width: 120, render: (val: string, r: any) => <Space direction="vertical" size={0}><span>{val}</span>{r.conditions && <Tag color="orange" style={{fontSize:10, lineHeight:'16px'}}>ABAC</Tag>}</Space> },
+          { title:'策略类型', dataIndex:'type', render: (val: string, r: any) => <Space direction="vertical" size={0}><span>{val}</span>{r.conditions && <Tag color="orange" style={{fontSize:10, lineHeight:'16px'}}>ABAC</Tag>}</Space> },
           { title:'描述', dataIndex:'desc' },
-          { title:'操作', key:'actions', width: 160, fixed: 'right', render: (_:any, record:any) => {
+          { title:'操作', key:'actions', fixed: 'right', render: (_:any, record:any) => {
             const isCustom = record?.type === '自定义策略';
             const id = String(record?.key || '');
             if (!isCustom) return null;
@@ -335,7 +325,7 @@ const AccessPoliciesPage: React.FC = () => {
               }
               if (key === 'delete') return handleDeletePolicy(id);
             };
-            return <Dropdown menu={{ items, onClick }}><Button type="link">操作</Button></Dropdown>;
+            return <ResourceActionsDropdown items={items} onClick={onClick} />;
           }},
         ] as any}
         pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'], size: 'default' }}
@@ -367,30 +357,18 @@ const AccessPoliciesPage: React.FC = () => {
         }
         setAssignOpen(false);
         setAssignPolicy(null);
-      }} width={1280}>
+      }} width={1280} styles={{ body: { display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}>
         <Form layout="vertical" style={{ display:'flex', gap: 16, marginBottom: 20 }}>
-          <Form.Item label="顶级目录" style={{ width: 200, marginBottom: 0 }}>
-            <Select value={assignPlatform} onChange={(v)=> setAssignPlatform(v)} options={PLATFORMS.map(p => ({ value: p, label: p }))} />
-          </Form.Item>
-          <Form.Item label="分组" style={{ width: 200, marginBottom: 0 }}>
-            <Select value={assignGroup} onChange={(v)=> setAssignGroup(v)} options={groups.map(g=>({ value:g, label:g }))} />
-          </Form.Item>
           <Form.Item label="读写" style={{ width: 160, marginBottom: 0 }}>
             <Select value={assignVerb} onChange={(v)=> setAssignVerb(v)} options={[{ value:'全部', label:'全部' }, { value:'read', label:'read' }, { value:'write', label:'write' }]} />
-          </Form.Item>
-          <Form.Item label="功能" style={{ width: 220, marginBottom: 0 }}>
-            <Select value={assignFeature} onChange={(v)=> setAssignFeature(v)} options={featureOptions.map(f => ({ value: f, label: f }))} />
           </Form.Item>
           <Form.Item label="关键字" style={{ flex: 1, marginBottom: 0 }}>
             <Input.Search allowClear placeholder="搜索权限原子" value={assignKw} onChange={e=> setAssignKw(e.target.value)} />
           </Form.Item>
         </Form>
-        <Transfer
+        <PermissionTreeTransfer
           dataSource={(() => {
             const base = actionAtoms
-              .filter(a => assignPlatform === '全部' || mapPlatformOf(a) === assignPlatform)
-              .filter(a => assignGroup === '全部' || mapGroupOf(a) === assignGroup)
-              .filter(a => assignFeature === '全部' || featureLabelOf(a.split(':')[0]||a) === assignFeature)
               .filter(a => assignVerb === '全部' || a.endsWith(`:${assignVerb}`))
               .filter(a => (assignKw||'').length === 0 || a.toLowerCase().includes(assignKw.toLowerCase()))
               .map(a => ({ key: a, title: a, description: describeAction(a) }));
@@ -399,19 +377,17 @@ const AccessPoliciesPage: React.FC = () => {
             [...base, ...selected].forEach(it => { map.set(String(it.key), it); });
             return Array.from(map.values());
           })()}
-          targetKeys={assignTargetKeys}
-          onChange={(nextTargetKeys: React.Key[], _direction: any, _moveKeys: React.Key[])=> setAssignTargetKeys(nextTargetKeys)}
-          showSearch
-          filterOption={(input: string, item: any) => (item?.title||'').toLowerCase().includes(input.toLowerCase()) || (item?.description||'').toLowerCase().includes(input.toLowerCase())}
+          targetKeys={assignTargetKeys.map(String)}
+          onChange={(nextTargetKeys: string[])=> setAssignTargetKeys(nextTargetKeys)}
           render={(item: any) => (
             <div style={{ display:'flex', flexDirection:'column' }}>
               <span style={{ fontWeight: 500 }}>{item.title}</span>
               <span style={{ color:'#888', fontSize: 12 }}>{item.description}</span>
             </div>
           )}
-          titles={[ '可选权限原子', '已分配' ]}
-          style={{ width: '100%' }}
-          listStyle={{ flex: '1 1 0', minWidth: 0, height: 580 }}
+          titles={[ '可选权限原子 (层级视图)', '已分配' ]}
+          style={{ width: '100%', flex: 1, overflow: 'hidden' }}
+          listStyle={{ flex: '1 1 0', minWidth: 0, height: '100%' }}
         />
       </StdSideDrawer>
     </PageContainer>

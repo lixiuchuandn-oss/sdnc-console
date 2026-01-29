@@ -37,8 +37,14 @@ export function initSshWsServer(server: http.Server) {
       if (!token) throw new Error('缺少 token');
       const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
       if (!decoded || !decoded.role) throw new Error('无效令牌');
-      if (!(decoded.role === UserRole.SUPER_ADMIN || decoded.role === 'admin')) {
-        throw new Error('权限不足');
+      
+      const isSuper = decoded.role === UserRole.SUPER_ADMIN;
+      // 如果不是超级管理员，必须拥有 clouds.console:write 权限
+      if (!isSuper) {
+        const perms: string[] = Array.isArray(decoded.permissions) ? decoded.permissions : [];
+        if (!perms.includes('clouds.console:write')) {
+          throw new Error('缺少 clouds.console:write 权限，无法建立SSH连接');
+        }
       }
     } catch (err: any) {
       ws.send(JSON.stringify({ type: 'error', message: err?.message || '鉴权失败' }));

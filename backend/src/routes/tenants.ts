@@ -5,9 +5,12 @@ import { Tenant } from '../entities/Tenant';
 import { Organization } from '../entities/Organization';
 import { TenantUser } from '../entities/TenantUser';
 import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
+import { UserSpace } from '../entities/UserSpace';
+import { UserSpaceAllocation } from '../entities/UserSpaceAllocation';
 import { TenantLeasedLine } from '../entities/TenantLeasedLine';
 import { Cloud } from '../entities/Cloud';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { createHarvesterNamespace, deleteHarvesterNamespace } from '../services/clouds/harvester/client';
 import bcrypt from 'bcryptjs';
 
 const router = Router();
@@ -563,7 +566,7 @@ router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) 
 router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res) => {
   try {
     const { orgId } = req.params;
-    const { resourcePoolIds, permissions, namespace } = req.body;
+    const { resourcePoolIds, permissions, namespace, withCloudPublic } = req.body;
 
     if (!Array.isArray(resourcePoolIds) || resourcePoolIds.length === 0) {
       return res.status(400).json({ message: '请选择要分配的资源池' });
@@ -593,52 +596,124 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       const p = String(pv || '').toLowerCase();
       return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
     };
-    if (resourcePools.some((c) => isHarvesterLike((c as any)?.config?.provider))) {
-      if (!namespace || !String(namespace).trim()) {
-        return res
-          .status(400)
-          .json({ message: 'Harvester / Cloudmap 资源池分配需要指定命名空间（namespace）' });
+
+    let targetNamespace = String(namespace || '').trim();
+    const harvesterPools = resourcePools.filter((c) =>
+      isHarvesterLike((c as any)?.config?.provider),
+    );
+
+    if (harvesterPools.length > 0) {
+      const namespacesToCreate: string[] = [];
+      let primaryNs = targetNamespace;
+      
+      if (!primaryNs) {
+        // 自动生成 Namespace 名称: ns-<orgId>
+        primaryNs = `ns-${orgId}`;
+        namespacesToCreate.push(primaryNs);
+      } else {
+        namespacesToCreate.push(primaryNs);
+      }
+
+      if (withCloudPublic) {
+        if (!namespacesToCreate.includes('cloud-public')) {
+          namespacesToCreate.push('cloud-public');
+        }
+      }
+      
+      // 更新 targetNamespace 以便保存到数据库 (逗号分隔)
+      targetNamespace = namespacesToCreate.join(',');
+
+      console.log(`Harvester/Cloudmap 资源池需确保 Namespace: ${namespacesToCreate.join(', ')}`);
+
+      for (const pool of harvesterPools) {
+        try {
+          const config = (pool as any).config || {};
+          // 尝试获取 token: config.token > config.apiToken > pool.accessKey
+          const token = config.token || config.apiToken || pool.accessKey;
+          const endpoint = pool.endpoint || config.endpoint;
+          const insecure = config.insecure !== undefined ? config.insecure : (config.ignoreTls !== undefined ? config.ignoreTls : false);
+
+          if (endpoint && token) {
+            for (const ns of namespacesToCreate) {
+              try {
+                await createHarvesterNamespace({ endpoint, token, insecure }, ns);
+                console.log(`已在资源池 ${pool.name} 中自动创建/确认 Namespace: ${ns}`);
+              } catch (err: any) {
+                 const isConflict =
+                  err?.response?.status === 409 ||
+                  String(err?.message || '')
+                    .toLowerCase()
+                    .includes('already exists');
+                if (isConflict) {
+                  console.log(`Namespace ${ns} 已存在于资源池 ${pool.name}`);
+                } else {
+                  console.warn(
+                    `在资源池 ${pool.name} 创建 Namespace ${ns} 失败:`,
+                    err,
+                  );
+                }
+              }
+            }
+          } else {
+            console.warn(`资源池 ${pool.name} 缺少连接信息，无法自动创建 Namespace`);
+          }
+        } catch (err: any) {
+           console.warn(`处理资源池 ${pool.name} Namespace 时发生错误:`, err);
+        }
       }
     }
 
-    // 创建资源池分配记录
-    const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
+    // 创建资源池分配记录 (Using UserSpace and UserSpaceAllocation)
+    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
+    const allocationRepository = AppDataSource.getRepository(UserSpaceAllocation);
     const assignments = [];
 
     for (const resourcePoolId of resourcePoolIds) {
       // 检查是否已经分配过
-      const existingAssignment = await assignmentRepository.findOne({
+      const existingAssignment = await userSpaceRepository.findOne({
         where: {
           organizationId: orgId,
-          // 与实体字段保持一致：cloudId
           cloudId: resourcePoolId,
         },
       });
 
       if (!existingAssignment) {
         const targetCloud = resourcePools.find((c) => c.id === resourcePoolId);
-        const assignment: any = assignmentRepository.create({
-          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        
+        // 创建 UserSpace
+        const userSpace = userSpaceRepository.create({
+          name: targetNamespace || `ns-${orgId}`,
+          tenantId: organization.tenantId,
           organizationId: orgId,
-          // 与实体字段保持一致：cloudId
           cloudId: resourcePoolId,
-          assignedBy: req.user?.id || 'system',
-          permissions: permissions || ['read', 'use'],
-          assignedAt: new Date(),
+          namespace: targetNamespace,
+          permissions: permissions ? JSON.stringify(permissions) : JSON.stringify(['read', 'use']),
+          status: 'active',
+          cpuQuota: 0,
+          memoryQuota: 0,
+          storageQuota: 0,
         });
-        if (targetCloud && isHarvesterLike((targetCloud as any)?.config?.provider) && namespace) {
-          assignment.namespace = String(namespace).trim();
+        
+        const savedUserSpace = await userSpaceRepository.save(userSpace);
+        assignments.push(savedUserSpace);
+
+        // 创建初始 UserSpaceAllocation 记录
+        const allocationTypes: ('cpu' | 'memory' | 'storage')[] = ['cpu', 'memory', 'storage'];
+        for (const type of allocationTypes) {
+          const allocation = allocationRepository.create({
+            userSpaceId: savedUserSpace.id,
+            type: type,
+            cpu: 0,
+            memory: 0,
+            storage: 0,
+          });
+          await allocationRepository.save(allocation);
         }
-        assignments.push(assignment);
       }
     }
 
     if (assignments.length > 0) {
-      // 保存每个分配记录
-      for (const assignment of assignments) {
-        await assignmentRepository.save(assignment);
-      }
-      console.log('保存的分配记录:', JSON.stringify(assignments, null, 2));
+      console.log('保存的 UserSpace 记录:', JSON.stringify(assignments, null, 2));
     }
 
     res.json({
@@ -658,15 +733,14 @@ router.get('/organizations/:orgId/resource-pools', async (req, res) => {
     const { orgId } = req.params;
 
     console.log('获取组织资源池分配请求, orgId:', orgId);
-    const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
-    const assignments = await assignmentRepository.find({
+    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
+    const assignments = await userSpaceRepository.find({
       where: { organizationId: orgId },
-      // 与实体关系保持一致：cloud
       relations: ['cloud'],
     });
 
-    console.log('找到的分配记录数量:', assignments.length);
-    console.log('分配记录详情:', JSON.stringify(assignments, null, 2));
+    console.log('找到的 UserSpace 记录数量:', assignments.length);
+    console.log('UserSpace 记录详情:', JSON.stringify(assignments, null, 2));
     const normalized = assignments.map((a: any) => {
       const v = a?.permissions;
       let arr: string[] = [];
@@ -698,20 +772,92 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
   try {
     const { orgId, poolId } = req.params;
 
+    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
+    const allocationRepository = AppDataSource.getRepository(UserSpaceAllocation);
     const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
+
+    // 1. 尝试查找 UserSpace
+    const userSpace = await userSpaceRepository.findOne({
+      where: {
+        organizationId: orgId,
+        cloudId: poolId,
+      },
+      relations: ['cloud'],
+    });
+
+    if (userSpace) {
+      // 尝试删除远程 Harvester Namespace
+      if (userSpace.cloud && userSpace.name) {
+        const isHarvesterLike = (pv: string) => {
+          const p = String(pv || '').toLowerCase();
+          return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
+        };
+        const config = (userSpace.cloud as any).config || {};
+        if (isHarvesterLike(config.provider)) {
+           const token = config.token || config.apiToken || (userSpace.cloud as any).accessKey;
+           const endpoint = userSpace.cloud.endpoint || config.endpoint;
+           const insecure = config.insecure !== undefined ? config.insecure : (config.ignoreTls !== undefined ? config.ignoreTls : false);
+           
+           if (endpoint && token) {
+             const namespacesToDelete = userSpace.namespace 
+                ? userSpace.namespace.split(',').map(s => s.trim()).filter(Boolean)
+                : [userSpace.name];
+                
+             for (const ns of namespacesToDelete) {
+               // 绝对禁止删除公共/系统命名空间
+               if (ns === 'cloud-public' || ns === 'harvester-public' || ns === 'default' || ns === 'kube-system') {
+                 console.log(`跳过删除受保护的 Namespace: ${ns}`);
+                 continue;
+               }
+
+               try {
+                 await deleteHarvesterNamespace({ endpoint, token, insecure }, ns);
+                 console.log(`已在资源池 ${userSpace.cloud.name} 中删除 Namespace: ${ns}`);
+               } catch (err: any) {
+                 // 忽略 404 错误，视为已删除
+                 const isNotFound = 
+                   err?.response?.status === 404 || 
+                   String(err?.message || '').includes('Not Found') ||
+                   String(err?.message || '').includes('404');
+                   
+                 if (isNotFound) {
+                   console.warn(`Namespace ${ns} 在资源池中不存在，跳过删除`);
+                 } else {
+                   console.warn(`在资源池 ${userSpace.cloud.name} 删除 Namespace ${ns} 失败（但这不应阻止数据库记录删除）:`, err);
+                 }
+               }
+             }
+           }
+        }
+      }
+
+      // 删除关联的 Allocation
+      const allocations = await allocationRepository.find({
+        where: { userSpaceId: userSpace.id },
+      });
+      if (allocations.length > 0) {
+        await allocationRepository.remove(allocations);
+      }
+
+      // 删除 UserSpace
+      await userSpaceRepository.remove(userSpace);
+    }
+
+    // 2. 尝试删除旧的 ResourcePoolAssignment (如果存在)
     const assignment = await assignmentRepository.findOne({
       where: {
         organizationId: orgId,
-        // 与实体字段保持一致：cloudId
         cloudId: poolId,
       },
     });
 
-    if (!assignment) {
-      return res.status(404).json({ message: '资源池分配记录不存在' });
+    if (assignment) {
+      await assignmentRepository.remove(assignment);
     }
 
-    await assignmentRepository.remove(assignment);
+    if (!userSpace && !assignment) {
+      return res.status(404).json({ message: '资源池分配记录不存在' });
+    }
 
     res.json({ message: '资源池分配已移除' });
   } catch (error) {

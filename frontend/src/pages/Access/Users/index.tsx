@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Input, Modal, Select, Space, Table, Tag, Dropdown, Transfer, message } from 'antd';
+import { Button, Form, Input, Modal, Select, Space, Table, Tag, Transfer, message } from 'antd';
 import StdFormModal from '../../../components/StdFormModal';
 import StdSideDrawer from '../../../components/StdSideDrawer';
-import { UserOutlined, PlusOutlined, EllipsisOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
+import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import '../../common/filters.css';
 
 type SysUser = {
@@ -27,6 +28,7 @@ const AccessUsersPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all'|'active'|'inactive'|'suspended'>('active');
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
+  const [filterForm] = Form.useForm();
   const [roles, setRoles] = useState<RBACRole[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignUser, setAssignUser] = useState<SysUser | null>(null);
@@ -139,47 +141,60 @@ const AccessUsersPage: React.FC = () => {
       asCard={false}
     >
       <div className="filters-row">
-        <Form className="filter-tools filter-tools--center" layout="vertical" style={{ rowGap: 12, columnGap: 12, display:'flex', alignItems:'flex-end' }} onValuesChange={(_,all)=> { setKw(all.keyword||''); setStatusFilter(all.status||'active'); }}>
+        <Form 
+          form={filterForm}
+          className="filter-tools filter-tools--center" 
+          layout="vertical" 
+          style={{ rowGap: 12, columnGap: 12, display:'flex', alignItems:'flex-end' }} 
+          onValuesChange={(_,all)=> { setKw(all.keyword||''); setStatusFilter(all.status||'active'); }}
+        >
           <Form.Item name="keyword" label="关键字"><Input allowClear placeholder="搜索用户名/姓名/邮箱" style={{ width: 240 }} /></Form.Item>
           <Form.Item name="status" label="状态" initialValue={statusFilter}><Select allowClear placeholder="全部" style={{ width: 160 }} options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
+          <a className="filter-reset-link" onClick={() => {
+            setKw('');
+            setStatusFilter('active');
+            filterForm.resetFields();
+            filterForm.setFieldsValue({ status: 'active' });
+          }}>重置</a>
         </Form>
         <div className="filter-actions">
           <Space>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`; createForm.setFieldsValue({ username: rand }); setCreateOpen(true); }}>新建系统用户</Button>
+            <Button type="primary" onClick={() => { const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`; createForm.setFieldsValue({ username: rand }); setCreateOpen(true); }}>新建系统用户</Button>
+            <Button icon={<ReloadOutlined />} onClick={fetchUsers} />
           </Space>
         </div>
       </div>
 
       <Table
-        className="vr-table vr-table--middle"
+        className="vr-table"
         rowKey="id"
-        size="middle"
         loading={loading}
         dataSource={filteredUsers}
         columns={[
-          { title:'姓名', dataIndex:'fullName', width:180 },
-          { title:'用户名', dataIndex:'username', width:180 },
-          { title:'邮箱', dataIndex:'email', width:220 },
-          { title:'类型', dataIndex:'builtIn', width:100, render: (_: any, row: SysUser) => { const b = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin'); return <Tag color={b?'blue':'default'}>{b?'内置':'自定义'}</Tag>; } },
-          { title:'角色', dataIndex:'roles', width:240, render: (_: any, row: SysUser) => {
+          { title:'姓名', dataIndex:'fullName' },
+          { title:'用户名', dataIndex:'username' },
+          { title:'邮箱', dataIndex:'email' },
+          { title:'类型', dataIndex:'builtIn', render: (_: any, row: SysUser) => { const b = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin'); return <Tag color={b?'blue':'default'}>{b?'内置':'自定义'}</Tag>; } },
+          { title:'角色', dataIndex:'roles', render: (_: any, row: SysUser) => {
             const assigned = rolesByUser[row.id] || [];
             const sysMap: Record<string,string> = { super_admin:'超级管理员', leased_lines_admin:'管理员', tenant:'系统用户' };
             const sys = sysMap[row.role];
             const all = sys ? [sys, ...assigned] : assigned;
             return all.length ? <Space wrap>{all.map(n => <Tag key={n}>{n}</Tag>)}</Space> : <span>-</span>;
           } },
-          { title:'状态', dataIndex:'status', width:120, render:(s:string)=> <Tag color={s==='active'?'green':s==='suspended'?'orange':'default'}>{ s==='active'?'活跃': s==='suspended'?'暂停':'非活跃' }</Tag> },
-          { title:'操作', key:'actions', width:140, render: (_:any, row: SysUser) => {
+          { title:'状态', dataIndex:'status', render:(s:string)=> <Tag color={s==='active'?'green':s==='suspended'?'orange':'default'}>{ s==='active'?'活跃': s==='suspended'?'暂停':'非活跃' }</Tag> },
+          { title:'操作', key:'actions', render: (_:any, row: SysUser) => {
             const itemsRaw = [
               { key:'assign', label:'配置角色', icon:<SafetyCertificateOutlined />, onClick: () => openAssign(row) },
               { key:'edit', label:'编辑用户', onClick: () => { setEditingUser(row); setIsEditingAdmin(row.username === 'admin'); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, role: row.role, status: row.status }); setEditOpen(true); } },
-              { key:'del', label:'删除用户', onClick: async () => { const token = localStorage.getItem('token'); const res = await fetch(`/api/users/${row.id}`, { method:'DELETE', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } }); if (res.ok) { message.success('删除成功'); fetchUsers(); } else { try { message.error(await res.text()); } catch { message.error('删除失败'); } } } },
+              { type: 'divider' },
+              { key:'del', label:'删除用户', danger: true, onClick: async () => { const token = localStorage.getItem('token'); const res = await fetch(`/api/users/${row.id}`, { method:'DELETE', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } }); if (res.ok) { message.success('删除成功'); fetchUsers(); } else { try { message.error(await res.text()); } catch { message.error('删除失败'); } } } },
             ];
             const built = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin');
             const items = itemsRaw
-              .filter(it => built ? (it.key === 'edit') : true)
-              .map(it => ({ key: it.key, label: (<Space onClick={it.onClick}><span style={{display:'inline-flex',alignItems:'center'}}>{it.icon}</span><span>{it.label}</span></Space>) }));
-            return <Dropdown menu={{ items }} trigger={['click']}><Button type="text" icon={<EllipsisOutlined />} /></Dropdown>;
+              .filter(it => built ? (it.key === 'edit') : true);
+            
+            return <ResourceActionsDropdown items={items as any} />;
           } }
         ] as any}
         pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'], size: 'default' }}

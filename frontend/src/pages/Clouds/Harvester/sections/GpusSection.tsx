@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Button, Space, Select, Tag, Input } from 'antd';
+import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 
 interface Props {
@@ -106,21 +107,24 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
           </>
         )}
         toolbarRight={(
-          <Button
-            size="small"
-            loading={refreshing}
-            onClick={async () => {
-              try { setRefreshing(true); await Promise.resolve(onRefresh()); }
-              finally { setRefreshing(false); }
-            }}
-          >刷新</Button>
+          <>
+            <Button icon={<SettingOutlined />} />
+            <Button
+              icon={<ReloadOutlined />}
+              loading={refreshing}
+              onClick={async () => {
+                try { setRefreshing(true); await Promise.resolve(onRefresh()); }
+                finally { setRefreshing(false); }
+              }}
+            />
+          </>
         )}
       >
         <Table
           className="kv-section-table"
           bordered
           loading={refreshing}
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{ showSizeChanger:true, pageSize: 10, pageSizeOptions:[10,20,50,100] }}
           rowKey={(r: any) => {
             const rid = r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.metadata?.name || '';
             const fieldsArr = (r?.metadata?.fields || r?.fields);

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Table, Select, Button, Tag, Dropdown, Modal, Input, Badge, message, Checkbox } from 'antd';
-import { EllipsisOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import { fetchCloudProviderEcsVncUrl } from '../../../../services/api';
 
@@ -135,16 +135,18 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           <Dropdown
             menu={{
               items: [
-                { key:'refresh', label:'刷新' },
                 { key:'batchStop', label:'批量停止', disabled: selectedKeys.length===0 },
                 { key:'batchReboot', label:'批量重启', disabled: selectedKeys.length===0 },
+                { type: 'divider' },
                 { key:'batchDelete', label:<span style={{ color:'#ff4d4f' }}>批量删除</span>, disabled: selectedKeys.length===0 },
               ],
-              onClick: ({ key }) => { if (key==='refresh') onRefresh(); if (key==='batchStop') batchStop(); if (key==='batchReboot') batchReboot(); if (key==='batchDelete') batchDelete(); },
+              onClick: ({ key }) => { if (key==='batchStop') batchStop(); if (key==='batchReboot') batchReboot(); if (key==='batchDelete') batchDelete(); },
             }}
           >
             <Button icon={<EllipsisOutlined />}></Button>
           </Dropdown>
+          <Button icon={<SettingOutlined />} />
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
         </>
       )}
     >
@@ -284,7 +286,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         ] as any}
         dataSource={filtered}
         loading={loading}
-        pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
     </PageDetailSection>
   );

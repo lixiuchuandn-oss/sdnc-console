@@ -22,8 +22,14 @@ export function initVncWsServer(server: http.Server) {
       if (!token) throw new Error('缺少 token');
       const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
       if (!decoded || !decoded.role) throw new Error('无效令牌');
-      if (!(decoded.role === UserRole.SUPER_ADMIN || decoded.role === 'admin')) {
-        throw new Error('权限不足');
+      
+      const isSuper = decoded.role === UserRole.SUPER_ADMIN;
+      // 如果不是超级管理员，必须拥有 clouds.console:write 权限
+      if (!isSuper) {
+        const perms: string[] = Array.isArray(decoded.permissions) ? decoded.permissions : [];
+        if (!perms.includes('clouds.console:write')) {
+          throw new Error('权限不足: 缺少 clouds.console:write');
+        }
       }
     } catch (err: any) {
       // 由于 noVNC 期待纯二进制流，这里仅关闭连接并设置关闭原因，避免发送 JSON 文本

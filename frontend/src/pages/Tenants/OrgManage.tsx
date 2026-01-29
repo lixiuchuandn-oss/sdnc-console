@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Tree, Typography, Descriptions, Transfer, message } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Tree, Typography, Descriptions, Transfer, message, Radio, Checkbox } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -217,7 +217,12 @@ const OrgManagePage: React.FC = () => {
       const token = localStorage.getItem('token');
       const idsRaw = values.resourcePoolIds;
       const resourcePoolIds = Array.isArray(idsRaw) ? idsRaw.filter(Boolean) : (idsRaw ? [idsRaw] : []);
-      const payload = { resourcePoolIds, permissions: ['use'], namespace: values.namespace };
+      const payload = { 
+        resourcePoolIds, 
+        permissions: ['use'], 
+        namespace: values.namespace,
+        withCloudPublic: values.withCloudPublic 
+      };
       await axios.post(`/api/tenants/organizations/${selectedOrg.id}/resource-pools`, payload, { headers: { Authorization: `Bearer ${token}` } });
       setResourcePoolDrawerOpen(false);
       resourcePoolForm.resetFields();
@@ -503,7 +508,7 @@ const OrgManagePage: React.FC = () => {
         return <Tag color="blue">{label}</Tag>;
       }
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', render: (ns: string) => (ns ? <Tag>{ns}</Tag> : <span>-</span>) },
+    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', render: (ns: string) => (ns ? ns.split(',').map(n => <Tag key={n}>{n.trim()}</Tag>) : <span>-</span>) },
     {
       title: '供应商',
       key: 'vendor',
@@ -1042,16 +1047,44 @@ const OrgManagePage: React.FC = () => {
               const pool = (resourcePools || []).find((p:any)=> p.id === (Array.isArray(poolId) ? poolId[0] : poolId));
               const pvRaw = String(pool?.config?.provider || pool?.type || '').trim().toLowerCase();
               const needNs = pvRaw === 'harvester' || pvRaw === 'cloudmap.private' || pvRaw === 'cloudmap.edge';
-              return needNs ? (
-                <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}>
-                  <Select placeholder="请选择命名空间" loading={nsLoading} style={{ width: '100%' }}>
-                    {(nsOptions || []).map((x:any) => {
-                      const name = x?.metadata?.name || x?.name;
-                      return <Select.Option key={name} value={name}>{name}</Select.Option>;
-                    })}
-                  </Select>
-                </Form.Item>
-              ) : null;
+              
+              if (!needNs) return null;
+
+              return (
+                <>
+                  <Form.Item label="命名空间模式" name="nsStrategy" initialValue="auto" style={{ marginBottom: 0 }}>
+                    <Radio.Group onChange={(e) => {
+                       if (e.target.value === 'auto') {
+                         resourcePoolForm.setFieldsValue({ namespace: undefined });
+                       }
+                    }}>
+                      <Radio value="auto">自动生成 (ns-{'{orgId}'})</Radio>
+                      <Radio value="manual">手动指定</Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, curr) => prev.nsStrategy !== curr.nsStrategy}>
+                    {({ getFieldValue }) => getFieldValue('nsStrategy') === 'auto' ? (
+                      <Form.Item name="withCloudPublic" valuePropName="checked" initialValue={true} style={{ margin: '8px 0 24px 0' }}>
+                        <Checkbox>同时分配 cloud-public 命名空间</Checkbox>
+                      </Form.Item>
+                    ) : <div style={{ marginBottom: 24 }} />}
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, curr) => prev.nsStrategy !== curr.nsStrategy}>
+                    {({ getFieldValue }) => {
+                      return getFieldValue('nsStrategy') === 'manual' ? (
+                        <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}>
+                          <Select placeholder="请选择命名空间" loading={nsLoading} style={{ width: '100%' }}>
+                            {(nsOptions || []).map((x:any) => {
+                              const name = x?.metadata?.name || x?.name;
+                              return <Select.Option key={name} value={name}>{name}</Select.Option>;
+                            })}
+                          </Select>
+                        </Form.Item>
+                      ) : null;
+                    }}
+                  </Form.Item>
+                </>
+              );
             }}
           </Form.Item>
         </Form>

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, message, Modal, Form, Dropdown } from 'antd';
-import { EllipsisOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
 import { deleteHarvesterImage, createHarvesterImage } from '../../../../services/api';
 
@@ -112,14 +112,16 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
           <Dropdown
             menu={{
               items: [
-                { key: 'refresh', label: '刷新' },
+                { type: 'divider' },
                 { key: 'batchDelete', label: '批量删除', disabled: selectedKeys.length === 0 },
               ],
-              onClick: ({ key }) => { if (key === 'batchDelete') batchDelete(); if (key === 'refresh') onRefresh?.(); },
+              onClick: ({ key }) => { if (key === 'batchDelete') batchDelete(); },
             }}
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
+          <Button icon={<SettingOutlined />} />
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
         </>
       )}
     >
@@ -189,7 +191,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
         ] as any}
         dataSource={filtered}
         loading={loading}
-        pagination={{ showSizeChanger:true, showQuickJumper:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
     </PageDetailSection>
   );

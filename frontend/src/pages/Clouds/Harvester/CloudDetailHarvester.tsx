@@ -8,9 +8,10 @@ import NadsSection from './sections/NadsSection';
 import KubeOvnVpcsSection from './sections/KubeOvnVpcsSection';
 import KubeOvnSubnetsSection from './sections/KubeOvnSubnetsSection';
 import GpusSection from './sections/GpusSection';
-import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ReloadOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined } from '@ant-design/icons';
+import NamespacesTab from './sections/NamespacesTab';
+import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ReloadOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, AppstoreOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
-import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchHarvesterGpuResources } from '../../../services/api';
+import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchHarvesterGpuResources, fetchHarvesterNamespaces } from '../../../services/api';
 import VmDetailModal from './modals/VmDetailModal';
 import VmReconfigureModal from './modals/VmReconfigureModal';
 import VmSection from './sections/VmSection';
@@ -52,6 +53,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [rawSubnets, setRawSubnets] = useState<any | null>(null);
   const [harvesterGpuResources, setHarvesterGpuResources] = useState<any[]>([]);
   const [rawGpu, setRawGpu] = useState<any | null>(null);
+  const [harvesterNamespaces, setHarvesterNamespaces] = useState<any[]>([]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -60,7 +62,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       const cloudsRes = await fetchClouds();
       const cloudList: any[] = Array.isArray(cloudsRes) ? cloudsRes : (Array.isArray((cloudsRes as any)?.data) ? (cloudsRes as any).data : []);
       setCloud((cloudList || []).find((c:any)=> String(c.id) === String(cloudId)) || null);
-      const [ecsJson, nadsJson, imagesJson, volsJson, nodesJson, podsJson, vpcsJson, subsJson, gpuJson] = await Promise.all([
+      const [ecsJson, nadsJson, imagesJson, volsJson, nodesJson, podsJson, vpcsJson, subsJson, gpuJson, nsJson] = await Promise.all([
         fetchCloudProviderEcs(cloudId),
         fetchHarvesterNads(cloudId).catch(()=>null),
         fetchHarvesterImages(cloudId).catch(()=>null),
@@ -70,6 +72,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
         fetchKubeOvnVpcs(cloudId).catch(()=>null),
         fetchKubeOvnSubnets(cloudId).catch(()=>null),
         fetchHarvesterGpuResources(cloudId).catch(()=>null),
+        fetchHarvesterNamespaces(cloudId).catch(()=>null),
       ]);
       const ecsList: any[] = Array.isArray((ecsJson as any)?.data) ? (ecsJson as any).data : (((ecsJson as any)?.data?.Instances?.Instance) || ((ecsJson as any)?.data?.items) || ((ecsJson as any)?.data?.data) || []);
       setEcs(Array.isArray(ecsList) ? ecsList : []);
@@ -98,6 +101,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       const gpuList: any[] = Array.isArray((gpuJson as any)?.data?.items) ? (gpuJson as any)?.data?.items : (Array.isArray((gpuJson as any)?.items) ? (gpuJson as any)?.items : []);
       setHarvesterGpuResources(Array.isArray(gpuList) ? gpuList : []);
       setRawGpu(gpuJson || null);
+      const nsList: any[] = Array.isArray((nsJson as any)?.data?.items) ? (nsJson as any).data.items : (Array.isArray((nsJson as any)?.items) ? (nsJson as any).items : []);
+      setHarvesterNamespaces(Array.isArray(nsList) ? nsList : []);
     } catch (e:any) {
       setError(e?.message || '查询失败');
     } finally {
@@ -205,10 +210,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const provider = useMemo(() => providerRaw.toLowerCase(), [providerRaw]);
   const isCloudmap = useMemo(() => provider === 'cloudmap' || provider === 'cloudmap.private' || provider === 'cloudmap.edge', [provider]);
   const providerName = useMemo(() => (isCloudmap ? 'Cloudmap' : 'Harvester'), [isCloudmap]);
-  const labelVolumes = isCloudmap ? '虚拟磁盘' : '虚拟卷';
-  const labelNad = isCloudmap ? '扁平网络' : 'NAD 网络';
-  const labelKubeOvnVpcs = isCloudmap ? 'VPC网络' : 'Kube-OVN VPC';
-  const labelKubeOvnSubnets = isCloudmap ? 'VPC子网' : 'Kube-OVN 子网';
+  const labelVolumes = '虚拟卷';
+  const labelNad = 'NAD 网络';
+  const labelKubeOvnVpcs = 'Kube-OVN VPC';
+  const labelKubeOvnSubnets = 'Kube-OVN 子网';
   const versionText = useMemo(() => {
     const fromConfig = cloud?.config?.harvesterVersion;
     const fromNodes = (harvesterNodes.find((n:any)=> n?.version)?.version) || undefined;
@@ -290,14 +295,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 <>
                   <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CloudServerOutlined style={{ color:'#1677ff', marginRight:8 }} />云主机（VM）</span>} value={ecs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><GlobalOutlined style={{ color:'#1677ff', marginRight:8 }} />NAD 网络</span>} value={harvesterNads.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><AppstoreOutlined style={{ color:'#1677ff', marginRight:8 }} />命名空间</span>} value={harvesterNamespaces.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                     <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CameraOutlined style={{ color:'#1677ff', marginRight:8 }} />镜像</span>} value={harvesterImages.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                     <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><HddOutlined style={{ color:'#1677ff', marginRight:8 }} />虚拟卷</span>} value={harvesterVolumes.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                   </Row>
                   <Row gutter={[16, 16]} style={{ marginTop: 12 }}>
                     <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />节点</span>} value={harvesterNodes.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><ClusterOutlined style={{ color:'#1677ff', marginRight:8 }} />VPC（Kube-OVN）</span>} value={kubeOvnVpcs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />子网（Kube-OVN）</span>} value={kubeOvnSubnets.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><GlobalOutlined style={{ color:'#1677ff', marginRight:8 }} />NAD 网络</span>} value={harvesterNads.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><ClusterOutlined style={{ color:'#1677ff', marginRight:8 }} />Kube-OVN VPC</span>} value={kubeOvnVpcs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
+                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />Kube-OVN 子网</span>} value={kubeOvnSubnets.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
                   </Row>
                 </>
               )
@@ -308,7 +314,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               label: '节点',
               children: (
                 <>
-                  <NodesSection nodes={harvesterNodes} loading={loading} />
+                  <NodesSection nodes={harvesterNodes} loading={loading} onRefresh={loadAll} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawNodes, null, 2)}</pre>
@@ -316,6 +322,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                   )}
                 </>
               )
+            },
+            {
+              key: 'namespaces',
+              label: '命名空间',
+              children: <NamespacesTab cloudId={cloudId} showLog={showLog} />
             },
             {
               key: 'ecs',
@@ -395,7 +406,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               label: labelNad,
               children: (
                 <>
-                  <NadsSection nads={harvesterNads} loading={loading} />
+                  <NadsSection nads={harvesterNads} loading={loading} onRefresh={loadAll} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawNads, null, 2)}</pre>
@@ -423,7 +434,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               label: labelKubeOvnSubnets,
               children: (
                 <>
-                  <KubeOvnSubnetsSection subnets={kubeOvnSubnets} loading={loading} />
+                  <KubeOvnSubnetsSection subnets={kubeOvnSubnets} loading={loading} onRefresh={loadAll} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>

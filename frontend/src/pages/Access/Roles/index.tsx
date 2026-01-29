@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Breadcrumb, Button, Card, Form, Input, Select, Space, Table, Tag, Dropdown, Transfer, message } from 'antd';
+import { Breadcrumb, Button, Card, Form, Input, Select, Space, Table, Tag, Dropdown, Transfer, message, Popover } from 'antd';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import StdFormModal from '../../../components/StdFormModal';
 import { LockOutlined, PlusOutlined, EllipsisOutlined, DeleteOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import '../../common/filters.css';
 import { GROUPS, groupOf, featureLabelOf } from '../../../catalogs/navCatalog';
+import PolicyTransfer from '../../../components/PolicyTransfer';
 
 type RBACRole = {
   id: string;
@@ -29,7 +30,7 @@ type Policy = {
 const normalizeGroupName = (g: string): string => g;
 const featureNameOf = (resource: string): string => featureLabelOf(resource);
 
-const mapGroupOf = (val: string): string => groupOf(val) || '';
+const mapGroupOf = (val: string): string => groupOf(val.split(':')[0]) || '';
 
 const computeSystemPoliciesFrom = (actions: string[]): Policy[] => {
   const byGroup = new Map<string, string[]>();
@@ -83,6 +84,7 @@ const AccessRolesPage: React.FC = () => {
   const [roles, setRoles] = useState<RBACRole[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
+  const [filterForm] = Form.useForm();
   const [roleKw, setRoleKw] = useState('');
   const [activeGroup, setActiveGroup] = useState<string>('全部');
   const [kw, setKw] = useState('');
@@ -284,7 +286,7 @@ const AccessRolesPage: React.FC = () => {
         columns={[
           { title:'角色名称', dataIndex:'name' },
           { title:'描述', dataIndex:'description', width: 300 },
-          { title:'权限', dataIndex:'permissions', width: 600, render:(p:any)=>{ let arr:string[]=[]; if (Array.isArray(p)) { arr = p as string[]; } else if (typeof p === 'string') { try{ arr = JSON.parse(p || '[]') || []; } catch{} } if(!arr.length) return '—'; return (<div style={{ display:'flex', flexWrap:'wrap', gap: 8, maxWidth: 600 }}>{arr.map((it,idx)=> (<Tag key={idx}>{String(it)}</Tag>) )}</div>); } },
+          { title:'权限', dataIndex:'permissions', width: 600, render:(p:any)=>{ let arr:string[]=[]; if (Array.isArray(p)) { arr = p as string[]; } else if (typeof p === 'string') { try{ arr = JSON.parse(p || '[]') || []; } catch{} } if(!arr.length) return '—'; return (<Popover title={`共 ${arr.length} 个权限原子`} content={<div style={{ display:'flex', flexWrap:'wrap', gap: 8, maxWidth: 600, maxHeight: 400, overflowY: 'auto' }}>{arr.map((it,idx)=> (<Tag key={idx}>{String(it)}</Tag>) )}</div>}><Tag color="blue" style={{ cursor:'pointer' }}>{arr.length} 个权限</Tag></Popover>); } },
           { title:'已分配策略', key:'assignedPolicies', width: 280, render: (_:any, row: RBACRole) => { try { const raw = localStorage.getItem('ct_role_policies') || '{}'; const map = JSON.parse(raw || '{}') || {}; const ids: string[] = map[String(row.id)] || []; if (!ids.length) return '—'; const assigned = policies.filter(p => ids.includes(p.id)); if (!assigned.length) return '—'; return assigned.slice(0,6).map((p,idx)=>(<Tag key={idx}>{p.name}</Tag>)); } catch { return '—'; } } },
           { title:'操作', key:'actions', width: 120, render: (_:any, row: RBACRole) => {
             const items = [
@@ -316,7 +318,7 @@ const AccessRolesPage: React.FC = () => {
         </Form.Item>
       </StdFormModal>
 
-      <StdSideDrawer title="授权配置" open={grantOpen} onClose={()=> { setGrantOpen(false); setGrantTarget(null); }} onOk={saveAuthorization} width={1200}>
+      <StdSideDrawer title="授权配置" open={grantOpen} onClose={()=> { setGrantOpen(false); setGrantTarget(null); }} onOk={saveAuthorization} width={1200} styles={{ body: { display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}>
         <Form layout="vertical" style={{ display:'flex', gap: 16, marginBottom: 20 }}>
           <Form.Item label="分组" style={{ width: 220, marginBottom: 0 }}>
             <Select value={activeGroup} onChange={(v:any)=> setActiveGroup(v)} options={groups.map(g => ({ value:g, label:g }))} />
@@ -331,29 +333,21 @@ const AccessRolesPage: React.FC = () => {
             <Input.Search allowClear placeholder="搜索策略名称或说明" value={kw} onChange={e => setKw(e.target.value)} />
           </Form.Item>
         </Form>
-        <Transfer
+        <PolicyTransfer
           dataSource={policies
             .filter(p => (activeGroup==='全部' ? true : p.groups.includes(activeGroup)))
             .filter(p => (grantType==='all' ? true : p.type===grantType))
             .filter(p => (permVerb==='全部' ? true : (permVerb==='read' ? p.actions.some(a => a.endsWith(':read')) : p.actions.some(a => a.endsWith(':write')))))
             .filter(p => ((kw||'') ? ((p.name||'').toLowerCase().includes(kw.toLowerCase()) || (p.description||'').toLowerCase().includes(kw.toLowerCase())) : true))
             .map(p => ({ key: p.id, title: p.name, description: p.description }))}
+          selectedDataSource={grantSelectedIds
+            .map(id => policies.find(p => p.id === id))
+            .filter(Boolean)
+            .map(p => ({ key: p!.id, title: p!.name, description: p!.description }))}
           titles={["策略库","已选策略"]}
           targetKeys={grantSelectedIds}
           onChange={(next) => setGrantSelectedIds(next.map(String))}
-          showSearch
-          filterOption={(inputValue, item) => {
-            const v = inputValue.toLowerCase();
-            return (item.title || '').toLowerCase().includes(v) || (item.description || '').toLowerCase().includes(v);
-          }}
-          style={{ width: '100%' }}
-          listStyle={{ flex: '1 1 0', minWidth: 0, height: 580 }}
-          render={item => (
-            <div style={{ display:'flex', flexDirection:'column' }}>
-              <span style={{ fontWeight: 500 }}>{item.title}</span>
-              <span style={{ color:'#888', fontSize: 12 }}>{item.description || '—'}</span>
-            </div>
-          )}
+          style={{ width: '100%', flex: 1, overflow: 'hidden' }}
         />
       </StdSideDrawer>
     </PageContainer>

@@ -3,6 +3,8 @@ import { Button, Divider, Form, Input, Select, Space, Table, Dropdown, Modal, Al
 import { DesktopOutlined, ReloadOutlined, EllipsisOutlined, GlobalOutlined, PlusOutlined, CloudUploadOutlined, CloudServerOutlined, ClusterOutlined, HddOutlined, DatabaseOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../utils/accessMapping';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderVpcs, fetchCloudProviderEips, fetchCloudProviderDisks, fetchAllInstances, fetchInventoryInstancesByCloud, refreshInventoryInstances, refreshInventoryInstancesSlow, fetchCloudProviderEcsVncUrl } from '../../services/api';
 import { fetchCloudProviderEnis, fetchAliyunEcsVncUrl } from '../../services/aliyunApi';
 import '../common/filters.css';
@@ -21,6 +23,7 @@ const statusMark = (raw: any) => {
 };
 
 const CloudConsolePage: React.FC = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { message } = App.useApp();
@@ -59,6 +62,25 @@ const CloudConsolePage: React.FC = () => {
   const [cloudFilterIds, setCloudFilterIds] = useState<string[]>([]);
   const [useAggColumns, setUseAggColumns] = useState<boolean>(false);
   
+  // Permission checks
+  const canReadEcs = useMemo(() => hasPermissionForAction(user?.permissions || [], 'clouds.instances:read'), [user]);
+  const canReadVpcs = useMemo(() => hasPermissionForAction(user?.permissions || [], 'clouds.vpcs:read'), [user]);
+  const canReadEips = useMemo(() => hasPermissionForAction(user?.permissions || [], 'clouds.eips:read'), [user]);
+  const canReadDisks = useMemo(() => hasPermissionForAction(user?.permissions || [], 'clouds.disks:read'), [user]);
+  const canReadEnis = useMemo(() => hasPermissionForAction(user?.permissions || [], 'clouds.enis:read'), [user]);
+  // Console write permission controls interactive access (VNC/SSH/Connect)
+  const canConnectConsole = useMemo(() => hasPermissionForAction(user?.permissions || [], 'clouds.console:write'), [user]);
+
+  // Adjust active tab if current tab is not permitted
+  useEffect(() => {
+    if (activeTab === 'ecs' && !canReadEcs) {
+      if (canReadVpcs) setActiveTab('vpcs');
+      else if (canReadEips) setActiveTab('eips');
+      else if (canReadDisks) setActiveTab('disks');
+      else if (canReadEnis) setActiveTab('enis');
+    }
+  }, [canReadEcs, canReadVpcs, canReadEips, canReadDisks, canReadEnis, activeTab]);
+
   const ecsEventSourceRef = useRef<EventSource | null>(null);
 
   const loadClouds = async () => {
@@ -537,8 +559,8 @@ const CloudConsolePage: React.FC = () => {
       const iid = r?.InstanceId || r?.id;
       const items = [
         { key: 'detail', label: '详情' },
-        { key: 'connect', label: '远程连接' },
-        { key: 'webvnc', label: 'WebVNC（浏览器）' },
+        { key: 'connect', label: '远程连接', disabled: !canConnectConsole },
+        { key: 'webvnc', label: 'WebVNC（浏览器）', disabled: !canConnectConsole },
         { key: 'start', label: '启动', disabled },
         { key: 'stop', label: '停止', disabled },
         { key: 'reboot', label: '重启', disabled },
@@ -811,7 +833,7 @@ const CloudConsolePage: React.FC = () => {
             onChange={(k)=> setActiveTab(k as any)}
             className="cloud-console-tabs"
             items={[
-              { key: 'ecs', label: '云主机', children: (
+              ...(canReadEcs ? [{ key: 'ecs', label: '云主机', children: (
                 <>
                   <div className="filters-row filters-row--compact">
                   <Space size={12} wrap>
@@ -1107,22 +1129,22 @@ const CloudConsolePage: React.FC = () => {
                     ))
                   )}
                 </>
-              ) },
-              { key: 'vpcs', label: 'VPC', children: (
+              ) }] : []),
+              ...(canReadVpcs ? [{ key: 'vpcs', label: 'VPC', children: (
                 <Table className="vr-table" size="small" bordered rowKey={(r:any)=> r.VpcId || r.id} columns={vpcColumns as any} dataSource={vpcs} />
-              ) },
-              { key: 'eips', label: 'EIP', children: (
+              ) }] : []),
+              ...(canReadEips ? [{ key: 'eips', label: 'EIP', children: (
                 <Table className="vr-table" size="small" bordered rowKey={(r:any)=> r.AllocationId || r.id} columns={eipColumns as any} dataSource={eips} />
-              ) },
-              { key: 'disks', label: '磁盘', children: (
+              ) }] : []),
+              ...(canReadDisks ? [{ key: 'disks', label: '磁盘', children: (
                 <Table className="vr-table" size="small" bordered rowKey={(r:any)=> r.DiskId || r.id} columns={diskColumns as any} dataSource={disks} />
-              ) },
-              { key: 'enis', label: '弹性网卡', children: (
+              ) }] : []),
+              ...(canReadEnis ? [{ key: 'enis', label: '弹性网卡', children: (
                 <Table className="vr-table" size="small" bordered rowKey={(r:any)=> r.NetworkInterfaceId || r.id} columns={eniColumns as any} dataSource={enis} />
-              ) },
+              ) }] : []),
             ]}
           />
-          </div>
+        </div>
         </Col>
       </Row>
       </div>

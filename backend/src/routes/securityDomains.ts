@@ -15,6 +15,7 @@ import { ServiceChain } from '../entities/ServiceChain';
 import { Tenant } from '../entities/Tenant';
 import { Organization } from '../entities/Organization';
 import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
+import { UserSpace } from '../entities/UserSpace';
 import { VRConfig } from '../entities/VRConfig';
 import { VrCacheExtended } from '../entities/VrCacheExtended';
 import { callAliyunVpc, callAliyunEcs } from '../services/clouds/aliyun/client';
@@ -36,7 +37,7 @@ const serviceRepo = () => AppDataSource.getRepository(ServiceCatalog);
 const chainRepo = () => AppDataSource.getRepository(ServiceChain);
 const tenantRepo = () => AppDataSource.getRepository(Tenant);
 const orgRepo = () => AppDataSource.getRepository(Organization);
-const assignmentRepo = () => AppDataSource.getRepository(ResourcePoolAssignment);
+const userSpaceRepo = () => AppDataSource.getRepository(UserSpace);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
 
 const transformVrFields = (obj: any) => {
@@ -918,14 +919,14 @@ router.post('/', async (req, res) => {
       if (!orgId) {
         return res.status(400).json({ message: '当前用户缺少组织信息，无法创建安全域' });
       }
-      const assignment = await assignmentRepo().findOne({
+      const userSpace = await userSpaceRepo().findOne({
         where: {
           organizationId: orgId,
           cloudId: String(entity.cloudId),
           status: 'active',
         },
       });
-      if (!assignment) {
+      if (!userSpace) {
         return res.status(403).json({ message: '所选资源池未分配给当前组织' });
       }
     }

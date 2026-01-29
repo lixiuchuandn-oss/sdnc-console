@@ -79,6 +79,7 @@ export const ROUTE_CATALOG: RouteItem[] = [
 
   // 租户管理 (CNMC)
   { prefix: 'tenants', label: '租户管理', group: '租户管理', platform: 'CNMC' },
+  { prefix: 'users', label: '子用户管理', group: '租户管理', platform: 'CNMC' },
   { prefix: 'tenants.users', label: '子用户管理', group: '租户管理', platform: 'CNMC' },
 
   // 权限管控 (CNMC)
@@ -90,6 +91,7 @@ export const ROUTE_CATALOG: RouteItem[] = [
 
   // 资源池 (CNMC)
   { prefix: 'clouds', label: '资源池管理', group: '资源控制台', platform: 'CNMC' },
+  { prefix: 'clouds.console', label: '云主机控制台', group: '资源控制台', platform: 'CNMC' },
   { prefix: 'clouds.instances', label: '云主机', group: '资源控制台', platform: 'CNMC' },
   { prefix: 'clouds.vpcs', label: 'VPC', group: '资源控制台', platform: 'CNMC' },
   { prefix: 'clouds.route-tables', label: '路由表', group: '资源控制台', platform: 'CNMC' },
@@ -106,6 +108,7 @@ export const ROUTE_CATALOG: RouteItem[] = [
   { prefix: 'clouds.nat-gateways', label: 'NAT网关', group: '资源控制台', platform: 'CNMC' },
 
   // SDN 控制中心 (SDNCC)
+  { prefix: 'networks.vpcs', label: 'VPC网络', group: '跨地域互联', platform: 'SDNCC' },
   { prefix: 'networks.vr-config', label: 'VR实例管理', group: '跨地域互联', platform: 'SDNCC' },
   { prefix: 'networks.cen', label: '级联通道管理', group: '安全管理面', platform: 'SDNCC' },
   { prefix: 'networks.cen.attachments', label: 'CEN连接', group: '跨地域互联', platform: 'SDNCC' },
@@ -126,6 +129,24 @@ export const ROUTE_CATALOG: RouteItem[] = [
 
   // 报告管理 (CNSOC)
   { prefix: 'tenants.leased-lines', label: '租户专线报告', group: '报告管理', platform: 'CNSOC' },
+  { prefix: 'tenants.leased-lines.list', label: '专线列表', group: '报告管理', platform: 'CNSOC' },
+  { prefix: 'tenants.leased-lines.manage', label: '专线管理', group: '报告管理', platform: 'CNSOC' },
+  { prefix: 'tenants.leased-lines.reports', label: '安全报告', group: '报告管理', platform: 'CNSOC' },
+  { prefix: 'tenants.leased-lines.alert-logs', label: '告警日志', group: '报告管理', platform: 'CNSOC' },
+
+  // 安全运营 (CNSOC)
+  { prefix: 'secops.dashboard', label: '态势总览', group: '态势中心', platform: 'CNSOC' },
+  { prefix: 'secops.alerts', label: '威胁告警', group: '威胁综合分析', platform: 'CNSOC' },
+  { prefix: 'secops.rules', label: '规则管理', group: '威胁综合分析', platform: 'CNSOC' },
+
+  // 安全管理面 (SDNCC)
+  { prefix: 'security.logs', label: '安全日志', group: '安全管理面', platform: 'SDNCC' },
+  { prefix: 'security.policies', label: '安全策略', group: '安全管理面', platform: 'SDNCC' },
+  { prefix: 'security.apps', label: '应用特征库', group: '安全管理面', platform: 'SDNCC' },
+
+  // 可信数据空间 (CNSOC)
+  { prefix: 'trust.spaces', label: '空间管理', group: '可信数据空间', platform: 'CNSOC' },
+  { prefix: 'trust.datasets', label: '数据集管理', group: '可信数据空间', platform: 'CNSOC' },
 ];
 
 /**

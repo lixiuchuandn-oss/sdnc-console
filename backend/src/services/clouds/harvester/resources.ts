@@ -407,6 +407,25 @@ export const exportImageFromPVC = async (
   return json;
 };
 
+export const deleteHarvesterNamespace = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const urlPath = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
+
+  const json = await requestJson('DELETE', urlPath, token, insecure);
+  return json;
+};
+
 export const createVolumeSnapshot = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
@@ -566,5 +585,35 @@ export const clonePVC = async (
   };
   const url = `${origin}/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims`;
   const json = await requestJson('POST', url, token, insecure, body);
+  return json;
+};
+
+export const createHarvesterNamespace = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const urlPath = `${origin}/api/v1/namespaces`;
+
+  const body = {
+    apiVersion: 'v1',
+    kind: 'Namespace',
+    metadata: {
+      name: name,
+      labels: {
+        'kubernetes.io/metadata.name': name,
+      },
+    },
+  };
+
+  const json = await requestJson('POST', urlPath, token, insecure, body);
   return json;
 };
