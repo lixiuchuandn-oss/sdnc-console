@@ -452,6 +452,14 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true
   },
   {
+    id: 'vnc-pure',
+    path: '/clouds/:id/harvester/vnc',
+    element: 'HarvesterVNCPage',
+    layout: 'default',
+    guard: 'private',
+    hidden: true
+  },
+  {
     id: 'instance-create',
     path: '/admin/clouds/:id/instances/create',
     element: 'InstanceWizard',

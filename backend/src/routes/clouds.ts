@@ -4,10 +4,15 @@ import https from 'https';
 import { AppDataSource } from '../config/database';
 import { Cloud, CloudType, CloudStatus } from '../entities/Cloud';
 import { CloudInstanceInventory } from '../entities/CloudInstanceInventory';
+import { KubevirtVmInventory } from '../entities/kubevirt/KubevirtVmInventory';
+import { KubevirtVmiInventory } from '../entities/kubevirt/KubevirtVmiInventory';
 import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
 import { UserSpace } from '../entities/UserSpace';
 import { AuthRequest } from '../middleware/auth';
 import { UserRole } from '../entities/User';
+import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/syncInventory';
+import { registerHarvesterDirectRoutes } from './clouds.harvester_direct';
+import { registerHarvesterRoutes } from './clouds.harvester';
 
 const router = Router();
 
@@ -267,7 +272,7 @@ import {
   listKubeOvnSubnets,
 } from '../services/harvester';
 import { listCsmVms, csmRequest } from '../services/clouds/csm/client';
-import { registerHarvesterRoutes } from './clouds.harvester';
+// import { registerHarvesterDirectRoutes } from './clouds.harvester_direct';
 import { registerCsmRoutes } from './clouds.csm';
 import { registerAliyunRoutes } from './clouds.aliyun';
 import { registerHuaweiRoutes } from './clouds.huaweicloud';
@@ -318,6 +323,7 @@ const extractIdentity = (provider: string, type: 'vm' | 'vpc', r: any) => {
   return { id, name };
 };
 
+registerHarvesterDirectRoutes(router, checkAdminPermission);
 registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
@@ -1132,6 +1138,8 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const invRepo = AppDataSource.getRepository(CloudInstanceInventory);
+      const vmRepo = AppDataSource.getRepository(KubevirtVmInventory);
+      const vmiRepo = AppDataSource.getRepository(KubevirtVmiInventory);
       const cloudRepository = AppDataSource.getRepository(Cloud);
       const cloudsAll = await cloudRepository.find();
       const existingCloudIds = (Array.isArray(cloudsAll) ? cloudsAll : []).map((c) => c.id);
@@ -1142,17 +1150,33 @@ router.get(
           .from(CloudInstanceInventory)
           .where('cloudId NOT IN (:...ids)', { ids: existingCloudIds })
           .execute();
+        await vmRepo
+          .createQueryBuilder()
+          .delete()
+          .from(KubevirtVmInventory)
+          .where('cloudId NOT IN (:...ids)', { ids: existingCloudIds })
+          .execute();
+        await vmiRepo
+          .createQueryBuilder()
+          .delete()
+          .from(KubevirtVmiInventory)
+          .where('cloudId NOT IN (:...ids)', { ids: existingCloudIds })
+          .execute();
       } else {
         await invRepo.createQueryBuilder().delete().from(CloudInstanceInventory).execute();
+        await vmRepo.createQueryBuilder().delete().from(KubevirtVmInventory).execute();
+        await vmiRepo.createQueryBuilder().delete().from(KubevirtVmiInventory).execute();
       }
       let inv = await invRepo.find();
+      let vmInv = await vmRepo.find();
+      let vmiInv = await vmiRepo.find();
       const targetCloudId =
         typeof (req.query as any)?.cloudId === 'string'
           ? String((req.query as any).cloudId)
           : undefined;
       const hasTarget = targetCloudId
-        ? inv.some((x) => x.cloudId === targetCloudId)
-        : inv.length > 0;
+        ? inv.some((x) => x.cloudId === targetCloudId) || vmInv.some((x) => x.cloudId === targetCloudId)
+        : inv.length > 0 || vmInv.length > 0;
       const needRefresh = !hasTarget || String(req.query.refresh || '').toLowerCase() === 'true';
       const slow = String((req.query as any)?.slow || '').toLowerCase() === 'true';
       const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1248,15 +1272,17 @@ router.get(
             provider === 'cloudmap.private' ||
             provider === 'cloudmap.edge'
           ) {
+            // New sync logic using dedicated entities
             const insecure = !!(cloud.config as any)?.ignoreTls;
-            const version = String((cloud.config as any)?.harvesterVersion || '').trim();
-            const resp: any[] = await listHarvesterVMsStandard({
-              endpoint: cloud.endpoint,
-              token: cloud.secretKey || '',
-              insecure,
-              version,
-            } as any);
-            list = Array.isArray(resp) ? resp : [];
+            try {
+              await syncKubevirtVms(cloud, insecure);
+              await syncKubevirtVmis(cloud, insecure);
+            } catch (err) {
+              console.error(`Error syncing Kubevirt VMs/VMIs for cloud ${cloud.name}:`, err);
+            }
+            // Cleanup old inventory for this cloud (deprecated tables)
+            await invRepo.delete({ cloudId: cloud.id });
+            continue;
           } else if (provider === 'cloudmap.csm') {
             const endpointRaw = String(cloud.endpoint || '').trim();
             const ak = String(cloud.accessKey || '').trim();
@@ -1274,6 +1300,7 @@ router.get(
               });
             }
           }
+          
           const seenIds = new Set<string>();
           for (const r of Array.isArray(list) ? list : []) {
             const base = {
@@ -1467,6 +1494,7 @@ router.get(
                   Array.isArray((r?.Extra as any)?.Networks) ? (r?.Extra as any)?.Networks : [],
                 ),
                 instanceCreatedAt: r?.CreationTime || (r?.Extra as any)?.CreationTime || undefined,
+                extra: r?.Extra,
               };
             } else if (provider === 'cloudmap.csm') {
               const id: string =
@@ -1517,6 +1545,7 @@ router.get(
                   (r as any)?.createTime ||
                   (r?.Extra as any)?.CreationTime ||
                   undefined,
+                extra: (r as any)?.Extra,
               };
             }
             if (!record || !record.instanceId) continue;
@@ -1555,7 +1584,10 @@ router.get(
         }
         inv = await invRepo.find();
       }
-      const data = (
+      
+      const cloudMap = new Map(cloudsAll.map(c => [c.id, c]));
+
+      const dataInv = (
         targetCloudId ? (inv || []).filter((i) => i.cloudId === targetCloudId) : inv || []
       ).map((i) => ({
         id: i.instanceId,
@@ -1582,6 +1614,7 @@ router.get(
           subnetId: i.subnetId,
           subnetName: i.subnetName,
           subnetCidr: i.subnetCidr,
+          Interfaces: i.extra?.Interfaces,
           networks: (() => {
             try {
               return JSON.parse(i.networks || '[]');
@@ -1594,7 +1627,86 @@ router.get(
         memoryGb: i.memoryGb,
         caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true },
       }));
-      res.json({ message: '查询成功', data });
+
+      const vms = await vmRepo.find();
+      const vmis = await vmiRepo.find();
+      const vmiByName = new Map<string, KubevirtVmiInventory>();
+      vmis.forEach(v => vmiByName.set(`${v.cloudId}/${v.namespace}/${v.name}`, v));
+
+      const dataKv = (
+        targetCloudId ? vms.filter((i) => i.cloudId === targetCloudId) : vms
+      ).map((i) => {
+          const c = cloudMap.get(i.cloudId);
+          const provider = (c?.config as any)?.provider || 'harvester';
+          const vmi = vmiByName.get(`${i.cloudId}/${i.namespace}/${i.name}`);
+          
+          // Determine Status
+          let status = 'Unknown';
+          if (vmi) {
+             status = vmi.phase || 'Unknown';
+             if (String(status).toLowerCase() === 'running') status = 'Running';
+          } else {
+             // If no VMI, check if it's supposed to be running
+             if (i.running) status = 'Starting'; 
+             else status = 'Stopped';
+             
+             if (i.runStrategy === 'Halted') status = 'Stopped';
+             if (i.runStrategy === 'Always') status = 'Starting'; // If VMI missing
+             if (i.runStrategy === 'RerunOnFailure') status = 'Starting';
+          }
+          
+          // Memory extraction from template
+          let memGb: number | undefined = undefined;
+          try {
+             const dom = i.template?.spec?.domain;
+             const mem = dom?.resources?.requests?.memory || dom?.resources?.limits?.memory;
+             if (mem) {
+                 const m = String(mem).trim();
+                 if (m.endsWith('Gi')) memGb = parseFloat(m);
+                 else if (m.endsWith('Mi')) memGb = parseFloat(m) / 1024;
+                 else if (m.endsWith('Ki')) memGb = parseFloat(m) / (1024 * 1024);
+                 else if (!isNaN(parseFloat(m))) memGb = parseFloat(m) / (1024*1024*1024);
+             }
+          } catch {}
+          
+          if (memGb !== undefined) {
+            memGb = Math.round(memGb * 100) / 100;
+          }
+          
+          // CPU extraction
+          let cpuCores: number | undefined = undefined;
+          try {
+             const dom = i.template?.spec?.domain;
+             cpuCores = dom?.cpu?.cores;
+          } catch {}
+
+          return {
+            id: i.uid,
+            name: i.name,
+            provider,
+            cloudId: i.cloudId,
+            region: c?.region,
+            status: status,
+            zoneId: vmi?.nodeName || '',
+            instanceType: 'Custom',
+            privateIps: vmi?.ipAddresses || [],
+            createdAt: i.creationTimestamp,
+            updatedAt: i.updatedAt,
+            extra: {
+                namespace: i.namespace,
+                nodeName: vmi?.nodeName,
+                networks: vmi?.interfaces || [], 
+                Interfaces: vmi?.interfaces,
+                labels: i.labels,
+                annotations: i.annotations,
+            },
+            cpu: cpuCores,
+            memoryGb: memGb,
+            caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true },
+          };
+      });
+
+      res.json({ message: '查询成功', data: [...dataInv, ...dataKv] });
     } catch (error: any) {
       res.status(500).json({ message: '库存查询失败', error: error.message });
     }

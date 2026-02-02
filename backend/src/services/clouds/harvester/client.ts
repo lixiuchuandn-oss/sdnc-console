@@ -2,15 +2,22 @@ export { HarvesterTestParams } from './types';
 export {
   listHarvesterVMsStandard,
   buildHarvesterVMManifest,
-  createHarvesterVM,
+  listKubevirtVMsRaw,
+  listKubevirtVMIsRaw,
+  listKubevirtVMsRawWithMeta,
+  listKubevirtVMIsRawWithMeta,
   getHarvesterVM,
+  createHarvesterVM,
+  updateHarvesterVMSpec,
+  getHarvesterVmVncUrl,
 } from './vm';
-export { updateHarvesterVMSpec } from './vm';
-export { getHarvesterVmVncUrl } from './vm';
 export {
   harvesterStartVM,
   harvesterStopVM,
   harvesterRebootVM,
+  harvesterSoftRebootVM,
+  harvesterPauseVM,
+  harvesterUnpauseVM,
   harvesterDeleteVM,
   harvesterAddVolumeToVM,
   harvesterRemoveVolumeFromVM,
@@ -22,19 +29,24 @@ export {
   listHarvesterAvailableVolumesStandard,
   listHarvesterStorageClassesStandard,
   listHarvesterImagesStandard,
+  listHarvesterImagesRaw,
   deleteHarvesterLonghornVolume,
   createHarvesterPVCVolume,
+  listHarvesterPVCRaw, // Export the new function
   exportImageFromPVC,
   createVolumeSnapshot,
   updatePVCSpec,
   clonePVC,
   createHarvesterNamespace,
   deleteHarvesterNamespace,
+  listHarvesterNamespacesRaw,
+  getHarvesterNamespaceRaw,
 } from './resources';
 export {
   listHarvesterNodesStandard,
   listHarvesterSystemPodsStandard,
   harvesterHealthCheck,
   testHarvesterConnection,
+  getHarvesterCapabilities,
 } from './health';
 export { listHarvesterGpuResources, listHarvesterUsbResources } from './peripherals';

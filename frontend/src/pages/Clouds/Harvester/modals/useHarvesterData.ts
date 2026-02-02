@@ -147,7 +147,13 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     try {
       const json: any = await fetchKubeOvnSubnets(cid);
       const items: any[] = json?.data?.items || json?.items || [];
-      setKubeSubnets(items);
+      const normalized = items.map((x: any) => ({
+        ...x,
+        name: x?.metadata?.name || x?.name,
+        vpc: x?.spec?.vpc || x?.vpc,
+        cidr: x?.spec?.cidrBlock || x?.cidr
+      }));
+      setKubeSubnets(normalized);
     } catch (e: any) {
       message.warning(e?.message || 'Kube-OVN 子网列表刷新失败');
     }
@@ -159,7 +165,11 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     try {
       const json: any = await fetchKubeOvnVpcs(cid);
       const items: any[] = json?.data?.items || json?.items || [];
-      setKubeVpcs(items);
+      const normalized = items.map((x: any) => ({
+        ...x,
+        name: x?.metadata?.name || x?.name
+      }));
+      setKubeVpcs(normalized);
     } catch (e: any) {
       message.warning(e?.message || 'Kube-OVN VPC 列表刷新失败');
     }
@@ -200,15 +210,35 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
 
   const namespaceOptions = useMemo(() => (namespaces || []).map((x: any) => ({ label: x?.metadata?.name || x?.name || '-', value: x?.metadata?.name || x?.name })), [namespaces]);
 
-  const nadOptions = useMemo(() => (nads || []).map((x: any) => ({ label: `${x?.name || '-'} (${x?.namespace || '-'})`, value: x?.namespace && x?.name ? `${x.namespace}/${x.name}` : (x?.name || '-') })), [nads]);
+  const nadOptions = useMemo(() => (nads || []).map((x: any) => {
+    const name = x?.metadata?.name || x?.name;
+    const ns = x?.metadata?.namespace || x?.namespace;
+    return {
+      label: `${name || '-'} (${ns || '-'})`,
+      value: ns && name ? `${ns}/${name}` : (name || '-')
+    };
+  }), [nads]);
   
   const kubeSubnetOptions = useMemo(() => (kubeSubnets || []).map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })), [kubeSubnets]);
   
   const kubeVpcOptions = useMemo(() => (kubeVpcs || []).map((x: any) => ({ label: x?.name || '-', value: x?.name })), [kubeVpcs]);
   
   const cloudOptions = useMemo(() => (clouds || [])
-    .filter((c: any) => ['harvester', 'cloudmap'].includes(String(c?.config?.provider || '').toLowerCase()))
-    .map((c: any) => ({ label: c?.name || c?.id || '-', value: c?.id })), [clouds]);
+    .filter((c: any) => {
+      const p = String(c?.config?.provider || c?.type || '').toLowerCase();
+      // Ensure the current cloud ID is always included in the options, even if the provider type check fails
+      const isCurrent = (cloudId !== 'all' && c.id === cloudId) || (currentCloudId && c.id === currentCloudId);
+       return isCurrent || ['harvester', 'cloudmap'].includes(p);
+     })
+     .map((c: any) => {
+        const name = c?.name || '-';
+        const id = c?.id || '-';
+        return { 
+          ...c, 
+          label: name === id ? name : `${name} (${id})`,
+          value: c?.id 
+        };
+     }), [clouds, cloudId, currentCloudId]);
 
   const defaultStorageClassName = useMemo(() => {
     const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];

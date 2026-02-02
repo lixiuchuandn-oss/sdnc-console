@@ -454,9 +454,11 @@ const OrgManagePage: React.FC = () => {
   const userColumns: ColumnsType<TenantUser> = [
     { title: '用户名', dataIndex: 'username', key: 'username' },
     { title: '角色', dataIndex: 'role', key: 'role', render: (role: string) => {
-      const colors = { admin: 'red', user: 'blue', viewer: 'green' };
-      const labels = { admin: '管理员', user: '用户', viewer: '查看者' };
-      return <Tag color={colors[role as keyof typeof colors]}>{labels[role as keyof typeof labels]}</Tag>;
+      const colors: Record<string, string> = { admin: 'red', user: 'blue', viewer: 'green' };
+      const labels: Record<string, string> = { admin: '管理员', user: '用户', viewer: '查看者' };
+      const color = colors[role] || 'geekblue';
+      const label = labels[role] || role;
+      return <Tag color={color}>{label}</Tag>;
     }},
     { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => (
       <Tag color={status === 'active' ? 'green' : 'red'}>{status === 'active' ? '活跃' : '非活跃'}</Tag>
@@ -987,6 +989,9 @@ const OrgManagePage: React.FC = () => {
               <Select.Option value="admin">管理员</Select.Option>
               <Select.Option value="user">用户</Select.Option>
               <Select.Option value="viewer">查看者</Select.Option>
+              {tenantRoles.filter(r => !['admin','user','viewer'].includes(r.name)).map(r => (
+                <Select.Option key={r.id} value={r.id}>{r.name}</Select.Option>
+              ))}
             </Select>
           </Form.Item>
         </Form>

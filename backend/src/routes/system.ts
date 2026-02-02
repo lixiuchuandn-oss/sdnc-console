@@ -339,14 +339,43 @@ router.get('/rbac/actions', async (_req, res) => {
   res.json({ actions: candidates.sort(), scanned: scanned.sort(), details });
 });
 
-// RBAC 角色列表
+// RBAC Roles (Policies) API
 router.get('/rbac/roles', async (req, res) => {
   try {
-    const repo = AppDataSource.getRepository(RBACRole);
-    const rows = await repo.find({ order: { createdAt: 'DESC' } });
-    res.json({ roles: rows });
-  } catch (e: any) {
-    res.status(500).json({ message: '获取角色失败', error: String(e) });
+    const roleRepo = AppDataSource.getRepository(RBACRole);
+    const roles = await roleRepo.find({
+      order: { createdAt: 'DESC' }
+    });
+    // Transform to frontend Policy format
+    const list = roles.map(r => {
+      let actions: string[] = [];
+      let conditions: any = undefined;
+      try {
+        if (r.permissions) {
+           const parsed = JSON.parse(r.permissions);
+           if (Array.isArray(parsed)) {
+             actions = parsed;
+           } else {
+             actions = parsed.actions || [];
+             conditions = parsed.conditions;
+           }
+        }
+      } catch (e) {
+        actions = [];
+      }
+      return {
+        id: r.id,
+        name: r.name,
+        type: '自定义策略', // Backend roles are Custom Policies
+        description: r.description,
+        actions: Array.isArray(actions) ? actions : [],
+        groups: [], // Calculated on frontend
+        conditions
+      };
+    });
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch roles', error });
   }
 });
 

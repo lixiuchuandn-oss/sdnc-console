@@ -2,8 +2,10 @@ import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
 import { callAliyunEcs } from './aliyun';
 import { huaweiListServers } from './huaweicloud';
-import { listHarvesterVMsStandard } from './harvester';
 import { listCsmVms } from './clouds/csm/client';
+import { syncKubevirtVms, syncKubevirtVmis } from './clouds/harvester/syncInventory';
+import { KubevirtVmInventory } from '../entities/kubevirt/KubevirtVmInventory';
+import { KubevirtVmiInventory } from '../entities/kubevirt/KubevirtVmiInventory';
 
 export class CloudSyncService {
   private static instance: CloudSyncService;
@@ -116,16 +118,22 @@ export class CloudSyncService {
       provider === 'cloudmap.private' ||
       provider === 'cloudmap.edge'
     ) {
-      const list = await listHarvesterVMsStandard({
-        endpoint: cloud.endpoint || '',
-        token: cloud.secretKey || '',
-        insecure: !!cloud.config?.ignoreTls,
+      const insecure = !!(cloud.config as any)?.ignoreTls;
+      // Sync Inventory to DB
+      await syncKubevirtVms(cloud, insecure);
+      await syncKubevirtVmis(cloud, insecure);
+
+      // Calculate counts from DB
+      const vmRepo = AppDataSource.getRepository(KubevirtVmInventory);
+      const vmiRepo = AppDataSource.getRepository(KubevirtVmiInventory);
+
+      cloud.vmCount = await vmRepo.count({ where: { cloudId: cloud.id } });
+      cloud.runningVmCount = await vmiRepo.count({
+        where: {
+          cloudId: cloud.id,
+          phase: 'Running',
+        },
       });
-      cloud.vmCount = list.length;
-      cloud.runningVmCount = list.filter((i: any) => {
-        const phase = i.status?.printableStatus || i.status?.phase;
-        return String(phase).toLowerCase() === 'running';
-      }).length;
     } else if (provider === 'cloudmap.csm') {
       const list = await listCsmVms({
         endpoint: cloud.endpoint || '',

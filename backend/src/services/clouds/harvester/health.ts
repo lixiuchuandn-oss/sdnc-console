@@ -97,11 +97,7 @@ export const listHarvesterNodesStandard = async ({
     }
     throw lastErr;
   }
-  const items = Array.isArray(json?.data)
-    ? json?.data
-    : Array.isArray(json?.items)
-      ? json?.items
-      : [];
+  const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
   return items.map((n: any) => {
     const name = n?.metadata?.name || n?.name || '';
     const roles = Object.keys(n?.metadata?.labels || {}).filter((k) =>
@@ -116,6 +112,7 @@ export const listHarvesterNodesStandard = async ({
     const memory = n?.status?.capacity?.memory || n?.status?.allocatable?.memory || '';
     const version =
       n?.status?.nodeInfo?.kubeletVersion || n?.status?.nodeInfo?.kubeProxyVersion || '';
+    const architecture = n?.status?.nodeInfo?.architecture || 'amd64';
     return {
       name,
       roles,
@@ -125,6 +122,10 @@ export const listHarvesterNodesStandard = async ({
       cpu,
       memory,
       version,
+      architecture,
+      links: {
+          view: `${origin}/api/v1/nodes/${name}`
+      }
     };
   });
 };
@@ -268,6 +269,8 @@ export const harvesterHealthCheck = async ({
         `${origin}/v1/core.v1.nodes`,
         `${origin}/v1/k8s.io.nodes`,
         `${origin}/api/v1/nodes`,
+        `${origin}/v1/harvester/core.v1.nodes`,
+        `${origin}/v1/harvester/api/v1/nodes`,
       ],
     },
     {
@@ -439,4 +442,50 @@ export const harvesterHealthCheck = async ({
     });
   }
   return { items };
+};
+
+export const getHarvesterCapabilities = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<{
+  architecture: string;
+  recommendedMachineType: string;
+  version?: string;
+}> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  // 1. Detect Architecture from Nodes
+  let architecture = 'amd64'; // default
+  try {
+    const nodes = await listHarvesterNodesStandard({ endpoint, token, insecure });
+    if (nodes.length > 0) {
+      const arch = nodes[0]?.architecture;
+      if (arch) architecture = arch;
+    }
+  } catch (e) {
+    console.warn('Failed to detect Harvester architecture:', e);
+  }
+
+  // 2. Determine Recommended Machine Type
+  let recommendedMachineType = 'q35';
+  if (architecture === 'arm64' || architecture === 'aarch64') {
+    recommendedMachineType = 'virt';
+  } else {
+    // x86_64 / amd64
+    // Harvester default is usually q35
+    recommendedMachineType = 'q35'; 
+  }
+
+  return {
+    architecture,
+    recommendedMachineType,
+  };
 };

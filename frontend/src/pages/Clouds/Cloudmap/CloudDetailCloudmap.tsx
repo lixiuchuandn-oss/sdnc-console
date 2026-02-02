@@ -7,12 +7,14 @@ import VolumesSection from '../Harvester/sections/VolumesSection';
 import NadsSection from '../Harvester/sections/NadsSection';
 import KubeOvnVpcsSection from '../Harvester/sections/KubeOvnVpcsSection';
 import KubeOvnSubnetsSection from '../Harvester/sections/KubeOvnSubnetsSection';
+import KubeOvnPublicNetworksSection from '../Harvester/sections/KubeOvnPublicNetworksSection';
 import GpusSection from '../Harvester/sections/GpusSection';
+import StorageClassesSection from '../Harvester/sections/StorageClassesSection';
+// Re-trigger compilation
 import NamespacesTab from '../Harvester/sections/NamespacesTab';
-import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, DeploymentUnitOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, DeploymentUnitOutlined, AppstoreOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
-import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, startCloudProviderEcs, stopCloudProviderEcs, deleteCloudProviderEcs, fetchHarvesterGpuResources, fetchHarvesterNamespaces } from '../../../services/api';
-import VmDetailModal from '../Harvester/modals/VmDetailModal';
+import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities } from '../../../services/api';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import VmSection from '../Harvester/sections/VmSection';
 
@@ -31,8 +33,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const [kubeOvnVpcs, setKubeOvnVpcs] = useState<any[]>([]);
   const [kubeOvnSubnets, setKubeOvnSubnets] = useState<any[]>([]);
   const [harvesterSystemPods, setHarvesterSystemPods] = useState<any[]>([]);
-  const [vmDetailOpen, setVmDetailOpen] = useState(false);
-  const [vmDetail, setVmDetail] = useState<any | null>(null);
   const [vmReconfOpen, setVmReconfOpen] = useState(false);
   const [vmReconfTarget, setVmReconfTarget] = useState<any | null>(null);
   const [nsFilter, setNsFilter] = useState<string>('');
@@ -49,6 +49,46 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const [harvesterGpuResources, setHarvesterGpuResources] = useState<any[]>([]);
   const [rawGpu, setRawGpu] = useState<any | null>(null);
   const [harvesterNamespaces, setHarvesterNamespaces] = useState<any[]>([]);
+  const [rawNamespaces, setRawNamespaces] = useState<any | null>(null);
+  const [harvesterStorageClasses, setHarvesterStorageClasses] = useState<any[]>([]);
+  const [capabilities, setCapabilities] = useState<any>(null);
+
+  // Single Resource Refresh: Nodes
+  // Manual refresh handler for Nodes to avoid full page reload
+  const [nodesLoading, setNodesLoading] = useState(false);
+  const refreshNodes = async () => {
+      if (nodesLoading) return;
+      setNodesLoading(true);
+      try {
+        const nodesJson = await fetchHarvesterNodes(cloudId);
+        const nodesList: any[] = (nodesJson as any)?.data?.items || [];
+        setHarvesterNodes(Array.isArray(nodesList) ? nodesList : []);
+        setRawNodes(nodesJson || null);
+        message.success('节点刷新成功');
+      } catch (e: any) {
+        message.error(`刷新节点失败: ${e?.message || '未知错误'}`);
+      } finally {
+        setNodesLoading(false);
+      }
+  };
+
+  // Single Resource Refresh: NADs
+  const [nadsLoading, setNadsLoading] = useState(false);
+  const refreshNads = async () => {
+      if (nadsLoading) return;
+      setNadsLoading(true);
+      try {
+        const nadsJson = await fetchHarvesterNads(cloudId);
+        const nadsList: any[] = (nadsJson as any)?.data?.items || [];
+        setHarvesterNads(Array.isArray(nadsList) ? nadsList : []);
+        setRawNads(nadsJson || null);
+        message.success('NAD网络刷新成功');
+      } catch (e: any) {
+        message.error(`刷新NAD网络失败: ${e?.message || '未知错误'}`);
+      } finally {
+        setNadsLoading(false);
+      }
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -57,7 +97,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       const cloudsRes = await fetchClouds();
       const cloudList: any[] = Array.isArray(cloudsRes) ? cloudsRes : (Array.isArray((cloudsRes as any)?.data) ? (cloudsRes as any).data : []);
       setCloud((cloudList || []).find((c:any)=> String(c.id) === String(cloudId)) || null);
-      const [ecsJson, nadsJson, imagesJson, volsJson, nodesJson, podsJson, vpcsJson, subsJson, gpuJson, nsJson] = await Promise.all([
+      const [ecsJson, nadsJson, imagesJson, volsJson, nodesJson, podsJson, vpcsJson, subsJson, gpuJson, nsJson, scJson, capJson] = await Promise.all([
         fetchCloudProviderEcs(cloudId),
         fetchHarvesterNads(cloudId).catch(()=>null),
         fetchHarvesterImages(cloudId).catch(()=>null),
@@ -68,6 +108,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
         fetchKubeOvnSubnets(cloudId).catch(()=>null),
         fetchHarvesterGpuResources(cloudId).catch(()=>null),
         fetchHarvesterNamespaces(cloudId).catch(()=>null),
+        fetchHarvesterStorageClasses(cloudId).catch(()=>null),
+        fetchHarvesterCapabilities(cloudId).catch(()=>null),
       ]);
       const ecsList: any[] = Array.isArray((ecsJson as any)?.data) ? (ecsJson as any).data : (((ecsJson as any)?.data?.Instances?.Instance) || ((ecsJson as any)?.data?.items) || ((ecsJson as any)?.data?.data) || []);
       setEcs(Array.isArray(ecsList) ? ecsList : []);
@@ -98,6 +140,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       setRawGpu(gpuJson || null);
       const nsList: any[] = Array.isArray((nsJson as any)?.data?.items) ? (nsJson as any).data.items : (Array.isArray((nsJson as any)?.items) ? (nsJson as any).items : []);
       setHarvesterNamespaces(Array.isArray(nsList) ? nsList : []);
+      setRawNamespaces(nsJson || null);
+      const scList: any[] = Array.isArray((scJson as any)?.data?.items) ? (scJson as any).data.items : (Array.isArray((scJson as any)?.items) ? (scJson as any).items : []);
+      setHarvesterStorageClasses(Array.isArray(scList) ? scList : []);
+      setCapabilities(capJson?.data || null);
     } catch (e:any) {
       setError(e?.message || '查询失败');
     } finally {
@@ -116,17 +162,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
           const json = JSON.parse(String(ev.data || '{}'));
           const items: any[] = Array.isArray(json?.items) ? json.items : [];
           setEcs(items);
-          try {
-            setVmDetail((prev:any)=>{
-              if (!prev) return prev;
-              const ns = String(prev?.metadata?.namespace || '');
-              const name = String(prev?.metadata?.name || '');
-              const currIid = ns && name ? `${ns}/${name}` : String(prev?.InstanceId || '');
-              const it = items.find((x:any)=> String(x?.InstanceId||x?.id||'') === currIid);
-              if (it && it.Extra) return { ...prev, Extra: it.Extra };
-              return prev;
-            });
-          } catch {}
         } catch {}
       });
       es.addEventListener('vm_created', (ev: MessageEvent) => {
@@ -155,25 +190,32 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
           const json = JSON.parse(String(ev.data || '{}'));
           const iid = String(json?.iid || '');
           const status = String(json?.status || '');
+          const nodeName = String(json?.nodeName || '');
+          const ips = Array.isArray(json?.ips) ? json.ips : [];
           if (!iid) return;
           setEcs(prev => (prev || []).map((x:any)=> {
             const xiid = String(x?.InstanceId||x?.id||'');
-            if (xiid === iid) return { ...x, Status: status, status };
+            if (xiid === iid) {
+               const newItem = { ...x, Status: status, status };
+               // Update NodeName (Always update to reflect backend state, even if empty)
+               if (!newItem.Extra) newItem.Extra = {};
+               newItem.Extra.NodeName = nodeName;
+               // Also update vmi if exists
+               if (!newItem.vmi) newItem.vmi = { status: {} };
+               if (!newItem.vmi.status) newItem.vmi.status = {};
+               newItem.vmi.status.nodeName = nodeName;
+
+               // Update IPs
+               if (ips.length > 0) {
+                   // Update Extra.IPs or vmi.status.interfaces if needed
+                   // SafeRead.ip uses vmi.status.interfaces
+                   // We won't reconstruct the whole interfaces array, but we can try to patch if structure matches
+                   // Or just rely on re-fetch for complex IP changes. But nodeName is critical.
+               }
+               return newItem;
+            }
             return x;
           }));
-          try {
-            setVmDetail((prev:any)=>{
-              if (!prev) return prev;
-              const ns = String(prev?.metadata?.namespace || '');
-              const name = String(prev?.metadata?.name || '');
-              const currIid = ns && name ? `${ns}/${name}` : String(prev?.InstanceId || '');
-              if (currIid === iid) {
-                const newStatus = { ...(prev?.status || {}), printableStatus: status || (prev?.status?.printableStatus || prev?.status?.phase), phase: status || (prev?.status?.phase || prev?.status?.printableStatus) };
-                return { ...prev, status: newStatus };
-              }
-              return prev;
-            });
-          } catch {}
         } catch {}
       });
       es.addEventListener('error', () => { /* ignore */ });
@@ -259,8 +301,38 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
           <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
           <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
           <Descriptions.Item label="资源状态">{cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}</Descriptions.Item>
-          <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Endpoint">
+            <Space>
+              {cloud?.endpoint || '-'}
+              {cloud?.endpoint && (
+                <Button 
+                  type="link" 
+                  size="small" 
+                  icon={<LoginOutlined />} 
+                  style={{ padding: 0 }}
+                  onClick={() => {
+                    let url = cloud.endpoint || '';
+                    if (url.endsWith('/v3')) {
+                      url = url.substring(0, url.length - 3);
+                    } else if (url.endsWith('/v3/')) {
+                      url = url.substring(0, url.length - 4);
+                    }
+                    window.open(url, '_blank');
+                  }}
+                >
+                  登录OPS
+                </Button>
+              )}
+            </Space>
+          </Descriptions.Item>
           <Descriptions.Item label="版本">{versionText}</Descriptions.Item>
+          <Descriptions.Item label="CPU 架构">
+            {capabilities?.architecture ? (
+              (capabilities.architecture === 'arm64' || capabilities.architecture === 'aarch64') 
+                ? <Tag color="blue">ARM64</Tag> 
+                : <Tag color="blue">x86_64</Tag>
+            ) : '-'}
+          </Descriptions.Item>
           <Descriptions.Item label="TLS 忽略">{tlsIgnored ? <Tag color="orange">是</Tag> : <Tag>否</Tag>}</Descriptions.Item>
           <Descriptions.Item label="网络插件">{hasKubeOvn ? <Tag color="blue">Kube-OVN</Tag> : <Tag>未知/未启用</Tag>}</Descriptions.Item>
           <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
@@ -300,7 +372,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
               label: '节点',
               children: (
                 <>
-                  <NodesSection nodes={harvesterNodes} loading={loading} />
+                  <NodesSection nodes={harvesterNodes} loading={loading || nodesLoading} onRefresh={refreshNodes} cloudId={cloudId} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawNodes, null, 2)}</pre>
@@ -312,7 +384,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             {
               key: 'namespaces',
               label: '命名空间',
-              children: <NamespacesTab cloudId={cloudId} showLog={showLog} />
+              children: <NamespacesTab cloudId={cloudId} namespaces={harvesterNamespaces} loading={loading} onRefresh={loadAll} showLog={showLog} raw={rawNamespaces} />
             },
             {
               key: 'ecs',
@@ -330,27 +402,16 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     onNsChange={(v)=> setNsFilter(v || '')}
                     onNodeChange={(v)=> setNodeFilter(v || '')}
                     onRefresh={loadAll}
-                    onOpenDetail={async (r:any)=>{
-                      const iid = String(r?.InstanceId || r?.id || '');
-                      setVmDetail(r);
-                      setVmDetailOpen(true);
-                      try {
-                        const ns = iid.includes('/') ? iid.split('/')[0] : '';
-                        const name = iid.includes('/') ? iid.split('/')[1] : '';
-                        if (ns && name) {
-                          const json = await fetchHarvesterVmDetail(cloudId, ns, name);
-                          setVmDetail((prev:any)=> ({ ...(((json as any)?.data || json) as any), Extra: (prev as any)?.Extra || (r as any)?.Extra }));
-                        }
-                      } catch {}
-                    }}
                     onOpenReconfigure={(r:any)=> { setVmReconfTarget(r); setVmReconfOpen(true); }}
                     onStart={async (iid:string)=>{ try { await startCloudProviderEcs(cloudId, iid); message.success('启动成功'); } catch(e:any){ message.error(e?.message||'启动失败'); } }}
                     onStop={async (iid:string)=>{ try { await stopCloudProviderEcs(cloudId, iid, false); message.success('停止成功'); } catch(e:any){ message.error(e?.message||'停止失败'); } }}
-                    onReboot={async (iid:string)=>{ try { await startCloudProviderEcs(cloudId, iid); message.success('重启指令已发送（请手动确认）'); } catch(e:any){ message.error(e?.message||'重启失败'); } }}
+                    onReboot={async (iid:string)=>{ try { await rebootCloudProviderEcs(cloudId, iid, false); message.success('重启指令已发送'); } catch(e:any){ message.error(e?.message||'重启失败'); } }}
+                    onSoftReboot={async (iid:string)=>{ try { await softRebootCloudProviderEcs(cloudId, iid); message.success('软重启指令已发送'); } catch(e:any){ message.error(e?.message||'软重启失败'); } }}
+                    onPause={async (iid:string)=>{ try { await pauseCloudProviderEcs(cloudId, iid); message.success('暂停指令已发送'); } catch(e:any){ message.error(e?.message||'暂停失败'); } }}
+                    onUnpause={async (iid:string)=>{ try { await unpauseCloudProviderEcs(cloudId, iid); message.success('恢复指令已发送'); } catch(e:any){ message.error(e?.message||'恢复失败'); } }}
                     onDelete={async (iid:string, deleteImage?: boolean)=>{ try { await deleteCloudProviderEcs(cloudId, iid, deleteImage); message.success('删除成功'); } catch(e:any){ message.error(e?.message||'删除失败'); } }}
                   />
-                  <VmDetailModal open={vmDetailOpen} cloudId={cloudId} vm={vmDetail} volumes={harvesterVolumes} onClose={() => { setVmDetailOpen(false); setVmDetail(null); }} onRefreshAll={loadAll} />
-                  <VmReconfigureModal open={vmReconfOpen} cloudId={cloudId} record={vmReconfTarget} onClose={()=>{ setVmReconfOpen(false); setVmReconfTarget(null); }} onOk={loadAll} />
+                  <VmReconfigureModal open={vmReconfOpen} cloudId={cloudId} record={vmReconfTarget} onClose={()=>{ setVmReconfOpen(false); setVmReconfTarget(null); }} onOk={loadAll} storageClasses={harvesterStorageClasses} images={harvesterImages} gpuResources={harvesterGpuResources} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawEcs, null, 2)}</pre>
@@ -378,10 +439,24 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
               label: labelVolumes,
               children: (
                 <>
-                  <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={loading} vms={ecs} onRefresh={loadAll} />
+                  <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={loading} vms={ecs} storageClasses={harvesterStorageClasses} onRefresh={loadAll} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVolumes, null, 2)}</pre>
+                    </div>
+                  )}
+                </>
+              )
+            },
+            {
+              key: 'storage_classes',
+              label: '存储类',
+              children: (
+                <>
+                  <StorageClassesSection cloudId={cloudId} storageClasses={harvesterStorageClasses} loading={loading} onRefresh={loadAll} />
+                  {showLog && (
+                    <div style={{ marginTop: 12 }}>
+                      <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(harvesterStorageClasses, null, 2)}</pre>
                     </div>
                   )}
                 </>
@@ -392,7 +467,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
               label: labelNad,
               children: (
                 <>
-                  <NadsSection nads={harvesterNads} loading={loading} />
+                  <NadsSection nads={harvesterNads} loading={loading} onRefresh={loadAll} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawNads, null, 2)}</pre>
@@ -406,7 +481,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
               label: labelKubeOvnVpcs,
               children: (
                 <>
-                  <KubeOvnVpcsSection vpcs={kubeOvnVpcs} loading={loading} />
+                  <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={loading} onRefresh={loadAll} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVpcs, null, 2)}</pre>
@@ -420,7 +495,21 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
               label: labelKubeOvnSubnets,
               children: (
                 <>
-                  <KubeOvnSubnetsSection subnets={kubeOvnSubnets} loading={loading} />
+                  <KubeOvnSubnetsSection subnets={kubeOvnSubnets} vpcList={kubeOvnVpcs} loading={loading} onRefresh={loadAll} />
+                  {showLog && (
+                    <div style={{ marginTop: 12 }}>
+                      <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
+                    </div>
+                  )}
+                </>
+              )
+            },
+            {
+              key: 'kubeovn_public_networks',
+              label: 'Kube-OVN 公共网络',
+              children: (
+                <>
+                  <KubeOvnPublicNetworksSection subnets={kubeOvnSubnets} loading={loading} onRefresh={loadAll} />
                   {showLog && (
                     <div style={{ marginTop: 12 }}>
                       <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>

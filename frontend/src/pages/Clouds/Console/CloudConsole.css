@@ -10,13 +10,52 @@
 .cloud-console-tabs .ant-tabs-tab-active .ant-tabs-tab-btn { color: #1f2a44; font-weight: normal; }
 .cloud-console-tabs .ant-tabs-ink-bar { display: none; }
 
-.cloud-console-root { height: calc(100vh - 64px); }
-.cloud-console-sidebar { background: #EDF0F7; border: 1px solid rgb(200, 207, 218); border-radius: 0; padding: 0; height: calc(100vh - 64px); display: flex; flex-direction: column; overflow: hidden; }
-.cloud-console-content { height: calc(100vh - 64px); display: flex; flex-direction: column; overflow: hidden; }
-.cloud-console-content-scroll { flex: 1; overflow: auto; padding-right: 30px; }
+/* CloudConsole.css */
+.cloud-console-root { height: 100%; display: flex; gap: 16px; background: transparent; border: none; overflow: hidden; }
+
+.cloud-console-sidebar {
+  width: 280px;
+  min-width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cloud-console-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cloud-console-content-scroll { flex: 1; overflow: auto; padding: 12px; }
+
+/* Custom Scrollbar */
+.cloud-console-sidebar ::-webkit-scrollbar,
+.cloud-console-content-scroll ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.cloud-console-sidebar ::-webkit-scrollbar-thumb,
+.cloud-console-content-scroll ::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+.cloud-console-sidebar ::-webkit-scrollbar-track,
+.cloud-console-content-scroll ::-webkit-scrollbar-track {
+  background: transparent;
+}
 .cloud-console-root .vr-table { font-size: 12px; }
-.cloud-console-sidebar .ant-tree { padding: 6px 6px 0 6px; flex: 1; background: #EDF0F7; overflow: auto; }
-.cloud-console-sidebar .ant-tree-list, .cloud-console-sidebar .ant-tree-list-holder { background: #EDF0F7; }
+.cloud-console-sidebar .ant-tree { padding: 6px 0 0 0; flex: 1; background: transparent; overflow: auto; }
+.cloud-console-sidebar .ant-tree-list, .cloud-console-sidebar .ant-tree-list-holder { background: transparent; }
 .cloud-console-sidebar .ant-tree-treenode { padding: 2px 0; }
 .cloud-console-sidebar .ant-tree-node-content-wrapper { border-radius: 8px; font-size: 13px; }
 .cloud-console-sidebar .ant-tree-node-content-wrapper:hover { background: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }

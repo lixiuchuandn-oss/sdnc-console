@@ -11,7 +11,7 @@ import StepOthers from './StepOthers';
 import WizardSummary from './WizardSummary';
 import { useHarvesterData } from './useHarvesterData';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange } from './VmWizardUtils';
-import { createHarvesterVm, previewHarvesterVm } from '../../../../services/api';
+import { createHarvesterVm, fetchHarvesterCapabilities } from '../../../../services/api';
 
 const VmCreateWizardModal: React.FC = () => {
   const navigate = useNavigate();
@@ -21,9 +21,6 @@ const VmCreateWizardModal: React.FC = () => {
   const [wizardData, setWizardData] = useState<any>({});
   const [step, setStep] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
-  const [jsonModalOpen, setJsonModalOpen] = useState(false);
-  const [jsonPreview, setJsonPreview] = useState<any>(null);
-  const [jsonLoading, setJsonLoading] = useState(false);
   const [autoStart, setAutoStart] = useState<boolean>(false);
   const [currentCloudId, setCurrentCloudId] = useState<string | undefined>(cloudId !== 'all' ? cloudId : undefined);
   const [selectedDiskIdx, setSelectedDiskIdx] = useState<number | null>(null);
@@ -37,6 +34,7 @@ const VmCreateWizardModal: React.FC = () => {
   const [memGi, setMemGi] = useState<number>(4);
   const [formSnapshot, setFormSnapshot] = useState<any>({});
   const [selectedGpuKey, setSelectedGpuKey] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<any>(null);
 
   const {
     images, imageLoading, reloadImages, imageOptions,
@@ -53,17 +51,29 @@ const VmCreateWizardModal: React.FC = () => {
   } = useHarvesterData(cloudId, currentCloudId, form);
 
   useEffect(() => {
+    loadClouds();
+  }, [loadClouds]);
+
+  useEffect(() => {
     const load = async () => {
       if (!currentCloudId && cloudId === 'all') return;
       if (!form.getFieldValue('namespace')) { try { form.setFieldsValue({ namespace: 'default' }); } catch {} }
+      try {
+        const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
+        if (cid) {
+          const caps = await fetchHarvesterCapabilities(cid);
+          setCapabilities(caps?.data || null);
+          const rec = String(caps?.data?.recommendedMachineType || '').trim();
+          if (rec) { try { form.setFieldsValue({ machineType: rec }); } catch {} }
+        }
+      } catch {}
       reloadImages();
       reloadNamespaces();
       reloadNads();
       reloadNodes();
-      loadClouds();
     };
     load();
-  }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes, loadClouds]);
+  }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes]);
 
   useEffect(() => {
     if (step === 4) { try { reloadUsbResources(); } catch {} }
@@ -151,7 +161,7 @@ const VmCreateWizardModal: React.FC = () => {
       }
 
       const payload = constructVmPayload({
-        v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu
+        v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu, capabilities
       });
 
       await createHarvesterVm(cid, payload);
@@ -168,49 +178,18 @@ const VmCreateWizardModal: React.FC = () => {
     }
   };
 
-  const openJsonPreview = async () => {
-    try {
-      const v = { ...wizardData, ...form.getFieldsValue() } as any;
-      const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
-      
-      setJsonLoading(true);
-      
-      const payload = constructVmPayload({
-        v,
-        memGi,
-        hostModeState,
-        selectedNodeName,
-        gpuResources: gpuResources || [],
-        selectedGpu: null
-      });
-
-      if (cid) {
-        try {
-          await previewHarvesterVm(cid, payload);
-        } catch (e) {}
-      }
-
-      setJsonPreview(payload);
-      setJsonModalOpen(true);
-    } catch (e:any) {
-      setJsonPreview({ error: e?.message || '预览失败', form: { ...wizardData, ...form.getFieldsValue() } });
-      setJsonModalOpen(true);
-    } finally {
-      setJsonLoading(false);
-    }
-  };
-
-
-
   return (
     <Modal
       title="创建云主机"
       open
-      destroyOnClose
+      destroyOnHidden
       footer={null}
-      width={'65vw'}
+      width={'70vw'}
       centered
-      styles={{ body: { height: '75vh', maxHeight: '75vh', overflow: 'hidden', paddingTop: 12 } }}
+      styles={{
+        mask: { backdropFilter: 'blur(4px)', backgroundColor: 'rgba(0,0,0,0.45)' },
+        body: { height: '80vh', maxHeight: '80vh', overflow: 'hidden'}
+      }}
       onCancel={() => navigate(-1)}
     >
       <Row gutter={[0, 0]} style={{ height: '100%' }}>
@@ -344,11 +323,6 @@ const VmCreateWizardModal: React.FC = () => {
             netModeState={netModeState}
             kubeSubnets={kubeSubnets}
             autoStart={autoStart}
-            jsonModalOpen={jsonModalOpen}
-            setJsonModalOpen={setJsonModalOpen}
-            jsonLoading={jsonLoading}
-            jsonPreview={jsonPreview}
-            openJsonPreview={openJsonPreview}
             memGi={memGi}
           >
             <div className="wizard-preview-actions">

@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Select, Tag, Button, message, Modal, Form, Dropdown } from 'antd';
-import { EllipsisOutlined, SettingOutlined, ReloadOutlined } from '@ant-design/icons';
-import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
+import { Table, Input, Select, Tag, Button, message, Modal, Form, Dropdown, Tabs } from 'antd';
+import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
+import PageDetailSection from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import TableColumnSettings from '../../../../components/TableColumnSettings';
 import { deleteHarvesterImage, createHarvesterImage } from '../../../../services/api';
 
 type Props = {
@@ -17,6 +19,15 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
   const [creating, setCreating] = useState<boolean>(false);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [form] = Form.useForm();
+  
+  // Metadata Modal State
+  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
+  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+
+  const handleShowMetadata = (record: any) => {
+    setCurrentMetadata(record);
+    setMetadataModalVisible(true);
+  };
 
   const cnStatus = (s?: string): string => {
     const k = String(s || '').toLowerCase();
@@ -90,18 +101,60 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
       }
     });
   };
+
+  const allColumns = useMemo(() => [
+    { title: '显示名称', key: 'display_name', render: (_:any, r:any)=> (r?.displayName || r?.spec?.displayName || r?.spec?.name || '-') },
+    { title: '资源名称', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
+    { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(r?.status || r?.status?.phase || r?.status?.status) },
+    { title: '虚拟大小（GB）', key: 'vsize', render: (_:any, r:any)=> gbText(r?.virtualSize ?? r?.status?.virtualSize) },
+    { title: '文件大小（GB）', key: 'size', render: (_:any, r:any)=> gbText(r?.size ?? r?.status?.size ?? r?.spec?.size ?? r?.status?.downloadedBytes) },
+    { title: '存储类', key: 'sc', render: (_:any, r:any)=> r?.storageClassName || r?.spec?.storageClassName || r?.status?.storageClassName || '-' },
+    { title: '操作', key: 'actions', render: (_:any, r:any)=> {
+      const name = r?.name || r?.metadata?.name || '';
+      const ns = getNs(r);
+      const links = r?.links || {};
+      const view = links?.view || '';
+      const download = links?.download || '';
+
+      const handleView = () => { if (view) window.open(view, '_blank'); };
+      const handleDownload = () => { if (download) window.open(download, '_blank'); };
+      const handleDelete = async () => { 
+          if (name) { 
+              try {
+                  await deleteHarvesterImage(cloudId, ns, name); 
+                  message.success('删除成功'); 
+                  onRefresh?.(); 
+              } catch (e: any) {
+                  message.error(e?.message || '删除失败');
+              }
+          } 
+      };
+
+      const items: any[] = [
+        { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
+        { key: 'view', label: '查看 SourceData', disabled: !view, onClick: handleView },
+        { key: 'download', label: '下载', disabled: !download, onClick: handleDownload },
+        { type: 'divider' },
+        { key: 'delete', label: '删除', danger: true, disabled: !name, onClick: handleDelete },
+      ];
+      return <ResourceActionsDropdown items={items} />;
+    } },
+  ], [cloudId, onRefresh, handleShowMetadata]);
+
+  const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
+
   return (
     <PageDetailSection
       asCard={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
+          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
           <Select
             allowClear
             placeholder="镜像状态"
             value={statusFilter || undefined}
             onChange={(v)=> setStatusFilter(v || '')}
-            style={{ width: 200 }}
+            className="toolbar-filter"
             options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
           />
         </>
@@ -120,7 +173,11 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <Button icon={<SettingOutlined />} />
+          <TableColumnSettings 
+            columns={allColumns} 
+            onChange={setTableColumns}
+            settingsKey="harvester_images_table"
+          />
           <Button icon={<ReloadOutlined />} onClick={onRefresh} />
         </>
       )}
@@ -148,7 +205,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
         </Form>
       </Modal>
       <Table
-        className="kv-section-table"
+        className="std-table"
         bordered
         rowKey={(r:any)=> r?.name || r?.metadata?.name}
         rowSelection={{
@@ -156,43 +213,34 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
           onChange: (keys)=> setSelectedKeys(keys),
           getCheckboxProps: (r:any)=> ({ disabled: !getId(r) })
         }}
-        columns={[
-          { title: '镜像名称 / ID', key: 'nameid', render: (_:any, r:any)=> { const name=(r?.displayName || r?.spec?.displayName || r?.spec?.name || '-'); const id=(r?.name || r?.metadata?.name || '-'); return (<div><div>{name}</div><div style={{ color:'#999' }}>{id}</div></div>); } },
-          { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(r?.status || r?.status?.phase || r?.status?.status) },
-          { title: '虚拟大小（GB）', key: 'vsize', render: (_:any, r:any)=> gbText(r?.virtualSize ?? r?.status?.virtualSize) },
-          { title: '文件大小（GB）', key: 'size', render: (_:any, r:any)=> gbText(r?.size ?? r?.status?.size ?? r?.spec?.size ?? r?.status?.downloadedBytes) },
-          { title: '存储类', key: 'sc', render: (_:any, r:any)=> r?.storageClassName || r?.spec?.storageClassName || r?.status?.storageClassName || '-' },
-          { title: '操作', key: 'actions', render: (_:any, r:any)=> {
-            const name = r?.name || r?.metadata?.name || '';
-            const ns = getNs(r);
-            const links = r?.links || {};
-            const view = links?.view || '';
-            const download = links?.download || '';
-            const items = [
-              { key: 'view', label: '查看', disabled: !view },
-              { key: 'download', label: '下载', disabled: !download },
-              { key: 'delete', label: <span style={{ color: '#ff4d4f' }}>删除</span>, disabled: !name },
-            ];
-            return (
-              <RowActionsButton
-                items={items}
-                onClick={async ({ key }: { key: string }) => {
-                  try {
-                    if (key === 'view' && view) { window.open(view, '_blank'); return; }
-                    if (key === 'download' && download) { window.open(download, '_blank'); return; }
-                    if (key === 'delete' && name) { await deleteHarvesterImage(cloudId, ns, name); message.success('删除成功'); onRefresh?.(); return; }
-                  } catch (e: any) {
-                    message.error(e?.message || '操作失败');
-                  }
-                }}
-              />
-            );
-          } },
-        ] as any}
+        columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{ size: 'small', showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
       />
+      {/* Metadata Modal */}
+      <Modal
+        title="元数据查看"
+        open={metadataModalVisible}
+        onCancel={() => setMetadataModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <Tabs items={[
+            {
+                key: 'json',
+                label: 'Raw JSON',
+                children: (
+                    <Input.TextArea 
+                        readOnly 
+                        value={currentMetadata ? JSON.stringify(currentMetadata, null, 2) : ''} 
+                        autoSize={{ minRows: 10, maxRows: 20 }}
+                        className="metadata-viewer"
+                    />
+                )
+            }
+        ]} />
+      </Modal>
     </PageDetailSection>
   );
 };

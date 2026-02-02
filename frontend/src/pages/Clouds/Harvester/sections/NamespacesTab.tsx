@@ -1,13 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Modal, Form, message, Select, Space, Tabs, InputNumber, Row, Col, MenuProps } from 'antd';
+import { Table, Input, Tag, Button, Modal, Form, message, Select, Space, Tabs, InputNumber, Row, Col, MenuProps, Tooltip, Descriptions } from 'antd';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { API_BASE_URL, getAuthHeaders, createHarvesterNamespace, deleteHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/api';
-import { ReloadOutlined, SettingOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+
+import TableColumnSettings from '../../../../components/TableColumnSettings';
 
 type Props = {
   cloudId: string;
+  namespaces?: any[];
+  loading?: boolean;
+  onRefresh?: () => void;
   showLog?: boolean;
+  raw?: any;
 };
 
 const phaseBadge = (phase?: string) => {
@@ -22,77 +29,54 @@ const phaseBadge = (phase?: string) => {
 
 const isSystemNamespace = (name: string) => {
   const n = String(name || '').toLowerCase();
-  return (
-    n === 'kube-system' ||
-    n === 'kube-public' ||
-    n === 'kube-node-lease' ||
-    n === 'cloud-public' ||
-    n === 'cattle-system' ||
-    n === 'cattle-global-data' ||
-    n === 'cattle-global-nt' ||
-    n === 'cattle-monitoring-system' ||
-    n === 'cattle-fleet-system' ||
-    n === 'cattle-fleet-local-system' ||
-    n === 'longhorn-system' ||
-    n === 'ingress-nginx' ||
-    n === 'harvester-system' ||
-    n.startsWith('cattle-') ||
-    n.startsWith('fleet-') ||
-    n.startsWith('longhorn-') ||
-    n.startsWith('kube-') ||
-    n.startsWith('kubeeye-') ||
-    n.startsWith('kubeovn-') ||
-    n.startsWith('cluster-fleet-')
-  );
+  
+  // Exact matches
+  if (['cloud-public', 'ingress-nginx'].includes(n)) return true;
+
+  // Prefix matches
+  const prefixes = [
+    'cattle',
+    'fleet',
+    'longhorn',
+    'kube',
+    'harvester',
+    'cluster-fleet',
+    'cluster',
+    'local',
+    'user'
+  ];
+  
+  return prefixes.some(p => n.startsWith(p));
 };
 
-const NamespacesTab: React.FC<Props> = ({ cloudId, showLog }) => {
-  const [loading, setLoading] = useState(false);
+const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw }) => {
   const [keyword, setKeyword] = useState('');
-  const [namespaces, setNamespaces] = useState<any[]>([]);
-  const [raw, setRaw] = useState<any | null>(null);
   const [creating, setCreating] = useState<boolean>(false);
   const [editingNamespace, setEditingNamespace] = useState<any>(null);
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [tableColumns, setTableColumns] = useState<any[]>([]);
   
   // Detail Modal State
   const [detailVisible, setDetailVisible] = useState(false);
-  const [detailNamespace, setDetailNamespace] = useState<any>(null);
+  const [detailRecord, setDetailRecord] = useState<any>(null);
+  const [detailResource, setDetailResource] = useState<any>(null);
+  const [detailActiveTab, setDetailActiveTab] = useState('detail');
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [form] = Form.useForm();
 
-  const fetchNamespaces = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(
-        `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/resources/harvester/namespaces`,
-        {
-          method: 'GET',
-          headers: getAuthHeaders(),
-          credentials: 'include',
-        },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setRaw(json);
-      const items: any[] = Array.isArray(json?.data?.items) ? json.data.items : (Array.isArray(json?.items) ? json.items : []);
-      setNamespaces(items);
-    } catch (e: any) {
-      // 留空
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleOpenDetail = async (record: any) => {
+    const name = record?.metadata?.name || record?.name;
+    setDetailRecord(record);
+    setDetailResource(null);
+    setDetailVisible(true);
+    setDetailActiveTab('detail');
+    setDetailLoading(true);
 
-  const fetchNamespaceDetail = async (name: string) => {
     try {
-      setDetailLoading(true);
-      setDetailVisible(true);
-      setDetailNamespace(null);
       const res = await fetch(
-        `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/resources/harvester/namespaces/${encodeURIComponent(name)}`,
+        `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/resources/harvester/namespaces/${encodeURIComponent(name)}?force=true`,
         {
           method: 'GET',
           headers: getAuthHeaders(),
@@ -101,20 +85,13 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, showLog }) => {
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      setDetailNamespace(json?.data || json);
+      setDetailResource(json?.data || json);
     } catch (e: any) {
       message.error(e?.message || '获取详情失败');
-      setDetailVisible(false);
     } finally {
       setDetailLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchNamespaces();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudId]);
-
 
   const parseLabels = (rawStr?: string): Record<string,string> | undefined => {
     const s = String(rawStr || '').trim();
@@ -167,7 +144,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, showLog }) => {
     try {
       await deleteHarvesterNamespace(cloudId, name);
       message.success('删除成功');
-      fetchNamespaces();
+      onRefresh?.();
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -284,11 +261,161 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, showLog }) => {
       setCreating(false);
       setEditingNamespace(null);
       form.resetFields();
-      fetchNamespaces();
+      onRefresh?.();
     } catch (e: any) {
       message.error(e?.message || (editingNamespace ? '更新失败' : '创建失败'));
     }
   };
+
+  const allColumns = useMemo(() => [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (_: any, r: any) => <span>{r?.metadata?.name || r?.name}</span>
+    },
+    {
+      title: '状态',
+      key: 'status',
+      render: (_: any, r: any) => phaseBadge(r?.status?.phase)
+    },
+    {
+      title: 'UID',
+      dataIndex: ['metadata', 'uid'],
+      key: 'uid',
+      render: (v: string) => <span className="text-secondary" style={{ fontSize: 12 }}>{v || '-'}</span>
+    },
+    {
+      title: 'ResourceVersion',
+      dataIndex: ['metadata', 'resourceVersion'],
+      key: 'resourceVersion',
+      render: (v: string) => <span className="text-secondary" style={{ fontSize: 12 }}>{v || '-'}</span>
+    },
+    {
+      title: '创建时间',
+      dataIndex: ['metadata', 'creationTimestamp'],
+      key: 'creationTimestamp',
+      render: (v: string) => v ? new Date(v).toLocaleString() : '-'
+    },
+    {
+      title: '类型',
+      key: 'type',
+      render: (_: any, r: any) => {
+        const isSys = isSystemNamespace(r?.metadata?.name || r?.name);
+        return isSys ? <Tag color="default">System</Tag> : <Tag color="processing">User</Tag>;
+      }
+    },
+    {
+      title: '标签',
+      key: 'labels',
+      render: (_: any, r: any) => {
+        const labels = r?.metadata?.labels || {};
+        const keys = Object.keys(labels);
+        if (keys.length === 0) return <span className="text-secondary">-</span>;
+        const content = (
+          <div style={{ fontSize: 12 }}>
+            {keys.map(k => <div key={k} style={{ marginBottom: 2 }}>{k}: {labels[k]}</div>)}
+          </div>
+        );
+        return (
+          <Tooltip title={content} overlayInnerStyle={{ maxWidth: 400, maxHeight: 300, overflowY: 'auto' }}>
+            <Tag style={{ cursor: 'pointer' }}>{keys.length}</Tag>
+          </Tooltip>
+        );
+      }
+    },
+    {
+      title: '注解',
+      key: 'annotations',
+      render: (_: any, r: any) => {
+        const annotations = r?.metadata?.annotations || {};
+        const keys = Object.keys(annotations);
+        if (keys.length === 0) return <span className="text-secondary">-</span>;
+        const content = (
+          <div style={{ fontSize: 12 }}>
+            {keys.map(k => (
+              <div key={k} style={{ marginBottom: 4, borderBottom: '1px dashed rgba(255,255,255,0.2)', paddingBottom: 2 }}>
+                <div style={{ fontWeight: 'bold' }}>{k}</div>
+                <div style={{ opacity: 0.8, wordBreak: 'break-all' }}>{annotations[k]}</div>
+              </div>
+            ))}
+          </div>
+        );
+        return (
+          <Tooltip title={content} overlayInnerStyle={{ maxWidth: 500, maxHeight: 400, overflowY: 'auto' }}>
+            <Tag style={{ cursor: 'pointer' }}>{keys.length}</Tag>
+          </Tooltip>
+        );
+      }
+    },
+    {
+      title: 'Finalizers',
+      key: 'finalizers',
+      render: (_: any, r: any) => {
+        const finalizers = r?.metadata?.finalizers || [];
+        if (!finalizers.length) return <span className="text-secondary">-</span>;
+        const content = (
+          <div style={{ fontSize: 12 }}>
+            {finalizers.map((f: string) => <div key={f}>{f}</div>)}
+          </div>
+        );
+        return (
+          <Tooltip title={content}>
+            <Tag style={{ cursor: 'pointer' }}>{finalizers.length}</Tag>
+          </Tooltip>
+        );
+      }
+    },
+    {
+      title: 'ManagedFields',
+      key: 'managedFields',
+      render: (_: any, r: any) => {
+        const fields = r?.metadata?.managedFields || [];
+        if (!fields.length) return <span className="text-secondary">-</span>;
+        const managers = Array.from(new Set(fields.map((f: any) => f.manager))) as string[];
+        const content = (
+          <div style={{ fontSize: 12 }}>
+             {managers.map((m) => <div key={m}>{m}</div>)}
+          </div>
+        );
+        return (
+          <Tooltip title={content}>
+             <Tag style={{ cursor: 'pointer' }}>{managers.length}</Tag>
+          </Tooltip>
+        );
+      }
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_: any, r: any) => {
+        const name = r?.metadata?.name || r?.name;
+        const isSys = isSystemNamespace(name);
+        return (
+          <ResourceActionsDropdown 
+            items={[
+              { key: 'view', label: '数据查看', onClick: () => handleOpenDetail(r) },
+              { key: 'edit', label: '编辑配置', onClick: () => handleEdit(r) },
+              { type: 'divider' },
+              { 
+                key: 'delete', 
+                label: '删除', 
+                danger: true, 
+                disabled: isSys,
+                onClick: () => Modal.confirm({
+                  title: `确认删除 ${name}?`,
+                  content: '删除后无法恢复',
+                  okText: '删除',
+                  okButtonProps: { danger: true },
+                  onOk: () => handleDelete(name)
+                }) 
+              }
+            ]} 
+          />
+        );
+      }
+    }
+  ], [cloudId]);
 
   return (
     <PageDetailSection
@@ -300,7 +427,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, showLog }) => {
             placeholder="关键字（名称/标签）"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            style={{ width: 240 }}
+            className="toolbar-search"
           />
           <Select
             value={filterType}
@@ -310,7 +437,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, showLog }) => {
               { label: '系统', value: 'system' },
               { label: '业务', value: 'user' },
             ]}
-            style={{ width: 120 }}
+            className="toolbar-filter-sm"
           />
           <Select
             value={filterStatus}
@@ -320,116 +447,31 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, showLog }) => {
               { label: 'Active', value: 'Active' },
               { label: 'Terminating', value: 'Terminating' },
             ]}
-            style={{ width: 120 }}
+            className="toolbar-filter-sm"
           />
         </Space>
       }
       toolbarRight={
         <>
           <Button type="primary" onClick={() => { form.resetFields(); setCreating(true); }}>新增命名空间</Button>
-          <Button icon={<SettingOutlined />} />
-          <Button icon={<ReloadOutlined />} onClick={fetchNamespaces} />
+          <TableColumnSettings 
+            columns={allColumns} 
+            onChange={setTableColumns}
+            settingsKey="harvester_namespaces_table_v3"
+          />
+          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
         </>
       }
     >
       <Table
+        className="std-table"
         bordered
         rowKey={(r: any) => r?.metadata?.name || r?.name || Math.random().toString(36).slice(2)}
         loading={loading}
         dataSource={filtered}
-        pagination={{ showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
-        columns={[
-          {
-            title: '名称',
-            key: 'name',
-            render: (_: any, r: any) => r?.metadata?.name || r?.name || '-',
-          },
-          {
-            title: '类型',
-            key: 'type',
-            width: 100,
-            filters: [
-              { text: '系统', value: 'system' },
-              { text: '业务', value: 'user' },
-            ],
-            onFilter: (value: any, record: any) => {
-              const name = record?.metadata?.name || record?.name || '';
-              const isSys = isSystemNamespace(name);
-              if (value === 'system') return isSys;
-              if (value === 'user') return !isSys;
-              return true;
-            },
-            render: (_: any, r: any) => {
-              const name = r?.metadata?.name || r?.name || '';
-              if (isSystemNamespace(name)) {
-                return <Tag color="gold">系统</Tag>;
-              }
-              return <Tag>业务</Tag>;
-            },
-          },
-          {
-            title: '状态',
-            key: 'phase',
-            render: (_: any, r: any) => phaseBadge(r?.status?.phase || r?.status || '-'),
-          },
-          {
-            title: '标签数量',
-            key: 'labelsCount',
-            render: (_: any, r: any) => {
-              const labels = r?.metadata?.labels || {};
-              const count = Object.keys(labels || {}).length;
-              return count > 0 ? <Tag>{count}</Tag> : '-';
-            },
-          },
-          {
-            title: '创建时间',
-            key: 'ctime',
-            render: (_: any, r: any) => r?.metadata?.creationTimestamp || '-',
-          },
-          {
-            title: '操作',
-            key: 'op',
-            width: 120,
-            render: (_: any, r: any) => {
-              const name = r?.metadata?.name || r?.name;
-              const isSys = isSystemNamespace(name);
-              
-              const items: MenuProps['items'] = [
-                {
-                  key: 'edit',
-                  label: '编辑配置',
-                  disabled: isSys,
-                  onClick: () => handleEdit(r),
-                },
-                {
-                  key: 'view_metadata',
-                  label: '查看元数据',
-                  onClick: () => fetchNamespaceDetail(name),
-                },
-                {
-                   type: 'divider',
-                },
-                {
-                  key: 'delete',
-                  label: '删除',
-                  danger: true,
-                  disabled: isSys,
-                  onClick: () => {
-                    Modal.confirm({
-                      title: `确认删除命名空间 ${name}？`,
-                      content: '删除后无法恢复，其中的资源也将被删除。',
-                      okText: '确认',
-                      cancelText: '取消',
-                      onOk: () => handleDelete(name),
-                    });
-                  },
-                },
-              ];
-
-              return <ResourceActionsDropdown items={items} />;
-            },
-          },
-        ] as any}
+        pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
+        columns={tableColumns}
+        scroll={{ x: 'max-content' }}
       />
       
       {/* Create Modal */}
@@ -565,48 +607,36 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, showLog }) => {
         </Form>
       </Modal>
 
-      {/* Detail Modal (Metadata View) */}
-      <Modal
+      <HarvesterResourceDrawer
         open={detailVisible}
-        title="元数据查看"
-        width={800}
-        footer={null}
-        onCancel={() => setDetailVisible(false)}
-      >
-        {detailLoading ? (
-           <div style={{ textAlign: 'center', padding: 20 }}>加载中...</div>
-        ) : (
-          <Tabs
-            defaultActiveKey="raw"
-            items={[
-              {
-                key: 'raw',
-                label: 'Harvester 资源',
-                children: (
-                  <Input.TextArea
-                    readOnly
-                    value={detailNamespace ? JSON.stringify(detailNamespace, null, 2) : ''}
-                    rows={20}
-                    style={{ fontFamily: 'monospace', color: '#333' }}
-                  />
-                ),
-              },
-            ]}
-          />
+        onClose={() => setDetailVisible(false)}
+        record={detailRecord}
+        resource={detailResource}
+        loading={detailLoading}
+        activeTab={detailActiveTab}
+        onTabChange={setDetailActiveTab}
+        renderDetail={(res) => (
+          <Descriptions bordered column={1} size="small">
+            <Descriptions.Item label="名称">{res?.metadata?.name || '-'}</Descriptions.Item>
+            <Descriptions.Item label="UID">{res?.metadata?.uid || '-'}</Descriptions.Item>
+            <Descriptions.Item label="创建时间">{res?.metadata?.creationTimestamp || '-'}</Descriptions.Item>
+            <Descriptions.Item label="状态">{res?.status?.phase || '-'}</Descriptions.Item>
+            <Descriptions.Item label="标签">
+              {res?.metadata?.labels ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {Object.keys(res.metadata.labels).map(k => (
+                    <Tag key={k} style={{ marginRight: 0 }}>{k}={res.metadata.labels[k]}</Tag>
+                  ))}
+                </div>
+              ) : '-'}
+            </Descriptions.Item>
+          </Descriptions>
         )}
-      </Modal>
+      />
 
       {showLog && (
-        <div style={{ marginTop: 12 }}>
-          <pre
-            style={{
-              background: '#f7f7f7',
-              padding: 12,
-              borderRadius: 8,
-              maxHeight: 300,
-              overflow: 'auto',
-            }}
-          >
+        <div>
+          <pre className="metadata-viewer">
             {JSON.stringify(raw, null, 2)}
           </pre>
         </div>

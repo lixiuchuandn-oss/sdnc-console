@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Button, Space, Select, Tag, Input } from 'antd';
-import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Select, Tag, Input, Modal, Tabs } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import TableColumnSettings from '../../../../components/TableColumnSettings';
 
 interface Props {
   cloudId: string;
@@ -16,6 +18,16 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  // Metadata Modal State
+  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
+  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+
+  const handleShowMetadata = (record: any) => {
+    setCurrentMetadata(record);
+    setMetadataModalVisible(true);
+  };
+
   const filtered = useMemo(() => {
     const arr = Array.isArray(resources) ? resources : [];
     const byType = typeFilter === 'all' ? arr : arr.filter((x: any) => String(x?.type) === typeFilter);
@@ -74,16 +86,54 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
     return m === 'passthrough' ? <Tag color="blue">直通</Tag> : m === 'vgpu' ? <Tag color="green">vGPU</Tag> : m === 'sriov' ? <Tag color="purple">SR-IOV</Tag> : <Tag>未知</Tag>;
   };
 
+  const allColumns = useMemo(() => [
+    { title: '类型', key: 'type', render: (_: any, r: any) => typeTag(r) },
+    { title: '资源名', key: 'resourceName', render: (_: any, r: any) => r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.raw?.status?.resourceName || '-' },
+    { title: '设备名', key: 'name', render: (_: any, r: any) => r?.name || r?.status?.deviceName || r?.spec?.deviceName || r?.metadata?.name || r?.raw?.status?.deviceName || '-' },
+    { title: '节点', key: 'node', render: (_: any, r: any) => r?.node || r?.status?.nodeName || r?.spec?.nodeName || r?.raw?.status?.nodeName || '-' },
+    { title: 'PCI地址', key: 'pci', render: (_: any, r: any) => {
+      const fieldsArr = (r?.metadata?.fields || r?.fields);
+      const fieldsAddr = Array.isArray(fieldsArr) && fieldsArr.length > 1 ? fieldsArr[1] : '';
+      return r?.pciAddress || r?.status?.pciAddress || r?.status?.address || r?.spec?.pciAddress || r?.address || r?.raw?.status?.address || fieldsAddr || '-';
+    } },
+    { title: '厂商', key: 'vendor', render: (_: any, r: any) => vendorName(r?.raw?.status?.vendorId || r?.status?.vendorId) },
+    { title: '设备ID', key: 'deviceId', render: (_: any, r: any) => r?.raw?.status?.deviceId || r?.status?.deviceId || '-' },
+    { title: 'ClassID', key: 'classId', render: (_: any, r: any) => r?.raw?.status?.classId || r?.status?.classId || '-' },
+    { title: '驱动', key: 'driver', render: (_: any, r: any) => r?.raw?.status?.kernelDriverInUse || r?.status?.kernelDriverInUse || '-' },
+    { title: 'IOMMU组', key: 'iommu', render: (_: any, r: any) => r?.raw?.status?.iommuGroup || r?.status?.iommuGroup || '-' },
+    { title: '描述', key: 'desc', render: (_: any, r: any) => r?.raw?.status?.description || r?.status?.description || '-' },
+    { title: '状态', key: 'state', render: (_: any, r: any) => {
+      const s = r?.state?.name || r?.metadata?.state?.name || r?.status?.state?.name || r?.raw?.metadata?.state?.name || '';
+      if (!s) return '-';
+      const lower = String(s).toLowerCase();
+      const color = lower === 'active' ? 'green' : lower === 'inactive' ? 'default' : 'blue';
+      return <Tag color={color}>{s}</Tag>;
+    } },
+    {
+      title: '操作', key: 'actions', render: (_: any, r: any) => {
+        const items = [
+          { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
+          ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
+        ];
+        return <ResourceActionsDropdown items={items} />;
+      }
+    }
+  ], [handleShowMetadata]);
+
+  const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
+
+
+
   return (
     <>
       <PageDetailSection
         asCard={false}
         toolbarLeft={(
           <>
-            <Input allowClear placeholder="关键字" style={{ width: 240 }} value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+            <Input allowClear placeholder="关键字" className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
             <Select
               value={typeFilter}
-              style={{ width: 200 }}
+              className="toolbar-filter-sm"
               options={[
                 { value: 'all', label: '全部' },
                 { value: 'passthrough', label: '直通 GPU' },
@@ -94,7 +144,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
             />
             <Select
               value={statusFilter}
-              style={{ width: 200 }}
+              className="toolbar-filter-sm"
               options={[
                 { value: 'all', label: '全部状态' },
                 { value: 'active', label: '活跃' },
@@ -108,10 +158,13 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
         )}
         toolbarRight={(
           <>
-            <Button icon={<SettingOutlined />} />
+            <TableColumnSettings 
+              columns={allColumns} 
+              onChange={setTableColumns}
+              settingsKey="harvester_gpus_table"
+            />
             <Button
               icon={<ReloadOutlined />}
-              loading={refreshing}
               onClick={async () => {
                 try { setRefreshing(true); await Promise.resolve(onRefresh()); }
                 finally { setRefreshing(false); }
@@ -124,7 +177,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
           className="kv-section-table"
           bordered
           loading={refreshing}
-          pagination={{ showSizeChanger:true, pageSize: 10, pageSizeOptions:[10,20,50,100] }}
+          pagination={{ size: 'small', showSizeChanger:true, pageSize: 10, pageSizeOptions:[10,20,50,100] }}
           rowKey={(r: any) => {
             const rid = r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.metadata?.name || '';
             const fieldsArr = (r?.metadata?.fields || r?.fields);
@@ -134,36 +187,36 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
             return `${rid}-${addr}-${node}`;
           }}
           dataSource={filtered}
-          columns={[
-            { title: '类型', key: 'type', render: (_: any, r: any) => typeTag(r) },
-            { title: '资源名', key: 'resourceName', render: (_: any, r: any) => r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.raw?.status?.resourceName || '-' },
-            { title: '设备名', key: 'name', render: (_: any, r: any) => r?.name || r?.status?.deviceName || r?.spec?.deviceName || r?.metadata?.name || r?.raw?.status?.deviceName || '-' },
-            { title: '节点', key: 'node', render: (_: any, r: any) => r?.node || r?.status?.nodeName || r?.spec?.nodeName || r?.raw?.status?.nodeName || '-' },
-            { title: 'PCI地址', key: 'pci', render: (_: any, r: any) => {
-              const fieldsArr = (r?.metadata?.fields || r?.fields);
-              const fieldsAddr = Array.isArray(fieldsArr) && fieldsArr.length > 1 ? fieldsArr[1] : '';
-              return r?.pciAddress || r?.status?.pciAddress || r?.status?.address || r?.spec?.pciAddress || r?.address || r?.raw?.status?.address || fieldsAddr || '-';
-            } },
-            { title: '厂商', key: 'vendor', render: (_: any, r: any) => vendorName(r?.raw?.status?.vendorId || r?.status?.vendorId) },
-            { title: '设备ID', key: 'deviceId', render: (_: any, r: any) => r?.raw?.status?.deviceId || r?.status?.deviceId || '-' },
-            { title: 'ClassID', key: 'classId', render: (_: any, r: any) => r?.raw?.status?.classId || r?.status?.classId || '-' },
-            { title: '驱动', key: 'driver', render: (_: any, r: any) => r?.raw?.status?.kernelDriverInUse || r?.status?.kernelDriverInUse || '-' },
-            { title: 'IOMMU组', key: 'iommu', render: (_: any, r: any) => r?.raw?.status?.iommuGroup || r?.status?.iommuGroup || '-' },
-            { title: '描述', key: 'desc', render: (_: any, r: any) => r?.raw?.status?.description || r?.status?.description || '-' },
-            { title: '状态', key: 'state', render: (_: any, r: any) => {
-              const s = r?.state?.name || r?.metadata?.state?.name || r?.status?.state?.name || r?.raw?.metadata?.state?.name || '';
-              if (!s) return '-';
-              const lower = String(s).toLowerCase();
-              const color = lower === 'active' ? 'green' : lower === 'inactive' ? 'default' : 'blue';
-              return <Tag color={color}>{s}</Tag>;
-            } },
-          ]}
+          columns={tableColumns}
           locale={{ emptyText: '暂无数据' }}
         />
       </PageDetailSection>
+      {/* Metadata Modal */}
+      <Modal
+        title="元数据查看"
+        open={metadataModalVisible}
+        onCancel={() => setMetadataModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <Tabs items={[
+            {
+                key: 'json',
+                label: 'Raw JSON',
+                children: (
+                    <Input.TextArea 
+                        readOnly 
+                        value={currentMetadata ? JSON.stringify(currentMetadata, null, 2) : ''} 
+                        autoSize={{ minRows: 10, maxRows: 20 }}
+                        className="metadata-viewer"
+                    />
+                )
+            }
+        ]} />
+      </Modal>
       {showLog && (
         <div>
-          <pre style={{ background: '#f7f7f7', padding: 12, borderRadius: 8, maxHeight: 300, overflow: 'auto' }}>{JSON.stringify(raw, null, 2)}</pre>
+          <pre>{JSON.stringify(raw, null, 2)}</pre>
         </div>
       )}
     </>

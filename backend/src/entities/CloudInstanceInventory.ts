@@ -72,6 +72,9 @@ export class CloudInstanceInventory {
   @Column({ type: 'text', nullable: true })
   instanceCreatedAt?: string;
 
+  @Column({ type: 'simple-json', nullable: true })
+  extra?: any;
+
   @CreateDateColumn({ type: 'datetime' })
   createdAt!: Date;
 

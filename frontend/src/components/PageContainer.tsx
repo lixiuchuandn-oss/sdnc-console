@@ -40,6 +40,8 @@ export const iconOf = (key?: string) => {
 };
 
 export interface PageContainerProps<T = any> {
+  className?: string;
+  style?: React.CSSProperties;
   title?: React.ReactNode;
   icon?: React.ReactNode;
   breadcrumb?: Array<{ label: React.ReactNode; href?: string }>;
@@ -119,6 +121,8 @@ const PageContainer = <T extends Record<string, any> = any>({
   tabBarExtraContent,
   defaultHiddenColumns,
   hideDivider,
+  className,
+  style,
 }: PageContainerProps<T>) => {
   const loc = useLocation();
   const { token } = theme.useToken();
@@ -264,8 +268,8 @@ const PageContainer = <T extends Record<string, any> = any>({
   );
 
   return (
-    <div style={{ padding: pagePadding !== undefined ? pagePadding : '24px 36px', maxHeight: '100%', display: 'flex', flexDirection: 'column' }}>
-      {!hideHeader && (
+    <div className={className} style={{ padding: pagePadding !== undefined ? pagePadding : '24px 36px', maxHeight: '100%', display: 'flex', flexDirection: 'column', ...style }}>
+      {!hideHeader && autoCrumbs.length > 0 && (
         <Breadcrumb
           style={{ marginBottom: 12 }}
           items={autoCrumbs.map((item) => ({ title: item.label, href: item.href }))}

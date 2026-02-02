@@ -20,8 +20,8 @@ interface WsMessage {
   data?: any;
 }
 
-export function initSshWsServer(server: http.Server) {
-  const wss = new WebSocketServer({ server, path: '/ws/ssh', perMessageDeflate: false });
+export function createSshWsServer() {
+  const wss = new WebSocketServer({ noServer: true, path: '/ws/ssh', perMessageDeflate: false });
 
   wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);

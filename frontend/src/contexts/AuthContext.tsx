@@ -11,6 +11,7 @@ interface User {
   email: string;
   fullName: string;
   role: 'super_admin' | 'tenant' | 'leased_lines_admin';
+  tenantRole?: string;
   status: 'active' | 'inactive' | 'suspended';
   permissions?: string[];
 }
@@ -74,7 +75,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           if (response.ok) {
             const userData = await response.json();
             try {
-              // 2) 根据用户类型（tenant/system）拉取角色分配
+              // 2) 如果是超级管理员，直接赋予所有权限
+              if (userData.role === 'super_admin') {
+                setUser({ ...userData, permissions: ['*'] });
+                setToken(storedToken);
+                setLoading(false);
+                return;
+              }
+
+              // 3) 根据用户类型（tenant/system）拉取角色分配
               const userType = userData.role === 'tenant' ? 'tenant' : 'system';
               const assignRes = await fetch(`${API_BASE_URL}/api/system/rbac/assignments?userType=${encodeURIComponent(userType)}&userId=${encodeURIComponent(userData.id)}`, {
                 headers: { 'Authorization': `Bearer ${storedToken}` }
@@ -83,6 +92,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               if (assignRes.ok) {
                 const assignsJson = await assignRes.json();
                 const roleIds: string[] = Array.isArray(assignsJson?.assignments) ? assignsJson.assignments.map((a: any) => a.roleId) : [];
+                // 如果是租户用户且携带了 tenantRole，也将其视为角色 ID
+                if (userData.tenantRole && !roleIds.includes(userData.tenantRole)) {
+                  roleIds.push(userData.tenantRole);
+                }
                 if (roleIds.length) {
                   // 3) 拉取全量角色列表，在本地筛出用户的角色，聚合权限
                   const rolesRes = await fetch(`${API_BASE_URL}/api/system/rbac/roles`, { headers: { 'Authorization': `Bearer ${storedToken}` } });
@@ -147,6 +160,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const data = await response.json();
       localStorage.setItem('token', data.token);
       setToken(data.token);
+      
+      // 如果是超级管理员，直接赋予所有权限
+      if (data.user.role === 'super_admin') {
+        const withPerms = { ...data.user, permissions: ['*'] };
+        setUser(withPerms);
+        return withPerms;
+      }
+
       try {
         // 与初始化相同：基于分配关系聚合角色权限
         const userType = data.user.role === 'tenant' ? 'tenant' : 'system';
@@ -157,6 +178,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (assignRes.ok) {
           const assignsJson = await assignRes.json();
           const roleIds: string[] = Array.isArray(assignsJson?.assignments) ? assignsJson.assignments.map((a: any) => a.roleId) : [];
+          // 如果是租户用户且携带了 tenantRole，也将其视为角色 ID
+          if (data.user.tenantRole && !roleIds.includes(data.user.tenantRole)) {
+            roleIds.push(data.user.tenantRole);
+          }
           if (roleIds.length) {
             const rolesRes = await fetch(`${API_BASE_URL}/api/system/rbac/roles`, { headers: { 'Authorization': `Bearer ${data.token}` } });
             if (rolesRes.ok) {

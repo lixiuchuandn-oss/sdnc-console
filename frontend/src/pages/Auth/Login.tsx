@@ -3,6 +3,7 @@ import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { getDefaultAdminPath } from '../../utils/accessMapping';
 import './Login.css';
 
 const Login: React.FC = () => {
@@ -20,7 +21,9 @@ const Login: React.FC = () => {
         navigate('/admin/login');
       } else {
         message.success('登录成功');
-        navigate('/dashboard');
+        const perms = Array.isArray((loggedInUser as any).permissions) ? (loggedInUser as any).permissions : [];
+        const target = getDefaultAdminPath(perms);
+        navigate(target);
       }
     } catch (error) {
       message.error('登录失败，请检查用户名和密码');

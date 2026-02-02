@@ -539,11 +539,12 @@ const AdminLayout: React.FC = () => {
       const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
       const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
       const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
-      const url = `/admin/clouds/${encodeURIComponent(cloudId)}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(nm)}`;
+      const url = `/clouds/${encodeURIComponent(cloudId)}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(nm)}`;
       window.open(url, 'harvester-vnc', features);
       return;
     }
-    message.warning('WebVNC 已移除');
+    // WebVNC fallback removed
+    message.warning('该云厂商暂不支持 VNC 或 WebVNC 已移除');
   };
   const lifecycleOp = async (r:any, op:'start'|'stop'|'reboot') => {
     try {

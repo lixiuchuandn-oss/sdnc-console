@@ -1,7 +1,7 @@
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson } from './utils';
 
-export const listHarvesterVolumesStandard = async ({
+export const listHarvesterPVCRaw = async ({
   endpoint,
   token,
   insecure = false,
@@ -14,91 +14,52 @@ export const listHarvesterVolumesStandard = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  const url = `${origin}/v1/longhorn.io.volumes`;
-  const json = await getJsonOnce(url, token, insecure);
-  const items = Array.isArray(json?.data)
-    ? json?.data
-    : Array.isArray(json?.items)
-      ? json?.items
-      : [];
-  const basic = items.map((v: any) => {
+  // Harvester uses standard K8s PVCs, but also exposes them via Harvester API
+  const candidates = [
+    `${origin}/api/v1/persistentvolumeclaims`, // Cluster-wide list
+    `${origin}/v1/harvester/core.v1.persistentvolumeclaims`,
+  ];
+  let json: any = null;
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  if (!json && lastErr) {
+    throw lastErr;
+  }
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+export const listHarvesterVolumesStandard = async (
+  params: HarvesterTestParams
+): Promise<any[]> => {
+  const items = await listHarvesterPVCRaw(params);
+  const base = (params.endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  return items.map((v: any) => {
     const name = v?.metadata?.name || v?.name || '';
-    const size = v?.spec?.size || v?.size || 0;
-    const state = v?.status?.state || v?.state || 'Unknown';
-    const k8s = v?.status?.kubernetesStatus || {};
-    const namespace = k8s?.namespace || v?.metadata?.namespace || '';
-    const pvcName = k8s?.pvcName || '';
-    const workloads =
-      k8s?.workloadsStatus || v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
-    const rawNames: string[] = Array.isArray(workloads)
-      ? workloads.map((w: any) => String(w?.workloadName || w?.podName || '')).filter(Boolean)
-      : [];
-    const attachedTo: string[] = Array.from(
-      new Set(
-        rawNames
-          .map((n: string) => {
-            let s = n.trim();
-            if (/^virt-launcher-/.test(s)) {
-              s = s.replace(/^virt-launcher-/, '');
-            }
-            if (/-/.test(s)) {
-              const parts = s.split('-');
-              if (parts.length > 1) {
-                s = parts.slice(0, parts.length - 1).join('-');
-              }
-            }
-            return s;
-          })
-          .filter((s: string) => !!s),
-      ),
-    );
-    const attached =
-      String(state).toLowerCase() === 'attached' ||
-      (Array.isArray(workloads) && workloads.length > 0) ||
-      (Array.isArray(rawNames) && rawNames.length > 0);
-    return { name, size, state, attached, attachedTo, namespace, pvcName };
-  });
-
-  type NsPvc = { ns: string; pvc: string };
-  const pairs: string[] = Array.from(
-    new Set(
-      (basic as any[])
-        .map(
-          (x: any): NsPvc => ({
-            ns: String(x.namespace || '').trim(),
-            pvc: String(x.pvcName || '').trim(),
-          }),
-        )
-        .filter((p: NsPvc) => !!p.ns && !!p.pvc)
-        .map((p: NsPvc) => `${p.ns}/${p.pvc}`),
-    ),
-  );
-  const pvcMap: Record<string, any> = {};
-  await Promise.all(
-    pairs.map(async (key: string) => {
-      const [ns, pvc] = key.split('/') as [string, string];
-      const urls = [
-        `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(ns)}/${encodeURIComponent(pvc)}`,
-        `${origin}/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(pvc)}`,
-      ];
-      for (const u of urls) {
-        try {
-          const cur = await getJsonOnce(u, token, insecure);
-          pvcMap[key] = cur;
-          break;
-        } catch (_) {}
-      }
-    }),
-  );
-
-  return basic.map((x: any) => {
-    const key = `${String(x.namespace || '').trim()}/${String(x.pvcName || '').trim()}`;
-    const pvc = pvcMap[key];
-    const spec = pvc?.spec || {};
-    const storageClassName = spec?.storageClassName || '';
-    const accessModes = Array.isArray(spec?.accessModes) ? spec.accessModes : [];
-    const volumeMode = spec?.volumeMode || '';
-    return { ...x, storageClassName, accessModes, volumeMode };
+    const ns = v?.metadata?.namespace || v?.namespace || '';
+    const viewUrl = `${origin}/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`;
+    
+    return {
+        ...v,
+        links: {
+            ...(v.links || {}),
+            view: viewUrl
+        }
+    };
   });
 };
 
@@ -197,11 +158,70 @@ export const listHarvesterStorageClassesStandard = async ({
       ? json?.items
       : [];
   return items
-    .map((sc: any) => ({
-      name: sc?.metadata?.name || sc?.name || '',
-      provisioner: sc?.provisioner || sc?.driver || '',
-    }))
+    .map((sc: any) => {
+        const name = sc?.metadata?.name || sc?.name || '';
+        return {
+            name,
+            provisioner: sc?.provisioner || sc?.driver || '',
+            links: {
+                view: `${origin}/apis/storage.k8s.io/v1/storageclasses/${name}`
+            }
+        };
+    })
     .filter((x: any) => !!x.name);
+};
+
+export const listHarvesterImagesRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+  namespace = '',
+}: HarvesterTestParams & { namespace?: string }): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  let candidates: string[] = [];
+  if (namespace) {
+      candidates = [
+          `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${namespace}/virtualmachineimages`,
+          `${origin}/apis/harvesterhci.io/v1/namespaces/${namespace}/virtualmachineimages`,
+      ];
+  } else {
+      candidates = [
+          `${origin}/apis/harvesterhci.io/v1beta1/virtualmachineimages`,
+          `${origin}/apis/harvesterhci.io/v1/virtualmachineimages`,
+      ];
+  }
+
+  let json: any = null;
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+
+  if (!json && lastErr) {
+    console.error(`listHarvesterImagesRaw failed: ${lastErr?.message || lastErr}`);
+    return [];
+  }
+
+  const items = Array.isArray(json?.data)
+    ? json?.data
+    : Array.isArray(json?.items)
+      ? json?.items
+      : [];
+      
+  return items;
 };
 
 export const listHarvesterImagesStandard = async ({
@@ -258,6 +278,8 @@ export const listHarvesterImagesStandard = async ({
   } catch {}
   return items.map((img: any) => ({
     name: img?.metadata?.name || img?.name || '',
+    namespace: img?.metadata?.namespace || img?.namespace || '',
+    metadata: img?.metadata, // Ensure metadata is passed for consumers expecting raw-like structure
     displayName: img?.spec?.displayName || img?.spec?.name || '',
     status: img?.status?.conditions?.[0]?.type || img?.status?.phase || 'Unknown',
     size: img?.status?.size || img?.spec?.size || img?.status?.downloadedBytes || 0,
@@ -269,7 +291,7 @@ export const listHarvesterImagesStandard = async ({
       '',
     links: {
       download: img?.links?.download || '',
-      view: img?.links?.view || '',
+      view: img?.links?.view || `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${img?.metadata?.namespace || 'default'}/virtualmachineimages/${img?.metadata?.name || img?.name}`,
       remove: img?.links?.remove || '',
       self: img?.links?.self || '',
       update: img?.links?.update || '',
@@ -616,4 +638,66 @@ export const createHarvesterNamespace = async (
 
   const json = await requestJson('POST', urlPath, token, insecure, body);
   return json;
+};
+
+export const getHarvesterNamespaceRaw = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
+  const json = await getJsonOnce(url, token, insecure);
+  return json;
+};
+
+export const listHarvesterNamespacesRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const candidates = [
+    `${origin}/api/v1/namespaces`,
+    `${origin}/v1/core.v1.namespaces`,
+    `${origin}/v1/harvester/core.v1.namespaces`,
+    `${origin}/k8s/clusters/local/api/v1/namespaces`,
+  ];
+  let json: any = null;
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  if (!json && lastErr) {
+    throw lastErr;
+  }
+  const items = Array.isArray(json?.items) ? json.items : (Array.isArray(json?.data) ? json.data : []);
+  
+  return items.map((item: any) => {
+    const name = item.metadata?.name || item.name;
+    if (name) {
+       item.links = item.links || {};
+       item.links.view = `${origin}/api/v1/namespaces/${name}`;
+    }
+    return item;
+  });
 };

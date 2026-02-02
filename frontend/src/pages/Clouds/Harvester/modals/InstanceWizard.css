@@ -26,19 +26,23 @@
 .wizard-disk-card.active { border-color: #91caff; }
 .wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
 /* 右侧列（Preview） */
-.wizard-preview { background: #fafafa; border: 1px solid #eaeaea; border-radius: 8px; padding: 16px; display: flex; flex-direction: column;  height: 100%; min-height: 0; overflow: hidden; }
-.wizard-preview-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid #f0f0f0; flex: 0 0 var(--preview-header-h, 52px); }
+.wizard-preview { background: #ffffff; border: 1px solid #eaeaea; border-radius: 8px; padding: 16px; display: flex; flex-direction: column;  height: 100%; min-height: 0; overflow: hidden; margin-right: 0; }
+.wizard-preview-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f0f0f0; flex: 0 0 var(--preview-header-h, 40px); }
+.wizard-preview-json-btn { padding: 0 !important; font-size: 14px !important; }
+.wizard-preview-divider { margin: 12px 0 !important; }
+.wizard-json-preview-pre { font-size: 14px; max-height: 480px; overflow: auto; }
+.wizard-json-modal-mask { backdrop-filter: blur(4px); background-color: rgba(0,0,0,0.45) !important; }
 /* 右侧列滚动区域（Preview） */
 .wizard-summary-scroll { margin-top: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 0; }
 /* 预览摘要列表 */
 .wizard-summary-list { display: flex; flex-direction: column; gap: 6px; }
-.wizard-summary-item { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); align-items: center; padding: 6px 0px; border-bottom: 1px dashed #d9d9d9; border-radius: 0; }
+.wizard-summary-item { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); align-items: center; padding: 6px 0px; border-bottom: 1px dashed #f0f0f0; border-radius: 0; }
 .wizard-summary-item:last-child { border-bottom: none; }
 .wizard-summary-label { color: #888888; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wizard-summary-value { color: #555555; display: block; min-width: 0; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; justify-self: stretch; }
 .wizard-preview-title { font-size: 14px; color: #000; font-weight: 400; }
 /* 右侧列底部操作（Preview） */
-.wizard-preview-actions { margin-top: auto; display: flex; justify-content: flex-end; flex: 0 0 var(--preview-actions-h, 44px); }
+.wizard-preview-actions { margin-top: auto; display: flex; justify-content: flex-end; flex: 0 0 var(--preview-actions-h); }
 /* 中间列磁盘卡片状态 */
 .wizard-disk-card.active { border-color: #91caff; }
 .wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }

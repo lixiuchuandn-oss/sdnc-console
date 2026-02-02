@@ -2,22 +2,31 @@ import React from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 
+/**
+ * StepDisks 组件
+ * 
+ * 用于在创建虚拟机的向导中配置磁盘信息。
+ * 包含两部分：
+ * 1. 系统盘 (Root Disk): 必须存在，来源可以是镜像或现有卷。
+ * 2. 数据盘 (Data Disks): 可选，可以是新建空白卷或挂载现有卷。
+ */
+
 interface StepDisksProps {
-  form: any;
-  imageOptions: any[];
-  imageLoading: boolean;
-  reloadImages: () => void;
-  images: any[];
-  defaultStorageClassName: string | undefined;
-  reloadStorageClasses: () => void;
-  initialVmName: string;
-  volumeOptions: any[];
-  reloadVolumes: () => void;
-  availableVolumes: any[];
-  storageClasses: any[];
-  storageClassLoading: boolean;
-  selectedDiskIdx: number | null;
-  setSelectedDiskIdx: (idx: number | null) => void;
+  form: any;                  // Antd Form 实例
+  imageOptions: any[];        // 镜像列表选项
+  imageLoading: boolean;      // 镜像加载状态
+  reloadImages: () => void;   // 重新加载镜像的方法
+  images: any[];              // 原始镜像数据
+  defaultStorageClassName: string | undefined; // 默认存储类
+  reloadStorageClasses: () => void; // 重新加载存储类
+  initialVmName: string;      // 初始虚拟机名称
+  volumeOptions: any[];       // 现有卷(PVC)选项
+  reloadVolumes: () => void;  // 重新加载卷
+  availableVolumes: any[];    // 可用卷原始数据
+  storageClasses: any[];      // 存储类列表
+  storageClassLoading: boolean; // 存储类加载状态
+  selectedDiskIdx: number | null; // 当前选中的磁盘索引（用于高亮）
+  setSelectedDiskIdx: (idx: number | null) => void; // 设置选中磁盘
 }
 
 const StepDisks: React.FC<StepDisksProps> = ({
@@ -37,6 +46,10 @@ const StepDisks: React.FC<StepDisksProps> = ({
   selectedDiskIdx,
   setSelectedDiskIdx,
 }) => {
+  // 辅助函数：生成随机磁盘名称后缀 (6位小写字母数字)
+  const generateDiskName = () => Math.random().toString(36).substring(2, 8);
+
+  // 辅助函数：判断存储类是否支持 ReadWriteMany (RWX)
   const isRwxStorageClass = (x: any) => {
     const nm = String(x?.name || '').toLowerCase();
     const p = x?.parameters || {};
@@ -47,76 +60,115 @@ const StepDisks: React.FC<StepDisksProps> = ({
   return (
     <>
       <Typography.Paragraph type="secondary">配置新建云主机的系统盘和数据盘参数</Typography.Paragraph>
+      
+      {/* ==================== 系统盘配置区域 ==================== */}
       <div className="wizard-group-title">系统盘</div>
       <Row gutter={12}>
         <Col span={8}>
+          {/* 系统盘来源选择：镜像 (Image) 或 现有卷 (Existing PVC) */}
           <Form.Item label="来源" name="rootSourceType" rules={[{ required: true }]}> 
-            <Select options={[{ label: '镜像', value: 'image' }, { label: '现有磁盘', value: 'existing' }]} onChange={(v) => { if (v === 'existing') { reloadVolumes(); } else { reloadImages(); } if (v === 'image') { try { const sc = defaultStorageClassName; if (!sc) reloadStorageClasses(); form.setFieldsValue({ storageClassName: sc || form.getFieldValue('storageClassName') }); } catch { } } }} />
+            <Select 
+              options={[{ label: '镜像', value: 'image' }, { label: '现有磁盘', value: 'existing' }]} 
+              onChange={(v) => { 
+                // 切换来源时，重新加载对应的数据资源
+                if (v === 'existing') { reloadVolumes(); } else { reloadImages(); } 
+                // 如果切回镜像，尝试自动填充默认存储类
+                if (v === 'image') { 
+                  try { 
+                    const sc = defaultStorageClassName; 
+                    if (!sc) reloadStorageClasses(); 
+                    form.setFieldsValue({ storageClassName: sc || form.getFieldValue('storageClassName') }); 
+                  } catch { } 
+                } 
+              }} 
+            />
           </Form.Item>
         </Col>
         <Col span={16}>
+          {/* 如果来源是镜像，显示镜像选择框 */}
           {(form.getFieldValue('rootSourceType') || 'image') === 'image' && (
             <Form.Item label="选择镜像" name="image" rules={[{ required: true }]}> 
               <Select
                 options={imageOptions}
                 placeholder="选择镜像"
                 loading={imageLoading}
-                onDropdownVisibleChange={(open) => { if (open) reloadImages(); }}
+                onOpenChange={(open) => { if (open) reloadImages(); }}
                 onChange={(val) => {
+                  // 选中镜像后的联动逻辑
                   try {
                     if (!defaultStorageClassName) { reloadStorageClasses(); }
+                    // 1. 找到选中的镜像对象
                     const it = (images || []).find((x: any) => {
                       const name = x?.metadata?.name || x?.name;
                       const ns = x?.metadata?.namespace || x?.namespace;
                       const v = ns && name ? `${ns}/${name}` : name;
                       return v === val;
                     });
+                    
+                    // 2. 根据镜像名称判断是否需要 UEFI 启动 (如 Windows)
                     const nameText = String(it?.displayName || it?.name || '').toLowerCase();
                     const needEfi = /windows|win|uefi/.test(nameText);
+                    
+                    // 3. 设置存储类和启动模式
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
                     form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi });
+                    
+                    // 4. 自动计算并填充系统盘大小 (rootSize)
                     const raw = (function () { const v = (it as any)?.virtualSize; return (v !== undefined && v !== null && v !== 0) ? v : (it as any)?.size; })();
                     let gi = 0;
-                    if (typeof raw === 'number') { gi = Math.max(1, Math.round(Number(raw) / (1024 * 1024 * 1024))); }
-                    else { const ss = String(raw || '').toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) gi = num; else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024); else gi = Math.round(num / (1024 * 1024 * 1024)); }
-                    if (gi) { form.setFieldsValue({ rootSize: `${gi}Gi` }); }
-                  } catch { }
-                }}
-              />
-            </Form.Item>
-          )}
-          {(form.getFieldValue('rootSourceType') || 'image') === 'existing' && (
-            <Form.Item label="选择卷（PVC）" name="rootPvc" rules={[{ required: true }]}> 
-              <Select
-                options={volumeOptions}
-                placeholder="选择现有卷"
-                onDropdownVisibleChange={(open) => { if (open) reloadVolumes(); }}
-                onChange={(val) => {
-                  try {
-                    const it = (availableVolumes || []).find((v: any) => v?.pvcName === val);
-                    const raw = it?.size;
-                    let gi = 0;
-                    if (typeof raw === 'number') { gi = Math.round(raw / (1024 * 1024 * 1024)); }
-                    else { const ss = String(raw || '').toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) { gi = num; } else if (/MI$/.test(ss)) { gi = Math.ceil(num / 1024); } else { gi = Math.round(num / (1024 * 1024 * 1024)); } }
-                    if (gi) form.setFieldsValue({ rootSize: `${gi}Gi` });
+                    if (typeof raw === 'number') { 
+                      gi = Math.max(1, Math.round(Number(raw) / (1024 * 1024 * 1024))); 
+                    } else { 
+                      // 解析带单位的字符串 (e.g., "10Gi")
+                      const ss = String(raw || '').toUpperCase(); 
+                      const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; 
+                      if (/GI$/.test(ss)) gi = num; 
+                      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024); 
+                      else gi = Math.round(num / (1024 * 1024 * 1024)); 
+                    }
+                    if (gi) { form.setFieldsValue({ rootSize: `${gi}` }); }
                   } catch { }
                 }}
               />
             </Form.Item>
           )}
           
+          {/* 如果来源是现有卷，显示 PVC 选择框 */}
+          {(form.getFieldValue('rootSourceType') || 'image') === 'existing' && (
+            <Form.Item label="选择卷（PVC）" name="rootPvc" rules={[{ required: true }]}> 
+              <Select
+                options={volumeOptions}
+                placeholder="选择现有卷"
+                onOpenChange={(open) => { if (open) reloadVolumes(); }}
+                onChange={(val) => {
+                  // 选中 PVC 后自动填充大小
+                  try {
+                    const it = (availableVolumes || []).find((v: any) => v?.pvcName === val);
+                    const raw = it?.size;
+                    let gi = 0;
+                    if (typeof raw === 'number') { gi = Math.round(raw / (1024 * 1024 * 1024)); }
+                    else { const ss = String(raw || '').toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) { gi = num; } else if (/MI$/.test(ss)) { gi = Math.ceil(num / 1024); } else { gi = Math.round(num / (1024 * 1024 * 1024)); } }
+                    if (gi) form.setFieldsValue({ rootSize: `${gi}` });
+                  } catch { }
+                }}
+              />
+            </Form.Item>
+          )}
         </Col>
       </Row>
+
+      {/* 系统盘详细参数：名称、容量、总线、设备类型 */}
       {
         <Row gutter={12}>
           <Col span={8}>
-            <Form.Item label="名称" name="rootName">
-              <Input placeholder="默认：disk-0" />
+            <Form.Item label="名称" name="rootName" initialValue={`disk-${generateDiskName()}`}>
+              <Input placeholder="自动生成" />
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="容量" name="rootSize" rules={[{ required: true, message: '请输入容量' }, { pattern: /^[0-9]+(Gi|Mi)$/i, message: '格式如 40Gi 或 4096Mi' }]}> 
-              <Input placeholder="如：40Gi" addonAfter="GiB" />
+            {/* 容量输入框：只允许输入数字，单位固定为 GiB */}
+            <Form.Item label="容量" name="rootSize" rules={[{ required: true, message: '请输入容量' }, { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' }]}> 
+              <Input type="number" placeholder="如：40" addonAfter="GiB" />
             </Form.Item>
           </Col>
           <Col span={8}>
@@ -125,18 +177,39 @@ const StepDisks: React.FC<StepDisksProps> = ({
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="设备类型" name="rootDeviceType" initialValue="disk"> 
+            <Form.Item 
+              label="设备类型" 
+              name="rootDeviceType" 
+              initialValue="disk"
+              dependencies={['extraDisks']}
+              rules={[
+                {
+                  validator: async (_, value) => {
+                    if (value === 'cdrom') {
+                      const extraDisks = form.getFieldValue('extraDisks') || [];
+                      // 检查是否存在非 CDROM 类型的磁盘（即数据盘）
+                      const hasDataDisk = extraDisks.some((d: any) => d?.type !== 'cdrom' && d?.deviceType !== 'cdrom');
+                      if (!hasDataDisk) {
+                        return Promise.reject(new Error('系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统'));
+                      }
+                    }
+                    return Promise.resolve();
+                  }
+                }
+              ]}
+            > 
               <Select options={[{ label: 'DISK', value: 'disk' }, { label: 'CDROM', value: 'cdrom' }]} />
             </Form.Item>
           </Col>
+          {/* 仅当来源为镜像时，才需要选择存储类（现有卷已有存储类） */}
           {(form.getFieldValue('rootSourceType') || 'image') === 'image' && (
-            <Col span={8}>
+            <Col span={16}>
               <Form.Item label="存储类" name="storageClassName"> 
                 <Select
                   placeholder="选择存储类"
                   options={(storageClasses || []).map((x: any) => ({ label: x?.name, value: x?.name }))}
                   loading={storageClassLoading}
-                  onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
+                  onOpenChange={(open) => { if (open) reloadStorageClasses(); }}
                 />
               </Form.Item>
             </Col>
@@ -144,19 +217,51 @@ const StepDisks: React.FC<StepDisksProps> = ({
         </Row>
       }
 
+      {/* ==================== 数据盘配置区域 ==================== */}
       <div className="wizard-group-title">数据盘</div>
       <Form.List name="extraDisks" initialValue={[]}>
         {(fields, { add, remove }) => (
           <div>
             {fields.map(({ key, name }, idx) => {
+              // 获取当前磁盘的值
               const v = form.getFieldValue(['extraDisks', name]);
-              const sizeGiB = (function () { const raw = v?.size; if (!raw) return ''; const ss = String(raw).toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) return num; if (/MI$/.test(ss)) return Math.ceil(num / 1024); return Math.round(num / (1024 * 1024 * 1024)); })();
-              const titleText = (function () { const st = v?.sourceType || form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; const typ = (form.getFieldValue(['extraDisks', name, 'type']) || v?.type || 'disk') === 'cdrom' ? 'ISO' : 'DISK'; const sizeTxt = st === 'existing' ? '' : (sizeGiB ? ` ${sizeGiB} GiB` : ''); return `${idx + 1}# ${v?.name ? v.name : '未命名'}${sizeTxt} · ${typ}`; })();
+              
+              // 动态计算用于标题显示的磁盘大小
+              const sizeGiB = (function () { 
+                const raw = v?.size; 
+                if (!raw) return ''; 
+                const st = v?.sourceType || form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new';
+                const ss = String(raw).toUpperCase(); 
+                const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; 
+                
+                if (st === 'existing') {
+                   // 现有卷：解析已有大小
+                   if (/GI$/.test(ss)) return num; 
+                   if (/MI$/.test(ss)) return Math.ceil(num / 1024); 
+                   return Math.round(num / (1024 * 1024 * 1024)); 
+                } else {
+                   // 新建卷：如果是纯数字，默认为 GiB
+                   if (/GI$/.test(ss)) return num;
+                   if (/MI$/.test(ss)) return Math.ceil(num / 1024);
+                   if (/^[0-9]+$/.test(ss)) return num; 
+                   return num;
+                }
+              })();
+
+              // 构造卡片标题：序号 + 名称 + 大小 + 类型
+              const titleText = (function () { 
+                const st = v?.sourceType || form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; 
+                const typ = (form.getFieldValue(['extraDisks', name, 'type']) || v?.type || 'disk') === 'cdrom' ? 'ISO' : 'DISK'; 
+                const sizeTxt = st === 'existing' ? '' : (sizeGiB ? ` ${sizeGiB} GiB` : ''); 
+                return `${idx + 1}# ${v?.name ? v.name : '未命名'}${sizeTxt} · ${typ}`; 
+              })();
+
               const title = (
                 <div role="button" onClick={() => setSelectedDiskIdx(idx)}>
                   {titleText}
                 </div>
               );
+
               return (
                 <Card
                   key={key}
@@ -181,13 +286,20 @@ const StepDisks: React.FC<StepDisksProps> = ({
                       </Form.Item>
                     </Col>
                     <Col span={8}>
+                      {/* 
+                        容量输入逻辑：
+                        1. 现有卷 (existing): 显示只读输入框，值从 PVC 计算而来。
+                        2. 新建卷 (new): 显示数字输入框，单位固定 GiB。
+                      */}
                       {(function () {
-                        const st = form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; if (st === 'existing') {
+                        const st = form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; 
+                        if (st === 'existing') {
                           return (
                             <Form.Item label="容量">
                               <Input value={(function () {
                                 const sizeField = form.getFieldValue(['extraDisks', name, 'size']);
                                 if (sizeField !== undefined && sizeField !== null) {
+                                  // 尝试解析已有的 size 字段
                                   const ss = String(sizeField).toUpperCase();
                                   const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0;
                                   let n = 0;
@@ -196,6 +308,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                                   else n = Math.round(num / (1024 * 1024 * 1024));
                                   if (n) return `${n} GiB`;
                                 }
+                                // 如果没有 size 字段，尝试从 PVC 选项中查找
                                 const key = form.getFieldValue(['extraDisks', name, 'pvc']);
                                 const it = (availableVolumes || []).find((v: any) => v?.pvcName === key);
                                 const raw = it?.size;
@@ -208,9 +321,18 @@ const StepDisks: React.FC<StepDisksProps> = ({
                               })()} disabled />
                             </Form.Item>
                           );
-                        } return (
-                          <Form.Item label="容量" name={[name, 'size']} rules={[{ required: true, message: '请输入容量' }, { pattern: /^[0-9]+(Gi|Mi)$/i, message: '格式如 100Gi 或 1024Mi' }]}> 
-                            <Input placeholder="如：100Gi" addonAfter="GiB" />
+                        } 
+                        if (st === 'image') {
+                           return (
+                             <Form.Item label="容量">
+                               <Input value="自动" disabled />
+                             </Form.Item>
+                           );
+                        }
+                        // 新建卷：数字输入
+                        return (
+                          <Form.Item label="容量" name={[name, 'size']} rules={[{ required: true, message: '请输入容量' }, { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' }]}> 
+                            <Input type="number" placeholder="如：100" addonAfter="GiB" />
                           </Form.Item>
                         );
                       })()}
@@ -221,49 +343,93 @@ const StepDisks: React.FC<StepDisksProps> = ({
                       </Form.Item>
                     </Col>
                   </Row>
+                  
+                  {/* 根据数据盘类型显示不同的后续字段 */}
                   {
-                    (function () { const st = form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; return st === 'existing'; })() ? (
-                      <>
-                        <Row gutter={12}>
-                          <Col span={24}>
-                            <Form.Item label="卷（PVC）" name={[name, 'pvc']} rules={[{ required: true, message: '请选择PVC' }]}> 
-                              <Select
-                                placeholder="选择现有卷（PVC）"
-                                options={volumeOptions}
-                                onDropdownVisibleChange={(open) => { if (open) reloadVolumes(); }}
-                                onChange={(val) => { try { const curr: any[] = form.getFieldValue('extraDisks') || []; const it = (availableVolumes || []).find((v: any) => v?.pvcName === val); const next = [...curr]; next[name] = { ...(next[name] || {}), pvc: val, name: it?.name || val, size: it?.size || (next[name]?.size || undefined), volumeMode: (it?.volumeMode || it?.VolumeMode || '') }; form.setFieldsValue({ extraDisks: next }); } catch { } }}
-                              />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                        <Row gutter={12}>
-                        </Row>
-                      </>
-                    ) : (
-                      <>
-                        <Col span={24}>
-                          <Form.Item label="存储类" name={[name, 'storageClassName']} rules={[{ required: true, message: '请选择存储类' }]}> 
-                            <Select
-                              placeholder="选择存储类"
-                              options={(storageClasses || []).map((x: any) => ({ label: x?.name, value: x?.name }))}
-                              loading={storageClassLoading}
-                              onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Row gutter={12}>
-                          <Col span={24}>
-                            <Form.Item label="卷模式" name={[name, 'volumeMode']}> 
-                              <Select
-                                placeholder="选择卷模式"
-                                options={[{ label: 'Filesystem', value: 'Filesystem' }, { label: 'Block', value: 'Block' }]}
-                              />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                      </>
-                    )
+                    (function () { 
+                      const st = form.getFieldValue(['extraDisks', name, 'sourceType']) || 'new'; 
+                      
+                      if (st === 'existing') {
+                        // === 现有卷：选择 PVC ===
+                        return (
+                          <>
+                            <Row gutter={12}>
+                              <Col span={24}>
+                                <Form.Item label="卷（PVC）" name={[name, 'pvc']} rules={[{ required: true, message: '请选择PVC' }]} style={{ marginBottom: 0 }}> 
+                                  <Select
+                                    placeholder="选择现有卷（PVC）"
+                                    options={volumeOptions}
+                                    onDropdownVisibleChange={(open) => { if (open) reloadVolumes(); }}
+                                    onChange={(val) => { 
+                                      // 选中 PVC 后，自动回填名称、大小、模式等信息到 form 中
+                                      try { 
+                                        const curr: any[] = form.getFieldValue('extraDisks') || []; 
+                                        const it = (availableVolumes || []).find((v: any) => v?.pvcName === val); 
+                                        const next = [...curr]; 
+                                        next[name] = { 
+                                          ...(next[name] || {}), 
+                                          pvc: val, 
+                                          // name: it?.name || val, // 移除：不再覆盖自动生成的 ID
+                                          size: it?.size || (next[name]?.size || undefined), 
+                                          volumeMode: (it?.volumeMode || it?.VolumeMode || '') 
+                                        }; 
+                                        form.setFieldsValue({ extraDisks: next }); 
+                                      } catch { } 
+                                    }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                            <Row gutter={12}>
+                            </Row>
+                          </>
+                        );
+                      } else if (st === 'image') {
+                        // === 挂载 ISO：选择镜像 ===
+                        return (
+                          <Row gutter={12}>
+                             <Col span={24}>
+                               <Form.Item label="选择镜像" name={[name, 'image']} rules={[{ required: true, message: '请选择镜像' }]} style={{ marginBottom: 0 }}>
+                                 <Select
+                                   options={imageOptions}
+                                   placeholder="选择镜像 (ISO)"
+                                   loading={imageLoading}
+                                   onDropdownVisibleChange={(open) => { if (open) reloadImages(); }}
+                                 />
+                               </Form.Item>
+                             </Col>
+                          </Row>
+                        );
+                      } else {
+                        // === 新建卷：选择存储类和卷模式 ===
+                        // 使用 Row/Col 布局防止换行问题
+                        return (
+                          <Row gutter={12}>
+                            <Col span={12}>
+                              <Form.Item label="存储类" name={[name, 'storageClassName']} rules={[{ required: true, message: '请选择存储类' }]} style={{ marginBottom: 0 }}> 
+                                <Select
+                                  placeholder="选择存储类"
+                                  options={(storageClasses || []).map((x: any) => ({ label: x?.name, value: x?.name }))}
+                                  loading={storageClassLoading}
+                                  onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col span={12}>
+                                <Form.Item label="卷模式" name={[name, 'volumeMode']} style={{ marginBottom: 0 }}> 
+                                  <Select
+                                    placeholder="选择卷模式"
+                                    options={[{ label: 'Filesystem', value: 'Filesystem' }, { label: 'Block', value: 'Block' }]}
+                                  />
+                                </Form.Item>
+                            </Col>
+                          </Row>
+                        );
+                      }
+                    })()
                   }
+                  
+                  {/* 隐藏字段：sourceType 用于区分是新建还是现有 */}
                   <Row gutter={12}>
                     <Col span={24}>
                       <Form.Item hidden name={[name, 'sourceType']}>
@@ -274,9 +440,12 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 </Card>
               );
             })}
+            
+            {/* 添加按钮区域 */}
             <Space>
-              <Button type="dashed" onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'new' })}>新建空白卷</Button>
-              <Button type="dashed" onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'existing' })}>挂载已有卷</Button>
+              <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'new', name: `disk-${generateDiskName()}` })}>新建空白卷</Button>
+              <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'existing', name: `disk-${generateDiskName()}` })}>挂载已有卷</Button>
+              <Button onClick={() => add({ type: 'cdrom', bus: 'sata', sourceType: 'image', name: `iso-${generateDiskName()}` })}>挂载 ISO</Button>
             </Space>
           </div>
         )}

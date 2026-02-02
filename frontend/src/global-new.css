@@ -1,0 +1,93 @@
+/* 
+ * Global CSS Migration File
+ * 用于逐步迁移和重构 global.css 中的样式
+ * 最终目标是替代 global.css
+ */
+
+/* ==========================================================================
+   Table Styles (std)
+   Migration Source: Harvester Node Table Styles
+   ========================================================================== */
+
+/* 标准表格容器 */
+/* .std-table { } */
+
+.std-table .ant-table {
+  font-size: 14px;
+}
+
+/* 表头样式 */
+.std-table .ant-table-thead > tr > th {
+  background: #f5f7fa !important; /* 浅灰背景 */
+  color: #1f2329;                /* 深色文字 */
+  font-weight: normal;           /* 不加粗 */
+  padding: 12px 16px !important; /* 内边距 */
+  line-height: 22px;
+  border-bottom: 1px solid #e5e6eb;
+}
+
+/* 单元格样式 */
+.std-table .ant-table-tbody > tr > td {
+  padding: 12px 16px !important;
+  line-height: 22px;
+  color: #1f2329;
+  border-bottom: 1px solid #e5e6eb;
+}
+
+/* 鼠标悬停行样式 */
+.std-table .ant-table-tbody > tr:hover > td {
+  background-color: #f2f3f5 !important;
+}
+
+/* 操作列链接/按钮样式 */
+.std-table .ant-btn-link {
+  padding: 0;
+  height: auto;
+  line-height: 1;
+}
+
+/* 单元格内可点击文本样式 */
+.std-table .cell-link {
+  color: var(--primary-hex, #1677ff);
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+
+.std-table .cell-link:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+
+
+/* 
+ * 表单控件尺寸工具 (Toolbar)
+ * 统一列表页工具栏中搜索框和筛选框的宽度
+ */
+
+/* .toolbar-search: 标准搜索框宽度 (240px) */
+.toolbar-search {
+  width: 240px !important;
+}
+
+/* .toolbar-filter: 标准筛选框宽度 (200px)，适用于大多数状态、类型筛选 */
+.toolbar-filter {
+  width: 200px !important;
+}
+
+/* .toolbar-filter-sm: 小型筛选框宽度 (140px)，适用于选项较短或空间紧凑的场景 */
+.toolbar-filter-sm {
+  width: 140px !important;
+}
+
+/* 
+ * 专用组件样式
+ * .metadata-viewer: 元数据查看器样式
+ * - 使用等宽字体 (monospace) 方便阅读代码/JSON
+ * - 浅灰背景 (#f5f5f5) 区分内容区域
+ */
+.metadata-viewer {
+  font-family: monospace;
+  background-color: #f5f5f5;
+}
+

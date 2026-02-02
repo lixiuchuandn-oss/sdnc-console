@@ -1,18 +1,53 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Tag, Input, Select, Button } from 'antd';
+import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space } from 'antd';
 import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import { fetchHarvesterNodeDetail } from '../../../../services/api';
+import TableColumnSettings from '../../../../components/TableColumnSettings';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
 type Props = {
   nodes: any[];
   loading: boolean;
   onRefresh?: () => void;
+  cloudId?: string;
 };
 
-const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh }) => {
+const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
   const [readyFilter, setReadyFilter] = useState<string>('');
+  
+  // Metadata Drawer State
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [drawerRecord, setDrawerRecord] = useState<any>(null);
+  const [drawerResource, setDrawerResource] = useState<any>(null);
+  const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
+  const [resourceLoading, setResourceLoading] = useState(false);
+
+  // Unified Drawer Handler
+  const handleOpenDrawer = async (record: any, tab: string) => {
+    setDrawerRecord(record);
+    setDrawerResource(null);
+    setDrawerActiveTab(tab);
+    setDrawerVisible(true);
+
+    const name = record?.metadata?.name || record?.name;
+    if (cloudId && name) {
+      setResourceLoading(true);
+      try {
+        const json = await fetchHarvesterNodeDetail(cloudId, name);
+        const data = (json as any)?.data || json;
+        setDrawerResource(data);
+      } catch (e: any) {
+        console.error('Fetch Node Resource Failed:', e);
+        message.error(`获取资源数据失败: ${e?.message || '未知错误'}`);
+      } finally {
+        setResourceLoading(false);
+      }
+    }
+  };
 
   const getRoles = (r: any): string[] => {
     const base: string[] = Array.isArray(r?.roles) ? r.roles : [];
@@ -90,41 +125,108 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh }) => {
     if (isFinite(n)) return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
     return '-';
   };
+
+  const allColumns = useMemo(() => [
+    { title: '名称', key: 'name', render: (_:any, r:any)=> r?.name || r?.metadata?.name || '-' },
+    { title: '角色', key: 'roles', render: (_:any, r:any)=> Array.isArray(r?.roles) ? r.roles.join(',') : (r?.metadata?.labels?.['kubernetes.io/role'] || '-') },
+    { title: '内网IP', key: 'inip', render: (_:any, r:any)=> r?.internalIP || r?.status?.addresses?.find((a:any)=>a?.type==='InternalIP')?.address || '-' },
+    { title: '公网IP', key: 'exip', render: (_:any, r:any)=> r?.externalIP || r?.status?.addresses?.find((a:any)=>a?.type==='ExternalIP')?.address || '-' },
+    { title: '就绪', key: 'ready', render: (_:any, r:any)=> (r?.ready ? <Tag color="green">Ready</Tag> : <Tag color="red">NotReady</Tag>) },
+    { title: 'CPU', key: 'cpu', render: (_:any, r:any)=> formatCpu(r?.cpu ?? r?.status?.capacity?.cpu) },
+    { title: '内存', key: 'mem', render: (_:any, r:any)=> formatMemGb(r?.memory ?? r?.status?.capacity?.memory) },
+    { title: '版本', key: 'version', render: (_:any, r:any)=> r?.status?.nodeInfo?.kubeletVersion || r?.version || '-' },
+    { title: '操作', key: 'actions', render: (_: any, r: any) => {
+        const items: any[] = [
+            { key: 'view', label: '数据查看', onClick: () => handleOpenDrawer(r, 'detail') },
+        ];
+        return (
+          <ResourceActionsDropdown 
+            items={items} 
+          />
+        );
+      } 
+    },
+  ], [handleOpenDrawer]);
+
+  const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
+
   return (
     <PageDetailSection
       asCard={false}
+      autoStyleInputs={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} style={{ width: 240 }} />
-          <Select allowClear placeholder="角色" value={roleFilter || undefined} onChange={(v)=> setRoleFilter(v || '')} style={{ width: 200 }} options={[{ value: '', label: '全部' }, ...roleOptions]} />
-          <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> setReadyFilter(v || '')} style={{ width: 200 }} options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
+          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
+          <Select allowClear placeholder="角色" value={roleFilter || undefined} onChange={(v)=> setRoleFilter(v || '')} className="toolbar-filter" options={[{ value: '', label: '全部' }, ...roleOptions]} />
+          <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> setReadyFilter(v || '')} className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
         </>
       )}
       toolbarRight={(
-        <>
-          <Button icon={<SettingOutlined />} />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
-        </>
+        <Space>
+          {/* Settings button is handled by columnsConfig if provided, or manual if not */}
+          <TableColumnSettings 
+            columns={allColumns} 
+            onChange={setTableColumns}
+            settingsKey="harvester_nodes_table"
+          />
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={() => {
+              if (onRefresh) {
+                onRefresh();
+              } else {
+                message.warning('刷新功能未绑定');
+              }
+            }}
+            loading={loading}
+          />
+        </Space>
       )}
+      refreshLoading={loading}
     >
     <Table
-      className="kv-section-table"
+      className="std-table"
       bordered
       rowKey={(r:any)=> r?.name || r?.metadata?.name || Math.random().toString(36).slice(2)}
-      columns={[
-        { title: '名称', key: 'name', render: (_:any, r:any)=> r?.name || r?.metadata?.name || '-' },
-        { title: '角色', key: 'roles', render: (_:any, r:any)=> Array.isArray(r?.roles) ? r.roles.join(',') : (r?.metadata?.labels?.['kubernetes.io/role'] || '-') },
-        { title: '内网IP', key: 'inip', render: (_:any, r:any)=> r?.internalIP || r?.status?.addresses?.find((a:any)=>a?.type==='InternalIP')?.address || '-' },
-        { title: '公网IP', key: 'exip', render: (_:any, r:any)=> r?.externalIP || r?.status?.addresses?.find((a:any)=>a?.type==='ExternalIP')?.address || '-' },
-        { title: '就绪', key: 'ready', render: (_:any, r:any)=> (r?.ready ? <Tag color="green">Ready</Tag> : <Tag color="red">NotReady</Tag>) },
-        { title: 'CPU', key: 'cpu', render: (_:any, r:any)=> formatCpu(r?.cpu ?? r?.status?.capacity?.cpu) },
-        { title: '内存', key: 'mem', render: (_:any, r:any)=> formatMemGb(r?.memory ?? r?.status?.capacity?.memory) },
-        { title: '版本', key: 'version', render: (_:any, r:any)=> r?.version || r?.status?.nodeInfo?.kubeletVersion || '-' },
-      ] as any}
+      scroll={{ x: 'max-content' }}
+      columns={tableColumns}
       dataSource={filtered}
       loading={loading}
-      pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+      pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
     />
+    <HarvesterResourceDrawer
+      open={drawerVisible}
+      onClose={() => setDrawerVisible(false)}
+      record={drawerRecord}
+      resource={drawerResource}
+      loading={resourceLoading}
+      activeTab={drawerActiveTab}
+      onTabChange={setDrawerActiveTab}
+      renderDetail={(res) => (
+        <Descriptions bordered column={1} size="small">
+          <Descriptions.Item label="名称">{res?.metadata?.name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="UID">{res?.metadata?.uid || '-'}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{res?.metadata?.creationTimestamp || '-'}</Descriptions.Item>
+          <Descriptions.Item label="内网IP">{res?.status?.addresses?.find((a:any)=>a?.type==='InternalIP')?.address || '-'}</Descriptions.Item>
+          <Descriptions.Item label="公网IP">{res?.status?.addresses?.find((a:any)=>a?.type==='ExternalIP')?.address || '-'}</Descriptions.Item>
+          <Descriptions.Item label="CPU Capacity">{res?.status?.capacity?.cpu || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Memory Capacity">{res?.status?.capacity?.memory || '-'}</Descriptions.Item>
+          <Descriptions.Item label="CPU Allocatable">{res?.status?.allocatable?.cpu || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Memory Allocatable">{res?.status?.allocatable?.memory || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Machine ID">{res?.status?.nodeInfo?.machineID || '-'}</Descriptions.Item>
+          <Descriptions.Item label="System UUID">{res?.status?.nodeInfo?.systemUUID || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Boot ID">{res?.status?.nodeInfo?.bootID || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Kernel Version">{res?.status?.nodeInfo?.kernelVersion || '-'}</Descriptions.Item>
+          <Descriptions.Item label="OS Image">{res?.status?.nodeInfo?.osImage || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Container Runtime">{res?.status?.nodeInfo?.containerRuntimeVersion || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Kubelet Version">{res?.status?.nodeInfo?.kubeletVersion || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Kube-Proxy Version">{res?.status?.nodeInfo?.kubeProxyVersion || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Operating System">{res?.status?.nodeInfo?.operatingSystem || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Architecture">{res?.status?.nodeInfo?.architecture || '-'}</Descriptions.Item>
+       </Descriptions>
+      )}
+    />
+
     </PageDetailSection>
   );
 };

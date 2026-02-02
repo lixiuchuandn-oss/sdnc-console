@@ -103,7 +103,7 @@ const SharedToolbar: React.FC<Props> = ({
           {primaryAction.label}
         </Button>
       );
-      items.push(primaryAction.tooltip ? <Tooltip title={primaryAction.tooltip}>{btn}</Tooltip> : btn);
+      items.push(primaryAction.tooltip ? <Tooltip key="primary" title={primaryAction.tooltip}>{btn}</Tooltip> : <React.Fragment key="primary">{btn}</React.Fragment>);
     }
 
     // 2. Batch Actions
@@ -120,7 +120,7 @@ const SharedToolbar: React.FC<Props> = ({
           <Button icon={<EllipsisOutlined />} />
         </Dropdown>
       );
-      items.push(batchActions.tooltip ? <Tooltip title={batchActions.tooltip}>{btn}</Tooltip> : btn);
+      items.push(batchActions.tooltip ? <Tooltip key="batch" title={batchActions.tooltip}>{btn}</Tooltip> : <React.Fragment key="batch">{btn}</React.Fragment>);
     }
 
     // 3. Column Settings
@@ -131,7 +131,7 @@ const SharedToolbar: React.FC<Props> = ({
           onClick={handleOpenColModal}
         />
       );
-      items.push(columnsConfig.tooltip ? <Tooltip title={columnsConfig.tooltip}>{btn}</Tooltip> : btn);
+      items.push(columnsConfig.tooltip ? <Tooltip key="columns" title={columnsConfig.tooltip}>{btn}</Tooltip> : <React.Fragment key="columns">{btn}</React.Fragment>);
     }
 
     // 4. Refresh
@@ -143,7 +143,7 @@ const SharedToolbar: React.FC<Props> = ({
           loading={refreshLoading}
         />
       );
-      items.push(<Tooltip title={refreshTooltip}>{btn}</Tooltip>);
+      items.push(<Tooltip key="refresh" title={refreshTooltip}>{btn}</Tooltip>);
     }
 
     return items;
@@ -166,12 +166,11 @@ const SharedToolbar: React.FC<Props> = ({
       {/* Column Selection Modal */}
       {columnsConfig && (
         <Modal
-          title="列表展示列设置"
           open={colModalVisible}
           onOk={handleColOk}
           onCancel={() => setColModalVisible(false)}
           width={720}
-          destroyOnClose
+          destroyOnHidden
         >
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px 24px' }}>
              <Checkbox 

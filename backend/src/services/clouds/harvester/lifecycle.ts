@@ -58,6 +58,60 @@ export const harvesterStopVM = async (
   return await requestJson('POST', url, token, insecure, { force });
 };
 
+export const harvesterSoftRebootVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=softreboot`;
+  return await requestJson('POST', url, token, insecure, {});
+};
+
+export const harvesterPauseVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachineinstances/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=pause`;
+  return await requestJson('POST', url, token, insecure, {});
+};
+
+export const harvesterUnpauseVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachineinstances/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=unpause`;
+  return await requestJson('POST', url, token, insecure, {});
+};
+
 export const harvesterAddVolumeToVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -346,6 +400,7 @@ export const harvesterDeleteVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
   deleteImage: boolean = false,
+  deleteVolumes: boolean = false,
 ) => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -357,6 +412,31 @@ export const harvesterDeleteVM = async (
   }
   const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
   if (!path) throw new Error('无法解析实例标识');
+
+  if (deleteVolumes) {
+    try {
+      const vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+      const volumes = vm?.spec?.template?.spec?.volumes || [];
+      for (const vol of volumes) {
+        const claimName = vol.persistentVolumeClaim?.claimName;
+        if (claimName) {
+          try {
+            // Try standard PVC path first, then namespaced path
+            const delUrl = `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(path.namespace)}/${encodeURIComponent(claimName)}`;
+            await requestJson('DELETE', delUrl, token, insecure);
+            console.info(`[DeleteVM] Triggered deletion for PVC: ${claimName}`);
+          } catch (e: any) {
+             // Ignore 404 (already deleted)
+             if (e?.status !== 404) {
+                 console.warn(`[DeleteVM] Failed to delete PVC ${claimName}:`, e.message);
+             }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[DeleteVM] Failed to process deleteVolumes logic:', e);
+    }
+  }
 
   if (deleteImage) {
     try {
@@ -392,9 +472,9 @@ export const harvesterDeleteVM = async (
           const delUrl = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(imgNs)}/virtualmachineimages/${encodeURIComponent(imgName)}`;
           await requestJson('DELETE', delUrl, token, insecure);
         } catch (e: any) {
-          if (parts.length === 1 && imgNs !== 'harvester-public') {
+          if (parts.length === 1 && imgNs !== 'cloud-public') {
             try {
-              const delUrl2 = `${origin}/apis/harvesterhci.io/v1/namespaces/harvester-public/virtualmachineimages/${encodeURIComponent(imgName)}`;
+              const delUrl2 = `${origin}/apis/harvesterhci.io/v1/namespaces/cloud-public/virtualmachineimages/${encodeURIComponent(imgName)}`;
               await requestJson('DELETE', delUrl2, token, insecure);
             } catch {}
           }

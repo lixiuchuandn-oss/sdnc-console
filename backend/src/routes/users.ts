@@ -112,6 +112,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         email: tu.email,
         fullName: tu.fullName,
         role: 'tenant',
+        tenantRole: tu.role,
         status: tu.status,
         createdAt: tu.createdAt,
         lastLoginAt: tu.lastLoginAt,

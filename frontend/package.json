@@ -56,6 +56,7 @@
     "@testing-library/react": "^16.3.1",
     "@testing-library/user-event": "^14.6.1",
     "@types/jest": "^29.5.8",
+    "@types/novnc__novnc": "^1.6.0",
     "prettier": "^3.8.1",
     "react-app-rewired": "^2.2.1"
   },

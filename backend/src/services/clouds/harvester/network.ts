@@ -67,6 +67,9 @@ export const listHarvesterNADsStandard = async ({
     name: nad?.metadata?.name || nad?.name || '',
     namespace: nad?.metadata?.namespace || nad?.namespace || '',
     config: nad?.spec?.config || '',
+    links: {
+      view: `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nad?.metadata?.namespace || nad?.namespace || ''}/network-attachment-definitions/${nad?.metadata?.name || nad?.name || ''}`
+    }
   }));
 };
 
@@ -109,13 +112,22 @@ export const listKubeOvnSubnets = async ({
       : [];
   return items.map((s: any) => ({
     name: s?.metadata?.name || s?.name || '',
-    vpc: s?.spec?.vpc || '',
+    uid: s?.metadata?.uid || '',
+    createdAt: s?.metadata?.creationTimestamp || '',
+    vpc: s?.spec?.vpc || 'ovn-cluster',
     cidr: s?.spec?.cidrBlock || s?.spec?.cidr || '',
     gateway: s?.spec?.gateway || s?.spec?.gateway || '',
     protocol: s?.spec?.protocol || 'IPV4',
-    nat: !!s?.spec?.nat,
+    nat: !!(s?.spec?.natOutgoing || s?.spec?.nat),
+    allowDhcp: !!(s?.spec?.enableDhcp || s?.spec?.allowDhcp),
     private: !!s?.spec?.private,
     namespaces: Array.isArray(s?.spec?.namespaces) ? s.spec.namespaces : [],
+    provider: s?.spec?.provider || '',
+    vlan: s?.spec?.vlanID || s?.spec?.vlan || '',
+    excludeIps: s?.spec?.excludeIps || [],
+    links: {
+      view: `${origin}/apis/kubeovn.io/v1/subnets/${s?.metadata?.name || s?.name || ''}`
+    }
   }));
 };
 
@@ -178,11 +190,56 @@ export const listKubeOvnVpcs = async ({
     const cidrs = vpcCidrs.get(name) || [];
     return {
       name,
+      uid: v?.metadata?.uid || '',
       cidr: cidrs.join(', '),
       namespaces: Array.isArray(v?.spec?.namespaces) ? v.spec.namespaces : [],
       standalone: !!v?.spec?.standalone,
       staticRoutes: Array.isArray(v?.spec?.staticRoutes) ? v.spec.staticRoutes.length : 0,
       createdAt: v?.metadata?.creationTimestamp || '',
+      links: {
+        view: `${origin}/apis/kubeovn.io/v1/vpcs/${v?.metadata?.name || v?.name || ''}`
+      }
     };
   });
+};
+
+export const listHarvesterLoadBalancers = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const candidates = [
+    `${origin}/v1/harvester/loadbalancer.harvesterhci.io.loadbalancers`,
+    `${origin}/apis/loadbalancer.harvesterhci.io/v1beta1/loadbalancers`,
+  ];
+  let json: any = null;
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    const m = String(lastErr?.message || '').toLowerCase();
+    if (s === 404 || m.includes('not found')) return [];
+    throw lastErr;
+  }
+  const items = Array.isArray(json?.items)
+    ? json?.items
+    : Array.isArray(json?.data)
+      ? json?.data
+      : [];
+  return items;
 };

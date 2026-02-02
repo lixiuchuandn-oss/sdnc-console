@@ -10,8 +10,13 @@ export const listHarvesterGpuResources = async ({
     resourceName: string;
     type: 'passthrough' | 'vgpu' | 'sriov';
     node?: string;
+    nodeName?: string;
     pciAddress?: string;
+    address?: string;
     name?: string;
+    vendorId?: string;
+    deviceId?: string;
+    classId?: string;
     raw?: any;
   }>
 > => {
@@ -77,6 +82,9 @@ export const listHarvesterGpuResources = async ({
       type: 'passthrough' as const,
       name: d?.externalResourceProvider || d?.deviceName || d?.description,
       raw: d,
+      links: {
+          view: `${origin}/apis/kubevirt.io/v1/namespaces/harvester-system/kubevirts/kubevirt`
+      }
     }))
     .filter((x: any) => !!x.resourceName);
   const fromKvMdev = mdev
@@ -85,6 +93,9 @@ export const listHarvesterGpuResources = async ({
       type: 'vgpu' as const,
       name: d?.mdevName || d?.deviceName || d?.description,
       raw: d,
+      links: {
+          view: `${origin}/apis/kubevirt.io/v1/namespaces/harvester-system/kubevirts/kubevirt`
+      }
     }))
     .filter((x: any) => !!x.resourceName);
   const kvList = [...fromKvPci, ...fromKvMdev];
@@ -139,18 +150,28 @@ export const listHarvesterGpuResources = async ({
       const vendor = String(
         it?.status?.vendorId || it?.spec?.vendorId || it?.vendorId || '',
       ).toLowerCase();
+      const deviceId = String(
+        it?.status?.deviceId || it?.spec?.deviceId || it?.deviceId || '',
+      ).toLowerCase();
       const state = it?.metadata?.state || it?.state || null;
       const tp: 'passthrough' = 'passthrough';
       return {
         resourceName: rn,
         type: tp,
         node,
+        nodeName: node,
         pciAddress: pciAddr,
+        address: pciAddr,
         name: nm || desc || rn,
         raw: it,
         classId,
         vendor,
+        vendorId: vendor,
+        deviceId,
         state,
+        links: {
+            view: `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${it?.metadata?.name || it?.name || ''}`
+        }
       };
     })
     .filter((x: any) => !!x.resourceName);
@@ -162,8 +183,7 @@ export const listHarvesterGpuResources = async ({
     const isGpuVendor = allowedVendors.has(vendor);
     return isGpuClass && isGpuVendor;
   });
-  if (Array.isArray(enriched) && enriched.length > 0)
-    return enriched.map(({ vendor, classId, ...rest }: any) => rest);
+  if (Array.isArray(enriched) && enriched.length > 0) return enriched;
   return kvList;
 };
 

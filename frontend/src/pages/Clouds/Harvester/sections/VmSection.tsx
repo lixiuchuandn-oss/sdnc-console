@@ -1,9 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Table, Select, Button, Tag, Dropdown, Modal, Input, Badge, message, Checkbox } from 'antd';
-import { EllipsisOutlined, SettingOutlined, ReloadOutlined } from '@ant-design/icons';
-import PageDetailSection, { RowActionsButton } from '../../../../components/PageDetailSection';
-import { fetchCloudProviderEcsVncUrl } from '../../../../services/api';
+
+import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox, Descriptions, Tag, Tabs, Tooltip } from 'antd';
+import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
+import PageDetailSection from '../../../../components/PageDetailSection';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import { fetchCloudProviderEcsVncUrl, getAuthHeaders, fetchHarvesterVmDetail } from '../../../../services/api';
+import TableColumnSettings from '../../../../components/TableColumnSettings';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
 type Props = {
   vms: any[];
@@ -16,15 +20,18 @@ type Props = {
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
   onRefresh: () => void;
-  onOpenDetail: (vm: any) => void;
+  // onOpenDetail removed
   onOpenReconfigure: (vm: any) => void;
   onStart: (iid: string) => void;
   onStop: (iid: string) => void;
   onReboot: (iid: string) => void;
+  onSoftReboot?: (iid: string) => void;
+  onPause?: (iid: string) => void;
+  onUnpause?: (iid: string) => void;
   onDelete: (iid: string, deleteImage?: boolean) => void;
 };
 
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenDetail, onOpenReconfigure, onStart, onStop, onReboot, onDelete }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete }) => {
   const cnVmStatus = (v?: string): string => {
     const k = String(v || '').toLowerCase();
     const m: Record<string, string> = {
@@ -43,15 +50,331 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const [tableColumns, setTableColumns] = useState<any[]>([]);
+  
+  // Metadata Modal State
+  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
+  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+  const [fullJson, setFullJson] = useState<any>(null);
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [metadataActiveTab, setMetadataActiveTab] = useState('detail');
+
+  const handleShowMetadata = async (record: any, tab: string = 'detail') => {
+    setCurrentMetadata(record);
+    setFullJson(null);
+    setMetadataActiveTab(tab);
+    setMetadataModalVisible(true);
+
+    const ns = record?.metadata?.namespace;
+    const name = record?.metadata?.name;
+
+    if (ns && name) {
+      setMetadataLoading(true);
+      try {
+        // Use backend proxy instead of direct fetch to avoid CORS/network issues with internal IPs
+        const json = await fetchHarvesterVmDetail(cloudId, ns, name);
+        // Normalize response: backend might wrap result in { data: ... }
+        const data = (json as any)?.data || json;
+        setFullJson(data);
+      } catch (e: any) {
+        console.error(e);
+        message.error(`获取完整数据出错: ${e.message}`);
+      } finally {
+        setMetadataLoading(false);
+      }
+    } else if (record?.links?.view) {
+      // Fallback to direct link if namespace/name missing (unlikely for Harvester)
+      setMetadataLoading(true);
+      try {
+        const res = await fetch(record.links.view, {
+          headers: getAuthHeaders(),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setFullJson(json);
+        } else {
+          message.error(`获取完整数据失败: ${res.status} ${res.statusText}`);
+        }
+      } catch (e: any) {
+        console.error(e);
+        message.error(`获取完整数据出错: ${e.message}`);
+      } finally {
+        setMetadataLoading(false);
+      }
+    }
+  };
+
+  const getIid = (r: any): string => {
+    if (r?.metadata?.name && r?.metadata?.namespace) {
+      return `${r.metadata.namespace}/${r.metadata.name}`;
+    }
+    return String(r?.InstanceId || r?.id || '');
+  };
+  
+  const SafeRead = {
+    name: (r: any) => r?.metadata?.name || r?.InstanceName || r?.name || '',
+    namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
+    uid: (r: any) => r?.metadata?.uid || r?.InstanceId || r?.id || '',
+    status: (r: any) => r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown',
+    node: (r: any) => r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.Extra?.NodeName || '',
+    cpu: (r: any) => r?.spec?.template?.spec?.domain?.cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || r?.Extra?.CPU,
+    memory: (r: any) => r?.spec?.template?.spec?.domain?.memory?.guest || r?.vmi?.spec?.domain?.memory?.guest || r?.Extra?.Memory,
+    creationTimestamp: (r: any) => r?.metadata?.creationTimestamp,
+    networks: (r: any) => {
+      const nets = r?.spec?.template?.spec?.networks || r?.vmi?.spec?.networks || [];
+      const list = nets.map((n: any) => `${n.name} (${n.multus?.networkName || 'default'})`);
+      if (list.length > 0) return list;
+      return Array.isArray(r?.Extra?.Networks) ? r.Extra.Networks : [];
+    },
+    image: (r: any) => {
+      try {
+        const annot = r?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+        if (annot) {
+          const arr = JSON.parse(annot);
+          for (const item of arr) {
+            const img = item?.metadata?.annotations?.['harvesterhci.io/imageId'];
+            if (img) return img;
+          }
+        }
+      } catch (e) {}
+      return r?.Extra?.Image || '';
+    },
+    imageSize: (r: any) => {
+      try {
+        const annot = r?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+        if (annot) {
+          const arr = JSON.parse(annot);
+          for (const item of arr) {
+            const img = item?.metadata?.annotations?.['harvesterhci.io/imageId'];
+            if (img) {
+                return item?.spec?.resources?.requests?.storage || '';
+            }
+          }
+        }
+      } catch (e) {}
+      return '';
+    },
+    ip: (r: any) => {
+      try {
+        const annot = r?.metadata?.annotations?.['network.harvesterhci.io/ips'];
+        if (annot) {
+          const arr = JSON.parse(annot);
+          if (Array.isArray(arr) && arr.length > 0) return arr.join(', ');
+        }
+        if (r?.vmi?.status?.interfaces) {
+          const ips = r.vmi.status.interfaces.flatMap((i:any) => i.ipAddress || i.ipAddresses || []).filter(Boolean);
+          if (ips.length > 0) return ips.join(', ');
+        }
+      } catch (e) {}
+      return '';
+    },
+    macAddress: (r: any) => {
+      try {
+        if (r?.status?.interfaces && r.status.interfaces.length > 0) {
+          const macs = r.status.interfaces.map((i:any) => i.mac).filter(Boolean);
+          if (macs.length > 0) return macs.join(', ');
+        }
+        const annot = r?.metadata?.annotations?.['harvesterhci.io/mac-address'];
+        if (annot) {
+          const json = JSON.parse(annot);
+          return Object.values(json).join(', ');
+        }
+      } catch (e) {}
+      return '';
+    },
+    os: (r: any) => r?.metadata?.labels?.['harvesterhci.io/os'] || '',
+    arch: (r: any) => r?.spec?.template?.spec?.architecture || '',
+    hostname: (r: any) => r?.spec?.template?.spec?.hostname || '',
+    evictionStrategy: (r: any) => r?.spec?.evictionStrategy || r?.spec?.template?.spec?.evictionStrategy || '',
+    runStrategy: (r: any) => r?.spec?.runStrategy || '',
+    cpuSpec: (r: any) => {
+      const cpu = r?.spec?.template?.spec?.domain?.cpu;
+      if (cpu) return `${cpu.cores} Cores, ${cpu.sockets} Sockets, ${cpu.threads} Threads`;
+      return '';
+    },
+    memSpec: (r: any) => {
+        const req = r?.spec?.template?.spec?.domain?.resources?.requests;
+        const lim = r?.spec?.template?.spec?.domain?.resources?.limits;
+        return `Request: ${req?.memory || '-'} / Limit: ${lim?.memory || '-'}`;
+    },
+    disks: (r: any) => {
+        const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
+        return disks.map((d: any) => `${d.name} (${d.disk?.bus || '-'})`).join(', ');
+    },
+    volumes: (r: any) => {
+        const vols = r?.spec?.template?.spec?.volumes || [];
+        return vols.map((v: any) => {
+            if (v.persistentVolumeClaim) return `${v.name} (PVC: ${v.persistentVolumeClaim.claimName})`;
+            if (v.cloudInitNoCloud) return `${v.name} (CloudInit)`;
+            return v.name;
+        }).join('; ');
+    },
+    interfaces: (r: any) => {
+        const ifaces = r?.spec?.template?.spec?.domain?.devices?.interfaces || [];
+        return ifaces.map((i: any) => `${i.name} (${i.model || '-'})`).join(', ');
+    },
+    gpus: (r: any) => {
+        const gpus = r?.spec?.template?.spec?.domain?.devices?.gpus || [];
+        return gpus.map((g: any) => g.name).join(', ');
+    },
+    usb: (r: any) => {
+        const hostDevices = r?.spec?.template?.spec?.domain?.devices?.hostDevices || [];
+        const usb = hostDevices.filter((d: any) => {
+            const n = String(d?.name || '').toLowerCase();
+            const dn = String(d?.deviceName || '').toLowerCase();
+            return n.startsWith('usb') || dn.includes('usb');
+        });
+        return usb.map((u: any) => u.name).join(', ');
+    }
+  };
+
+  const renderDetail = (r: any) => {
+    if (!r) return null;
+    return (
+      <Descriptions bordered column={1} size="small" contentStyle={{ whiteSpace: 'pre-wrap' }}>
+        <Descriptions.Item label="名称">{SafeRead.name(r)}</Descriptions.Item>
+        <Descriptions.Item label="命名空间">{SafeRead.namespace(r)}</Descriptions.Item>
+        <Descriptions.Item label="状态">{cnVmStatus(String(SafeRead.status(r)))}</Descriptions.Item>
+        <Descriptions.Item label="IP地址">{SafeRead.ip(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="MAC地址">{SafeRead.macAddress(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="镜像">{SafeRead.image(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="镜像大小">{SafeRead.imageSize(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="操作系统">{SafeRead.os(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="架构">{SafeRead.arch(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="主机名">{SafeRead.hostname(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="驱逐策略">{SafeRead.evictionStrategy(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="运行策略">{SafeRead.runStrategy(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="CPU规格">{SafeRead.cpuSpec(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="内存规格">{SafeRead.memSpec(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="磁盘">{SafeRead.disks(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="存储卷">{SafeRead.volumes(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="网卡">{SafeRead.interfaces(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="网络">{SafeRead.networks(r).join('; ') || '-'}</Descriptions.Item>
+        <Descriptions.Item label="GPU">{SafeRead.gpus(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="USB设备">{SafeRead.usb(r) || '-'}</Descriptions.Item>
+        <Descriptions.Item label="创建时间">{SafeRead.creationTimestamp(r) || '-'}</Descriptions.Item>
+      </Descriptions>
+    );
+  };
+
+  const allColumns = useMemo(() => [
+        { title: '实例名称', key: 'name', width: 220, fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
+      const text = SafeRead.name(r) || '-';
+      return <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>{text}</span>;
+    } },
+    { title: '状态', key: 'status', width: 100, fixed: 'left' as any, render: (_: any, r: any) => {
+      const s = String(SafeRead.status(r));
+      const k = s.toLowerCase();
+      const status = (function(){
+        if (k==='running') return 'success';
+        if (k==='starting') return 'processing';
+        if (k==='stopping') return 'warning';
+        if (k==='error') return 'error';
+        return 'default';
+      })();
+      return <Badge status={status as any} text={cnVmStatus(s)} />;
+    } },
+    { title: '节点', key: 'node', width: 120, ellipsis: true, render: (_: any, r: any) => {
+      const node = String(SafeRead.node(r)).trim();
+      return node ? <Tag>{node}</Tag> : '-';
+    } },
+    { title: 'CPU', key: 'cpu', width: 80, render: (_: any, r: any) => {
+      const v = SafeRead.cpu(r);
+      return v ? `${v} C` : '-';
+    } },
+    { title: '内存', key: 'memory', width: 100, render: (_: any, r: any) => SafeRead.memory(r) || '-' },
+    { title: '镜像', key: 'image', width: 200, ellipsis: true, render: (_: any, r: any) => {
+        const img = SafeRead.image(r);
+        return img ? <Tooltip title={img}>{img}</Tooltip> : '-';
+     } },
+     { title: '镜像大小', key: 'imageSize', width: 100, render: (_: any, r: any) => SafeRead.imageSize(r) || '-' },
+     { title: '操作系统', key: 'os', width: 120, ellipsis: true, render: (_: any, r: any) => SafeRead.os(r) || '-' },
+    { title: 'IP地址', key: 'ip', width: 140, ellipsis: true, render: (_: any, r: any) => {
+       const ip = SafeRead.ip(r);
+       return ip ? <Tooltip title={ip}>{ip}</Tooltip> : '-';
+    } },
+    { title: 'MAC地址', key: 'mac', width: 160, ellipsis: true, render: (_: any, r: any) => {
+       const mac = SafeRead.macAddress(r);
+       return mac ? <Tooltip title={mac}>{mac}</Tooltip> : '-';
+    } },
+    { title: '存储卷', key: 'volumes', width: 200, ellipsis: true, render: (_: any, r: any) => {
+       const v = SafeRead.volumes(r);
+       return v ? <Tooltip title={v}>{v}</Tooltip> : '-';
+    } },
+    { title: '创建时间', key: 'created', width: 170, render: (_: any, r: any) => {
+       const t = SafeRead.creationTimestamp(r);
+       return t ? new Date(t).toLocaleString() : '-';
+    } },
+    { title: '操作', key: 'actions', width: 60, fixed: 'right' as any, render: (_: any, r: any) => {
+      const iid = getIid(r);
+      
+      const handleWebVnc = async () => {
+              try {
+                if (iid.includes('/')) {
+                  const ns = iid.split('/')[0];
+                  const name = iid.split('/')[1];
+                  const url = `/clouds/${cloudId}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`;
+                  // Open in a new tab instead of a popup window
+                  window.open(url, '_blank');
+                  return;
+                }
+                const j = await fetchCloudProviderEcsVncUrl(cloudId, iid);
+                const url = j?.data?.VncUrl || j?.data?.vncUrl || j?.data?.url;
+                if (url) {
+                  // Open in a new tab instead of a popup window
+                  window.open(url, '_blank');
+                  return;
+                }
+                message.warning('该实例暂不支持 VNC');
+                return;
+              } catch (e:any) {
+                message.error(e?.message || '获取VNC地址失败');
+                return;
+              }
+      };
+
+      const handleDeleteConfirm = () => {
+              let deleteImage = false;
+              Modal.confirm({
+                title: '确认删除该实例？',
+                content: (
+                  <div>
+                    <p>删除后不可恢复。</p>
+                    <Checkbox onChange={(e) => { deleteImage = e.target.checked; }}>同步删除关联镜像</Checkbox>
+                  </div>
+                ),
+                onOk: () => onDelete(iid, deleteImage)
+              });
+      };
+
+      const items: any[] = [
+        { key: 'metadata', label: '查看数据', onClick: () => handleShowMetadata(r) },
+        { key: 'reconf', label: '资源变配', onClick: () => onOpenReconfigure(r) },
+        { key: 'webvnc', label: 'WebVNC（浏览器）', onClick: handleWebVnc },
+        { type: 'divider' },
+        { key: 'start', label: '启动', onClick: () => onStart(iid) },
+        { key: 'stop', label: '停止', onClick: () => onStop(iid) },
+        { key: 'reboot', label: '重启', onClick: () => onReboot(iid) },
+        { key: 'softreboot', label: '软重启', onClick: () => onSoftReboot && onSoftReboot(iid) },
+        { key: 'pause', label: '暂停', onClick: () => onPause && onPause(iid) },
+        { key: 'unpause', label: '恢复', onClick: () => onUnpause && onUnpause(iid) },
+        { type: 'divider' },
+        { key: 'delete', label: '删除', danger: true, onClick: handleDeleteConfirm },
+      ];
+      return <ResourceActionsDropdown items={items} />;
+    } },
+  ], [cloudId, navigate, handleShowMetadata, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete]);
+
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
     return (vms || []).filter((r: any) => {
-      const iid = String(r?.InstanceId || r?.id || '');
-      const name = String(r?.InstanceName || r?.name || '').toLowerCase();
-      const ns = iid.includes('/') ? iid.split('/')[0] : '';
-      const node = r?.Extra?.NodeName || '';
-      const sKey = String(r?.Status || r?.status || '').toLowerCase();
+      const iid = getIid(r);
+      const name = String(SafeRead.name(r)).toLowerCase();
+      const ns = SafeRead.namespace(r) || (iid.includes('/') ? iid.split('/')[0] : '');
+      const node = String(SafeRead.node(r));
+      const sKey = String(SafeRead.status(r)).toLowerCase();
+      
       if (nsValue && ns !== nsValue) return false;
       if (nodeValue && node !== nodeValue) return false;
       if (kw && !(iid.toLowerCase().includes(kw) || name.includes(kw))) return false;
@@ -60,7 +383,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     });
   }, [vms, nsValue, nodeValue, keyword, statusFilter]);
 
-  const getIid = (r: any): string => String(r?.InstanceId || r?.id || '');
   const batchStop = async () => {
     if (selectedKeys.length === 0) return;
     try {
@@ -102,9 +424,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       asCard={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" style={{ width: 240 }} value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+          <Input allowClear placeholder="关键字" className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
           <Select
-            style={{ width: 200 }}
+            className="toolbar-filter"
             placeholder="命名空间"
             value={nsValue || undefined}
             onChange={(v)=> onNsChange(v || undefined)}
@@ -112,7 +434,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             options={namespacesOptions.map(ns=> ({ value: ns, label: ns }))}
           />
           <Select
-            style={{ width: 200 }}
+            className="toolbar-filter-sm"
             placeholder="节点"
             value={nodeValue || undefined}
             onChange={(v)=> onNodeChange(v || undefined)}
@@ -120,7 +442,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             options={nodesOptions.map(n=> ({ value: n, label: n }))}
           />
           <Select
-            style={{ width: 200 }}
+            className="toolbar-filter-sm"
             placeholder="云主机状态"
             value={statusFilter || undefined}
             onChange={(v)=> setStatusFilter(v || '')}
@@ -145,148 +467,35 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           >
             <Button icon={<EllipsisOutlined />}></Button>
           </Dropdown>
-          <Button icon={<SettingOutlined />} />
+          <TableColumnSettings 
+            columns={allColumns} 
+            onChange={setTableColumns}
+            settingsKey="harvester_vm_table"
+          />
           <Button icon={<ReloadOutlined />} onClick={onRefresh} />
         </>
       )}
     >
       <Table
-        className="kv-section-table"
+        className="std-table"
         bordered
         rowKey={(r:any)=> r.InstanceId || r.id}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: (keys)=> setSelectedKeys(keys) }}
-        columns={[
-          { title: '实例名称 / ID', key: 'inst', render: (_: any, r: any) => (
-            <span>
-              {(function(){
-                const text = r?.InstanceName || r?.name || '-';
-                return <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onOpenDetail(r)}>{text}</Button>;
-              })()}
-              <br />
-              <span style={{ color: '#999' }}>{r?.InstanceId || r?.id || '-'}</span>
-            </span>
-          ) },
-          { title: '状态', key: 'status', render: (_: any, r: any) => {
-            const s = String(r?.Status || r?.status || '-');
-            const k = s.toLowerCase();
-            const status = (function(){
-              if (k==='running') return 'success';
-              if (k==='starting') return 'processing';
-              if (k==='stopping') return 'warning';
-              if (k==='error') return 'error';
-              if (k==='stopped' || k==='terminated' || k==='unknown') return 'default';
-              return 'default';
-            })();
-            return <Badge status={status as any} text={cnVmStatus(s)} />;
-          } },
-          { title: '镜像', key: 'image', render: (_: any, r: any) => {
-            const raw = String(r?.Extra?.Image || '').trim();
-            const img = raw && !raw.toUpperCase().startsWith('PVC:') ? raw : '';
-            return img ? img : '-';
-          } },
-          { title: 'vCPU/使用率', key: 'cpu_mix', render: (_: any, r: any) => {
-            const allocNum = r?.Extra?.CPU;
-            const allocText = (typeof allocNum === 'number') ? `${allocNum} vCPU` : (allocNum ? `${allocNum} vCPU` : '-');
-            const usedText = (typeof r?.Extra?.CpuUsagePct === 'number') ? `${r.Extra.CpuUsagePct}%` : '-';
-            return `${allocText} / ${usedText}`;
-          } },
-          { title: '内存/使用率', key: 'mem_mix', render: (_: any, r: any) => {
-            const allocRaw = String(r?.Extra?.Memory || '').trim();
-            const usedRaw = String(r?.Extra?.MemUsage || '').trim();
-            const left = allocRaw || '-';
-            const right = usedRaw || '-';
-            if (left === '-' && right === '-') return '-';
-            return `${left} / ${right}`;
-          } },
-          { title: 'NAD网络', key: 'nad', render: (_: any, r: any) => {
-            const nads = Array.isArray(r?.Extra?.Networks) ? r?.Extra?.Networks : [];
-            const nadNames = nads.map((n: any) => { const s = String(n || ''); return s.includes('/') ? s.split('/').pop() : s; }).filter((s: string) => !!s);
-            return nadNames.length ? nadNames.join('，') : '无';
-          } },
-          { title: 'VPC网络', key: 'vpcnet', render: (_: any, r: any) => {
-            const vpc = r?.VpcId || '';
-            const subnet = r?.Extra?.SubnetName || '';
-            return vpc ? (subnet ? `${vpc}/${subnet}` : vpc) : '无';
-          } },
-          { title: '运行节点', key: 'node', render: (_: any, r: any) => {
-            const node = String(r?.Extra?.NodeName || '').trim();
-            if (!node) return <Badge status={'default' as any} text={'未运行'} />;
-            return <Badge status={'success' as any} text={node} />;
-          } },
-          { title: '操作', key: 'actions', render: (_: any, r: any) => {
-            const iid = String(r?.InstanceId || r?.id || '');
-            const items = [
-              { key: 'detail', label: '详情' },
-              { key: 'reconf', label: '资源变配' },
-              { key: 'webvnc', label: 'WebVNC（浏览器）' },
-              { type: 'divider' as any },
-              { key: 'start', label: '启动' },
-              { key: 'stop', label: '停止' },
-              { key: 'reboot', label: '重启' },
-              { type: 'divider' as any },
-              { key: 'delete', label: '删除', danger: true },
-            ];
-            return (
-              <RowActionsButton
-                items={items}
-                onClick={async ({ key }: { key: string }) => {
-                  if (key === 'detail') { onOpenDetail(r); return; }
-                  if (key === 'reconf') { onOpenReconfigure(r); return; }
-                  if (key === 'webvnc') {
-                    try {
-                      if (iid.includes('/')) {
-                        const ns = iid.split('/')[0];
-                        const name = iid.split('/')[1];
-                        navigate(`/clouds/${cloudId}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`);
-                        return;
-                      }
-                      const j = await fetchCloudProviderEcsVncUrl(cloudId, iid);
-                      const url = j?.data?.VncUrl || j?.data?.vncUrl || j?.data?.url;
-                      if (url) {
-                        const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
-                        const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
-                        const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
-                        window.open(url, 'webvnc', features);
-                        return;
-                      }
-                      const pubArr = r?.PublicIpAddress?.IpAddress;
-                      const pub = Array.isArray(pubArr) && pubArr.length > 0 ? pubArr[0] : (r?.EipAddress?.IpAddress || r?.publicIpAddress || (Array.isArray(r?.PublicIpAddress?.IpAddress) ? r?.PublicIpAddress?.IpAddress[0] : null));
-                      const priArr = r?.VpcAttributes?.PrivateIpAddress?.IpAddress;
-                      const pri = Array.isArray(priArr) && priArr.length > 0 ? priArr[0] : r?.privateIpAddress;
-                      const host = pub || pri || '';
-                      if (!host) { message.warning('未获取到VNC地址'); return; }
-                      navigate(`/clouds/${cloudId}/webvnc?host=${encodeURIComponent(host)}&port=5900`);
-                      return;
-                    } catch (e:any) {
-                      message.error(e?.message || '获取VNC地址失败');
-                      return;
-                    }
-                  }
-                  if (key === 'start') { await onStart(iid); return; }
-                  if (key === 'stop') { await onStop(iid); return; }
-                  if (key === 'reboot') { await onReboot(iid); return; }
-                  if (key === 'delete') {
-                    let deleteImage = false;
-                    Modal.confirm({
-                      title: '确认删除该实例？',
-                      content: (
-                        <div>
-                          <p>删除后不可恢复。</p>
-                          <Checkbox onChange={(e) => { deleteImage = e.target.checked; }}>同步删除关联镜像</Checkbox>
-                        </div>
-                      ),
-                      onOk: () => onDelete(iid, deleteImage)
-                    });
-                    return;
-                  }
-                }}
-              />
-            );
-          } },
-        ] as any}
+        columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        scroll={{ x: 'max-content' }}
+        pagination={{ size: 'small', showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+      />
+      <HarvesterResourceDrawer
+        open={metadataModalVisible}
+        onClose={() => setMetadataModalVisible(false)}
+        record={currentMetadata}
+        resource={fullJson}
+        loading={metadataLoading}
+        activeTab={metadataActiveTab}
+        onTabChange={setMetadataActiveTab}
+        renderDetail={renderDetail}
       />
     </PageDetailSection>
   );

@@ -62,6 +62,14 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
         where: { userType: isTenant ? 'tenant' : 'system', userId: user.id },
       });
       const roleIds = assigns.map((a) => a.roleId);
+
+      // If tenant user has a custom role (UUID), include it
+      if (isTenant && user.role && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.role)) {
+        if (!roleIds.includes(user.role)) {
+          roleIds.push(user.role);
+        }
+      }
+
       let perms: string[] = [];
       if (roleIds.length) {
         const roles = await roleRepo.find({ where: { id: In(roleIds) } });
@@ -75,6 +83,9 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
       try {
         if (decoded.role === 'tenant') {
           perms = perms.concat(['clouds.console:read']);
+        }
+        if ((user as any).role === 'super_admin') {
+          perms = ['*'];
         }
       } catch {}
       (user as any).permissions = Array.from(new Set(perms));

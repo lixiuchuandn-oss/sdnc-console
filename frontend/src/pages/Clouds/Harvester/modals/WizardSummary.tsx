@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Button, Divider, Modal, Spin } from 'antd';
+import { Divider } from 'antd';
 
 interface WizardSummaryProps {
   formSnapshot: any;
@@ -11,11 +11,6 @@ interface WizardSummaryProps {
   netModeState: string;
   kubeSubnets: any[];
   autoStart: boolean;
-  jsonModalOpen: boolean;
-  setJsonModalOpen: (v: boolean) => void;
-  jsonLoading: boolean;
-  jsonPreview: any;
-  openJsonPreview: () => void;
   memGi: number;
   children?: React.ReactNode;
 }
@@ -30,11 +25,6 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
   netModeState,
   kubeSubnets,
   autoStart,
-  jsonModalOpen,
-  setJsonModalOpen,
-  jsonLoading,
-  jsonPreview,
-  openJsonPreview,
   memGi,
   children
 }) => {
@@ -113,10 +103,9 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
   }, [formSnapshot, autoStart, hostModeState, selectedNodeName, kubeSubnets, netModeState, clouds, currentCloudId, cloudId, memGi]);
 
   return (
-    <div className="wizard-preview" style={{ marginRight: 0 }}>
+    <div className="wizard-preview">
       <div className="wizard-preview-header">
         <div className="wizard-preview-title">配置预览</div>
-        <Button type="link" style={{ padding: 0, fontSize: 14 }} onClick={openJsonPreview}>查看JSON</Button>
       </div>
       <div className="wizard-summary-scroll">
         <div className="wizard-summary-list">
@@ -149,10 +138,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
         <div className="wizard-summary-item"><span className="wizard-summary-label" title="更多">更多</span><span className="wizard-summary-value" title={summary.more}>{summary.more}</span></div>
         </div>
       </div>
-      <Modal open={jsonModalOpen} onCancel={() => setJsonModalOpen(false)} footer={null} width={800} title="创建配置 JSON">
-        {jsonLoading ? (<Spin />) : (<pre style={{ fontSize: 14, maxHeight: 480, overflow: 'auto' }}>{JSON.stringify(jsonPreview, null, 2)}</pre>)}
-      </Modal>
-      <Divider style={{ margin: '12px 0' }} />
+      <Divider className="wizard-preview-divider" />
       {children}
     </div>
   );

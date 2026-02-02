@@ -205,82 +205,6 @@ const CloudDetail: React.FC = () => {
     }
   };
 
-  const loadHarvesterNads = async () => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const json = await fetchHarvesterNads(id);
-      const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any)?.data?.items : [];
-      setHarvesterNads(list);
-    } catch (e: any) {
-      setError(e?.message || '查询失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadHarvesterVolumes = async () => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const json = await fetchHarvesterVolumes(id);
-      const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any)?.data?.items : [];
-      setHarvesterVolumes(list);
-    } catch (e: any) {
-      setError(e?.message || '查询失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadHarvesterImages = async () => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const json = await fetchHarvesterImages(id);
-      const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any)?.data?.items : [];
-      setHarvesterImages(list);
-    } catch (e: any) {
-      setError(e?.message || '查询失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadHarvesterNodes = async () => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const json = await fetchHarvesterNodes(id);
-      const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any)?.data?.items : [];
-      setHarvesterNodes(list);
-      try { const vpcs:any = await fetchKubeOvnVpcs(id); setKubeOvnVpcs(Array.isArray(vpcs?.data?.items)?vpcs.data.items:[]); } catch {}
-      try { const subs:any = await fetchKubeOvnSubnets(id); setKubeOvnSubnets(Array.isArray(subs?.data?.items)?subs.data.items:[]); } catch {}
-    } catch (e: any) {
-      setError(e?.message || '查询失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-  const loadHarvesterSystemPods = async () => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const json = await fetchHarvesterSystemPods(id);
-      const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any)?.data?.items : [];
-      setHarvesterSystemPods(list);
-    } catch (e: any) {
-      setError(e?.message || '查询失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const loadVSwitches = async () => {
     if (!id) return;
     setLoading(true);
@@ -568,13 +492,8 @@ const CloudDetail: React.FC = () => {
       loadSnapshots();
       loadEnis();
       loadNetworkAcls();
-    } else if (provider === 'harvester') {
-      loadEcs();
-      loadHarvesterNads();
-      loadHarvesterVolumes();
-      loadHarvesterImages();
-      loadHarvesterNodes();
-      loadHarvesterSystemPods();
+    } else if (provider === 'harvester' || provider.includes('cloudmap')) {
+      // Harvester and Cloudmap have their own dedicated components that handle data fetching.
     } else {
       loadVpcs();
       loadEcs();

@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-// Force restart for config reload
+// Force restart for config reload (Restored User Logic: 2026-02-01)
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -56,7 +56,17 @@ app.use(
 );
 
 // 中间件
-app.use(compression());
+// 配置 compression 中间件，跳过 SSE 接口 (Keep SSE fix)
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers['accept'] === 'text/event-stream' || res.getHeader('Content-Type') === 'text/event-stream') {
+      return false;
+    }
+    // fallback to standard filter function
+    return compression.filter(req, res);
+  }
+}));
+
 // Helmet 内容安全策略配置：允许加载外部资源（如图片、脚本等）
 // 在生产环境中托管前端时，如果使用了外部资源（如高德地图、CDN等），需要放宽 defaultSrc
 app.use(
@@ -69,102 +79,43 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// 静态文件托管（生产环境）
-if (process.env.NODE_ENV === 'production') {
-  // 智能路径检测：优先查找 backend/public，兼容 dist/src/index.js (运行时) 和 src/index.ts (开发时)
-  // 1. 默认尝试 ../public (相对于当前文件)
-  let staticPath = path.join(__dirname, '../public');
-  // 2. 如果当前在 dist/src 下，且 ../public (dist/public) 不存在，则尝试 ../../public (backend/public)
-  const rootPublicPath = path.join(__dirname, '../../public');
+// 静态文件托管
+// 策略：只要检测到静态文件目录存在，就启用托管。
+// 这允许在测试环境（非 strictly production）中也能直接通过后端访问前端页面，
+// 方便进行集成测试或预览，而无需强制设置 NODE_ENV=production。
+let staticPath = path.join(__dirname, '../public');
 
-  if (!fs.existsSync(staticPath) && fs.existsSync(rootPublicPath)) {
-    staticPath = rootPublicPath;
-    console.log('Using root public directory for static files:', staticPath);
-  } else {
-    console.log('Using relative public directory for static files:', staticPath);
-  }
+// 智能路径检测：优先查找 backend/public，兼容 dist/src/index.js (运行时) 和 src/index.ts (开发时)
+// 1. 默认尝试 ../public (相对于当前文件)
+// 2. 如果当前在 dist/src 下，且 ../public (dist/public) 不存在，则尝试 ../../public (backend/public)
+const rootPublicPath = path.join(__dirname, '../../public');
 
+if (!fs.existsSync(staticPath) && fs.existsSync(rootPublicPath)) {
+  staticPath = rootPublicPath;
+  console.log('Using root public directory for static files:', staticPath);
+} else {
+  console.log('Using relative public directory for static files:', staticPath);
+}
+
+// 只要目录存在，就开启静态托管
+if (fs.existsSync(staticPath)) {
+  console.log('Static files found, enabling static serving from:', staticPath);
   app.use(
     express.static(staticPath, {
       maxAge: '1y',
       etag: true,
       setHeaders: (res, filePath) => {
         if (filePath.endsWith('.html')) {
-          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Cache-Control', 'no-cache');
         }
       },
     }),
   );
+} else {
+  console.log('Static files directory not found. Static serving disabled.');
 }
 
-// 数据库连接并在成功后启动服务（避免在数据源未初始化时处理请求导致 500）
-AppDataSource.initialize()
-  .then(async () => {
-    console.log('数据库连接成功');
-    // 初始化管理员账户
-    await initializeAdmin();
-
-    // 启动云资源同步任务
-    try {
-      const { CloudSyncService } = await import('./services/CloudSyncService');
-      CloudSyncService.getInstance().startSyncJob();
-    } catch (e) {
-      console.warn('启动云资源同步任务失败:', e);
-    }
-
-    // 启动 VR 列表同步任务
-    try {
-      const { VrCacheService } = await import('./services/VrCacheService');
-      // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
-      setTimeout(() => {
-        VrCacheService.getInstance().startSyncJob();
-      }, 10000);
-    } catch (e) {
-      console.warn('启动 VR 列表同步任务失败:', e);
-    }
-
-    // 挂载 WebSocket SSH 服务
-    try {
-      const { initSshWsServer } = await import('./ws/ssh');
-      initSshWsServer(server);
-      console.log('WebSSH 服务已挂载在 /ws/ssh');
-      // 取消 WS 专用服务，避免端口占用导致进程崩溃；统一复用主服务 server
-    } catch (e: any) {
-      console.warn('挂载 WebSSH 服务失败:', e?.message || e);
-    }
-
-    // 挂载 WebSocket VNC 服务
-    try {
-      const { initVncWsServer } = await import('./ws/vnc');
-      initVncWsServer(server);
-      console.log('WebVNC 服务已挂载在 /ws/vnc');
-      // 同步挂载到 WS 专用服务（与上方 wsServer 复用端口）
-      // 注意：initSshWsServer 已创建 wsServer 并监听，此处复用同端口
-      // 为简化实现，这里再次创建并监听相同端口会失败，因此 VNC 端点在主服务与专用端仅保留主服务一个即可
-    } catch (e: any) {
-      console.warn('挂载 WebVNC 服务失败:', e?.message || e);
-    }
-
-    // 挂载 KubeVirt WebSocket VNC 服务
-    try {
-      const { initKvVncWsServer } = await import('./ws/kvVnc');
-      initKvVncWsServer(server);
-      console.log('KubeVirt WebVNC 服务已挂载在 /ws/kv-vnc');
-    } catch (e: any) {
-      console.warn('挂载 KubeVirt WebVNC 服务失败:', e?.message || e);
-    }
-
-    server.listen(PORT, () => {
-      console.log(`后端服务运行在端口 ${PORT}`);
-    });
-  })
-  .catch((error: any) => {
-    console.error('数据库连接失败:', error);
-    // 数据库不可用时直接退出，避免以不稳定状态对外提供服务
-    process.exit(1);
-  });
-
-// 路由
+// Routes (Restored from user input)
 // CSMCTL Proxy Route (Before other routes)
 app.use('/api-proxy', apiProxyRoutes);
 
@@ -204,10 +155,113 @@ app.get('/health', (req, res) => {
 app.use(errorHandler);
 
 // 前端路由回退（SPA 支持）：所有未匹配 API 的请求返回 index.html
-if (process.env.NODE_ENV === 'production') {
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
+if (fs.existsSync(path.join(staticPath, 'index.html'))) {
+  app.get('*', (req, res, next) => {
+    // 排除 API 和 WebSocket 路径，避免误返回 HTML
+    if (req.path.startsWith('/api') || req.path.startsWith('/ws')) {
+      return next();
+    }
+    res.sendFile(path.join(staticPath, 'index.html'));
   });
 }
 
-// 注意：server.listen 已在数据源初始化成功后启动
+// Database connection and server start (Restored from user input)
+AppDataSource.initialize()
+  .then(async () => {
+    console.log('数据库连接成功');
+    // 初始化管理员账户
+    await initializeAdmin();
+
+    // 启动云资源同步任务
+    try {
+      const { CloudSyncService } = await import('./services/CloudSyncService');
+      CloudSyncService.getInstance().startSyncJob();
+    } catch (e) {
+      console.warn('启动云资源同步任务失败:', e);
+    }
+
+    // 启动 VR 列表同步任务
+    try {
+      const { VrCacheService } = await import('./services/VrCacheService');
+      // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
+      setTimeout(() => {
+        VrCacheService.getInstance().startSyncJob();
+      }, 10000);
+    } catch (e) {
+      console.warn('启动 VR 列表同步任务失败:', e);
+    }
+
+    // WebSocket 服务实例
+    let sshWss: any = null;
+    let vncWss: any = null;
+    let kvVncWss: any = null;
+
+    // 初始化 WebSocket 服务 (Headless)
+    try {
+      const { createSshWsServer } = await import('./ws/ssh');
+      sshWss = createSshWsServer();
+      console.log('WebSSH 服务已创建 (Headless)');
+    } catch (e: any) {
+      console.warn('创建 WebSSH 服务失败:', e?.message || e);
+    }
+
+    try {
+      const { createVncWsServer } = await import('./ws/vnc');
+      vncWss = createVncWsServer();
+      console.log('WebVNC 服务已创建 (Headless)');
+    } catch (e: any) {
+      console.warn('创建 WebVNC 服务失败:', e?.message || e);
+    }
+
+    try {
+      const { createKvVncWss } = await import('./ws/kvVnc');
+      kvVncWss = createKvVncWss();
+      console.log('KubeVirt WebVNC 服务已创建 (Headless)');
+    } catch (e: any) {
+      console.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
+    }
+
+    // 统一处理 HTTP Upgrade 请求
+    server.on('upgrade', (req, socket, head) => {
+      const pathname = req.url || '';
+      // console.log(`[HTTP-Upgrade] Url: ${pathname}`);
+      
+      if (pathname.startsWith('/ws/kv-vnc')) {
+        if (kvVncWss) {
+          kvVncWss.handleUpgrade(req, socket, head, (ws: any) => {
+            kvVncWss.emit('connection', ws, req);
+          });
+        } else {
+          socket.destroy();
+        }
+      } else if (pathname.startsWith('/ws/ssh')) {
+        if (sshWss) {
+          sshWss.handleUpgrade(req, socket, head, (ws: any) => {
+            sshWss.emit('connection', ws, req);
+          });
+        } else {
+          socket.destroy();
+        }
+      } else if (pathname.startsWith('/ws/vnc')) {
+        if (vncWss) {
+          vncWss.handleUpgrade(req, socket, head, (ws: any) => {
+            vncWss.emit('connection', ws, req);
+          });
+        } else {
+          socket.destroy();
+        }
+      } else {
+        socket.destroy();
+      }
+    });
+
+    server.listen(PORT, () => {
+      console.log(`后端服务运行在端口 ${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV}`);
+    });
+  })
+  .catch((error: any) => {
+    console.error('数据库连接失败:', error);
+    // 数据库不可用时直接退出，避免以不稳定状态对外提供服务
+    process.exit(1);
+  });

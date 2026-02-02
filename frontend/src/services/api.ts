@@ -210,6 +210,96 @@ export const createUserSpaceV2 = async (payload:any)=>{
 };
 
 // 云资源池：查询云端 VPC（当前支持阿里云）
+export const fetchCloudProviderOvnEips = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovneips`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const createKubeOvnSubnet = async (cloudId: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets/${name}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const createCloudProviderOvnEip = async (cloudId: string, payload: { name: string, externalSubnet: string, v4Ip?: string, type?: string }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovneips`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const fetchCloudProviderOvnFips = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovnfips`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const fetchCloudProviderOvnSnatRules = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovnsnatrules`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const fetchCloudProviderOvnDnatRules = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovndnatrules`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const fetchCloudProviderSwitchLbRules = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/switch-lbrules`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
 export const fetchCloudProviderVpcs = async (cloudId: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
@@ -345,6 +435,54 @@ export const rebootCloudProviderEcs = async (cloudId: string, instanceId: string
       'Authorization': token ? `Bearer ${token}` : '',
     },
     body: JSON.stringify({ force }),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+export const softRebootCloudProviderEcs = async (cloudId: string, instanceId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/softreboot`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+export const pauseCloudProviderEcs = async (cloudId: string, instanceId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/pause`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+export const unpauseCloudProviderEcs = async (cloudId: string, instanceId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/unpause`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
     credentials: 'include',
   });
   if (!res.ok) {
@@ -585,11 +723,13 @@ export const deleteCloudProviderNetworkAcl = async (cloudId: string, aclId: stri
   return await apiDelete(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}`);
 };
 
-export const deleteCloudProviderEcs = async (cloudId: string, instanceId: string, deleteImage?: boolean) => {
+export const deleteCloudProviderEcs = async (cloudId: string, instanceId: string, deleteImage?: boolean, deleteVolumes?: boolean) => {
   let url = `/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}`;
-  if (deleteImage !== undefined) {
-    url += `?deleteImage=${deleteImage}`;
-  }
+  const params = new URLSearchParams();
+  if (deleteImage !== undefined) params.append('deleteImage', String(deleteImage));
+  if (deleteVolumes !== undefined) params.append('deleteVolumes', String(deleteVolumes));
+  const qs = params.toString();
+  if (qs) url += `?${qs}`;
   return await apiDelete(url);
 };
 
@@ -610,16 +750,7 @@ export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?:
 
 
 
-export const fetchHarvesterNads = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/nads`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-    credentials: 'include',
-  });
-  if (!res.ok) { throw new Error(await res.text()); }
-  return await res.json();
-};
+export const fetchHarvesterNads = (cloudId: string, force = false) => apiRequest(`/api/clouds/${cloudId}/resources/nads${force ? '?force=true' : ''}`);
 
 export const fetchHarvesterNamespaces = async (cloudId: string) => {
   const token = localStorage.getItem('token');
@@ -895,9 +1026,7 @@ export const fetchHarvesterNodes = async (cloudId: string) => {
       console.error('Harvester nodes fetch failed', res.status, errorText);
       throw new Error(`Harvester 节点查询失败：${res.status} ${errorText}`);
     }
-    const data = await res.json();
-    console.log('Harvester nodes fetched', data);
-    return data;
+    return await res.json();
   } catch (e: any) {
     console.error('Harvester nodes fetch error', e);
     throw e;
@@ -915,9 +1044,31 @@ export const fetchHarvesterHealth = async (cloudId: string) => {
   return await res.json();
 };
 
+export const fetchHarvesterCapabilities = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/capabilities`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchHarvesterNodeDetail = async (cloudId: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/nodes/${encodeURIComponent(name)}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
 export const fetchKubeOvnVpcs = async (cloudId: string) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/kubeovn/vpcs`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
     method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
   });
   if (!res.ok) throw new Error(await res.text());
@@ -926,7 +1077,7 @@ export const fetchKubeOvnVpcs = async (cloudId: string) => {
 
 export const fetchKubeOvnSubnets = async (cloudId: string) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/kubeovn/subnets`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets`, {
     method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
   });
   if (!res.ok) throw new Error(await res.text());
@@ -935,7 +1086,7 @@ export const fetchKubeOvnSubnets = async (cloudId: string) => {
 
 export const fetchHarvesterGpuResources = async (cloudId: string) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/gpu-resources`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/gpu`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -1296,7 +1447,7 @@ export const createHarvesterVm = async (
   }
 ) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/vms`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     body: JSON.stringify(payload),
@@ -1323,7 +1474,7 @@ export const previewHarvesterVm = async (
 
 export const fetchHarvesterUsbResources = async (cloudId: string) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/usb-resources`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/usb`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',

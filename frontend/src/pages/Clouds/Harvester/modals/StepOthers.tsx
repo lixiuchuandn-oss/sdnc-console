@@ -20,7 +20,6 @@ const StepOthers: React.FC<StepOthersProps> = ({
   return (
     <>
       <Typography.Paragraph type="secondary">配置新建云主机的启动、Cloud-Init和USB设备参数</Typography.Paragraph>
-      <div className="wizard-group-title"></div>
       <div className="wizard-group-title">启动与可用性</div>
       <Form.Item label="运行策略" name="runStrategy" initialValue="RerunOnFailure">
         <Select options={[
@@ -93,7 +92,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
                     <Select
                       placeholder="选择 USB 设备"
                       options={(usbResources || []).map((x: any) => { const v = String(x?.vendorId || x?.vendor || ''); const p = String(x?.productId || x?.product || ''); const code = (v && p) ? `${v}:${p}` : ''; const rn = x?.resourceName || '-'; return { label: code ? `${rn} (${code})` : rn, value: rn }; })}
-                      onDropdownVisibleChange={(open) => { if (open) reloadUsbResources(); }}
+                      onOpenChange={(open) => { if (open) reloadUsbResources(); }}
                     />
                   </Form.Item>
                 </Col>

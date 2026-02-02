@@ -49,7 +49,7 @@ import ServiceChains from './pages/Security/TrafficOrchestration/ServiceChains';
 import CreateServiceChainWizard from './pages/Security/TrafficOrchestration/ServiceChains/CreateWizard';
 import Policies from './pages/Security/TrafficOrchestration/Policies';
 import WebSSHPage from './pages/Clouds/WebSSH';
-import CloudConsolePage from './pages/Clouds/CloudConsole';
+import CloudConsolePage from './pages/Clouds/Console/CloudConsole';
 import HarvesterVNCPage from './pages/Clouds/Harvester/HarvesterVNC';
 import TenantLeasedLinesPage from './pages/Tenants/LeasedLines';
 import OrgManagePage from './pages/Tenants/OrgManage';

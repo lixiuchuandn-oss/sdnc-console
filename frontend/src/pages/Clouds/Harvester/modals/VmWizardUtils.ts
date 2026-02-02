@@ -52,9 +52,11 @@ export const buildHarvesterVmPayload = (params: {
   selectedNodeName: string | null;
   gpuResources: any[];
   selectedGpu: any;
+  capabilities?: any;
 }) => {
-  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu } = params;
+  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities } = params;
   
+  // 1. Calculate GPU
   const finalGpuResName = (function() {
       if (selectedGpu) {
            return selectedGpu?.resourceName || selectedGpu?.raw?.status?.resourceName || selectedGpu?.raw?.spec?.resourceName || undefined;
@@ -68,17 +70,31 @@ export const buildHarvesterVmPayload = (params: {
       return f?.resourceName || f?.raw?.status?.resourceName || f?.raw?.spec?.resourceName || undefined;
   })();
 
-  return {
-    namespace: v.namespace,
-    name: v.name,
-    cpu: Number(v.cpu),
-    memory: String(v.memory || `${memGi}Gi`),
-    image: v.image,
-    userData: (function () { const ud = v.userData || ''; if (v.installGuestAgent && !ud) { return `#cloud-config\npackage_update: true\npackages:\n- qemu-guest-agent\nruncmd:\n- systemctl enable --now qemu-guest-agent || (service qemu-guest-agent start || true)`; } return ud || undefined; })(),
-    systemDiskSize: v.rootSize || v.systemDisk || '40Gi',
-    storageClassName: v.storageClassName || undefined,
-    
-    nodeName: (function () {
+  // 2. Calculate CPU Topology
+  const cpu = Number(v.cpu || 1);
+  const sockets = Number(v.cpuSockets || 1);
+  const cores = Number(v.cpuCores || cpu); // Default cores = total vCPU if not specified? Or 1? Usually sockets*cores*threads = cpu
+  const threads = Number(v.cpuThreads || 1);
+  
+  // 3. Calculate Memory
+  const memory = String(v.memory || `${memGi}Gi`);
+
+  // 4. Node Selector & Affinity
+  const nodeSelector = (function () { 
+      if (hostModeState === 'label') {
+          const arr = Array.isArray(v.nodeSelectorPairs) ? v.nodeSelectorPairs : []; 
+          const obj: any = {}; 
+          arr.forEach((p: any) => { 
+              const k = String(p?.key || '').trim(); 
+              const val = String(p?.value || '').trim(); 
+              if (k && val) { obj[k] = val; } 
+          }); 
+          return Object.keys(obj).length > 0 ? obj : undefined; 
+      }
+      return undefined;
+  })();
+  
+  const nodeName = (function () {
       const gpuNode = selectedGpu && String(selectedGpu?.node || selectedGpu?.nodeName || '').trim();
       if (gpuNode) return gpuNode;
       if (!selectedGpu && v.gpuResourceName) {
@@ -90,44 +106,265 @@ export const buildHarvesterVmPayload = (params: {
            } catch {}
       }
       return hostModeState === 'node' ? (selectedNodeName || undefined) : undefined;
-    })(),
-    nodeSelector: (function () { if (hostModeState !== 'label') return undefined; const arr = Array.isArray(v.nodeSelectorPairs) ? v.nodeSelectorPairs : []; const obj: any = {}; arr.forEach((p: any) => { const k = String(p?.key || '').trim(); const val = String(p?.value || '').trim(); if (k && val) { obj[k] = val; } }); return Object.keys(obj).length > 0 ? obj : undefined; })(),
-    diskBus: v.rootBus || v.diskBus || 'virtio',
-    runStrategy: v.runStrategy || undefined,
-    bootUseEfi: !!v.bootUseEfi,
-    efiPersistent: !!v.efiPersistent,
-    efiSecureBoot: !!v.efiSecureBoot,
-    tpmEnabled: !!v.tpmEnabled,
-    tpmPersistent: !!v.tpmPersistent,
-    useUsbTablet: !!v.useUsbTablet,
-    installGuestAgent: !!v.installGuestAgent,
-    gpuMode: (v.gpuMode && v.gpuMode !== 'none') ? v.gpuMode : undefined,
-    gpuResourceName: finalGpuResName || undefined,
-    gpuCount: (finalGpuResName ? (typeof v.gpuCount === 'number' ? v.gpuCount : 1) : undefined),
-    usbDevices: Array.isArray(v.usbDevices) ? v.usbDevices : undefined,
-    cpuSockets: typeof v.cpuSockets === 'number' ? v.cpuSockets : undefined,
-    cpuCores: typeof v.cpuCores === 'number' ? v.cpuCores : undefined,
-    cpuThreads: typeof v.cpuThreads === 'number' ? v.cpuThreads : 1,
-    cpuModel: v.cpuModel || undefined,
-    cpuModelCustom: v.cpuModelCustom || undefined,
-    dedicatedCPUPlacement: !!v.dedicatedCPUPlacement,
-    isolateEmulatorThread: !!v.isolateEmulatorThread,
-    cpuRequest: typeof v.cpuRequest === 'number' ? v.cpuRequest : undefined,
-    cpuLimit: v.cpuBurstUnlimited ? undefined : (typeof v.cpuLimit === 'number' ? v.cpuLimit : undefined),
-    memoryLimit: v.memoryBurstUnlimited ? undefined : (typeof v.memoryLimitGi === 'number' ? `${v.memoryLimitGi}Gi` : undefined),
-    memoryRequestGi: typeof v.memoryRequestGi === 'number' ? v.memoryRequestGi : undefined,
-    hotExpandEnabled: !!v.hotExpandEnabled,
-    sshNames: Array.isArray(v.sshNames) ? v.sshNames : undefined,
-    netIfaces: (function () { const prim = v.primaryNic && v.primaryNic.name ? { name: v.primaryNic.name, type: v.primaryNic.type || 'bridge', model: v.primaryNic.model || 'virtio', macAddress: v.primaryNic?.macAddress || undefined, ipAddress: v.primaryNic?.ipAddress || undefined } : undefined; const extras = Array.isArray(v.netIfaces) ? v.netIfaces.map((n: any) => ({ ...n, macAddress: n?.macAddress || undefined })) : []; return (prim ? [prim, ...extras] : extras); })(),
-    extraDisks: Array.isArray(v.extraDisks) ? v.extraDisks : [],
-    rootSourceType: v.rootSourceType,
-    rootImage: v.rootImage || v.image,
-    rootPvc: v.rootPvc,
-    rootName: v.rootName || v.name,
-    rootBus: v.rootBus || v.diskBus,
-    rootDeviceType: v.rootDeviceType || 'disk',
-    rootSize: v.rootSize || v.systemDisk,
+  })();
+
+  // 5. Construct Manifest
+  const disks: any[] = [];
+  const volumes: any[] = [];
+  const networks: any[] = [];
+  const interfaces: any[] = [];
+  // Use Harvester's volumeClaimTemplates annotation instead of KubeVirt's dataVolumeTemplates
+  // This aligns with Harvester's native UI behavior and ensures proper PVC creation.
+  const volumeClaimTemplates: any[] = [];
+
+  // Helper to generate random suffix for PVC names
+  const randSuffix = () => Math.random().toString(36).substring(2, 7);
+
+  // --- Network Mapping (Primary NIC) ---
+  if (v.primaryNic) {
+      const nicName = 'nic-0';
+      const netName = v.primaryNic.name;
+      
+      const iface: any = {
+          name: nicName,
+          model: v.primaryNic.model || 'virtio',
+      };
+      if (v.primaryNic.macAddress) {
+          iface.macAddress = v.primaryNic.macAddress;
+      }
+      
+      const type = v.primaryNic.type || 'bridge';
+      if (type === 'bridge') iface.bridge = {};
+      else if (type === 'masquerade') iface.masquerade = {};
+      else if (type === 'sriov') iface.sriov = {};
+      else if (type === 'macvtap') iface.macvtap = {};
+      else iface.bridge = {}; 
+
+      interfaces.push(iface);
+
+      const net: any = { name: nicName };
+      if (netName) {
+           net.multus = { networkName: netName };
+      } else {
+           net.pod = {}; 
+      }
+      networks.push(net);
+  }
+
+  // --- Disk Mapping (Root) ---
+  const rootDiskName = v.rootName || 'disk-0';
+  const rootVolName = rootDiskName; 
+  
+  disks.push({
+      name: rootDiskName,
+      [v.rootDeviceType || 'disk']: {
+          bus: v.rootBus || 'virtio'
+      }
+  });
+
+  if ((v.rootSourceType || 'image') === 'existing') {
+      volumes.push({
+          name: rootVolName,
+          persistentVolumeClaim: { claimName: v.rootPvc }
+      });
+  } else {
+      // Image source -> PVC via volumeClaimTemplates
+      // Name format: {vmName}-{rootDiskName}-{random}
+      const pvcName = `${v.name}-${rootDiskName}-${randSuffix()}`;
+      
+      volumes.push({
+          name: rootVolName,
+          persistentVolumeClaim: { claimName: pvcName }
+      });
+      
+      const imgVal = v.image || '';
+      const [imgNs, imgName] = imgVal.includes('/') ? imgVal.split('/') : ['harvester-public', imgVal];
+      const fullImgName = imgNs && imgName ? `${imgNs}/${imgName}` : imgVal;
+      
+      volumeClaimTemplates.push({
+          metadata: { 
+              name: pvcName,
+              annotations: {
+                  "harvesterhci.io/imageId": fullImgName
+              }
+          },
+          spec: {
+              accessModes: ["ReadWriteMany"], // Harvester defaults to RWX for Longhorn
+              resources: {
+                  requests: {
+                      storage: v.rootSize ? (String(v.rootSize).match(/^[0-9]+$/) ? `${v.rootSize}Gi` : v.rootSize) : '10Gi'
+                  }
+              },
+              volumeMode: "Block",
+              storageClassName: v.storageClassName || undefined
+          }
+      });
+  }
+
+  // --- CloudInit / UserData ---
+  const userData = (function () { 
+      const ud = v.userData || ''; 
+      if (v.installGuestAgent && !ud) { 
+          return `#cloud-config\npackage_update: true\npackages:\n- qemu-guest-agent\nruncmd:\n- systemctl enable --now qemu-guest-agent || (service qemu-guest-agent start || true)`; 
+      } 
+      return ud || undefined; 
+  })();
+
+  if (userData || (v.sshNames && v.sshNames.length > 0)) {
+       const ciName = 'cloudinitdisk';
+       disks.push({
+           name: ciName,
+           disk: { bus: 'virtio' }
+       });
+       
+       const ciConfig: any = {};
+       if (userData) ciConfig.userData = userData;
+       
+       volumes.push({
+           name: ciName,
+           cloudInitNoCloud: ciConfig
+       });
+  }
+
+  // --- Extra Disks ---
+  if (Array.isArray(v.extraDisks)) {
+      v.extraDisks.forEach((d: any, idx: number) => {
+          const dName = d.name || `disk-${idx + 1}`;
+          const dVolName = dName;
+          
+          disks.push({
+              name: dName,
+              [d.type || 'disk']: {
+                  bus: d.bus || 'virtio'
+              }
+          });
+
+          if (d.sourceType === 'existing') {
+              volumes.push({
+                  name: dVolName,
+                  persistentVolumeClaim: { claimName: d.pvc }
+              });
+          } else {
+              const pvcName = `${v.name}-${dName}-${randSuffix()}`;
+              volumes.push({
+                  name: dVolName,
+                  persistentVolumeClaim: { claimName: pvcName }
+              });
+              
+              volumeClaimTemplates.push({
+                  metadata: { name: pvcName },
+                  spec: {
+                      accessModes: ["ReadWriteMany"],
+                      resources: {
+                          requests: {
+                              storage: d.size ? (String(d.size).endsWith('i') ? d.size : `${d.size}Gi`) : '10Gi'
+                          }
+                      },
+                      volumeMode: "Block",
+                      storageClassName: v.storageClassName || undefined
+                  }
+              });
+          }
+      });
+  }
+
+  const manifest: any = {
+    apiVersion: "kubevirt.io/v1",
+    kind: "VirtualMachine",
+    metadata: {
+        namespace: v.namespace || 'default',
+        name: v.name,
+        labels: {
+            "harvesterhci.io/creator": "harvester",
+            "harvesterhci.io/vmName": v.name,
+        },
+        annotations: {
+             "harvesterhci.io/volumeClaimTemplates": JSON.stringify(volumeClaimTemplates),
+        }
+    },
+    spec: {
+        runStrategy: v.runStrategy || "RerunOnFailure",
+        template: {
+            metadata: {
+                labels: {
+                    "harvesterhci.io/vmName": v.name
+                },
+                annotations: {}
+            },
+            spec: {
+                hostname: v.name,
+                nodeSelector: nodeSelector,
+                affinity: nodeName ? {
+                    nodeAffinity: {
+                        requiredDuringSchedulingIgnoredDuringExecution: {
+                            nodeSelectorTerms: [{
+                                matchExpressions: [{
+                                    key: "kubernetes.io/hostname",
+                                    operator: "In",
+                                    values: [nodeName]
+                                }]
+                            }]
+                        }
+                    }
+                } : undefined,
+                domain: {
+                    cpu: {
+                        cores: cores,
+                        sockets: sockets,
+                        threads: threads
+                    },
+                    memory: {
+                        guest: memory
+                    },
+                    resources: {
+                        limits: {
+                            cpu: String(cpu),
+                            memory: memory
+                        },
+                        requests: {
+                            memory: v.memoryRequestGi ? `${v.memoryRequestGi}Gi` : memory,
+                            cpu: v.cpuRequest ? String(v.cpuRequest) : undefined
+                        }
+                    },
+                    features: {
+                        acpi: { enabled: true }
+                    },
+                    devices: {
+                        inputs: [{ bus: "usb", name: "tablet", type: "tablet" }],
+                        interfaces: interfaces,
+                        disks: disks,
+                        hostDevices: finalGpuResName ? [
+                            {
+                                name: "gpu-0",
+                                deviceName: finalGpuResName
+                            }
+                        ] : []
+                    },
+                    machine: {
+                        type: String(v.machineType || (function(){
+                           if (capabilities?.recommendedMachineType) return capabilities.recommendedMachineType;
+                           const arch = String(capabilities?.architecture || '').toLowerCase();
+                           if (arch === 'arm64' || arch === 'aarch64') return 'virt';
+                           return 'q35';
+                        })())
+                    }
+                },
+                networks: networks,
+                volumes: volumes
+            }
+        }
+    }
   };
+
+  // 6. Map SSH Keys (Access Credentials)
+  if (v.sshNames && v.sshNames.length > 0) {
+      manifest.spec.template.metadata.annotations["harvesterhci.io/sshNames"] = JSON.stringify(v.sshNames);
+  }
+
+  // 7. Map CloudInit (UserData)
+  // Already handled in CloudInit Disk section above
+
+  return manifest;
 };
 
 export const parseSizeToGi = (raw: any) => {
@@ -148,9 +385,10 @@ export const initialWizardValues = (memGi: number, initialVmName: string) => ({
   name: initialVmName,
   cpu: 2,
   memory: `${memGi}Gi`,
+  machineType: undefined,
   rootSourceType: 'image',
-  rootName: initialVmName,
-  rootSize: '40Gi',
+  rootName: `disk-${Math.random().toString(36).substring(2, 8)}`,
+  rootSize: '40',
   rootBus: 'virtio',
   rootDeviceType: 'disk',
   extraDisks: [],
@@ -222,6 +460,7 @@ export const constructVmPayload = (params: {
   selectedNodeName: string | null;
   gpuResources: any[];
   selectedGpu: any;
+  capabilities?: any;
 }) => {
    return buildHarvesterVmPayload(params);
 };
@@ -235,8 +474,8 @@ export const handleRootPvcChange = (form: any, availableVolumes: any[], pvcName:
       let gi = 0;
       if (typeof raw === 'number') { gi = Math.round(raw / (1024 * 1024 * 1024)); }
       else { const ss = String(raw || '').toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) { gi = num; } else if (/MI$/.test(ss)) { gi = Math.ceil(num / 1024); } else { gi = Math.round(num / (1024 * 1024 * 1024)); } }
-      return gi ? `${gi} GiB` : '';
+      return gi ? `${gi}` : '';
     })();
-    form.setFieldsValue({ rootName: nm, rootSize: display });
+    form.setFieldsValue({ rootSize: display });
   } catch {}
 };

@@ -93,6 +93,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
       <Form.Item name="cpu" hidden rules={[{ required: true, message: '请选择或输入 vCPU' }, { type: 'number', min: 1, max: 512 }]}> 
         <InputNumber />
       </Form.Item>
+      <Form.Item name="machineType" hidden><Input /></Form.Item>
       <Form.Item label="内存分配" required>
         <Space>
           <Radio.Group value={memPreset} buttonStyle="solid" onChange={(e) => { const v = String(e.target.value); setMemPreset(v); if (v !== 'custom') { const gi = Number(v); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); } }}>
@@ -218,7 +219,8 @@ const StepCompute: React.FC<StepComputeProps> = ({
             </Radio.Group>
           </Form.Item>
           {(form.getFieldValue('gpuMode') || 'none') === 'none' ? null : (
-            <Form.Item label="选择GPU">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10}}>
+              <div className="wizard-section-title" style={{ margin: 0 }}>可用 GPU 资源</div>
               {(function () {
                 const mode = form.getFieldValue('gpuMode') || 'none';
                 const list = Array.isArray(gpuResources) ? gpuResources : [];
@@ -258,7 +260,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
                 ];
                 return (
                   <>
-                    <Space style={{ width: '100%', marginTop: 4 }}>
+                    <Space style={{ width: '100%', margin: 0 }}>
                       <Input allowClear size="small" placeholder="搜索GPU/节点/总线" value={gpuKeyword} onChange={(e) => setGpuKeyword(e.target.value)} style={{ flex: 1 }} />
                       {gpuLoading ? (
                         <LoadingOutlined style={{ fontSize: 16, color: '#1677ff' }} />
@@ -275,7 +277,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
                       size="small"
                       bordered
                       rowKey={(r: any) => r.key}
-                      style={{ marginTop: 10, marginBottom: 24 }}
+                      style={{ margin: 0 }}
                       className="wizard-node-table"
                       columns={columns as any}
                       dataSource={data}
@@ -293,7 +295,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
               <Form.Item name="gpuPcideviceName" hidden>
                 <Input />
               </Form.Item>
-            </Form.Item>
+            </div>
           )}
           {/* 移除数量，单卡选择 */}
         </Collapse.Panel>

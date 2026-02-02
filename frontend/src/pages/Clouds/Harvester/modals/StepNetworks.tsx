@@ -45,108 +45,87 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             />
           </Form.Item>
         </Col>
-      </Row>
-      <Card
-        size="small"
-        title={(function () { const nm = form.getFieldValue(['primaryNic', 'name']) || 'default'; const tp = String(form.getFieldValue(['primaryNic', 'type']) || 'bridge').toUpperCase(); return `#1 ${nm} · ${tp}`; })()}
-        className="wizard-disk-card"
-        style={{ marginBottom: 8 }}
-      >
-        <Row gutter={12}>
-          {(form.getFieldValue('netMode') || 'flat') === 'flat' ? (
+        {(form.getFieldValue('netMode') || 'flat') === 'flat' ? (
+          <Col span={16}>
+            <Form.Item label="选择网络" name={["primaryNic", 'name']} rules={[{ required: true }]}>
+              <Select
+                placeholder="选择网络"
+                options={nadOptions}
+                onOpenChange={async (open) => { if (open) reloadNads(); }}
+              />
+            </Form.Item>
+          </Col>
+        ) : (
+          <>
             <Col span={8}>
-              <Form.Item label="名称" name={["primaryNic", 'name']} rules={[{ required: true }]}>
+              <Form.Item label="VPC" name={["primaryNic", 'vpc']}>
                 <Select
-                  placeholder="选择网络"
-                  options={nadOptions}
-                  onDropdownVisibleChange={async (open) => { if (open) reloadNads(); }}
+                  placeholder="选择 VPC"
+                  options={kubeVpcOptions}
+                  onOpenChange={(open) => { if (open) reloadKubeVpcs(); }}
+                  onChange={(val) => { try { const curr = form.getFieldValue('primaryNic') || {}; const next = { ...curr, vpc: val, subnet: undefined, name: undefined, type: 'bridge' }; form.setFieldsValue({ primaryNic: next }); } catch { } }}
                 />
               </Form.Item>
             </Col>
-          ) : (
-            <>
-              <Col span={8}>
-                <Form.Item label="VPC" name={["primaryNic", 'vpc']}>
-                  <Select
-                    placeholder="选择 VPC"
-                    options={kubeVpcOptions}
-                    onDropdownVisibleChange={(open) => { if (open) reloadKubeVpcs(); }}
-                    onChange={(val) => { try { const curr = form.getFieldValue('primaryNic') || {}; const next = { ...curr, vpc: val, subnet: undefined, name: undefined, type: 'bridge' }; form.setFieldsValue({ primaryNic: next }); } catch { } }}
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="子网" name={["primaryNic", 'subnet']} rules={[{ required: true }]}>
-                  <Select
-                    placeholder="选择 VPC 子网"
-                    options={(function () { const vpc = form.getFieldValue(['primaryNic', 'vpc']); const list = kubeSubnets || []; const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : list; return filtered.map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })); })()}
-                    onDropdownVisibleChange={(open) => { if (open) reloadKubeSubnets(); }}
-                    onChange={(val) => { try { const curr = form.getFieldValue('primaryNic') || {}; const next = { ...curr, name: val, type: 'bridge' }; form.setFieldsValue({ primaryNic: next }); } catch { } }}
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="子网网段">
-                  <Input value={(function () { try { const key = String(form.getFieldValue(['primaryNic', 'subnet']) || ''); const it = (kubeSubnets || []).find((x: any) => x?.name === key); return String(it?.cidr || ''); } catch { return ''; } })()} disabled />
-                </Form.Item>
-              </Col>
-            </>
-          )}
-          {(form.getFieldValue('netMode') || 'flat') === 'flat' ? (
-            <>
-              <Col span={8}>
-                <Form.Item label="类型" name={["primaryNic", 'type']} initialValue="masquerade">
-                  <Select options={[{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }, { label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]} />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="模型" name={["primaryNic", 'model']} initialValue="virtio">
-                  <Select options={[{ label: 'virtio', value: 'virtio' }, { label: 'e1000', value: 'e1000' }, { label: 'e1000e', value: 'e1000e' }, { label: 'rtl8139', value: 'rtl8139' }]} />
-                </Form.Item>
-              </Col>
-            </>
-          ) : null}
-        </Row>
-        <Row gutter={12}>
-          {(form.getFieldValue('netMode') || 'flat') === 'vpc' ? (
-            <>
-              <Col span={8}>
-                <Form.Item label="类型" name={["primaryNic", 'type']} initialValue="masquerade">
-                  <Select options={[{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }, { label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]} />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="模型" name={["primaryNic", 'model']} initialValue="virtio">
-                  <Select options={[{ label: 'virtio', value: 'virtio' }, { label: 'e1000', value: 'e1000' }, { label: 'e1000e', value: 'e1000e' }, { label: 'rtl8139', value: 'rtl8139' }]} />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="MAC 地址" name={["primaryNic", 'macAddress']} rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]}>
-                  <Input placeholder="52:54:00:12:34:56" />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="静态IP" name={["primaryNic", 'ipAddress']} rules={[{ pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}(\/([0-9]|[12][0-9]|3[0-2]))?$/, message: '格式如 192.168.1.10 或 192.168.1.10/24' }]}>
-                  <Input placeholder="192.168.1.10/24" />
-                </Form.Item>
-              </Col>
-            </>
-          ) : (
-            <>
-              <Col span={8}>
-                <Form.Item label="MAC 地址" name={["primaryNic", 'macAddress']} rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]}>
-                  <Input placeholder="52:54:00:12:34:56" />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item label="静态IP" name={["primaryNic", 'ipAddress']} rules={[{ pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}(\/([0-9]|[12][0-9]|3[0-2]))?$/, message: '格式如 192.168.1.10 或 192.168.1.10/24' }]}>
-                  <Input placeholder="192.168.1.10/24" />
-                </Form.Item>
-              </Col>
-            </>
-          )}
-        </Row>
-      </Card>
+            <Col span={8}>
+              <Form.Item label="子网" name={["primaryNic", 'subnet']} rules={[{ required: true }]}>
+                <Select
+                  placeholder="选择 VPC 子网"
+                  options={(function () { const vpc = form.getFieldValue(['primaryNic', 'vpc']); const list = kubeSubnets || []; const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : list; return filtered.map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })); })()}
+                  onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
+                  onChange={(val) => { try { const curr = form.getFieldValue('primaryNic') || {}; const next = { ...curr, name: val, type: 'bridge' }; form.setFieldsValue({ primaryNic: next }); } catch { } }}
+                />
+              </Form.Item>
+            </Col>
+          </>
+        )}
+
+        {(form.getFieldValue('netMode') || 'flat') === 'flat' ? (
+          <>
+            <Col span={8}>
+              <Form.Item label="类型" name={["primaryNic", 'type']} initialValue="masquerade">
+                <Select options={[{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }, { label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="模型" name={["primaryNic", 'model']} initialValue="virtio">
+                <Select options={[{ label: 'virtio', value: 'virtio' }, { label: 'e1000', value: 'e1000' }, { label: 'e1000e', value: 'e1000e' }, { label: 'rtl8139', value: 'rtl8139' }]} />
+              </Form.Item>
+            </Col>
+          </>
+        ) : (
+          <Col span={8}>
+            <Form.Item label="子网网段">
+              <Input value={(function () { try { const key = String(form.getFieldValue(['primaryNic', 'subnet']) || ''); const it = (kubeSubnets || []).find((x: any) => x?.name === key); return String(it?.cidr || ''); } catch { return ''; } })()} disabled />
+            </Form.Item>
+          </Col>
+        )}
+
+        {(form.getFieldValue('netMode') || 'flat') === 'vpc' && (
+          <>
+            <Col span={8}>
+              <Form.Item label="类型" name={["primaryNic", 'type']} initialValue="masquerade">
+                <Select options={[{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }, { label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="模型" name={["primaryNic", 'model']} initialValue="virtio">
+                <Select options={[{ label: 'virtio', value: 'virtio' }, { label: 'e1000', value: 'e1000' }, { label: 'e1000e', value: 'e1000e' }, { label: 'rtl8139', value: 'rtl8139' }]} />
+              </Form.Item>
+            </Col>
+          </>
+        )}
+        <Col span={8}>
+          <Form.Item label="MAC 地址" name={["primaryNic", 'macAddress']} rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]}>
+            <Input placeholder="52:54:00:12:34:56" />
+          </Form.Item>
+        </Col>
+        <Col span={8}>
+          <Form.Item label="静态IP" name={["primaryNic", 'ipAddress']} rules={[{ pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}(\/([0-9]|[12][0-9]|3[0-2]))?$/, message: '格式如 192.168.1.10 或 192.168.1.10/24' }]}>
+            <Input placeholder="192.168.1.10/24" />
+          </Form.Item>
+        </Col>
+      </Row>
       <div className="wizard-group-title">辅助网卡</div>
       <Form.List name="netIfaces" initialValue={[]}>
         {(fields, { add, remove }) => (
@@ -185,7 +164,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             <Select
                               placeholder="选择网络"
                               options={nadOptions}
-                              onDropdownVisibleChange={async (open) => { if (open) reloadNads(); }}
+                              onOpenChange={async (open) => { if (open) reloadNads(); }}
                             />
                           </Form.Item>
                         </Col>
@@ -248,8 +227,8 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
               );
             })}
             <Space>
-              <Button type="dashed" onClick={() => add({ mode: 'flat', type: 'masquerade', model: 'virtio' })}>添加扁平网络网卡</Button>
-              <Button type="dashed" onClick={() => { reloadKubeVpcs(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }}>添加VPC网卡</Button>
+              <Button onClick={() => add({ mode: 'flat', type: 'masquerade', model: 'virtio' })}>添加扁平网络网卡</Button>
+              <Button onClick={() => { reloadKubeVpcs(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }}>添加VPC网卡</Button>
             </Space>
           </div>
         )}

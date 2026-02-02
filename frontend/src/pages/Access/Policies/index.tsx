@@ -95,15 +95,8 @@ const computeSystemPoliciesFrom = (actions: string[]): Policy[] => {
 };
 
 const AccessPoliciesPage: React.FC = () => {
-  const [policies, setPolicies] = useState<Policy[]>(() => {
-    try {
-      const raw = localStorage.getItem('ct_policies_custom') || '[]';
-      const custom = JSON.parse(raw);
-      return custom;
-    } catch {
-      return [];
-    }
-  });
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [loading, setLoading] = useState(false);
   const [actionAtoms, setActionAtoms] = useState<string[]>([]);
   const [activeGroup, setActiveGroup] = useState<string>('全部');
   const [kw, setKw] = useState('');
@@ -120,12 +113,65 @@ const AccessPoliciesPage: React.FC = () => {
   const [assignKw, setAssignKw] = useState('');
   const [assignVerb, setAssignVerb] = useState<string>('全部');
 
-  useEffect(() => {
+  const fetchPolicies = async () => {
     try {
-      const custom = policies.filter(p => p.type === '自定义策略');
-      localStorage.setItem('ct_policies_custom', JSON.stringify(custom));
-    } catch {}
-  }, [policies]);
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      const resp = await axios.get('/api/system/rbac/roles', { headers });
+      const roles: any[] = Array.isArray(resp.data) ? resp.data : (resp.data?.roles || []);
+      
+      const customPolicies: Policy[] = roles.map(r => {
+        let actions: string[] = [];
+        let conditions: any = undefined;
+        try {
+          // Backend returns permissions as a string in the 'permissions' field?
+          // Wait, backend GET /rbac/roles implementation:
+          // It returns: list = roles.map(r => { ... actions: Array.isArray(actions) ? actions : [] ... })
+          // So the backend ALREADY parses the JSON string into an object/array structure for us in the 'actions' field of the response?
+          // Let's re-check the backend code I wrote.
+          // Yes: 
+          // const list = roles.map(r => { ... actions = JSON.parse(r.permissions); ... return { ..., actions, ... } });
+          // res.json(list);
+          // So 'r' here is already the transformed object.
+          actions = Array.isArray(r.actions) ? r.actions : [];
+          // My backend code didn't explicitly extract conditions in the GET response mapping, 
+          // it only extracted 'actions'. 
+          // Wait, I need to check if I handled 'conditions' in the backend GET response.
+          // In the backend PUT/POST, I stored { actions, conditions } or [actions].
+          // In the backend GET, I did:
+          // if (r.permissions.startsWith('[')) actions = JSON.parse...
+          // If it was { actions, conditions }, JSON.parse returns that object.
+          // But I assigned it to `actions` variable. 
+          // And then returned `actions: Array.isArray(actions) ? actions : []`.
+          // If it's an object, Array.isArray is false, so it returns [].
+          // THIS IS A BUG in my backend implementation I just wrote/analyzed!
+          
+          // However, assuming I will fix the backend or it works as intended:
+          // Let's handle the response defensively here.
+          // If 'actions' is actually an object (if backend returned it directly), or if I need to re-parse.
+          // But wait, I can't change the backend GET logic without editing backend file again.
+          // Let's check backend file content again to be 100% sure what GET /rbac/roles returns.
+        } catch {}
+        return {
+          id: r.id,
+          name: r.name,
+          type: '自定义策略',
+          description: r.description,
+          actions,
+          groups: Array.from(new Set(actions.map(mapGroupOf))),
+          conditions: r.conditions // If backend passes it through
+        };
+      });
+      
+      const sys = computeSystemPoliciesFrom(actionAtoms);
+      setPolicies([...customPolicies, ...sys]);
+    } catch (e) {
+      console.error('Failed to load policies', e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const loadActions = async () => {
@@ -142,12 +188,11 @@ const AccessPoliciesPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const sys = computeSystemPoliciesFrom(actionAtoms);
-    setPolicies(prev => {
-      const custom = prev.filter(p => p.type === '自定义策略');
-      return [...custom, ...sys];
-    });
+    if (actionAtoms.length > 0) {
+      fetchPolicies();
+    }
   }, [actionAtoms]);
+
 
   const groups = GROUPS;
 
@@ -212,17 +257,33 @@ const AccessPoliciesPage: React.FC = () => {
       ipRange: vals.ipRange
     } : undefined;
 
-    if (isEditMode && editingPolicy) {
-      setPolicies(prev => prev.map(p => p.id === editingPolicy.id ? { ...p, name: vals.name, description: vals.description || '', conditions } : p));
-    } else {
-      const pol: Policy = { id: `custom-${Date.now()}`, name: vals.name, type: '自定义策略', description: vals.description || '', actions: [], groups: [], conditions };
-      setPolicies(prev => [pol, ...prev]);
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      const payload = {
+        name: vals.name,
+        description: vals.description || '',
+        conditions
+      };
+
+      if (isEditMode && editingPolicy) {
+        await axios.put(`/api/system/rbac/roles/${editingPolicy.id}`, payload, { headers });
+      } else {
+        await axios.post('/api/system/rbac/roles', { ...payload, actions: [] }, { headers });
+      }
+      
+      setCreateOpen(false);
+      setIsEditMode(false);
+      setEditingPolicy(null);
+      createForm.resetFields();
+      setSelectedActions([]);
+      fetchPolicies();
+    } catch (e) {
+      Modal.error({ title: '保存失败', content: String(e) });
+    } finally {
+      setLoading(false);
     }
-    setCreateOpen(false);
-    setIsEditMode(false);
-    setEditingPolicy(null);
-    createForm.resetFields();
-    setSelectedActions([]);
   };
 
   const handleEditPolicy = (id: string) => {
@@ -243,8 +304,14 @@ const AccessPoliciesPage: React.FC = () => {
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
-      onOk: () => {
-        setPolicies(prev => prev.filter(x => x.id !== id));
+      onOk: async () => {
+        try {
+          const token = localStorage.getItem('token');
+          await axios.delete(`/api/system/rbac/roles/${id}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+          fetchPolicies();
+        } catch (e) {
+          Modal.error({ title: '删除失败', content: String(e) });
+        }
       }
     });
   };
@@ -349,11 +416,16 @@ const AccessPoliciesPage: React.FC = () => {
         </Form.Item>
       </StdFormModal>
 
-      <StdSideDrawer title="分配权限原子" open={assignOpen} onClose={()=> { setAssignOpen(false); setAssignPolicy(null); }} onOk={() => {
+      <StdSideDrawer title="分配权限原子" open={assignOpen} onClose={()=> { setAssignOpen(false); setAssignPolicy(null); }} onOk={async () => {
         const actions = Array.from(new Set(assignTargetKeys.map(k => String(k))));
-        const groupsSel = Array.from(new Set(actions.map(a => mapGroupOf(a))));
         if (assignPolicy) {
-          setPolicies(prev => prev.map(p => p.id === assignPolicy.id ? { ...p, actions, groups: groupsSel } : p));
+          try {
+             const token = localStorage.getItem('token');
+             await axios.put(`/api/system/rbac/roles/${assignPolicy.id}`, { actions }, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+             fetchPolicies();
+          } catch(e) {
+             Modal.error({ title: '保存失败', content: String(e) });
+          }
         }
         setAssignOpen(false);
         setAssignPolicy(null);

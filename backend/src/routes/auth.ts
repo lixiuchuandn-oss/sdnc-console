@@ -129,6 +129,7 @@ router.post('/login', async (req: Request, res: Response) => {
         email: loginUser.email,
         fullName: loginUser.fullName,
         role,
+        tenantRole: role === 'tenant' ? (loginUser as TenantUser).role : undefined,
       },
     });
   } catch (error: any) {

@@ -28,11 +28,11 @@ export class TenantUser {
   password!: string;
 
   @Column({
-    type: 'simple-enum',
-    enum: ['admin', 'user', 'viewer'],
+    type: 'varchar',
+    length: 50,
     default: 'user',
   })
-  role!: 'admin' | 'user' | 'viewer';
+  role!: string;
 
   @Column({ name: 'organization_id' })
   organizationId!: string;

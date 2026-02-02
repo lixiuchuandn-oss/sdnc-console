@@ -535,6 +535,52 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
   }
 });
 
+// 更新用户
+router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
+  try {
+    const { tenantId, orgId, userId } = req.params;
+    const { email, fullName, password, role, status } = req.body;
+
+    const userRepository = AppDataSource.getRepository(TenantUser);
+    const tenantUser = await userRepository.findOne({
+      where: {
+        id: userId,
+        organizationId: orgId,
+        tenantId: tenantId,
+      },
+    });
+
+    if (!tenantUser) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
+
+    if (email && email !== tenantUser.email) {
+      const existingUser = await userRepository.findOne({ where: { email } });
+      if (existingUser) {
+        return res.status(400).json({ message: '邮箱已存在' });
+      }
+      tenantUser.email = email;
+    }
+
+    if (fullName) tenantUser.fullName = fullName;
+    if (password) {
+      tenantUser.password = await bcrypt.hash(password, 10);
+    }
+    if (role) {
+      tenantUser.role = role;
+    }
+    if (status) tenantUser.status = status;
+
+    const updatedUser = await userRepository.save(tenantUser);
+
+    const { password: _, ...userWithoutPassword } = updatedUser;
+    res.json(userWithoutPassword);
+  } catch (error) {
+    console.error('更新用户失败:', error);
+    res.status(500).json({ message: '更新用户失败' });
+  }
+});
+
 // 删除用户
 router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
   try {

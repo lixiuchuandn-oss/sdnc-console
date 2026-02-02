@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
+import { fetchHarvesterCapabilities } from '../../../../services/api';
 
 interface StepBasicProps {
   form: any;
@@ -42,6 +43,21 @@ const StepBasic: React.FC<StepBasicProps> = ({
   filteredNodes,
 }) => {
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
+  const [capabilities, setCapabilities] = useState<any>({});
+
+  useEffect(() => {
+    if (cloudId && cloudId !== 'all') {
+      fetchHarvesterCapabilities(cloudId).then(res => {
+        const data = res.data || {};
+        setCapabilities(data);
+        form.setFieldsValue({
+          clusterArch: data.architecture,
+          machineType: data.recommendedMachineType
+        });
+      }).catch(e => console.error(e));
+    }
+  }, [cloudId]);
+
   const isNodeReady = (r: any): boolean => {
     if (typeof r?.ready === 'boolean') return r.ready;
     const conds: any[] = Array.isArray(r?.status?.conditions) ? r.status.conditions : [];
@@ -61,34 +77,62 @@ const StepBasic: React.FC<StepBasicProps> = ({
         <Col span={12}>
           <Form.Item label="资源池" name="cloudId" initialValue={cloudId !== 'all' ? cloudId : undefined} rules={[{ required: true, message: '请选择资源池' }]}> 
             <Select 
-              options={cloudOptions} 
               placeholder="选择资源池"
               onChange={(v) => { setCurrentCloudId(v); try { reloadNamespaces(); form.setFieldsValue({ namespace: 'default' }); } catch {} }}
               disabled={cloudId !== 'all'}
+              options={cloudOptions}
+              optionFilterProp="label"
+              showSearch
             />
           </Form.Item>
         </Col>
         <Col span={12}>
           <Form.Item label="命名空间" name="namespace" initialValue="default" rules={[{ required: true }]}> 
             <Select 
-              options={namespaceOptions}
+              options={namespaceOptions.filter(n => {
+                const val = String(n.value || '').toLowerCase();
+                const prefixes = ['kube-', 'cattle-', 'longhorn-', 'monitoring-', 'fleet-', 'cluster-fleet-', 'ingress-nginx', 'kubeovn', 'kubeeye', 'harvester'];
+                if (val === 'cloud-public') return false;
+                return !prefixes.some(p => val.startsWith(p));
+              })}
               placeholder="选择命名空间"
               showSearch
-              onDropdownVisibleChange={(open) => { if (open) reloadNamespaces(); }}
+              onOpenChange={(open) => { if (open) reloadNamespaces(); }}
             />
           </Form.Item>
         </Col>
       </Row>
-      <Form.Item label="运行位置" name="hostMode" initialValue="auto"> 
-        <Radio.Group buttonStyle="solid" onChange={(e)=> setHostModeState(e.target.value)}>
-          <Radio.Button value="auto">自动调度</Radio.Button>
-          <Radio.Button value="node">指定主机</Radio.Button>
-          <Radio.Button value="label">标签选择器</Radio.Button>
-        </Radio.Group>
-      </Form.Item>
+      <Row gutter={24}>
+        <Col span={12}>
+          <Form.Item label="运行位置" name="hostMode"> 
+            <Radio.Group buttonStyle="solid" onChange={(e)=> setHostModeState(e.target.value)}>
+              <Radio.Button value="auto">自动调度</Radio.Button>
+              <Radio.Button value="node">指定主机</Radio.Button>
+              <Radio.Button value="label">标签选择器</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+        </Col>
+        <Col span={6}>
+          <Form.Item label="集群架构" name="clusterArch"> 
+            <Input disabled placeholder="自动获取..." />
+          </Form.Item>
+        </Col>
+        <Col span={6}>
+          <Form.Item label="支持的VM类型" name="machineType" tooltip="根据集群架构自动推荐">
+            <Select disabled placeholder="选择VM类型">
+              {capabilities?.recommendedMachineType && (
+                <Select.Option value={capabilities.recommendedMachineType}>
+                  {capabilities.recommendedMachineType}
+                </Select.Option>
+              )}
+            </Select>
+          </Form.Item>
+        </Col>
+      </Row>
 
       {hostModeState === 'label' && (
-        <Form.Item label="标签选择" style={{ marginBottom: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+          <div className="wizard-section-title">标签选择</div>
           <Form.List name="nodeSelectorPairs" initialValue={[]}>
             {(fields, { add, remove }) => (
               <div style={{ border: '1px dashed #d9d9d9', padding: 8, borderRadius: 4 }}>
@@ -109,17 +153,17 @@ const StepBasic: React.FC<StepBasicProps> = ({
                     </Col>
                   </Row>
                 ))}
-                <Button type="dashed" onClick={() => add({ key: '', value: '' })}>新增选择器</Button>
+                <Button onClick={() => add({ key: '', value: '' })}>新增选择器</Button>
               </div>
             )}
           </Form.List>
-        </Form.Item>
+        </div>
       )}
 
       {hostModeState === 'node' ? (
-        <>
-          <div className="wizard-section-title" style={{ marginTop: 8 }}>主机列表</div>
-          <Space style={{ width: '100%', marginTop: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+          <div className="wizard-section-title">主机列表</div>
+          <Space style={{ width: '100%' }}>
             <Input allowClear size="small" placeholder="搜索主机名称/IP" value={nodeKeyword} onChange={(e) => setNodeKeyword(e.target.value)} style={{ flex: 1 }} />
             <Select
               size="small"
@@ -148,7 +192,6 @@ const StepBasic: React.FC<StepBasicProps> = ({
             size="small"
             bordered
             rowKey={(r: any) => r.name}
-            style={{ marginTop: 10, marginBottom: 24 }}
             className="wizard-node-table"
             onRow={(record: any) => ({
               onClick: () => { const k = record?.name; setSelectedNodeName(k || null); }
@@ -213,7 +256,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
             loading={nodesLoading}
             pagination={false}
           />
-        </>
+        </div>
       ) : null}
       <div className="wizard-group-title">信息</div>
       <Form.Item label="虚拟机名称" name="name" rules={[{ required: true, message: '请输入虚拟机名称' }]}>

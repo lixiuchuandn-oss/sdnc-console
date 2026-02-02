@@ -7,8 +7,8 @@ import net from 'net';
 // 该服务充当 WebSockify：将浏览器的 WebSocket 二进制数据原样转发到后端 TCP（VNC/RFB 端口），并将 TCP 数据原样回传至浏览器。
 // 鉴权沿用 JWT（仅管理员允许使用）。连接目标通过查询参数传递：/ws/vnc?token=...&host=...&port=5900
 
-export function initVncWsServer(server: http.Server) {
-  const wss = new WebSocketServer({ server, path: '/ws/vnc', perMessageDeflate: false });
+export function createVncWsServer() {
+  const wss = new WebSocketServer({ noServer: true, path: '/ws/vnc', perMessageDeflate: false });
 
   wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
