@@ -15,6 +15,7 @@ import { tenantRoutes } from './routes/tenants';
 import { errorHandler } from './middleware/errorHandler';
 import { authMiddleware } from './middleware/auth';
 import { initializeAdmin } from './seeders/initAdmin';
+import { initializeRoles } from './seeders/initRoles';
 import { cenRoutes } from './routes/cens';
 import { dashboardRoutes } from './routes/dashboard';
 import { vrCacheRoutes } from './routes/vrCache';
@@ -171,6 +172,8 @@ AppDataSource.initialize()
     console.log('数据库连接成功');
     // 初始化管理员账户
     await initializeAdmin();
+    // 初始化默认角色
+    await initializeRoles();
 
     // 启动云资源同步任务
     try {

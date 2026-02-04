@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Input, Tabs, Alert, Tree, App, Space } from 'antd';
-import { ReloadOutlined, CloudServerOutlined, CloudOutlined, BranchesOutlined, ApartmentOutlined } from '@ant-design/icons';
+import { Button, Form, Input, Tabs, Alert, Tree, App, Space, Modal } from 'antd';
+import { ReloadOutlined, CloudServerOutlined, CloudOutlined, BranchesOutlined, ApartmentOutlined, BugOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -236,8 +236,8 @@ const CloudConsolePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // 默认加载 default 命名空间的镜像
-      const res = await fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/images?namespace=default`, {
+      // 加载镜像列表 (移除 namespace=default 限制，让后端根据权限返回所有可见镜像)
+      const res = await fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/images`, {
         headers: getAuthHeaders()
       });
       const json = await res.json();
@@ -379,6 +379,31 @@ const CloudConsolePage: React.FC = () => {
         break;
     }
   }, [currentCloudId, activeTab, caps?.isHarvester]);
+
+  const handleDebugAccess = async () => {
+    if (!currentCloudId) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/clouds/${currentCloudId}/debug-access`, {
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      Modal.info({
+        title: 'Debug Tenant Access',
+        width: 600,
+        content: (
+          <div style={{ maxHeight: '400px', overflow: 'auto' }}>
+            <p><strong>Cloud ID:</strong> {currentCloudId}</p>
+            <pre style={{ background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
+              {JSON.stringify(data, null, 2)}
+            </pre>
+          </div>
+        )
+      });
+    } catch (e) {
+      console.error(e);
+      message.error('Failed to fetch debug info');
+    }
+  };
 
   // ==================== Render Helpers (渲染辅助) ====================
   
@@ -547,6 +572,17 @@ const CloudConsolePage: React.FC = () => {
                   activeKey={activeTab}
                   onChange={(k: any) => setActiveTab(k)}
                   items={tabItems}
+                  tabBarExtraContent={
+                    <Button 
+                        type="dashed" 
+                        size="small"
+                        icon={<BugOutlined />} 
+                        onClick={handleDebugAccess} 
+                        title="View Namespace Access Info"
+                    >
+                      Debug
+                    </Button>
+                  }
                 />
             )}
           </div>

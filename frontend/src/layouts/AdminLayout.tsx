@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Input, Divider, Typography, Row, Col, Card, Space, Tag, AutoComplete, Badge, App, Select, Dropdown } from 'antd';
+import { Layout, Menu, Button, Input, Divider, Typography, Row, Col, Card, Space, Tag, AutoComplete, Badge, App, Select, Dropdown, Avatar, Drawer, Tooltip } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   SlidersOutlined,ProjectOutlined,CodeOutlined,CloudOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, RightOutlined, CaretDownOutlined,
@@ -217,7 +217,14 @@ const AdminLayout: React.FC = () => {
             const full = String(user.fullName || '').trim();
             const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
             const display = shouldUseUsername ? (user.username || '') : full;
-            return <span style={{color:'#fff'}}>{display}</span>;
+            
+            return (
+              <Space>
+                <span style={{color:'#fff'}}>{display}</span>
+                {user.tenantName && <Tag color="gold" style={{marginRight:0}}>租户: {user.tenantName}</Tag>}
+                {user.organizationName && <Tag color="cyan" style={{marginRight:0}}>组织: {user.organizationName}</Tag>}
+              </Space>
+            );
           })()}
           </div>
           <Button style={{color:'#1062fe',borderRadius:16,fontSize:12}} size="small" onClick={handleLogout}>Logout</Button>
@@ -245,7 +252,11 @@ const AdminLayout: React.FC = () => {
               const full = String(user.fullName || '').trim();
               const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
               const display = shouldUseUsername ? (user.username || '') : full;
-              return <span style={{color:'#555555'}}>{display}</span>;
+
+              const tenantInfo = user.tenantName ? ` [租户: ${user.tenantName}]` : '';
+              const orgInfo = user.organizationName ? ` [组织: ${user.organizationName}]` : '';
+
+              return <span style={{color:'#555555'}}>{display}{tenantInfo}{orgInfo}</span>;
             })()}
           </div>
           <div style={{ display:'inline-flex', alignItems:'center', gap:4 }}>

@@ -14,6 +14,8 @@ interface User {
   tenantRole?: string;
   status: 'active' | 'inactive' | 'suspended';
   permissions?: string[];
+  tenantName?: string;
+  organizationName?: string;
 }
 
 /**
@@ -74,6 +76,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           
           if (response.ok) {
             const userData = await response.json();
+            
+            // 优先使用后端返回的计算好的权限
+            if (Array.isArray(userData.permissions) && userData.permissions.length > 0) {
+              setUser(userData);
+              setToken(storedToken);
+              setLoading(false);
+              return;
+            }
+
             try {
               // 2) 如果是超级管理员，直接赋予所有权限
               if (userData.role === 'super_admin') {
@@ -161,6 +172,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('token', data.token);
       setToken(data.token);
       
+      // 优先使用后端返回的计算好的权限
+      if (Array.isArray(data.user.permissions) && data.user.permissions.length > 0) {
+        setUser(data.user);
+        return data.user;
+      }
+
       // 如果是超级管理员，直接赋予所有权限
       if (data.user.role === 'super_admin') {
         const withPerms = { ...data.user, permissions: ['*'] };

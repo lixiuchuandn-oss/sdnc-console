@@ -852,7 +852,27 @@ const fetchVpcsForCloud = async (cloud: Cloud, raw: boolean = false) => {
 router.get('/', checkAdminPermission, async (req: AuthRequest, res: Response) => {
   try {
     const cloudRepository = AppDataSource.getRepository(Cloud);
-    const clouds = await cloudRepository.find();
+    let clouds = await cloudRepository.find();
+
+    // Tenant Isolation: Only show clouds assigned via UserSpace
+    // Check if user is a TenantUser (has tenantId and not a sase_device)
+    // Note: TenantUser.role is usually 'user' or a custom role ID, NOT 'tenant'
+    const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+    
+    if (isTenantUser || (req.user as any)?.role === 'tenant') {
+      const tenantId = (req.user as any).tenantId;
+      // Only filter if we have a valid tenantId. 
+      // If role is 'tenant' but no tenantId (unlikely for TenantUser), we might be in a weird state, 
+      // but strictly speaking, isolation depends on tenantId.
+      if (tenantId) {
+        const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+        const userSpaces = await userSpaceRepo.find({
+          where: { tenantId, status: 'active' },
+        });
+        const allowedCloudIds = userSpaces.map(us => us.cloudId);
+        clouds = clouds.filter(c => allowedCloudIds.includes(c.id));
+      }
+    }
 
     res.json(clouds.map(redactCloud));
   } catch (error) {

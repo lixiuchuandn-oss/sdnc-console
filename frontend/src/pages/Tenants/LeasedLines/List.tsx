@@ -213,7 +213,7 @@ const ListPage: React.FC<Props> = ({ onStartTask }) => {
         <Form
           className="filter-tools"
           form={filterForm}
-          layout="vertical"
+          layout="inline"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
           onValuesChange={(_, all) => {
             setKeyword(all.keyword || '');

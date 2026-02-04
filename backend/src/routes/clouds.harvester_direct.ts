@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
+import { UserSpace } from '../entities/UserSpace';
 import { HarvesterNamespaceInventory } from '../entities/harvester/HarvesterNamespaceInventory';
 import { syncHarvesterNamespaces } from '../services/clouds/harvester/syncInventory';
 import {
@@ -52,6 +53,13 @@ interface KubeEvent {
   object: any;
 }
 
+const isNamespaceAllowed = (allowedNamespacesStr: string | undefined, targetNamespace: string | undefined): boolean => {
+    if (!allowedNamespacesStr) return false;
+    if (!targetNamespace) return false;
+    const allowed = allowedNamespacesStr.split(',').map(s => s.trim().toLowerCase());
+    return allowed.includes(targetNamespace.toLowerCase());
+};
+
 /**
  * ==================================================================================
  * Harvester Cloud Resource Routes (Direct Connection Mode)
@@ -65,6 +73,74 @@ interface KubeEvent {
  * - Write Operations: Proxy requests to Harvester API -> Response
  * - No dependency on *Inventory entities.
  */
+
+const checkTenantAccess = async (req: any, cloudId: string): Promise<{ allowed: boolean; namespace?: string; isTenant?: boolean }> => {
+    // Check if user is a tenant user (excluding device roles)
+    const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+    const isTenantRole = req.user?.role === 'tenant';
+    const isTenant = !!(isTenantUser || isTenantRole);
+
+    if (!isTenant) return { allowed: true, isTenant: false };
+
+    // Fetch allowed namespaces from UserSpace (Tenant + Organization scope)
+    const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+    const matches = await userSpaceRepo.find({
+        where: [
+            { tenantId: (req.user as any).tenantId, cloudId, status: 'active', organizationId: (req.user as any).organizationId },
+            { tenantId: (req.user as any).tenantId, cloudId, status: 'active', organizationId: null }
+        ],
+        select: ['namespace']
+    });
+    
+    const uniqueNamespaces = new Set<string>();
+    matches.forEach(m => {
+        if (m.namespace) {
+            m.namespace.split(',').forEach(ns => {
+                const trimmed = ns.trim();
+                if (trimmed) uniqueNamespaces.add(trimmed);
+            });
+        }
+    });
+    
+    const finalNamespace = Array.from(uniqueNamespaces).join(',');
+
+    if (uniqueNamespaces.size === 0) return { allowed: false, isTenant: true };
+    return { allowed: true, namespace: finalNamespace, isTenant: true };
+};
+
+const resolveTenantVmId = async (
+  tenantNamespace: string | undefined, 
+  instanceId: string, 
+  cloud: any,
+  isTenant: boolean = false
+): Promise<{ resolvedId: string, error?: { status: number, message: string } }> => {
+    // If tenant but no namespace, deny access
+    if (isTenant && !tenantNamespace) {
+        return { resolvedId: '', error: { status: 403, message: 'Access denied: Tenant has no assigned namespace' } };
+    }
+
+    // If not a tenant (no namespace restriction), just return as is (but careful if it lacks namespace)
+    if (!tenantNamespace) return { resolvedId: instanceId };
+    
+    // If ID is already namespaced "namespace/name"
+    if (instanceId.includes('/') || instanceId.includes(':')) {
+        const [ns] = instanceId.split(/[/:/]/);
+        const validNamespaces = tenantNamespace ? tenantNamespace.split(',').map(s => s.trim()) : [];
+        if (!validNamespaces.includes(ns)) return { resolvedId: '', error: { status: 403, message: 'Access denied to VM in other namespace' } };
+        return { resolvedId: instanceId };
+    }
+    
+    // If ID is just a name or UID, we need to resolve it or force namespace
+    // Since we are tenant restricted, we can assume the VM MUST be in tenantNamespace.
+    // However, Harvester API usually expects "namespace/name". 
+    // If instanceId is a name, we prepend namespace.
+    // If instanceId is a UID, we might need to find it, but usually frontend sends namespace/name or just name.
+    
+    // Optimistic approach: Assume instanceId is the NAME if it has no slashes
+    // Use the first assigned namespace as default
+    const primaryNs = tenantNamespace ? tenantNamespace.split(',')[0].trim() : '';
+    return { resolvedId: `${primaryNs}/${instanceId}` };
+};
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
   const repo = AppDataSource.getRepository(Cloud);
@@ -134,6 +210,31 @@ const resolveVMStatus = (vm: any, vmi: any): string => {
 };
 
 export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermission: any) => {
+  // DEBUG: Check tenant access for a cloud
+  router.get(
+    '/:id/debug-access',
+    async (req: any, res: Response) => {
+        try {
+            const { id } = req.params;
+            const access = await checkTenantAccess(req, id);
+            res.json({
+                user: {
+                    id: req.user?.id,
+                    username: req.user?.username,
+                    role: req.user?.role,
+                    tenantId: req.user?.tenantId,
+                    organizationId: req.user?.organizationId
+                },
+                access,
+                query: {
+                    cloudId: id
+                }
+            });
+        } catch (e: any) {
+            res.status(500).json({ error: e.message });
+        }
+    }
+  );
 
   // ==================================================================================
   // Capabilities
@@ -144,6 +245,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -172,6 +276,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
       try {
         console.log('[SSE] Request received:', req.originalUrl);
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -183,7 +290,27 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
             insecure
         });
         
-        res.json({ message: '查询成功', data: { items } });
+        // Add namespace filtering for tenant users
+        let filteredItems = items;
+        if (isTenant) {
+            filteredItems = tenantNamespace 
+                ? items.filter((item: any) => {
+                    // Check if VPC is bound to tenant namespace via spec.namespaces
+                    const allowedNamespaces = item.spec?.namespaces || [];
+                    const validNamespaces = tenantNamespace.split(',').map(s => s.trim());
+                    // Also check if VPC is default (if policy allows) or specifically assigned
+                    return Array.isArray(allowedNamespaces) && allowedNamespaces.some(ns => validNamespaces.includes(ns));
+                })
+                : [];
+        } else if (tenantNamespace) {
+            filteredItems = items.filter((item: any) => {
+                 const allowedNamespaces = item.spec?.namespaces || [];
+                 const validNamespaces = tenantNamespace.split(',').map(s => s.trim());
+                 return Array.isArray(allowedNamespaces) && allowedNamespaces.some(ns => validNamespaces.includes(ns));
+            });
+        }
+
+        res.json({ message: '查询成功', data: { items: filteredItems } });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '查询VPC失败', error: error.body || error.message });
@@ -201,6 +328,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
       try {
         console.log('[SSE] Stream connection attempt:', req.originalUrl);
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const { vpcId } = req.query as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -234,6 +364,26 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
              return (specVpc === vpcId) || (metadataVpc === vpcId);
           });
         }
+
+        // Add namespace filtering for tenant users
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((item: any) => {
+                    // Subnets are cluster-scoped but bound to namespaces via spec.namespaces
+                    const allowedNamespaces = item.spec?.namespaces || [];
+                    const validNamespaces = tenantNamespace.split(',').map(s => s.trim());
+                    return Array.isArray(allowedNamespaces) && allowedNamespaces.some(ns => validNamespaces.includes(ns));
+                });
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((item: any) => {
+                const allowedNamespaces = item.spec?.namespaces || [];
+                const validNamespaces = tenantNamespace.split(',').map(s => s.trim());
+                return Array.isArray(allowedNamespaces) && allowedNamespaces.some(ns => validNamespaces.includes(ns));
+            });
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -249,6 +399,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const { name, vpc, cidrBlock, gateway, protocol, excludeIps, provider, vlan, gatewayType, namespaces, nat, allowDhcp, disableGatewayCheck } = req.body;
 
         if (!name || !cidrBlock) {
@@ -366,6 +519,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id, name } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -400,16 +556,29 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
-        const items = await listHarvesterPVCRaw({
+        let items = await listHarvesterPVCRaw({
             endpoint: cloud.endpoint,
             token: cloud.secretKey || '',
             insecure
         } as any);
+
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -428,18 +597,72 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const { namespace } = req.query as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
-        const items = await listHarvesterImagesRaw({
-            endpoint: cloud.endpoint,
-            token: cloud.secretKey || '',
-            insecure,
-            namespace: namespace || 'default'
-        } as any);
+        // If tenant has no namespace, return empty list immediately
+        if (isTenant && !tenantNamespace) {
+             return res.json({ message: '查询成功', data: { items: [] } });
+        }
+
+        let itemsRaw: any[] = [];
+
+        if (isTenant && tenantNamespace) {
+             console.log(`[Images] Tenant request detected. Merged Namespace: ${tenantNamespace}`);
+             // Tenant: Fetch only allowed namespaces (e.g. "ns1,cloud-public")
+             // This avoids listing all images at cluster scope which might fail or be slow
+             const namespaces = tenantNamespace.split(',').map(s => s.trim()).filter(Boolean);
+             const uniqueNamespaces = Array.from(new Set(namespaces)); // Deduplicate
+             console.log(`[Images] Concurrent fetching for namespaces:`, uniqueNamespaces);
+             
+             const results = await Promise.all(uniqueNamespaces.map(ns => 
+                 listHarvesterImagesRaw({
+                    endpoint: cloud.endpoint,
+                    token: cloud.secretKey || '',
+                    insecure,
+                    namespace: ns
+                 } as any).then(res => {
+                    console.log(`[Images] Fetched ${res.length} images from namespace: ${ns}`);
+                    return res;
+                 }).catch(err => {
+                     console.warn(`Failed to list images in namespace ${ns}:`, err.message);
+                     return [];
+                 })
+             ));
+             itemsRaw = results.flat();
+             console.log(`[Images] Total raw items before filtering: ${itemsRaw.length}`);
+        } else {
+             // Admin: Fetch all or specific namespace from query
+             itemsRaw = await listHarvesterImagesRaw({
+                endpoint: cloud.endpoint,
+                token: cloud.secretKey || '',
+                insecure,
+                namespace: (namespace as string) || ''
+             } as any);
+        }
+
+        let items = itemsRaw;
+        if (isTenant) {
+             // Secondary filter to ensure safety (though we fetched specifically)
+             if (tenantNamespace) {
+                 items = items.filter((i: any) => {
+                    const ok = isNamespaceAllowed(tenantNamespace, i.metadata?.namespace);
+                    if (!ok) console.log(`[Images] Filtered out item: ${i.metadata?.name} in namespace ${i.metadata?.namespace}`);
+                    return ok;
+                 });
+             }
+        } else if (tenantNamespace) {
+             items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        } else if (namespace) {
+             // If query param namespace is provided (admin only or filtered above)
+             items = items.filter((i: any) => i.metadata?.namespace === namespace);
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -458,6 +681,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -481,8 +707,18 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
         }
 
         const rawItems = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
+        let items = rawItems;
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        }
         
-        res.json({ message: '查询成功', data: { items: rawItems } });
+        res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '查询网络失败', error: error.body || error.message });
@@ -499,16 +735,30 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
-        const items = await listHarvesterLoadBalancers({
+        const rawItems = await listHarvesterLoadBalancers({
           endpoint: cloud.endpoint,
           token: cloud.secretKey || '',
           insecure,
         });
+
+        let items = rawItems;
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -527,6 +777,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -549,7 +802,17 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
             throw e;
         }
 
-        const items = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        const rawItems = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        let items = rawItems;
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -568,6 +831,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -610,7 +876,17 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
             throw lastErr || new Error('Failed to fetch OvnEips');
         }
 
-        const items = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        const rawItems = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        let items = rawItems;
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -626,6 +902,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const { name, externalSubnet, v4Ip, type } = req.body;
 
         if (!name || !externalSubnet) {
@@ -711,6 +990,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -752,7 +1034,17 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
             throw lastErr || new Error('Failed to fetch OvnFips');
         }
 
-        const items = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        const rawItems = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        let items = rawItems;
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -771,6 +1063,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -812,7 +1107,17 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
             throw lastErr || new Error('Failed to fetch OvnSnatRules');
         }
 
-        const items = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        const rawItems = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        let items = rawItems;
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -831,6 +1136,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -872,7 +1180,17 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
             throw lastErr || new Error('Failed to fetch OvnDnatRules');
         }
 
-        const items = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        const rawItems = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+        let items = rawItems;
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -891,6 +1209,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -920,6 +1241,16 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
         if (Array.isArray(vmisRaw)) {
           vmisRaw.forEach((v: any) => {
             if (v?.metadata?.name && v?.metadata?.namespace) {
+              // Namespace Filtering for VMIs
+              if (isTenant) {
+                 if (tenantNamespace) {
+                    if (!isNamespaceAllowed(tenantNamespace, v.metadata.namespace)) return;
+                 } else {
+                    return; // Tenant without namespace sees nothing
+                 }
+              } else if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, v.metadata.namespace)) {
+                 return;
+              }
               vmiMap.set(`${v.metadata.namespace}/${v.metadata.name}`, v);
             }
           });
@@ -934,7 +1265,18 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
             origin = base.replace(/\/v[0-9].*$/, '');
         }
 
-        const items = (Array.isArray(vmsRaw) ? vmsRaw : []).map((vm: any) => {
+        let items = (Array.isArray(vmsRaw) ? vmsRaw : []);
+        if (isTenant) {
+            if (tenantNamespace) {
+                items = items.filter((vm: any) => isNamespaceAllowed(tenantNamespace, vm.metadata?.namespace));
+            } else {
+                items = [];
+            }
+        } else if (tenantNamespace) {
+            items = items.filter((vm: any) => isNamespaceAllowed(tenantNamespace, vm.metadata?.namespace));
+        }
+        
+        items = items.map((vm: any) => {
           const vmi = vmiMap.get(`${vm.metadata?.namespace}/${vm.metadata?.name}`);
           
           const namespace = vm.metadata?.namespace || 'default';
@@ -990,6 +1332,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
       try {
         console.log('[SSE] Stream connection attempt:', req.originalUrl);
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '', next)) return;
@@ -1109,12 +1454,20 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
 
             if (Array.isArray(vmsRaw)) {
                 vmsRaw.forEach((vm: any) => {
+                    if (isTenant) {
+                        if (!isNamespaceAllowed(tenantNamespace, vm.metadata?.namespace)) return;
+                    } else if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, vm.metadata?.namespace)) return;
+
                     const key = `${vm.metadata?.namespace}/${vm.metadata?.name}`;
                     vmCache.set(key, vm);
                 });
             }
             if (Array.isArray(vmisRaw)) {
                 vmisRaw.forEach((vmi: any) => {
+                    if (isTenant) {
+                        if (!isNamespaceAllowed(tenantNamespace, vmi.metadata?.namespace)) return;
+                    } else if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, vmi.metadata?.namespace)) return;
+
                     const key = `${vmi.metadata?.namespace}/${vmi.metadata?.name}`;
                     vmiCache.set(key, vmi);
                 });
@@ -1163,6 +1516,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
                   console.log(`[SSE] VM Event: ${event.type} ${event.object?.metadata?.name}`);
                   const obj = event.object;
                   if (!obj || !obj.metadata) return;
+                  if (isTenant) {
+                      if (!isNamespaceAllowed(tenantNamespace, obj.metadata.namespace)) return;
+                  } else if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, obj.metadata.namespace)) return;
                   const key = `${obj.metadata.namespace}/${obj.metadata.name}`;
                   
                   if (event.type === 'DELETED') {
@@ -1196,6 +1552,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
                   console.log(`[SSE] VMI Event: ${event.type} ${event.object?.metadata?.name}`);
                   const obj = event.object;
                   if (!obj || !obj.metadata) return;
+                  if (isTenant) {
+                      if (!isNamespaceAllowed(tenantNamespace, obj.metadata.namespace)) return;
+                  } else if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, obj.metadata.namespace)) return;
                   const key = `${obj.metadata.namespace}/${obj.metadata.name}`;
                   
                   if (event.type === 'DELETED') {
@@ -1247,14 +1606,21 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id, instanceId } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        
+        const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+        if (error) return res.status(error.status).json({ message: error.message });
+
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const data = await harvesterStartVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          instanceId,
+          resolvedId,
         );
         res.json({ message: '启动成功', data });
       } catch (error: any) {
@@ -1270,14 +1636,21 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
       try {
         const { id, instanceId } = req.params;
         const { force } = (req.body || {}) as any;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        
+        const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+        if (error) return res.status(error.status).json({ message: error.message });
+
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const data = await harvesterStopVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          instanceId,
+          resolvedId,
           !!force,
         );
         res.json({ message: '停止成功', data });
@@ -1294,14 +1667,21 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
       try {
         const { id, instanceId } = req.params;
         const { force } = (req.body || {}) as any;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        
+        const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+        if (error) return res.status(error.status).json({ message: error.message });
+
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const data = await harvesterRebootVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          instanceId,
+          resolvedId,
           !!force,
         );
         res.json({ message: '重启成功', data });
@@ -1317,14 +1697,21 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id, instanceId } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        
+        const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+        if (error) return res.status(error.status).json({ message: error.message });
+
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const data = await harvesterSoftRebootVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          instanceId,
+          resolvedId,
         );
         res.json({ message: '软重启成功', data });
       } catch (error: any) {
@@ -1339,14 +1726,21 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id, instanceId } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        
+        const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+        if (error) return res.status(error.status).json({ message: error.message });
+
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const data = await harvesterPauseVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          instanceId,
+          resolvedId,
         );
         res.json({ message: '暂停成功', data });
       } catch (error: any) {
@@ -1361,14 +1755,21 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
       try {
         const { id, instanceId } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        
+        const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+        if (error) return res.status(error.status).json({ message: error.message });
+
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const data = await harvesterUnpauseVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          instanceId,
+          resolvedId,
         );
         res.json({ message: '恢复成功', data });
       } catch (error: any) {
@@ -1384,14 +1785,21 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
       try {
         const { id, instanceId } = req.params;
         const { deleteImage } = req.query;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        
+        const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+        if (error) return res.status(error.status).json({ message: error.message });
+
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const data = await harvesterDeleteVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          instanceId,
+          resolvedId,
           String(deleteImage) === 'true',
         );
         res.json({ message: '删除成功', data });
@@ -1407,12 +1815,29 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
         try {
             const { id } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            if (tenantNamespace) {
+                const allowed = tenantNamespace.split(',').map(s => s.trim());
+                
+                if (req.body.namespace) {
+                    if (!allowed.includes(req.body.namespace)) {
+                        return res.status(403).json({ message: 'Access denied to this namespace' });
+                    }
+                } else {
+                    // Default to first allowed namespace
+                    req.body.namespace = allowed[0];
+                }
+            }
+
             const { namespace, ...payload } = req.body;
+            
             const data = await createHarvesterVM(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
                 namespace || 'default',
@@ -1431,16 +1856,52 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
         try {
             const { id, instanceId } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            if (tenantNamespace) {
+                const allowed = tenantNamespace.split(',').map(s => s.trim());
+                if (req.body.namespace) {
+                    if (!allowed.includes(req.body.namespace)) {
+                        return res.status(403).json({ message: 'Access denied to this namespace' });
+                    }
+                } else {
+                    // Try to infer from instanceId if possible
+                    if (instanceId.includes('/')) {
+                        const [ns] = instanceId.split('/');
+                        if (allowed.includes(ns)) {
+                            req.body.namespace = ns;
+                        } else {
+                            req.body.namespace = allowed[0];
+                        }
+                    } else {
+                        req.body.namespace = allowed[0];
+                    }
+                }
+            }
+
             const { namespace, ...spec } = req.body;
+            
+            // Validate instanceId ownership if strictly enforcing
+            // If instanceId is just name, and we force namespace, it targets that namespace/name.
+            // If instanceId is ns/name, we should validate it matches.
+            if (tenantNamespace && instanceId.includes('/')) {
+                const [ns] = instanceId.split('/');
+                if (!isNamespaceAllowed(tenantNamespace, ns)) return res.status(403).json({ message: 'Access denied to VM in other namespace' });
+            }
+
+            // Clean instanceId if it has namespace prefix, because updateHarvesterVMSpec usually takes name + namespace arg
+            const cleanName = instanceId.includes('/') ? instanceId.split('/')[1] : instanceId;
+
             const data = await updateHarvesterVMSpec(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
                 namespace || 'default',
-                instanceId,
+                cleanName,
                 spec
             );
             res.json({ message: '更新成功', data });
@@ -1456,16 +1917,26 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
         try {
             const { id, instanceId } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            if (tenantNamespace) {
+                req.query.namespace = tenantNamespace;
+            }
+
             const { namespace } = req.query;
+            
+            const cleanName = instanceId.includes('/') ? instanceId.split('/')[1] : instanceId;
+
             const url = await getHarvesterVmVncUrl(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
                 String(namespace || 'default'),
-                instanceId
+                cleanName
             );
             res.json({ message: '获取成功', data: { url } });
         } catch (error: any) {
@@ -1480,14 +1951,20 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
         try {
             const { id, instanceId } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+            if (error) return res.status(error.status).json({ message: error.message });
+
             const data = await harvesterAddVolumeToVM(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-                instanceId,
+                resolvedId,
                 req.body
             );
             res.json({ message: '挂载成功', data });
@@ -1503,14 +1980,20 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response, next: any) => {
         try {
             const { id, instanceId } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+            if (error) return res.status(error.status).json({ message: error.message });
+
             const data = await harvesterRemoveVolumeFromVM(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-                instanceId,
+                resolvedId,
                 req.body
             );
             res.json({ message: '卸载成功', data });
@@ -1529,6 +2012,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1541,7 +2027,17 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
         } as any);
 
         // Frontend Response Formatting
-        const basic = items.map((v: any) => {
+        let filteredItems = items;
+        if (isTenant) {
+            filteredItems = tenantNamespace
+                ? items.filter((v: any) => isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace))
+                : [];
+        } else if (tenantNamespace) {
+            filteredItems = items.filter((v: any) => isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace));
+        }
+
+        const basic = filteredItems
+          .map((v: any) => {
           const name = v?.metadata?.name || v?.name || '';
           const size = v?.spec?.size || v?.size || 0;
           const state = v?.status?.state || v?.state || 'Unknown';
@@ -1596,10 +2092,26 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        if (tenantNamespace) {
+            const allowed = tenantNamespace.split(',').map(s => s.trim());
+            if (req.body.namespace) {
+                if (!allowed.includes(req.body.namespace)) {
+                    return res.status(403).json({ message: 'Access denied to this namespace' });
+                }
+            } else {
+                req.body.namespace = allowed[0];
+            }
+        } else if (tenantNamespace) {
+            req.body.namespace = tenantNamespace;
+        }
 
         const data = await createHarvesterPVCVolume(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -1618,6 +2130,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
       try {
         const { id, name } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const { namespace } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1632,7 +2147,20 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
         } catch {
             origin = base.replace(/\/v[0-9].*$/, '');
         }
-        const ns = String(namespace || 'default');
+        
+        let targetNamespace = namespace ? String(namespace) : 'default';
+        if (tenantNamespace) {
+             const allowed = tenantNamespace.split(',').map(s => s.trim());
+             if (namespace) {
+                 if (!allowed.includes(String(namespace))) {
+                      return res.status(403).json({ message: 'Access denied to this namespace' });
+                 }
+             } else {
+                 targetNamespace = allowed[0];
+             }
+        }
+        const ns = String(targetNamespace);
+        
         const url = `${origin}/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`;
         await requestJson('DELETE', url, cloud.secretKey || '', insecure);
         
@@ -1649,11 +2177,25 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            if (tenantNamespace) {
+                const allowed = tenantNamespace.split(',').map(s => s.trim());
+                if (req.body.namespace) {
+                    if (!allowed.includes(req.body.namespace)) {
+                        return res.status(403).json({ message: 'Access denied to this namespace' });
+                    }
+                } else {
+                    req.body.namespace = allowed[0];
+                }
+            }
+
             const { namespace, pvcName, ...opts } = req.body;
             const data = await createVolumeSnapshot(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -1674,11 +2216,25 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            if (tenantNamespace) {
+                const allowed = tenantNamespace.split(',').map(s => s.trim());
+                if (req.body.namespace) {
+                    if (!allowed.includes(req.body.namespace)) {
+                        return res.status(403).json({ message: 'Access denied to this namespace' });
+                    }
+                } else {
+                    req.body.namespace = allowed[0];
+                }
+            }
+
             const { namespace, pvcName, ...opts } = req.body;
             const data = await exportImageFromPVC(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -1699,11 +2255,25 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            if (tenantNamespace) {
+                const allowed = tenantNamespace.split(',').map(s => s.trim());
+                if (req.body.namespace) {
+                    if (!allowed.includes(req.body.namespace)) {
+                        return res.status(403).json({ message: 'Access denied to this namespace' });
+                    }
+                } else {
+                    req.body.namespace = allowed[0];
+                }
+            }
+
             const { namespace, pvcName, ...payload } = req.body;
             const data = await clonePVC(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -1724,11 +2294,25 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id, name } = req.params;
+            const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
             const insecure = !!(cloud.config as any)?.ignoreTls;
             
+            if (tenantNamespace) {
+                const allowed = tenantNamespace.split(',').map(s => s.trim());
+                if (req.body.namespace) {
+                    if (!allowed.includes(req.body.namespace)) {
+                        return res.status(403).json({ message: 'Access denied to this namespace' });
+                    }
+                } else {
+                    req.body.namespace = allowed[0];
+                }
+            }
+
             const { namespace } = req.body; // pvcName comes from params 'name'
             const data = await updatePVCSpec(
                 { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -1749,6 +2333,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id } = req.params;
+            const { allowed } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1775,6 +2362,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1787,6 +2377,16 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
         } catch {
           origin = base.replace(/\/v[0-9].*$/, '');
         }
+        
+        // If tenant, we don't need to fetch full list if we know the namespace.
+        // But the frontend might expect a list format.
+        // We can just construct a single item list if we want to save bandwidth, 
+        // OR we can fetch list and filter. 
+        // Given tenants might not have "list namespaces" permission at cluster level, 
+        // trying to list all namespaces might fail with 403 from K8s API if RBAC is tight.
+        // However, we are using admin credentials (cloud.secretKey) to talk to Harvester.
+        // So we will get the full list. We MUST filter it before returning.
+
         const candidates = [
           `${origin}/api/v1/namespaces`,
           `${origin}/v1/core.v1.namespaces`,
@@ -1804,7 +2404,8 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
           }
         }
         if (!json && lastErr) throw lastErr;
-        const items: any[] = (Array.isArray(json?.data)
+        
+        let items: any[] = (Array.isArray(json?.data)
           ? json?.data
           : Array.isArray(json?.items)
             ? json?.items
@@ -1815,6 +2416,24 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
                  view: `${origin}/api/v1/namespaces/${ns?.metadata?.name || ns?.name || ''}`
              }
         }));
+
+        console.log('[Namespaces] Raw items count:', items.length);
+
+        if (isTenant) {
+             const allowedNs = new Set<string>();
+             if (tenantNamespace) {
+                 tenantNamespace.split(',').forEach(ns => allowedNs.add(ns.trim()));
+             }
+
+             items = items.filter((ns: any) => {
+                 const name = ns.metadata?.name || ns.name;
+                 // Case-insensitive check
+                 return Array.from(allowedNs).some(allowed => allowed.toLowerCase() === String(name).toLowerCase());
+             });
+        } else if (tenantNamespace) {
+            // Non-tenant role but somehow restricted? (Should not happen based on checkTenantAccess logic)
+            items = items.filter((ns: any) => isNamespaceAllowed(tenantNamespace, ns.metadata?.name || ns.name));
+        }
         
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -1829,6 +2448,15 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
       try {
         const { id, name } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+        
+        const validNamespaces = tenantNamespace ? tenantNamespace.split(',').map(s => s.trim()) : [];
+        
+        if (tenantNamespace && !validNamespaces.includes(name)) {
+             return res.status(403).json({ message: 'Access denied to this namespace' });
+        }
+
         const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -1939,6 +2567,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1950,7 +2581,17 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
             insecure
         } as any);
 
-        res.json({ message: '查询成功', data: { items } });
+        // Add namespace filtering for tenant users
+        let filteredItems = items;
+        if (isTenant) {
+            filteredItems = tenantNamespace
+                ? items.filter((item: any) => isNamespaceAllowed(tenantNamespace, item.metadata?.namespace))
+                : [];
+        } else if (tenantNamespace) {
+            filteredItems = items.filter((item: any) => isNamespaceAllowed(tenantNamespace, item.metadata?.namespace));
+        }
+
+        res.json({ message: '查询成功', data: { items: filteredItems } });
       } catch (error: any) {
         res.status(500).json({ message: '查询镜像失败', error: error.body || error.message });
       }
@@ -1966,6 +2607,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id } = req.params;
+            const { allowed } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1989,6 +2633,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
       try {
         const { id, name } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -2031,6 +2678,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id } = req.params;
+            const { allowed } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -2057,6 +2707,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id } = req.params;
+            const { allowed } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -2080,6 +2733,9 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
         try {
             const { id } = req.params;
+            const { allowed } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
             const cloud = await fetchCloudOr404(id, res);
             if (!cloud) return;
             if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -2106,16 +2762,36 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+        
+        if (isTenant && !tenantNamespace) {
+             return res.json({ message: '查询成功', data: { items: [] } });
+        }
+
         const { namespace } = (req.query || {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
-        const items = await listHarvesterAvailableVolumesStandard(
+        const itemsRaw = await listHarvesterAvailableVolumesStandard(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          { namespace },
+          { namespace: '' },
         );
+
+        let items = itemsRaw;
+        if (isTenant) {
+             if (tenantNamespace) {
+                 items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.namespace));
+             } else {
+                 items = [];
+             }
+        } else if (tenantNamespace) {
+             items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.namespace));
+        } else if (namespace) {
+             items = items.filter((i: any) => i.namespace === namespace);
+        }
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询可用卷失败', error: error.body || error.message });

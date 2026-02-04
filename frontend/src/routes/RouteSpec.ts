@@ -107,25 +107,13 @@ export const routeSpecs: RouteSpec[] = [
     order: 3
   },
   {
-    id: 'access-policies',
-    path: '/admin/access/policies',
-    element: 'AccessPoliciesPage',
-    layout: 'admin',
-    platform: 'CNMC',
-    group: '权限管控',
-    title: '策略管理',
-    subtitle: '集中管理系统权限策略与自定义策略，支持基于 RBAC 与 ABAC 的细粒度控制。',
-    icon: 'SafetyCertificateOutlined',
-    order: 1
-  },
-  {
     id: 'access-actions',
     path: '/admin/access/actions',
     element: 'AccessActionsPage',
     layout: 'admin',
     platform: 'CNMC',
     group: '权限管控',
-    title: '权限原子',
+    title: '功能权限',
     subtitle: '列出后端提供的 API 级别功能点，供策略组合与角色授权使用。',
     icon: 'ApiOutlined',
     order: 0

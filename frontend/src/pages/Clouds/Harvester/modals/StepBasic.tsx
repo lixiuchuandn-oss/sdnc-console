@@ -73,7 +73,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
     <>
       <Typography.Paragraph type="secondary">设定新建云主机的基本信息，如名称、所属资源池等</Typography.Paragraph>
       <div className="wizard-group-title">基础配置</div>
-      <Row gutter={24}>
+      <Row gutter={12}>
         <Col span={12}>
           <Form.Item label="资源池" name="cloudId" initialValue={cloudId !== 'all' ? cloudId : undefined} rules={[{ required: true, message: '请选择资源池' }]}> 
             <Select 
@@ -102,13 +102,13 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
       </Row>
-      <Row gutter={24}>
+      <Row gutter={12}>
         <Col span={12}>
           <Form.Item label="运行位置" name="hostMode"> 
             <Radio.Group buttonStyle="solid" onChange={(e)=> setHostModeState(e.target.value)}>
               <Radio.Button value="auto">自动调度</Radio.Button>
               <Radio.Button value="node">指定主机</Radio.Button>
-              <Radio.Button value="label">标签选择器</Radio.Button>
+              <Radio.Button value="label">标签选择</Radio.Button>
             </Radio.Group>
           </Form.Item>
         </Col>

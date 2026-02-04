@@ -12,10 +12,19 @@ interface Props {
   style?: React.CSSProperties;
   listStyle?: React.CSSProperties;
   render?: (item: TransferItem) => any;
+  groupMode?: 'permission' | 'flat';
 }
 
 // Helper to build tree data from flat list
-const buildTreeData = (data: TransferItem[]) => {
+const buildTreeData = (data: TransferItem[], mode: 'permission' | 'flat' = 'permission') => {
+  if (mode === 'flat') {
+    return data.map(item => ({
+      key: String(item.key),
+      title: item.title,
+      isLeaf: true,
+      description: item.description,
+    }));
+  }
   const platformMap = new Map<string, any>();
   
   data.forEach(item => {
@@ -62,10 +71,10 @@ const buildTreeData = (data: TransferItem[]) => {
 };
 
 const PermissionTreeTransfer: React.FC<Props> = (props) => {
-  const { dataSource, targetKeys, onChange, titles, style } = props;
+  const { dataSource, targetKeys, onChange, titles, style, groupMode = 'permission' } = props;
   
   // Only rebuild tree when dataSource changes (ignore targetKeys changes)
-  const treeData = useMemo(() => buildTreeData(dataSource), [dataSource]);
+  const treeData = useMemo(() => buildTreeData(dataSource, groupMode), [dataSource, groupMode]);
 
   // Map targetKeys to full item objects for the right list
   const selectedItems = useMemo(() => {
@@ -119,10 +128,10 @@ const PermissionTreeTransfer: React.FC<Props> = (props) => {
               treeData={treeData}
               onCheck={handleTreeCheck}
               titleRender={(node: any) => {
-                  if (!node.isLeaf) return <span style={{ fontWeight: 'bold' }}>{node.title}</span>;
+                  if (!node.isLeaf) return <span style={{ fontFamily: 'monospace' }}>{node.title}</span>;
                   return (
                   <div style={{ display:'flex', flexDirection:'column', lineHeight:'1.4', padding:'4px 0' }}>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>{node.title}</span>
+                      <span style={{ fontFamily: 'monospace' }}>{node.title}</span>
                       <span style={{ fontSize: 12, color: '#888' }}>{node.description}</span>
                   </div>
                   );

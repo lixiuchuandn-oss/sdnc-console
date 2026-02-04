@@ -4,6 +4,9 @@ import { User, UserRole } from '../entities/User';
 import { TenantUser } from '../entities/TenantUser';
 import { Organization } from '../entities/Organization';
 import { Tenant } from '../entities/Tenant';
+import { RBACRole } from '../entities/RBACRole';
+import { RoleAssignment } from '../entities/RoleAssignment';
+import { In } from 'typeorm';
 import { AuthRequest } from '../middleware/auth';
 import bcrypt from 'bcryptjs';
 
@@ -103,9 +106,66 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
     }
 
     let resp: any = null;
-    if ((req.user as any).role === 'tenant') {
+    // Check if user is a tenant user (via isTenantUser flag from authMiddleware, or fallback to role check)
+    if ((req.user as any).isTenantUser || (req.user as any).role === 'tenant') {
       // tenant user already populated in authMiddleware
       const tu = req.user as any;
+      
+      // Fetch full tenant/org info
+      let tenantName = undefined;
+      let organizationName = undefined;
+      try {
+          const tenantRepo = AppDataSource.getRepository(TenantUser);
+          const fullUser = await tenantRepo.findOne({
+              where: { id: tu.id },
+              relations: ['tenant', 'organization']
+          });
+          tenantName = fullUser?.tenant?.name;
+          organizationName = fullUser?.organization?.name;
+      } catch (e) {
+          console.warn('Failed to fetch tenant/org info', e);
+      }
+      
+      let permissions: string[] = [];
+      try {
+        const trId = tu.role;
+        const assignRepo = AppDataSource.getRepository(RoleAssignment);
+        const roleRepo = AppDataSource.getRepository(RBACRole);
+        
+        // 1. Get explicit assignments
+        const assigns = await assignRepo.find({
+          where: { userType: 'tenant', userId: tu.id },
+        });
+        const roleIds = assigns.map((a) => a.roleId);
+
+        // 2. Include primary role if it's a UUID (custom role)
+        if (trId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trId)) {
+           if (!roleIds.includes(trId)) {
+             roleIds.push(trId);
+           }
+        }
+
+        // 3. Fetch all roles and merge permissions
+        if (roleIds.length > 0) {
+           const roles = await roleRepo.find({ where: { id: In(roleIds) } });
+           for (const r of roles) {
+             if (r.permissions) {
+               try {
+                 const raw = JSON.parse(r.permissions);
+                 if (Array.isArray(raw)) {
+                   permissions = permissions.concat(raw);
+                 }
+               } catch {}
+             }
+           }
+        }
+        
+        // Deduplicate
+        permissions = Array.from(new Set(permissions));
+      } catch (e) {
+        console.warn('Failed to fetch permissions for tenant user', e);
+      }
+
       resp = {
         id: tu.id,
         username: tu.username,
@@ -113,9 +173,12 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         fullName: tu.fullName,
         role: 'tenant',
         tenantRole: tu.role,
+        permissions,
         status: tu.status,
         createdAt: tu.createdAt,
         lastLoginAt: tu.lastLoginAt,
+        tenantName,
+        organizationName
       };
     } else {
       const userRepository = AppDataSource.getRepository(User);

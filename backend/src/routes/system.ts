@@ -347,6 +347,7 @@ router.get('/rbac/roles', async (req, res) => {
       order: { createdAt: 'DESC' }
     });
     // Transform to frontend Policy format
+    const SYSTEM_ROLES = ['Super Admin', 'Tenant Admin', 'User', '三权-审计员', '三权-运维操作员', '三权-策略管理员'];
     const list = roles.map(r => {
       let actions: string[] = [];
       let conditions: any = undefined;
@@ -366,11 +367,12 @@ router.get('/rbac/roles', async (req, res) => {
       return {
         id: r.id,
         name: r.name,
-        type: '自定义策略', // Backend roles are Custom Policies
+        type: SYSTEM_ROLES.includes(r.name) ? '系统策略' : '自定义策略',
         description: r.description,
         actions: Array.isArray(actions) ? actions : [],
         groups: [], // Calculated on frontend
-        conditions
+        conditions,
+        createdAt: r.createdAt
       };
     });
     res.json(list);
@@ -379,10 +381,12 @@ router.get('/rbac/roles', async (req, res) => {
   }
 });
 
-// 创建角色（仅超级管理员）
+// 创建角色（仅超级管理员或拥有 system.roles:write 权限）
 router.post('/rbac/roles', async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+    const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
+    const hasPerm = Array.isArray(req.user?.permissions) && req.user.permissions.includes('system.roles:write');
+    if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { name, description, scope = 'system', permissions = [] } = req.body as any;
     if (!name?.trim()) return res.status(400).json({ message: '角色名称不能为空' });
@@ -403,10 +407,12 @@ router.post('/rbac/roles', async (req: any, res) => {
   }
 });
 
-// 更新角色（仅超级管理员）
+// 更新角色（仅超级管理员或拥有 system.roles:write 权限）
 router.put('/rbac/roles/:id', async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+    const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
+    const hasPerm = Array.isArray(req.user?.permissions) && req.user.permissions.includes('system.roles:write');
+    if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const { name, description, scope, permissions, status } = req.body as any;
@@ -429,10 +435,12 @@ router.put('/rbac/roles/:id', async (req: any, res) => {
   }
 });
 
-// 删除角色（仅超级管理员）
+// 删除角色（仅超级管理员或拥有 system.roles:write 权限）
 router.delete('/rbac/roles/:id', async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+    const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
+    const hasPerm = Array.isArray(req.user?.permissions) && req.user.permissions.includes('system.roles:write');
+    if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const repo = AppDataSource.getRepository(RBACRole);

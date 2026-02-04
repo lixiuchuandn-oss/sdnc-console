@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Input, Modal, Select, Space, Table, Tag, Transfer, message } from 'antd';
-import StdFormModal from '../../../components/StdFormModal';
-import StdSideDrawer from '../../../components/StdSideDrawer';
-import { ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import PageContainer from '../../../components/PageContainer';
-import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
-import '../../common/filters.css';
+import { Button, Dropdown, Form, Input, Modal, Select, Space, Table, Transfer, message } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import StdFormModal from '../../components/StdFormModal';
+import StdSideDrawer from '../../components/StdSideDrawer';
+import { ReloadOutlined, SafetyCertificateOutlined, EllipsisOutlined } from '@ant-design/icons';
+import PageContainer from '../../components/PageContainer';
+import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
+import TableColumnSettings from '../../components/TableColumnSettings';
+import '../common/filters.css';
 
 type SysUser = {
   id: string;
@@ -42,6 +44,67 @@ const AccessUsersPage: React.FC = () => {
   const [editingUser, setEditingUser] = useState<SysUser | null>(null);
   const [isEditingAdmin, setIsEditingAdmin] = useState(false);
   const [rolesByUser, setRolesByUser] = useState<Record<string, string[]>>({});
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [visibleColumns, setVisibleColumns] = useState<ColumnsType<SysUser>>([]);
+
+  const defaultColumns: ColumnsType<SysUser> = [
+    { title:'姓名', dataIndex:'fullName' },
+    { title:'用户名', dataIndex:'username' },
+    { title:'邮箱', dataIndex:'email' },
+    { title:'类型', dataIndex:'builtIn', render: (_: any, row: SysUser) => { const b = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin'); return <span className={`std-badge ${b ? 'std-badge-info' : 'std-badge-default'}`}>{b?'内置':'自定义'}</span>; } },
+    { title:'角色', dataIndex:'roles', render: (_: any, row: SysUser) => {
+      const assigned = rolesByUser[row.id] || [];
+      const sysMap: Record<string,string> = { super_admin:'超级管理员', leased_lines_admin:'管理员', tenant:'系统用户' };
+      const sys = sysMap[row.role];
+      const all = sys ? [sys, ...assigned] : assigned;
+      return all.length ? <Space wrap>{all.map(n => <span key={n} className="std-badge std-badge-default">{n}</span>)}</Space> : <span>-</span>;
+    } },
+    { title:'状态', dataIndex:'status', render:(s:string)=> <span className={`std-badge ${s==='active'?'std-badge-success':s==='suspended'?'std-badge-warning':'std-badge-default'}`}>{ s==='active'?'活跃': s==='suspended'?'暂停':'非活跃' }</span> },
+    { title:'操作', key:'actions', render: (_:any, row: SysUser) => {
+      const itemsRaw = [
+        { key:'assign', label:'配置角色', icon:<SafetyCertificateOutlined />, onClick: () => openAssign(row) },
+        { key:'edit', label:'编辑用户', onClick: () => { setEditingUser(row); setIsEditingAdmin(row.username === 'admin'); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, role: row.role, status: row.status }); setEditOpen(true); } },
+        { type: 'divider' },
+        { key:'del', label:'删除用户', danger: true, onClick: async () => { const token = localStorage.getItem('token'); const res = await fetch(`/api/users/${row.id}`, { method:'DELETE', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } }); if (res.ok) { message.success('删除成功'); fetchUsers(); } else { try { message.error(await res.text()); } catch { message.error('删除失败'); } } } },
+      ];
+      const built = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin');
+      const items = itemsRaw
+        .filter(it => built ? (it.key === 'edit') : true);
+      
+      return <ResourceActionsDropdown items={items as any} />;
+    } }
+  ];
+
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) return;
+    Modal.confirm({
+      title: '批量删除',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 个用户吗？`,
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          setLoading(true);
+          const token = localStorage.getItem('token');
+          await Promise.all(selectedRowKeys.map(id => 
+            fetch(`/api/users/${id}`, { method:'DELETE', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+          ));
+          message.success('批量删除成功');
+          setSelectedRowKeys([]);
+          fetchUsers();
+        } catch (e) {
+          message.error('部分或全部删除失败');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
+  const batchMenuProps = {
+    items: [
+      { key: 'delete', label: '批量删除', danger: true, onClick: handleBatchDelete },
+    ]
+  };
 
   const fetchUsers = async () => {
     try {
@@ -140,64 +203,46 @@ const AccessUsersPage: React.FC = () => {
       titleLevel={3}
       asCard={false}
     >
-      <div className="filters-row">
+      <div className="page-toolbar">
         <Form 
           form={filterForm}
-          className="filter-tools filter-tools--center" 
+          className="toolbar-container" 
           layout="vertical" 
-          style={{ rowGap: 12, columnGap: 12, display:'flex', alignItems:'flex-end' }} 
           onValuesChange={(_,all)=> { setKw(all.keyword||''); setStatusFilter(all.status||'active'); }}
         >
-          <Form.Item name="keyword" label="关键字"><Input allowClear placeholder="搜索用户名/姓名/邮箱" style={{ width: 240 }} /></Form.Item>
-          <Form.Item name="status" label="状态" initialValue={statusFilter}><Select allowClear placeholder="全部" style={{ width: 160 }} options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
-          <a className="filter-reset-link" onClick={() => {
+          <Form.Item name="keyword" label="关键字"><Input allowClear placeholder="搜索用户名/姓名/邮箱" className="toolbar-search" /></Form.Item>
+          <Form.Item name="status" label="状态" initialValue={statusFilter}><Select allowClear placeholder="全部" className="toolbar-filter-sm" options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
+          <a className="toolbar-reset-btn" onClick={() => {
             setKw('');
             setStatusFilter('active');
             filterForm.resetFields();
             filterForm.setFieldsValue({ status: 'active' });
           }}>重置</a>
         </Form>
-        <div className="filter-actions">
-          <Space>
-            <Button type="primary" onClick={() => { const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`; createForm.setFieldsValue({ username: rand }); setCreateOpen(true); }}>新建系统用户</Button>
-            <Button icon={<ReloadOutlined />} onClick={fetchUsers} />
-          </Space>
+        <div className="toolbar-actions">
+          <Button type="primary" onClick={() => { const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`; createForm.setFieldsValue({ username: rand }); setCreateOpen(true); }}>新建系统用户</Button>
+          <Dropdown menu={batchMenuProps}>
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
+          <TableColumnSettings columns={defaultColumns} onChange={setVisibleColumns} settingsKey="sys_users_v1" />
+          <Button icon={<ReloadOutlined />} onClick={fetchUsers} />
         </div>
       </div>
 
       <Table
-        className="vr-table"
+        className="std-table"
         rowKey="id"
         loading={loading}
         dataSource={filteredUsers}
-        columns={[
-          { title:'姓名', dataIndex:'fullName' },
-          { title:'用户名', dataIndex:'username' },
-          { title:'邮箱', dataIndex:'email' },
-          { title:'类型', dataIndex:'builtIn', render: (_: any, row: SysUser) => { const b = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin'); return <Tag color={b?'blue':'default'}>{b?'内置':'自定义'}</Tag>; } },
-          { title:'角色', dataIndex:'roles', render: (_: any, row: SysUser) => {
-            const assigned = rolesByUser[row.id] || [];
-            const sysMap: Record<string,string> = { super_admin:'超级管理员', leased_lines_admin:'管理员', tenant:'系统用户' };
-            const sys = sysMap[row.role];
-            const all = sys ? [sys, ...assigned] : assigned;
-            return all.length ? <Space wrap>{all.map(n => <Tag key={n}>{n}</Tag>)}</Space> : <span>-</span>;
-          } },
-          { title:'状态', dataIndex:'status', render:(s:string)=> <Tag color={s==='active'?'green':s==='suspended'?'orange':'default'}>{ s==='active'?'活跃': s==='suspended'?'暂停':'非活跃' }</Tag> },
-          { title:'操作', key:'actions', render: (_:any, row: SysUser) => {
-            const itemsRaw = [
-              { key:'assign', label:'配置角色', icon:<SafetyCertificateOutlined />, onClick: () => openAssign(row) },
-              { key:'edit', label:'编辑用户', onClick: () => { setEditingUser(row); setIsEditingAdmin(row.username === 'admin'); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, role: row.role, status: row.status }); setEditOpen(true); } },
-              { type: 'divider' },
-              { key:'del', label:'删除用户', danger: true, onClick: async () => { const token = localStorage.getItem('token'); const res = await fetch(`/api/users/${row.id}`, { method:'DELETE', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } }); if (res.ok) { message.success('删除成功'); fetchUsers(); } else { try { message.error(await res.text()); } catch { message.error('删除失败'); } } } },
-            ];
-            const built = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin');
-            const items = itemsRaw
-              .filter(it => built ? (it.key === 'edit') : true);
-            
-            return <ResourceActionsDropdown items={items as any} />;
-          } }
-        ] as any}
-        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'], size: 'default' }}
+        columns={visibleColumns.length > 0 ? visibleColumns : defaultColumns}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: setSelectedRowKeys,
+          getCheckboxProps: (record: SysUser) => ({
+            disabled: (typeof record.builtIn === 'boolean') ? record.builtIn : (record.username === 'admin'),
+          }),
+        }}
+        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], size: 'small', showQuickJumper: false }}
         scroll={{ x: 'max-content' }}
         bordered
       />
@@ -272,10 +317,10 @@ const AccessUsersPage: React.FC = () => {
       <StdSideDrawer title="配置角色" open={assignOpen} onClose={()=> { setAssignOpen(false); setAssignUser(null); }} onOk={saveAssign} width={800}>
         <Form layout="vertical" style={{ display:'flex', gap: 16, marginBottom: 16 }}>
           <Form.Item label="角色范围" style={{ width: 160, marginBottom: 0 }}>
-            <Select value={assignScope} onChange={(v:any)=> setAssignScope(v)} options={[{ value:'all', label:'全部' }, { value:'system', label:'系统' }, { value:'tenant', label:'租户' }]} />
+            <Select value={assignScope} onChange={(v: 'all'|'system'|'tenant')=> setAssignScope(v)} options={[{ value:'all', label:'全部' }, { value:'system', label:'系统' }, { value:'tenant', label:'租户' }]} />
           </Form.Item>
           <Form.Item label="状态" style={{ width: 160, marginBottom: 0 }}>
-            <Select value={assignStatus} onChange={(v:any)=> setAssignStatus(v)} options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }]} />
+            <Select value={assignStatus} onChange={(v: 'all'|'active'|'inactive')=> setAssignStatus(v)} options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }]} />
           </Form.Item>
           <Form.Item label="关键字" style={{ flex: 1, marginBottom: 0 }}>
             <Input.Search allowClear placeholder="搜索角色名称或说明" value={assignRoleKw} onChange={e => setAssignRoleKw(e.target.value)} />

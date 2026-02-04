@@ -13,7 +13,13 @@ import { Tenant } from '../entities/Tenant';
 const csv = require('csv-parser');
 
 const router = express.Router();
-const upload = multer({ dest: 'uploads/' });
+
+// Ensure uploads directory exists
+const uploadsDir = 'uploads/';
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+const upload = multer({ dest: uploadsDir });
 
 const threatRepo = AppDataSource.getRepository(ThreatEvent);
 const tenantRepo = AppDataSource.getRepository(Tenant);

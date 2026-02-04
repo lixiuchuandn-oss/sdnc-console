@@ -20,7 +20,7 @@
 .std-table .ant-table-thead > tr > th {
   background: #f5f7fa !important; /* 浅灰背景 */
   color: #1f2329;                /* 深色文字 */
-  font-weight: normal;           /* 不加粗 */
+  font-weight: normal !important; /* 不加粗 */
   padding: 12px 16px !important; /* 内边距 */
   line-height: 22px;
   border-bottom: 1px solid #e5e6eb;
@@ -58,7 +58,184 @@
   opacity: 0.8;
 }
 
+/* 
+ * 统计数据列触发器 (Statistics Trigger)
+ * 用于显示带有 Hover 详情的统计数字 (如: 权限数 5)
+ * 样式：圆角矩形背景 (徽章风格)，提示可交互
+ */
+.std-table .stat-trigger {
+  cursor: help; /* 使用 help 光标提示有更多信息 */
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 4px; /* 圆角 */
 
+  background-color: #f2f3f5; /* 背景：浅灰 */
+  color: #1f2329; /* 文字：深灰 */
+  font-weight: 500;
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+.std-table .stat-trigger:hover {
+  background-color: #d6e4ff; /* 悬停：加深背景 */
+  border-color: #1677ff; /* 边框：深蓝 */
+  color: #1677ff;
+  box-shadow: 0 2px 4px rgba(22, 119, 255, 0.15); /* 蓝色系投影 */
+}
+
+/* 
+ * 徽章列样式 (Badge Column)
+ * 用于统一列表中的状态、类型等标签显示
+ * 替代散乱的 Tag 组件样式
+ */
+.std-table .std-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  height: 22px;
+  line-height: 20px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 成功/运行中 (Success/Running) - 绿色 */
+.std-table .std-badge-success {
+  background-color: #f6ffed;
+  border-color: #b7eb8f;
+  color: #52c41a;
+}
+
+/* 警告/异常 (Warning) - 橙色 */
+.std-table .std-badge-warning {
+  background-color: #fff7e6;
+  border-color: #ffd591;
+  color: #fa8c16;
+}
+
+/* 错误/停止 (Error/Stopped) - 红色 */
+.std-table .std-badge-error {
+  background-color: #fff1f0;
+  border-color: #ffa39e;
+  color: #f5222d;
+}
+
+/* 信息/处理中 (Info/Processing) - 蓝色 */
+.std-table .std-badge-info {
+  background-color: #e6f7ff;
+  border-color: #91caff;
+  color: #1677ff;
+}
+
+/* 默认/未知 (Default/Unknown) - 灰色 */
+.std-table .std-badge-default {
+  background-color: #f5f5f5;
+  border-color: #d9d9d9;
+  color: #000000d9;
+}
+
+/* 
+ * 状态列样式 (Status Column)
+ * 用于统一列表中的生命周期状态 (Dot + Text)
+ * 对应 Ant Design Badge 样式，但提供纯 CSS 实现
+ */
+.std-table .std-status {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  color: #1f2329;
+}
+
+.std-table .std-status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+  background-color: #d9d9d9; /* Default gray */
+}
+
+.std-table .std-status.status-success::before {
+  background-color: #52c41a;
+}
+
+.std-table .std-status.status-warning::before {
+  background-color: #fa8c16;
+}
+
+.std-table .std-status.status-error::before {
+  background-color: #f5222d;
+}
+
+.std-table .std-status.status-processing::before {
+  background-color: #1677ff;
+}
+
+/* 
+ * 时间列样式 (Time Column)
+ * 使用等宽数字字体，确保列表纵向对齐
+ * 弱化颜色以减少视觉干扰
+ */
+.std-table .std-time {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  color: rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; /* 确保数字字体一致 */
+}
+
+/* 
+ * 列表页工具栏容器 (Toolbar Container)
+ * 对应 PageContainer 规范中的 left 区域 Form 结构
+ */
+.toolbar-container {
+  display: flex !important;
+  align-items: flex-end !important;
+  row-gap: 12px !important;
+  column-gap: 12px !important;
+}
+
+/* 
+ * 工具栏 Label 样式
+ * 规范：字体14px，颜色#000000E0，paddingBottom 8px
+ * 注意：Ant Design Form.Item 默认 label 样式可能需要覆盖
+ */
+.toolbar-container .ant-form-item-label > label {
+  font-size: 14px !important;
+  color: rgba(0, 0, 0, 0.88) !important; /* #000000E0 对应的 rgba */
+  height: auto !important;
+}
+
+/* 覆盖 AntD Form Item 的 margin，避免过大 */
+.toolbar-container .ant-form-item {
+  margin-bottom: 0 !important;
+}
+
+/* 
+ * 工具栏重置链接样式
+ * 规范：纯文字链接，底部对齐，容器总高度32px，垂直居中，无padding/margin
+ */
+.toolbar-reset-btn {
+  height: 32px !important;
+  line-height: 32px !important;
+  display: inline-block !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: var(--primary-color, #1677ff);
+  cursor: pointer;
+  align-self: flex-end; /* 确保在 Flex 容器中底部对齐 */
+}
+
+.toolbar-reset-btn:hover {
+  opacity: 0.8;
+}
 
 /* 
  * 表单控件尺寸工具 (Toolbar)
@@ -67,7 +244,7 @@
 
 /* .toolbar-search: 标准搜索框宽度 (240px) */
 .toolbar-search {
-  width: 240px !important;
+  width: 200px !important;
 }
 
 /* .toolbar-filter: 标准筛选框宽度 (200px)，适用于大多数状态、类型筛选 */
@@ -75,9 +252,73 @@
   width: 200px !important;
 }
 
+/* 
+ * 页面工具栏容器 (Page Toolbar Wrapper)
+ * 用于包裹左侧筛选表单(.toolbar-container)和右侧操作按钮(.toolbar-actions)
+ * 实现左右两端对齐布局
+ */
+.page-toolbar {
+  display: flex;
+  justify-content: space-between; /* 左右两端对齐：左侧筛选，右侧按钮 */
+  align-items: flex-end;          /* 底部对齐：确保输入框和按钮在同一基线 */
+  margin-bottom: 16px;            /* 底部间距：与表格保持距离 */
+  flex-wrap: wrap;                /* 允许换行：小屏幕适配 */
+  gap: 12px;                      /* 换行后的行间距 */
+}
+
 /* .toolbar-filter-sm: 小型筛选框宽度 (140px)，适用于选项较短或空间紧凑的场景 */
 .toolbar-filter-sm {
   width: 140px !important;
+}
+
+/* 
+ * 列表页工具栏右侧操作区域 (Toolbar Actions)
+ * 对应 PageContainer 规范中的 right 区域
+ */
+.toolbar-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important; /* 统一间距 */
+}
+
+/* 确保按钮内边距一致 */
+.toolbar-actions .ant-btn {
+  padding: 4px 15px !important; /* 调整为更标准的按钮内边距 */
+}
+
+/* 图标按钮特殊处理 (如刷新、更多) */
+.toolbar-actions .ant-btn.ant-btn-icon-only {
+  padding: 0 !important; /* 移除内边距，确保内容居中 */
+  width: 32px !important; /* 强制宽度 */
+  height: 32px !important; /* 强制高度，确保正方形 */
+  display: flex !important;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 
+ * 行操作菜单触发器样式 (Row Actions)
+ * 用于规范化表格中的操作列按钮 (通常是 <EllipsisOutlined />)
+ * 替代 ResourceActionsDropdown 组件的强制尺寸逻辑
+ */
+.row-actions-trigger {
+  width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  justify-content: center;
+  align-items: center;
+  border: none !important; /* 移除边框，保持纯图标外观 */
+  background: transparent !important;
+  color: #1f2329;
+  cursor: pointer;
+  transition: color 0.3s;
+}
+
+.row-actions-trigger:hover {
+  color: var(--primary-color, #1677ff);
+  background: rgba(0, 0, 0, 0.04) !important; /* 悬停时添加淡淡的背景 */
+  border-radius: 4px;
 }
 
 /* 

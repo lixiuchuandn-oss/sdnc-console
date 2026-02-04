@@ -40,6 +40,9 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
     if (decoded.role === 'tenant') {
       const tenantRepo = AppDataSource.getRepository(TenantUser);
       user = await tenantRepo.findOne({ where: { id: decoded.userId } });
+      if (user) {
+        (user as any).isTenantUser = true;
+      }
     } else {
       const userRepository = AppDataSource.getRepository(User);
       user = await userRepository.findOne({ where: { id: decoded.userId } });
@@ -72,10 +75,12 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
 
       let perms: string[] = [];
       if (roleIds.length) {
+        // console.log('[AuthMiddleware] Fetching roles:', roleIds);
         const roles = await roleRepo.find({ where: { id: In(roleIds) } });
         for (const r of roles) {
           try {
             const arr = JSON.parse(String(r.permissions || '[]')) as string[];
+            // console.log(`[AuthMiddleware] Role ${r.name} permissions:`, arr);
             perms = perms.concat(Array.isArray(arr) ? arr : []);
           } catch {}
         }
@@ -89,6 +94,7 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
         }
       } catch {}
       (user as any).permissions = Array.from(new Set(perms));
+      // console.log('[AuthMiddleware] Final permissions for user:', user.username, (user as any).permissions);
     } catch {}
 
     req.user = user;

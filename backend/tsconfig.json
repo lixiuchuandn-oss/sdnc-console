@@ -22,6 +22,7 @@
     "node_modules",
     "dist",
     "**/*.test.ts",
+    "tests/**/*",
     "src/standalone_test.ts",
     "src/test_csm_assets_manual.ts"
   ]

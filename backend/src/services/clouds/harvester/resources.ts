@@ -199,13 +199,19 @@ export const listHarvesterImagesRaw = async ({
       ];
   }
 
+  console.log(`[HarvesterImages] Fetching images for namespace '${namespace || 'all'}'. Origin: ${origin}. Candidates: ${JSON.stringify(candidates)}`);
+
   let json: any = null;
   let lastErr: any = null;
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
-      if (json) break;
+      if (json) {
+        console.log(`[HarvesterImages] Successfully fetched from ${url}. Items count: ${Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0)}`);
+        break;
+      }
     } catch (e: any) {
+      console.warn(`[HarvesterImages] Failed to fetch from ${url}: ${e.message}`);
       lastErr = e;
     }
   }
@@ -238,6 +244,7 @@ export const listHarvesterImagesStandard = async ({
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const candidates = [
+    `${origin}/apis/harvesterhci.io/v1beta1/virtualmachineimages`,
     `${origin}/v1/harvester/harvesterhci.io.virtualmachineimages`,
     `${origin}/apis/harvesterhci.io/v1/virtualmachineimages`,
   ];

@@ -25,17 +25,23 @@ Thumbs.db
 /frontend/.env*
 
 # Ignore temporary test artifacts and debug scripts in backend
-/backend/tests/scripts/
-/backend/tests/artifacts/
-
-# Ignore backend diagnostic scripts
+/backend/tests/
 /backend/scripts/
 /backend/verify_acl.js
+/backend/public/
 
 # Ignore deployment directory (local only)
 /deployment/
 
 # Ignore release artifacts
-/release/*.zip
+/release/
+
+# Documentation and Bugs
+/docs/
+/bug/
+
+# Temporary Upload Directories
+/backend/temp_uploads/
+/backend/uploads/
 
 

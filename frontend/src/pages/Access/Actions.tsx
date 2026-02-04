@@ -3,10 +3,10 @@ import { Button, Form, Input, Select, Space, Table, Tag, Tree } from 'antd';
 import { ApiOutlined, ReloadOutlined } from '@ant-design/icons';
  
 import axios from 'axios';
-import { routeSpecs } from '../../../routes/RouteSpec';
-import PageContainer from '../../../components/PageContainer';
-import { PLATFORMS, PLATFORM_LABELS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../../catalogs/navCatalog';
-import '../../common/filters.css';
+import { routeSpecs } from '../../routes/RouteSpec';
+import PageContainer from '../../components/PageContainer';
+import { PLATFORMS, PLATFORM_LABELS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../catalogs/navCatalog';
+import '../common/filters.css';
 
 type ApiItem = { method: string; path: string; file: string };
 type ActionItem = { key: string; action: string; group: string; feature: string; platform: string; desc: string; bound: boolean; apis: ApiItem[] };
@@ -237,7 +237,7 @@ const AccessActionsPage: React.FC = () => {
               }}
             >
               <Form.Item name="keyword" label="关键字">
-                <Input allowClear placeholder="搜索权限原子" style={{ width: 240 }} />
+                <Input allowClear placeholder="搜索功能权限" className="toolbar-search" />
               </Form.Item>
               <Form.Item name="group" label="分组" initialValue={activeGroup}>
                 <Select showSearch optionFilterProp="label" style={{ width: 220 }} options={groups.map(g => ({ value: g, label: g }))} />
@@ -260,7 +260,7 @@ const AccessActionsPage: React.FC = () => {
             </Space>
           </div>
           <Table
-            className="vr-table"
+            className="std-table"
             rowKey={(r:any)=> r.key || r.id || Math.random().toString(36).slice(2)}
             dataSource={rows}
             expandable={{
@@ -287,9 +287,9 @@ const AccessActionsPage: React.FC = () => {
               { title:'功能', dataIndex:'feature' },
               { title:'分组', dataIndex:'group' },
               { title:'描述', dataIndex:'desc' },
-              { title:'状态', key:'status', render: (_:any, r:any) => (<Tag color={r.bound? 'green':'gold'}>{r.bound? '已绑定':'策划'}</Tag>) },
+              { title:'状态', key:'status', render: (_:any, r:any) => (<span className={`std-badge ${r.bound ? 'std-badge-success' : 'std-badge-warning'}`}>{r.bound ? '已绑定' : '策划'}</span>) },
             ] as any}
-            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'], size: 'default' }}
+            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], size: 'small', showQuickJumper: false }}
             scroll={{ x: 'max-content' }}
             bordered
           />

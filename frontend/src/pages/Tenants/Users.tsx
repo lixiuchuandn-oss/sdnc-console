@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, Tag, message, Typography, Input, Select, Form } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useRef } from 'react';
+import { Table, Button, message, Typography, Input, Select, Form, Dropdown, Modal, Transfer } from 'antd';
+import { ReloadOutlined, UserAddOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import PageContainer from '../../components/PageContainer';
+import TableColumnSettings from '../../components/TableColumnSettings';
+import StdFormModal from '../../components/StdFormModal';
+import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 import '../common/filters.css';
 
-const { Text } = Typography;
 const { Option } = Select;
 
 interface TenantUser {
@@ -14,7 +16,7 @@ interface TenantUser {
   username: string;
   email: string;
   fullName: string;
-  role: 'admin' | 'user' | 'viewer';
+  role: string;
   status: 'active' | 'inactive';
   createdAt: string;
   tenant: {
@@ -29,6 +31,29 @@ interface TenantUser {
   } | null;
 }
 
+interface RBACRole {
+  id: string;
+  name: string;
+  description: string;
+  status: 'active' | 'inactive';
+  type: 'system' | 'custom';
+}
+
+interface Assignment {
+  id: string;
+  roleId: string;
+  userId: string;
+}
+
+interface CreateUserFormValues {
+  username: string;
+  email: string;
+  password: string;
+  tenantId: string;
+  organizationId?: string;
+  role: string;
+}
+
 const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<TenantUser[]>([]);
@@ -37,23 +62,43 @@ const UserManagement: React.FC = () => {
   const [selectedTenant, setSelectedTenant] = useState<string>('');
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('');
+  
+  // Batch Operations State
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
+  // Create User State
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createForm] = Form.useForm();
+  const [tenants, setTenants] = useState<Array<{ id: string; name: string }>>([]);
+  const [organizations, setOrganizations] = useState<Array<{ id: string; name: string }>>([]);
+  
+  // Role Assignment State
+  const [assignRoleModalOpen, setAssignRoleModalOpen] = useState(false);
+  const [currentAssignUser, setCurrentAssignUser] = useState<TenantUser | null>(null);
+  const [availableRoles, setAvailableRoles] = useState<RBACRole[]>([]);
+  const [roleAssignExisting, setRoleAssignExisting] = useState<Assignment[]>([]);
+  const [roleAssignSelected, setRoleAssignSelected] = useState<string[]>([]);
+
   const [filterForm] = Form.useForm();
-  const handleFilterChange = (_: any, all: any) => {
-    setSearchText(all.keyword || '');
-    setSelectedTenant(all.tenant || '');
-    setSelectedRole(all.role || '');
-    setSelectedStatus(all.status || '');
+
+  // Fetch Helper
+  const apiCall = async (method: string, url: string, data?: any) => {
+    const token = localStorage.getItem('token');
+    return axios({
+      method,
+      url,
+      data,
+      headers: { Authorization: `Bearer ${token}` }
+    });
   };
 
   const fetchTenantUsers = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/users/tenant-users', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await apiCall('get', '/api/users/tenant-users');
       setUsers(response.data);
       setFilteredUsers(response.data);
+      setSelectedRowKeys([]); // Reset selection on refresh
     } catch (error: any) {
       message.error(error.response?.data?.message || '获取用户列表失败');
     } finally {
@@ -61,9 +106,53 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const fetchTenants = async () => {
+    try {
+      const response = await apiCall('get', '/api/tenants');
+      setTenants(response.data.tenants || response.data);
+    } catch (error) {
+      console.error('Failed to fetch tenants', error);
+    }
+  };
+
+  const fetchOrganizations = async (tenantId: string) => {
+    try {
+      const response = await apiCall('get', `/api/tenants/${tenantId}/organizations`);
+      setOrganizations(response.data);
+    } catch (error) {
+      console.error('Failed to fetch organizations', error);
+      setOrganizations([]);
+    }
+  };
+
+  const fetchRoles = async () => {
+    try {
+      const response = await apiCall('get', '/api/system/rbac/roles?limit=1000');
+      const raw = response.data;
+      const list: RBACRole[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.roles) ? raw.roles : []);
+      setAvailableRoles(list.filter(r => String(r.status || 'active') === 'active'));
+    } catch (error) {
+      console.error('Failed to fetch roles', error);
+    }
+  };
+
   useEffect(() => {
     fetchTenantUsers();
+    fetchTenants();
+    fetchRoles();
   }, []);
+
+  const availableRolesRef = useRef(availableRoles);
+  useEffect(() => {
+    availableRolesRef.current = availableRoles;
+  }, [availableRoles]);
+
+  const handleFilterChange = (_: any, all: any) => {
+    setSearchText(all.keyword || '');
+    setSelectedTenant(all.tenant || '');
+    setSelectedRole(all.role || '');
+    setSelectedStatus(all.status || '');
+  };
 
   useEffect(() => {
     let filtered = users;
@@ -89,56 +178,195 @@ const UserManagement: React.FC = () => {
   }, [users, searchText, selectedTenant, selectedRole, selectedStatus]);
 
   const getTenantOptions = () => {
-    const tenants = users.reduce((acc, user) => {
+    const tenantList = users.reduce((acc, user) => {
       if (user.tenant && !acc.find(t => t.id === user.tenant!.id)) {
         acc.push(user.tenant);
       }
       return acc;
     }, [] as Array<{ id: string; name: string; description?: string }>);
-    return tenants;
+    return tenantList;
   };
 
-  const columns: ColumnsType<TenantUser> = [
-    { title: '姓名', dataIndex: 'fullName', key: 'fullName', width: 160 },
-    { title: '用户名', dataIndex: 'username', key: 'username', width: 140 },
-    { title: '邮箱', dataIndex: 'email', key: 'email', width: 220 },
-    { title: '租户', key: 'tenant.name', width: 180, render: (_, record) => record.tenant?.name || '-' },
-    { title: '租户描述', key: 'tenant.description', width: 220, render: (_, record) => record.tenant?.description || '-' },
-    { title: '组织', key: 'organization.name', width: 180, render: (_, record) => record.organization?.name || '-' },
-    { title: '组织级别', key: 'organization.level', width: 110, render: (_, record) => {
+  // Handle Tenant Change in Create Form
+  const handleCreateTenantChange = (tenantId: string) => {
+    createForm.setFieldsValue({ organizationId: undefined });
+    fetchOrganizations(tenantId);
+  };
+
+  // Create User
+  const handleCreateUser = async (values: CreateUserFormValues) => {
+    try {
+      if (!values.tenantId || !values.organizationId) {
+        message.error('请选择租户和组织');
+        return;
+      }
+      await apiCall('post', `/api/tenants/${values.tenantId}/organizations/${values.organizationId}/users`, values);
+      message.success('创建用户成功');
+      setCreateModalOpen(false);
+      createForm.resetFields();
+      fetchTenantUsers();
+    } catch (error: any) {
+      message.error(error.response?.data?.message || '创建用户失败');
+    }
+  };
+
+  // Delete User
+  const handleDeleteUser = async (user: TenantUser) => {
+    if (!user.tenant || !user.organization) {
+      message.error('用户数据缺失租户或组织信息，无法删除');
+      return;
+    }
+    try {
+      await apiCall('delete', `/api/tenants/${user.tenant.id}/organizations/${user.organization.id}/users/${user.id}`);
+      message.success('删除用户成功');
+      fetchTenantUsers();
+    } catch (error: any) {
+      message.error(error.response?.data?.message || '删除用户失败');
+    }
+  };
+
+  // Batch Delete
+  const handleBatchDelete = () => {
+    Modal.confirm({
+      title: '确认批量删除用户',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 个用户吗？删除后无法恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const deletePromises = selectedRowKeys.map(key => {
+            const user = users.find(u => u.id === key);
+            if (user && user.tenant && user.organization) {
+              return apiCall('delete', `/api/tenants/${user.tenant.id}/organizations/${user.organization.id}/users/${user.id}`);
+            }
+            return Promise.resolve();
+          });
+          await Promise.all(deletePromises);
+          message.success('批量删除成功');
+          fetchTenantUsers();
+        } catch (error: any) {
+          message.error('批量删除过程中发生错误');
+        }
+      }
+    });
+  };
+
+  // Assign Roles Logic
+  const openAssignRoleModal = async (user: TenantUser) => {
+    setCurrentAssignUser(user);
+    setAssignRoleModalOpen(true);
+    setRoleAssignExisting([]);
+    setRoleAssignSelected([]);
+    
+    try {
+      const res = await apiCall('get', `/api/system/rbac/assignments?userType=tenant&userId=${user.id}`);
+      const rawList = Array.isArray((res.data as any)?.assignments) ? (res.data as any).assignments : [];
+      const list: Assignment[] = rawList.map((it: any) => ({
+        ...it,
+        roleId: it.roleId || it.role_id
+      }));
+      setRoleAssignExisting(list);
+      setRoleAssignSelected(list.map(it => it.roleId));
+    } catch (error) {
+      message.error('获取用户角色失败');
+    }
+  };
+
+  const handleSaveRoles = async () => {
+    if (!currentAssignUser) return;
+    
+    const currentRoleIds = new Set(roleAssignExisting.map(x => x.roleId));
+    const needAdd = roleAssignSelected.filter(id => !currentRoleIds.has(id));
+    const needRemove = roleAssignExisting.filter(x => !roleAssignSelected.includes(x.roleId));
+
+    try {
+      for (const roleId of needAdd) {
+        await apiCall('post', '/api/system/rbac/assignments', { 
+          roleId, 
+          userType: 'tenant', 
+          userId: currentAssignUser.id 
+        });
+      }
+      for (const it of needRemove) {
+        await apiCall('delete', `/api/system/rbac/assignments/${encodeURIComponent(it.id)}`);
+      }
+      message.success('角色赋权已保存');
+      setAssignRoleModalOpen(false);
+      setCurrentAssignUser(null);
+    } catch (error) {
+      message.error('保存角色赋权失败');
+    }
+  };
+
+  const baseColumns: ColumnsType<TenantUser> = [
+    { title: '姓名', dataIndex: 'fullName', key: 'fullName' },
+    { title: '用户名', dataIndex: 'username', key: 'username' },
+    { title: '邮箱', dataIndex: 'email', key: 'email' },
+    { title: '租户', key: 'tenant.name', render: (_, record) => record.tenant?.name || '-' },
+    { title: '租户描述', key: 'tenant.description', render: (_, record) => record.tenant?.description || '-' },
+    { title: '组织', key: 'organization.name', render: (_, record) => record.organization?.name || '-' },
+    { title: '组织级别', key: 'organization.level', render: (_, record) => {
       const lvl = record.organization?.level;
       const label = lvl === 1 ? '根组织' : lvl === 2 ? '二级' : lvl === 3 ? '三级' : '-';
-      const color = lvl === 1 ? 'blue' : lvl === 2 ? 'green' : lvl === 3 ? 'orange' : 'default';
-      return <Tag color={color}>{label}</Tag>;
+      const badgeClass = lvl === 1 ? 'std-badge std-badge-info' : lvl === 2 ? 'std-badge std-badge-success' : lvl === 3 ? 'std-badge std-badge-warning' : 'std-badge std-badge-default';
+      return <span className={badgeClass}>{label}</span>;
     } },
     {
       title: '角色',
       dataIndex: 'role',
       key: 'role',
-      width: 100,
       render: (role: string) => {
-        const colors = { admin: 'red', user: 'blue', viewer: 'green' } as const;
-        const labels = { admin: '管理员', user: '用户', viewer: '查看者' } as const;
-        return <Tag color={colors[role as keyof typeof colors]}>{labels[role as keyof typeof labels]}</Tag>;
+        const matchedRole = availableRolesRef.current.find(r => r.id === role || r.name === role);
+        const roleName = matchedRole ? matchedRole.name : role;
+        const isSystem = matchedRole?.type === 'system';
+        const badgeClass = isSystem ? 'std-badge std-badge-info' : 'std-badge std-badge-success';
+        return <span className={badgeClass}>{roleName}</span>;
       },
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
       render: (status: string) => (
-        <Tag color={status === 'active' ? 'green' : 'red'}>{status === 'active' ? '活跃' : '非活跃'}</Tag>
+        <span className={status === 'active' ? 'std-badge std-badge-success' : 'std-badge std-badge-error'}>{status === 'active' ? '活跃' : '非活跃'}</span>
       ),
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 160,
-      render: (date: string) => new Date(date).toLocaleString(),
+      render: (date: string) => <span className="std-time">{new Date(date).toLocaleString()}</span>,
     },
+    {
+      title: '操作',
+      key: 'action',
+      fixed: 'right',
+      render: (_, record) => (
+        <ResourceActionsDropdown
+          items={[
+            { key: 'assign', label: '分配角色' },
+            { key: 'delete', label: '删除', danger: true }
+          ]}
+          onClick={({ key }) => {
+            if (key === 'assign') openAssignRoleModal(record);
+            if (key === 'delete') {
+              Modal.confirm({
+                title: '确认删除用户',
+                content: `确定要删除用户 "${record.username}" 吗？此操作无法撤销。`,
+                okText: '删除',
+                okType: 'danger',
+                cancelText: '取消',
+                onOk: () => handleDeleteUser(record),
+              });
+            }
+          }}
+        />
+      )
+    }
   ];
+
+  const [columns, setColumns] = useState<ColumnsType<TenantUser>>(baseColumns);
 
   return (
     <PageContainer
@@ -146,51 +374,154 @@ const UserManagement: React.FC = () => {
       subtitle="管理租户用户，并支持按租户、角色与状态筛选"
       asCard={false}
     >
-      <div className="filters-row">
+      <div className="page-toolbar">
         <Form
-          className="filter-tools filter-tools--center"
+          className="toolbar-container"
           form={filterForm}
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
           onValuesChange={handleFilterChange}
         >
-          <Form.Item name="keyword" label="关键词"><Input allowClear placeholder="用户名/姓名/邮箱" style={{ width:200 }} /></Form.Item>
-          <Form.Item name="tenant" label="租户"><Select allowClear placeholder="选择租户" style={{ width:200 }}>
+          <Form.Item name="keyword" label="关键词"><Input className="toolbar-search" allowClear placeholder="用户名/姓名/邮箱" /></Form.Item>
+          <Form.Item name="tenant" label="租户"><Select className="toolbar-filter" allowClear placeholder="选择租户">
             {getTenantOptions().map(tenant=>(<Option key={tenant.id} value={tenant.id}>{tenant.name}</Option>))}
           </Select></Form.Item>
-          <Form.Item name="role" label="角色"><Select allowClear placeholder="选择角色" style={{ width:120 }}>
-            <Option value="admin">管理员</Option>
-            <Option value="user">用户</Option>
-            <Option value="viewer">查看者</Option>
+          <Form.Item name="role" label="角色"><Select className="toolbar-filter-sm" allowClear placeholder="选择角色">
+            {availableRoles.map(r => <Option key={r.id} value={r.id}>{r.name}</Option>)}
           </Select></Form.Item>
-          <Form.Item name="status" label="状态"><Select allowClear placeholder="选择状态" style={{ width:120 }}>
+          <Form.Item name="status" label="状态"><Select className="toolbar-filter-sm" allowClear placeholder="选择状态">
             <Option value="active">活跃</Option>
             <Option value="inactive">非活跃</Option>
           </Select></Form.Item>
-          <Form.Item>
-            <Button type="link" style={{ padding:0 }} onClick={()=>{filterForm.resetFields(); setSearchText(''); setSelectedTenant(''); setSelectedRole(''); setSelectedStatus('');}}>重置</Button>
-          </Form.Item>
+          <a className="toolbar-reset-btn" onClick={()=>{filterForm.resetFields(); setSearchText(''); setSelectedTenant(''); setSelectedRole(''); setSelectedStatus('');}}>重置</a>
         </Form>
-        <Space className="filter-actions">
-          <Button icon={<ReloadOutlined />} onClick={fetchTenantUsers} loading={loading}>刷新</Button>
-        </Space>
+        <div className="toolbar-actions">
+          <Button type="primary" icon={<UserAddOutlined />} onClick={() => setCreateModalOpen(true)}>
+            创建子用户
+          </Button>
+          <Button 
+            danger 
+            icon={<DeleteOutlined />} 
+            onClick={handleBatchDelete}
+            disabled={selectedRowKeys.length === 0}
+          >
+            批量删除 {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : ''}
+          </Button>
+          <TableColumnSettings
+            columns={baseColumns}
+            onChange={setColumns}
+            settingsKey="tenant-users-columns"
+          />
+          <Button icon={<ReloadOutlined />} onClick={fetchTenantUsers} loading={loading} />
+        </div>
       </div>
 
       <Table
-        className="vr-table vr-table--middle"
+        className="std-table"
         columns={columns}
         dataSource={filteredUsers}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize:20, showSizeChanger:true, showQuickJumper:true, showTotal:(total,range)=>`第 ${range[0]}-${range[1]} 条，共 ${total} 条记录`, }}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: setSelectedRowKeys,
+        }}
+        pagination={{ 
+          size: 'small', 
+          showSizeChanger: true, 
+          pageSize: 20,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showQuickJumper: false,
+          showTotal:(total,range)=>`第 ${range[0]}-${range[1]} 条，共 ${total} 条记录`
+        }}
         bordered
-        tableLayout="fixed"
         scroll={{ x:'max-content' }}
       />
+
+      <StdFormModal
+        open={createModalOpen}
+        title="创建子用户"
+        onCancel={() => setCreateModalOpen(false)}
+        onFinish={handleCreateUser}
+        form={createForm}
+      >
+        <Form.Item
+          name="username"
+          label="用户名"
+          rules={[{ required: true, message: '请输入用户名' }]}
+        >
+          <Input placeholder="请输入用户名" />
+        </Form.Item>
+        <Form.Item
+          name="fullName"
+          label="姓名"
+          rules={[{ required: true, message: '请输入姓名' }]}
+        >
+          <Input placeholder="请输入姓名" />
+        </Form.Item>
+        <Form.Item
+          name="email"
+          label="邮箱"
+          rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效的邮箱地址' }]}
+        >
+          <Input placeholder="请输入邮箱" />
+        </Form.Item>
+        <Form.Item
+          name="password"
+          label="密码"
+          rules={[{ required: true, message: '请输入密码' }]}
+        >
+          <Input.Password placeholder="请输入密码" />
+        </Form.Item>
+        <Form.Item
+          name="tenantId"
+          label="所属租户"
+          rules={[{ required: true, message: '请选择所属租户' }]}
+        >
+          <Select placeholder="选择租户" onChange={handleCreateTenantChange}>
+            {tenants.map(t => <Option key={t.id} value={t.id}>{t.name}</Option>)}
+          </Select>
+        </Form.Item>
+        <Form.Item
+          name="organizationId"
+          label="所属组织"
+          rules={[{ required: true, message: '请选择所属组织' }]}
+        >
+          <Select placeholder="选择组织" disabled={!organizations.length}>
+            {organizations.map(o => <Option key={o.id} value={o.id}>{o.name}</Option>)}
+          </Select>
+        </Form.Item>
+        <Form.Item
+          name="role"
+          label="初始角色"
+          rules={[{ required: true, message: '请选择初始角色' }]}
+        >
+          <Select placeholder="选择角色">
+            {availableRoles.map(r => <Option key={r.id} value={r.id}>{r.name}</Option>)}
+          </Select>
+        </Form.Item>
+      </StdFormModal>
+
+      <Modal
+        title={`分配角色 - ${currentAssignUser?.username}`}
+        open={assignRoleModalOpen}
+        onOk={handleSaveRoles}
+        onCancel={() => setAssignRoleModalOpen(false)}
+        width={700}
+      >
+        <Transfer
+          dataSource={availableRoles}
+          titles={['可选角色', '已选角色']}
+          targetKeys={roleAssignSelected}
+          onChange={(nextTargetKeys) => setRoleAssignSelected(nextTargetKeys as string[])}
+          render={(item) => item.name}
+          rowKey={(item) => item.id}
+          listStyle={{ width: 300, height: 400 }}
+          showSearch
+        />
+      </Modal>
     </PageContainer>
   );
 };
 
 export default UserManagement;
-
-export {};

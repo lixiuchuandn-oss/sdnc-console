@@ -84,7 +84,6 @@ export const ROUTE_CATALOG: RouteItem[] = [
 
   // 权限管控 (CNMC)
   { prefix: 'access', label: '权限管控', group: '权限管控', platform: 'CNMC' },
-  { prefix: 'access.policies', label: '策略管理', group: '权限管控', platform: 'CNMC' },
   { prefix: 'access.roles', label: '角色管理', group: '权限管控', platform: 'CNMC' },
   { prefix: 'access.users', label: '用户管理', group: '权限管控', platform: 'CNMC' },
   { prefix: 'access.actions', label: '权限原子', group: '权限管控', platform: 'CNMC' },

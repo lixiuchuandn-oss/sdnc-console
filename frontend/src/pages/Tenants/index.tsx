@@ -12,8 +12,6 @@ import {
   Tabs,
   Typography,
   Select,
-  Tag,
-  Space,
 } from 'antd';
 import { 
   EllipsisOutlined,
@@ -21,120 +19,54 @@ import {
   ReloadOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { Tenant, Organization, TenantUser, CreateTenantRequest, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
+import { Tenant, Organization, CreateTenantRequest } from '../../types/tenant';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../components/PageContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
-import SharedToolbar from '../../components/SharedToolbar';
+// import SharedToolbar from '../../components/SharedToolbar';
 import '../common/filters.css';
 
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 
 const { TextArea } = Input;
-// const { TabPane } = Tabs;
-// const { Title } = Typography;
 
 const TenantsPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(false);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenantDrawerOpen, setTenantDrawerOpen] = useState(false);
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+  const [tenantForm] = Form.useForm();
+  const [filterForm] = Form.useForm();
+  
+  // 租户搜索关键字
+  const [tenantSearch, setTenantSearch] = useState('');
+  
+  // 选中的行
+  const [selectedTenantRowKeys, setSelectedTenantRowKeys] = useState<React.Key[]>([]);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-  const [users, setUsers] = useState<TenantUser[]>([]);
-  const [resourcePools, setResourcePools] = useState<any[]>([]);
-  const [assignments, setAssignments] = useState<ResourcePoolAssignment[]>([]);
-  const [selectedTenantRowKeys, setSelectedTenantRowKeys] = useState<string[]>([]);
+
+  // 组织数量缓存
   const [tenantOrgCountMap, setTenantOrgCountMap] = useState<Record<string, number>>({});
   const [tenantUserCountMap, setTenantUserCountMap] = useState<Record<string, number>>({});
-  const [tenantSearch, setTenantSearch] = useState<string>('');
-  const [renameOrgId, setRenameOrgId] = useState<string | null>(null);
-  const [renameName, setRenameName] = useState<string>('');
-  const [addingForParentId, setAddingForParentId] = useState<string | null>(null);
-  const [newChildName, setNewChildName] = useState<string>('');
   
-  // 模态框状态
-  const [tenantDrawerOpen, setTenantDrawerOpen] = useState(false);
-  const [userDrawerOpen, setUserDrawerOpen] = useState(false);
-  const [resourcePoolDrawerOpen, setResourcePoolDrawerOpen] = useState(false);
-  const [usersManageDrawerOpen, setUsersManageDrawerOpen] = useState(false);
-  const [assignDrawerOpen, setAssignDrawerOpen] = useState(false);
-  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
-
-  
-  // 表单实例
-  const [tenantForm] = Form.useForm();
-  const [userForm] = Form.useForm();
-  const [resourcePoolForm] = Form.useForm();
-  const [filterForm] = Form.useForm();
+  // 展开的树节点
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const navigate = useNavigate();
 
   // 获取租户列表
   const fetchTenants = async () => {
-    setLoading(true);
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get('/api/tenants', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTenants(response.data);
-      await refreshOrgCounts(response.data);
+      // 异步刷新组织数量
+      refreshOrgCounts(response.data);
     } catch (error) {
       message.error('获取租户列表失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  
-
-  // 获取组织树
-  const fetchOrganizations = async (tenantId: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/tenants/${tenantId}/organizations`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setOrganizations(response.data);
-      const countAll = (orgs: Organization[]): number => {
-        let c = 0;
-        const visited = new Set<string>();
-        const recur = (list: Organization[]) => {
-          for (const o of list) {
-            if (visited.has(o.id)) continue;
-            visited.add(o.id);
-            c += 1;
-            if (o.children && o.children.length) recur(o.children);
-          }
-        };
-        recur(orgs);
-        return c;
-      };
-      setTenantOrgCountMap(prev => ({ ...prev, [tenantId]: countAll(response.data) }));
-      const collectKeys = (orgs: Organization[]): string[] => {
-        const out: string[] = [];
-        const visited = new Set<string>();
-        const recur = (list: Organization[]) => {
-          for (const o of list) {
-            if (visited.has(o.id)) continue;
-            visited.add(o.id);
-            out.push(o.id);
-            if (o.children && o.children.length) recur(o.children);
-          }
-        };
-        recur(orgs);
-        return out;
-      };
-      setExpandedKeys(collectKeys(response.data));
-      const root = response.data.find((o: any) => o.level === 1) || response.data[0];
-      if (root) {
-        setSelectedKeys([root.id]);
-        setSelectedOrg(root);
-      }
-    } catch (error) {
-      message.error('获取组织列表失败');
     }
   };
 
@@ -186,80 +118,6 @@ const TenantsPage: React.FC = () => {
     }
   };
 
-  // 获取用户列表
-  const fetchUsers = async (tenantId: string, orgId: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/tenants/${tenantId}/organizations/${orgId}/users`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setUsers(response.data);
-    } catch (error) {
-      message.error('获取用户列表失败');
-    }
-  };
-
-  // 获取可分配的资源池列表
-  const fetchResourcePools = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/tenants/available-resource-pools', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setResourcePools(response.data);
-    } catch (error) {
-      message.error('获取资源池列表失败');
-    }
-  };
-
-  // 获取组织的资源池分配
-  const fetchAssignments = async (orgId: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/tenants/organizations/${orgId}/resource-pools`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setAssignments(response.data);
-    } catch (error) {
-      message.error('获取资源池分配失败');
-    }
-  };
-
-  // 分配资源池
-  const handleResourcePoolAssign = async (values: any) => {
-    if (!selectedOrg) return;
-    
-    try {
-      const token = localStorage.getItem('token');
-      const payload = { resourcePoolIds: values.resourcePoolIds, permissions: ['use'] };
-      await axios.post(`/api/tenants/organizations/${selectedOrg.id}/resource-pools`, payload, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('资源池分配成功');
-      setResourcePoolDrawerOpen(false);
-      resourcePoolForm.resetFields();
-      fetchAssignments(selectedOrg.id);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '分配失败');
-    }
-  };
-
-  // 移除资源池分配
-  const handleRemoveAssignment = async (poolId: string) => {
-    if (!selectedOrg) return;
-    
-    try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/tenants/organizations/${selectedOrg.id}/resource-pools/${poolId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('资源池分配已移除');
-      fetchAssignments(selectedOrg.id);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '移除失败');
-    }
-  };
-
   // 创建/更新租户
   const handleTenantSubmit = async (values: CreateTenantRequest) => {
     try {
@@ -295,8 +153,6 @@ const TenantsPage: React.FC = () => {
       fetchTenants();
       if (selectedTenant?.id === id) {
         setSelectedTenant(null);
-        setOrganizations([]);
-        setUsers([]);
       }
     } catch (error: any) {
       message.error(error.response?.data?.message || '删除失败');
@@ -324,160 +180,6 @@ const TenantsPage: React.FC = () => {
     });
   };
 
-
-
-  // 删除组织（级联删除）
-  /*
-  const handleOrgDelete = async (orgId: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/tenants/organizations/${orgId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('组织删除成功');
-      if (selectedTenant?.id) fetchOrganizations(selectedTenant.id);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '删除失败');
-    }
-  };
-
-  const handleOrgRename = async (orgId: string, name: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.put(`/api/tenants/organizations/${orgId}`, { name }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('组织名称已更新');
-      setRenameOrgId(null);
-      setRenameName('');
-      if (selectedTenant?.id) fetchOrganizations(selectedTenant.id);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '更新失败');
-    }
-  };
-
-  const handleAddChildSave = async (parentId: string) => {
-    if (!selectedTenant) return;
-    const name = newChildName.trim();
-    if (!name) { message.warning('组织名称不能为空'); return; }
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post(`/api/tenants/${selectedTenant.id}/organizations`, { name, parentId }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('子组织创建成功');
-      setAddingForParentId(null);
-      setNewChildName('');
-      fetchOrganizations(selectedTenant.id);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '创建失败');
-    }
-  };
-  */
-
-  // 创建用户
-  const handleUserSubmit = async (values: CreateTenantUserRequest) => {
-    if (!selectedTenant || !selectedOrg) return;
-    
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post(`/api/tenants/${selectedTenant.id}/organizations/${selectedOrg.id}/users`, values, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('用户创建成功');
-      setUserDrawerOpen(false);
-      userForm.resetFields();
-      fetchUsers(selectedTenant.id, selectedOrg.id);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '创建失败');
-    }
-  };
-
-  // 删除用户
-  const handleDeleteUser = async (userId: string) => {
-    if (!selectedTenant || !selectedOrg) return;
-    
-    try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/tenants/${selectedTenant.id}/organizations/${selectedOrg.id}/users/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('用户删除成功');
-      fetchUsers(selectedTenant.id, selectedOrg.id);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '删除失败');
-    }
-  };
-
-
-
-  // 资源池分配表格列定义
-  const assignmentColumns: ColumnsType<ResourcePoolAssignment> = [
-    {
-      title: '资源池名称',
-      dataIndex: ['cloud', 'name'],
-      key: 'name',
-    },
-    {
-      title: '资源池类型',
-      dataIndex: ['cloud', 'type'],
-      key: 'type',
-      render: (type: string) => {
-        const typeMap: { [key: string]: string } = {
-          'virtual_machine': '虚拟机',
-          'container': '容器',
-          'bare_metal': '裸金属',
-          'vpc': 'VPC网络',
-          'file_storage': '文件存储',
-          'object_storage': '对象存储'
-        };
-        return <Tag color="blue">{typeMap[type] || type}</Tag>;
-      },
-    },
-    {
-      title: '供应商',
-      key: 'vendor',
-      render: (_: any, record: ResourcePoolAssignment) => {
-        const pv = String((record.cloud as any)?.config?.provider || (record.cloud as any)?.type || '').toLowerCase();
-        const name = (
-          (pv === 'aliyun' && '阿里云') ||
-          (pv === 'huaweicloud' && '华为云') ||
-          (pv === 'tencentcloud' && '腾讯云') ||
-          (pv === 'harvester' && 'Harvester') ||
-          (pv === 'cloudmap' && 'Cloudmap') ||
-          ((record.cloud as any)?.config?.provider || (record.cloud as any)?.type || '-')
-        );
-        return <Tag color="blue">{name}</Tag>;
-      }
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: any, record: ResourcePoolAssignment) => (
-        <Dropdown
-          menu={{
-            items: [
-              { key: 'remove', label: '移除', danger: true },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'remove') {
-                Modal.confirm({
-                  title: '确认移除资源池分配',
-                  content: '移除后，组织将不再拥有该资源池的关联权限。',
-                  okText: '移除',
-                  cancelText: '取消',
-                  onOk: async () => { await handleRemoveAssignment(record.cloudId || (record.cloud as any)?.id); },
-                });
-              }
-            }
-          }}
-        >
-          <Button type="link" size="small" icon={<EllipsisOutlined />} />
-        </Dropdown>
-      ),
-    },
-  ];
-
   // 租户表格列定义
   const tenantColumns: ColumnsType<Tenant> = [
     {
@@ -486,9 +188,9 @@ const TenantsPage: React.FC = () => {
       key: 'name',
       render: (text: string, record: Tenant) => (
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <Button type="link" style={{ padding:0, height:'auto', fontSize:14 }} onClick={()=>navigate(`/admin/tenants/${record.id}/organizations`)}>
+          <a className="cell-link" onClick={()=>navigate(`/admin/tenants/${record.id}/organizations`)}>
             {text}
-          </Button>
+          </a>
         </div>
       )
     },
@@ -503,34 +205,35 @@ const TenantsPage: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => {
-        const colors = {
-          active: 'green',
-          inactive: 'orange',
-          suspended: 'red'
+        const badgeClasses = {
+          active: 'std-badge std-badge-success',
+          inactive: 'std-badge std-badge-warning',
+          suspended: 'std-badge std-badge-error'
         };
         const labels = {
           active: '活跃',
           inactive: '非活跃',
           suspended: '暂停'
         };
-        return <Tag color={colors[status as keyof typeof colors]}>{labels[status as keyof typeof labels]}</Tag>;
+        const cls = badgeClasses[status as keyof typeof badgeClasses] || 'std-badge std-badge-default';
+        return <span className={cls}>{labels[status as keyof typeof labels] || status}</span>;
       }
     },
     {
       title: '组织数量',
       key: 'orgCount',
-      render: (_: any, record: Tenant) => <Typography.Text style={{ fontSize: 12 }}>{tenantOrgCountMap[record.id] ?? '-'}</Typography.Text>
+      render: (_: any, record: Tenant) => <span className="stat-trigger">{tenantOrgCountMap[record.id] ?? '-'}</span>
     },
     {
       title: '用户数量',
       key: 'userCount',
-      render: (_: any, record: Tenant) => <Typography.Text style={{ fontSize: 12 }}>{tenantUserCountMap[record.id] ?? '-'}</Typography.Text>
+      render: (_: any, record: Tenant) => <span className="stat-trigger">{tenantUserCountMap[record.id] ?? '-'}</span>
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      render: (date: string) => <Typography.Text style={{ fontSize: 12 }}>{new Date(date).toLocaleDateString()}</Typography.Text>
+      render: (date: string) => <span className="std-time">{new Date(date).toLocaleString()}</span>
     },
     {
       title: '操作',
@@ -569,69 +272,6 @@ const TenantsPage: React.FC = () => {
     },
   ];
 
-  // 用户表格列定义
-  const userColumns: ColumnsType<TenantUser> = [
-    {
-      title: '用户名',
-      dataIndex: 'username',
-      key: 'username'
-    },
-    {
-      title: '角色',
-      dataIndex: 'role',
-      key: 'role',
-      render: (role: string) => {
-        const colors = {
-          admin: 'red',
-          user: 'blue',
-          viewer: 'green'
-        };
-        const labels = {
-          admin: '管理员',
-          user: '用户',
-          viewer: '查看者'
-        };
-        return <Tag color={colors[role as keyof typeof colors]}>{labels[role as keyof typeof labels]}</Tag>;
-      }
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => (
-        <Tag color={status === 'active' ? 'green' : 'red'}>
-          {status === 'active' ? '活跃' : '非活跃'}
-        </Tag>
-      )
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_, record: TenantUser) => (
-        <Dropdown
-          menu={{
-            items: [
-              { key: 'delete', label: '删除', danger: true },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'delete') {
-                Modal.confirm({
-                  title: '确认删除用户',
-                  content: '删除后将无法恢复，该用户将无法继续访问系统。',
-                  okText: '删除',
-                  cancelText: '取消',
-                  onOk: async () => { await handleDeleteUser(record.id); },
-                });
-              }
-            }
-          }}
-        >
-          <Button type="link" size="small" icon={<EllipsisOutlined />} />
-        </Dropdown>
-      ),
-    }
-  ];
-
   // 过滤后的租户列表
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [idFilter, setIdFilter] = useState<string>('');
@@ -654,80 +294,65 @@ const TenantsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-  }, []);
-
-  useEffect(() => {
-    if (selectedTenant?.id) {
-      setTenantUserCountMap(prev => ({ ...prev, [selectedTenant.id]: users.length }));
-    }
-  }, [users, selectedTenant?.id]);
-
   return (
     <PageContainer
       titleLevel={3}
       asCard={false}
     >
 
-      <SharedToolbar
-        style={{ alignItems:'flex-end' }}
-        left={(
-          <Form
-            className="filter-tools"
-            form={filterForm}
-            layout="vertical"
-            style={{ rowGap:12, columnGap:12, display:'flex', alignItems:'flex-end' }}
-            onValuesChange={handleFilterChange}
+      <div className="page-toolbar">
+        <Form
+          className="toolbar-container"
+          form={filterForm}
+          layout="vertical"
+          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+          onValuesChange={handleFilterChange}
+        >
+          <Form.Item name="keyword" label="租户名称"><Input className="toolbar-search" allowClear placeholder="支持模糊查询" /></Form.Item>
+          <Form.Item name="id" label="ID"><Input className="toolbar-search" allowClear placeholder="请输入ID" /></Form.Item>
+          <Form.Item name="status" label="状态"><Select className="toolbar-filter" allowClear placeholder="选择状态">
+            <Select.Option value="active">活跃</Select.Option>
+            <Select.Option value="inactive">非活跃</Select.Option>
+            <Select.Option value="suspended">暂停</Select.Option>
+          </Select></Form.Item>
+          <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); setStatusFilter(undefined); setIdFilter(''); }}>重置</a>
+        </Form>
+        <div className="toolbar-actions">
+          <Button type="primary" onClick={()=> setTenantDrawerOpen(true)}>添加租户</Button>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'batchDelete', label: '批量删除', danger: true, disabled: selectedTenantRowKeys.length === 0 },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'batchDelete') { handleBatchDeleteTenants(); return; }
+              }
+            }}
           >
-            <Form.Item name="keyword" label="租户名称" style={{ marginBottom: 0, paddingBottom: 8 }}>
-              <Input allowClear placeholder="支持模糊查询" style={{ width:200 }} />
-            </Form.Item>
-            <Form.Item name="id" label="ID" style={{ marginBottom: 0, paddingBottom: 8 }}>
-              <Input allowClear placeholder="请输入ID" style={{ width:200 }} />
-            </Form.Item>
-            <Form.Item name="status" label="状态" style={{ marginBottom: 0, paddingBottom: 8 }}>
-              <Select allowClear placeholder="选择状态" style={{ width:200 }}>
-                <Select.Option value="active">活跃</Select.Option>
-                <Select.Option value="inactive">非活跃</Select.Option>
-                <Select.Option value="suspended">暂停</Select.Option>
-              </Select>
-            </Form.Item>
-            <Form.Item style={{ marginBottom: 0 }}>
-              <Button type="link" style={{ padding:0, height: '30px', lineHeight: '30px' }} onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); setStatusFilter(undefined); setIdFilter(''); }}>重置</Button>
-            </Form.Item>
-          </Form>
-        )}
-        right={(
-          <Space>
-            <Button type="primary" onClick={()=> setTenantDrawerOpen(true)}>新增租户</Button>
-            <Dropdown
-              menu={{
-                items: [
-                  { key: 'batchDelete', label: '批量删除', danger: true, disabled: selectedTenantRowKeys.length === 0 },
-                ],
-                onClick: ({ key }) => {
-                  if (key === 'batchDelete') { handleBatchDeleteTenants(); return; }
-                }
-              }}
-            >
-              <Button icon={<EllipsisOutlined />} />
-            </Dropdown>
-            <Button icon={<SettingOutlined />} />
-            <Button icon={<ReloadOutlined />} onClick={fetchTenants} loading={loading} />
-          </Space>
-        )}
-      />
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
+          <Button icon={<SettingOutlined />} />
+          <Button icon={<ReloadOutlined />} onClick={fetchTenants} loading={loading} />
+        </div>
+      </div>
 
       {/* 表格与详情 */}
       <Row gutter={[16,16]}>
         <Col span={24}>
           <Table
+            className="std-table"
             bordered
             columns={tenantColumns}
             dataSource={filteredTenants}
             rowKey="id"
             rowSelection={{ selectedRowKeys: selectedTenantRowKeys, onChange: (keys)=> setSelectedTenantRowKeys(keys as string[]) }}
-            pagination={{ pageSize:10 }}
+            pagination={{ 
+              size: 'small', 
+              showSizeChanger: true, 
+              pageSize: 10,
+              pageSizeOptions: ['10', '20', '50', '100'],
+              showQuickJumper: false 
+            }}
           />
         </Col>
         {/* 右侧说明卡片去除，直接以行操作菜单进入抽屉 */}
@@ -763,166 +388,6 @@ const TenantsPage: React.FC = () => {
             </Form.Item>
           )}
         </Form>
-      </StdSideDrawer>
-
-      
-
-      {/* 创建用户抽屉 */}
-      <StdSideDrawer
-        title="添加用户"
-        open={userDrawerOpen}
-        width={600}
-        onClose={() => {
-          setUserDrawerOpen(false);
-          userForm.resetFields();
-        }}
-        onOk={() => userForm.submit()}
-        okText="创建"
-      >
-        <Form form={userForm} layout="vertical" onFinish={handleUserSubmit}>
-          <Form.Item name="organizationId" hidden><Input /></Form.Item>
-          <Form.Item label="用户名" name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input placeholder="请输入用户名" />
-          </Form.Item>
-          <Form.Item label="姓名" name="fullName" rules={[{ required: true, message: '请输入姓名' }]}>
-            <Input placeholder="请输入姓名" />
-          </Form.Item>
-          <Form.Item label="邮箱" name="email" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效的邮箱地址' }]}>
-            <Input placeholder="请输入邮箱" />
-          </Form.Item>
-          <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
-            <Input.Password placeholder="请输入密码" />
-          </Form.Item>
-          <Form.Item label="角色" name="role" rules={[{ required: true, message: '请选择角色' }]}>
-            <Select placeholder="请选择角色">
-              <Select.Option value="admin">管理员</Select.Option>
-              <Select.Option value="user">用户</Select.Option>
-              <Select.Option value="viewer">查看者</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
-      </StdSideDrawer>
-
-      {/* 资源池分配抽屉 */}
-      <StdSideDrawer
-        title="分配资源池"
-        open={resourcePoolDrawerOpen}
-        width={600}
-        onClose={() => {
-          setResourcePoolDrawerOpen(false);
-          resourcePoolForm.resetFields();
-        }}
-        onOk={() => resourcePoolForm.submit()}
-        okText="分配"
-      >
-        <Form form={resourcePoolForm} layout="vertical" onFinish={handleResourcePoolAssign}>
-          <Form.Item label="选择资源池" name="resourcePoolIds" rules={[{ required: true, message: '请选择要分配的资源池' }]}> 
-            <Select mode="multiple" placeholder="请选择资源池" style={{ width: '100%' }}>
-              {resourcePools.map(pool => (
-                <Select.Option key={pool.id} value={pool.id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>{pool.name}</span>
-                    <div style={{ fontSize: '12px', color: '#666' }}>
-                      {String(pool.config?.provider || pool.type || '-')}
-                    </div>
-                  </div>
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-          
-        </Form>
-      </StdSideDrawer>
-
-      <StdSideDrawer
-        title="用户管理"
-        open={usersManageDrawerOpen}
-        width={720}
-        onClose={() => setUsersManageDrawerOpen(false)}
-        onOk={() => setUsersManageDrawerOpen(false)}
-        okText="关闭"
-      >
-        {selectedOrg ? (
-          <div>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Space>
-                <Select
-                  value={selectedOrg?.id}
-                  placeholder="选择组织"
-                  style={{ width: 240 }}
-                  onChange={(orgId: string)=>{
-                    const org = organizations.find(o => o.id === orgId) || null;
-                    setSelectedOrg(org);
-                    if (selectedTenant?.id && orgId) fetchUsers(selectedTenant.id, orgId);
-                  }}
-                >
-                  {organizations.map(org => (
-                    <Select.Option key={org.id} value={org.id}>{org.name}</Select.Option>
-                  ))}
-                </Select>
-                {selectedOrg && <Tag color="blue">{selectedOrg.name}</Tag>}
-                <span style={{ color: '#666' }}>共 {users.length} 个用户</span>
-              </Space>
-              <Button 
-                type="primary" 
-                onClick={() => {
-                  userForm.resetFields();
-                  const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
-                  userForm.setFieldsValue({ organizationId: selectedOrg?.id, username: rand });
-                  setUserDrawerOpen(true);
-                }}
-              >添加用户</Button>
-            </div>
-            <Table
-              columns={userColumns}
-              dataSource={users}
-              rowKey="id"
-              pagination={{ pageSize: 10 }}
-              size="small"
-              bordered
-            />
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在“组织架构”中选择一个组织</div>
-        )}
-      </StdSideDrawer>
-
-      <StdSideDrawer
-        title="资源池分配"
-        open={assignDrawerOpen}
-        width={800}
-        onClose={() => setAssignDrawerOpen(false)}
-        onOk={() => setAssignDrawerOpen(false)}
-        okText="关闭"
-      >
-        {selectedOrg ? (
-          <div>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <Tag color="蓝色">{selectedOrg.name}</Tag>
-                <span style={{ color: '#666' }}>共 {assignments.length} 个资源池</span>
-              </div>
-              <Button 
-                type="primary"                
-                onClick={() => {
-                  fetchResourcePools();
-                  resourcePoolForm.resetFields();
-                  setResourcePoolDrawerOpen(true);
-                }}
-              >分配资源池</Button>
-            </div>
-            <Table
-              columns={assignmentColumns}
-              dataSource={assignments}
-              rowKey="id"
-              pagination={{ pageSize: 10 }}
-              size="small"
-              bordered
-            />
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在“组织架构”中选择一个组织</div>
-        )}
       </StdSideDrawer>
     </PageContainer>
   );

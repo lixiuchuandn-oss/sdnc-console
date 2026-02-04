@@ -4,6 +4,9 @@ import jwt from 'jsonwebtoken';
 import { AppDataSource } from '../config/database';
 import { User, UserRole } from '../entities/User';
 import { TenantUser } from '../entities/TenantUser';
+import { RBACRole } from '../entities/RBACRole';
+import { RoleAssignment } from '../entities/RoleAssignment';
+import { In } from 'typeorm';
 
 const router = Router();
 
@@ -108,8 +111,51 @@ router.post('/login', async (req: Request, res: Response) => {
 
     // 更新最后登录
     (loginUser as any).lastLoginAt = new Date();
+    
+    let permissions: string[] = [];
     if (role === 'tenant') {
       await tenantRepo.save(loginUser);
+      
+      // Fetch permissions for tenant user role
+      try {
+        const trId = (loginUser as TenantUser).role;
+        const assignRepo = AppDataSource.getRepository(RoleAssignment);
+        const roleRepo = AppDataSource.getRepository(RBACRole);
+        
+        // 1. Get explicit assignments
+        const assigns = await assignRepo.find({
+          where: { userType: 'tenant', userId: loginUser.id },
+        });
+        const roleIds = assigns.map((a) => a.roleId);
+
+        // 2. Include primary role if it's a UUID (custom role)
+        // Check if UUID v4 format roughly
+        if (trId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trId)) {
+           if (!roleIds.includes(trId)) {
+             roleIds.push(trId);
+           }
+        }
+
+        // 3. Fetch all roles and merge permissions
+        if (roleIds.length > 0) {
+           const roles = await roleRepo.find({ where: { id: In(roleIds) } });
+           for (const r of roles) {
+             if (r.permissions) {
+               try {
+                 const raw = JSON.parse(r.permissions);
+                 if (Array.isArray(raw)) {
+                   permissions = permissions.concat(raw);
+                 }
+               } catch {}
+             }
+           }
+        }
+        
+        // Deduplicate
+        permissions = Array.from(new Set(permissions));
+      } catch (e) {
+        console.warn('Failed to fetch permissions for tenant user', e);
+      }
     } else {
       await userRepository.save(loginUser);
     }
@@ -130,6 +176,7 @@ router.post('/login', async (req: Request, res: Response) => {
         fullName: loginUser.fullName,
         role,
         tenantRole: role === 'tenant' ? (loginUser as TenantUser).role : undefined,
+        permissions,
       },
     });
   } catch (error: any) {

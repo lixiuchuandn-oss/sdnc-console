@@ -40,10 +40,9 @@ import CENDetailPage from './pages/SecMgrPlane/CascadeChannels/Detail';
 import ComingSoon from './pages/ComingSoon';
 import SecurityApps from './pages/SecMgrPlane/Applications/index';
 import SecurityServices from './pages/SecMgrPlane/SecurityServices/index';
-import AccessPoliciesPage from './pages/Access/Policies/index';
-import AccessRolesPage from './pages/Access/Roles/index';
-import AccessActionsPage from './pages/Access/Actions/index';
-import AccessUsersPage from './pages/Access/Users/index';
+import AccessRolesPage from './pages/Access/Roles';
+import AccessActionsPage from './pages/Access/Actions';
+import AccessUsersPage from './pages/Access/Users';
 import ProtectedObjects from './pages/Security/TrafficOrchestration/ProtectedObjects';
 import ServiceChains from './pages/Security/TrafficOrchestration/ServiceChains';
 import CreateServiceChainWizard from './pages/Security/TrafficOrchestration/ServiceChains/CreateWizard';
@@ -152,7 +151,6 @@ const AppRoutes: React.FC = () => {
 
           <Route path="settings" element={<Settings />} />
           <Route path="coming-soon" element={<ComingSoon />} />
-          <Route path="access/policies" element={<AccessPoliciesPage />} />
           <Route path="access/actions" element={<AccessActionsPage />} />
           <Route path="access/roles" element={<AccessRolesPage />} />
           <Route path="access/users" element={<AccessUsersPage />} />

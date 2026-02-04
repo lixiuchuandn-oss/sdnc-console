@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
+import { UserSpace } from '../entities/UserSpace';
 import { HarvesterNamespace } from '../entities/harvester/HarvesterNamespace';
 import { HarvesterNamespaceInventory } from '../entities/harvester/HarvesterNamespaceInventory';
 import {
@@ -168,7 +169,26 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const repo = AppDataSource.getRepository(KubeOvnVpcInventory);
-        const count = await repo.count({ where: { cloudId: id } });
+        
+        // Tenant Isolation: Filter by UserSpace Namespace
+        let whereCondition: any = { cloudId: id };
+        let tenantNamespace: string | undefined;
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req.user as any)?.role === 'tenant';
+        const isTenant = isTenantUser || isTenantRole;
+
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+             where.organizationId = (req.user as any).organizationId;
+          }
+          const us = await userSpaceRepo.findOne({ where });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          tenantNamespace = us.namespace;
+        }
+
+        const count = await repo.count({ where: whereCondition });
         
         // Sync fallback logic
         if (count === 0 || String(force) === 'true') {
@@ -181,8 +201,18 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           }
         }
         
-        const items = await repo.find({ where: { cloudId: id } });
-        const list = items.map(i => i.rawData);
+        const items = await repo.find({ where: whereCondition });
+        let list = items.map(i => i.rawData);
+        
+        if (isTenant && tenantNamespace) {
+            list = list.filter((vpc: any) => {
+                const allowed = vpc?.spec?.namespaces || [];
+                if (!Array.isArray(allowed)) return false;
+                // Allow if tenantNamespace is in the list OR 'cloud-public' (case-insensitive) is in the list
+                return allowed.includes(tenantNamespace) || 
+                       allowed.some((n: string) => String(n).toLowerCase() === 'cloud-public');
+            });
+        }
         
         res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
@@ -217,7 +247,26 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
-        const count = await repo.count({ where: { cloudId: id } });
+        
+        // Tenant Isolation: Filter by UserSpace Namespace
+        let whereCondition: any = { cloudId: id };
+        let tenantNamespace: string | undefined;
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req.user as any)?.role === 'tenant';
+        const isTenant = isTenantUser || isTenantRole;
+
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+             where.organizationId = (req.user as any).organizationId;
+          }
+          const us = await userSpaceRepo.findOne({ where });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          tenantNamespace = us.namespace;
+        }
+
+        const count = await repo.count({ where: whereCondition });
         
         // Sync fallback logic
         if (count === 0 || String(force) === 'true') {
@@ -229,8 +278,15 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           }
         }
         
-        const dbItems = await repo.find({ where: { cloudId: id } });
+        const dbItems = await repo.find({ where: whereCondition });
         let list = dbItems.map(i => i.rawData);
+        
+        if (isTenant && tenantNamespace) {
+            list = list.filter((subnet: any) => {
+                const allowed = subnet?.spec?.namespaces || [];
+                return Array.isArray(allowed) && allowed.includes(tenantNamespace);
+            });
+        }
         
         let items = list;
         if (vpcId) {
@@ -267,7 +323,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
         // Direct API Call: Fetch VMs and VMIs in parallel
-        const [vmsRaw, vmisRaw] = await Promise.all([
+        let [vmsRaw, vmisRaw] = await Promise.all([
           listKubevirtVMsRaw({
             endpoint: cloud.endpoint,
             token: cloud.secretKey,
@@ -279,6 +335,27 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             insecure,
           } as any),
         ]);
+
+        // Tenant Isolation: Filter by UserSpace Namespace
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+             where.organizationId = (req.user as any).organizationId;
+          }
+          const userSpace = await userSpaceRepo.findOne({ where });
+
+          // If no UserSpace found for this cloud, user shouldn't see any resources
+          if (!userSpace) {
+            vmsRaw = [];
+            vmisRaw = [];
+          } else if (userSpace.namespace) {
+            // Filter by namespace
+            const validNamespaces = userSpace.namespace.split(',').map(s => s.trim());
+            vmsRaw = vmsRaw.filter((v: any) => validNamespaces.includes(v.metadata?.namespace));
+            vmisRaw = vmisRaw.filter((v: any) => validNamespaces.includes(v.metadata?.namespace));
+          }
+        }
 
         // Build VMI map for fast lookup by Namespace/Name
         const vmiMap = new Map<string, any>();
@@ -411,6 +488,22 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     async (req: any, res: Response, next: any) => {
       try {
         const { id, namespace, name } = req.params;
+
+        // Tenant Isolation Check
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+             where.organizationId = (req.user as any).organizationId;
+          }
+          const userSpace = await userSpaceRepo.findOne({ where });
+          if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
+          const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map(s => s.trim()) : [];
+          if (userSpace.namespace && !validNamespaces.includes(namespace)) {
+            return res.status(403).json({ message: '无权访问该命名空间资源' });
+          }
+        }
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -465,6 +558,21 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         req.on('close', () => {
           closed = true;
         });
+
+        // Tenant Isolation: Filter by UserSpace Namespace
+        let allowedNamespace: string | undefined;
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const userSpace = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!userSpace) {
+            allowedNamespace = '__FORBIDDEN__';
+          } else if (userSpace.namespace) {
+            allowedNamespace = userSpace.namespace;
+          }
+        }
+
         const send = (event: string, payload: any) => {
           try {
             res.write(`event: ${event}\n`);
@@ -479,7 +587,17 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
               token: cloud.secretKey || '',
               insecure,
             } as any);
-            const items: any[] = Array.isArray(data) ? data : [];
+            let items: any[] = Array.isArray(data) ? data : [];
+            
+            // Filter items by namespace
+            if (allowedNamespace) {
+              if (allowedNamespace === '__FORBIDDEN__') {
+                items = [];
+              } else {
+                items = items.filter((i: any) => i.Extra?.Namespace === allowedNamespace);
+              }
+            }
+
             const cur = new Map<string, any>();
             // prev is the state from LAST tick. We must NOT overwrite it with empty cur before check.
             
@@ -888,7 +1006,21 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const insecure = !!(cloud.config as any)?.ignoreTls;
         
         const repo = AppDataSource.getRepository(KubevirtNadInventory);
-        const count = await repo.count({ where: { cloudId: id } });
+        
+        // Tenant Isolation: Filter by UserSpace Namespace
+        let whereCondition: any = { cloudId: id };
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          if (us.namespace) {
+            whereCondition.namespace = us.namespace;
+          }
+        }
+
+        const count = await repo.count({ where: whereCondition });
         
         if (count === 0 || String(force) === 'true') {
           try {
@@ -899,7 +1031,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           }
         }
         
-        const items = await repo.find({ where: { cloudId: id } });
+        const items = await repo.find({ where: whereCondition });
         const list = items.map(i => i.rawData);
         
         res.json({ message: '查询成功', data: { items: list } });
@@ -961,6 +1093,41 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             ? json?.items
             : [];
         
+        // Tenant Isolation: Filter by UserSpace Namespace
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req as any).user?.role === 'tenant';
+        if (isTenantUser || isTenantRole) {
+          const tenantId = (req as any).user.tenantId;
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          
+          // Query: tenantId AND cloudId AND (organizationId = userOrgId OR organizationId IS NULL)
+          const matches = await userSpaceRepo.find({
+             where: [
+                { tenantId, cloudId: id, status: 'active', organizationId: (req.user as any).organizationId },
+                { tenantId, cloudId: id, status: 'active', organizationId: null }
+             ]
+          });
+          const us = matches.find(m => m.organizationId === (req.user as any).organizationId) || matches[0];
+
+          if (!us) {
+            // Even if no UserSpace, strictly no access
+            items = [];
+          } else {
+             // Allow assigned namespace AND cloud-public
+             const allowedNs = new Set<string>();
+             if (us.namespace) {
+                 us.namespace.split(',').forEach(ns => allowedNs.add(ns.trim()));
+             }
+             allowedNs.add('cloud-public');
+
+             items = items.filter((n: any) => {
+               const name = n?.metadata?.name || n?.name;
+               // Case-insensitive check
+               return Array.from(allowedNs).some(allowed => allowed.toLowerCase() === String(name).toLowerCase());
+             });
+          }
+        }
+
         // Enrich with local DB info
         try {
           const repo = AppDataSource.getRepository(HarvesterNamespace);
@@ -1138,7 +1305,21 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
         const repo = AppDataSource.getRepository(KubevirtVolumeInventory);
-        const count = await repo.count({ where: { cloudId: id } });
+        
+        // Tenant Isolation: Filter by UserSpace Namespace
+        let whereCondition: any = { cloudId: id };
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          if (us.namespace) {
+            whereCondition.namespace = us.namespace;
+          }
+        }
+
+        const count = await repo.count({ where: whereCondition });
 
         if (count === 0 || String(force) === 'true') {
           try {
@@ -1149,7 +1330,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           }
         }
 
-        const items = await repo.find({ where: { cloudId: id } });
+        const items = await repo.find({ where: whereCondition });
         
         // Frontend Response Formatting
         const base = (cloud.endpoint || '').replace(/\/+$/, '');
@@ -1232,9 +1413,23 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        // Tenant Isolation: Force namespace filter
+        let filterNamespace = namespace;
+        if ((req as any).user?.role === 'tenant') {
+           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+           const us = await userSpaceRepo.findOne({
+             where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+           });
+           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+           if (us.namespace) {
+               filterNamespace = us.namespace;
+           }
+        }
+
         const items = await listHarvesterAvailableVolumesStandard(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          { namespace },
+          { namespace: filterNamespace },
         );
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
@@ -1622,7 +1817,48 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
         const repo = AppDataSource.getRepository(HarvesterImageInventory);
-        const count = await repo.count({ where: { cloudId: id } });
+        
+        // Tenant Isolation: Filter by UserSpace Namespace
+        let whereCondition: any = { cloudId: id };
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req as any).user?.role === 'tenant';
+
+        if (isTenantUser || isTenantRole) {
+          const tenantId = (req as any).user.tenantId;
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          // Query: tenantId AND cloudId AND (organizationId = userOrgId OR organizationId IS NULL)
+          const matches = await userSpaceRepo.find({
+             where: [
+                { tenantId, cloudId: id, status: 'active', organizationId: (req.user as any).organizationId },
+                { tenantId, cloudId: id, status: 'active', organizationId: null }
+             ]
+          });
+          const us = matches.find(m => m.organizationId === (req.user as any).organizationId) || matches[0];
+
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          
+          // Construct whereCondition for TypeORM (array of conditions for OR)
+          // We want: (cloudId=id AND namespace=us.namespace) OR (cloudId=id AND namespace='cloud-public')
+          // But wait, TypeORM 'where' in find is already handled by 'whereCondition' variable?
+          // No, 'whereCondition' was defined above as { cloudId: id }.
+          // We need to override it.
+          
+          if (us.namespace) {
+             whereCondition = [
+                { cloudId: id, namespace: us.namespace },
+                { cloudId: id, namespace: 'cloud-public' }, // Assuming 'cloud-public' is the exact name in DB
+                { cloudId: id, namespace: 'Cloud-Public' }  // Add variant just in case
+             ];
+          } else {
+             // Only public if no private namespace
+             whereCondition = [
+                { cloudId: id, namespace: 'cloud-public' },
+                { cloudId: id, namespace: 'Cloud-Public' }
+             ];
+          }
+        }
+
+        const count = await repo.count({ where: whereCondition });
 
         if (count === 0 || String(force) === 'true') {
           try {
@@ -1633,7 +1869,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           }
         }
 
-        const items = await repo.find({ where: { cloudId: id } });
+        const items = await repo.find({ where: whereCondition });
         const list = items.map(i => i.rawData);
         
         res.json({ message: '查询成功', data: { items: list } });

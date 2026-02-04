@@ -612,7 +612,7 @@ router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) 
 router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res) => {
   try {
     const { orgId } = req.params;
-    const { resourcePoolIds, permissions, namespace, withCloudPublic } = req.body;
+    const { resourcePoolIds, permissions, namespace, withCloudPublic, withDefault } = req.body;
 
     if (!Array.isArray(resourcePoolIds) || resourcePoolIds.length === 0) {
       return res.status(400).json({ message: '请选择要分配的资源池' });
@@ -643,26 +643,41 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
     };
 
-    let targetNamespace = String(namespace || '').trim();
+    let targetNamespace = namespace;
     const harvesterPools = resourcePools.filter((c) =>
       isHarvesterLike((c as any)?.config?.provider),
     );
 
     if (harvesterPools.length > 0) {
       const namespacesToCreate: string[] = [];
-      let primaryNs = targetNamespace;
       
-      if (!primaryNs) {
-        // 自动生成 Namespace 名称: ns-<orgId>
-        primaryNs = `ns-${orgId}`;
-        namespacesToCreate.push(primaryNs);
-      } else {
-        namespacesToCreate.push(primaryNs);
+      // 1. 总是自动生成并包含组织专属 Namespace
+      const autoNs = `ns-${orgId}`;
+      namespacesToCreate.push(autoNs);
+
+      // 2. 处理自定义传入的 Namespace (支持字符串或数组)
+      if (targetNamespace) {
+        const customs = Array.isArray(targetNamespace) 
+          ? targetNamespace 
+          : String(targetNamespace).split(',');
+        
+        customs.forEach((ns: string) => {
+          const s = String(ns).trim();
+          if (s && !namespacesToCreate.includes(s)) {
+            namespacesToCreate.push(s);
+          }
+        });
       }
 
       if (withCloudPublic) {
         if (!namespacesToCreate.includes('cloud-public')) {
           namespacesToCreate.push('cloud-public');
+        }
+      }
+
+      if (withDefault) {
+        if (!namespacesToCreate.includes('default')) {
+          namespacesToCreate.push('default');
         }
       }
       
