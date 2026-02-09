@@ -19,6 +19,9 @@ export class HarvesterNamespaceInventory {
   annotations!: any;
 
   @Column({ type: 'simple-json', nullable: true })
+  links!: any;
+
+  @Column({ type: 'simple-json', nullable: true })
   rawData!: any;
 
   @CreateDateColumn()

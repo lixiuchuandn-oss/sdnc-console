@@ -7,8 +7,8 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('kubevirt_vm_inventory')
-export class KubevirtVmInventory {
+@Entity('harvester_vmi_inventory')
+export class HarvesterVmiInventory {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -27,13 +27,22 @@ export class KubevirtVmInventory {
   namespace!: string;
 
   @Column({ type: 'text', nullable: true })
-  running?: boolean; // spec.running
+  phase?: string; // status.phase
 
   @Column({ type: 'text', nullable: true })
-  runStrategy?: string; // spec.runStrategy
+  nodeName?: string; // status.nodeName
 
   @Column({ type: 'simple-json', nullable: true })
-  template?: any; // spec.template (contains domain, devices, etc.)
+  ipAddresses?: string[]; // status.interfaces[].ipAddress or similar
+
+  @Column({ type: 'simple-json', nullable: true })
+  interfaces?: any[]; // status.interfaces
+
+  @Column({ type: 'simple-json', nullable: true })
+  guestOSInfo?: any; // status.guestOSInfo
+
+  @Column({ type: 'simple-json', nullable: true })
+  conditions?: any[]; // status.conditions
 
   @Column({ type: 'simple-json', nullable: true })
   labels?: Record<string, string>;
@@ -43,6 +52,9 @@ export class KubevirtVmInventory {
 
   @Column({ type: 'text', nullable: true })
   creationTimestamp?: string;
+
+  @Column({ type: 'text', nullable: true })
+  view?: string; // Harvester API link
 
   @Column({ type: 'simple-json', nullable: true })
   rawData?: any; // Full dump

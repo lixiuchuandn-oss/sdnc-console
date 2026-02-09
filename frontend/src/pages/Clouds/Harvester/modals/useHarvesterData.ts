@@ -1,6 +1,9 @@
 import { useState, useCallback, useMemo } from 'react';
 import { message } from 'antd';
 import {
+  fetchClouds
+} from '../../../../services/api';
+import {
   fetchHarvesterImages,
   fetchHarvesterNads,
   fetchHarvesterNamespaces,
@@ -9,10 +12,10 @@ import {
   fetchHarvesterGpuResources,
   fetchHarvesterUsbResources,
   fetchHarvesterStorageClasses,
+  fetchHarvesterSshKeys,
   fetchKubeOvnSubnets,
-  fetchKubeOvnVpcs,
-  fetchClouds
-} from '../../../../services/api';
+  fetchKubeOvnVpcs
+} from '../../../../services/harvesterApi';
 
 import { parseSizeToGi } from './VmWizardUtils';
 
@@ -33,6 +36,7 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   const [usbResources, setUsbResources] = useState<any[]>([]);
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
   const [storageClassLoading, setStorageClassLoading] = useState<boolean>(false);
+  const [sshKeys, setSshKeys] = useState<any[]>([]);
 
   const getCid = useCallback(() => currentCloudId || (cloudId !== 'all' ? cloudId : undefined), [currentCloudId, cloudId]);
 
@@ -138,6 +142,18 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
       message.warning(e?.message || '存储类列表刷新失败');
     } finally {
       setStorageClassLoading(false);
+    }
+  }, [getCid]);
+
+  const reloadSshKeys = useCallback(async () => {
+    const cid = getCid();
+    if (!cid) return;
+    try {
+      const json: any = await fetchHarvesterSshKeys(cid);
+      const items: any[] = json?.data?.items || json?.items || [];
+      setSshKeys(items);
+    } catch (e: any) {
+      message.warning(e?.message || 'SSH Key 列表刷新失败');
     }
   }, [getCid]);
 
@@ -251,6 +267,15 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     return (hit?.name || list[0]?.name || undefined);
   }, [storageClasses]);
 
+  const sshKeyOptions = useMemo(() => (sshKeys || []).map((x: any) => {
+    const name = x?.metadata?.name || x?.name;
+    const ns = x?.metadata?.namespace || x?.namespace;
+    return {
+      label: name,
+      value: name // Harvester uses name reference
+    };
+  }), [sshKeys]);
+
   return {
     images, imageLoading, reloadImages, imageOptions,
     availableVolumes, reloadVolumes, volumeOptions,
@@ -262,6 +287,7 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     kubeVpcs, reloadKubeVpcs, kubeVpcOptions,
     gpuResources, reloadGpuResources,
     usbResources, reloadUsbResources,
-    storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName
+    storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
+    sshKeys, reloadSshKeys, sshKeyOptions
   };
 };

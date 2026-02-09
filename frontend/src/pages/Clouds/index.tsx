@@ -15,7 +15,8 @@ import {
   SafetyCertificateOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
-import { fetchAllInstances, fetchCloudProviderVpcs, fetchKubeOvnVpcs, fetchInventoryInstancesByCloud, fetchCloudmapVirtualElements, fetchClouds as fetchCloudsApi } from '../../services/api';
+import { fetchAllInstances, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudmapVirtualElements, fetchClouds as fetchCloudsApi } from '../../services/api';
+import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
 import PageContainer from '../../components/PageContainer';
 import SharedToolbar from '../../components/SharedToolbar';
  

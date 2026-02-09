@@ -2,10 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox, Descriptions, Tag, Tabs, Tooltip } from 'antd';
-import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchCloudProviderEcsVncUrl, getAuthHeaders, fetchHarvesterVmDetail } from '../../../../services/api';
+import { getAuthHeaders } from '../../../../services/api';
+import { fetchHarvesterVmDetail, detachHarvesterVolumeFromVm, fetchHarvesterVncUrl } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
@@ -41,6 +42,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       stopped: '已停止',
       terminated: '已删除',
       error: '错误',
+      waitingforvolumebinding: '等待卷绑定',
       unknown: '未知'
     };
     return m[k] || (v || '-');
@@ -55,53 +57,12 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // Metadata Modal State
   const [metadataModalVisible, setMetadataModalVisible] = useState(false);
   const [currentMetadata, setCurrentMetadata] = useState<any>(null);
-  const [fullJson, setFullJson] = useState<any>(null);
-  const [metadataLoading, setMetadataLoading] = useState(false);
   const [metadataActiveTab, setMetadataActiveTab] = useState('detail');
 
   const handleShowMetadata = async (record: any, tab: string = 'detail') => {
     setCurrentMetadata(record);
-    setFullJson(null);
     setMetadataActiveTab(tab);
     setMetadataModalVisible(true);
-
-    const ns = record?.metadata?.namespace;
-    const name = record?.metadata?.name;
-
-    if (ns && name) {
-      setMetadataLoading(true);
-      try {
-        // Use backend proxy instead of direct fetch to avoid CORS/network issues with internal IPs
-        const json = await fetchHarvesterVmDetail(cloudId, ns, name);
-        // Normalize response: backend might wrap result in { data: ... }
-        const data = (json as any)?.data || json;
-        setFullJson(data);
-      } catch (e: any) {
-        console.error(e);
-        message.error(`获取完整数据出错: ${e.message}`);
-      } finally {
-        setMetadataLoading(false);
-      }
-    } else if (record?.links?.view) {
-      // Fallback to direct link if namespace/name missing (unlikely for Harvester)
-      setMetadataLoading(true);
-      try {
-        const res = await fetch(record.links.view, {
-          headers: getAuthHeaders(),
-        });
-        if (res.ok) {
-          const json = await res.json();
-          setFullJson(json);
-        } else {
-          message.error(`获取完整数据失败: ${res.status} ${res.statusText}`);
-        }
-      } catch (e: any) {
-        console.error(e);
-        message.error(`获取完整数据出错: ${e.message}`);
-      } finally {
-        setMetadataLoading(false);
-      }
-    }
   };
 
   const getIid = (r: any): string => {
@@ -115,12 +76,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     name: (r: any) => r?.metadata?.name || r?.InstanceName || r?.name || '',
     namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
     uid: (r: any) => r?.metadata?.uid || r?.InstanceId || r?.id || '',
-    status: (r: any) => r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown',
-    node: (r: any) => r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.Extra?.NodeName || '',
-    cpu: (r: any) => r?.spec?.template?.spec?.domain?.cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || r?.Extra?.CPU,
-    memory: (r: any) => r?.spec?.template?.spec?.domain?.memory?.guest || r?.vmi?.spec?.domain?.memory?.guest || r?.Extra?.Memory,
-    creationTimestamp: (r: any) => r?.metadata?.creationTimestamp,
+    status: (r: any) => {
+      if (typeof r?.status === 'string') return r.status;
+      return r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown';
+    },
+    node: (r: any) => r?.nodeName || r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.Extra?.NodeName || '',
+    cpu: (r: any) => r?.cpu || r?.spec?.template?.spec?.domain?.cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || r?.Extra?.CPU,
+    memory: (r: any) => r?.memoryGb || r?.spec?.template?.spec?.domain?.resources?.requests?.memory || r?.spec?.template?.spec?.domain?.memory?.guest || r?.vmi?.spec?.domain?.memory?.guest || r?.Extra?.Memory,
+    creationTimestamp: (r: any) => r?.createdAt || r?.metadata?.creationTimestamp,
     networks: (r: any) => {
+      if (Array.isArray(r?.networks) && r.networks.length > 0 && typeof r.networks[0] === 'string') return r.networks;
       const nets = r?.spec?.template?.spec?.networks || r?.vmi?.spec?.networks || [];
       const list = nets.map((n: any) => `${n.name} (${n.multus?.networkName || 'default'})`);
       if (list.length > 0) return list;
@@ -155,6 +120,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     ip: (r: any) => {
+      if (Array.isArray(r?.ips) && r.ips.length > 0) return r.ips.join(', ');
       try {
         const annot = r?.metadata?.annotations?.['network.harvesterhci.io/ips'];
         if (annot) {
@@ -169,6 +135,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     macAddress: (r: any) => {
+      if (Array.isArray(r?.macAddresses) && r.macAddresses.length > 0) return r.macAddresses.join(', ');
       try {
         if (r?.status?.interfaces && r.status.interfaces.length > 0) {
           const macs = r.status.interfaces.map((i:any) => i.mac).filter(Boolean);
@@ -182,8 +149,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       } catch (e) {}
       return '';
     },
-    os: (r: any) => r?.metadata?.labels?.['harvesterhci.io/os'] || '',
-    arch: (r: any) => r?.spec?.template?.spec?.architecture || '',
+    os: (r: any) => r?.vmi?.status?.guestOSInfo?.name || r?.vmi?.status?.guestOSInfo?.prettyName || r?.Extra?.OS || '',
+    kernel: (r: any) => r?.vmi?.status?.guestOSInfo?.kernelRelease || r?.Extra?.Kernel || '',
+    arch: (r: any) => r?.vmi?.status?.guestOSInfo?.architecture || r?.spec?.template?.spec?.architecture || r?.Extra?.Architecture || '',
     hostname: (r: any) => r?.spec?.template?.spec?.hostname || '',
     evictionStrategy: (r: any) => r?.spec?.evictionStrategy || r?.spec?.template?.spec?.evictionStrategy || '',
     runStrategy: (r: any) => r?.spec?.runStrategy || '',
@@ -228,41 +196,12 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     }
   };
 
-  const renderDetail = (r: any) => {
-    if (!r) return null;
-    return (
-      <Descriptions bordered column={1} size="small" contentStyle={{ whiteSpace: 'pre-wrap' }}>
-        <Descriptions.Item label="名称">{SafeRead.name(r)}</Descriptions.Item>
-        <Descriptions.Item label="命名空间">{SafeRead.namespace(r)}</Descriptions.Item>
-        <Descriptions.Item label="状态">{cnVmStatus(String(SafeRead.status(r)))}</Descriptions.Item>
-        <Descriptions.Item label="IP地址">{SafeRead.ip(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="MAC地址">{SafeRead.macAddress(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="镜像">{SafeRead.image(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="镜像大小">{SafeRead.imageSize(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="操作系统">{SafeRead.os(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="架构">{SafeRead.arch(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="主机名">{SafeRead.hostname(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="驱逐策略">{SafeRead.evictionStrategy(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="运行策略">{SafeRead.runStrategy(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="CPU规格">{SafeRead.cpuSpec(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="内存规格">{SafeRead.memSpec(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="磁盘">{SafeRead.disks(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="存储卷">{SafeRead.volumes(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="网卡">{SafeRead.interfaces(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="网络">{SafeRead.networks(r).join('; ') || '-'}</Descriptions.Item>
-        <Descriptions.Item label="GPU">{SafeRead.gpus(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="USB设备">{SafeRead.usb(r) || '-'}</Descriptions.Item>
-        <Descriptions.Item label="创建时间">{SafeRead.creationTimestamp(r) || '-'}</Descriptions.Item>
-      </Descriptions>
-    );
-  };
-
   const allColumns = useMemo(() => [
-        { title: '实例名称', key: 'name', width: 220, fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
+        { title: '实例名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
       const text = SafeRead.name(r) || '-';
       return <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>{text}</span>;
     } },
-    { title: '状态', key: 'status', width: 100, fixed: 'left' as any, render: (_: any, r: any) => {
+    { title: '状态', key: 'status', fixed: 'left' as any, render: (_: any, r: any) => {
       const s = String(SafeRead.status(r));
       const k = s.toLowerCase();
       const status = (function(){
@@ -274,38 +213,39 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       })();
       return <Badge status={status as any} text={cnVmStatus(s)} />;
     } },
-    { title: '节点', key: 'node', width: 120, ellipsis: true, render: (_: any, r: any) => {
+    { title: '命名空间', key: 'namespace', ellipsis: true, render: (_: any, r: any) => SafeRead.namespace(r) || '-' },
+    { title: '节点', key: 'node',  ellipsis: true, render: (_: any, r: any) => {
       const node = String(SafeRead.node(r)).trim();
       return node ? <Tag>{node}</Tag> : '-';
     } },
-    { title: 'CPU', key: 'cpu', width: 80, render: (_: any, r: any) => {
+    { title: 'CPU', key: 'cpu',  render: (_: any, r: any) => {
       const v = SafeRead.cpu(r);
       return v ? `${v} C` : '-';
     } },
-    { title: '内存', key: 'memory', width: 100, render: (_: any, r: any) => SafeRead.memory(r) || '-' },
-    { title: '镜像', key: 'image', width: 200, ellipsis: true, render: (_: any, r: any) => {
+    { title: '内存', key: 'memory',  render: (_: any, r: any) => SafeRead.memory(r) || '-' },
+    { title: '镜像', key: 'image',  ellipsis: true, render: (_: any, r: any) => {
         const img = SafeRead.image(r);
         return img ? <Tooltip title={img}>{img}</Tooltip> : '-';
      } },
-     { title: '镜像大小', key: 'imageSize', width: 100, render: (_: any, r: any) => SafeRead.imageSize(r) || '-' },
-     { title: '操作系统', key: 'os', width: 120, ellipsis: true, render: (_: any, r: any) => SafeRead.os(r) || '-' },
-    { title: 'IP地址', key: 'ip', width: 140, ellipsis: true, render: (_: any, r: any) => {
+     { title: '镜像大小', key: 'imageSize',  render: (_: any, r: any) => SafeRead.imageSize(r) || '-' },
+     { title: '操作系统', key: 'os',  ellipsis: true, render: (_: any, r: any) => SafeRead.os(r) || '-' },
+    { title: 'IP地址', key: 'ip',  ellipsis: true, render: (_: any, r: any) => {
        const ip = SafeRead.ip(r);
        return ip ? <Tooltip title={ip}>{ip}</Tooltip> : '-';
     } },
-    { title: 'MAC地址', key: 'mac', width: 160, ellipsis: true, render: (_: any, r: any) => {
+    { title: 'MAC地址', key: 'mac',  ellipsis: true, render: (_: any, r: any) => {
        const mac = SafeRead.macAddress(r);
        return mac ? <Tooltip title={mac}>{mac}</Tooltip> : '-';
     } },
-    { title: '存储卷', key: 'volumes', width: 200, ellipsis: true, render: (_: any, r: any) => {
+    { title: '存储卷', key: 'volumes',  ellipsis: true, render: (_: any, r: any) => {
        const v = SafeRead.volumes(r);
        return v ? <Tooltip title={v}>{v}</Tooltip> : '-';
     } },
-    { title: '创建时间', key: 'created', width: 170, render: (_: any, r: any) => {
+    { title: '创建时间', key: 'created',  render: (_: any, r: any) => {
        const t = SafeRead.creationTimestamp(r);
        return t ? new Date(t).toLocaleString() : '-';
     } },
-    { title: '操作', key: 'actions', width: 60, fixed: 'right' as any, render: (_: any, r: any) => {
+    { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
       const iid = getIid(r);
       
       const handleWebVnc = async () => {
@@ -318,7 +258,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                   window.open(url, '_blank');
                   return;
                 }
-                const j = await fetchCloudProviderEcsVncUrl(cloudId, iid);
+                const j = await fetchHarvesterVncUrl(cloudId, iid);
                 const url = j?.data?.VncUrl || j?.data?.vncUrl || j?.data?.url;
                 if (url) {
                   // Open in a new tab instead of a popup window
@@ -334,22 +274,74 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       };
 
       const handleDeleteConfirm = () => {
+              const status = String(SafeRead.status(r)).toLowerCase();
+              const isRunning = status === 'running' || status === 'starting';
+              const volumes = (r?.spec?.template?.spec?.volumes || []).filter((v: any) => v.persistentVolumeClaim);
+              const volumeNames = volumes.map((v: any) => v.persistentVolumeClaim.claimName).join(', ');
+              
               let deleteImage = false;
               Modal.confirm({
                 title: '确认删除该实例？',
+                icon: <ExclamationCircleOutlined />,
+                width: 500,
                 content: (
-                  <div>
-                    <p>删除后不可恢复。</p>
-                    <Checkbox onChange={(e) => { deleteImage = e.target.checked; }}>同步删除关联镜像</Checkbox>
+                  <div style={{ marginTop: 16 }}>
+                    {isRunning && (
+                      <div style={{ marginBottom: 16, color: '#ff4d4f', background: '#fff1f0', padding: '8px 12px', border: '1px solid #ffccc7', borderRadius: 4 }}>
+                        <WarningOutlined style={{ marginRight: 8 }} />
+                        警告：实例正在运行中。删除操作将强制终止实例。建议先停止实例。
+                      </div>
+                    )}
+                    
+                    <p>确定要永久删除实例 <b>{SafeRead.name(r)}</b> 吗？此操作不可恢复。</p>
+                    
+                    {volumeNames && (
+                       <div style={{ marginBottom: 16, background: '#f5f5f5', padding: '8px 12px', borderRadius: 4 }}>
+                         <div style={{ fontWeight: 500, marginBottom: 4 }}>关联的数据卷 (PVC):</div>
+                         <div style={{ color: 'rgba(0,0,0,0.65)' }}>{volumeNames}</div>
+                         <div style={{ fontSize: 12, color: '#faad14', marginTop: 4 }}>
+                           注意：删除实例通常不会自动删除数据卷，请手动清理。
+                         </div>
+                       </div>
+                    )}
+
+                    <div style={{ marginTop: 16 }}>
+                       <Checkbox onChange={(e) => { deleteImage = e.target.checked; }}>同步删除关联镜像 (如有)</Checkbox>
+                    </div>
                   </div>
                 ),
+                okText: isRunning ? '强制删除' : '删除',
+                okType: 'danger',
                 onOk: () => onDelete(iid, deleteImage)
               });
       };
 
+      const handleEjectCdrom = async () => {
+        const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
+        const cdrom = disks[0];
+        if (!cdrom) return;
+        Modal.confirm({
+          title: '确认弹出 CD-ROM？',
+          content: `即将弹出设备: ${cdrom.name}`,
+          onOk: async () => {
+            try {
+              await detachHarvesterVolumeFromVm(cloudId, iid, { name: cdrom.name });
+              message.success('已发送弹出指令');
+              onRefresh();
+            } catch(e:any) {
+              message.error(`弹出失败: ${e.message}`);
+            }
+          }
+        });
+      };
+
+      const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
+      const isCdromBoot = disks.length > 0 && !!disks[0].cdrom;
+
       const items: any[] = [
-        { key: 'metadata', label: '查看数据', onClick: () => handleShowMetadata(r) },
+        { key: 'detail', label: '资源详情', onClick: () => handleShowMetadata(r, 'detail') },
         { key: 'reconf', label: '资源变配', onClick: () => onOpenReconfigure(r) },
+        ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', onClick: handleEjectCdrom }] : []),
         { key: 'webvnc', label: 'WebVNC（浏览器）', onClick: handleWebVnc },
         { type: 'divider' },
         { key: 'start', label: '启动', onClick: () => onStart(iid) },
@@ -361,7 +353,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         { type: 'divider' },
         { key: 'delete', label: '删除', danger: true, onClick: handleDeleteConfirm },
       ];
-      return <ResourceActionsDropdown items={items} />;
+      return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
     } },
   ], [cloudId, navigate, handleShowMetadata, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete]);
 
@@ -478,24 +470,22 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     >
       <Table
         className="std-table"
-        bordered
-        rowKey={(r:any)=> r.InstanceId || r.id}
+        bordered={true}
+        rowKey={(r:any)=> getIid(r)}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: (keys)=> setSelectedKeys(keys) }}
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        scroll={{ x: 'max-content' }}
-        pagination={{ size: 'small', showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{ size: 'small'}}
       />
       <HarvesterResourceDrawer
         open={metadataModalVisible}
         onClose={() => setMetadataModalVisible(false)}
+        resourceType="VirtualMachine"
         record={currentMetadata}
-        resource={fullJson}
-        loading={metadataLoading}
         activeTab={metadataActiveTab}
         onTabChange={setMetadataActiveTab}
-        renderDetail={renderDetail}
+        cloudId={cloudId}
       />
     </PageDetailSection>
   );

@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Dropdown, Modal, Tabs } from 'antd';
+import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import { fetchHarvesterStorageClassDetail } from '../../../../services/harvesterApi';
 
 type Props = {
   cloudId: string;
@@ -16,13 +18,17 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
   const [keyword, setKeyword] = useState<string>('');
   const [tableColumns, setTableColumns] = useState<any[]>([]);
   
-  // Metadata Modal State
-  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+  // Drawer State
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<any>(null);
+  const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
-  const handleShowMetadata = (record: any) => {
-    setCurrentMetadata(record);
-    setMetadataModalVisible(true);
+  const handleOpenDrawer = async (record: any, tab: string = 'detail') => {
+    // Inject kind for EventsTab
+    const r = { ...record, kind: 'StorageClass' };
+    setDetailRecord(r);
+    setDetailActiveTab(tab);
+    setDetailVisible(true);
   };
 
   const allColumns = useMemo(() => [
@@ -34,8 +40,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
         const isDefault = String(r?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] || '').toLowerCase() === 'true';
         return (
           <div className="flex-center gap-8">
-            <span>{name}</span>
-            {isDefault && <Tag color="gold">Default</Tag>}
+            <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>{name}</span>
+            {isDefault && <span className="std-badge std-badge-warning">Default</span>}
           </div>
         );
       } 
@@ -65,7 +71,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       key: 'age', 
       render: (_: any, r: any) => {
         const t = r?.metadata?.creationTimestamp;
-        return t ? new Date(t).toLocaleString() : '-';
+        return t ? <span className="std-time">{t}</span> : '-';
       } 
     },
     { 
@@ -73,10 +79,9 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       key: 'actions', 
       render: (_: any, r: any) => {
           const items: any[] = [
-              { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
-    ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
+              { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
           ];
-          return <ResourceActionsDropdown items={items} />;
+          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
   ], []);
@@ -103,6 +108,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
             onChange={(e) => setKeyword(e.target.value)} 
             className="toolbar-search" 
           />
+          <a className="toolbar-reset-btn" onClick={() => setKeyword('')}>重置</a>
         </>
       )}
       toolbarRight={(
@@ -123,32 +129,18 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
+        pagination={{size: 'small'}}
       />
 
-      {/* Metadata Modal */}
-      <Modal
-        title="元数据查看"
-        open={metadataModalVisible}
-        onCancel={() => setMetadataModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <Tabs items={[
-            {
-                key: 'json',
-                label: 'Raw JSON',
-                children: (
-                    <Input.TextArea 
-                        readOnly 
-                        value={currentMetadata ? JSON.stringify(currentMetadata, null, 2) : ''} 
-                        autoSize={{ minRows: 10, maxRows: 20 }}
-                        className="metadata-viewer"
-                    />
-                )
-            }
-        ]} />
-      </Modal>
+      <HarvesterResourceDrawer
+        open={detailVisible}
+        onClose={() => setDetailVisible(false)}
+        resourceType="StorageClass"
+        record={detailRecord}
+        cloudId={cloudId}
+        activeTab={detailActiveTab}
+        onTabChange={setDetailActiveTab}
+      />
     </PageDetailSection>
   );
 };

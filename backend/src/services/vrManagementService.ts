@@ -1,5 +1,5 @@
 import { AppDataSource } from '../config/database';
-import { VRConfig } from '../entities/VRConfig';
+import { VRConfig } from '../entities/vRouter/VRConfig';
 
 export interface BindVRPayload {
   vr_uuid: string;
@@ -86,8 +86,8 @@ export const vrManagementService = {
     // Sync to VrCacheDevice (New 3-table architecture)
     try {
       // 动态导入以避免循环依赖或加载顺序问题
-      const { VrCacheDevice } = await import('../entities/VrCacheDevice');
-      const deviceRepo = AppDataSource.getRepository(VrCacheDevice);
+      const { VRCacheDevice } = await import('../entities/vRouter/VRCacheDevice');
+      const deviceRepo = AppDataSource.getRepository(VRCacheDevice);
       let deviceRecord = await deviceRepo.findOne({ where: { uuid: record.uuid } });
       if (!deviceRecord) {
         deviceRecord = deviceRepo.create({ uuid: record.uuid });

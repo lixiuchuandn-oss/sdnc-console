@@ -65,8 +65,44 @@ const TenantsPage: React.FC = () => {
       setTenants(response.data);
       // 异步刷新组织数量
       refreshOrgCounts(response.data);
+      // 异步刷新用户数量
+      refreshUserCounts(response.data);
     } catch (error) {
       message.error('获取租户列表失败');
+    }
+  };
+
+  // 批量刷新所有租户的用户数量
+  const refreshUserCounts = async (list: Tenant[]) => {
+    try {
+      const token = localStorage.getItem('token');
+      const pairs: [string, number][] = [];
+      
+      const chunkSize = 5;
+      for (let i = 0; i < list.length; i += chunkSize) {
+        const chunk = list.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(chunk.map(async (t) => {
+          try {
+            const res = await axios.get(`/api/tenants/${t.id}/users`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const users = Array.isArray(res.data) ? res.data : (res.data?.users || []);
+            return [t.id, users.length] as const;
+          } catch {
+            return [t.id, 0] as const;
+          }
+        }));
+        // @ts-ignore
+        pairs.push(...chunkResults);
+      }
+
+      setTenantUserCountMap(prev => {
+        const next = { ...prev };
+        for (const [id, cnt] of pairs) next[id] = cnt;
+        return next;
+      });
+    } catch {
+      // ignore
     }
   };
 
@@ -201,25 +237,6 @@ const TenantsPage: React.FC = () => {
       render: (text: string) => <Typography.Text copyable style={{ fontSize: 12 }}>{text}</Typography.Text>
     },
     {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => {
-        const badgeClasses = {
-          active: 'std-badge std-badge-success',
-          inactive: 'std-badge std-badge-warning',
-          suspended: 'std-badge std-badge-error'
-        };
-        const labels = {
-          active: '活跃',
-          inactive: '非活跃',
-          suspended: '暂停'
-        };
-        const cls = badgeClasses[status as keyof typeof badgeClasses] || 'std-badge std-badge-default';
-        return <span className={cls}>{labels[status as keyof typeof labels] || status}</span>;
-      }
-    },
-    {
       title: '组织数量',
       key: 'orgCount',
       render: (_: any, record: Tenant) => <span className="stat-trigger">{tenantOrgCountMap[record.id] ?? '-'}</span>
@@ -273,20 +290,17 @@ const TenantsPage: React.FC = () => {
   ];
 
   // 过滤后的租户列表
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [idFilter, setIdFilter] = useState<string>('');
   
   const handleFilterChange = (_: any, all: any) => {
     setTenantSearch(all.keyword || '');
-    setStatusFilter(all.status || undefined);
     setIdFilter(all.id || '');
   };
   
   const filteredTenants = tenants.filter(t => {
     const okKeyword = t.name.toLowerCase().includes(tenantSearch.toLowerCase()) || (t.description || '').toLowerCase().includes(tenantSearch.toLowerCase());
-    const okStatus = !statusFilter || t.status === statusFilter;
     const okId = !idFilter || t.id.toLowerCase().includes(idFilter.toLowerCase());
-    return okKeyword && okStatus && okId;
+    return okKeyword && okId;
   });
 
   useEffect(() => {
@@ -310,12 +324,7 @@ const TenantsPage: React.FC = () => {
         >
           <Form.Item name="keyword" label="租户名称"><Input className="toolbar-search" allowClear placeholder="支持模糊查询" /></Form.Item>
           <Form.Item name="id" label="ID"><Input className="toolbar-search" allowClear placeholder="请输入ID" /></Form.Item>
-          <Form.Item name="status" label="状态"><Select className="toolbar-filter" allowClear placeholder="选择状态">
-            <Select.Option value="active">活跃</Select.Option>
-            <Select.Option value="inactive">非活跃</Select.Option>
-            <Select.Option value="suspended">暂停</Select.Option>
-          </Select></Form.Item>
-          <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); setStatusFilter(undefined); setIdFilter(''); }}>重置</a>
+          <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); setIdFilter(''); }}>重置</a>
         </Form>
         <div className="toolbar-actions">
           <Button type="primary" onClick={()=> setTenantDrawerOpen(true)}>添加租户</Button>
@@ -378,15 +387,6 @@ const TenantsPage: React.FC = () => {
           <Form.Item label="描述" name="description">
             <TextArea rows={3} placeholder="请输入租户描述" />
           </Form.Item>
-          {editingTenant && (
-            <Form.Item label="状态" name="status">
-              <Select placeholder="请选择状态">
-                <Select.Option value="active">活跃</Select.Option>
-                <Select.Option value="inactive">非活跃</Select.Option>
-                <Select.Option value="suspended">暂停</Select.Option>
-              </Select>
-            </Form.Item>
-          )}
         </Form>
       </StdSideDrawer>
     </PageContainer>

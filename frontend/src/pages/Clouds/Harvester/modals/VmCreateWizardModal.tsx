@@ -11,7 +11,7 @@ import StepOthers from './StepOthers';
 import WizardSummary from './WizardSummary';
 import { useHarvesterData } from './useHarvesterData';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange } from './VmWizardUtils';
-import { createHarvesterVm, fetchHarvesterCapabilities } from '../../../../services/api';
+import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 
 const VmCreateWizardModal: React.FC = () => {
   const navigate = useNavigate();
@@ -47,7 +47,8 @@ const VmCreateWizardModal: React.FC = () => {
     kubeVpcs, reloadKubeVpcs, kubeVpcOptions,
     gpuResources, reloadGpuResources,
     usbResources, reloadUsbResources,
-    storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName
+    storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
+    sshKeyOptions, reloadSshKeys
   } = useHarvesterData(cloudId, currentCloudId, form);
 
   useEffect(() => {
@@ -57,7 +58,6 @@ const VmCreateWizardModal: React.FC = () => {
   useEffect(() => {
     const load = async () => {
       if (!currentCloudId && cloudId === 'all') return;
-      if (!form.getFieldValue('namespace')) { try { form.setFieldsValue({ namespace: 'default' }); } catch {} }
       try {
         const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
         if (cid) {
@@ -76,8 +76,11 @@ const VmCreateWizardModal: React.FC = () => {
   }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes]);
 
   useEffect(() => {
-    if (step === 4) { try { reloadUsbResources(); } catch {} }
-  }, [step, reloadUsbResources]);
+    if (step === 4) { 
+      try { reloadUsbResources(); } catch {} 
+      try { reloadSshKeys(); } catch {}
+    }
+  }, [step, reloadUsbResources, reloadSshKeys]);
 
   useEffect(() => {
     if (step === 1) { try { reloadGpuResources(); } catch {} }
@@ -141,7 +144,7 @@ const VmCreateWizardModal: React.FC = () => {
       const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
       if (!cid) { throw new Error('请选择资源池'); }
       if (hostModeState === 'node' && !selectedNodeName) { throw new Error('请选择主机'); }
-      if (!v.primaryNic || !v.primaryNic.name) { throw new Error('请选择主网卡网络（NAD）'); }
+      // Primary NIC name is optional now (defaults to Pod Network)
 
       let selectedGpu: any = null;
       let finalGpuResName: string | undefined = undefined;
@@ -161,7 +164,15 @@ const VmCreateWizardModal: React.FC = () => {
       }
 
       const payload = constructVmPayload({
-        v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu, capabilities
+        v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu, capabilities,
+        isArm64: (function() {
+            if (nodes && nodes.length > 0) {
+                 const n = nodes[0];
+                 const arch = n?.status?.nodeInfo?.architecture || n?.architecture || '';
+                 return String(arch).toLowerCase() === 'arm64' || String(arch).toLowerCase() === 'aarch64';
+            }
+            return false;
+        })()
       });
 
       await createHarvesterVm(cid, payload);
@@ -306,6 +317,8 @@ const VmCreateWizardModal: React.FC = () => {
                   reloadUsbResources={reloadUsbResources}
                   autoStart={autoStart}
                   setAutoStart={setAutoStart}
+                  sshKeyOptions={sshKeyOptions}
+                  reloadSshKeys={reloadSshKeys}
                 />
               )}
             </div>

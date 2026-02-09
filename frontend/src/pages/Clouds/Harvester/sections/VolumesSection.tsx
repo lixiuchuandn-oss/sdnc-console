@@ -1,10 +1,15 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Table, Tag, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Checkbox, Tabs } from 'antd';
+import { Table, Tag, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Checkbox, Tabs, Descriptions } from 'antd';
+import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume } from '../../../../services/api';
+import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume, listHarvesterSnapshotClasses } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
+
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 type Props = {
   cloudId: string;
@@ -107,7 +112,11 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
-  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
+  
+  // Detail Drawer State
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<any>(null);
+  const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
   // Forms
   const [createForm] = Form.useForm();
@@ -122,6 +131,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   const [creating, setCreating] = useState(false);
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
   const [tableColumns, setTableColumns] = useState<any[]>([]);
+  const [snapshotClasses, setSnapshotClasses] = useState<any[]>([]);
 
   // Sync Storage Classes
   useEffect(() => {
@@ -197,8 +207,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     for (const nm of vol.attachedTo) {
       const iid = vol.namespace && nm ? `${vol.namespace}/${nm}` : nm;
       const hit = list.find((vm: any) => 
-        String(vm?.InstanceId || '') === iid || 
-        String(vm?.InstanceName || '') === nm
+        String(vm?.id || vm?.InstanceId || '') === iid || 
+        String(vm?.name || vm?.InstanceName || '') === nm
       );
       if (hit) return hit;
     }
@@ -206,9 +216,9 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     // 2. Check VM Extra.VolumeClaims
     // Matches if VM has this PVC name in its claims list AND is in same namespace
     const hit = list.find((vm: any) => 
-      String(vm?.Extra?.Namespace || '') === vol.namespace &&
-      Array.isArray(vm?.Extra?.VolumeClaims) && 
-      vm.Extra.VolumeClaims.includes(vol.name)
+      String(vm?.extra?.namespace || vm?.namespace || vm?.Extra?.Namespace || '') === vol.namespace &&
+      Array.isArray(vm?.extra?.volumeClaims || vm?.Extra?.VolumeClaims) && 
+      (vm?.extra?.volumeClaims || vm?.Extra?.VolumeClaims).includes(vol.name)
     );
     
     return hit;
@@ -227,29 +237,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       if (st && item.phase.toLowerCase() !== st) return false;
       
       // Namespace System Filter
-      const isSystem = (() => {
-        const n = String(item.namespace || '').toLowerCase();
-        
-        // Exact matches
-        if (['cloud-public', 'ingress-nginx'].includes(n)) return true;
-        
-        // Prefix matches
-        const prefixes = [
-          'cattle',
-          'fleet',
-          'longhorn',
-          'kube',
-          'harvester',
-          'cluster-fleet',
-          'cluster',
-          'local',
-          'user'
-        ];
-        
-        return prefixes.some(p => n.startsWith(p));
-      })();
-
-      if (!showSystemVolumes && isSystem) return false;
+      if (!showSystemVolumes && isSystemNamespace(item.namespace)) return false;
 
       // Namespace Filter
       if (nsFilter && item.namespace !== nsFilter) return false;
@@ -264,10 +252,20 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   const nsOptions = useMemo(() => {
     const set = new Set<string>();
     dataSource.forEach(v => v.namespace && set.add(v.namespace));
-    (vms || []).forEach((vm: any) => vm?.Extra?.Namespace && set.add(vm.Extra.Namespace));
+    (vms || []).forEach((vm: any) => {
+      const ns = vm?.extra?.namespace || vm?.namespace || vm?.Extra?.Namespace;
+      if (ns) set.add(ns);
+    });
     if (!set.has('default')) set.add('default');
-    return Array.from(set).sort().map(s => ({ value: s, label: s }));
-  }, [dataSource, vms]);
+    
+    // Filter system namespaces unless "showSystemVolumes" is true
+    let list = Array.from(set);
+    if (!showSystemVolumes) {
+      list = list.filter(ns => !isSystemNamespace(ns));
+    }
+    
+    return list.sort().map(s => ({ value: s, label: s }));
+  }, [dataSource, vms, showSystemVolumes]);
 
   const statusOptions = [
     'healthy','degraded','faulted','detached','attaching','attached','detaching','maintenance','restoring','creating','deleting','error','bound','pending','lost'
@@ -276,6 +274,26 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   // ----------------------------------------------------------------
   // Actions Handlers
   // ----------------------------------------------------------------
+  const handleOpenDrawer = async (record: VolumeView, tab: string = 'detail') => {
+    // Inject kind: 'PersistentVolumeClaim' for events fetching
+    const raw = record.raw || {};
+    // Ensure raw data has kind
+    if (!raw.kind) raw.kind = 'PersistentVolumeClaim';
+    // Ensure raw data has metadata
+    if (!raw.metadata) {
+      raw.metadata = {
+        name: record.name,
+        namespace: record.namespace,
+        uid: record.key,
+        creationTimestamp: record.creationTimestamp
+      };
+    }
+
+    setDetailRecord(raw);
+    setDetailActiveTab(tab);
+    setDetailVisible(true);
+  };
+
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter(v => selectedRowKeys.includes(v.key));
@@ -359,7 +377,9 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       title: 'PVC名称', 
       dataIndex: 'name',
       key: 'name', 
-      render: (v: string) => <span>{v}</span> 
+      render: (v: string, r: VolumeView) => (
+        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>{v}</span> 
+      )
     },
     { 
       title: '卷名称 (PV)', 
@@ -414,41 +434,15 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     { 
       title: '操作', 
       key: 'actions', 
+      width: 80,
+      fixed: 'right' as const,
       render: (_: any, r: VolumeView) => {
         const vm = findVmForVolume(r);
         
-        const items = [
-          { 
-            key: 'attach', 
-            label: '挂载到云主机', 
-            onClick: () => handleAttach(r) 
-          },
-          ...(vm ? [{ 
-            key: 'detach', 
-            label: '从云主机卸载', 
-            danger: true, 
-            onClick: () => handleDetach(r) 
-          }] : []),
-          { 
-            key: 'metadata', 
-            label: '查看 MetaData', 
-            onClick: () => { setCurrentRecord(r); setMetadataModalVisible(true); } 
-          },
-          ...(r?.links?.view ? [{ 
-            key: 'view', 
-            label: '查看 SourceData', 
-            onClick: () => window.open(r.links?.view, '_blank') 
-          }] : []),
-          { 
-            key: 'export', 
-            label: '导出为镜像', 
-            onClick: () => { setCurrentRecord(r); exportForm.resetFields(); exportForm.setFieldsValue({ displayName: r.name }); setExportOpen(true); } 
-          },
-          { 
-            key: 'snapshot', 
-            label: '创建快照', 
-            onClick: () => { setCurrentRecord(r); snapshotForm.resetFields(); snapshotForm.setFieldsValue({ name: `${r.name}-snap` }); setSnapshotOpen(true); } 
-          },
+        const items: any[] = [
+          { key: 'detail', label: '查看摘要', onClick: () => handleOpenDrawer(r, 'detail') },
+          { key: 'events', label: '操作记录', onClick: () => handleOpenDrawer(r, 'events') },
+          { type: 'divider' as const },
           { 
             key: 'edit', 
             label: '编辑配置', 
@@ -465,8 +459,33 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             } 
           },
           { 
+            key: 'attach', 
+            label: '挂载到虚拟机', 
+            disabled: !!vm, 
+            onClick: () => handleAttach(r) 
+          },
+          ...(vm ? [{ 
+            key: 'detach', 
+            label: '从云主机卸载', 
+            danger: true, 
+            onClick: () => handleDetach(r) 
+          }] : []),
+          // Metadata/SourceData actions removed as per request
+
+          { 
+            key: 'export', 
+            label: '导出为镜像', 
+            onClick: () => { setCurrentRecord(r); exportForm.resetFields(); exportForm.setFieldsValue({ displayName: r.name }); setExportOpen(true); } 
+          },
+          { 
+            key: 'snapshot', 
+            label: '创建快照', 
+            onClick: () => { setCurrentRecord(r); snapshotForm.resetFields(); snapshotForm.setFieldsValue({ name: `${r.name}-snap` }); setSnapshotOpen(true); } 
+          },
+
+          { 
             key: 'clone', 
-            label: '克隆', 
+            label: '克隆虚拟卷', 
             onClick: () => { 
               setCurrentRecord(r); 
               cloneForm.resetFields(); 
@@ -505,10 +524,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             } 
           }
         ];
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh]);
+  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer]);
 
   // ----------------------------------------------------------------
   // Render
@@ -559,6 +578,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             columns={allColumns} 
             onChange={setTableColumns}
             settingsKey="harvester_volumes_table"
+            defaultHiddenColumns={['pvName', 'namespace', 'volumeMode']}
           />
           <Button icon={<ReloadOutlined />} onClick={onRefresh} />
         </>
@@ -575,35 +595,21 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
+        pagination={{size:'small'}}
       />
 
       {/* --- Modals --- */}
       
-      {/* 1. Metadata */}
-      <Modal
-        title="元数据查看" open={metadataModalVisible} onCancel={() => setMetadataModalVisible(false)} footer={null} width={800}
-      >
-        <Tabs items={[{
-          key: 'json', label: 'Raw JSON',
-          children: (
-            <Input.TextArea 
-              readOnly 
-              value={currentRecord ? JSON.stringify(currentRecord.raw, null, 2) : ''} 
-              autoSize={{ minRows: 10, maxRows: 20 }}
-              className="metadata-viewer"
-            />
-          )
-        }]} />
-      </Modal>
+      {/* 1. Metadata - Removed */}
 
       {/* 2. Create */}
-      <Modal
+      <StdFormModal
         title="创建卷" open={createOpen} onCancel={() => setCreateOpen(false)} confirmLoading={creating}
-        onOk={async () => {
+        okText="创建"
+        form={createForm}
+        onFinish={async (v: any) => {
           try {
             setCreating(true);
-            const v = await createForm.validateFields();
             const payload = {
               namespace: String(v.namespace || 'default'),
               name: String(v.name || ''),
@@ -620,40 +626,44 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           finally { setCreating(false); }
         }}
       >
-        <Form form={createForm} layout="vertical">
           <Form.Item label="卷名称" name="name" rules={[{ required: true }]}><Input placeholder="例如: my-disk" /></Form.Item>
           <Form.Item label="命名空间" name="namespace" initialValue="default" rules={[{ required: true }]}>
-            <Select showSearch options={nsOptions} />
+            <Select showSearch options={nsOptions} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="访问模式" name="accessModes" initialValue={["ReadWriteOnce"]}>
-            <Select mode="multiple" options={[{ value: 'ReadWriteOnce', label: 'RWO' }, { value: 'ReadWriteMany', label: 'RWX' }, { value: 'ReadOnlyMany', label: 'ROX' }]} />
+            <Select mode="multiple" options={[{ value: 'ReadWriteOnce', label: 'RWO' }, { value: 'ReadWriteMany', label: 'RWX' }, { value: 'ReadOnlyMany', label: 'ROX' }]} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="卷类型" name="volumeMode" initialValue="Block">
-            <Select options={[{ value: 'Block', label: 'Block' }, { value: 'Filesystem', label: 'Filesystem' }]} />
+            <Select options={[{ value: 'Block', label: 'Block' }, { value: 'Filesystem', label: 'Filesystem' }]} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="存储类" name="storageClassName">
-            <Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} />
+            <Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} />
           </Form.Item>
-        </Form>
-      </Modal>
+      </StdFormModal>
 
       {/* 3. Attach */}
-      <Modal
+      <StdFormModal
         title="挂载到云主机" open={attachOpen} onCancel={() => setAttachOpen(false)}
-        onOk={async () => {
+        okText="挂载"
+        form={attachForm}
+        onFinish={async (v: any) => {
           try {
-            const v = await attachForm.validateFields();
             if (!currentRecord) return;
-            const vm = (vms || []).find((x: any) => x.InstanceId === v.instanceId);
+            const vm = (vms || []).find((x: any) => (x.id || x.InstanceId) === v.instanceId);
             if (!vm) { message.error('未找到云主机'); return; }
             
-            const iid = String(vm.InstanceId);
-            const iidNameOnly = iid.includes('/') ? iid.split('/').pop() : iid;
+            const vmName = vm.name || vm.InstanceName || '';
+            // If ID is complex path, try to parse name (fallback)
+            const iid = String(vm.id || vm.InstanceId || '');
+            const finalName = vmName || (iid.includes('/') ? iid.split('/').pop() : iid);
+
+            if (!finalName) { message.error('云主机名称无效'); return; }
+
             // Generate a safe disk name
             const computedDiskName = (currentRecord.name).replace(/[^a-z0-9-]/gi, '-').toLowerCase().slice(0, 63);
 
-            await attachHarvesterVolumeToVmByName(cloudId, currentRecord.namespace, iidNameOnly!, {
+            await attachHarvesterVolumeToVmByName(cloudId, currentRecord.namespace, finalName, {
               diskName: computedDiskName,
               bus: v.bus || 'virtio',
               pvcNamespace: currentRecord.namespace,
@@ -665,23 +675,24 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           } catch (e: any) { message.error(e.message || '挂载失败'); }
         }}
       >
-        <Form form={attachForm} layout="vertical">
           <Form.Item label="云主机" name="instanceId" rules={[{ required: true }]}>
-            <Select showSearch placeholder="选择云主机" options={(vms || []).filter((vm: any) => vm?.Extra?.Namespace === currentRecord?.namespace).map((vm: any) => ({ value: vm.InstanceId, label: vm.InstanceName || vm.InstanceId }))} />
+            <Select showSearch placeholder="选择云主机" options={(vms || [])
+              .filter((vm: any) => (vm?.extra?.namespace || vm?.namespace || vm?.Extra?.Namespace) === currentRecord?.namespace)
+              .map((vm: any) => ({ value: vm.id || vm.InstanceId, label: vm.name || vm.InstanceName || vm.id || vm.InstanceId }))} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="总线" name="bus" initialValue="virtio">
-            <Select options={['virtio', 'sata', 'scsi'].map(v => ({ value: v, label: v }))} />
+            <Select options={['virtio', 'sata', 'scsi'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="PVC"><Input value={currentRecord?.name} disabled /></Form.Item>
-        </Form>
-      </Modal>
+      </StdFormModal>
 
       {/* 4. Export */}
-      <Modal
+      <StdFormModal
         title="导出为镜像" open={exportOpen} onCancel={() => setExportOpen(false)}
-        onOk={async () => {
+        okText="导出"
+        form={exportForm}
+        onFinish={async (v: any) => {
           try {
-            const v = await exportForm.validateFields();
             if (!currentRecord) return;
             await exportHarvesterImageFromVolume(cloudId, currentRecord.namespace, currentRecord.name, {
               displayName: v.displayName,
@@ -692,18 +703,17 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           } catch (e: any) { message.error(e.message || '导出失败'); }
         }}
       >
-        <Form form={exportForm} layout="vertical">
           <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="存储类" name="targetStorageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} /></Form.Item>
-        </Form>
-      </Modal>
+          <Form.Item label="存储类" name="targetStorageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} /></Form.Item>
+      </StdFormModal>
 
       {/* 5. Snapshot */}
-      <Modal
+      <StdFormModal
         title="创建快照" open={snapshotOpen} onCancel={() => setSnapshotOpen(false)}
-        onOk={async () => {
+        okText="创建"
+        form={snapshotForm}
+        onFinish={async (v: any) => {
           try {
-            const v = await snapshotForm.validateFields();
             if (!currentRecord) return;
             await createHarvesterVolumeSnapshot(cloudId, currentRecord.namespace, currentRecord.name, {
               name: v.name,
@@ -714,18 +724,31 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           } catch (e: any) { message.error(e.message || '创建失败'); }
         }}
       >
-        <Form form={snapshotForm} layout="vertical">
           <Form.Item label="快照名称" name="name"><Input placeholder="留空自动生成" /></Form.Item>
-          <Form.Item label="快照类" name="snapshotClassName"><Input placeholder="例如: longhorn" /></Form.Item>
-        </Form>
-      </Modal>
+          <Form.Item label="快照类" name="snapshotClassName">
+            <Select 
+              allowClear 
+              placeholder="请选择快照类 (默认使用 VolumeSnapshotClass)" 
+              options={snapshotClasses.map(sc => ({ value: sc.metadata?.name, label: sc.metadata?.name }))} 
+              onDropdownVisibleChange={async (open) => {
+                if (open && snapshotClasses.length === 0) {
+                  try {
+                    const data = await listHarvesterSnapshotClasses(cloudId);
+                    setSnapshotClasses(data?.items || []);
+                  } catch (e) { console.error(e); }
+                }
+              }}
+            />
+          </Form.Item>
+      </StdFormModal>
 
       {/* 6. Edit */}
-      <Modal
+      <StdFormModal
         title="编辑配置" open={editOpen} onCancel={() => setEditOpen(false)}
-        onOk={async () => {
+        okText="保存"
+        form={editForm}
+        onFinish={async (v: any) => {
           try {
-            const v = await editForm.validateFields();
             if (!currentRecord) return;
             await updateHarvesterVolume(cloudId, currentRecord.namespace, currentRecord.name, {
               sizeGi: Number(v.sizeGi),
@@ -739,20 +762,19 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           } catch (e: any) { message.error(e.message || '更新失败'); }
         }}
       >
-        <Form form={editForm} layout="vertical">
           <Form.Item label="容量(GB)" name="sizeGi"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="访问模式" name="accessModes"><Select mode="multiple" options={['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany'].map(v => ({ value: v, label: v }))} /></Form.Item>
-          <Form.Item label="卷类型" name="volumeMode"><Select options={['Block', 'Filesystem'].map(v => ({ value: v, label: v }))} /></Form.Item>
-          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} /></Form.Item>
-        </Form>
-      </Modal>
+          <Form.Item label="访问模式" name="accessModes"><Select mode="multiple" options={['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
+          <Form.Item label="卷类型" name="volumeMode"><Select options={['Block', 'Filesystem'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
+          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} /></Form.Item>
+      </StdFormModal>
 
       {/* 7. Clone */}
-      <Modal
+      <StdFormModal
         title="克隆" open={cloneOpen} onCancel={() => setCloneOpen(false)}
-        onOk={async () => {
+        okText="克隆"
+        form={cloneForm}
+        onFinish={async (v: any) => {
           try {
-            const v = await cloneForm.validateFields();
             if (!currentRecord) return;
             await cloneHarvesterVolume(cloudId, currentRecord.namespace, currentRecord.name, {
               targetNamespace: v.targetNamespace,
@@ -769,16 +791,25 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           } catch (e: any) { message.error(e.message || '克隆失败'); }
         }}
       >
-        <Form form={cloneForm} layout="vertical">
-          <Form.Item label="目标命名空间" name="targetNamespace"><Select options={nsOptions} /></Form.Item>
+          <Form.Item label="目标命名空间" name="targetNamespace"><Select options={nsOptions} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="新卷名称" name="newName" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item label="容量(GB)" name="sizeGi"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="访问模式" name="accessModes"><Select mode="multiple" options={['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany'].map(v => ({ value: v, label: v }))} /></Form.Item>
-          <Form.Item label="卷类型" name="volumeMode"><Select options={['Block', 'Filesystem'].map(v => ({ value: v, label: v }))} /></Form.Item>
-          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} /></Form.Item>
+          <Form.Item label="访问模式" name="accessModes"><Select mode="multiple" options={['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
+          <Form.Item label="卷类型" name="volumeMode"><Select options={['Block', 'Filesystem'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
+          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="来源快照" name="fromSnapshotName"><Input placeholder="可选" /></Form.Item>
-        </Form>
-      </Modal>
+      </StdFormModal>
+
+      {/* 8. Resource Drawer */}
+      <HarvesterResourceDrawer
+        open={detailVisible}
+        onClose={() => setDetailVisible(false)}
+        resourceType="PersistentVolumeClaim"
+        record={detailRecord}
+        cloudId={cloudId}
+        activeTab={detailActiveTab}
+        onTabChange={setDetailActiveTab}
+      />
     </PageDetailSection>
   );
 };

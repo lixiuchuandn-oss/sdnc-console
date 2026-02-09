@@ -6,18 +6,18 @@ import { Cloud } from '../entities/Cloud';
 import { VpcNetwork } from '../entities/VpcNetwork';
 import { CenAttachment } from '../entities/CenAttachment';
 import { CloudEnterpriseNetwork } from '../entities/CloudEnterpriseNetwork';
-import { Srv6Tunnel } from '../entities/Srv6Tunnel';
+import { SRv6Tunnel } from '../entities/vRouter/SRv6Tunnel';
 import { CloudInstanceInventory } from '../entities/CloudInstanceInventory';
-import { NATRule } from '../entities/NATRule';
-import { ACLRule } from '../entities/ACLRule';
+import { NATRule } from '../entities/vRouter/NATRule';
+import { ACLRule } from '../entities/vRouter/ACLRule';
 import { ServiceCatalog } from '../entities/ServiceCatalog';
 import { ServiceChain } from '../entities/ServiceChain';
 import { Tenant } from '../entities/Tenant';
 import { Organization } from '../entities/Organization';
 import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
 import { UserSpace } from '../entities/UserSpace';
-import { VRConfig } from '../entities/VRConfig';
-import { VrCacheExtended } from '../entities/VrCacheExtended';
+import { VRConfig } from '../entities/vRouter/VRConfig';
+import { VRCacheExtended } from '../entities/vRouter/VRCacheExtended';
 import { callAliyunVpc, callAliyunEcs } from '../services/clouds/aliyun/client';
 import { huaweiListVpcs } from '../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../services/clouds/tencentcloud/client';
@@ -29,7 +29,7 @@ const repo = () => AppDataSource.getRepository(SecurityDomain);
 const cloudRepo = () => AppDataSource.getRepository(Cloud);
 const vpcRepo = () => AppDataSource.getRepository(VpcNetwork);
 const cenAttachRepo = () => AppDataSource.getRepository(CenAttachment);
-const srv6Repo = () => AppDataSource.getRepository(Srv6Tunnel);
+const srv6Repo = () => AppDataSource.getRepository(SRv6Tunnel);
 const inventoryRepo = () => AppDataSource.getRepository(CloudInstanceInventory);
 const natRepo = () => AppDataSource.getRepository(NATRule);
 const aclRepo = () => AppDataSource.getRepository(ACLRule);
@@ -242,7 +242,7 @@ router.get('/', async (req, res) => {
     const vrCacheMap = new Map<string, any>();
     if (vrUuids.length > 0) {
       try {
-        const vrCacheRepo = AppDataSource.getRepository(VrCacheExtended);
+        const vrCacheRepo = AppDataSource.getRepository(VRCacheExtended);
         const caches = await vrCacheRepo.find({ where: { uuid: In(vrUuids) } });
         caches.forEach((c) => {
           if (c.data) {
@@ -334,10 +334,10 @@ router.get('/:id', async (req, res) => {
 
     const result = { ...item } as any;
 
-    // Fetch VrCacheExtended for real-time IP info
+    // Fetch VRCacheExtended for real-time IP info
     if (result.vrUuid) {
       try {
-        const vrCacheRepo = AppDataSource.getRepository(VrCacheExtended);
+        const vrCacheRepo = AppDataSource.getRepository(VRCacheExtended);
         const cache = await vrCacheRepo.findOne({ where: { uuid: result.vrUuid } });
         if (cache && cache.data) {
            const data = JSON.parse(cache.data);
@@ -802,10 +802,10 @@ router.get('/:id', async (req, res) => {
       result.aclRules = [];
     }
 
-    // Override VR IPs from VrCacheExtended if available (Source of Truth)
+    // Override VR IPs from VRCacheExtended if available (Source of Truth)
     if (result.vrUuid) {
       try {
-        const vrCacheRepo = AppDataSource.getRepository(VrCacheExtended);
+        const vrCacheRepo = AppDataSource.getRepository(VRCacheExtended);
         const cachedVr = await vrCacheRepo.findOne({ where: { uuid: result.vrUuid } });
         if (cachedVr && cachedVr.data) {
           const data = JSON.parse(cachedVr.data);

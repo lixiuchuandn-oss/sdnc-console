@@ -23,30 +23,58 @@ export {
   harvesterRemoveVolumeFromVM,
   harvesterAddVolumeToVMDirect,
 } from './lifecycle';
-export { listHarvesterNADsStandard, listKubeOvnVpcs, listKubeOvnSubnets } from './network';
+export {
+  listHarvesterNADsStandard,
+  listKubeOvnVpcs,
+  listKubeOvnSubnets,
+  updateHarvesterSubnet,
+  listHarvesterLoadBalancers,
+  listHarvesterLoadBalancerIPPools,
+  listHarvesterIngressesStandard,
+  listKubeOvnEips,
+  listKubeOvnFips,
+  listKubeOvnSnatRules,
+  listKubeOvnDnatRules,
+} from './network';
 export {
   listHarvesterVolumesStandard,
   listHarvesterAvailableVolumesStandard,
-  listHarvesterStorageClassesStandard,
   listHarvesterImagesStandard,
   listHarvesterImagesRaw,
   deleteHarvesterLonghornVolume,
+  deleteHarvesterPVC,
   createHarvesterPVCVolume,
   listHarvesterPVCRaw, // Export the new function
   exportImageFromPVC,
   createVolumeSnapshot,
   updatePVCSpec,
   clonePVC,
+  listHarvesterSnapshotClassesRaw,
+  listHarvesterSnapshotsStandard,
+  listHarvesterBackupsStandard,
+  listHarvesterSshKeysStandard,
+  listHarvesterCloudInitsStandard,
+  listHarvesterTemplatesRaw,
+  listHarvesterTemplatesStandard,
+  listHarvesterScheduleVmBackupsStandard,
+  createHarvesterScheduleVmBackup,
+  updateHarvesterScheduleVmBackup,
+  deleteHarvesterScheduleVmBackup,
+  createHarvesterVirtualMachineBackup,
+  createHarvesterVirtualMachineRestore,
+  deleteHarvesterVirtualMachineBackup,
+  deleteHarvesterVirtualMachineSnapshot,
+} from './resources';
+export {
+  listHarvesterNodesStandard,
+  listHarvesterServices,
+  listHarvesterStorageClassesStandard,
   createHarvesterNamespace,
   deleteHarvesterNamespace,
   listHarvesterNamespacesRaw,
   getHarvesterNamespaceRaw,
-} from './resources';
-export {
-  listHarvesterNodesStandard,
-  listHarvesterSystemPodsStandard,
   harvesterHealthCheck,
   testHarvesterConnection,
   getHarvesterCapabilities,
 } from './health';
-export { listHarvesterGpuResources, listHarvesterUsbResources } from './peripherals';
+export { listHarvesterGpuResources, listHarvesterUsbResources, listHarvesterPciDevices } from './peripherals';

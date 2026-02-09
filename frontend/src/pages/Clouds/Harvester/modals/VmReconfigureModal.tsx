@@ -12,16 +12,19 @@
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, InputNumber, Select, Input, Space, message, Switch, Button, Table, Radio } from 'antd';
+import { Modal, Form, InputNumber, Select, Input, Space, message, Switch, Button, Table, Radio, Row, Col, Card } from 'antd';
 import { 
   SlidersOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, 
   HddOutlined, GlobalOutlined, AppstoreOutlined, DashboardOutlined
 } from '@ant-design/icons';
+import { deleteCloudProviderEcs } from '../../../../services/api';
 import { 
   updateHarvesterVmSpec, createHarvesterVolume, attachHarvesterVolumeToVmByName, 
   updateHarvesterVolume, detachHarvesterVolumeFromVm, createHarvesterVm, 
-  deleteCloudProviderEcs, fetchHarvesterGpuResources 
-} from '../../../../services/api';
+  fetchHarvesterGpuResources, patchHarvesterVm, stopHarvesterVm, startHarvesterVm, fetchHarvesterNads,
+  fetchKubeOvnVpcs, fetchKubeOvnSubnets
+} from '../../../../services/harvesterApi';
+import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 
 const parseQuantity = (s: string | number | undefined): number => {
   if (typeof s === 'number') return s;
@@ -66,6 +69,9 @@ const VmReconfigureModal: React.FC<Props> = ({
   const [images, setImages] = useState<any[]>([]);
   const [gpuResources, setGpuResources] = useState<any[]>([]);
   const [selectedGpuKey, setSelectedGpuKey] = useState<string | null>(null);
+  const [nads, setNads] = useState<any[]>([]);
+  const [vpcs, setVpcs] = useState<any[]>([]);
+  const [subnets, setSubnets] = useState<any[]>([]);
 
   // --- State Sync & Initialization (状态同步与初始化) ---
   // Sync props to state (同步外部资源数据)
@@ -105,6 +111,21 @@ const VmReconfigureModal: React.FC<Props> = ({
     return Math.ceil(bytes / (1024 ** 3));
   };
 
+  const reloadNads = async () => {
+    try {
+      const res = await fetchHarvesterNads(cloudId);
+      const items = res?.data?.items || res?.items || [];
+      setNads(items);
+    } catch (e) { console.error(e); }
+  };
+
+  const reloadVpcs = async () => {
+    try { const res = await fetchKubeOvnVpcs(cloudId); setVpcs(res?.items || []); } catch (e) { console.error(e); }
+  };
+  const reloadSubnets = async () => {
+    try { const res = await fetchKubeOvnSubnets(cloudId); setSubnets(res?.items || []); } catch (e) { console.error(e); }
+  };
+
   // Handle form reset and initialization on tab switch
   useEffect(() => {
     if (!open) return;
@@ -122,6 +143,79 @@ const VmReconfigureModal: React.FC<Props> = ({
         const { cpu, memory } = getCurrentSpec();
         const memGi = getMemoryInGi(memory);
         form.setFieldsValue({ cpu, memory: memGi });
+        break;
+      }
+      case 'change_primary_nic': {
+        reloadNads();
+        reloadVpcs();
+        reloadSubnets();
+        // Initialize with current primary NIC
+        const networks = record?.spec?.template?.spec?.networks || [];
+        const interfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
+        
+        if (interfaces.length > 0) {
+          const iface = interfaces[0];
+          const net = networks.find((n: any) => n.name === iface.name);
+          const networkName = net?.multus?.networkName || '';
+          
+          // Determine type
+          let type = 'bridge';
+          if (iface.masquerade) type = 'masquerade';
+          else if (iface.sriov) type = 'sriov';
+          else if (iface.macvtap) type = 'macvtap';
+          
+          // Check if it looks like a VPC subnet (heuristic or just default to flat if unsure)
+          // Since we can't easily distinguish without checking subnets list, we might default to flat
+          // or check if networkName exists in subnets list.
+          // For now, let's default to flat, but if the user toggles to VPC, we can't easily auto-detect
+          // unless we wait for subnets to load.
+          // Let's just set the values.
+          
+          form.setFieldsValue({
+            netMode: 'flat', // Default to flat view for simplicity
+            primaryNic: {
+              name: networkName, // For flat mode
+              type: type,
+              model: iface.model || 'virtio',
+              macAddress: iface.macAddress,
+              ipAddress: undefined // Hard to extract static IP from cloud-init without parsing
+            }
+          });
+        } else {
+           // No nic, set default
+           form.setFieldsValue({
+             netMode: 'flat',
+             primaryNic: { type: 'bridge', model: 'virtio' }
+           });
+        }
+        break;
+      }
+      case 'change_secondary_nic': {
+        reloadNads();
+        reloadVpcs();
+        reloadSubnets();
+        // Initialize with secondary NICs
+        const networks = record?.spec?.template?.spec?.networks || [];
+        const interfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
+        
+        const secondary = interfaces.slice(1).map((iface: any) => {
+          const net = networks.find((n: any) => n.name === iface.name);
+          const networkName = net?.multus?.networkName || '';
+          
+          let type = 'bridge';
+          if (iface.masquerade) type = 'masquerade';
+          else if (iface.sriov) type = 'sriov';
+          else if (iface.macvtap) type = 'macvtap';
+
+          return {
+            mode: 'flat',
+            name: networkName,
+            type: type,
+            model: iface.model || 'virtio',
+            macAddress: iface.macAddress,
+          };
+        });
+        form.setFieldsValue({ secondaryNics: secondary });
         break;
       }
       // Add other cases if they need initialization from record
@@ -187,24 +281,48 @@ const VmReconfigureModal: React.FC<Props> = ({
           break;
         }
         case 'change_os': {
-          // 更换操作系统 (Rebuild VM)
+          // 更换操作系统 (Safe Rebuild: Stop -> Create New PVC -> Swap -> Start)
           const vals = await form.validateFields(['newOsImage', 'newOsRootSize', 'newOsBus', 'newOsSc']);
-          const cpu = Number(record?.Extra?.CPU || 0) || 1;
-          const mem = String(record?.Extra?.Memory || '1Gi') || '1Gi';
-          const networks: string[] = Array.isArray(record?.Extra?.Networks) ? record.Extra.Networks : [];
           
-          try {
-            await deleteCloudProviderEcs(cloudId, iid);
-          } catch (e: any) {
-            const msg = String(e?.message || '').toLowerCase();
-            if (!msg.includes('not found') && !msg.includes('404')) { throw e; }
-          }
-          await createHarvesterVm(cloudId, {
-            namespace: ns, name, cpu, memory: mem, image: vals.newOsImage, networks,
-            rootSourceType: 'image', rootImage: vals.newOsImage, rootSize: vals.newOsRootSize,
-            rootBus: vals.newOsBus || 'virtio', storageClassName: vals.newOsSc
+          // 1. Stop VM
+          await stopHarvesterVm(cloudId, ns, name);
+          
+          // 2. Create new root PVC
+          const timestamp = new Date().getTime();
+          const newDiskName = `disk-${name}-${timestamp}-root`;
+          // Create Volume from Image (Harvester convention)
+          await createHarvesterVolume(cloudId, {
+            namespace: ns, 
+            name: newDiskName, 
+            size: vals.newOsRootSize, 
+            storageClassName: vals.newOsSc,
+            annotations: {
+              'harvesterhci.io/imageId': vals.newOsImage
+            }
           });
-          message.success('更换操作系统已提交（重建实例）');
+
+          // 3. Swap Boot Disk in VM Spec
+          // Need to find the current boot volume (usually first one or by name)
+          const currentVolumes = record?.spec?.template?.spec?.volumes || [];
+          const newVolumes = currentVolumes.map((vol: any, index: number) => {
+             // Assuming first volume is root, or check name
+             if (index === 0) { // Simple assumption for now, robust logic might need to check persistentVolumeClaim.claimName
+                return {
+                  name: vol.name, // Keep the volume name in VM spec (e.g. "disk-0")
+                  persistentVolumeClaim: { claimName: newDiskName }
+                };
+             }
+             return vol;
+          });
+
+          await patchHarvesterVm(cloudId, ns, name, {
+            spec: { template: { spec: { volumes: newVolumes } } }
+          });
+
+          // 4. Start VM
+          await startHarvesterVm(cloudId, ns, name);
+          
+          message.success('操作系统更换已提交（Safe Rebuild）');
           break;
         }
         case 'expand_system_disk': {
@@ -243,9 +361,68 @@ const VmReconfigureModal: React.FC<Props> = ({
           message.success('数据盘移除已提交');
           break;
         }
-        case 'change_primary_nic':
+        case 'change_primary_nic': {
+          const vals = await form.validateFields(['primaryNic']);
+          const nic = vals.primaryNic;
+          const currentNetworks = record?.spec?.template?.spec?.networks || [];
+          const currentInterfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
+          
+          // Ensure we have at least one nic/interface slot to modify
+          const primaryIfName = currentInterfaces.length > 0 ? currentInterfaces[0].name : 'nic-0';
+          
+          const newNetwork = {
+             name: primaryIfName,
+             ...(nic.name ? { multus: { networkName: nic.name } } : { pod: {} })
+          };
+          
+          const newInterface = {
+             name: primaryIfName,
+             model: nic.model || 'virtio',
+             macAddress: nic.macAddress,
+             [nic.type === 'masquerade' ? 'masquerade' : nic.type === 'sriov' ? 'sriov' : nic.type === 'macvtap' ? 'macvtap' : 'bridge']: {}
+          };
+          
+          const newNetworks = [newNetwork, ...currentNetworks.slice(1)];
+          const newInterfaces = [newInterface, ...currentInterfaces.slice(1)];
+          
+          await patchHarvesterVm(cloudId, ns, name, {
+            spec: { template: { spec: { networks: newNetworks, domain: { devices: { interfaces: newInterfaces } } } } }
+          });
+          message.success('主网卡配置已更新（需重启生效）');
+          break;
+        }
         case 'change_secondary_nic': {
-          message.info('网络配置变更需要后端支持，当前为占位界面');
+           const vals = await form.validateFields(['secondaryNics']);
+           const currentNetworks = record?.spec?.template?.spec?.networks || [];
+           const currentInterfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
+           
+           const primaryNet = currentNetworks.length > 0 ? currentNetworks[0] : null;
+           const primaryIf = currentInterfaces.length > 0 ? currentInterfaces[0] : null;
+           
+           // Keep primary as is
+           const newNetworks = primaryNet ? [primaryNet] : [];
+           const newInterfaces = primaryIf ? [primaryIf] : [];
+           
+           (vals.secondaryNics || []).forEach((item: any, idx: number) => {
+              const nicName = `nic-${idx + 1}`; // nic-1, nic-2...
+              
+              newNetworks.push({
+                 name: nicName,
+                 multus: { networkName: item.name }
+              });
+              
+              newInterfaces.push({
+                 name: nicName,
+                 model: item.model || 'virtio',
+                 macAddress: item.macAddress,
+                 [item.type === 'masquerade' ? 'masquerade' : item.type === 'sriov' ? 'sriov' : item.type === 'macvtap' ? 'macvtap' : 'bridge']: {}
+              });
+           });
+           
+           await patchHarvesterVm(cloudId, ns, name, {
+            spec: { template: { spec: { networks: newNetworks, domain: { devices: { interfaces: newInterfaces } } } } }
+          });
+          message.success('辅助网卡配置已更新（需重启生效）');
           break;
         }
         default:
@@ -309,15 +486,6 @@ const VmReconfigureModal: React.FC<Props> = ({
               label="CPU(核)" 
               rules={[
                 { required: true, message: '请输入CPU核数' },
-                () => ({
-                  validator(_, value) {
-                    const { cpu: currentCpu } = getCurrentSpec();
-                    if (value && value < currentCpu) {
-                      return Promise.reject(new Error(`CPU核数不能小于当前值 (${currentCpu}核)`));
-                    }
-                    return Promise.resolve();
-                  },
-                }),
               ]}
             >
               <InputNumber min={1} precision={0} style={{ width: '100%' }} />
@@ -327,23 +495,11 @@ const VmReconfigureModal: React.FC<Props> = ({
               label="内存(GiB)" 
               rules={[
                 { required: true, message: '请输入内存' },
-                () => ({
-                  validator(_, value) {
-                    const { memory: currentMemStr } = getCurrentSpec();
-                    const currentGi = getMemoryInGi(currentMemStr);
-                    // value is number (GiB) from InputNumber
-                    
-                    if (value && value < currentGi) {
-                      return Promise.reject(new Error(`内存不能小于当前值 (${currentGi} GiB)`));
-                    }
-                    return Promise.resolve();
-                  },
-                }),
               ]}
             >
               <InputNumber min={1} precision={0} style={{ width: '100%' }} addonAfter="GiB" />
             </Form.Item>
-            <div style={{ color: '#999', marginTop: 16 }}>升级实例的规格配置（仅支持扩容）</div>
+            <div style={{ color: '#999', marginTop: 16 }}>调整实例的CPU和内存规格（修改后可能需要重启生效）</div>
           </>
         );
       case 'cpu_advanced':
@@ -505,14 +661,258 @@ const VmReconfigureModal: React.FC<Props> = ({
         );
 
       // --- Network Config ---
-      case 'change_primary_nic':
-      case 'change_secondary_nic':
+      case 'change_primary_nic': {
+        const nadOptions = (nads || []).map((n: any) => ({ 
+           label: n?.spec?.config ? `${n.name} (VLAN ${JSON.parse(n.spec.config).vlan})` : n.name, 
+           value: n.name 
+        }));
+        const kubeVpcOptions = (vpcs || []).map((v: any) => ({ label: v.name, value: v.name }));
+        
         return (
-          <div style={{ textAlign: 'center', marginTop: 40, color: '#999' }}>
-            <GlobalOutlined style={{ fontSize: 40, marginBottom: 16 }} />
-            <p>网络配置功能正在开发中...</p>
-          </div>
+          <>
+             <div style={{ marginBottom: 16, color: '#999' }}>变更主网卡将修改 eth0 接口配置（需重启生效）</div>
+             <Row gutter={12}>
+                <Col span={8}>
+                  <Form.Item label="网络类型" name="netMode" initialValue="flat" rules={[{ required: true, message: '请选择网络类型' }]}>
+                    <Select
+                      options={[{ label: '扁平网络', value: 'flat' }, { label: 'VPC网络', value: 'vpc' }]}
+                      placeholder="选择网络类型"
+                      onChange={(v) => { 
+                         // Clear fields when switching mode
+                         const curr = form.getFieldValue('primaryNic') || {};
+                         form.setFieldsValue({ primaryNic: { ...curr, name: undefined, vpc: undefined, subnet: undefined } });
+                         // Force update to re-render
+                         setVpcs([...vpcs]); 
+                      }}
+                    />
+                  </Form.Item>
+                </Col>
+                
+                <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
+                   {({ getFieldValue }) => {
+                      const mode = getFieldValue('netMode') || 'flat';
+                      return mode === 'flat' ? (
+                        <Col span={16}>
+                          <Form.Item label="选择网络" name={["primaryNic", 'name']}>
+                            <Select
+                              placeholder="选择网络 (留空则使用 Pod Network)"
+                              options={[{ label: 'Management Network (Pod Network)', value: '' }, ...(nadOptions || [])]}
+                              onDropdownVisibleChange={(open) => { if (open) reloadNads(); }}
+                              allowClear
+                            />
+                          </Form.Item>
+                        </Col>
+                      ) : (
+                         <>
+                            <Col span={8}>
+                              <Form.Item label="VPC" name={["primaryNic", 'vpc']}>
+                                <Select
+                                  placeholder="选择 VPC"
+                                  options={kubeVpcOptions}
+                                  onDropdownVisibleChange={(open) => { if (open) reloadVpcs(); }}
+                                  onChange={(val) => { 
+                                     const curr = form.getFieldValue('primaryNic') || {}; 
+                                     // Reset subnet when VPC changes
+                                     form.setFieldsValue({ primaryNic: { ...curr, vpc: val, subnet: undefined, name: undefined, type: 'bridge' } }); 
+                                  }}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col span={8}>
+                              <Form.Item label="子网" name={["primaryNic", 'subnet']} rules={[{ required: true, message: '请选择子网' }]}>
+                                <Select
+                                  placeholder="选择 VPC 子网"
+                                  options={(function () { 
+                                      const vpc = form.getFieldValue(['primaryNic', 'vpc']); 
+                                      const list = subnets || []; 
+                                      const filtered = vpc ? list.filter((x: any) => x?.spec?.vpc === vpc) : list; 
+                                      return filtered.map((x: any) => ({ label: `${x?.metadata?.name || '-'}`, value: x?.metadata?.name })); 
+                                  })()}
+                                  onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
+                                  onChange={(val) => { 
+                                      const curr = form.getFieldValue('primaryNic') || {}; 
+                                      // Subnet name IS the network name in Harvester/Kube-OVN
+                                      form.setFieldsValue({ primaryNic: { ...curr, name: val, type: 'bridge' } }); 
+                                  }}
+                                />
+                              </Form.Item>
+                            </Col>
+                         </>
+                      );
+                   }}
+                </Form.Item>
+
+                <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
+                   {({ getFieldValue }) => {
+                       const mode = getFieldValue('netMode') || 'flat';
+                       return mode === 'flat' ? (
+                         <>
+                            <Col span={8}>
+                              <Form.Item label="类型" name={["primaryNic", 'type']} initialValue="masquerade">
+                                <Select options={[{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }, { label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]} />
+                              </Form.Item>
+                            </Col>
+                            <Col span={8}>
+                              <Form.Item label="模型" name={["primaryNic", 'model']} initialValue="virtio">
+                                <Select options={[{ label: 'virtio', value: 'virtio' }, { label: 'e1000', value: 'e1000' }, { label: 'e1000e', value: 'e1000e' }, { label: 'rtl8139', value: 'rtl8139' }]} />
+                              </Form.Item>
+                            </Col>
+                         </>
+                       ) : (
+                          <>
+                            <Col span={8}>
+                              <Form.Item label="类型" name={["primaryNic", 'type']} initialValue="bridge">
+                                <Select options={[{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }, { label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]} />
+                              </Form.Item>
+                            </Col>
+                            <Col span={8}>
+                              <Form.Item label="模型" name={["primaryNic", 'model']} initialValue="virtio">
+                                <Select options={[{ label: 'virtio', value: 'virtio' }, { label: 'e1000', value: 'e1000' }, { label: 'e1000e', value: 'e1000e' }, { label: 'rtl8139', value: 'rtl8139' }]} />
+                              </Form.Item>
+                            </Col>
+                          </>
+                       );
+                   }}
+                </Form.Item>
+
+                <Col span={8}>
+                  <Form.Item label="MAC 地址" name={["primaryNic", 'macAddress']} rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]}>
+                    <Input placeholder="52:54:00:12:34:56" />
+                  </Form.Item>
+                </Col>
+             </Row>
+          </>
         );
+      }
+      case 'change_secondary_nic': {
+        const nadOptions = (nads || []).map((n: any) => ({ 
+           label: n?.spec?.config ? `${n.name} (VLAN ${JSON.parse(n.spec.config).vlan})` : n.name, 
+           value: n.name 
+        }));
+        const kubeVpcOptions = (vpcs || []).map((v: any) => ({ label: v.name, value: v.name }));
+
+        return (
+          <>
+             <div style={{ marginBottom: 16, color: '#999' }}>变更辅助网卡（eth1+），修改后需重启生效</div>
+             <Form.List name="secondaryNics">
+               {(fields, { add, remove }) => (
+                 <div>
+                   {fields.map(({ key, name, ...restField }, idx) => {
+                     return (
+                       <Card
+                         key={key}
+                         size="small"
+                         title={`网卡 #${idx + 2}`}
+                         extra={
+                           <Button type="text" icon={<MinusCircleOutlined />} onClick={() => remove(name)} danger />
+                         }
+                         style={{ marginBottom: 12 }}
+                       >
+                         <Row gutter={12}>
+                           <Col span={8}>
+                             <Form.Item 
+                                {...restField}
+                                label="网络类型" 
+                                name={[name, 'mode']} 
+                                initialValue="flat"
+                             >
+                               <Select
+                                 options={[{ label: '扁平网络', value: 'flat' }, { label: 'VPC网络', value: 'vpc' }]}
+                                 onChange={(v) => { 
+                                     // Trigger update
+                                     const curr = form.getFieldValue(['secondaryNics', name]) || {};
+                                     // Clear subnet/vpc if switching
+                                     const next = { ...curr, mode: v, name: undefined, vpc: undefined, subnet: undefined };
+                                     const list = form.getFieldValue('secondaryNics');
+                                     list[name] = next;
+                                     form.setFieldsValue({ secondaryNics: list });
+                                     setVpcs([...vpcs]); // force update
+                                 }}
+                               />
+                             </Form.Item>
+                           </Col>
+                           
+                           <Form.Item noStyle shouldUpdate>
+                             {({ getFieldValue }) => {
+                                const mode = getFieldValue(['secondaryNics', name, 'mode']) || 'flat';
+                                return mode === 'flat' ? (
+                                   <Col span={16}>
+                                     <Form.Item {...restField} label="选择网络" name={[name, 'name']} rules={[{ required: true, message: '请选择网络' }]}>
+                                       <Select
+                                         placeholder="选择网络"
+                                         options={nadOptions}
+                                         onDropdownVisibleChange={(open) => { if (open) reloadNads(); }}
+                                       />
+                                     </Form.Item>
+                                   </Col>
+                                ) : (
+                                   <>
+                                     <Col span={8}>
+                                       <Form.Item {...restField} label="VPC" name={[name, 'vpc']}>
+                                         <Select
+                                           placeholder="选择 VPC"
+                                           options={kubeVpcOptions}
+                                           onDropdownVisibleChange={(open) => { if (open) reloadVpcs(); }}
+                                           onChange={(val) => { 
+                                               const list = form.getFieldValue('secondaryNics');
+                                               list[name] = { ...list[name], vpc: val, subnet: undefined, name: undefined };
+                                               form.setFieldsValue({ secondaryNics: list });
+                                           }}
+                                         />
+                                       </Form.Item>
+                                     </Col>
+                                     <Col span={8}>
+                                       <Form.Item {...restField} label="子网" name={[name, 'subnet']} rules={[{ required: true, message: '请选择子网' }]}>
+                                         <Select
+                                           placeholder="选择子网"
+                                           options={(function () { 
+                                              const vpc = getFieldValue(['secondaryNics', name, 'vpc']); 
+                                              const list = subnets || []; 
+                                              const filtered = vpc ? list.filter((x: any) => x?.spec?.vpc === vpc) : list; 
+                                              return filtered.map((x: any) => ({ label: `${x?.metadata?.name || '-'}`, value: x?.metadata?.name })); 
+                                           })()}
+                                           onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
+                                           onChange={(val) => { 
+                                               const list = form.getFieldValue('secondaryNics');
+                                               list[name] = { ...list[name], name: val }; // Set name to subnet name
+                                               form.setFieldsValue({ secondaryNics: list });
+                                           }}
+                                         />
+                                       </Form.Item>
+                                     </Col>
+                                   </>
+                                );
+                             }}
+                           </Form.Item>
+                           
+                           <Col span={8}>
+                             <Form.Item {...restField} label="类型" name={[name, 'type']} initialValue="masquerade">
+                               <Select options={[{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }, { label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]} />
+                             </Form.Item>
+                           </Col>
+                           <Col span={8}>
+                             <Form.Item {...restField} label="模型" name={[name, 'model']} initialValue="virtio">
+                               <Select options={[{ label: 'virtio', value: 'virtio' }, { label: 'e1000', value: 'e1000' }, { label: 'e1000e', value: 'e1000e' }, { label: 'rtl8139', value: 'rtl8139' }]} />
+                             </Form.Item>
+                           </Col>
+                           <Col span={8}>
+                             <Form.Item {...restField} label="MAC 地址" name={[name, 'macAddress']} rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]}>
+                               <Input placeholder="52:54:00:12:34:56" />
+                             </Form.Item>
+                           </Col>
+                         </Row>
+                       </Card>
+                     );
+                   })}
+                   <Button type="dashed" onClick={() => add({ mode: 'flat', type: 'masquerade', model: 'virtio' })} block icon={<PlusOutlined />}>
+                     添加辅助网卡
+                   </Button>
+                 </div>
+               )}
+             </Form.List>
+          </>
+        );
+      }
 
       default:
         return null;

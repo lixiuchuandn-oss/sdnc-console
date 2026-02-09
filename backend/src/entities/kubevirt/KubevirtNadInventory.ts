@@ -26,6 +26,9 @@ export class KubevirtNadInventory {
   @Column({ type: 'text' })
   namespace!: string;
 
+  @Column({ type: 'simple-json', nullable: true })
+  links?: Record<string, string>;
+
   @Column({ type: 'text', nullable: true })
   config?: string; // JSON string of CNI config
 

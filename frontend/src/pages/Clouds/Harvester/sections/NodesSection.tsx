@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space } from 'antd';
+import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip } from 'antd';
 import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchHarvesterNodeDetail } from '../../../../services/api';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
@@ -22,35 +21,21 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   // Metadata Drawer State
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
-  const [drawerResource, setDrawerResource] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
-  const [resourceLoading, setResourceLoading] = useState(false);
 
   // Unified Drawer Handler
   const handleOpenDrawer = async (record: any, tab: string) => {
-    setDrawerRecord(record);
-    setDrawerResource(null);
+    // Inject kind for EventsTab since Node doesn't usually carry it in list view
+    setDrawerRecord({ ...record, kind: 'Node' });
     setDrawerActiveTab(tab);
     setDrawerVisible(true);
-
-    const name = record?.metadata?.name || record?.name;
-    if (cloudId && name) {
-      setResourceLoading(true);
-      try {
-        const json = await fetchHarvesterNodeDetail(cloudId, name);
-        const data = (json as any)?.data || json;
-        setDrawerResource(data);
-      } catch (e: any) {
-        console.error('Fetch Node Resource Failed:', e);
-        message.error(`获取资源数据失败: ${e?.message || '未知错误'}`);
-      } finally {
-        setResourceLoading(false);
-      }
-    }
   };
 
   const getRoles = (r: any): string[] => {
-    const base: string[] = Array.isArray(r?.roles) ? r.roles : [];
+    const base: string[] = (Array.isArray(r?.roles) ? r.roles : []).map((s: string) => {
+      if (s.startsWith('node-role.kubernetes.io/')) return s.split('/').pop() || s;
+      return s;
+    });
     const labels: Record<string,string> = r?.metadata?.labels || {};
     const legacy = String(labels?.['kubernetes.io/role'] || '').trim();
     const extra = Object.keys(labels || {})
@@ -127,21 +112,44 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   };
 
   const allColumns = useMemo(() => [
-    { title: '名称', key: 'name', render: (_:any, r:any)=> r?.name || r?.metadata?.name || '-' },
-    { title: '角色', key: 'roles', render: (_:any, r:any)=> Array.isArray(r?.roles) ? r.roles.join(',') : (r?.metadata?.labels?.['kubernetes.io/role'] || '-') },
+    { title: '名称', key: 'name', render: (_:any, r:any)=> {
+      const text = r?.name || r?.metadata?.name || '-';
+      return <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>{text}</span>;
+    } },
+    { title: '角色', key: 'roles', render: (_:any, r:any)=> {
+      const roles = getRoles(r);
+      const text = roles.join(', ') || '-';
+      return (
+        <Tooltip title={text}>
+          <span className="stat-trigger">{text}</span>
+        </Tooltip>
+      );
+    }},
     { title: '内网IP', key: 'inip', render: (_:any, r:any)=> r?.internalIP || r?.status?.addresses?.find((a:any)=>a?.type==='InternalIP')?.address || '-' },
     { title: '公网IP', key: 'exip', render: (_:any, r:any)=> r?.externalIP || r?.status?.addresses?.find((a:any)=>a?.type==='ExternalIP')?.address || '-' },
-    { title: '就绪', key: 'ready', render: (_:any, r:any)=> (r?.ready ? <Tag color="green">Ready</Tag> : <Tag color="red">NotReady</Tag>) },
+    { 
+      title: '就绪', 
+      key: 'ready', 
+      render: (_:any, r:any)=> {
+        const ok = r?.ready;
+        return <span className={`std-badge ${ok ? 'std-badge-success' : 'std-badge-error'}`}>{ok ? 'Ready' : 'NotReady'}</span>;
+      } 
+    },
     { title: 'CPU', key: 'cpu', render: (_:any, r:any)=> formatCpu(r?.cpu ?? r?.status?.capacity?.cpu) },
     { title: '内存', key: 'mem', render: (_:any, r:any)=> formatMemGb(r?.memory ?? r?.status?.capacity?.memory) },
-    { title: '版本', key: 'version', render: (_:any, r:any)=> r?.status?.nodeInfo?.kubeletVersion || r?.version || '-' },
-    { title: '操作', key: 'actions', render: (_: any, r: any) => {
+    { title: '版本', key: 'version', render: (_:any, r:any)=> r?.kubeletVersion || r?.status?.nodeInfo?.kubeletVersion || r?.version || '-' },
+    { title: '架构', key: 'arch', render: (_:any, r:any)=> r?.architecture || r?.status?.nodeInfo?.architecture || '-' },
+    { title: '系统镜像', key: 'os', render: (_:any, r:any)=> r?.osImage || r?.status?.nodeInfo?.osImage || '-' },
+    { title: '内核版本', key: 'kernel', render: (_:any, r:any)=> r?.kernelVersion || r?.status?.nodeInfo?.kernelVersion || '-' },
+    { title: '容器运行时', key: 'runtime', render: (_:any, r:any)=> r?.containerRuntimeVersion || r?.status?.nodeInfo?.containerRuntimeVersion || '-' },
+    { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
         const items: any[] = [
-            { key: 'view', label: '数据查看', onClick: () => handleOpenDrawer(r, 'detail') },
+            { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
         ];
         return (
           <ResourceActionsDropdown 
             items={items} 
+            buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
       } 
@@ -150,19 +158,27 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
 
   const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
 
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
+
   return (
     <PageDetailSection
       asCard={false}
       autoStyleInputs={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
-          <Select allowClear placeholder="角色" value={roleFilter || undefined} onChange={(v)=> setRoleFilter(v || '')} className="toolbar-filter" options={[{ value: '', label: '全部' }, ...roleOptions]} />
-          <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> setReadyFilter(v || '')} className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
+          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=> { setKeyword(e.target.value); setPagination(p=>({...p, current:1})); }} className="toolbar-search" />
+          <Select allowClear placeholder="角色" value={roleFilter || undefined} onChange={(v)=> { setRoleFilter(v || ''); setPagination(p=>({...p, current:1})); }} className="toolbar-filter" options={[{ value: '', label: '全部' }, ...roleOptions]} />
+          <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> { setReadyFilter(v || ''); setPagination(p=>({...p, current:1})); }} className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
+          <a className="toolbar-reset-btn" onClick={() => {
+            setKeyword('');
+            setRoleFilter('');
+            setReadyFilter('');
+            setPagination(p=>({...p, current:1}));
+          }}>重置</a>
         </>
       )}
       toolbarRight={(
-        <Space>
+        <div className="toolbar-actions">
           {/* Settings button is handled by columnsConfig if provided, or manual if not */}
           <TableColumnSettings 
             columns={allColumns} 
@@ -180,7 +196,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
             }}
             loading={loading}
           />
-        </Space>
+        </div>
       )}
       refreshLoading={loading}
     >
@@ -188,43 +204,19 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
       className="std-table"
       bordered
       rowKey={(r:any)=> r?.name || r?.metadata?.name || Math.random().toString(36).slice(2)}
-      scroll={{ x: 'max-content' }}
       columns={tableColumns}
       dataSource={filtered}
       loading={loading}
-      pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
+      pagination={{size: 'small'}}
     />
     <HarvesterResourceDrawer
       open={drawerVisible}
       onClose={() => setDrawerVisible(false)}
+      resourceType="Node"
       record={drawerRecord}
-      resource={drawerResource}
-      loading={resourceLoading}
       activeTab={drawerActiveTab}
       onTabChange={setDrawerActiveTab}
-      renderDetail={(res) => (
-        <Descriptions bordered column={1} size="small">
-          <Descriptions.Item label="名称">{res?.metadata?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="UID">{res?.metadata?.uid || '-'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{res?.metadata?.creationTimestamp || '-'}</Descriptions.Item>
-          <Descriptions.Item label="内网IP">{res?.status?.addresses?.find((a:any)=>a?.type==='InternalIP')?.address || '-'}</Descriptions.Item>
-          <Descriptions.Item label="公网IP">{res?.status?.addresses?.find((a:any)=>a?.type==='ExternalIP')?.address || '-'}</Descriptions.Item>
-          <Descriptions.Item label="CPU Capacity">{res?.status?.capacity?.cpu || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Memory Capacity">{res?.status?.capacity?.memory || '-'}</Descriptions.Item>
-          <Descriptions.Item label="CPU Allocatable">{res?.status?.allocatable?.cpu || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Memory Allocatable">{res?.status?.allocatable?.memory || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Machine ID">{res?.status?.nodeInfo?.machineID || '-'}</Descriptions.Item>
-          <Descriptions.Item label="System UUID">{res?.status?.nodeInfo?.systemUUID || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Boot ID">{res?.status?.nodeInfo?.bootID || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Kernel Version">{res?.status?.nodeInfo?.kernelVersion || '-'}</Descriptions.Item>
-          <Descriptions.Item label="OS Image">{res?.status?.nodeInfo?.osImage || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Container Runtime">{res?.status?.nodeInfo?.containerRuntimeVersion || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Kubelet Version">{res?.status?.nodeInfo?.kubeletVersion || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Kube-Proxy Version">{res?.status?.nodeInfo?.kubeProxyVersion || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Operating System">{res?.status?.nodeInfo?.operatingSystem || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Architecture">{res?.status?.nodeInfo?.architecture || '-'}</Descriptions.Item>
-       </Descriptions>
-      )}
+      cloudId={cloudId}
     />
 
     </PageDetailSection>

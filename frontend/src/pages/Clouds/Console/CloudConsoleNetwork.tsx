@@ -3,13 +3,15 @@ import { Tabs, Table, Tag, Button, Space, Modal, Alert, Form, Input, Select, mes
 import { ReloadOutlined, FileTextOutlined, PlusOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { 
-  fetchCloudProviderVpcs, 
+  fetchCloudProviderVpcs 
+} from '../../../services/api';
+import { 
   fetchCloudProviderOvnEips, 
   fetchCloudProviderOvnFips, 
   fetchCloudProviderOvnSnatRules, 
   fetchCloudProviderOvnDnatRules,
   createCloudProviderOvnEip
-} from '../../../services/api';
+} from '../../../services/harvesterApi';
 import { CloudConsoleVpcTable } from './CloudConsoleVpcTable';
 import { DEFAULT_PAGINATION_CONFIG } from '../../../constants/pagination';
 

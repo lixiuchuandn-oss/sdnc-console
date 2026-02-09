@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
-import { ACLRule, ACLAction, ACLProtocol } from '../entities/ACLRule';
-import { VRConfig } from '../entities/VRConfig';
+import { ACLRule, ACLAction, ACLProtocol } from '../entities/vRouter/ACLRule';
+import { VRConfig } from '../entities/vRouter/VRConfig';
 import { vrController } from '../services/vrController';
 import { syncACLToVRConfig, syncGroupToVRs } from './aclGroups';
 

@@ -708,3 +708,360 @@ export const listHarvesterNamespacesRaw = async ({
     return item;
   });
 };
+
+export const createHarvesterVirtualMachineBackup = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  payload: {
+    name: string;
+    vmName: string;
+    type: 'backup' | 'snapshot';
+    alias?: string;
+  }
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinebackups`;
+
+  const prefix = payload.type === 'snapshot' ? 'id-vms-' : 'id-vmb-';
+  const resourceName = `${prefix}${Math.random().toString(36).substring(2, 18)}`;
+
+  const body = {
+    apiVersion: 'harvesterhci.io/v1beta1',
+    kind: 'VirtualMachineBackup',
+    metadata: {
+      name: resourceName,
+      namespace: namespace,
+      annotations: {
+        'tower.io/alias': payload.name
+      },
+    },
+    spec: {
+      type: payload.type,
+      source: {
+        apiGroup: 'kubevirt.io',
+        kind: 'VirtualMachine',
+        name: payload.vmName,
+      },
+    }
+  };
+
+  return requestJson('POST', url, token, insecure, body);
+};
+
+export const createHarvesterVirtualMachineRestore = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  payload: any
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  // Determine API Group from payload or default to harvesterhci.io
+  let apiVersion = 'harvesterhci.io/v1beta1';
+  if (payload?.apiVersion) {
+    apiVersion = payload.apiVersion;
+  }
+
+  const url = `${origin}/apis/${apiVersion}/namespaces/${encodeURIComponent(namespace)}/virtualmachinerestores`;
+
+  return requestJson('POST', url, token, insecure, payload);
+};
+
+export const deleteHarvesterVirtualMachineBackup = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinebackups/${encodeURIComponent(name)}`;
+  return requestJson('DELETE', url, token, insecure);
+};
+
+export const deleteHarvesterVirtualMachineSnapshot = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinesnapshots/${encodeURIComponent(name)}`;
+  return requestJson('DELETE', url, token, insecure);
+};
+
+export const deleteHarvesterPVC = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(name)}`;
+  return requestJson('DELETE', url, token, insecure);
+};
+
+export const listHarvesterSnapshotClassesRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/snapshot.storage.k8s.io/v1/volumesnapshotclasses`;
+  const json = await getJsonOnce(url, token, insecure);
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+export const listHarvesterSnapshotsStandard = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinesnapshots`;
+  const json = await getJsonOnce(url, token, insecure);
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+export const listHarvesterBackupsStandard = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinebackups`;
+  const json = await getJsonOnce(url, token, insecure);
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+export const listHarvesterSshKeysStandard = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/keypairs`;
+  const json = await getJsonOnce(url, token, insecure);
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+export const listHarvesterCloudInitsStandard = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  // Placeholder: Return empty for now as CloudInit discovery strategy is complex
+  return [];
+};
+
+export const listHarvesterTemplatesRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinetemplates`;
+  const json = await getJsonOnce(url, token, insecure);
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+export const listHarvesterTemplatesStandard = listHarvesterTemplatesRaw;
+
+export const listHarvesterScheduleVmBackupsStandard = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/schedulevmbackups`;
+  const json = await getJsonOnce(url, token, insecure);
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+export const createHarvesterScheduleVmBackup = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  payload: {
+    name: string; // This is the ALIAS
+    vmName: string;
+    cron: string;
+    retain: number;
+    maxFailure: number;
+    suspend: boolean;
+    type?: 'backup' | 'snapshot';
+  }
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const resourceName = `id-svmb-${Math.random().toString(36).substring(2, 18)}`;
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/schedulevmbackups`;
+
+  const body = {
+    apiVersion: 'harvesterhci.io/v1beta1',
+    kind: 'ScheduleVMBackup',
+    metadata: {
+      name: resourceName,
+      namespace: namespace,
+      annotations: {
+        'tower.io/alias': payload.name
+      }
+    },
+    spec: {
+      cron: payload.cron,
+      maxFailure: payload.maxFailure,
+      retain: payload.retain,
+      suspend: payload.suspend,
+      vmbackup: {
+        source: {
+          apiGroup: 'kubevirt.io',
+          kind: 'VirtualMachine',
+          name: payload.vmName
+        },
+        type: payload.type || 'backup'
+      }
+    }
+  };
+
+  return requestJson('POST', url, token, insecure, body);
+};
+
+export const updateHarvesterScheduleVmBackup = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+  payload: any
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/schedulevmbackups/${encodeURIComponent(name)}`;
+  
+  // 1. Get existing resource
+  const existing = await getJsonOnce(url, token, insecure);
+  if (!existing) throw new Error('ScheduleVmBackup not found');
+
+  // 2. Merge changes
+  const updated = { ...existing };
+  if (!updated.spec) updated.spec = {};
+  
+  if (payload.cron !== undefined) updated.spec.cron = payload.cron;
+  if (payload.retain !== undefined) updated.spec.retain = payload.retain;
+  if (payload.maxFailure !== undefined) updated.spec.maxFailure = payload.maxFailure;
+  if (payload.suspend !== undefined) updated.spec.suspend = payload.suspend;
+  
+  if (payload.annotations) {
+    updated.metadata.annotations = {
+      ...(updated.metadata.annotations || {}),
+      ...payload.annotations
+    };
+  }
+
+  // 3. PUT update
+  return requestJson('PUT', url, token, insecure, updated);
+};
+
+export const deleteHarvesterScheduleVmBackup = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/schedulevmbackups/${encodeURIComponent(name)}`;
+  return requestJson('DELETE', url, token, insecure);
+};
+

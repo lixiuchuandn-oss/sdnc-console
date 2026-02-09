@@ -7,8 +7,8 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('kubevirt_vmi_inventory')
-export class KubevirtVmiInventory {
+@Entity('harvester_vm_inventory')
+export class HarvesterVmInventory {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -27,22 +27,16 @@ export class KubevirtVmiInventory {
   namespace!: string;
 
   @Column({ type: 'text', nullable: true })
-  phase?: string; // status.phase
+  running?: boolean; // spec.running
 
   @Column({ type: 'text', nullable: true })
-  nodeName?: string; // status.nodeName
+  runStrategy?: string; // spec.runStrategy
+
+  @Column({ type: 'text', nullable: true })
+  view?: string;
 
   @Column({ type: 'simple-json', nullable: true })
-  ipAddresses?: string[]; // status.interfaces[].ipAddress or similar
-
-  @Column({ type: 'simple-json', nullable: true })
-  interfaces?: any[]; // status.interfaces
-
-  @Column({ type: 'simple-json', nullable: true })
-  guestOSInfo?: any; // status.guestOSInfo
-
-  @Column({ type: 'simple-json', nullable: true })
-  conditions?: any[]; // status.conditions
+  template?: any; // spec.template (contains domain, devices, etc.)
 
   @Column({ type: 'simple-json', nullable: true })
   labels?: Record<string, string>;

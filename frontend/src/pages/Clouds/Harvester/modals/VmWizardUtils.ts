@@ -53,8 +53,9 @@ export const buildHarvesterVmPayload = (params: {
   gpuResources: any[];
   selectedGpu: any;
   capabilities?: any;
+  isArm64?: boolean;
 }) => {
-  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities } = params;
+  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64 } = params;
   
   // 1. Calculate GPU
   const finalGpuResName = (function() {
@@ -158,7 +159,9 @@ export const buildHarvesterVmPayload = (params: {
   disks.push({
       name: rootDiskName,
       [v.rootDeviceType || 'disk']: {
-          bus: v.rootBus || 'virtio'
+          bus: (v.rootDeviceType === 'cd-rom' || v.rootDeviceType === 'cdrom') 
+            ? (isArm64 ? 'scsi' : 'sata') 
+            : (v.rootBus || 'virtio')
       }
   });
 
@@ -235,7 +238,9 @@ export const buildHarvesterVmPayload = (params: {
           disks.push({
               name: dName,
               [d.type || 'disk']: {
-                  bus: d.bus || 'virtio'
+                  bus: (d.type === 'cd-rom' || d.type === 'cdrom') 
+                    ? (isArm64 ? 'scsi' : 'sata') 
+                    : (d.bus || 'virtio')
               }
           });
 
@@ -311,15 +316,17 @@ export const buildHarvesterVmPayload = (params: {
                     cpu: {
                         cores: cores,
                         sockets: sockets,
-                        threads: threads
+                        threads: threads,
+                        maxSockets: v.hotExpandEnabled ? sockets * 4 : undefined
                     },
                     memory: {
-                        guest: memory
+                        guest: memory,
+                        maxGuest: v.hotExpandEnabled ? `${memGi * 4}Gi` : undefined
                     },
                     resources: {
                         limits: {
-                            cpu: String(cpu),
-                            memory: memory
+                            cpu: v.hotExpandEnabled ? String(cpu * 4) : String(cpu),
+                            memory: v.hotExpandEnabled ? `${memGi * 4}Gi` : memory
                         },
                         requests: {
                             memory: v.memoryRequestGi ? `${v.memoryRequestGi}Gi` : memory,
@@ -327,12 +334,22 @@ export const buildHarvesterVmPayload = (params: {
                         }
                     },
                     features: {
-                        acpi: { enabled: true }
+                        acpi: { enabled: true },
+                        smm: (v.bootUseEfi && v.efiSecureBoot) ? { enabled: true } : undefined
                     },
+                    firmware: v.bootUseEfi ? {
+                        bootloader: {
+                            efi: {
+                                secureBoot: !!v.efiSecureBoot,
+                                persistent: !!v.efiPersistent
+                            }
+                        }
+                    } : undefined,
                     devices: {
-                        inputs: [{ bus: "usb", name: "tablet", type: "tablet" }],
+                        inputs: v.useUsbTablet ? [{ bus: "usb", name: "tablet", type: "tablet" }] : [],
                         interfaces: interfaces,
                         disks: disks,
+                        tpm: v.tpmEnabled ? { persistent: !!v.tpmPersistent } : undefined,
                         hostDevices: finalGpuResName ? [
                             {
                                 name: "gpu-0",
@@ -403,7 +420,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string) => ({
   tpmEnabled: false,
   tpmPersistent: false,
   installGuestAgent: false,
-  useUsbTablet: false,
+  useUsbTablet: true,
   runStrategy: 'RerunOnFailure',
   primaryNic: { name: '', type: 'bridge', model: 'virtio' },
   netIfaces: []
@@ -461,6 +478,7 @@ export const constructVmPayload = (params: {
   gpuResources: any[];
   selectedGpu: any;
   capabilities?: any;
+  isArm64?: boolean;
 }) => {
    return buildHarvesterVmPayload(params);
 };

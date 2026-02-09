@@ -5,7 +5,7 @@ import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
-import { createKubeOvnSubnet, deleteKubeOvnSubnet, fetchHarvesterNads } from '../../../../services/api';
+import { createKubeOvnSubnet, deleteKubeOvnSubnet, fetchHarvesterNads } from '../../../../services/harvesterApi';
 
 type Props = {
   subnets: any[];
@@ -182,7 +182,7 @@ const KubeOvnPublicNetworksSection: React.FC<Props> = ({ subnets, loading, onRef
             onClick: () => handleDelete(name)
           }
         ];
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     }
   ], [handleShowMetadata, handleDelete]);
@@ -216,7 +216,7 @@ const KubeOvnPublicNetworksSection: React.FC<Props> = ({ subnets, loading, onRef
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ size: 'small', showSizeChanger:true, pageSize:10 }}
+        pagination={{size: 'small'}}
       />
 
       <Modal

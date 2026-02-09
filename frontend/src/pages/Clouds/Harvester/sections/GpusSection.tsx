@@ -8,12 +8,13 @@ import TableColumnSettings from '../../../../components/TableColumnSettings';
 interface Props {
   cloudId: string;
   resources: any[];
+  loading?: boolean;
   onRefresh: () => void | Promise<void>;
   raw?: any;
   showLog?: boolean;
 }
 
-const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showLog }) => {
+const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, raw, showLog }) => {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState<string>('');
@@ -110,12 +111,12 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
       return <Tag color={color}>{s}</Tag>;
     } },
     {
-      title: '操作', key: 'actions', render: (_: any, r: any) => {
+      title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
         const items = [
           { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
           ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
         ];
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       }
     }
   ], [handleShowMetadata]);
@@ -174,10 +175,10 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, onRefresh, raw, showL
         )}
       >
         <Table
-          className="kv-section-table"
+          className="std-table"
           bordered
-          loading={refreshing}
-          pagination={{ size: 'small', showSizeChanger:true, pageSize: 10, pageSizeOptions:[10,20,50,100] }}
+          loading={loading || refreshing}
+          pagination={{size: 'small'}}
           rowKey={(r: any) => {
             const rid = r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.metadata?.name || '';
             const fieldsArr = (r?.metadata?.fields || r?.fields);

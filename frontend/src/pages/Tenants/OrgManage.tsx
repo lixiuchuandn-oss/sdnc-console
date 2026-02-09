@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 // 页面说明：
 // 组织管理页（租户上下文），提供以下能力：
 // 1）左侧组织树：支持搜索、重命名、添加子组织、删除组织等操作；
@@ -8,7 +8,7 @@ import React, { useEffect, useState } from 'react';
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
 // 数据来源统一通过后端接口（axios）获取，并在切换组织/租户时刷新。
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Radio, Checkbox } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -20,8 +20,6 @@ import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePool
 import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
 import { fetchVrCachePageList } from '../../services/virtualRouterApi';
-
-const { TextArea } = Input;
 
 // RBAC 角色模型：名称、范围（system/tenant）、状态等
 type RBACRole = { id: string; name: string; description?: string; scope: 'system' | 'tenant'; status?: 'active' | 'inactive' };
@@ -210,7 +208,11 @@ const OrgManagePage: React.FC = () => {
       setRenameOrgId(null);
       setRenameName('');
       if (tenantId) fetchOrganizations(tenantId);
-    } catch {}
+      message.success('重命名成功');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || '重命名失败';
+      message.error(msg);
+    }
   };
 
   // 添加子组织保存：校验名称、调用创建接口、刷新组织树
@@ -224,7 +226,11 @@ const OrgManagePage: React.FC = () => {
       setAddingForParentId(null);
       setNewChildName('');
       fetchOrganizations(tenantId);
-    } catch {}
+      message.success('创建组织成功');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || '创建组织失败';
+      message.error(msg);
+    }
   };
 
   // 提交创建用户：成功后关闭抽屉并刷新列表
@@ -236,7 +242,11 @@ const OrgManagePage: React.FC = () => {
       setUserDrawerOpen(false);
       userForm.resetFields();
       fetchUsers(tenantId, selectedOrg.id);
-    } catch {}
+      message.success('创建用户成功');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || '创建用户失败';
+      message.error(msg);
+    }
   };
 
   const openRoleAssign = async (user: TenantUser) => {
@@ -246,7 +256,10 @@ const OrgManagePage: React.FC = () => {
         params: { userType: 'tenant', userId: user.id },
         headers: { Authorization: `Bearer ${token}` }
       });
-      const rawList = Array.isArray((res.data as any)?.assignments) ? (res.data as any).assignments : [];
+      const rawData = res.data;
+      const rawList = Array.isArray(rawData) 
+        ? rawData 
+        : (Array.isArray((rawData as any)?.assignments) ? (rawData as any).assignments : []);
       // 归一化处理：确保 roleId 存在（兼容 role_id）
       const list: Assignment[] = rawList.map((it: any) => ({
         ...it,
@@ -323,8 +336,9 @@ const OrgManagePage: React.FC = () => {
       if (tenantId && selectedOrg) {
         fetchUsers(tenantId, selectedOrg.id);
       }
-    } catch {
-      Modal.error({ title: '保存失败', content: '保存角色赋权时发生错误' });
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || '保存角色赋权时发生错误';
+      Modal.error({ title: '保存失败', content: msg });
     }
   };
 
@@ -334,7 +348,11 @@ const OrgManagePage: React.FC = () => {
       const token = localStorage.getItem('token');
       await axios.delete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
       fetchUsers(tenantId, selectedOrg.id);
-    } catch {}
+      message.success('删除用户成功');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || '删除用户失败';
+      message.error(msg);
+    }
   };
   // 删除用户：
   // - 依赖当前选中组织上下文；成功后刷新用户列表
@@ -361,7 +379,11 @@ const OrgManagePage: React.FC = () => {
       setResourcePoolDrawerOpen(false);
       resourcePoolForm.resetFields();
       fetchAssignments(selectedOrg.id);
-    } catch {}
+      message.success('分配资源池成功');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || '分配资源池失败';
+      message.error(msg);
+    }
   };
 
   const handleRemoveAssignment = async (poolId: string) => {
@@ -370,7 +392,11 @@ const OrgManagePage: React.FC = () => {
       const token = localStorage.getItem('token');
       await axios.delete(`/api/tenants/organizations/${selectedOrg.id}/resource-pools/${poolId}`, { headers: { Authorization: `Bearer ${token}` } });
       fetchAssignments(selectedOrg.id);
-    } catch {}
+      message.success('移除分配成功');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || '移除分配失败';
+      message.error(msg);
+    }
   };
 
   useEffect(() => {
@@ -380,7 +406,7 @@ const OrgManagePage: React.FC = () => {
     fetchTenantRoles();
   }, [tenantId]);
 
-  const fetchSdnVrs = async () => {
+  const fetchSdnVrs = useCallback(async () => {
     if (!selectedOrg?.id || !tenantId) return;
     try {
       setSdnVrLoading(true);
@@ -409,7 +435,8 @@ const OrgManagePage: React.FC = () => {
     } finally {
       setSdnVrLoading(false);
     }
-  };
+  }, [selectedOrg?.id, tenantId]);
+
   // SDN/VR 数据归一化与过滤：
   // - 兼容 { page: [] } / { list: [] } / [] 三类返回结构
   // - 仅保留与当前租户/组织匹配的 VR 项
@@ -436,7 +463,7 @@ const OrgManagePage: React.FC = () => {
       }
     })();
     fetchSdnVrs();
-  }, [selectedOrg?.id, tenantId]);
+  }, [selectedOrg?.id, tenantId, fetchSdnVrs]);
   // 组织上下文变化后联动刷新：
   // - 用户列表、资源池分配、防护对象、服务链、SDN/VR
   // - 失败时回落为空集合并结束加载态
@@ -1322,7 +1349,7 @@ const OrgManagePage: React.FC = () => {
 
                   <Form.Item label="镜像空间" style={{ marginBottom: 12 }}>
                      <Form.Item name="withDefault" valuePropName="checked" initialValue={true} noStyle>
-                       <Checkbox>default</Checkbox>
+                       <Checkbox disabled>default</Checkbox>
                      </Form.Item>
                      <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问系统默认镜像资源</div>
                   </Form.Item>

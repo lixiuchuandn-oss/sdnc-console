@@ -1,37 +1,142 @@
-import React from 'react';
-import { Drawer, Tabs, Input } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Drawer, Tabs, Table, Tag, Descriptions } from 'antd';
+import yaml from 'js-yaml';
 import LinedTextArea from '../../../../components/LinedTextArea';
+import { fetchHarvesterEvents, fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
 
 export interface HarvesterResourceDrawerProps {
   open: boolean;
   onClose: () => void;
-  title?: string;
-  record: any;     // 列表行数据，用于显示"元数据"
-  resource: any;   // 详情数据，用于显示"完整JSON"和"详情"
-  loading?: boolean;
+  resourceType: string; // 资源类型名称，用于标题显示，例如 "Node", "Namespace"
+  record: any;     // 列表行数据(数据库实体)，用于显示"基础信息"。必须包含 links 字段以支持"实时数据"。
   activeTab?: string;
   onTabChange?: (key: string) => void;
-  renderDetail?: (resource: any) => React.ReactNode;
+  cloudId?: string;
 }
+
+const EventsTab: React.FC<{ cloudId?: string; record: any; active: boolean }> = ({ cloudId, record, active }) => {
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (active && cloudId && record) {
+        loadEvents();
+    }
+  }, [active, cloudId, record]);
+
+  const loadEvents = async () => {
+      setLoading(true);
+      try {
+          // Identify namespace and name
+          // Support both flat record and nested metadata
+          const ns = record.metadata?.namespace || record.namespace;
+          const name = record.metadata?.name || record.name;
+          const uid = record.metadata?.uid || record.uid;
+          const kind = record.kind || 'VirtualMachine'; 
+
+          if (ns || kind === 'Node' || kind === 'Namespace') {
+             const res = await fetchHarvesterEvents(cloudId!, ns, uid, name, kind);
+             setEvents(res?.data || []);
+          }
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const columns = [
+      { title: '类型', dataIndex: 'type', width: 80, render: (v: string) => <Tag color={v === 'Normal' ? 'default' : 'warning'}>{v}</Tag> },
+      { title: '原因', dataIndex: 'reason', width: 120 },
+      { title: '消息', dataIndex: 'message', render: (v: string) => <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{v}</div> },
+      { title: '时间', dataIndex: 'lastTimestamp', width: 180 },
+      { title: '来源', dataIndex: ['source', 'component'], width: 120 },
+  ];
+
+  return (
+    <div style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+       <Table 
+         size="small" 
+         columns={columns} 
+         dataSource={events} 
+         rowKey={(r) => r.metadata?.uid || r.lastTimestamp} 
+         loading={loading} 
+         pagination={false} 
+       />
+    </div>
+  );
+};
+
+const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boolean }> = ({ cloudId, viewLink, active }) => {
+  const [content, setContent] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>('');
+
+  useEffect(() => {
+    if (active && cloudId && viewLink) {
+      loadContent();
+    }
+  }, [active, cloudId, viewLink]);
+
+  const loadContent = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetchHarvesterResourceByLink(cloudId!, viewLink!);
+      setContent(typeof res === 'object' ? JSON.stringify(res, null, 2) : String(res));
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || '加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!viewLink) {
+    return <div style={{ padding: 16, color: '#999' }}>无 View Link 数据</div>;
+  }
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', background: '#fafafa', fontSize: '12px', color: '#666' }}>
+        Request URL: {viewLink}
+      </div>
+      {loading ? (
+        <div style={{ padding: 16 }}>加载中...</div>
+      ) : error ? (
+        <div style={{ padding: 16, color: 'red' }}>错误: {error}</div>
+      ) : (
+        <LinedTextArea
+          readOnly
+          value={content}
+          className="metadata-viewer"
+          style={{ flex: 1, border: 'none', borderRadius: 0 }}
+        />
+      )}
+    </div>
+  );
+};
 
 const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = ({
   open,
   onClose,
-  title = '数据查看',
+  resourceType,
   record,
-  resource,
-  loading = false,
   activeTab = 'detail',
   onTabChange,
-  renderDetail,
+  cloudId,
 }) => {
+  const drawerTitle = record 
+    ? `${resourceType}: ${record.metadata?.name || record.name || ''}`
+    : `Harvester ${resourceType} 详情`;
+
   return (
     <Drawer
-      title={title}
+      title={drawerTitle}
       open={open}
       onClose={onClose}
       placement="right"
-      width="50%"
+      width="60%"
       styles={{ body: { padding: 0, height: '100%', overflow: 'hidden' } }}
     >
       <style>{`
@@ -49,51 +154,101 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = ({
         items={[
           {
             key: 'detail',
-            label: '详情',
+            label: '摘要 (Instance)',
             children: (
               <div style={{ height: '100%', overflow: 'auto', padding: '16px' }}>
-                {loading ? (
-                  <div style={{ textAlign: 'center', marginTop: 100 }}>加载中...</div>
-                ) : (
-                  renderDetail ? renderDetail(resource) : (
-                    <div style={{ color: '#999', textAlign: 'center', marginTop: 50 }}>暂无详情展示内容</div>
-                  )
-                )}
+                <Descriptions bordered column={1} size="small">
+                  {Object.entries(record || {})
+                    .sort(([keyA], [keyB]) => {
+                        const PRIORITY_KEYS = ['name', 'status', 'nodeInfo', 'internalIP', 'externalIP', 'capacity', 'allocatable'];
+                        const idxA = PRIORITY_KEYS.indexOf(keyA);
+                        const idxB = PRIORITY_KEYS.indexOf(keyB);
+                        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                        if (idxA !== -1) return -1;
+                        if (idxB !== -1) return 1;
+                        return 0;
+                    })
+                    .map(([key, value]) => {
+                    // Skip complex objects/arrays for cleaner display, or JSON stringify them
+                    // Skip rawData as it's too large usually
+                    // Skip links as they are technical metadata (HATEOAS) and pollute the UI
+                    if (key === 'rawData' || key === 'links') return null;
+                    
+                    let displayValue: React.ReactNode = String(value);
+                    if (typeof value === 'object' && value !== null) {
+                      if (Array.isArray(value)) {
+                         if (value.length > 0 && typeof value[0] !== 'object') {
+                             displayValue = value.join(', ');
+                         } else {
+                             displayValue = <pre style={{ margin: 0, fontSize: 12, maxHeight: 200, overflow: 'auto' }}>{JSON.stringify(value, null, 2)}</pre>;
+                         }
+                      } else {
+                          // Expand object keys (Second-level keys)
+                          displayValue = (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {Object.entries(value)
+                                    .sort(([keyA], [keyB]) => {
+                                        if (key === 'nodeInfo') {
+                                            const KEYS = ['machineID', 'systemUUID', 'bootID', 'kernelVersion', 'osImage', 'containerRuntimeVersion', 'kubeletVersion', 'operatingSystem', 'architecture'];
+                                            const idxA = KEYS.indexOf(keyA);
+                                            const idxB = KEYS.indexOf(keyB);
+                                            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                                            if (idxA !== -1) return -1;
+                                            if (idxB !== -1) return 1;
+                                        }
+                                        return 0;
+                                    })
+                                    .map(([subKey, subValue], index, arr) => (
+                                    <div key={subKey} style={{ 
+                                        display: 'flex', 
+                                        alignItems: 'flex-start',
+                                        borderBottom: index < arr.length - 1 ? '1px dashed #f0f0f0' : 'none',
+                                        paddingBottom: index < arr.length - 1 ? '4px' : '0',
+                                        marginBottom: index < arr.length - 1 ? '4px' : '0'
+                                    }}>
+                                        <span style={{ 
+                                            display: 'inline-block', 
+                                            color: 'rgba(0, 0, 0, 0.45)', 
+                                            marginRight: '8px',
+                                            minWidth: '120px', // Fixed width for alignment
+                                            flexShrink: 0,
+                                            fontSize: '12px'
+                                        }}>
+                                            {subKey}:
+                                        </span>
+                                        <span style={{ wordBreak: 'break-all', flex: 1, whiteSpace: 'pre-wrap' }}>
+                                            {typeof subValue === 'object' && subValue !== null 
+                                                ? <pre style={{ margin: 0, fontSize: 12, fontFamily: 'Consolas, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{JSON.stringify(subValue, null, 2)}</pre>
+                                                : String(subValue)}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                          );
+                      }
+                    }
+                    
+                    return (
+                      <Descriptions.Item key={key} label={key}>
+                        {displayValue}
+                      </Descriptions.Item>
+                    );
+                  })}
+                </Descriptions>
               </div>
             ),
           },
-          {
-            key: 'json',
-            label: '完整JSON',
-            children: (
-              <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                {loading ? (
-                  <div style={{ padding: 16 }}>加载中...</div>
-                ) : (
-                  <LinedTextArea
-                    readOnly
-                    value={resource ? JSON.stringify(resource, null, 2) : (resource === null ? '加载中或无数据...' : '')}
-                    className="metadata-viewer"
-                    style={{ flex: 1, border: 'none', borderRadius: 0 }}
-                  />
-                )}
-              </div>
-            ),
-          },
-          {
-            key: 'metadata',
-            label: '列表数据',
-            children: (
-              <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <LinedTextArea
-                  readOnly
-                  value={record ? JSON.stringify(record, null, 2) : ''}
-                  className="metadata-viewer"
-                  style={{ flex: 1, border: 'none', borderRadius: 0 }}
-                />
-              </div>
-            ),
-          },
+          ...((record?.links?.view) ? [{
+            key: 'view_link',
+            label: '实时数据 (View Link)',
+            children: <ViewLinkTab cloudId={cloudId} viewLink={record?.links?.view} active={activeTab === 'view_link'} />
+          }] : []),
+          
+          ...(record ? [{
+            key: 'events',
+            label: '事件 (Events)',
+            children: <EventsTab cloudId={cloudId} record={record} active={activeTab === 'events'} />
+          }] : [])
         ]}
       />
     </Drawer>

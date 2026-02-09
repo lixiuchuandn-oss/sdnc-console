@@ -113,12 +113,14 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '操作',
       key: 'actions',
+      width: 80,
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const items = [
           { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
           ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
         ];
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ];
@@ -182,12 +184,14 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     {
       title: '操作',
       key: 'actions',
+      width: 80,
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const items = [
           { key: 'metadata', label: '查看元数据', onClick: () => handleShowMetadata(r) },
           ...(r?.links?.view ? [{ key: 'view', label: '查看', onClick: () => window.open(r.links.view, '_blank') }] : []),
         ];
-        return <ResourceActionsDropdown items={items} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
   ], []);
@@ -231,11 +235,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       asCard={false}
       toolbarLeft={(
         <Input 
-          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+          className="toolbar-search"
           placeholder="搜索 VPC 名称或 UID" 
           value={searchText} 
           onChange={(e) => setSearchText(e.target.value)} 
-          style={{ width: 320 }} 
           allowClear
         />
       )}
@@ -251,18 +254,13 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       )}
     >
       <Table
-        className="kv-section-table"
+        className="std-table"
         bordered
         rowKey={(r) => SafeRead.name(r) || Math.random().toString()}
         columns={tableColumns}
         dataSource={dataSource}
         loading={loading}
-        pagination={{ 
-          size: 'small',
-          showSizeChanger: true, 
-          showTotal: (total) => `共 ${total} 条`,
-          pageSizeOptions: ['10', '20', '50', '100']
-        }}
+        pagination={{size: 'small'}}
         expandable={{
           expandedRowRender: renderExpandedRow,
           rowExpandable: () => true,

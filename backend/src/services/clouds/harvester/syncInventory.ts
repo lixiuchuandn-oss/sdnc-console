@@ -1,13 +1,33 @@
 import { AppDataSource } from '../../../config/database';
-import { HarvesterImageInventory } from '../../../entities/harvester/HarvesterImageInventory';
-import { KubevirtVolumeInventory } from '../../../entities/kubevirt/KubevirtVolumeInventory';
-import { KubevirtNadInventory } from '../../../entities/kubevirt/KubevirtNadInventory';
-import { KubeOvnVpcInventory } from '../../../entities/kubeovn/KubeOvnVpcInventory';
-import { KubeOvnSubnetInventory } from '../../../entities/kubeovn/KubeOvnSubnetInventory';
-import { HarvesterGpuInventory } from '../../../entities/harvester/HarvesterGpuInventory';
-import { KubevirtVmInventory } from '../../../entities/kubevirt/KubevirtVmInventory';
-import { KubevirtVmiInventory } from '../../../entities/kubevirt/KubevirtVmiInventory';
-import { HarvesterNamespaceInventory } from '../../../entities/harvester/HarvesterNamespaceInventory';
+import { HarvesterNodeInventory } from '../../../entities/harvester/HarvesterNodeInventory';// Harvester 节点资源
+import { HarvesterNamespaceInventory } from '../../../entities/harvester/HarvesterNamespaceInventory';// Harvester 命名空间资源
+import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory';// Harvester 虚拟机资源
+import { HarvesterVmiInventory } from '../../../entities/harvester/HarvesterVmiInventory';// Harvester 虚拟机实例资源
+import { HarvesterImageInventory } from '../../../entities/harvester/HarvesterImageInventory';// Harvester 镜像资源
+import { KubevirtVolumeInventory } from '../../../entities/kubevirt/KubevirtVolumeInventory';// Kubevirt 卷资源
+import { KubevirtStorageClassInventory } from '../../../entities/kubevirt/KubevirtStorageClassInventory';
+import { KubevirtNadInventory } from '../../../entities/kubevirt/KubevirtNadInventory';// Kubevirt NAD 资源
+import { KubevirtLoadBalancerInventory } from '../../../entities/kubevirt/KubevirtLoadBalancerInventory';
+import { KubeOvnVpcInventory } from '../../../entities/kubeovn/KubeOvnVpcInventory';// Kube-ovn 虚拟私有云资源
+import { KubeOvnSubnetInventory } from '../../../entities/kubeovn/KubeOvnSubnetInventory';// Kube-ovn 子网资源
+// import { KubeOvnProviderInventory } from '../../../entities/kubeovn/KubeOvnProviderInventory';// Kbue-ovn 公共网络
+import { HarvesterGpuInventory } from '../../../entities/harvester/HarvesterGpuInventory';// Harvester GPU 资源
+import { HarvesterSnapshotInventory } from '../../../entities/harvester/HarvesterSnapshotInventory';
+import { HarvesterBackupInventory } from '../../../entities/harvester/HarvesterBackupInventory';
+import { HarvesterSshKeyInventory } from '../../../entities/harvester/HarvesterSshKeyInventory';
+import { HarvesterCloudInitInventory } from '../../../entities/harvester/HarvesterCloudInitInventory';
+import { KubeOvnIngressInventory } from '../../../entities/kubeovn/KubeOvnIngressInventory';
+import { HarvesterLoadBalancerIPPoolInventory } from '../../../entities/harvester/HarvesterLoadBalancerIPPoolInventory';
+import { HarvesterPciDeviceInventory } from '../../../entities/harvester/HarvesterPciDeviceInventory';
+import { HarvesterUsbInventory } from '../../../entities/harvester/HarvesterUsbInventory';
+import { HarvesterCapabilityInventory } from '../../../entities/harvester/HarvesterCapabilityInventory';
+import { HarvesterServiceInventory } from '../../../entities/harvester/HarvesterServiceInventory';
+import { KubeOvnEipInventory } from '../../../entities/kubeovn/KubeOvnEipInventory';
+import { KubeOvnFipInventory } from '../../../entities/kubeovn/KubeOvnFipInventory';
+import { KubeOvnNatRuleInventory } from '../../../entities/kubeovn/KubeOvnNatRuleInventory';
+import { HarvesterTemplateInventory } from '../../../entities/harvester/HarvesterTemplateInventory';
+import { HarvesterScheduleVmBackupInventory } from '../../../entities/harvester/HarvesterScheduleVmBackupInventory';
+
 import {
   listHarvesterImagesStandard,
   listHarvesterVolumesStandard,
@@ -15,9 +35,28 @@ import {
   listKubeOvnVpcs,
   listKubeOvnSubnets,
   listHarvesterGpuResources,
+  listHarvesterUsbResources,
   listKubevirtVMsRaw,
   listKubevirtVMIsRaw,
   listHarvesterNamespacesRaw,
+  listHarvesterNodesStandard,
+  listHarvesterStorageClassesStandard,
+  listHarvesterLoadBalancers,
+  listHarvesterSnapshotsStandard,
+  listHarvesterBackupsStandard,
+  listHarvesterSshKeysStandard,
+  listHarvesterCloudInitsStandard,
+  listHarvesterIngressesStandard,
+  listHarvesterLoadBalancerIPPools,
+  listHarvesterServices,
+  listKubeOvnEips,
+  listKubeOvnFips,
+  listKubeOvnSnatRules,
+  listKubeOvnDnatRules,
+  getHarvesterCapabilities,
+  listHarvesterPciDevices,
+  listHarvesterTemplatesRaw,
+  listHarvesterScheduleVmBackupsStandard,
 } from './client';
 
 const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (item: any) => any) => {
@@ -73,6 +112,155 @@ export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+export const syncHarvesterScheduleVmBackups = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterScheduleVmBackupsStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Sync] ScheduleVmBackups fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  // Filter out items that are marked for deletion
+  const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
+
+  const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
+  await upsertItems(repo, cloud.id, validItems, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    cron: item.spec?.cron,
+    vmName: item.spec?.vmbackup?.source?.name,
+    retention: String(item.spec?.retain || ''),
+    status: item.spec?.suspend ? 'Suspended' : 'Active',
+    maxFailure: item.spec?.maxFailure,
+    links: item.links,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterTemplates = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterTemplatesRaw({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Sync] Skipping Templates for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      return;
+    }
+    throw e;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterTemplateInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    description: item.spec?.description,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterUsbResources = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterUsbResources({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Sync] USB Resources fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterUsbInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    // USB items from listHarvesterUsbResources don't have standard k8s metadata
+    // They are constructed objects
+    uid: item.resourceName, // Using resourceName as unique ID
+    resourceName: item.resourceName,
+    name: item.name,
+    vendorId: item.vendorId,
+    productId: item.productId,
+    description: (item.raw as any)?.description || item.name,
+    rawData: item.raw,
+  }));
+};
+
+export const syncHarvesterLoadBalancers = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterLoadBalancers({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Sync] Skipping LoadBalancers for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      return;
+    }
+    throw e;
+  }
+
+  const repo = AppDataSource.getRepository(KubevirtLoadBalancerInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    cluster: item.spec?.cluster,
+    vpc: item.spec?.vpc,
+    externalIP: item.status?.externalIP,
+    ports: item.spec?.ports,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterLoadBalancerIPPools = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterLoadBalancerIPPools({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) {
+      return;
+    }
+    console.warn(`[Sync] IPPools fetch failed for ${cloud.name}:`, e.message);
+    // Non-critical, continue
+    return;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterLoadBalancerIPPoolInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    ipam: item.spec?.ipam,
+    selector: item.spec?.selector,
+    subnet: item.status?.allocated?.subnet, // Common status field for subnet? Need to verify schema but saving rawData covers it
+    gateway: item.status?.allocated?.gateway,
+    rawData: item,
+  }));
+};
+
 export const syncKubevirtVms = async (cloud: any, insecure: boolean) => {
   const items = await listKubevirtVMsRaw({
     endpoint: cloud.endpoint,
@@ -81,7 +269,17 @@ export const syncKubevirtVms = async (cloud: any, insecure: boolean) => {
     version: (cloud.config as any)?.harvesterVersion,
   } as any);
 
-  const repo = AppDataSource.getRepository(KubevirtVmInventory);
+  // Calculate origin for view links fallback
+  const base = (cloud.endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterVmInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid,
     name: item.metadata?.name,
@@ -92,8 +290,12 @@ export const syncKubevirtVms = async (cloud: any, insecure: boolean) => {
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
     creationTimestamp: item.metadata?.creationTimestamp,
+    // Strictly use API-provided link (Steve API). If missing (e.g. Native Kubevirt), leave it empty. No hacks.
+    view: item.links?.view || '',
     rawData: item,
   }));
+
+  return items.length;
 };
 
 export const syncKubevirtVmis = async (cloud: any, insecure: boolean) => {
@@ -104,7 +306,7 @@ export const syncKubevirtVmis = async (cloud: any, insecure: boolean) => {
     version: (cloud.config as any)?.harvesterVersion,
   } as any);
 
-  const repo = AppDataSource.getRepository(KubevirtVmiInventory);
+  const repo = AppDataSource.getRepository(HarvesterVmiInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid,
     name: item.metadata?.name,
@@ -118,8 +320,11 @@ export const syncKubevirtVmis = async (cloud: any, insecure: boolean) => {
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
     creationTimestamp: item.metadata?.creationTimestamp,
+    view: item.links?.view || '',
     rawData: item,
   }));
+
+  return items.filter((i: any) => i.status?.phase === 'Running').length;
 };
 
 export const syncHarvesterVolumes = async (cloud: any, insecure: boolean) => {
@@ -157,6 +362,7 @@ export const syncHarvesterNads = async (cloud: any, insecure: boolean) => {
     uid: item.metadata?.uid || item.id,
     name: item.metadata?.name,
     namespace: item.metadata?.namespace,
+    links: item.links,
     config: item.spec?.config,
     type: JSON.parse(item.spec?.config || '{}').type,
     labels: item.metadata?.labels,
@@ -242,7 +448,419 @@ export const syncHarvesterNamespaces = async (cloud: any, insecure: boolean) => 
     name: item.metadata?.name,
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
+    links: item.links,
     rawData: item,
   }));
 };
 
+export const syncHarvesterNodes = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterNodesStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Sync] Nodes fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterNodeInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    status: item.ready ? 'Ready' : 'NotReady',
+    internalIP: item.internalIP,
+    externalIP: item.externalIP,
+    links: item.links,
+    capacity: { cpu: item.cpu, memory: item.memory },
+    allocatable: { cpu: item.cpu, memory: item.memory },
+    nodeInfo: item.status?.nodeInfo,
+    kernelVersion: item.status?.nodeInfo?.kernelVersion,
+    osImage: item.status?.nodeInfo?.osImage,
+    containerRuntimeVersion: item.status?.nodeInfo?.containerRuntimeVersion,
+    kubeletVersion: item.status?.nodeInfo?.kubeletVersion,
+    kubeProxyVersion: item.status?.nodeInfo?.kubeProxyVersion,
+    operatingSystem: item.status?.nodeInfo?.operatingSystem,
+    architecture: item.status?.nodeInfo?.architecture,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterStorageClasses = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterStorageClassesStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Sync] Skipping StorageClasses for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      return;
+    }
+    throw e;
+  }
+
+  const repo = AppDataSource.getRepository(KubevirtStorageClassInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    links: item.links,
+    provisioner: item.provisioner,
+    reclaimPolicy: item.reclaimPolicy,
+    volumeBindingMode: item.volumeBindingMode,
+    allowVolumeExpansion: item.allowVolumeExpansion,
+    parameters: item.parameters,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterSnapshotsStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Sync] Skipping Snapshots for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      return;
+    }
+    throw e;
+  }
+
+  // Filter out items that are marked for deletion
+  const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
+
+  const repo = AppDataSource.getRepository(HarvesterSnapshotInventory);
+  await upsertItems(repo, cloud.id, validItems, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    sourcePvc: item.spec?.source?.persistentVolumeClaimName || item.spec?.source?.name,
+    status: item.status?.readyToUse ? 'Ready' : 'NotReady',
+    size: item.status?.restoreSize,
+    restoreSize: item.status?.restoreSize,
+    snapshotClassName: item.spec?.volumeSnapshotClassName,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterBackupsStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Sync] Skipping Backups for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      return;
+    }
+    throw e;
+  }
+
+  // Filter out items that are marked for deletion
+  const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
+
+  const repo = AppDataSource.getRepository(HarvesterBackupInventory);
+  await upsertItems(repo, cloud.id, validItems, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    sourceVm: item.spec?.source?.name,
+    readyToUse: item.status?.readyToUse,
+    target: JSON.stringify(item.status?.target || {}),
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterSshKeys = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterSshKeysStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Sync] Skipping SSH Keys for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      return;
+    }
+    throw e;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterSshKeyInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    publicKey: item.spec?.publicKey,
+    fingerprint: item.status?.fingerprint || item.spec?.fingerprint,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterCloudInits = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterCloudInitsStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Sync] Skipping Cloud Inits for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      return;
+    }
+    throw e;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterCloudInitInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    data: item.data,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterIngresses = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterIngressesStandard({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Sync] Skipping Ingresses for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      return;
+    }
+    throw e;
+  }
+
+  const repo = AppDataSource.getRepository(KubeOvnIngressInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    rules: item.spec?.rules,
+    tls: item.spec?.tls,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterPciDevices = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterPciDevices({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Sync] PCI Devices fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterPciDeviceInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.uid || item.raw?.metadata?.uid, // listHarvesterPciDevices returns enriched object
+    name: item.name,
+    nodeName: item.nodeName,
+    address: item.address,
+    vendorName: item.vendorId, // Enriched object puts vendor ID in vendorId
+    productName: item.productId, // Enriched object puts device ID in productId
+    vendorId: item.vendorId,
+    productId: item.productId,
+    classId: item.classId,
+    description: item.description,
+    rawData: item.raw,
+  }));
+};
+
+export const syncHarvesterCapabilities = async (cloud: any, insecure: boolean) => {
+  let item: any = null;
+  try {
+    item = await getHarvesterCapabilities({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    console.warn(`[Sync] Capabilities fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterCapabilityInventory);
+  if (item) {
+    await upsertItems(repo, cloud.id, [item], (i) => ({
+      name: 'harvester', // or cloud.type
+      version: i.version,
+      features: i,
+      rawData: i,
+    }));
+  }
+};
+
+export const syncHarvesterServices = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listHarvesterServices({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Sync] Services fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterServiceInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    links: item.links, // Persist full links object
+    type: item.spec?.type,
+    clusterIP: item.spec?.clusterIP,
+    externalIPs: item.spec?.externalIPs,
+    ports: item.spec?.ports,
+    selector: item.spec?.selector,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncKubeOvnEips = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listKubeOvnEips({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Sync] OVN EIPs fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  const repo = AppDataSource.getRepository(KubeOvnEipInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    v4Ip: item.spec?.v4Ip,
+    v6Ip: item.spec?.v6Ip,
+    macAddress: item.spec?.macAddress,
+    ready: item.status?.ready,
+    inUse: item.status?.inUse,
+    nat: item.status?.nat,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncKubeOvnFips = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listKubeOvnFips({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Sync] OVN FIPs fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  const repo = AppDataSource.getRepository(KubeOvnFipInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    namespace: item.metadata?.namespace,
+    vpc: item.spec?.vpc,
+    v4Ip: item.spec?.v4Ip,
+    v4Eip: item.spec?.v4Eip,
+    ready: item.status?.ready,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncKubeOvnNatRules = async (cloud: any, insecure: boolean) => {
+  let snatItems: any[] = [];
+  let dnatItems: any[] = [];
+  try {
+    snatItems = await listKubeOvnSnatRules({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+    dnatItems = await listKubeOvnDnatRules({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Sync] OVN NAT Rules fetch failed for ${cloud.name}:`, e.message);
+    return;
+  }
+
+  // Combine them, marking type
+  const combined = [
+    ...snatItems.map(i => ({ ...i, _type: 'SNAT' })),
+    ...dnatItems.map(i => ({ ...i, _type: 'DNAT' })),
+  ];
+
+  const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
+  await upsertItems(repo, cloud.id, combined, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    vpc: item.spec?.vpc,
+    type: item._type,
+    cidr: item.spec?.cidr, // SNAT
+    eip: item.spec?.eip, // SNAT/DNAT
+    externalIp: item.status?.v4Ip || item.status?.externalIp, // Resolved IP
+    internalIp: item.spec?.internalIp, // DNAT
+    internalPort: item.spec?.internalPort, // DNAT
+    externalPort: item.spec?.externalPort, // DNAT
+    protocol: item.spec?.protocol,
+    rawData: item,
+  }));
+};

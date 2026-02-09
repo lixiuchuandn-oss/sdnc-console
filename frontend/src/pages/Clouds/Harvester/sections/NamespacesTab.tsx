@@ -1,13 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Modal, Form, message, Select, Space, Tabs, InputNumber, Row, Col, MenuProps, Tooltip, Descriptions } from 'antd';
+import { Table, Input, Tag, Button, Modal, Form, message, Select, Tabs, InputNumber, Row, Col, MenuProps, Tooltip, Descriptions } from 'antd';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { API_BASE_URL, getAuthHeaders, createHarvesterNamespace, deleteHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/api';
+import { API_BASE_URL, getAuthHeaders } from '../../../../services/api';
+import { createHarvesterNamespace, deleteHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/harvesterApi';
 import { ReloadOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import StdFormModal from '../../../../components/StdFormModal';
 
 import TableColumnSettings from '../../../../components/TableColumnSettings';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
+/**
+ * 组件属性定义
+ * @property cloudId - 当前云平台的 ID
+ * @property namespaces - 命名空间列表数据
+ * @property loading - 数据加载状态
+ * @property onRefresh - 刷新数据的回调函数
+ * @property showLog - 是否显示调试日志（原始数据）
+ * @property raw - 原始数据对象
+ */
 type Props = {
   cloudId: string;
   namespaces?: any[];
@@ -17,82 +29,64 @@ type Props = {
   raw?: any;
 };
 
+/**
+ * 根据命名空间状态生成对应的 Badge 标签
+ * @param phase - 状态字符串 (Active, Terminating 等)
+ * @returns AntD Tag 组件
+ */
 const phaseBadge = (phase?: string) => {
   const k = String(phase || '').toLowerCase();
-  const color = (function () {
-    if (k === 'active') return 'green';
-    if (k === 'terminating') return 'orange';
-    return undefined;
-  })();
-  return <Tag color={color}>{phase || '-'}</Tag>;
+  let badgeClass = 'std-badge-default';
+  
+  if (k === 'active') badgeClass = 'std-badge-success';
+  else if (k === 'terminating') badgeClass = 'std-badge-warning';
+  
+  return <span className={`std-badge ${badgeClass}`}>{phase || '-'}</span>;
 };
 
-const isSystemNamespace = (name: string) => {
-  const n = String(name || '').toLowerCase();
-  
-  // Exact matches
-  if (['cloud-public', 'ingress-nginx'].includes(n)) return true;
 
-  // Prefix matches
-  const prefixes = [
-    'cattle',
-    'fleet',
-    'longhorn',
-    'kube',
-    'harvester',
-    'cluster-fleet',
-    'cluster',
-    'local',
-    'user'
-  ];
-  
-  return prefixes.some(p => n.startsWith(p));
-};
 
+/**
+ * Harvester 命名空间管理页签组件
+ * 展示命名空间列表，提供创建、编辑、删除及详情查看功能
+ */
 const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw }) => {
+  // === 状态管理 ===
+  // 搜索关键字
   const [keyword, setKeyword] = useState('');
+  // 是否正在创建/编辑
   const [creating, setCreating] = useState<boolean>(false);
+  // 当前正在编辑的命名空间对象 (null 表示新建)
   const [editingNamespace, setEditingNamespace] = useState<any>(null);
+  // 类型过滤器: all(全部) | system(系统) | user(业务)
   const [filterType, setFilterType] = useState<string>('all');
+  // 状态过滤器: all(全部) | Active | Terminating
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  // 表格列配置
   const [tableColumns, setTableColumns] = useState<any[]>([]);
   
-  // Detail Modal State
+  // === 详情抽屉状态 ===
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
-  const [detailResource, setDetailResource] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
-  const [detailLoading, setDetailLoading] = useState(false);
 
   const [form] = Form.useForm();
 
-  const handleOpenDetail = async (record: any) => {
-    const name = record?.metadata?.name || record?.name;
-    setDetailRecord(record);
-    setDetailResource(null);
+  /**
+   * 打开详情抽屉并获取最新资源详情
+   * @param record - 表格行数据
+   */
+  const handleOpenDetail = async (record: any, tab: string = 'detail') => {
+    // 强制指定 kind 为 Namespace，以便 EventsTab 正确识别
+    setDetailRecord({ ...record, kind: 'Namespace' });
     setDetailVisible(true);
-    setDetailActiveTab('detail');
-    setDetailLoading(true);
-
-    try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/resources/harvester/namespaces/${encodeURIComponent(name)}?force=true`,
-        {
-          method: 'GET',
-          headers: getAuthHeaders(),
-          credentials: 'include',
-        },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setDetailResource(json?.data || json);
-    } catch (e: any) {
-      message.error(e?.message || '获取详情失败');
-    } finally {
-      setDetailLoading(false);
-    }
+    setDetailActiveTab(tab);
   };
 
+  /**
+   * 解析标签字符串
+   * 将 "k=v,k2=v2" 格式字符串转换为对象 {k:v, k2:v2}
+   */
   const parseLabels = (rawStr?: string): Record<string,string> | undefined => {
     const s = String(rawStr || '').trim();
     if (!s) return undefined;
@@ -106,10 +100,14 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     return Object.keys(out).length ? out : undefined;
   };
 
+  /**
+   * 数据过滤逻辑 (Memoized)
+   * 依次应用: 类型过滤 -> 状态过滤 -> 关键字搜索
+   */
   const filtered = useMemo(() => {
     let res = Array.isArray(namespaces) ? namespaces : [];
 
-    // Filter by Type
+    // 1. 类型过滤 (系统/业务)
     if (filterType !== 'all') {
       res = res.filter((r: any) => {
         const name = r?.metadata?.name || r?.name || '';
@@ -118,7 +116,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       });
     }
 
-    // Filter by Status
+    // 2. 状态过滤 (Active/Terminating)
     if (filterStatus !== 'all') {
       res = res.filter((r: any) => {
         const phase = r?.status?.phase || 'Unknown';
@@ -126,7 +124,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       });
     }
 
-    // Filter by Keyword
+    // 3. 关键字搜索 (名称或标签)
     const kw = keyword.trim().toLowerCase();
     if (kw) {
       res = res.filter((r: any) => {
@@ -140,6 +138,9 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     return res;
   }, [namespaces, keyword, filterType, filterStatus]);
 
+  /**
+   * 处理删除操作
+   */
   const handleDelete = async (name: string) => {
     try {
       await deleteHarvesterNamespace(cloudId, name);
@@ -150,16 +151,22 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     }
   };
 
+  /**
+   * 处理编辑操作 - 填充表单
+   * 解析 ResourceQuota 和 ContainerDefaultResourceLimit 并回填到表单
+   */
   const handleEdit = (record: any) => {
     setEditingNamespace(record);
     const name = record?.metadata?.name || record?.name;
     const labels = record?.metadata?.labels || {};
     const annotations = record?.metadata?.annotations || {};
 
+    // 格式化标签为字符串显示
     const labelStr = Object.keys(labels)
       .map((k) => `${k}=${labels[k]}`)
       .join(',');
 
+    // 解析资源配额 (Resource Quota)
     const rqStr = annotations['field.cattle.io/resourceQuota'];
     let rqLimit: any = {};
     try {
@@ -167,15 +174,18 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       rqLimit = rq.limit || {};
     } catch {}
 
+    // 解析容器默认资源限制
     const cdStr = annotations['field.cattle.io/containerDefaultResourceLimit'];
     let cdLimit: any = {};
     try {
       cdLimit = cdStr ? JSON.parse(cdStr) : {};
     } catch {}
 
+    // 设置表单值
     form.setFieldsValue({
       name: name,
       labels: labelStr,
+      // 配额字段
       rq_limitsCpu: rqLimit.limitsCpu,
       rq_limitsMemory: rqLimit.limitsMemory,
       rq_requestsCpu: rqLimit.requestsCpu,
@@ -187,6 +197,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       rq_persistentVolumeClaims: rqLimit.persistentVolumeClaims,
       rq_servicesLoadBalancers: rqLimit.servicesLoadBalancers,
       rq_servicesNodePorts: rqLimit.servicesNodePorts,
+      // 容器默认限制字段
       cd_limitsCpu: cdLimit.limitsCpu,
       cd_limitsMemory: cdLimit.limitsMemory,
       cd_requestsCpu: cdLimit.requestsCpu,
@@ -195,14 +206,17 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     setCreating(true);
   };
 
-  const handleCreate = async () => {
+  /**
+   * 处理表单提交 (创建/更新)
+   */
+  const handleCreate = async (values: any) => {
     try {
-      const v = await form.validateFields();
+      const v = values;
       const name = String(v.name || '');
       const labels = parseLabels(v.labels);
       const annotations: any = {};
 
-      // Resource Quota
+      // 构建资源配额配置 (Resource Quota)
       const rqLimit: any = {};
       const rqFields = [
         'limitsCpu',
@@ -229,7 +243,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         annotations['field.cattle.io/resourceQuota'] = JSON.stringify({ limit: rqLimit });
       }
 
-      // Container Default Resource Limit
+      // 构建容器默认资源限制
       const cdLimit: any = {};
       const cdFields = ['limitsCpu', 'limitsMemory', 'requestsCpu', 'requestsMemory'];
       let hasCd = false;
@@ -267,12 +281,19 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     }
   };
 
+  /**
+   * 表格列定义
+   */
   const allColumns = useMemo(() => [
     {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      render: (_: any, r: any) => <span>{r?.metadata?.name || r?.name}</span>
+      render: (_: any, r: any) => (
+        <span className="cell-link" onClick={() => handleOpenDetail(r, 'detail')}>
+          {r?.metadata?.name || r?.name}
+        </span>
+      )
     },
     {
       title: '状态',
@@ -295,14 +316,16 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'creationTimestamp',
-      render: (v: string) => v ? new Date(v).toLocaleString() : '-'
+      render: (v: string) => v ? <span className="std-time">{v}</span> : '-'
     },
     {
       title: '类型',
       key: 'type',
       render: (_: any, r: any) => {
         const isSys = isSystemNamespace(r?.metadata?.name || r?.name);
-        return isSys ? <Tag color="default">System</Tag> : <Tag color="processing">User</Tag>;
+        return isSys ? 
+          <span className="std-badge std-badge-default">System</span> : 
+          <span className="std-badge std-badge-info">User</span>;
       }
     },
     {
@@ -388,20 +411,22 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     {
       title: '操作',
       key: 'actions',
+      width: 80,
+      fixed: 'right' as const,
       render: (_: any, r: any) => {
         const name = r?.metadata?.name || r?.name;
         const isSys = isSystemNamespace(name);
         return (
           <ResourceActionsDropdown 
             items={[
-              { key: 'view', label: '数据查看', onClick: () => handleOpenDetail(r) },
+              { key: 'detail', label: '资源详情', onClick: () => handleOpenDetail(r, 'detail') },
               { key: 'edit', label: '编辑配置', onClick: () => handleEdit(r) },
               { type: 'divider' },
               { 
                 key: 'delete', 
                 label: '删除', 
                 danger: true, 
-                disabled: isSys,
+                disabled: isSys, // 系统命名空间禁止删除
                 onClick: () => Modal.confirm({
                   title: `确认删除 ${name}?`,
                   content: '删除后无法恢复',
@@ -411,6 +436,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
                 }) 
               }
             ]} 
+            buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
       }
@@ -420,8 +446,9 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
   return (
     <PageDetailSection
       asCard={false}
+      // === 工具栏左侧：搜索与过滤 ===
       toolbarLeft={
-        <Space>
+        <>
           <Input
             allowClear
             placeholder="关键字（名称/标签）"
@@ -449,8 +476,14 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
             ]}
             className="toolbar-filter-sm"
           />
-        </Space>
+          <a className="toolbar-reset-btn" onClick={() => {
+            setKeyword('');
+            setFilterType('all');
+            setFilterStatus('all');
+          }}>重置</a>
+        </>
       }
+      // === 工具栏右侧：操作按钮 ===
       toolbarRight={
         <>
           <Button type="primary" onClick={() => { form.resetFields(); setCreating(true); }}>新增命名空间</Button>
@@ -463,29 +496,27 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         </>
       }
     >
+      {/* === 主表格 === */}
       <Table
         className="std-table"
         bordered
         rowKey={(r: any) => r?.metadata?.name || r?.name || Math.random().toString(36).slice(2)}
         loading={loading}
         dataSource={filtered}
-        pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
+        pagination={{ size: 'small'}}
         columns={tableColumns}
-        scroll={{ x: 'max-content' }}
       />
       
-      {/* Create Modal */}
-      <Modal
+      {/* === 创建/编辑 模态框 === */}
+      <StdFormModal
         open={creating}
         title={editingNamespace ? "编辑命名空间" : "新增命名空间"}
-        width={720}
-        destroyOnClose
+        width={600}
         onCancel={() => { setCreating(false); setEditingNamespace(null); form.resetFields(); }}
-        onOk={handleCreate}
-        okText="提交"
-        cancelText="取消"
+        onFinish={handleCreate}
+        okText={editingNamespace ? "保存" : "创建"}
+        form={form}
       >
-        <Form form={form} layout="vertical">
           <Tabs
             defaultActiveKey="basic"
             items={[
@@ -604,36 +635,20 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
               },
             ]}
           />
-        </Form>
-      </Modal>
+      </StdFormModal>
 
+      {/* === 详情侧边抽屉 === */}
       <HarvesterResourceDrawer
         open={detailVisible}
         onClose={() => setDetailVisible(false)}
+        resourceType="Namespace"
         record={detailRecord}
-        resource={detailResource}
-        loading={detailLoading}
         activeTab={detailActiveTab}
         onTabChange={setDetailActiveTab}
-        renderDetail={(res) => (
-          <Descriptions bordered column={1} size="small">
-            <Descriptions.Item label="名称">{res?.metadata?.name || '-'}</Descriptions.Item>
-            <Descriptions.Item label="UID">{res?.metadata?.uid || '-'}</Descriptions.Item>
-            <Descriptions.Item label="创建时间">{res?.metadata?.creationTimestamp || '-'}</Descriptions.Item>
-            <Descriptions.Item label="状态">{res?.status?.phase || '-'}</Descriptions.Item>
-            <Descriptions.Item label="标签">
-              {res?.metadata?.labels ? (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {Object.keys(res.metadata.labels).map(k => (
-                    <Tag key={k} style={{ marginRight: 0 }}>{k}={res.metadata.labels[k]}</Tag>
-                  ))}
-                </div>
-              ) : '-'}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
+        cloudId={cloudId}
       />
 
+      {/* 调试日志视图 */}
       {showLog && (
         <div>
           <pre className="metadata-viewer">

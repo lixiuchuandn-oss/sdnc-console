@@ -6,13 +6,13 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export enum Srv6Status {
+export enum SRv6Status {
   CREATING = 'creating',
   AVAILABLE = 'available',
 }
 
 @Entity('srv6_tunnels')
-export class Srv6Tunnel {
+export class SRv6Tunnel {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -33,10 +33,10 @@ export class Srv6Tunnel {
 
   @Column({
     type: 'simple-enum',
-    enum: Srv6Status,
-    default: Srv6Status.CREATING,
+    enum: SRv6Status,
+    default: SRv6Status.CREATING,
   })
-  status!: Srv6Status;
+  status!: SRv6Status;
 
   @CreateDateColumn()
   createdAt!: Date;

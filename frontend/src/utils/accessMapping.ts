@@ -43,8 +43,7 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
     || (perms || []).includes(act.replace(':read', ':write'))
     || (perms || []).includes('*')
     || (perms || []).includes(`${base}:*`)
-    || (!!hasDomainPrefix && (perms || []).includes(`${hasDomainPrefix}:*`))
-    || (!!hasDomainPrefix && (perms || []).some(p => p.startsWith(`${hasDomainPrefix}.`)));
+    || (!!hasDomainPrefix && (perms || []).includes(`${hasDomainPrefix}:*`));
 };
 
 export const getDefaultAdminPath = (perms: string[] = []): string => {

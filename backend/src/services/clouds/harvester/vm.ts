@@ -19,18 +19,18 @@ export const listKubevirtVMsRaw = async ({
   }
 
   // Common Kubevirt API paths
+  // Use Harvester API strict mode for now to ensure cleaner code structure
+  // as requested by user.
   const candidates = [
-    `${origin}/apis/kubevirt.io/v1/virtualmachines`, // Cluster scope (most common)
-    `${origin}/apis/kubevirt.io/v1/namespaces/default/virtualmachines`,
-    `${base}/gateway/apis/kubevirt.io/v1/virtualmachines`, // Rancher proxy
-    `${base}/k8s/clusters/local/apis/kubevirt.io/v1/virtualmachines`
+    `${origin}/v1/harvester/kubevirt.io.virtualmachines`, // Harvester/Steve API (Has links/actions)
   ];
 
   for (const url of candidates) {
     try {
       const json = await getJsonOnce(url, token, insecure);
-      if (json && Array.isArray(json.items)) return json.items;
-      if (json && Array.isArray(json.data)) return json.data;
+      if (json && (Array.isArray(json.items) || Array.isArray(json.data))) {
+        return json.items || json.data;
+      }
     } catch (e: any) {
       // Continue to next candidate
     }
@@ -56,10 +56,7 @@ export const listKubevirtVMsRawWithMeta = async ({
   }
 
   const candidates = [
-    `${origin}/apis/kubevirt.io/v1/virtualmachines`, // Cluster scope (most common)
-    `${origin}/apis/kubevirt.io/v1/namespaces/default/virtualmachines`,
-    `${base}/gateway/apis/kubevirt.io/v1/virtualmachines`, // Rancher proxy
-    `${base}/k8s/clusters/local/apis/kubevirt.io/v1/virtualmachines`
+    `${origin}/v1/harvester/kubevirt.io.virtualmachines`, // Harvester/Steve API (Has links/actions)
   ];
 
   for (const url of candidates) {
@@ -97,10 +94,7 @@ export const listKubevirtVMIsRaw = async ({
   }
 
   const candidates = [
-    `${origin}/apis/kubevirt.io/v1/virtualmachineinstances`,
-    `${origin}/apis/kubevirt.io/v1/namespaces/default/virtualmachineinstances`,
-    `${base}/gateway/apis/kubevirt.io/v1/virtualmachineinstances`,
-    `${base}/k8s/clusters/local/apis/kubevirt.io/v1/virtualmachineinstances`
+    `${origin}/v1/harvester/kubevirt.io.virtualmachineinstances`,
   ];
 
   for (const url of candidates) {
@@ -130,10 +124,7 @@ export const listKubevirtVMIsRawWithMeta = async ({
   }
 
   const candidates = [
-    `${origin}/apis/kubevirt.io/v1/virtualmachineinstances`,
-    `${origin}/apis/kubevirt.io/v1/namespaces/default/virtualmachineinstances`,
-    `${base}/gateway/apis/kubevirt.io/v1/virtualmachineinstances`,
-    `${base}/k8s/clusters/local/apis/kubevirt.io/v1/virtualmachineinstances`
+    `${origin}/v1/harvester/kubevirt.io.virtualmachineinstances`,
   ];
 
   for (const url of candidates) {
@@ -195,22 +186,89 @@ export const listHarvesterVMsStandard = async ({
     // Simple Status
     const status = vm?.status?.printableStatus || vm?.status?.phase || 'Unknown';
     
-    // Simple IP
-    let ip = '';
+    // IP/Mac resolution (Merge VM Status & VMI Status)
     const ips: string[] = [];
+    const macs: string[] = [];
+    const addIp = (s: any) => {
+      const v = String(s || '').trim();
+      if (v && !ips.includes(v)) ips.push(v);
+    };
     
-    // Extract IPs simply
-    if (vmi?.status?.interfaces) {
-        vmi.status.interfaces.forEach((i: any) => {
-            if (i.ipAddress) ips.push(i.ipAddress);
-        });
+    // From VM status
+    if (vm?.status?.vmIp) addIp(vm.status.vmIp);
+    if (Array.isArray(vm?.status?.interfaces)) {
+      vm.status.interfaces.forEach((i: any) => {
+        addIp(i.ipAddress || i.ip);
+        if (i.mac || i.macAddress) macs.push(i.mac || i.macAddress);
+      });
     }
-    if (ips.length > 0) ip = ips[0];
+    // From VMI status (More real-time)
+    if (vmi) {
+      if (Array.isArray(vmi.status?.interfaces)) {
+        vmi.status.interfaces.forEach((i: any) => {
+          if (i.ipAddress || i.ip) addIp(i.ipAddress || i.ip);
+          if (i.mac || i.macAddress) macs.push(i.mac || i.macAddress);
+        });
+      }
+    }
+
+    // Node
+    const nodeName = vm?.status?.nodeName || vmi?.status?.nodeName || '';
+
+    // Networks (Parse Multus annotations)
+    const networksArr: any[] = Array.isArray(vm?.spec?.template?.spec?.networks)
+      ? vm?.spec?.template?.spec?.networks
+      : [];
+    const networks: string[] = networksArr
+      .map((n: any) => n?.multus?.networkName || (n?.name ? String(n.name) : 'pod'))
+      .filter((s: string) => !!s);
+
+    // CPU/Memory
+    const cpu =
+      vm?.spec?.template?.spec?.domain?.cpu?.cores ||
+      vm?.spec?.template?.spec?.domain?.cpu?.sockets ||
+      undefined;
+    const memory =
+      vm?.spec?.template?.spec?.domain?.resources?.requests?.memory ||
+      vm?.spec?.template?.spec?.domain?.memory?.guest ||
+      undefined;
+
+    // Volume Claims (PVCs)
+    const volumes = vm?.spec?.template?.spec?.volumes || [];
+    const volumeClaims = volumes
+      .map((v: any) => v?.persistentVolumeClaim?.claimName)
+      .filter((n: string) => !!n);
+
+    const creationTimestamp = vm?.metadata?.creationTimestamp;
+    const description = vm?.metadata?.annotations?.description || '';
+    const creator = vm?.metadata?.labels?.['harvesterhci.io/creator'] || '';
+    const conditions = vm?.status?.conditions || [];
 
     const viewUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${namespace}/virtualmachines/${name}`;
 
     return {
+      ...vm,
       links: { view: viewUrl },
+      id: uid, // Use K8s UID as ID
+      name,
+      namespace,
+      status,
+      description,
+      creator,
+      conditions,
+      createdAt: creationTimestamp,
+      ips,
+      macAddresses: Array.from(new Set(macs)),
+      nodeName,
+      networks,
+      vpcName: networks.find(n => n !== 'pod' && n !== 'default'),
+      volumeClaims,
+      cpu,
+      memoryGb: memory,
+      // Include raw VMI if needed
+      vmiRaw: vmi,
+      
+      // Legacy fields for compatibility (if any other consumers exist)
       Uid: uid,
       InstanceId: namespace && name ? `${namespace}/${name}` : uid,
       InstanceName: name,
@@ -220,11 +278,6 @@ export const listHarvesterVMsStandard = async ({
           IpAddress: ips,
         },
       },
-      Extra: {
-        Namespace: namespace,
-        IpAddresses: ips,
-        NodeName: vmi?.status?.nodeName || '',
-      }
     };
   });
 };
@@ -336,9 +389,90 @@ export const updateHarvesterVMSpec = async (
   }
   // Fetch current to get resourceVersion
   const current = await getHarvesterVM({ endpoint, token, insecure }, namespace, name);
+  
+  // Create a deep clone of the current spec to modify
+  const newSpec = current.spec ? JSON.parse(JSON.stringify(current.spec)) : {};
+  
+  // Ensure structure exists
+  if (!newSpec.template) newSpec.template = {};
+  if (!newSpec.template.spec) newSpec.template.spec = {};
+  if (!newSpec.template.spec.domain) newSpec.template.spec.domain = {};
+  const domain = newSpec.template.spec.domain;
+  
+  const ensureResources = () => {
+      if (!domain.resources) domain.resources = {};
+      if (!domain.resources.requests) domain.resources.requests = {};
+      if (!domain.resources.limits) domain.resources.limits = {};
+  };
+  const ensureCpu = () => {
+      if (!domain.cpu) domain.cpu = {};
+  };
+
+  // --- 1. Simple CPU/Memory Change ---
+  if (spec.cpu !== undefined) {
+      ensureResources();
+      domain.resources.requests.cpu = String(spec.cpu);
+      // Default topology for simple mode to avoid mismatch
+      ensureCpu();
+      domain.cpu.sockets = 1;
+      domain.cpu.cores = Number(spec.cpu);
+      domain.cpu.threads = 1;
+  }
+  
+  if (spec.memory !== undefined) {
+      ensureResources();
+      domain.resources.requests.memory = spec.memory;
+      domain.resources.limits.memory = spec.memory;
+  }
+
+  // --- 2. Advanced CPU ---
+  if (spec.cpuSockets || spec.cpuCores || spec.cpuThreads) {
+      ensureCpu();
+      if (spec.cpuSockets) domain.cpu.sockets = Number(spec.cpuSockets);
+      if (spec.cpuCores) domain.cpu.cores = Number(spec.cpuCores);
+      if (spec.cpuThreads) domain.cpu.threads = Number(spec.cpuThreads);
+  }
+  
+  if (spec.dedicatedCPUPlacement !== undefined) {
+      ensureCpu();
+      domain.cpu.dedicatedCpuPlacement = !!spec.dedicatedCPUPlacement;
+  }
+  
+  if (spec.cpuRequest !== undefined) {
+      ensureResources();
+      domain.resources.requests.cpu = String(spec.cpuRequest);
+  }
+  
+  if (spec.cpuLimit !== undefined) {
+      ensureResources();
+      domain.resources.limits.cpu = String(spec.cpuLimit);
+  }
+  
+  // --- 3. Advanced Memory ---
+  if (spec.memoryLimit !== undefined) {
+      ensureResources();
+      domain.resources.limits.memory = spec.memoryLimit;
+  }
+
+  // --- 4. GPU ---
+  if (spec.gpuResourceName !== undefined) {
+      if (!domain.devices) domain.devices = {};
+      // If resourceName is empty, remove GPU
+      if (!spec.gpuResourceName) {
+          delete domain.devices.gpus;
+      } else {
+          domain.devices.gpus = [
+              {
+                  name: 'gpu-1',
+                  deviceName: spec.gpuResourceName
+              }
+          ];
+      }
+  }
+
   const body = {
     ...current,
-    spec: spec,
+    spec: newSpec,
   };
   const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachines/${encodeURIComponent(name)}`;
   return await requestJson('PUT', url, token, insecure, body);

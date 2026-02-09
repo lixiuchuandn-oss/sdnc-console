@@ -79,3 +79,9 @@
 .status-dot.warning { background: #fa8c16; }
 .status-dot.error { background: #ff4d4f; }
 .status-dot.unknown { background: #d9d9d9; }
+
+/* Harvester Console Menu Sidebar Overrides */
+.harvester-menu-sidebar .ant-menu-item {
+  margin: 0 10px 4px 10px !important;
+  padding-right: 10px !important;
+}

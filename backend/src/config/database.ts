@@ -9,7 +9,7 @@ export const AppDataSource = new DataSource({
   database: DB_PATH,
   // 生产环境禁用自动同步，使用迁移文件管理数据库结构
   // 但为了测试机部署方便，允许通过环境变量 DB_SYNC=true 强制开启同步
-  synchronize: process.env.DB_SYNC === 'true',
+  synchronize: true, // process.env.DB_SYNC === 'true',
   logging: process.env.NODE_ENV === 'development',
   // 同时支持 ts-node 运行和编译后的 js 文件
   entities: [path.join(__dirname, '..', 'entities', '**', '*.{ts,js}')],

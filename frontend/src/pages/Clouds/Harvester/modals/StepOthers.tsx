@@ -8,6 +8,8 @@ interface StepOthersProps {
   reloadUsbResources: () => void;
   autoStart: boolean;
   setAutoStart: (val: boolean) => void;
+  sshKeyOptions: any[];
+  reloadSshKeys: () => void;
 }
 
 const StepOthers: React.FC<StepOthersProps> = ({
@@ -16,6 +18,8 @@ const StepOthers: React.FC<StepOthersProps> = ({
   reloadUsbResources,
   autoStart,
   setAutoStart,
+  sshKeyOptions,
+  reloadSshKeys,
 }) => {
   return (
     <>
@@ -65,15 +69,20 @@ const StepOthers: React.FC<StepOthersProps> = ({
           <Checkbox>USB Tablet</Checkbox>
         </Space>
       </Form.Item>
+      <div className="wizard-group-title">管理配置</div>
       <Form.Item label="Guest Agent" name="installGuestAgent" valuePropName="checked">
         <Space>
           <Checkbox>安装 QEMU Guest Agent（无 Cloud-Init 时自动生成）</Checkbox>
         </Space>
       </Form.Item>
       <Form.Item label="SSH 公钥标识" name="sshNames">
-        <Select mode="tags" placeholder="输入或选择SSH key名称" options={[]} />
+        <Select 
+          mode="tags" 
+          placeholder="输入或选择SSH key名称" 
+          options={sshKeyOptions || []} 
+          onDropdownVisibleChange={(open) => { if (open) reloadSshKeys(); }}
+        />
       </Form.Item>
-      <div className="wizard-group-title">Cloud-Init</div>
       <Form.Item label="Cloud-Init" name="userData">
         <Input.TextArea rows={6} placeholder="#cloud-config" />
       </Form.Item>
@@ -83,7 +92,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
         {(fields, { add, remove }) => (
           <div>
             {(usbResources || []).length === 0 ? (
-              <Typography.Text type="secondary">未检测到允许的 USB 资源，请检查 KubeVirt 的 permittedHostDevices.usb 设置</Typography.Text>
+              <Typography.Text type="secondary" style={{ paddingBottom: 8 }}>未检测到允许的 USB 资源，请检查 KubeVirt 的 permittedHostDevices.usb 设置</Typography.Text>
             ) : null}
             {fields.map(({ key, name }, idx) => (
               <Row key={key} gutter={12} style={{ marginBottom: 8 }}>

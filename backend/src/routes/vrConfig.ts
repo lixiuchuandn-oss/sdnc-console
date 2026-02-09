@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
-import { VRConfig } from '../entities/VRConfig';
-import { VrCacheExtended } from '../entities/VrCacheExtended';
+import { VRConfig } from '../entities/vRouter/VRConfig';
+import { VRCacheExtended } from '../entities/vRouter/VRCacheExtended';
 import { vrController } from '../services/vrController';
 import { vrManagementService } from '../services/vrManagementService';
 
@@ -119,7 +119,7 @@ vrConfigRoutes.get('/list', async (req, res) => {
       : await repository.find({ order: { created_at: 'DESC' } });
 
     // Fetch extended info for enriching the list
-    const extendedRepo = AppDataSource.getRepository(VrCacheExtended);
+    const extendedRepo = AppDataSource.getRepository(VRCacheExtended);
     const extendedRows = await extendedRepo.find();
     const extendedMap: Record<string, any> = {};
     extendedRows.forEach((row) => {

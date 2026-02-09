@@ -116,6 +116,29 @@ if (fs.existsSync(staticPath)) {
   console.log('Static files directory not found. Static serving disabled.');
 }
 
+// 工具下载路由（Cloudmap 别名）
+app.get('/api/tools/cloudmap-uploader.exe', (req, res) => {
+    try {
+      const toolPath = path.join('d:', 'ComputeTower', 'Compute.Tower', 'tools', 'harvester-uploader', 'CloudmapUploader.exe');
+      console.log(`[Download] Requesting tool at: ${toolPath}`);
+      if (fs.existsSync(toolPath)) {
+        console.log(`[Download] File exists, sending...`);
+        res.download(toolPath, 'CloudmapUploader.exe', (err) => {
+           if (err) {
+             console.error(`[Download] Send error:`, err);
+             if (!res.headersSent) res.status(500).send('Send error');
+           }
+        });
+      } else {
+        console.error(`[Download] File NOT found at: ${toolPath}`);
+        res.status(404).send('File not found');
+      }
+    } catch (e: any) {
+      console.error(`[Download] Exception:`, e);
+      res.status(500).send(e?.message || 'Server error');
+    }
+  });
+
 // Routes (Restored from user input)
 // CSMCTL Proxy Route (Before other routes)
 app.use('/api-proxy', apiProxyRoutes);
@@ -185,10 +208,10 @@ AppDataSource.initialize()
 
     // 启动 VR 列表同步任务
     try {
-      const { VrCacheService } = await import('./services/VrCacheService');
+      const { VRCacheService } = await import('./services/VRCacheService');
       // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
       setTimeout(() => {
-        VrCacheService.getInstance().startSyncJob();
+        VRCacheService.getInstance().startSyncJob();
       }, 10000);
     } catch (e) {
       console.warn('启动 VR 列表同步任务失败:', e);

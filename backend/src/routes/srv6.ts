@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
-import { Srv6Tunnel, Srv6Status } from '../entities/Srv6Tunnel';
+import { SRv6Tunnel, SRv6Status } from '../entities/vRouter/SRv6Tunnel';
 
 export const srv6Routes = Router();
-const repo = () => AppDataSource.getRepository(Srv6Tunnel);
+const repo = () => AppDataSource.getRepository(SRv6Tunnel);
 
 // 列表：获取所有 SRv6 隧道
 srv6Routes.get('/', async (req, res, next) => {
@@ -53,13 +53,13 @@ srv6Routes.post('/', async (req, res, next) => {
       peB: String(peB),
       ceA: String(ceA),
       ceB: String(ceB),
-      status: Srv6Status.CREATING,
+      status: SRv6Status.CREATING,
     });
     const saved = await repo().save(item);
     // 模拟异步完成：短暂延迟后置为 available
     setTimeout(async () => {
       try {
-        await repo().update({ id: saved.id }, { status: Srv6Status.AVAILABLE });
+        await repo().update({ id: saved.id }, { status: SRv6Status.AVAILABLE });
       } catch (e) {
         // ignore
       }

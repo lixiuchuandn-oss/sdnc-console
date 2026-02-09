@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
-import { NATRule, NATType } from '../entities/NATRule';
-import { VRConfig } from '../entities/VRConfig';
+import { NATRule, NATType } from '../entities/vRouter/NATRule';
+import { VRConfig } from '../entities/vRouter/VRConfig';
 import { vrController } from '../services/vrController';
 
 export const natRoutes = Router();

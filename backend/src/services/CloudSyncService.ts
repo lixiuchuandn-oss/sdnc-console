@@ -3,9 +3,34 @@ import { Cloud } from '../entities/Cloud';
 import { callAliyunEcs } from './aliyun';
 import { huaweiListServers } from './huaweicloud';
 import { listCsmVms } from './clouds/csm/client';
-import { syncKubevirtVms, syncKubevirtVmis } from './clouds/harvester/syncInventory';
-import { KubevirtVmInventory } from '../entities/kubevirt/KubevirtVmInventory';
-import { KubevirtVmiInventory } from '../entities/kubevirt/KubevirtVmiInventory';
+import {
+  syncKubevirtVms,
+  syncKubevirtVmis,
+  syncHarvesterNodes,
+  syncHarvesterStorageClasses,
+  syncHarvesterLoadBalancers,
+  syncHarvesterImages,
+  syncHarvesterVolumes,
+  syncHarvesterNads,
+  syncKubeOvnVpcs,
+  syncKubeOvnSubnets,
+  syncHarvesterGpus,
+  syncHarvesterNamespaces,
+  syncHarvesterSnapshots,
+  syncHarvesterBackups,
+  syncHarvesterSshKeys,
+  syncHarvesterCloudInits,
+  syncHarvesterIngresses,
+  syncHarvesterLoadBalancerIPPools,
+  syncHarvesterPciDevices,
+  syncHarvesterCapabilities,
+  syncHarvesterServices,
+  syncKubeOvnEips,
+  syncKubeOvnFips,
+  syncKubeOvnNatRules,
+  syncHarvesterTemplates,
+  syncHarvesterScheduleVmBackups,
+} from './clouds/harvester/syncInventory';
 
 export class CloudSyncService {
   private static instance: CloudSyncService;
@@ -13,6 +38,9 @@ export class CloudSyncService {
 
   private constructor() {}
 
+  /**
+   * 获取单例实例
+   */
   public static getInstance(): CloudSyncService {
     if (!CloudSyncService.instance) {
       CloudSyncService.instance = new CloudSyncService();
@@ -20,15 +48,22 @@ export class CloudSyncService {
     return CloudSyncService.instance;
   }
 
+  /**
+   * 启动后台同步任务
+   * @param intervalMs 同步间隔，默认 5 分钟 (300000ms)
+   */
   public startSyncJob(intervalMs: number = 300000) {
-    // Default 5 minutes
     console.log('[CloudSync] Starting background sync job...');
-    this.syncAllClouds(); // Run immediately
+    this.syncAllClouds(); // 立即运行一次
     setInterval(() => {
       this.syncAllClouds();
     }, intervalMs);
   }
 
+  /**
+   * 同步所有云平台的资源状态
+   * 遍历数据库中所有云平台记录，逐个执行同步
+   */
   public async syncAllClouds() {
     if (this.isRunning) {
       console.log('[CloudSync] Sync already in progress, skipping...');
@@ -57,17 +92,22 @@ export class CloudSyncService {
     }
   }
 
+  /**
+   * 同步单个云平台的资源
+   * 根据 provider 类型分发到不同的同步逻辑
+   */
   private async syncSingleCloud(cloud: Cloud) {
     const provider = String(cloud.config?.provider || '').toLowerCase();
 
-    // Helper to normalize running status
+    // 辅助函数：标准化运行状态判断
     const isRunning = (status: any) => {
       const s = String(status || '').toLowerCase();
       return s === 'running' || s === 'active' || s === 'on' || s === '1' || status === 1;
     };
 
     if (provider === 'aliyun') {
-      // Fetch Total Count
+      // 阿里云同步逻辑
+      // 1. 获取实例总数 (Total Count)
       const totalRes = await callAliyunEcs({
         accessKeyId: cloud.accessKey || '',
         accessKeySecret: cloud.secretKey || '',
@@ -80,7 +120,7 @@ export class CloudSyncService {
           ? totalRes.TotalCount
           : totalRes.Instances?.Instance?.length || 0;
 
-      // Fetch Running Count
+      // 2. 获取运行中实例数 (Running Count)
       const runningRes = await callAliyunEcs({
         accessKeyId: cloud.accessKey || '',
         accessKeySecret: cloud.secretKey || '',
@@ -93,48 +133,63 @@ export class CloudSyncService {
       cloud.vmCount = totalCount;
       cloud.runningVmCount = runningCount;
     } else if (provider === 'huaweicloud') {
+      // 华为云同步逻辑
       const res = await huaweiListServers({
         ak: cloud.accessKey || '',
         sk: cloud.secretKey || '',
         region: cloud.region || '',
         projectId: cloud.config?.projectId || '',
       });
-      // Huawei ListServersDetails API usually returns 'count' and 'servers'
+      // 华为云 ListServersDetails API 通常返回 'count' 和 'servers' 列表
       const list = res.servers || [];
       const total = res.count !== undefined ? res.count : list.length;
 
-      // Approximation for running count if we can't filter easily via this wrapper
+      // 估算运行中实例数：如果列表被分页截断，这里只能统计当前页的运行状态
       const running = list.filter((i: any) => i.status === 'ACTIVE').length;
 
       cloud.vmCount = total;
-      // If total > list.length, it means we have pagination.
-      // We can't know true running count without fetching all.
-      // For now, use the ratio or just the visible ones?
-      // Let's stick to visible ones to be safe, or just 0 if we don't know.
-      // Actually, let's just use what we have.
+      // 如果 total > list.length，说明有分页，无法确切知道所有运行中的数量。
+      // 暂时只统计可见列表中的运行实例。
       cloud.runningVmCount = running;
     } else if (
       provider === 'harvester' ||
       provider === 'cloudmap.private' ||
       provider === 'cloudmap.edge'
     ) {
+      // ---------------------------Harvester / Cloudmap私有云 / Cloudmap边缘云同步逻辑-----------------------------------
       const insecure = !!(cloud.config as any)?.ignoreTls;
-      // Sync Inventory to DB
-      await syncKubevirtVms(cloud, insecure);
-      await syncKubevirtVmis(cloud, insecure);
-
-      // Calculate counts from DB
-      const vmRepo = AppDataSource.getRepository(KubevirtVmInventory);
-      const vmiRepo = AppDataSource.getRepository(KubevirtVmiInventory);
-
-      cloud.vmCount = await vmRepo.count({ where: { cloudId: cloud.id } });
-      cloud.runningVmCount = await vmiRepo.count({
-        where: {
-          cloudId: cloud.id,
-          phase: 'Running',
-        },
-      });
-    } else if (provider === 'cloudmap.csm') {
+      
+      // 1. 同步各类资源清单到数据库 (VM, VMI, Nodes, Storage, LoadBalancers)
+      // 并直接获取数量，避免重复查询数据库
+      cloud.vmCount = await syncKubevirtVms(cloud, insecure);
+      cloud.runningVmCount = await syncKubevirtVmis(cloud, insecure);
+  
+      await syncHarvesterNodes(cloud, insecure);
+      await syncHarvesterStorageClasses(cloud, insecure);
+      await syncHarvesterLoadBalancers(cloud, insecure);
+      await syncHarvesterLoadBalancerIPPools(cloud, insecure);
+      await syncHarvesterImages(cloud, insecure);
+      await syncHarvesterVolumes(cloud, insecure);
+      await syncHarvesterNads(cloud, insecure);
+      await syncKubeOvnVpcs(cloud, insecure);
+      await syncKubeOvnSubnets(cloud, insecure);
+      await syncHarvesterGpus(cloud, insecure);
+      await syncHarvesterNamespaces(cloud, insecure);
+      await syncHarvesterSnapshots(cloud, insecure);
+      await syncHarvesterBackups(cloud, insecure);
+      await syncHarvesterSshKeys(cloud, insecure);
+      await syncHarvesterCloudInits(cloud, insecure);
+      await syncHarvesterIngresses(cloud, insecure);
+      await syncHarvesterPciDevices(cloud, insecure);
+      await syncHarvesterCapabilities(cloud, insecure);
+      await syncHarvesterServices(cloud, insecure);
+      await syncKubeOvnEips(cloud, insecure);
+      await syncKubeOvnFips(cloud, insecure);
+      await syncKubeOvnNatRules(cloud, insecure);
+      await syncHarvesterTemplates(cloud, insecure);
+      await syncHarvesterScheduleVmBackups(cloud, insecure);
+    } else if (provider === 'cloudmap.public') {
+      // CSM (Cloud Service Management) 同步逻辑
       const list = await listCsmVms({
         endpoint: cloud.endpoint || '',
         accessKey: cloud.accessKey || '',
@@ -145,6 +200,7 @@ export class CloudSyncService {
       cloud.runningVmCount = list.filter((i: any) => isRunning(i.status)).length;
     }
 
+    // 更新云平台记录的同步时间和统计数据
     cloud.lastSyncAt = new Date();
     await AppDataSource.getRepository(Cloud).save(cloud);
     // console.log(`[CloudSync] Updated ${cloud.name}: ${cloud.runningVmCount}/${cloud.vmCount}`);

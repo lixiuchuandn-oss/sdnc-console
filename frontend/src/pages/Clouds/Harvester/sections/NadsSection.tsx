@@ -1,29 +1,34 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Select, Tag, Button, Modal, Tabs, Space } from 'antd';
+import { Table, Input, Select, Tag, Button, Modal, Tabs, Space, Descriptions, message } from 'antd';
 import { ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import { fetchHarvesterNadDetail } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
 type Props = {
   nads: any[];
   loading: boolean;
   onRefresh?: () => void;
+  cloudId?: string;
 };
 
-const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh }) => {
+const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [ipamFilter, setIpamFilter] = useState<string>('');
   const [tableColumns, setTableColumns] = useState<any[]>([]);
   
-  // Metadata Modal State
-  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+  // Detail Drawer State
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<any>(null);
+  const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
-  const handleShowMetadata = (record: any) => {
-    setCurrentMetadata(record);
-    setMetadataModalVisible(true);
+  const handleOpenDrawer = async (record: any, tab: string = 'detail') => {
+    setDetailRecord({ ...record, kind: 'NetworkAttachmentDefinition' });
+    setDetailActiveTab(tab);
+    setDetailVisible(true);
   };
 
   // Robust Data Processing
@@ -110,7 +115,11 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh }) => {
     { 
       title: '网络名称', 
       key: 'name', 
-      render: (_: any, r: any) => <span>{r._name || '-'}</span> 
+      render: (_: any, r: any) => (
+        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+          {r._name || '-'}
+        </span>
+      )
     },
     { 
       title: '命名空间', 
@@ -120,27 +129,27 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh }) => {
     { 
       title: 'VLAN', 
       key: 'vlan', 
-      render: (_: any, r: any) => r._vlan ? <Tag color="blue">{r._vlan}</Tag> : '-' 
+      render: (_: any, r: any) => r._vlan ? <span className="std-badge std-badge-info">{r._vlan}</span> : '-' 
     },
     { 
       title: 'IPAM类型', 
       key: 'ipamType', 
       render: (_: any, r: any) => {
           const t = String(r._ipamType || '').toLowerCase();
-          if (!t) return <Tag>未配置</Tag>;
+          if (!t) return <span className="std-badge std-badge-default">未配置</span>;
           
-          let color = undefined;
-          if (t === 'dhcp') color = 'green';
-          else if (t === 'static') color = 'blue';
-          else if (t === 'host-local') color = 'gold';
+          let badgeClass = 'std-badge-default';
+          if (t === 'dhcp') badgeClass = 'std-badge-success';
+          else if (t === 'static') badgeClass = 'std-badge-info';
+          else if (t === 'host-local') badgeClass = 'std-badge-warning';
           
-          return <Tag color={color}>{t}</Tag>;
+          return <span className={`std-badge ${badgeClass}`}>{t}</span>;
       }
     },
     { 
       title: '混杂模式', 
       key: 'promisc', 
-      render: (_: any, r: any) => r._promisc ? <Tag color="orange">开启</Tag> : '-' 
+      render: (_: any, r: any) => r._promisc ? <span className="std-badge std-badge-warning">开启</span> : '-' 
     },
     { 
       title: '网桥信息', 
@@ -164,21 +173,14 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh }) => {
     { 
       title: '操作', 
       key: 'actions', 
+      width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
           const items: any[] = [
-              { 
-                  key: 'metadata', 
-                  label: '查看 MetaData', 
-                  onClick: () => handleShowMetadata(r) 
-              },
-              ...(r?.links?.view ? [{ 
-                  key: 'view', 
-                  label: '查看 SourceData', 
-                  onClick: () => window.open(r.links.view, '_blank') 
-              }] : []),
+              { key: 'detail', label: '查看摘要', onClick: () => handleOpenDrawer(r, 'detail') },
+              { key: 'events', label: '操作记录', onClick: () => handleOpenDrawer(r, 'events') },
           ];
-          return <ResourceActionsDropdown items={items} />;
+          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
   ], []);
@@ -193,14 +195,14 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh }) => {
             placeholder="关键字" 
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
-            style={{ width: 240 }} 
+            className="toolbar-search"
           />
           <Select 
             allowClear 
             placeholder="命名空间" 
             value={nsFilter || undefined} 
             onChange={(v) => setNsFilter(v || '')} 
-            style={{ width: 200 }} 
+            className="toolbar-filter"
             options={[{ value: '', label: '全部命名空间' }, ...nsOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
           />
           <Select 
@@ -208,9 +210,14 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh }) => {
             placeholder="IPAM类型" 
             value={ipamFilter || undefined} 
             onChange={(v) => setIpamFilter(v || '')} 
-            style={{ width: 200 }} 
+            className="toolbar-filter"
             options={[{ value: '', label: '全部IPAM' }, ...ipamOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
           />
+          <a className="toolbar-reset-btn" onClick={() => {
+            setKeyword('');
+            setNsFilter('');
+            setIpamFilter('');
+          }}>重置</a>
         </>
       )}
       toolbarRight={(
@@ -231,34 +238,18 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh }) => {
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: ['10', '20', '50', '100'] }}
-        scroll={{ x: 'max-content' }}
+        pagination={{size: 'small'}}
       />
 
-      {/* Metadata Modal */}
-      <Modal
-        title="元数据查看"
-        open={metadataModalVisible}
-        onCancel={() => setMetadataModalVisible(false)}
-        footer={null}
-        width={800}
-        bodyStyle={{ maxHeight: '70vh', overflow: 'auto' }}
-      >
-        <Tabs items={[
-            {
-                key: 'json',
-                label: 'Raw JSON',
-                children: (
-                    <Input.TextArea 
-                        readOnly 
-                        value={currentMetadata ? JSON.stringify(currentMetadata, null, 2) : ''} 
-                        autoSize={{ minRows: 10, maxRows: 20 }}
-                        className="metadata-viewer"
-                    />
-                )
-            }
-        ]} />
-      </Modal>
+      <HarvesterResourceDrawer
+        open={detailVisible}
+        onClose={() => setDetailVisible(false)}
+        resourceType="NetworkAttachmentDefinition"
+        record={detailRecord}
+        activeTab={detailActiveTab}
+        onTabChange={setDetailActiveTab}
+        cloudId={cloudId}
+      />
     </PageDetailSection>
   );
 };

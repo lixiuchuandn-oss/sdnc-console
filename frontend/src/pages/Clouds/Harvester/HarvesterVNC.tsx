@@ -9,7 +9,8 @@ import {
   CodeOutlined 
 } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
-import { API_BASE_URL, fetchHarvesterVmDetail } from '../../../services/api';
+import { API_BASE_URL } from '../../../services/api';
+import { fetchHarvesterVmDetail } from '../../../services/harvesterApi';
 // Try to use the newer library if available, otherwise fall back to what was working or common
 // Kubevirt uses @novnc/novnc
 import RFB from '@novnc/novnc/lib/rfb'; 
@@ -101,7 +102,7 @@ const HarvesterVNCPage: React.FC = () => {
            const data = res?.data || res;
            setVmDetail(data);
         })
-        .catch(e => console.error('Failed to fetch VM detail', e));
+        .catch((e: any) => console.error('Failed to fetch VM detail', e));
     }
   }, [cloudId, namespace, name]);
 

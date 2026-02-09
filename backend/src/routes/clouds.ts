@@ -4,8 +4,8 @@ import https from 'https';
 import { AppDataSource } from '../config/database';
 import { Cloud, CloudType, CloudStatus } from '../entities/Cloud';
 import { CloudInstanceInventory } from '../entities/CloudInstanceInventory';
-import { KubevirtVmInventory } from '../entities/kubevirt/KubevirtVmInventory';
-import { KubevirtVmiInventory } from '../entities/kubevirt/KubevirtVmiInventory';
+import { HarvesterVmInventory } from '../entities/harvester/HarvesterVmInventory';
+import { HarvesterVmiInventory } from '../entities/harvester/HarvesterVmiInventory';
 import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
 import { UserSpace } from '../entities/UserSpace';
 import { AuthRequest } from '../middleware/auth';
@@ -1158,8 +1158,8 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const invRepo = AppDataSource.getRepository(CloudInstanceInventory);
-      const vmRepo = AppDataSource.getRepository(KubevirtVmInventory);
-      const vmiRepo = AppDataSource.getRepository(KubevirtVmiInventory);
+      const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
+      const vmiRepo = AppDataSource.getRepository(HarvesterVmiInventory);
       const cloudRepository = AppDataSource.getRepository(Cloud);
       const cloudsAll = await cloudRepository.find();
       const existingCloudIds = (Array.isArray(cloudsAll) ? cloudsAll : []).map((c) => c.id);
@@ -1173,19 +1173,19 @@ router.get(
         await vmRepo
           .createQueryBuilder()
           .delete()
-          .from(KubevirtVmInventory)
+          .from(HarvesterVmInventory)
           .where('cloudId NOT IN (:...ids)', { ids: existingCloudIds })
           .execute();
         await vmiRepo
           .createQueryBuilder()
           .delete()
-          .from(KubevirtVmiInventory)
+          .from(HarvesterVmiInventory)
           .where('cloudId NOT IN (:...ids)', { ids: existingCloudIds })
           .execute();
       } else {
         await invRepo.createQueryBuilder().delete().from(CloudInstanceInventory).execute();
-        await vmRepo.createQueryBuilder().delete().from(KubevirtVmInventory).execute();
-        await vmiRepo.createQueryBuilder().delete().from(KubevirtVmiInventory).execute();
+        await vmRepo.createQueryBuilder().delete().from(HarvesterVmInventory).execute();
+        await vmiRepo.createQueryBuilder().delete().from(HarvesterVmiInventory).execute();
       }
       let inv = await invRepo.find();
       let vmInv = await vmRepo.find();
@@ -1650,7 +1650,7 @@ router.get(
 
       const vms = await vmRepo.find();
       const vmis = await vmiRepo.find();
-      const vmiByName = new Map<string, KubevirtVmiInventory>();
+      const vmiByName = new Map<string, HarvesterVmiInventory>();
       vmis.forEach(v => vmiByName.set(`${v.cloudId}/${v.namespace}/${v.name}`, v));
 
       const dataKv = (
@@ -1703,6 +1703,8 @@ router.get(
           return {
             id: i.uid,
             name: i.name,
+            view: i.view,
+            links: { view: i.view },
             provider,
             cloudId: i.cloudId,
             region: c?.region,

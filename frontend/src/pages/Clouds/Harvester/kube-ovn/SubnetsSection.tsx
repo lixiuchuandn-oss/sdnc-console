@@ -5,7 +5,7 @@ import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
-import { createKubeOvnSubnet, deleteKubeOvnSubnet } from '../../../../services/api';
+import { createKubeOvnSubnet, deleteKubeOvnSubnet, updateKubeOvnSubnet } from '../../../../services/harvesterApi';
 
 type Props = {
   subnets: any[];
@@ -23,8 +23,10 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const [dhcp, setDhcp] = useState<string | undefined>(undefined);
   const [tableColumns, setTableColumns] = useState<any[]>([]);
 
-  // Create Modal State
+  // Create/Edit Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentSubnet, setCurrentSubnet] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   
@@ -90,7 +92,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     });
   }, [subnets, keyword, vpc, protocol, nat, dhcp]);
 
-  const handleCreate = async () => {
+  const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
@@ -100,16 +102,54 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         values.excludeIps = values.excludeIps.split(/[\n,]/).map((s: string) => s.trim()).filter(Boolean);
       }
       
-      await createKubeOvnSubnet(cloudId!, values);
-      message.success('创建子网成功');
+      if (isEditMode && currentSubnet) {
+        const name = currentSubnet.name || currentSubnet.metadata?.name;
+        await updateKubeOvnSubnet(cloudId!, name, values);
+        message.success('更新子网成功');
+      } else {
+        await createKubeOvnSubnet(cloudId!, values);
+        message.success('创建子网成功');
+      }
+      
       setIsModalOpen(false);
+      setIsEditMode(false);
+      setCurrentSubnet(null);
       form.resetFields();
       onRefresh?.();
     } catch (e: any) {
-      message.error(`创建失败: ${e.message}`);
+      message.error(`${isEditMode ? '更新' : '创建'}失败: ${e.message}`);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleEdit = (record: any) => {
+    setIsEditMode(true);
+    setCurrentSubnet(record);
+    
+    const name = record.name || record.metadata?.name;
+    const vpcVal = record.vpc || record.spec?.vpc;
+    const cidr = record.cidrBlock || record.spec?.cidrBlock;
+    const gateway = record.gateway || record.spec?.gateway;
+    const protocol = record.protocol || record.spec?.protocol || 'IPv4';
+    const excludeIps = record.excludeIps || record.spec?.excludeIps || [];
+    
+    // Check various locations for nat/dhcp as they might be flat or in spec
+    const nat = record.nat ?? record.spec?.natOutgoing ?? true;
+    const allowDhcp = record.allowDhcp ?? true;
+
+    form.setFieldsValue({
+      name,
+      vpc: vpcVal,
+      cidrBlock: cidr,
+      gateway,
+      protocol,
+      nat,
+      allowDhcp,
+      excludeIps: Array.isArray(excludeIps) ? excludeIps.join(',') : excludeIps
+    });
+    
+    setIsModalOpen(true);
   };
 
   const handleDelete = (name: string) => {
@@ -178,6 +218,11 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         return (
           <ResourceActionsDropdown items={[
             { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
+            { 
+              key: 'edit', 
+              label: '编辑', 
+              onClick: () => handleEdit(r) 
+            },
             { type: 'divider' },
             { 
               key: 'delete', 
@@ -185,7 +230,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
               danger: true, 
               onClick: () => handleDelete(name) 
             }
-          ]} />
+          ]} buttonProps={{ className: 'row-actions-trigger' }} />
         );
       } 
     }
@@ -205,7 +250,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       )}
       toolbarRight={(
         <>
-          <Button type="primary" onClick={() => setIsModalOpen(true)}>新建子网</Button>
+          <Button type="primary" onClick={() => { setIsEditMode(false); setCurrentSubnet(null); form.resetFields(); setIsModalOpen(true); }}>新建子网</Button>
           <TableColumnSettings 
             columns={allColumns} 
             onChange={setTableColumns}
@@ -222,7 +267,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ size: 'small', showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{size: 'small'}}
       />
 
       <Modal
@@ -249,21 +294,21 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       </Modal>
 
       <Modal
-        title="新建业务私有子网 (VPC Subnet)"
+        title={isEditMode ? "编辑业务私有子网" : "新建业务私有子网 (VPC Subnet)"}
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
-        onOk={handleCreate}
+        onOk={handleSubmit}
         confirmLoading={submitting}
         width={600}
         destroyOnClose
       >
-        <Alert 
+        {!isEditMode && <Alert 
             type="info" 
             showIcon 
             style={{ marginBottom: 16 }}
             message="创建业务私有子网"
             description="此操作将创建 VPC 内部的隔离网络，用于托管虚拟机并通过 NAT 访问外部网络。"
-        />
+        />}
 
         <Form form={form} layout="vertical">
                 <>
@@ -272,7 +317,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
                         label="子网名称" 
                         rules={[{ required: true, message: '请输入子网名称' }]}
                     >
-                        <Input placeholder="例如: web-subnet-01" style={{ width: '100%' }} />
+                        <Input placeholder="例如: web-subnet-01" style={{ width: '100%' }} disabled={isEditMode} />
                     </Form.Item>
                     
                     <Form.Item 
@@ -280,7 +325,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
                         label="所属 VPC" 
                         rules={[{ required: true, message: '请选择 VPC' }]}
                     >
-                        <Select placeholder="请选择 VPC" style={{ width: '100%' }}>
+                        <Select placeholder="请选择 VPC" style={{ width: '100%' }} disabled={isEditMode}>
                             {vpcList.map(v => (
                                 <Select.Option key={v.name} value={v.name}>
                                     {v.name} (UID: {v.uid})
@@ -299,7 +344,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
                                     { pattern: /^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$/, message: '格式错误' }
                                 ]}
                             >
-                                <Input placeholder="10.0.1.0/24" style={{ width: '100%' }} />
+                                <Input placeholder="10.0.1.0/24" style={{ width: '100%' }} disabled={isEditMode} />
                             </Form.Item>
                         </Col>
                         <Col span={12}>
@@ -317,7 +362,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
                     </Row>
 
                     <Form.Item name="protocol" label="IP 协议" initialValue="IPv4">
-                        <Radio.Group>
+                        <Radio.Group disabled={isEditMode}>
                             <Radio value="IPv4">IPv4</Radio>
                             <Radio value="IPv6" disabled>IPv6 (暂不支持)</Radio>
                         </Radio.Group>

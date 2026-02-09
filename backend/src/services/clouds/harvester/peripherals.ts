@@ -187,6 +187,108 @@ export const listHarvesterGpuResources = async ({
   return kvList;
 };
 
+export const listHarvesterPciDevices = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  let clusterId: string | null = null;
+  try {
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure).catch(() => null);
+    const cItems = Array.isArray((clusters as any)?.data)
+      ? (clusters as any)?.data
+      : Array.isArray((clusters as any)?.items)
+        ? (clusters as any)?.items
+        : [];
+    const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+    const any = local || cItems[0];
+    clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
+  } catch {}
+
+  const pciDevCandidates = [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
+        ]
+      : []),
+    `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices`,
+    `${origin}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
+    `${origin}/v1/harvester/pcidevices.harvesterhci.io.pcidevices`,
+    `${origin}/v1/harvester/devices.harvesterhci.io.pcidevices`,
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/pcidevices`,
+        ]
+      : []),
+  ];
+  let pciJson: any = null;
+  for (const url of pciDevCandidates) {
+    try {
+      const j = await getJsonOnce(url, token, insecure);
+      if (j) {
+        pciJson = j;
+        break;
+      }
+    } catch {}
+  }
+  const pciItems = Array.isArray(pciJson?.data)
+    ? pciJson?.data
+    : Array.isArray(pciJson?.items)
+      ? pciJson?.items
+      : [];
+  
+  return (pciItems || []).map((it: any) => {
+    const rn = it?.status?.resourceName || it?.spec?.resourceName || it?.resourceName || '';
+    const node = it?.status?.nodeName || it?.spec?.nodeName || it?.nodeName || '';
+    const pciAddr =
+      it?.status?.pciAddress ||
+      it?.spec?.pciAddress ||
+      it?.status?.address ||
+      it?.spec?.address ||
+      it?.pciAddress ||
+      it?.pci ||
+      '';
+    const nm =
+      it?.spec?.deviceName || it?.status?.deviceName || it?.metadata?.name || it?.name || '';
+    const desc = it?.status?.description || it?.spec?.description || it?.description || '';
+    const classId = String(
+      it?.status?.classId || it?.spec?.classId || it?.classId || '',
+    ).toLowerCase();
+    const vendor = String(
+      it?.status?.vendorId || it?.spec?.vendorId || it?.vendorId || '',
+    ).toLowerCase();
+    const deviceId = String(
+      it?.status?.deviceId || it?.spec?.deviceId || it?.deviceId || '',
+    ).toLowerCase();
+    
+    return {
+      resourceName: rn,
+      nodeName: node,
+      address: pciAddr,
+      name: nm || desc || rn,
+      description: desc,
+      classId,
+      vendorId: vendor,
+      productId: deviceId, // mapping deviceId to productId
+      raw: it,
+      uid: it?.metadata?.uid,
+      links: {
+          view: `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${it?.metadata?.name || it?.name || ''}`
+      }
+    };
+  });
+};
+
 export const listHarvesterUsbResources = async ({
   endpoint,
   token,

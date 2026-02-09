@@ -5,16 +5,17 @@ import NodesSection from '../Harvester/sections/NodesSection';
 import ImagesSection from '../Harvester/sections/ImagesSection';
 import VolumesSection from '../Harvester/sections/VolumesSection';
 import NadsSection from '../Harvester/sections/NadsSection';
-import KubeOvnVpcsSection from '../Harvester/sections/KubeOvnVpcsSection';
-import KubeOvnSubnetsSection from '../Harvester/sections/KubeOvnSubnetsSection';
-import KubeOvnPublicNetworksSection from '../Harvester/sections/KubeOvnPublicNetworksSection';
+import KubeOvnVpcsSection from '../Harvester/kube-ovn/VpcsSection';
+import KubeOvnSubnetsSection from '../Harvester/kube-ovn/SubnetsSection';
+import KubeOvnPublicNetworksSection from '../Harvester/kube-ovn/PubnetSection';
 import GpusSection from '../Harvester/sections/GpusSection';
 import StorageClassesSection from '../Harvester/sections/StorageClassesSection';
 // Re-trigger compilation
 import NamespacesTab from '../Harvester/sections/NamespacesTab';
 import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, DeploymentUnitOutlined, AppstoreOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
-import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities } from '../../../services/api';
+import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs } from '../../../services/api';
+import { fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities } from '../../../services/harvesterApi';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import VmSection from '../Harvester/sections/VmSection';
 
@@ -240,10 +241,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const isCloudmap = true;
   const providerName = 'Cloudmap';
   
-  const labelVolumes = '虚拟卷';
-  const labelNad = 'NAD 网络';
-  const labelKubeOvnVpcs = 'Kube-OVN VPC';
-  const labelKubeOvnSubnets = 'Kube-OVN 子网';
   const versionText = useMemo(() => {
     const fromConfig = cloud?.config?.harvesterVersion;
     const fromNodes = (harvesterNodes.find((n:any)=> n?.version)?.version) || undefined;
@@ -436,7 +433,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             },
             {
               key: 'volumes',
-              label: labelVolumes,
+              label: 'Volume 虚拟卷',
               children: (
                 <>
                   <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={loading} vms={ecs} storageClasses={harvesterStorageClasses} onRefresh={loadAll} />
@@ -464,7 +461,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             },
             {
               key: 'nad',
-              label: labelNad,
+              label: 'Network 网络',
               children: (
                 <>
                   <NadsSection nads={harvesterNads} loading={loading} onRefresh={loadAll} />
@@ -478,7 +475,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             },
             {
               key: 'kubeovn_vpcs',
-              label: labelKubeOvnVpcs,
+              label: 'VPC 私有网络',
               children: (
                 <>
                   <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={loading} onRefresh={loadAll} />
@@ -492,7 +489,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             },
             {
               key: 'kubeovn_subnets',
-              label: labelKubeOvnSubnets,
+              label: 'Subnet 子网',
               children: (
                 <>
                   <KubeOvnSubnetsSection subnets={kubeOvnSubnets} vpcList={kubeOvnVpcs} loading={loading} onRefresh={loadAll} />

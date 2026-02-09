@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
-import { VRConfig } from '../entities/VRConfig';
+import { VRConfig } from '../entities/vRouter/VRConfig';
 import { SecurityDomain } from '../entities/SecurityDomain';
 import { ServiceChain } from '../entities/ServiceChain';
 import { Cloud } from '../entities/Cloud';
-import { SaseDiscoveredAsset } from '../entities/SaseDiscoveredAsset';
+import { SASEDiscoveredAsset } from '../entities/vRouter/SASEDiscoveredAsset';
 import { listCsmElementGroups } from '../services/clouds/csm/client';
 import { vrManagementService } from '../services/vrManagementService';
 
@@ -14,7 +14,7 @@ const repo = () => AppDataSource.getRepository(VRConfig);
 const domainRepo = () => AppDataSource.getRepository(SecurityDomain);
 const chainRepo = () => AppDataSource.getRepository(ServiceChain);
 const cloudRepo = () => AppDataSource.getRepository(Cloud);
-const assetRepo = () => AppDataSource.getRepository(SaseDiscoveredAsset);
+const assetRepo = () => AppDataSource.getRepository(SASEDiscoveredAsset);
 
 function getTenantContext(req: any) {
   const user = req.user;

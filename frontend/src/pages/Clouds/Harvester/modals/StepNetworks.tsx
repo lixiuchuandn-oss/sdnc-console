@@ -47,11 +47,12 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
         </Col>
         {(form.getFieldValue('netMode') || 'flat') === 'flat' ? (
           <Col span={16}>
-            <Form.Item label="选择网络" name={["primaryNic", 'name']} rules={[{ required: true }]}>
+            <Form.Item label="选择网络" name={["primaryNic", 'name']}>
               <Select
-                placeholder="选择网络"
-                options={nadOptions}
+                placeholder="选择网络 (留空则使用 Pod Network)"
+                options={[{ label: 'Management Network (Pod Network)', value: '' }, ...(nadOptions || [])]}
                 onOpenChange={async (open) => { if (open) reloadNads(); }}
+                allowClear
               />
             </Form.Item>
           </Col>

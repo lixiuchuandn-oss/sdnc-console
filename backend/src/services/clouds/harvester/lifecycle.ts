@@ -373,7 +373,8 @@ export const harvesterRemoveVolumeFromVM = async (
   const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
   if (!path) throw new Error('无法解析实例标识');
   const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=removeVolume`;
-  const body = { name: payload.name };
+  // Harvester/KubeVirt requires volumeName (or diskName) in the body
+  const body = { name: payload.name, volumeName: payload.name, diskName: payload.name };
   return await requestJson('POST', url, token, insecure, body);
 };
 

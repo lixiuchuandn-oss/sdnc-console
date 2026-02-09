@@ -1,5 +1,5 @@
 import { HarvesterTestParams } from './types';
-import { requestOnce, getJsonOnce } from './utils';
+import { requestOnce, getJsonOnce, requestJson } from './utils';
 
 export const testHarvesterConnection = async ({
   endpoint,
@@ -67,23 +67,13 @@ export const listHarvesterNodesStandard = async ({
       return null;
     }
   })();
-  const candidates = [
-    ...(clusterId ? [`${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/api/v1/nodes`] : []),
-    `${origin}/v1/core.v1.nodes`,
-    `${origin}/v1/k8s.io.nodes`,
-    `${origin}/api/v1/nodes`,
-    `${origin}/v1/harvester/core.v1.nodes`,
-    `${origin}/v1/harvester/api/v1/nodes`,
-  ];
+  const url = `${origin}/v1/nodes`;
   let json: any = null;
   let lastErr: any = null;
-  for (const url of candidates) {
-    try {
-      json = await getJsonOnce(url, token, insecure);
-      if (json) break;
-    } catch (e: any) {
-      lastErr = e;
-    }
+  try {
+    json = await getJsonOnce(url, token, insecure);
+  } catch (e: any) {
+    lastErr = e;
   }
   if (!json && lastErr) {
     const status = Number((lastErr as any)?.status || 0);
@@ -99,21 +89,53 @@ export const listHarvesterNodesStandard = async ({
   }
   const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
   return items.map((n: any) => {
+    // Harvester Host object wraps the Node name in spec.nodeName or metadata.name depending on context
+    // The Host object itself is NOT the Node object, but it references it.
+    // However, usually metadata.name of the Host CR IS the node name.
     const name = n?.metadata?.name || n?.name || '';
+    
+    // Harvester Host CR does NOT have status.addresses directly. 
+    // It has status.networkIps (array of strings) usually.
+    // But we need to maintain compatibility with our inventory entity.
+    
     const roles = Object.keys(n?.metadata?.labels || {}).filter((k) =>
       /node-role\.kubernetes\.io/.test(k),
     );
+    
     const conds = Array.isArray(n?.status?.conditions) ? n?.status?.conditions : [];
     const readyCond = conds.find((c: any) => c?.type === 'Ready');
-    const addresses = Array.isArray(n?.status?.addresses) ? n?.status?.addresses : [];
-    const internal = addresses.find((a: any) => a?.type === 'InternalIP')?.address;
-    const external = addresses.find((a: any) => a?.type === 'ExternalIP')?.address;
+    
+    let internal = '';
+    let external = '';
+    
+    // Try to find IPs from Harvester Host structure
+    const networkIps = Array.isArray(n?.status?.networkIps) ? n?.status?.networkIps : [];
+    if (networkIps.length > 0) {
+        internal = networkIps[0]; // Assume first is internal
+    }
+    
+    // Fallback to standard K8s structure if Harvester Host structure is missing (hybrid clusters?)
+    if (!internal) {
+        const addresses = Array.isArray(n?.status?.addresses) ? n?.status?.addresses : [];
+        internal = addresses.find((a: any) => a?.type === 'InternalIP')?.address || '';
+        external = addresses.find((a: any) => a?.type === 'ExternalIP')?.address || '';
+    }
+    
     const cpu = n?.status?.capacity?.cpu || n?.status?.allocatable?.cpu || '';
     const memory = n?.status?.capacity?.memory || n?.status?.allocatable?.memory || '';
+    
+    // Host CR might not have nodeInfo directly in status.
     const version =
       n?.status?.nodeInfo?.kubeletVersion || n?.status?.nodeInfo?.kubeProxyVersion || '';
     const architecture = n?.status?.nodeInfo?.architecture || 'amd64';
+    
+    // Ensure links.view exists for frontend data fetching (HarvesterResourceDrawer)
+    // Use existing view link, or fallback to self link, or construct from API URL
+    const selfLink = n?.links?.self || `${url}/${name}`;
+    const viewLink = n?.links?.view || selfLink;
+
     return {
+      ...n,
       name,
       roles,
       internalIP: internal,
@@ -123,93 +145,8 @@ export const listHarvesterNodesStandard = async ({
       memory,
       version,
       architecture,
-      links: {
-          view: `${origin}/api/v1/nodes/${name}`
-      }
+      links: { ...n.links, view: viewLink }
     };
-  });
-};
-
-export const listHarvesterSystemPodsStandard = async ({
-  endpoint,
-  token,
-  insecure = false,
-}: HarvesterTestParams): Promise<any[]> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-  const clusterId = await (async () => {
-    try {
-      const url = `${origin}/v3/clusters`;
-      const json = await getJsonOnce(url, token, insecure);
-      const items = Array.isArray(json?.data)
-        ? json?.data
-        : Array.isArray(json?.items)
-          ? json?.items
-          : [];
-      const local = items.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
-      const any = items[0];
-      return String(local?.id || local?.Id || any?.id || any?.Id || '')?.trim() || null;
-    } catch {
-      return null;
-    }
-  })();
-  const candidates = [
-    `${origin}/v1/core.v1.pods`,
-    ...(clusterId ? [`${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/api/v1/pods`] : []),
-  ];
-  let json: any = null;
-  let lastErr: any = null;
-  for (const url of candidates) {
-    try {
-      json = await getJsonOnce(url, token, insecure);
-      if (json) break;
-    } catch (e: any) {
-      lastErr = e;
-    }
-  }
-  if (!json && lastErr) {
-    const status = Number((lastErr as any)?.status || 0);
-    const body = String((lastErr as any)?.body || '').toLowerCase();
-    const msg = String((lastErr as any)?.message || '').toLowerCase();
-    if (status === 401 || msg.includes('unauthorized') || body.includes('unauthorized')) {
-      return [];
-    }
-    if (status === 404 || msg.includes('not found') || body.includes('not found')) {
-      return [];
-    }
-    throw lastErr;
-  }
-  const items = Array.isArray(json?.data)
-    ? json?.data
-    : Array.isArray(json?.items)
-      ? json?.items
-      : [];
-  const sysNs = new Set<string>([
-    'kube-system',
-    'harvester-system',
-    'longhorn-system',
-    'cattle-system',
-    'cattle-monitoring-system',
-    'ingress-nginx',
-    'monitoring',
-    'rancher-logging',
-  ]);
-  const list = items.filter((p: any) =>
-    sysNs.has(String(p?.metadata?.namespace || p?.namespace || '')),
-  );
-  return list.map((p: any) => {
-    const name = p?.metadata?.name || p?.name || '';
-    const phase = p?.status?.phase || '';
-    const cs = Array.isArray(p?.status?.containerStatuses) ? p?.status?.containerStatuses : [];
-    const total = cs.length;
-    const ready = cs.filter((c: any) => !!c?.ready).length;
-    return { name, phase, ready, total };
   });
 };
 
@@ -239,16 +176,7 @@ export const harvesterHealthCheck = async ({
   }
   const clusterId = await (async () => {
     try {
-      const url = `${origin}/v3/clusters`;
-      const json = await getJsonOnce(url, token, insecure);
-      const items = Array.isArray(json?.data)
-        ? json?.data
-        : Array.isArray(json?.items)
-          ? json?.items
-          : [];
-      const local = items.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
-      const any = items[0];
-      return String(local?.id || local?.Id || any?.id || any?.Id || '')?.trim() || null;
+      return null;
     } catch {
       return null;
     }
@@ -266,19 +194,8 @@ export const harvesterHealthCheck = async ({
       group: '基础连通性',
       purpose: '读取节点列表用于节点页签与分组',
       candidates: [
-        `${origin}/v1/core.v1.nodes`,
-        `${origin}/v1/k8s.io.nodes`,
-        `${origin}/api/v1/nodes`,
-        `${origin}/v1/harvester/core.v1.nodes`,
-        `${origin}/v1/harvester/api/v1/nodes`,
+        `${origin}/v1/harvester/harvesterhci.io.host`,
       ],
-    },
-    {
-      key: 'pods',
-      label: '系统组件（Pods）',
-      group: '基础连通性',
-      purpose: '读取系统组件与Pod列表用于体检',
-      candidates: [`${origin}/v1/core.v1.pods`, `${origin}/api/v1/pods`],
     },
     {
       key: 'vms',
@@ -351,13 +268,6 @@ export const harvesterHealthCheck = async ({
       purpose: '读取 Kube-OVN 子网',
       candidates: [`${origin}/apis/kubeovn.io/v1/subnets`],
     },
-    {
-      key: 'metrics-pods',
-      label: '监控（Pod 指标）',
-      group: '监控',
-      purpose: '读取 Pod 指标用于性能画像',
-      candidates: [`${origin}/apis/metrics.k8s.io/v1beta1/pods`],
-    },
   ];
   if (clusterId) {
     tests.unshift({
@@ -366,13 +276,6 @@ export const harvesterHealthCheck = async ({
       group: '基础连通性',
       purpose: '读取节点列表用于节点页签与分组',
       candidates: [`${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/api/v1/nodes`],
-    });
-    tests.push({
-      key: 'pods',
-      label: '系统组件（Pods）',
-      group: '基础连通性',
-      purpose: '读取系统组件与Pod列表用于体检',
-      candidates: [`${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/api/v1/pods`],
     });
     tests.push({
       key: 'kubeovn-vpcs',
@@ -488,4 +391,178 @@ export const getHarvesterCapabilities = async ({
     architecture,
     recommendedMachineType,
   };
+};
+
+export const listHarvesterServices = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  // Use Steve API to get full metadata including links
+  const url = `${origin}/v1/services`;
+  
+  try {
+    const json = await getJsonOnce(url, token, insecure);
+    const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
+    
+    return items.map((s: any) => {
+      // Ensure we don't discard any data from the backend
+      // Return the original object enriched with our specific fields if needed
+      // But Steve API objects already have metadata, spec, status, links
+      return s;
+    });
+  } catch (e) {
+    // Fallback to K8s API if Steve API fails
+    console.warn('[listHarvesterServices] Steve API failed, falling back to K8s API:', e);
+    const k8sUrl = `${origin}/api/v1/services`;
+    const json = await getJsonOnce(k8sUrl, token, insecure);
+    const items = Array.isArray(json?.items) ? json?.items : [];
+    
+    return items.map((s: any) => {
+        // Even in fallback, preserve the original object
+        return {
+            ...s,
+            // Polyfill links for UI compatibility if missing
+            links: s.links || {
+                view: `${origin}/api/v1/namespaces/${s.metadata?.namespace}/services/${s.metadata?.name}`
+            }
+        };
+    });
+  }
+};
+
+export const listHarvesterStorageClassesStandard = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/storage.k8s.io/v1/storageclasses`;
+  const json = await getJsonOnce(url, token, insecure);
+  const items = Array.isArray(json?.items) ? json.items : [];
+  
+  return items.map((sc: any) => {
+    // K8s native API does not return links, so we manually construct them
+    // Steve API path: /v1/harvester/storage.k8s.io.storageclasses/{name}
+    // But for view link, we usually point to the K8s API self link or similar
+    const name = sc?.metadata?.name || '';
+    const selfLink = sc?.metadata?.selfLink || `${url}/${name}`;
+    
+    // Construct a view link compatible with our frontend expectations
+    // Ideally this should point to a resource URL that can be fetched
+    const viewLink = `${origin}/apis/storage.k8s.io/v1/storageclasses/${name}`;
+
+    return {
+      ...sc,
+      links: sc.links || {
+        self: selfLink,
+        view: viewLink
+      }
+    };
+  });
+};
+
+export const createHarvesterNamespace = async (
+    { endpoint, token, insecure = false }: HarvesterTestParams,
+    name: string
+): Promise<any> => {
+    const base = (endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+    const url = `${origin}/api/v1/namespaces`;
+    const body = {
+        apiVersion: 'v1',
+        kind: 'Namespace',
+        metadata: {
+            name: name
+        }
+    };
+    return requestJson('POST', url, token, insecure, body);
+};
+
+export const deleteHarvesterNamespace = async (
+    { endpoint, token, insecure = false }: HarvesterTestParams,
+    name: string
+): Promise<any> => {
+    const base = (endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+    const url = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
+    return requestJson('DELETE', url, token, insecure);
+};
+
+export const listHarvesterNamespacesRaw = async (
+    { endpoint, token, insecure = false }: HarvesterTestParams
+): Promise<any[]> => {
+    const base = (endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+    
+    // Try Steve API first to get links
+    const url = `${origin}/v1/namespaces`;
+    try {
+        const json = await getJsonOnce(url, token, insecure);
+        const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
+        return items;
+    } catch (e) {
+        // Fallback to K8s API
+        console.warn('[listHarvesterNamespacesRaw] Steve API failed, falling back to K8s API:', e);
+        const k8sUrl = `${origin}/api/v1/namespaces`;
+        const json = await getJsonOnce(k8sUrl, token, insecure);
+        const items = Array.isArray(json?.items) ? json.items : [];
+        // Polyfill links if missing
+        return items.map((item: any) => ({
+            ...item,
+            links: item.links || {
+                view: `${origin}/api/v1/namespaces/${item.metadata?.name}`,
+                self: `${origin}/api/v1/namespaces/${item.metadata?.name}`
+            }
+        }));
+    }
+};
+
+export const getHarvesterNamespaceRaw = async (
+    { endpoint, token, insecure = false }: HarvesterTestParams,
+    name: string
+): Promise<any> => {
+    const base = (endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+    const url = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
+    return getJsonOnce(url, token, insecure);
 };

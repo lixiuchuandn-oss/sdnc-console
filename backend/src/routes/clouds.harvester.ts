@@ -8,7 +8,6 @@ import {
   listHarvesterVMsStandard,
   listHarvesterAvailableVolumesStandard,
   listHarvesterNodesStandard,
-  listHarvesterSystemPodsStandard,
   listHarvesterGpuResources,
   listHarvesterUsbResources,
   listHarvesterStorageClassesStandard,
@@ -30,6 +29,7 @@ import {
   harvesterRemoveVolumeFromVM,
   harvesterAddVolumeToVMDirect,
   deleteHarvesterLonghornVolume,
+  deleteHarvesterPVC,
   createHarvesterPVCVolume,
   exportImageFromPVC,
   createVolumeSnapshot,
@@ -39,6 +39,15 @@ import {
   getHarvesterVmVncUrl,
   listKubevirtVMsRaw,
   listKubevirtVMIsRaw,
+  listKubevirtVMsRawWithMeta,
+  listKubevirtVMIsRawWithMeta,
+  createHarvesterScheduleVmBackup,
+  updateHarvesterScheduleVmBackup,
+  deleteHarvesterScheduleVmBackup,
+  createHarvesterVirtualMachineBackup,
+  createHarvesterVirtualMachineRestore,
+  deleteHarvesterVirtualMachineBackup,
+  deleteHarvesterVirtualMachineSnapshot,
 } from '../services/clouds/harvester/client';
 import {
   syncHarvesterVolumes,
@@ -50,16 +59,38 @@ import {
   syncKubevirtVmis,
   syncHarvesterGpus,
   syncHarvesterNamespaces,
+  syncHarvesterSnapshots,
+  syncHarvesterBackups,
+  syncHarvesterSshKeys,
+  syncHarvesterCloudInits,
+  syncHarvesterIngresses,
+  syncHarvesterServices,
+  syncHarvesterNodes,
+  syncHarvesterStorageClasses,
+  syncHarvesterUsbResources,
+  syncHarvesterTemplates,
+  syncHarvesterScheduleVmBackups,
 } from '../services/clouds/harvester/syncInventory';
 import { KubevirtVolumeInventory } from '../entities/kubevirt/KubevirtVolumeInventory';
 import { KubevirtNadInventory } from '../entities/kubevirt/KubevirtNadInventory';
 import { KubeOvnVpcInventory } from '../entities/kubeovn/KubeOvnVpcInventory';
 import { KubeOvnSubnetInventory } from '../entities/kubeovn/KubeOvnSubnetInventory';
 import { HarvesterImageInventory } from '../entities/harvester/HarvesterImageInventory';
+import { HarvesterNodeInventory } from '../entities/harvester/HarvesterNodeInventory';
+import { HarvesterVmInventory } from '../entities/harvester/HarvesterVmInventory';
+import { HarvesterVmiInventory } from '../entities/harvester/HarvesterVmiInventory';
+import { KubevirtStorageClassInventory } from '../entities/kubevirt/KubevirtStorageClassInventory';
 import { HarvesterGpuInventory } from '../entities/harvester/HarvesterGpuInventory';
-import { KubevirtVmInventory } from '../entities/kubevirt/KubevirtVmInventory';
-import { KubevirtVmiInventory } from '../entities/kubevirt/KubevirtVmiInventory';
-import { requestJson, getJsonOnce } from '../services/clouds/harvester/utils';
+import { HarvesterSnapshotInventory } from '../entities/harvester/HarvesterSnapshotInventory';
+import { HarvesterBackupInventory } from '../entities/harvester/HarvesterBackupInventory';
+import { HarvesterScheduleVmBackupInventory } from '../entities/harvester/HarvesterScheduleVmBackupInventory';
+import { HarvesterSshKeyInventory } from '../entities/harvester/HarvesterSshKeyInventory';
+import { HarvesterCloudInitInventory } from '../entities/harvester/HarvesterCloudInitInventory';
+import { HarvesterTemplateInventory } from '../entities/harvester/HarvesterTemplateInventory';
+import { HarvesterUsbInventory } from '../entities/harvester/HarvesterUsbInventory';
+import { HarvesterServiceInventory } from '../entities/harvester/HarvesterServiceInventory';
+import { KubeOvnIngressInventory } from '../entities/kubeovn/KubeOvnIngressInventory';
+import { requestJson, getJsonOnce, watchJsonStream } from '../services/clouds/harvester/utils';
 
 /**
  * ==================================================================================
@@ -75,7 +106,7 @@ import { requestJson, getJsonOnce } from '../services/clouds/harvester/utils';
  * 1. **Inventory Cache First (优先读库策略)**:
  *    绝大多数列表查询 (GET) 优先从本地 Inventory 表读取数据，以提高响应速度并减少对 Harvester API 的压力。
  *    涉及实体：
- *    - KubevirtVmInventory / KubevirtVmiInventory (ECS)
+ *    - HarvesterVmInventory / HarvesterVmiInventory (ECS)
  *    - KubevirtVolumeInventory (Volumes)
  *    - HarvesterImageInventory (Images)
  *    - KubeOvnVpcInventory (VPCs)
@@ -186,6 +217,12 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           const us = await userSpaceRepo.findOne({ where });
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
           tenantNamespace = us.namespace;
+
+          // Dynamic Org Namespace
+          if ((req.user as any).organizationId) {
+             const orgNs = `ns-${(req.user as any).organizationId}`;
+             tenantNamespace = tenantNamespace ? `${tenantNamespace},${orgNs}` : orgNs;
+          }
         }
 
         const count = await repo.count({ where: whereCondition });
@@ -202,7 +239,10 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         }
         
         const items = await repo.find({ where: whereCondition });
-        let list = items.map(i => i.rawData);
+        let list = items.map((i: any) => ({
+          ...(i.rawData || {}),
+          view: i.view
+        }));
         
         if (isTenant && tenantNamespace) {
             list = list.filter((vpc: any) => {
@@ -264,6 +304,12 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           const us = await userSpaceRepo.findOne({ where });
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
           tenantNamespace = us.namespace;
+
+          // Dynamic Org Namespace
+          if ((req.user as any).organizationId) {
+             const orgNs = `ns-${(req.user as any).organizationId}`;
+             tenantNamespace = tenantNamespace ? `${tenantNamespace},${orgNs}` : orgNs;
+          }
         }
 
         const count = await repo.count({ where: whereCondition });
@@ -307,9 +353,9 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
    * [GET] /:id/resources/ecs
    * 获取虚拟机列表 (ECS)
    * 
-   * 策略: Direct API (直连模式)
-   * 描述: 直接调用 Harvester API 获取 VM 和 VMI 列表，并在内存中聚合状态，确保实时性。
-   * (之前的 Inventory Cache 模式已被 Direct 模式取代，以满足实时管理需求)
+   * 策略: Inventory Cache First + Sync Fallback
+   * 描述: 优先从本地数据库获取 VM 和 VMI 列表，并在内存中聚合状态。
+   * 当数据库为空或强制刷新时，触发后台同步。
    */
   router.get(
     '/:id/resources/ecs',
@@ -317,26 +363,20 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
-        // Direct API Call: Fetch VMs and VMIs in parallel
-        let [vmsRaw, vmisRaw] = await Promise.all([
-          listKubevirtVMsRaw({
-            endpoint: cloud.endpoint,
-            token: cloud.secretKey,
-            insecure,
-          } as any),
-          listKubevirtVMIsRaw({
-            endpoint: cloud.endpoint,
-            token: cloud.secretKey,
-            insecure,
-          } as any),
-        ]);
+        const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
+        const vmiRepo = AppDataSource.getRepository(HarvesterVmiInventory);
 
         // Tenant Isolation: Filter by UserSpace Namespace
+        let vmWhere: any = { cloudId: id };
+        let vmiWhere: any = { cloudId: id };
+        
+        let validNamespaces: string[] | null = null;
         if ((req as any).user?.role === 'tenant') {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
@@ -347,14 +387,45 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
 
           // If no UserSpace found for this cloud, user shouldn't see any resources
           if (!userSpace) {
-            vmsRaw = [];
-            vmisRaw = [];
-          } else if (userSpace.namespace) {
-            // Filter by namespace
-            const validNamespaces = userSpace.namespace.split(',').map(s => s.trim());
-            vmsRaw = vmsRaw.filter((v: any) => validNamespaces.includes(v.metadata?.namespace));
-            vmisRaw = vmisRaw.filter((v: any) => validNamespaces.includes(v.metadata?.namespace));
+             return res.json({ message: '查询成功', data: [], capabilities: {} });
+          } else {
+            const nsList: string[] = [];
+            if (userSpace.namespace) {
+                userSpace.namespace.split(',').forEach(s => nsList.push(s.trim()));
+            }
+            // Dynamic Org Namespace
+            if ((req.user as any).organizationId) {
+                nsList.push(`ns-${(req.user as any).organizationId}`);
+            }
+            if (nsList.length > 0) validNamespaces = nsList;
           }
+        }
+
+        const count = await vmRepo.count({ where: { cloudId: id } });
+
+        // Sync fallback logic
+        if (count === 0 || String(force) === 'true') {
+            try {
+                await Promise.all([
+                    syncKubevirtVms(cloud, insecure),
+                    syncKubevirtVmis(cloud, insecure)
+                ]);
+            } catch (e: any) {
+                console.warn('Sync ECS failed, falling back to empty/stale', e);
+                if (count === 0) throw e;
+            }
+        }
+
+        // Fetch from DB
+        let vmItems = await vmRepo.find({ where: vmWhere });
+        const vmiItems = await vmiRepo.find({ where: vmiWhere });
+
+        let vmisRaw = vmiItems.map(i => i.rawData);
+
+        // Apply namespace filter in memory (simpler than complex TypeORM ORs for JSON fields)
+        if (validNamespaces) {
+            vmItems = vmItems.filter((i) => validNamespaces!.includes(i.namespace));
+            vmisRaw = vmisRaw.filter((v: any) => validNamespaces!.includes(v.metadata?.namespace));
         }
 
         // Build VMI map for fast lookup by Namespace/Name
@@ -376,13 +447,14 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           origin = base.replace(/\/v[0-9].*$/, '');
         }
 
-        const data = vmsRaw.map((vm: any) => {
+        const data = vmItems.map((item: any) => {
+          const vm = item.rawData;
           const name = vm?.metadata?.name || '';
           const namespace = vm?.metadata?.namespace || '';
           const uid = vm?.metadata?.uid || '';
           const vmi = vmiMap.get(`${namespace}/${name}`);
 
-          const viewUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${namespace}/virtualmachines/${name}`;
+          const viewUrl = item.view || `${origin}/apis/kubevirt.io/v1/namespaces/${namespace}/virtualmachines/${name}`;
 
           // Status resolution
           const status = vm?.status?.printableStatus || vm?.status?.phase || 'Unknown';
@@ -434,27 +506,41 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             vm?.spec?.template?.spec?.domain?.memory?.guest ||
             undefined;
 
+          // Volume Claims (PVCs)
+          const volumes = vm?.spec?.template?.spec?.volumes || [];
+          const volumeClaims = volumes
+            .map((v: any) => v?.persistentVolumeClaim?.claimName)
+            .filter((n: string) => !!n);
+
+          const creationTimestamp = vm?.metadata?.creationTimestamp;
+          const description = vm?.metadata?.annotations?.description || '';
+          const creator = vm?.metadata?.labels?.['harvesterhci.io/creator'] || '';
+          const conditions = vm?.status?.conditions || [];
+
           return {
             ...vm,
+            view: viewUrl, // Expose view link at root level for easier access
             links: { view: viewUrl },
             id: uid, // Use K8s UID as ID
             name,
             namespace,
             status,
-            // 兼容旧字段
-            privateIps: ips,
-            extra: {
-                namespace,
-                nodeName,
-                macAddresses: Array.from(new Set(macs)),
-                networks,
-                vpcName: networks.find(n => n !== 'pod' && n !== 'default'), // simple guess
-            },
+            description,
+            creator,
+            conditions,
+            createdAt: creationTimestamp,
+            ips,
+            macAddresses: Array.from(new Set(macs)),
+            nodeName,
+            networks,
+            vpcName: networks.find(n => n !== 'pod' && n !== 'default'),
+            volumeClaims,
             cpu,
             memoryGb: memory, // This might need parsing if it's "2Gi" etc. Frontend often handles strings or needs number.
                               // Assuming frontend handles "2Gi" or similar strings for now, or I'll fix later.
             // Include raw VMI if needed
             vmiRaw: vmi,
+            vmi: vmi, // Frontend VmSection.tsx expects "vmi" field for status/node resolution
           };
         });
 
@@ -470,6 +556,47 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '查询ECS失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [GET] /:id/resources/harvester/proxy
+   * 通用 Harvester 资源代理
+   * 通过 view link (path) 获取资源详情
+   */
+  router.get(
+    '/:id/resources/harvester/proxy',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { path } = req.query;
+        if (!path || typeof path !== 'string') {
+          return res.status(400).json({ message: 'Missing path parameter' });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        let target = '';
+        if (path.startsWith('http://') || path.startsWith('https://')) {
+             target = path;
+        } else {
+             // Clean path to ensure it starts with / and doesn't duplicate
+             const cleanPath = path.startsWith('/') ? path : `/${path}`;
+             target = `${cloud.endpoint.replace(/\/+$/, '')}${cleanPath}`;
+        }
+        console.log(`[HarvesterProxy] Proxying to: ${target}`);
+
+        const data = await getJsonOnce(target, cloud.secretKey || '', insecure);
+        res.json(data);
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: 'Proxy request failed', error: error.message || String(error) });
       }
     },
   );
@@ -531,13 +658,14 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
    * [GET] /:id/resources/ecs/stream
    * ECS Stream API (SSE)
    * 实时推送 VM 状态变更
-   * 注意：目前实现仍基于 API 轮询 (Polling)，未来可优化为 Watch 机制。
+   * 采用 Watch 机制 (Real-time)
    */
   router.get(
     '/:id/resources/ecs/stream',
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        console.log('[SSE] Stream connection attempt:', req.originalUrl);
         const { id } = req.params;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -549,14 +677,31 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             return next();
         }
         const insecure = !!(cloud.config as any)?.ignoreTls;
+
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.flushHeaders?.();
+
         let closed = false;
-        let prev = new Map<string, any>();
+        
+        // Ping to keep connection alive
+        const pingInterval = setInterval(() => {
+            if (closed) {
+                clearInterval(pingInterval);
+                return;
+            }
+            try {
+                res.write(': ping\n\n');
+            } catch {}
+        }, 15000); // 15s ping
+
+        const watchers: any[] = [];
         req.on('close', () => {
           closed = true;
+          try { clearInterval(pingInterval); } catch {}
+          watchers.forEach(w => w.abort());
+          console.log('[SSE] Connection closed');
         });
 
         // Tenant Isolation: Filter by UserSpace Namespace
@@ -574,79 +719,208 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         }
 
         const send = (event: string, payload: any) => {
+          if (closed) return;
           try {
             res.write(`event: ${event}\n`);
             res.write(`data: ${JSON.stringify(payload)}\n\n`);
           } catch {}
         };
-        const tick = async () => {
-          if (closed) return;
-          try {
-            const data = await listHarvesterVMsStandard({
-              endpoint: cloud.endpoint,
-              token: cloud.secretKey || '',
-              insecure,
-            } as any);
-            let items: any[] = Array.isArray(data) ? data : [];
-            
-            // Filter items by namespace
-            if (allowedNamespace) {
-              if (allowedNamespace === '__FORBIDDEN__') {
-                items = [];
-              } else {
-                items = items.filter((i: any) => i.Extra?.Namespace === allowedNamespace);
-              }
-            }
 
-            const cur = new Map<string, any>();
-            // prev is the state from LAST tick. We must NOT overwrite it with empty cur before check.
-            
-            let changeDetected = false;
-            const newPrev = new Map<string, any>();
+        const vmCache = new Map<string, any>();
+        const vmiCache = new Map<string, any>();
 
-            for (const r of items) {
-                const iid = String(r?.InstanceId || r?.id || '');
-                if (!iid) continue;
-                newPrev.set(iid, r);
-                
-                const prevItem = prev.get(iid);
-                if (!prevItem) {
-                    send('vm_created', { item: r });
-                    changeDetected = true;
-                } else {
-                    const prevStatus = String(prevItem?.Status || prevItem?.status || '');
-                    const curStatus = String(r?.Status || r?.status || '');
-                    if (prevStatus !== curStatus) {
-                        send('vm_status', { iid, status: curStatus });
-                        changeDetected = true;
-                    }
-                }
-            }
-            for (const [iid] of prev.entries()) {
-                if (!newPrev.has(iid)) {
-                    send('vm_deleted', { iid });
-                    changeDetected = true;
-                }
-            }
-            
-            // If it's the very first tick (prev is empty), we should send data if we have items.
-            if (prev.size === 0 && items.length > 0) {
-                changeDetected = true;
-            }
-
-            prev = newPrev;
-            
-            if (changeDetected) {
-                 send('vms', { items });
-            }
-          } catch (e: any) {
-            send('error', { message: e?.message || '拉取失败' });
-          } finally {
-            if (!closed) setTimeout(tick, 3000);
-          }
+        const resolveVMStatus = (vm: any, vmi: any) => {
+            if (vm?.metadata?.deletionTimestamp) return 'Terminating';
+            if (vmi?.status?.phase === 'Running') return 'Running';
+            return vm?.status?.printableStatus || vm?.status?.phase || 'Unknown';
         };
+
+        const sendItem = (key: string, eventType: 'vm_created' | 'vm_status' = 'vm_status') => {
+            const vm = vmCache.get(key);
+            if (!vm) return;
+            const vmi = vmiCache.get(key);
+            
+            const printableStatus = resolveVMStatus(vm, vmi);
+            
+            const base = (cloud.endpoint || '').replace(/\/+$/, '');
+            let origin = base;
+            try {
+                const u = new URL(base);
+                origin = `${u.protocol}//${u.host}`;
+            } catch {
+                origin = base.replace(/\/v[0-9].*$/, '');
+            }
+            const namespace = vm.metadata?.namespace || 'default';
+            const name = vm.metadata?.name || '';
+            const viewUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${namespace}/virtualmachines/${name}`;
+
+            const item = {
+                id: vm.metadata?.uid,
+                links: { view: viewUrl },
+                ...vm,
+                vmi,
+                status: {
+                    ...vm.status,
+                    printableStatus
+                }
+            };
+
+            if (eventType === 'vm_created') {
+                send('vm_created', { item });
+            } else {
+                const status = String(printableStatus);
+                const nodeName = vmi?.status?.nodeName || vm.status?.nodeName || '';
+                const ips: string[] = [];
+                if (vm?.status?.vmIp) ips.push(vm.status.vmIp);
+                if (Array.isArray(vm?.status?.interfaces)) {
+                    vm.status.interfaces.forEach((i: any) => {
+                        if (i.ipAddress) ips.push(i.ipAddress);
+                    });
+                }
+                if (vmi?.status?.interfaces) {
+                    vmi.status.interfaces.forEach((i: any) => {
+                        if (i.ipAddress) ips.push(i.ipAddress);
+                        if (Array.isArray(i.ipAddresses)) ips.push(...i.ipAddresses);
+                    });
+                }
+                
+                send('vm_status', { 
+                    iid: item.id, 
+                    status, 
+                    nodeName, 
+                    ips: Array.from(new Set(ips)) 
+                });
+            }
+        };
+
+        const init = async () => {
+            try {
+                const [vmsResult, vmisResult] = await Promise.all([
+                    listKubevirtVMsRawWithMeta({
+                        endpoint: cloud.endpoint,
+                        token: cloud.secretKey || '',
+                        insecure,
+                    } as any).catch(() => null),
+                    listKubevirtVMIsRawWithMeta({
+                        endpoint: cloud.endpoint,
+                        token: cloud.secretKey || '',
+                        insecure,
+                    } as any).catch(() => null),
+                ]);
+
+                const initialItems: any[] = [];
+                const vmsRaw = vmsResult?.items || [];
+                const vmisRaw = vmisResult?.items || [];
+
+                if (Array.isArray(vmsRaw)) {
+                  vmsRaw.forEach((vm: any) => {
+                    if (allowedNamespace) {
+                        if (allowedNamespace === '__FORBIDDEN__') return;
+                        if (vm.metadata?.namespace !== allowedNamespace) return;
+                    }
+                    const key = `${vm.metadata?.namespace}/${vm.metadata?.name}`;
+                    vmCache.set(key, vm);
+                  });
+                }
+                if (Array.isArray(vmisRaw)) {
+                  vmisRaw.forEach((vmi: any) => {
+                    if (allowedNamespace) {
+                        if (allowedNamespace === '__FORBIDDEN__') return;
+                        if (vmi.metadata?.namespace !== allowedNamespace) return;
+                    }
+                    const key = `${vmi.metadata?.namespace}/${vmi.metadata?.name}`;
+                    vmiCache.set(key, vmi);
+                  });
+                }
+
+                for (const key of vmCache.keys()) {
+                  const vm = vmCache.get(key);
+                  const vmi = vmiCache.get(key);
+                  const printableStatus = resolveVMStatus(vm, vmi);
+                  
+                  const base = (cloud.endpoint || '').replace(/\/+$/, '');
+                  let origin = base;
+                  try {
+                      const u = new URL(base);
+                      origin = `${u.protocol}//${u.host}`;
+                  } catch {
+                      origin = base.replace(/\/v[0-9].*$/, '');
+                  }
+                  const namespace = vm.metadata?.namespace || 'default';
+                  const name = vm.metadata?.name || '';
+                  const viewUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${namespace}/virtualmachines/${name}`;
+
+                  initialItems.push({
+                    id: vm.metadata?.uid,
+                    links: { view: viewUrl },
+                    ...vm,
+                    vmi,
+                    status: { ...vm.status, printableStatus }
+                  });
+                }
+                send('vms', { items: initialItems });
+
+                if (vmsResult?.url) {
+                  const vmRv = vmsResult.resourceVersion || '0';
+                  const vmUrl = `${vmsResult.url}?watch=true&resourceVersion=${vmRv}`;
+                  const w1 = watchJsonStream(vmUrl, cloud.secretKey || '', insecure, (event) => {
+                    if (closed) return;
+                    const obj = event.object;
+                    if (!obj || !obj.metadata) return;
+                    
+                    if (allowedNamespace) {
+                        if (allowedNamespace === '__FORBIDDEN__') return;
+                        if (obj.metadata.namespace !== allowedNamespace) return;
+                    }
+
+                    const key = `${obj.metadata.namespace}/${obj.metadata.name}`;
+                    if (event.type === 'DELETED') {
+                      vmCache.delete(key);
+                      send('vm_deleted', { iid: obj.metadata.uid });
+                    } else {
+                      vmCache.set(key, obj);
+                      const eventType = event.type === 'ADDED' ? 'vm_created' : 'vm_status';
+                      sendItem(key, eventType);
+                    }
+                  }, (err) => {
+                      console.error('VM Watch Error:', err);
+                  });
+                  watchers.push(w1);
+                }
+
+                if (vmisResult?.url) {
+                    const vmiRv = vmisResult.resourceVersion || '0';
+                    const vmiUrl = `${vmisResult.url}?watch=true&resourceVersion=${vmiRv}`;
+                    const w2 = watchJsonStream(vmiUrl, cloud.secretKey || '', insecure, (event) => {
+                        if (closed) return;
+                        const obj = event.object;
+                        if (!obj || !obj.metadata) return;
+                         if (allowedNamespace) {
+                            if (allowedNamespace === '__FORBIDDEN__') return;
+                            if (obj.metadata.namespace !== allowedNamespace) return;
+                        }
+                        const key = `${obj.metadata.namespace}/${obj.metadata.name}`;
+                         if (event.type === 'DELETED') {
+                            vmiCache.delete(key);
+                            if (vmCache.has(key)) sendItem(key);
+                        } else {
+                            vmiCache.set(key, obj);
+                            if (vmCache.has(key)) sendItem(key);
+                        }
+                    }, (err) => {
+                        console.error('VMI Watch Error:', err);
+                    });
+                    watchers.push(w2);
+                }
+
+            } catch (e: any) {
+                console.error('[SSE] Init Error:', e);
+                send('error', { message: 'Initialization failed' });
+            }
+        };
+
         send('hello', { ok: true });
-        tick();
+        init();
       } catch (error: any) {
         try {
           res.status(500).end();
@@ -659,6 +933,42 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
   // VM Operations (Start/Stop/Reboot/Delete)
   // 策略: Direct API Call (直接调用，不走缓存)
   // ==================================================================================
+  /**
+   * [GET] /:id/resources/ecs/:instanceId/vnc
+   * 获取虚拟机 VNC Console URL
+   */
+  router.get(
+    '/:id/resources/ecs/:instanceId/vnc',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, instanceId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        {
+          const pv = String((cloud as any)?.config?.provider || '')
+            .toLowerCase()
+            .trim();
+          if (!(pv === 'harvester' || pv === 'cloudmap' || pv.startsWith('cloudmap')))
+            return next();
+        }
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const [namespace, name] = instanceId.includes('/')
+          ? instanceId.split('/')
+          : ['default', instanceId];
+
+        const url = await getHarvesterVmVncUrl(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          namespace,
+          name,
+        );
+        res.json({ message: '获取成功', data: { url } });
+      } catch (error: any) {
+        res.status(500).json({ message: '获取VNC地址失败', error: error.message });
+      }
+    },
+  );
+
   /**
    * [POST] 启动虚拟机
    */
@@ -879,6 +1189,80 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
   );
 
   // ==================================================================================
+  // VM Actions (Create)
+  // ==================================================================================
+  /**
+   * [POST] /:id/resources/harvester/vms
+   * 创建虚拟机 (标准 Harvester API 路径)
+   */
+  router.post(
+    '/:id/resources/harvester/vms',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        // Tenant Check
+        let tenantNamespace: string | undefined;
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req.user as any)?.role === 'tenant';
+        const isTenant = isTenantUser || isTenantRole;
+
+        if (isTenant) {
+             const p = (req.user as any)?.permissions || [];
+             if (!p.includes('clouds.console:write')) return res.status(403).json({ message: 'Permission denied: Requires clouds.console:write' });
+
+             const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+             const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+             if ((req.user as any).organizationId) {
+                 where.organizationId = (req.user as any).organizationId;
+             }
+             const us = await userSpaceRepo.findOne({ where });
+             if (!us) return res.status(403).json({ message: 'Access denied to this resource pool' });
+             tenantNamespace = us.namespace;
+
+             // Dynamic Org Namespace
+             if ((req.user as any).organizationId) {
+                 const orgNs = `ns-${(req.user as any).organizationId}`;
+                 tenantNamespace = tenantNamespace ? `${tenantNamespace},${orgNs}` : orgNs;
+             }
+        }
+
+        if (tenantNamespace) {
+            const allowed = tenantNamespace.split(',').map(s => s.trim());
+            if (req.body.namespace) {
+                if (!allowed.includes(req.body.namespace)) {
+                    return res.status(403).json({ message: 'Access denied to this namespace' });
+                }
+            } else {
+                req.body.namespace = allowed[0];
+            }
+        }
+
+        // Enforce namespace consistency in metadata
+        if (req.body.metadata) {
+            req.body.metadata.namespace = req.body.namespace || 'default';
+        }
+
+        const { namespace, ...payload } = req.body;
+
+        const data = await createHarvesterVM(
+            { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+            namespace || 'default',
+            payload
+        );
+        res.json({ message: '创建成功', data });
+      } catch (error: any) {
+          res.status(500).json({ message: '创建实例失败', error: error.body || error.message });
+      }
+    }
+  );
+
+  // ==================================================================================
   // Namespaces (Specific Name)
   // 获取特定命名空间详情 (尝试多个 API 路径兼容不同版本)
   // ==================================================================================
@@ -1032,11 +1416,99 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         }
         
         const items = await repo.find({ where: whereCondition });
-        const list = items.map(i => i.rawData);
+        const list = items.map((item: any) => {
+          const v = item.rawData || {};
+          const name = v?.metadata?.name || item.name || '';
+          const namespace = v?.metadata?.namespace || item.namespace || '';
+          const displayName = v?.spec?.displayName || item.displayName || name;
+          const size = v?.status?.size || item.size || 0;
+          const progress = v?.status?.progress || item.progress || 0;
+          const storageClassName = v?.spec?.storageClassName || item.storageClassName || '';
+          
+          return {
+             ...v,
+             name,
+             namespace,
+             displayName,
+             size,
+             progress,
+             storageClassName,
+             raw: v
+          };
+        });
         
         res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
         res.status(500).json({ message: '查询网络附件定义失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [GET] /:id/resources/harvester/nads/:namespace/:name
+   * 获取单个网络附件定义 (NAD) 详情
+   * 
+   * 策略: Direct API Call
+   * 描述: 直接从 Harvester API 获取 NAD 的实时详情。
+   */
+  router.get(
+    '/:id/resources/harvester/nads/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        let path = `/apis/k8s.cni.cncf.io/v1/namespaces/${encodeURIComponent(namespace)}/network-attachment-definitions/${encodeURIComponent(name)}`;
+        
+        // Optimize: Try to find correct path from inventory links if available
+        try {
+            const repo = AppDataSource.getRepository(KubevirtNadInventory);
+            const item = await repo.findOne({ where: { cloudId: id, namespace, name } });
+            if (item?.rawData?.links?.view) {
+                const urlObj = new URL(item.rawData.links.view);
+                path = urlObj.pathname;
+            }
+        } catch (e) {
+            // Ignore inventory lookup errors, fallback to default path
+        }
+
+        const data = await requestJson('GET', cloud.endpoint + path, cloud.secretKey || '', insecure);
+
+        res.json(data);
+      } catch (error: any) {
+        res.status(500).json({ message: '获取网络附件定义详情失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [GET] /:id/resources/harvester/volumes/:namespace/:name
+   * 获取单个卷 (PVC) 详情
+   * 
+   * 策略: Direct API Call
+   * 描述: 直接从 Harvester API 获取 PVC 的实时详情。
+   */
+  router.get(
+    '/:id/resources/harvester/volumes/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const path = `/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(name)}`;
+        const data = await requestJson('GET', cloud.endpoint + path, cloud.secretKey || '', insecure);
+
+        res.json(data);
+      } catch (error: any) {
+        res.status(500).json({ message: '获取卷详情失败', error: error.message });
       }
     },
   );
@@ -1058,40 +1530,27 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
-        const base = (cloud.endpoint || '').replace(/\/+$/, '');
-        let origin = base;
-        try {
-          const u = new URL(base);
-          origin = `${u.protocol}//${u.host}`;
-        } catch {
-          origin = base.replace(/\/v[0-9].*$/, '');
+
+        const repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+
+        // Sync fallback logic
+        if (count === 0 || String(force) === 'true') {
+            try {
+                await syncHarvesterNamespaces(cloud, insecure);
+            } catch (e: any) {
+                console.warn('Sync Namespaces failed, falling back to empty/stale', e);
+                if (count === 0) throw e;
+            }
         }
-        const candidates = [
-          `${origin}/api/v1/namespaces`,
-          `${origin}/v1/core.v1.namespaces`,
-          `${origin}/v1/harvester/core.v1.namespaces`,
-          `${origin}/k8s/clusters/local/api/v1/namespaces`,
-        ];
-        let json: any = null;
-        let lastErr: any = null;
-        for (const url of candidates) {
-          try {
-            json = await getJsonOnce(url, cloud.secretKey || '', insecure);
-            if (json) break;
-          } catch (e: any) {
-            lastErr = e;
-          }
-        }
-        if (!json && lastErr) throw lastErr;
-        let items: any[] = Array.isArray(json?.data)
-          ? json?.data
-          : Array.isArray(json?.items)
-            ? json?.items
-            : [];
+
+        const dbItems = await repo.find({ where: { cloudId: id } });
+        let items = dbItems.map(i => i.rawData);
         
         // Tenant Isolation: Filter by UserSpace Namespace
         const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
@@ -1100,14 +1559,21 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           const tenantId = (req as any).user.tenantId;
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           
-          // Query: tenantId AND cloudId AND (organizationId = userOrgId OR organizationId IS NULL)
-          const matches = await userSpaceRepo.find({
-             where: [
-                { tenantId, cloudId: id, status: 'active', organizationId: (req.user as any).organizationId },
-                { tenantId, cloudId: id, status: 'active', organizationId: null }
-             ]
-          });
-          const us = matches.find(m => m.organizationId === (req.user as any).organizationId) || matches[0];
+          // Tenant Isolation Fix (Bug 26): Strict Organization Matching
+          // Sub-organizations MUST NOT see parent organization's resources.
+          const userOrgId = (req.user as any).organizationId;
+          const whereClause: any[] = [];
+          
+          if (userOrgId) {
+             // If user belongs to an organization, ONLY fetch that organization's UserSpace
+             whereClause.push({ tenantId, cloudId: id, status: 'active', organizationId: userOrgId });
+          } else {
+             // If user is root tenant user (no org), fetch root UserSpace (organizationId is null)
+             whereClause.push({ tenantId, cloudId: id, status: 'active', organizationId: null });
+          }
+
+          const matches = await userSpaceRepo.find({ where: whereClause });
+          const us = matches[0]; // Strict match, no fallback
 
           if (!us) {
             // Even if no UserSpace, strictly no access
@@ -1119,6 +1585,11 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
                  us.namespace.split(',').forEach(ns => allowedNs.add(ns.trim()));
              }
              allowedNs.add('cloud-public');
+
+             // Dynamic Org Namespace: ns-{organizationId}
+             if (userOrgId) {
+                 allowedNs.add(`ns-${userOrgId}`);
+             }
 
              items = items.filter((n: any) => {
                const name = n?.metadata?.name || n?.name;
@@ -1134,6 +1605,15 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           const dbItems = await repo.find({ where: { cloudId: id } });
           const userNamespaces = new Set(dbItems.map(i => i.name));
           
+          const base = (cloud.endpoint || '').replace(/\/+$/, '');
+          let origin = base;
+          try {
+            const u = new URL(base);
+            origin = `${u.protocol}//${u.host}`;
+          } catch {
+            origin = base.replace(/\/v[0-9].*$/, '');
+          }
+
           items = items.map(item => {
              const name = item?.metadata?.name || item?.name;
              const isUser = userNamespaces.has(name);
@@ -1183,6 +1663,11 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         } catch {
           origin = base.replace(/\/v[0-9].*$/, '');
         }
+        // API 路径候选列表 (多版本兼容与 Rancher 集成适配):
+        // 1. /api/v1/namespaces: 标准 K8s API 路径 (Standalone Harvester)
+        // 2. /v1/harvester/core.v1.namespaces: Rancher 代理模式下的路径
+        // 3. /k8s/clusters/local/...: 某些边缘部署场景
+        // 使用循环尝试机制，确保在各种网络拓扑和版本下都能成功调用。
         const candidates = [
           `${origin}/api/v1/namespaces`,
           `${origin}/v1/core.v1.namespaces`,
@@ -1345,12 +1830,43 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const basic = items.map((item: any) => {
           const v = item.rawData || {};
           const name = v?.metadata?.name || v?.name || item.name || '';
-          const size = v?.spec?.size || v?.size || item.capacity || 0;
-          const state = v?.status?.state || v?.state || item.phase || 'Unknown';
+          
+          // Robust Size Extraction
+          // 1. Status Capacity (Actual bound size)
+          // 2. Spec Requests (Requested size)
+          // 3. DB Cache
+          const size = 
+            v?.status?.capacity?.storage || 
+            v?.spec?.resources?.requests?.storage || 
+            v?.spec?.size || 
+            v?.size || 
+            item.capacity || 
+            0;
+
+          // Robust State Extraction
+          // 1. Status Phase (Standard K8s PVC)
+          // 2. Status State (Some CRDs)
+          // 3. DB Cache
+          const state = 
+            v?.status?.phase || 
+            v?.status?.state || 
+            v?.state || 
+            item.phase || 
+            'Unknown';
+
           const k8s = v?.status?.kubernetesStatus || {};
           const namespace = k8s?.namespace || v?.metadata?.namespace || item.namespace || '';
           const pvcName = k8s?.pvcName || '';
           
+          // Ensure robust fallback for technical fields
+          const storageClassName = v?.spec?.storageClassName || item.storageClassName || '';
+          const volumeMode = v?.spec?.volumeMode || item.volumeMode || '';
+          
+          const rawAccessModes = v?.status?.accessModes || v?.spec?.accessModes;
+          const accessModes = Array.isArray(rawAccessModes) 
+            ? rawAccessModes 
+            : (item.accessModes ? String(item.accessModes).split(',') : []);
+
           const viewUrl = `${origin}/api/v1/namespaces/${namespace}/persistentvolumeclaims/${name}`;
 
           const workloads =
@@ -1380,6 +1896,10 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             namespace,
             pvcName,
             attachedTo,
+            storageClassName,
+            volumeMode,
+            accessModes,
+            createdAt: v?.metadata?.creationTimestamp,
             raw: v,
           };
         });
@@ -1393,14 +1913,15 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
 
   // ==================================================================================
   // Available Volumes (For Attachment)
-  // 策略: Direct API (需要实时准确性)
+  // 策略: Inventory Cache First + Sync Fallback
   // ==================================================================================
   /**
    * [GET] /:id/resources/harvester/available-volumes
    * 获取可挂载的卷列表
    * 
-   * 策略: Direct API Call
+   * 策略: Inventory Cache First + Sync Fallback
    * 描述: 查询当前处于 Unbound 或 Detached 状态，可供虚拟机挂载的卷。
+   * 实现: 复用 KubevirtVolumeInventory (PVCs)，在内存中过滤 Attached 状态。
    */
   router.get(
     '/:id/resources/harvester/available-volumes',
@@ -1408,11 +1929,13 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = (req.query || {}) as any;
+        const { namespace, force } = (req.query || {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(KubevirtVolumeInventory);
 
         // Tenant Isolation: Force namespace filter
         let filterNamespace = namespace;
@@ -1427,13 +1950,89 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
            }
         }
 
-        const items = await listHarvesterAvailableVolumesStandard(
-          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          { namespace: filterNamespace },
-        );
+        const count = await repo.count({ where: { cloudId: id } });
+
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterVolumes(cloud, insecure);
+          } catch (e: any) {
+             console.warn('Sync Volumes failed, falling back to empty/stale', e);
+             if (count === 0) throw e;
+          }
+        }
+
+        const where: any = { cloudId: id };
+        if (filterNamespace) {
+            where.namespace = filterNamespace;
+        }
+        
+        const dbItems = await repo.find({ where });
+
+        // Frontend Response Formatting & Availability Filtering
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const items = dbItems
+            .map((item) => {
+                const v = item.rawData || {};
+                
+                const name = v?.metadata?.name || v?.name || item.name || '';
+                const ns = v?.metadata?.namespace || v?.namespace || item.namespace || '';
+                
+                // Robust Size Extraction
+                const size = 
+                    v?.status?.capacity?.storage || 
+                    v?.spec?.resources?.requests?.storage || 
+                    v?.spec?.size || 
+                    v?.size || 
+                    item.capacity || 
+                    0;
+
+                // Robust State Extraction
+                const state = String(
+                    v?.status?.phase || 
+                    v?.status?.state || 
+                    v?.state || 
+                    item.phase || 
+                    'Unknown'
+                ).toLowerCase();
+                
+                // Workloads Status check (Harvester specific)
+                const workloads = v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
+                const inUse = Array.isArray(workloads) && workloads.some(
+                    (w: any) => String(w?.state || w?.podStatus || '').toLowerCase() === 'running'
+                );
+                const attached = state === 'attached' || inUse;
+                const pvcName = v?.status?.kubernetesStatus?.pvcName || name;
+                
+                const viewUrl = `${origin}/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`;
+                
+                return {
+                    ...v,
+                    name,
+                    pvcName,
+                    namespace: ns,
+                    size,
+                    state, 
+                    attached,
+                    links: { view: viewUrl }
+                };
+            })
+            // Filter: Must be Bound (Ready) AND Not Attached
+            .filter((x: any) => {
+                const isBound = String(x.state).toLowerCase() === 'bound';
+                return isBound && !x.attached;
+            });
+
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
-        res.status(500).json({ message: error.message || '查询可用卷失败', error: error.body || error.message });
+        res.status(500).json({ message: '查询可用卷失败', error: error.message });
       }
     },
   );
@@ -1446,7 +2045,8 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
    * [GET] /:id/resources/harvester/storage-classes
    * 获取存储类列表
    * 
-   * 策略: Direct API Call
+   * 实体: KubevirtStorageClassInventory
+   * 策略: Inventory Cache First + Sync Fallback
    */
   router.get(
     '/:id/resources/harvester/storage-classes',
@@ -1454,15 +2054,26 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
-        const items = await listHarvesterStorageClassesStandard({
-          endpoint: cloud.endpoint,
-          token: cloud.secretKey || '',
-          insecure,
-        } as any);
+
+        const repo = AppDataSource.getRepository(KubevirtStorageClassInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+
+        if (count === 0 || String(force) === 'true') {
+            try {
+                await syncHarvesterStorageClasses(cloud, insecure);
+            } catch (e: any) {
+                console.warn('Sync StorageClasses failed, falling back to empty/stale', e);
+                if (count === 0) throw e;
+            }
+        }
+
+        const dbItems = await repo.find({ where: { cloudId: id } });
+        const items = dbItems.map(i => i.rawData);
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: error.message || '查询存储类失败', error: error.body || error.message });
@@ -1565,7 +2176,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
-        const data = await deleteHarvesterLonghornVolume(
+        const data = await deleteHarvesterPVC(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
           namespace,
           name,
@@ -1723,6 +2334,10 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
+        // 执行克隆操作
+        // Harvester/Longhorn 支持通过 CSI (Container Storage Interface) 进行卷克隆。
+        // 如果是跨命名空间克隆，或者底层存储不支持直接克隆，可能需要先创建快照 (Snapshot) 再恢复。
+        // 这里调用 clonePVC 封装了这些复杂性。
         const data = await clonePVC(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
           namespace,
@@ -1773,7 +2388,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const data = await createHarvesterPVCVolume(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          { namespace, name, sizeGi, size, accessModes, volumeMode, storageClassName },
+          { namespace, name, sizeGi: sizeGi || size, accessModes, volumeMode, storageClassName },
         );
         res.json({ message: '创建成功', data });
       } catch (error: any) {
@@ -1870,7 +2485,36 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         }
 
         const items = await repo.find({ where: whereCondition });
-        const list = items.map(i => i.rawData);
+        const list = items.map(i => {
+           const r = i.rawData || {};
+           const name = r.metadata?.name || i.name || '';
+           const namespace = r.metadata?.namespace || i.namespace || '';
+           const displayName = r.spec?.displayName || i.displayName || name;
+           const size = r.status?.size || i.size || 0;
+           const progress = r.status?.progress || i.progress || 0;
+           const conditions = r.status?.conditions || [];
+           // Infer state from conditions: Imported=True -> Active
+           let state = 'Unknown';
+           const imported = conditions.find((c: any) => c.type === 'Imported');
+           if (imported?.status === 'True') state = 'Active';
+           else if (imported?.status === 'False') state = 'Failed';
+           else if (progress < 100) state = 'Downloading';
+           
+           const createdAt = r.metadata?.creationTimestamp;
+           
+           return {
+               ...r,
+               id: r.metadata?.uid || i.uid,
+               name, // Internal K8s name
+               namespace,
+               displayName, // User friendly name
+               size,
+               progress,
+               state,
+               createdAt,
+               conditions
+           };
+        });
         
         res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
@@ -1883,8 +2527,48 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
   // Images (Create/Delete/Update)
   // ==================================================================================
   /**
-   * [DELETE] 删除镜像
+   * [GET] /:id/resources/harvester/images/:namespace/:name
+   * 获取特定镜像详情
    */
+  router.get(
+    '/:id/resources/harvester/images/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+        
+        // Try v1beta1 first as it is the standard version
+        const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachineimages/${encodeURIComponent(name)}`;
+        let json: any = null;
+        try {
+            json = await getJsonOnce(url, cloud.secretKey || '', insecure);
+        } catch (e) {
+            // Fallback to v1 if v1beta1 fails
+            const urlV1 = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachineimages/${encodeURIComponent(name)}`;
+            json = await getJsonOnce(urlV1, cloud.secretKey || '', insecure);
+        }
+        
+        res.json({ message: '查询成功', data: json });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询镜像详情失败', error: error.message });
+      }
+    },
+  );
+
+
   router.delete(
     '/:id/resources/harvester/images/:namespace/:name',
     checkAdminPermission,
@@ -1954,9 +2638,14 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             namespace,
           },
           spec: {
+            // 显示名称，若未提供则使用 name
             displayName: displayName || name || 'image',
+            // 来源类型 (Source Type):
+            // - 'download': Harvester 控制面自动从 url 下载镜像文件 (支持 http/https/s3)。
+            // - 'upload': 创建后，前端需发起额外的上传请求将文件推送到 minio/backing-image-manager。
             sourceType: sourceType || (url ? 'download' : 'upload'),
             url: url || '',
+            // 目标存储类，默认为 'longhorn'
             targetStorageClassName: targetStorageClassName || 'longhorn',
             storageClassParameters: storageClassParameters || {},
           },
@@ -2016,13 +2705,13 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
   );
 
   // ==================================================================================
-  // Nodes (Direct API)
+  // Nodes (Inventory Cache)
   // ==================================================================================
   /**
    * [GET] /:id/resources/harvester/nodes
    * 获取节点列表
    * 
-   * 策略: Direct API Call
+   * 策略: Inventory Cache First + Sync Fallback
    */
   router.get(
     '/:id/resources/harvester/nodes',
@@ -2030,15 +2719,26 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
-        const itemsRaw = await listHarvesterNodesStandard({
-          endpoint: cloud.endpoint,
-          token: cloud.secretKey || '',
-          insecure,
-        } as any);
+
+        const repo = AppDataSource.getRepository(HarvesterNodeInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+
+        if (count === 0 || String(force) === 'true') {
+            try {
+                await syncHarvesterNodes(cloud, insecure);
+            } catch (e: any) {
+                console.warn('Sync Nodes failed, falling back to empty/stale', e);
+                if (count === 0) throw e;
+            }
+        }
+
+        const dbItems = await repo.find({ where: { cloudId: id } });
+
         const base = (cloud.endpoint || '').replace(/\/+$/, '');
         let origin = base;
         try {
@@ -2047,11 +2747,29 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         } catch {
           origin = base.replace(/\/v[0-9].*$/, '');
         }
-        const items = (Array.isArray(itemsRaw) ? itemsRaw : []).map((n: any) => {
-          const name = n?.metadata?.name || n?.name || '';
-          const viewUrl = name ? `${origin}/api/v1/nodes/${encodeURIComponent(name)}` : undefined;
-          return { ...n, links: viewUrl ? { view: viewUrl } : n?.links };
+
+        const items = dbItems.map((item: any) => {
+            const n = item.rawData || {};
+            const name = n?.metadata?.name || n?.name || item.name || '';
+            const viewUrl = name ? `${origin}/api/v1/nodes/${encodeURIComponent(name)}` : undefined;
+            return { 
+                ...n, 
+                links: viewUrl ? { view: viewUrl } : n?.links,
+                // Ensure critical fields are present from DB columns if missing in rawData (shouldn't happen but safe)
+                name,
+                status: item.status,
+                nodeInfo: item.nodeInfo,
+                kernelVersion: item.kernelVersion,
+                osImage: item.osImage,
+                containerRuntimeVersion: item.containerRuntimeVersion,
+                kubeletVersion: item.kubeletVersion,
+                kubeProxyVersion: item.kubeProxyVersion,
+                operatingSystem: item.operatingSystem,
+                architecture: item.architecture,
+                view: item.view
+            };
         });
+
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询节点失败', error: error.message });
@@ -2110,32 +2828,72 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
   );
 
   // ==================================================================================
-  // System Pods (Direct API)
+  // Services (K8s Services)
   // ==================================================================================
   /**
-   * [GET] /:id/resources/harvester/system-pods
-   * 获取系统组件 Pod 列表
+   * [GET] /:id/resources/harvester/services
+   * 获取 Kubernetes Service 列表
    * 
-   * 策略: Direct API Call
+   * 实体: HarvesterServiceInventory
+   * 策略: Inventory Cache First + Sync Fallback
    */
   router.get(
-    '/:id/resources/harvester/system-pods',
+    '/:id/resources/harvester/services',
     checkAdminPermission,
-    async (req: any, res: Response) => {
+    async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
+        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
-        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
-        const items = await listHarvesterSystemPodsStandard({
-          endpoint: cloud.endpoint,
-          token: cloud.secretKey || '',
-          insecure,
-        } as any);
-        res.json({ message: '查询成功', data: { items } });
+        
+        const repo = AppDataSource.getRepository(HarvesterServiceInventory);
+        const whereCondition: any = { cloudId: id };
+        
+        // Tenant Isolation
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+             where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' }
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          // If needed, filter by namespace in memory later, or rely on Sync to only fetch allowed?
+          // Inventory stores all. We should filter by allowed namespaces.
+          // For simplicity, we filter the rawData list.
+        }
+
+        const count = await repo.count({ where: whereCondition });
+        
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterServices(cloud, insecure);
+          } catch (e: any) {
+            console.warn('Sync Services failed, falling back', e);
+            if (count === 0) throw e;
+          }
+        }
+        
+        const items = await repo.find({ where: whereCondition });
+        let list = items.map(i => i.rawData);
+
+        // Filter by Tenant Namespace
+        if ((req as any).user?.role === 'tenant') {
+           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+           const us = await userSpaceRepo.findOne({
+             where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' }
+           });
+           if (us?.namespace) {
+             const allowed = us.namespace.split(',').map(s => s.trim());
+             list = list.filter((svc: any) => allowed.includes(svc?.metadata?.namespace));
+           }
+        }
+
+        res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
-        res.status(500).json({ message: '查询系统组件失败', error: error.message });
+        if (res.headersSent) return;
+        res.status(500).json({ message: '查询服务失败', error: error.message });
       }
     },
   );
@@ -2194,20 +2952,44 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
    * 策略: Direct API Call
    */
   router.get(
-    '/:id/resources/harvester/usbs',
+    '/:id/resources/harvester/usb-devices',
     checkAdminPermission,
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
+        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
-        const items = await listHarvesterUsbResources({
-          endpoint: cloud.endpoint,
-          token: cloud.secretKey || '',
-          insecure,
-        } as any);
+
+        const repo = AppDataSource.getRepository(HarvesterUsbInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+
+        if (count === 0 || String(force) === 'true') {
+            try {
+                await syncHarvesterUsbResources(cloud, insecure);
+            } catch (e: any) {
+                console.warn('Sync USBs failed, falling back to empty/stale', e);
+                if (count === 0) throw e;
+            }
+        }
+
+        const dbItems = await repo.find({ where: { cloudId: id } });
+        // Restore to original structure if needed. 
+        // listHarvesterUsbResources returns { resourceName, name, vendorId, productId, raw }
+        // Our Inventory stores these fields directly.
+        // We can just return them.
+        const items = dbItems.map(i => ({
+            resourceName: i.resourceName,
+            name: i.name,
+            description: i.description,
+            vendorId: i.vendorId,
+            productId: i.productId,
+            raw: i.rawData,
+            // Assuming USBs don't have standard k8s links like 'view' unless we construct them
+        }));
+
         res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         res.status(500).json({ message: '查询USB资源失败', error: error.message });
@@ -2270,6 +3052,650 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         res.status(500).json({ message: '获取集群能力失败', error: error.message });
+      }
+    },
+  );
+
+  // ==================================================================================
+  // Snapshots (Inventory Cache First)
+  // ==================================================================================
+  router.get(
+    '/:id/resources/harvester/snapshots',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(HarvesterSnapshotInventory);
+        
+        let whereCondition: any = { cloudId: id };
+        const isTenant = (req.user as any)?.role === 'tenant' || ((req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device');
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          if (us.namespace) whereCondition.namespace = us.namespace;
+        }
+
+        const count = await repo.count({ where: whereCondition });
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterSnapshots(cloud, insecure);
+          } catch (e: any) {
+             console.warn('Sync Snapshots failed, falling back to empty/stale', e);
+             if (count === 0) throw e;
+          }
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map(i => i.rawData);
+        res.json({ message: '查询成功', data: { items: list } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询快照失败', error: error.message });
+      }
+    },
+  );
+
+  router.delete(
+    '/:id/resources/harvester/snapshots/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        await deleteHarvesterVirtualMachineSnapshot(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          namespace,
+          name
+        );
+        
+        // Sync immediately
+        try {
+          await syncHarvesterSnapshots(cloud, insecure);
+        } catch (e) {
+           console.warn('Sync Snapshots after delete failed', e);
+        }
+
+        res.json({ message: '删除成功' });
+      } catch (error: any) {
+        res.status(500).json({ message: '删除快照失败', error: error.message });
+      }
+    },
+  );
+
+  // ==================================================================================
+  // Backups (Inventory Cache First)
+  // ==================================================================================
+  router.get(
+    '/:id/resources/harvester/backups',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(HarvesterBackupInventory);
+        
+        let whereCondition: any = { cloudId: id };
+        const isTenant = (req.user as any)?.role === 'tenant' || ((req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device');
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          if (us.namespace) whereCondition.namespace = us.namespace;
+        }
+
+        const count = await repo.count({ where: whereCondition });
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterBackups(cloud, insecure);
+          } catch (e: any) {
+             console.warn('Sync Backups failed, falling back to empty/stale', e);
+             if (count === 0) throw e;
+          }
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map(i => i.rawData);
+        res.json({ message: '查询成功', data: { items: list } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询备份失败', error: error.message });
+      }
+    },
+  );
+
+  // ==================================================================================
+  // Schedule VM Backups (Inventory Cache First)
+  // ==================================================================================
+  router.get(
+    '/:id/resources/harvester/schedulevmbackups',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
+        
+        let whereCondition: any = { cloudId: id };
+        const isTenant = (req.user as any)?.role === 'tenant' || ((req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device');
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          if (us.namespace) whereCondition.namespace = us.namespace;
+        }
+
+        const count = await repo.count({ where: whereCondition });
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterScheduleVmBackups(cloud, insecure);
+          } catch (e: any) {
+             console.warn('Sync ScheduleVmBackups failed, falling back to empty/stale', e);
+             if (count === 0) throw e;
+          }
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map(i => i.rawData);
+        res.json({ message: '查询成功', data: { items: list } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询定时备份失败', error: error.message });
+      }
+    },
+  );
+
+  router.post(
+    '/:id/resources/harvester/schedulevmbackups',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        const payload = req.body; // Expects { namespace, name, vmName, cron, retain, suspend }
+        
+        await createHarvesterScheduleVmBackup(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          payload.namespace,
+          payload
+        );
+        
+        // Sync immediately after creation to update cache
+        try {
+          await syncHarvesterScheduleVmBackups(cloud, insecure);
+        } catch (e) {
+           console.warn('Sync after create failed', e);
+        }
+
+        res.json({ message: '创建定时备份成功' });
+      } catch (error: any) {
+        res.status(500).json({ message: '创建定时备份失败', error: error.body || error.message });
+      }
+    },
+  );
+
+  router.patch(
+    '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        const payload = req.body; // Expects update fields
+        
+        await updateHarvesterScheduleVmBackup(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          namespace,
+          name,
+          payload
+        );
+        
+        // Sync immediately after update to update cache
+        try {
+          await syncHarvesterScheduleVmBackups(cloud, insecure);
+        } catch (e) {
+           console.warn('Sync after update failed', e);
+        }
+
+        res.json({ message: '更新定时备份成功' });
+      } catch (error: any) {
+        res.status(500).json({ message: '更新定时备份失败', error: error.body || error.message });
+      }
+    },
+  );
+
+  router.put(
+    '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        const payload = req.body; // Expects update fields
+        
+        await updateHarvesterScheduleVmBackup(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          namespace,
+          name,
+          payload
+        );
+        
+        // Sync immediately after update to update cache
+        try {
+          await syncHarvesterScheduleVmBackups(cloud, insecure);
+        } catch (e) {
+           console.warn('Sync after update failed', e);
+        }
+
+        res.json({ message: '更新定时备份成功' });
+      } catch (error: any) {
+        res.status(500).json({ message: '更新定时备份失败', error: error.body || error.message });
+      }
+    },
+  );
+
+  router.delete(
+    '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        await deleteHarvesterScheduleVmBackup(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          namespace,
+          name
+        );
+        
+        // Sync immediately after delete to update cache
+        try {
+          await syncHarvesterScheduleVmBackups(cloud, insecure);
+        } catch (e) {
+           console.warn('Sync after delete failed', e);
+        }
+
+        res.json({ message: '删除定时备份成功' });
+      } catch (error: any) {
+        res.status(500).json({ message: '删除定时备份失败', error: error.body || error.message });
+      }
+    },
+  );
+
+  // Create VM Backup/Snapshot
+  router.post(
+    '/:id/resources/harvester/virtualmachinebackups/:namespace',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const { name, vmName, type, alias } = req.body;
+        if (!name || !vmName || !type) {
+            return res.status(400).json({ message: 'Missing required fields: name, vmName, type' });
+        }
+        if (type !== 'backup' && type !== 'snapshot') {
+            return res.status(400).json({ message: 'Invalid type: must be "backup" or "snapshot"' });
+        }
+
+        const result = await createHarvesterVirtualMachineBackup(
+          { endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any,
+          namespace,
+          { name, vmName, type, alias }
+        );
+
+        // Sync immediately to update cache
+        try {
+           await syncHarvesterBackups(cloud, insecure);
+        } catch (e) {
+            console.warn('Sync after create failed', e);
+        }
+
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '创建失败', error: error.body || error.message });
+      }
+    },
+  );
+
+  // Delete VM Backup/Snapshot
+  router.delete(
+    '/:id/resources/harvester/backups/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const result = await deleteHarvesterVirtualMachineBackup(
+          { endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any,
+          namespace,
+          name
+        );
+
+        // Sync immediately to update cache
+        try {
+           await syncHarvesterBackups(cloud, insecure);
+        } catch (e) {
+            console.warn('Sync after delete failed', e);
+        }
+
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '删除失败', error: error.body || error.message });
+      }
+    },
+  );
+
+  // Create VM Restore
+  router.post(
+    '/:id/resources/harvester/virtualmachinerestores/:namespace',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const result = await createHarvesterVirtualMachineRestore(
+          { endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any,
+          namespace,
+          req.body
+        );
+
+        res.json({ message: '创建恢复任务成功', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '创建恢复任务失败', error: error.body || error.message });
+      }
+    },
+  );
+
+  // ==================================================================================
+  // SSH Keys (Inventory Cache First)
+  // ==================================================================================
+  router.get(
+    '/:id/resources/harvester/sshkeys',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(HarvesterSshKeyInventory);
+        
+        let whereCondition: any = { cloudId: id };
+        const isTenant = (req.user as any)?.role === 'tenant' || ((req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device');
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          if (us.namespace) whereCondition.namespace = us.namespace;
+        }
+
+        const count = await repo.count({ where: whereCondition });
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterSshKeys(cloud, insecure);
+          } catch (e: any) {
+             console.warn('Sync SSH Keys failed, falling back to empty/stale', e);
+             if (count === 0) throw e;
+          }
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map(i => i.rawData);
+        res.json({ message: '查询成功', data: { items: list } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询SSH密钥失败', error: error.message });
+      }
+    },
+  );
+
+  // ==================================================================================
+  // Cloud Inits (Inventory Cache First)
+  // ==================================================================================
+  router.get(
+    '/:id/resources/harvester/cloud-inits',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(HarvesterCloudInitInventory);
+        
+        let whereCondition: any = { cloudId: id };
+        const isTenant = (req.user as any)?.role === 'tenant' || ((req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device');
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          if (us.namespace) whereCondition.namespace = us.namespace;
+        }
+
+        const count = await repo.count({ where: whereCondition });
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterCloudInits(cloud, insecure);
+          } catch (e: any) {
+             console.warn('Sync Cloud Inits failed, falling back to empty/stale', e);
+             if (count === 0) throw e;
+          }
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map(i => i.rawData);
+        res.json({ message: '查询成功', data: { items: list } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询Cloud Init模板失败', error: error.message });
+      }
+    },
+  );
+
+  // ==================================================================================
+  // Ingresses (Inventory Cache First)
+  // ==================================================================================
+  router.get(
+    '/:id/resources/harvester/ingresses',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(KubeOvnIngressInventory);
+        
+        let whereCondition: any = { cloudId: id };
+        const isTenant = (req.user as any)?.role === 'tenant' || ((req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device');
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const us = await userSpaceRepo.findOne({
+            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
+          });
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          if (us.namespace) whereCondition.namespace = us.namespace;
+        }
+
+        const count = await repo.count({ where: whereCondition });
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterIngresses(cloud, insecure);
+          } catch (e: any) {
+             console.warn('Sync Ingresses failed, falling back to empty/stale', e);
+             if (count === 0) throw e;
+          }
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map(i => i.rawData);
+        res.json({ message: '查询成功', data: { items: list } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询路由(Ingress)失败', error: error.message });
+      }
+    },
+  );
+
+  // ==================================================================================
+  // Templates (VM Templates)
+  // ==================================================================================
+  /**
+   * [GET] /:id/resources/harvester/templates
+   * 获取虚拟机模板列表
+   * 
+   * 实体: HarvesterTemplateInventory
+   * 策略: Inventory Cache First + Sync Fallback
+   * 描述: 返回 Harvester 集群中的 VirtualMachineTemplates。
+   */
+  router.get(
+    '/:id/resources/harvester/templates',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        const repo = AppDataSource.getRepository(HarvesterTemplateInventory);
+        
+        // Tenant Isolation: Filter by UserSpace Namespace
+        let whereCondition: any = { cloudId: id };
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req.user as any)?.role === 'tenant';
+        const isTenant = isTenantUser || isTenantRole;
+
+        if (isTenant) {
+          const tenantId = (req as any).user.tenantId;
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          // Query: tenantId AND cloudId AND (organizationId = userOrgId OR organizationId IS NULL)
+          const matches = await userSpaceRepo.find({
+             where: [
+                { tenantId, cloudId: id, status: 'active', organizationId: (req.user as any).organizationId },
+                { tenantId, cloudId: id, status: 'active', organizationId: null }
+             ]
+          });
+          const us = matches.find(m => m.organizationId === (req.user as any).organizationId) || matches[0];
+
+          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          
+          if (us.namespace) {
+             whereCondition = [
+                { cloudId: id, namespace: us.namespace },
+                { cloudId: id, namespace: 'cloud-public' },
+                { cloudId: id, namespace: 'harvester-public' }
+             ];
+          } else {
+             whereCondition = [
+                { cloudId: id, namespace: 'cloud-public' },
+                { cloudId: id, namespace: 'harvester-public' }
+             ];
+          }
+        }
+
+        const count = await repo.count({ where: whereCondition });
+        
+        // Sync fallback logic
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterTemplates(cloud, insecure);
+          } catch (e: any) {
+            console.warn('Sync Templates failed, falling back to empty/stale', e);
+            if (count === 0) throw e;
+          }
+        }
+        
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map(i => i.rawData);
+        
+        res.json({ message: '查询成功', data: { items: list } });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '查询模板失败', error: error.message });
       }
     },
   );

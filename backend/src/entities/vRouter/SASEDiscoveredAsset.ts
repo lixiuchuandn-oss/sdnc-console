@@ -9,7 +9,7 @@ import {
 
 @Entity('sase_discovered_assets')
 @Index(['vrUuid', 'ip', 'port'], { unique: true })
-export class SaseDiscoveredAsset {
+export class SASEDiscoveredAsset {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 

@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
-import { fetchHarvesterCapabilities } from '../../../../services/api';
+import { fetchHarvesterCapabilities } from '../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 interface StepBasicProps {
   form: any;
@@ -47,16 +48,29 @@ const StepBasic: React.FC<StepBasicProps> = ({
 
   useEffect(() => {
     if (cloudId && cloudId !== 'all') {
-      fetchHarvesterCapabilities(cloudId).then(res => {
+      fetchHarvesterCapabilities(cloudId).then((res: any) => {
         const data = res.data || {};
         setCapabilities(data);
         form.setFieldsValue({
           clusterArch: data.architecture,
           machineType: data.recommendedMachineType
         });
-      }).catch(e => console.error(e));
+      }).catch((e: any) => console.error(e));
     }
   }, [cloudId]);
+
+  // Auto-select first valid namespace if current value is invalid or empty
+  useEffect(() => {
+    const validOptions = namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')));
+    const currentVal = form.getFieldValue('namespace');
+    
+    // Check if current value is valid (exists in validOptions)
+    const isValid = currentVal && validOptions.some(o => o.value === currentVal);
+    
+    if (!isValid && validOptions.length > 0) {
+      form.setFieldsValue({ namespace: validOptions[0].value });
+    }
+  }, [namespaceOptions]);
 
   const isNodeReady = (r: any): boolean => {
     if (typeof r?.ready === 'boolean') return r.ready;
@@ -78,7 +92,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
           <Form.Item label="资源池" name="cloudId" initialValue={cloudId !== 'all' ? cloudId : undefined} rules={[{ required: true, message: '请选择资源池' }]}> 
             <Select 
               placeholder="选择资源池"
-              onChange={(v) => { setCurrentCloudId(v); try { reloadNamespaces(); form.setFieldsValue({ namespace: 'default' }); } catch {} }}
+              onChange={(v) => { setCurrentCloudId(v); try { reloadNamespaces(); form.resetFields(['namespace']); } catch {} }}
               disabled={cloudId !== 'all'}
               options={cloudOptions}
               optionFilterProp="label"
@@ -87,14 +101,9 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="命名空间" name="namespace" initialValue="default" rules={[{ required: true }]}> 
+          <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}> 
             <Select 
-              options={namespaceOptions.filter(n => {
-                const val = String(n.value || '').toLowerCase();
-                const prefixes = ['kube-', 'cattle-', 'longhorn-', 'monitoring-', 'fleet-', 'cluster-fleet-', 'ingress-nginx', 'kubeovn', 'kubeeye', 'harvester'];
-                if (val === 'cloud-public') return false;
-                return !prefixes.some(p => val.startsWith(p));
-              })}
+              options={namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')))}
               placeholder="选择命名空间"
               showSearch
               onOpenChange={(open) => { if (open) reloadNamespaces(); }}
@@ -259,11 +268,18 @@ const StepBasic: React.FC<StepBasicProps> = ({
         </div>
       ) : null}
       <div className="wizard-group-title">信息</div>
-      <Form.Item label="虚拟机名称" name="name" rules={[{ required: true, message: '请输入虚拟机名称' }]}>
+      <Form.Item 
+        label="虚拟机名称" 
+        name="name" 
+        rules={[
+          { required: true, message: '请输入虚拟机名称' },
+          { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '仅支持小写字母、数字和连字符，且不能以连字符开头或结尾' }
+        ]}
+      >
         <Input placeholder="如：vm-001" />
       </Form.Item>
-      <Form.Item label="描述（可选）" name="description">
-        <Input.TextArea rows={3} placeholder="备注信息" />
+      <Form.Item label="描述" name="description">
+        <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />
       </Form.Item>
       <Form.Item label="虚机组" name="group">
         <Select placeholder="未选择虚拟机组" options={[{ label: '未选择', value: '' }]} />

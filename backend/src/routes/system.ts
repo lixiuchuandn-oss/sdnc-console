@@ -7,6 +7,7 @@ import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
 import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
+import { TenantUser } from '../entities/TenantUser';
 import { UserRole } from '../entities/User';
 
 const router = Router();
@@ -446,6 +447,20 @@ router.delete('/rbac/roles/:id', async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+
+    // 检查是否有用户关联
+    const assignRepo = AppDataSource.getRepository(RoleAssignment);
+    const assignmentCount = await assignRepo.count({ where: { roleId: id } });
+    if (assignmentCount > 0) {
+      return res.status(400).json({ message: '该角色已关联用户，无法删除' });
+    }
+
+    const tenantUserRepo = AppDataSource.getRepository(TenantUser);
+    const tenantUserCount = await tenantUserRepo.count({ where: { role: id } });
+    if (tenantUserCount > 0) {
+      return res.status(400).json({ message: '该角色已关联租户用户，无法删除' });
+    }
+
     await repo.remove(row);
     res.json({ deleted: 1 });
   } catch (e: any) {

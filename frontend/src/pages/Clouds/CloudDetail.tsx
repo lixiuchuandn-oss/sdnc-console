@@ -11,7 +11,8 @@ import CloudDetailHarvester from './Harvester/CloudDetailHarvester';
 import CloudDetailAliyun from './Aliyun/CloudDetailAliyun';
 import CloudDetailCsm from './Csm/CloudDetailCsm';
 import CloudDetailCloudmap from './Cloudmap/CloudDetailCloudmap';
-import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSubnetsByVpc, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchHarvesterNads, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchHarvesterHealth, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchCloudProviderEcsVncUrl } from '../../services/api';
+import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSubnetsByVpc, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl } from '../../services/api';
+import { fetchHarvesterNads, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchHarvesterHealth, fetchKubeOvnVpcs, fetchKubeOvnSubnets } from '../../services/harvesterApi';
 import { fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries, createCloudProviderVpc, createCloudProviderVSwitch, deleteCloudProviderVpc, updateCloudProviderVpc, deleteCloudProviderVSwitch, fetchCloudProviderEnis, createCloudProviderEni, updateCloudProviderEni, deleteCloudProviderEni, fetchCloudProviderNetworkAcls, createCloudProviderNetworkAcl, updateCloudProviderNetworkAcl, deleteCloudProviderNetworkAcl, createCloudProviderSecurityGroup, updateCloudProviderSecurityGroup, deleteCloudProviderSecurityGroup, startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs } from '../../services/aliyunApi';
 
 interface AliyunVpc {
@@ -2073,6 +2074,10 @@ const CloudDetail: React.FC = () => {
                       { title: '就绪', dataIndex: 'ready', key: 'ready', render:(b:boolean)=> b ? <Tag color="green">Ready</Tag> : <Tag color="red">NotReady</Tag> },
                       { title: 'CPU', dataIndex: 'cpu', key: 'cpu' },
                       { title: '内存', dataIndex: 'memory', key: 'mem' },
+                      { title: '架构', key: 'arch', render: (_:any, r:any)=> r?.architecture || r?.status?.nodeInfo?.architecture || '-' },
+                      { title: '系统镜像', key: 'os', render: (_:any, r:any)=> r?.status?.nodeInfo?.osImage || '-' },
+                      { title: '内核版本', key: 'kernel', render: (_:any, r:any)=> r?.status?.nodeInfo?.kernelVersion || '-' },
+                      { title: '容器运行时', key: 'runtime', render: (_:any, r:any)=> r?.status?.nodeInfo?.containerRuntimeVersion || '-' },
                     ] as any}
                     dataSource={harvesterNodes}
                     loading={loading}

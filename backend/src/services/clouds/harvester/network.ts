@@ -1,6 +1,50 @@
 import { HarvesterTestParams } from './types';
-import { getJsonOnce } from './utils';
+import { getJsonOnce, requestJson } from './utils';
 
+/**
+ * 更新 Harvester/Kube-OVN 子网
+ * 采用 "Get -> Merge -> Update" 的模式，确保不覆盖其他字段
+ */
+export const updateHarvesterSubnet = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  name: string,
+  payload: any,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  // 1. 获取当前子网数据 (为了拿到 resourceVersion)
+  const getUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
+  const current = await getJsonOnce(getUrl, token, insecure);
+  if (!current) {
+    throw new Error(`Subnet ${name} not found`);
+  }
+
+  // 2. 合并 Payload
+  // 支持更新 spec 字段，如 namespaces, excludeIps 等
+  const updated = {
+    ...current,
+    spec: {
+      ...current.spec,
+      ...payload,
+    },
+  };
+
+  // 3. 执行更新 (PUT)
+  const putUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
+  return await requestJson('PUT', putUrl, token, insecure, updated);
+};
+
+/**
+ * 获取网络附件定义 (NADs)
+ * 兼容不同的 API 路径，并处理权限不足时的降级策略 (遍历 Namespace)
+ */
 export const listHarvesterNADsStandard = async ({
   endpoint,
   token,
@@ -14,12 +58,16 @@ export const listHarvesterNADsStandard = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
+  
+  // 尝试不同的 API 路径 (兼容不同 Harvester 版本)
   const candidates = [
     `${origin}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions`,
     `${origin}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions`,
   ];
   let json: any = null;
   let lastErr: any = null;
+
+  // 策略 A: 尝试列出所有 (Cluster 级别)
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -28,10 +76,13 @@ export const listHarvesterNADsStandard = async ({
       lastErr = e;
     }
   }
+
+  // 策略 B: 如果 Cluster 级别失败 (通常是 403 Forbidden)，则尝试在特定 Namespace 下查找
   if (!json) {
     const nsCandidates = ['default', 'kube-system'];
     for (const ns of nsCandidates) {
       for (const baseUrl of candidates) {
+        // 构造带 namespace 参数的 URL
         const u = /\?/.test(baseUrl)
           ? `${baseUrl}&namespace=${encodeURIComponent(ns)}`
           : `${baseUrl}?namespace=${encodeURIComponent(ns)}`;
@@ -45,6 +96,8 @@ export const listHarvesterNADsStandard = async ({
       if (json) break;
     }
   }
+
+  // 错误处理：如果是 401/404 则返回空数组，否则抛出异常
   if (!json && lastErr) {
     const s = Number((lastErr as any)?.status || 0);
     const m = String((lastErr as any)?.message || '').toLowerCase();
@@ -53,6 +106,8 @@ export const listHarvesterNADsStandard = async ({
     if (s === 404 || m.includes('not found') || b.includes('not found')) return [];
     throw lastErr;
   }
+
+  // 标准化返回数据结构
   const arr = (function () {
     const top = Array.isArray(json?.data)
       ? json?.data
@@ -60,19 +115,22 @@ export const listHarvesterNADsStandard = async ({
         ? json?.items
         : [];
     if (Array.isArray(top) && top.length > 0) return top;
+    // 处理嵌套数据结构的情况
     const nested = Array.isArray(json?.data?.data) ? json?.data?.data : [];
     return nested;
   })();
+
   return arr.map((nad: any) => ({
-    name: nad?.metadata?.name || nad?.name || '',
-    namespace: nad?.metadata?.namespace || nad?.namespace || '',
-    config: nad?.spec?.config || '',
+    ...nad, // 保留原始数据
     links: {
       view: `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nad?.metadata?.namespace || nad?.namespace || ''}/network-attachment-definitions/${nad?.metadata?.name || nad?.name || ''}`
     }
   }));
 };
 
+/**
+ * 获取 Kube-OVN 子网列表
+ */
 export const listKubeOvnSubnets = async ({
   endpoint,
   token,
@@ -86,9 +144,11 @@ export const listKubeOvnSubnets = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
+  
   const candidates = [`${origin}/apis/kubeovn.io/v1/subnets`];
   let json: any = null;
   let lastErr: any = null;
+  
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -97,6 +157,7 @@ export const listKubeOvnSubnets = async ({
       lastErr = e;
     }
   }
+  
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     const m = String(lastErr?.message || '').toLowerCase();
@@ -105,12 +166,15 @@ export const listKubeOvnSubnets = async ({
     if (s === 404 || m.includes('not found') || b.includes('not found')) return [];
     throw lastErr;
   }
+  
   const items = Array.isArray(json?.items)
     ? json?.items
     : Array.isArray(json?.data)
       ? json?.data
       : [];
+      
   return items.map((s: any) => ({
+    ...s, // 保留原始数据
     name: s?.metadata?.name || s?.name || '',
     uid: s?.metadata?.uid || '',
     createdAt: s?.metadata?.creationTimestamp || '',
@@ -131,6 +195,10 @@ export const listKubeOvnSubnets = async ({
   }));
 };
 
+/**
+ * 获取 Kube-OVN VPC 列表
+ * 注意：会同时获取 Subnets 以便将 CIDR 映射回 VPC (因为 VPC 对象本身可能不包含完整的 CIDR 信息)
+ */
 export const listKubeOvnVpcs = async ({
   endpoint,
   token,
@@ -144,9 +212,11 @@ export const listKubeOvnVpcs = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
+  
   const candidates = [`${origin}/apis/kubeovn.io/v1/vpcs`];
   let json: any = null;
   let lastErr: any = null;
+  
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -155,6 +225,7 @@ export const listKubeOvnVpcs = async ({
       lastErr = e;
     }
   }
+  
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     const m = String(lastErr?.message || '').toLowerCase();
@@ -163,19 +234,22 @@ export const listKubeOvnVpcs = async ({
     if (s === 404 || m.includes('not found') || b.includes('not found')) return [];
     throw lastErr;
   }
+  
   const items = Array.isArray(json?.items)
     ? json?.items
     : Array.isArray(json?.data)
       ? json?.data
       : [];
 
-  // Fetch subnets to map CIDR to VPC
+  // 获取子网以映射 CIDR 到 VPC
   let subnets: any[] = [];
   try {
     subnets = await listKubeOvnSubnets({ endpoint, token, insecure });
   } catch (e) {
     console.warn('[listKubeOvnVpcs] Failed to fetch subnets for CIDR mapping:', e);
   }
+  
+  // 构建 VPC -> CIDR[] 映射表
   const vpcCidrs = new Map<string, string[]>();
   for (const s of subnets) {
     const v = String(s.vpc || '').trim();
@@ -189,6 +263,7 @@ export const listKubeOvnVpcs = async ({
     const name = v?.metadata?.name || v?.name || '';
     const cidrs = vpcCidrs.get(name) || [];
     return {
+      ...v, // 保留原始数据
       name,
       uid: v?.metadata?.uid || '',
       cidr: cidrs.join(', '),
@@ -203,6 +278,9 @@ export const listKubeOvnVpcs = async ({
   });
 };
 
+/**
+ * 获取 Harvester 负载均衡器 (Load Balancers)
+ */
 export const listHarvesterLoadBalancers = async ({
   endpoint,
   token,
@@ -216,12 +294,15 @@ export const listHarvesterLoadBalancers = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
+  
+  // 兼容不同的 LoadBalancer API 组/版本
   const candidates = [
     `${origin}/v1/harvester/loadbalancer.harvesterhci.io.loadbalancers`,
     `${origin}/apis/loadbalancer.harvesterhci.io/v1beta1/loadbalancers`,
   ];
   let json: any = null;
   let lastErr: any = null;
+  
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -230,12 +311,14 @@ export const listHarvesterLoadBalancers = async ({
       lastErr = e;
     }
   }
+  
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     const m = String(lastErr?.message || '').toLowerCase();
     if (s === 404 || m.includes('not found')) return [];
     throw lastErr;
   }
+  
   const items = Array.isArray(json?.items)
     ? json?.items
     : Array.isArray(json?.data)
@@ -243,3 +326,257 @@ export const listHarvesterLoadBalancers = async ({
       : [];
   return items;
 };
+
+/**
+ * 获取 Kube-OVN EIP 列表
+ */
+export const listKubeOvnEips = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const candidates = [`${origin}/apis/kubeovn.io/v1/ovn-eips`];
+  let json: any = null;
+  let lastErr: any = null;
+  
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    if (s !== 404 && s !== 401) throw lastErr;
+    return [];
+  }
+  
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+/**
+ * 获取 Kube-OVN FIP 列表
+ */
+export const listKubeOvnFips = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const candidates = [`${origin}/apis/kubeovn.io/v1/ovn-fips`];
+  let json: any = null;
+  let lastErr: any = null;
+  
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    if (s !== 404 && s !== 401) throw lastErr;
+    return [];
+  }
+  
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+/**
+ * 获取 Kube-OVN SNAT 规则列表
+ */
+export const listKubeOvnSnatRules = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const candidates = [`${origin}/apis/kubeovn.io/v1/ovn-snat-rules`];
+  let json: any = null;
+  let lastErr: any = null;
+  
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    if (s !== 404 && s !== 401) throw lastErr;
+    return [];
+  }
+  
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+/**
+ * 获取 Kube-OVN DNAT 规则列表
+ */
+export const listKubeOvnDnatRules = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const candidates = [`${origin}/apis/kubeovn.io/v1/ovn-dnat-rules`];
+  let json: any = null;
+  let lastErr: any = null;
+  
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    if (s !== 404 && s !== 401) throw lastErr;
+    return [];
+  }
+  
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+
+
+/**
+ * 获取 Harvester 负载均衡 IP 池 (Load Balancer IP Pools)
+ */
+export const listHarvesterLoadBalancerIPPools = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const candidates = [
+    `${origin}/apis/loadbalancer.harvesterhci.io/v1beta1/ippools`,
+    `${origin}/v1/harvester/loadbalancer.harvesterhci.io.ippools`,
+  ];
+  let json: any = null;
+  let lastErr: any = null;
+  
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    const m = String(lastErr?.message || '').toLowerCase();
+    if (s === 404 || m.includes('not found')) return [];
+    // Allow partial failure
+    return [];
+  }
+  
+  const items = Array.isArray(json?.items)
+    ? json?.items
+    : Array.isArray(json?.data)
+      ? json?.data
+      : [];
+  return items;
+};
+
+/**
+ * 获取 K8s Ingress 列表
+ */
+export const listHarvesterIngressesStandard = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  
+  const candidates = [
+    `${origin}/apis/networking.k8s.io/v1/ingresses`,
+    `${origin}/v1/harvester/networking.k8s.io.ingresses`,
+  ];
+  let json: any = null;
+  let lastErr: any = null;
+  
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    if (s !== 404 && s !== 401) throw lastErr;
+  }
+  
+  const items = Array.isArray(json?.items)
+    ? json?.items
+    : Array.isArray(json?.data)
+      ? json?.data
+      : [];
+  return items;
+};
+

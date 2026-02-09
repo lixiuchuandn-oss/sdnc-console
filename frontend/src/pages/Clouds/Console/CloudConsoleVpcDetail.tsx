@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Tabs, Table, Tag, Button, Space, Card, Descriptions, Alert, App } from 'antd';
 import { ReloadOutlined, EyeOutlined } from '@ant-design/icons';
-import CloudConsoleEcsTable from './CloudConsoleEcsTable';
+import VmSection from '../Harvester/sections/VmSection';
 import { DEFAULT_PAGINATION_CONFIG } from '../../../constants/pagination';
 import { 
   fetchCloudProviderOvnEips, 
   fetchCloudProviderOvnFips, 
   fetchCloudProviderOvnSnatRules, 
   fetchCloudProviderOvnDnatRules
-} from '../../../services/api';
+} from '../../../services/harvesterApi';
 
 interface Props {
   cloudId: string;
@@ -19,6 +19,12 @@ interface Props {
   loading?: boolean;
   isHarvester?: boolean;
   onRefresh?: () => void;
+  // Action Handlers passed from parent
+  onOpenReconfigure: (vm: any) => void;
+  onStart: (iid: string) => void;
+  onStop: (iid: string) => void;
+  onReboot: (iid: string) => void;
+  onDelete: (iid: string, deleteImage?: boolean) => void;
 }
 
 const CloudConsoleVpcDetail: React.FC<Props> = ({
@@ -29,7 +35,12 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   ecs,
   loading: parentLoading,
   isHarvester,
-  onRefresh
+  onRefresh,
+  onOpenReconfigure,
+  onStart,
+  onStop,
+  onReboot,
+  onDelete
 }) => {
   const [activeTab, setActiveTab] = useState('ecs');
   const [loading, setLoading] = useState(false);
@@ -37,6 +48,10 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   const [fips, setFips] = useState<any[]>([]);
   const [snatRules, setSnatRules] = useState<any[]>([]);
   const [dnatRules, setDnatRules] = useState<any[]>([]);
+
+  // VmSection dummy state for VPC view
+  const [nsValue, setNsValue] = useState<string | undefined>(undefined);
+  const [nodeValue, setNodeValue] = useState<string | undefined>(undefined);
 
   // Find current VPC object
   const currentVpc = useMemo(() => {
@@ -68,6 +83,14 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
         return false;
     });
   }, [ecs, vpcName, mySubnets]);
+
+  const namespacesOptions = useMemo(() => {
+    return Array.from(new Set(myEcs.map(r => r?.metadata?.namespace || r?.namespace).filter(Boolean))) as string[];
+  }, [myEcs]);
+
+  const nodesOptions = useMemo(() => {
+    return Array.from(new Set(myEcs.map(r => r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.nodeName || r?.Extra?.NodeName).filter(Boolean))) as string[];
+  }, [myEcs]);
 
   // Load Network Rules
   const loadNetworkRules = async () => {
@@ -173,11 +196,22 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
                 label: `云主机 (${myEcs.length})`,
                 key: 'ecs',
                 children: (
-                    <CloudConsoleEcsTable 
-                        dataSource={myEcs}
+                    <VmSection 
+                        vms={myEcs}
                         loading={!!parentLoading}
-                        isHarvester={!!isHarvester}
-                        onRefresh={onRefresh}
+                        namespacesOptions={namespacesOptions}
+                        nodesOptions={nodesOptions}
+                        cloudId={cloudId}
+                        nsValue={nsValue}
+                        nodeValue={nodeValue}
+                        onNsChange={setNsValue}
+                        onNodeChange={setNodeValue}
+                        onRefresh={onRefresh || (() => {})}
+                        onOpenReconfigure={onOpenReconfigure}
+                        onStart={onStart}
+                        onStop={onStop}
+                        onReboot={onReboot}
+                        onDelete={onDelete}
                     />
                 )
             },

@@ -1,16 +1,16 @@
 import { Router } from 'express';
 import { AppDataSource } from '../config/database';
-import { VrCacheBasic } from '../entities/VrCacheBasic';
-import { VrCacheExtended } from '../entities/VrCacheExtended';
-import { VrCacheDevice } from '../entities/VrCacheDevice';
-import { VrCacheService } from '../services/VrCacheService';
+import { VRCacheBasic } from '../entities/vRouter/VRCacheBasic';
+import { VRCacheExtended } from '../entities/vRouter/VRCacheExtended';
+import { VRCacheDevice } from '../entities/vRouter/VRCacheDevice';
+import { VRCacheService } from '../services/VRCacheService';
 
 export const vrCacheRoutes = Router();
 
 // Trigger sync manually
 vrCacheRoutes.post('/refresh', async (req, res) => {
   try {
-    await VrCacheService.getInstance().syncAll();
+    await VRCacheService.getInstance().syncAll();
     res.json({ message: '同步任务已触发', status: 'ok' });
   } catch (err: any) {
     console.error('[VR_SYNC] Manual sync error', err);
@@ -27,9 +27,9 @@ vrCacheRoutes.get('/pagelist', async (req, res) => {
     // 1. 读取三个表的全量数据 (假设数据量不大，全部读入内存合并)
     // 如果数据量巨大，应该使用 SQL Join，但 TypeORM 对 JSON 字段的解析在 SQL 层比较麻烦
     // 且当前需求是 "以 VR1 为主键"，内存合并灵活性更高
-    const basicRepo = AppDataSource.getRepository(VrCacheBasic);
-    const extendedRepo = AppDataSource.getRepository(VrCacheExtended);
-    const deviceRepo = AppDataSource.getRepository(VrCacheDevice);
+    const basicRepo = AppDataSource.getRepository(VRCacheBasic);
+    const extendedRepo = AppDataSource.getRepository(VRCacheExtended);
+    const deviceRepo = AppDataSource.getRepository(VRCacheDevice);
 
     const [basicRows, extendedRows, deviceRows] = await Promise.all([
       basicRepo.find(),

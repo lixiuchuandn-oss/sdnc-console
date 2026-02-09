@@ -1,23 +1,23 @@
 import { AppDataSource } from '../config/database';
 import { vrController } from './vrController';
-import { VRConfig } from '../entities/VRConfig';
-import { VrCacheBasic } from '../entities/VrCacheBasic';
-import { VrCacheExtended } from '../entities/VrCacheExtended';
-import { VrCacheDevice } from '../entities/VrCacheDevice';
+import { VRConfig } from '../entities/vRouter/VRConfig';
+import { VRCacheBasic } from '../entities/vRouter/VRCacheBasic';
+import { VRCacheExtended } from '../entities/vRouter/VRCacheExtended';
+import { VRCacheDevice } from '../entities/vRouter/VRCacheDevice';
 import { extractRows } from '../utils/apiUtils';
 
-export class VrCacheService {
-  private static instance: VrCacheService;
+export class VRCacheService {
+  private static instance: VRCacheService;
   private isRunning: boolean = false;
   private timer: NodeJS.Timeout | null = null;
 
   private constructor() {}
 
-  public static getInstance(): VrCacheService {
-    if (!VrCacheService.instance) {
-      VrCacheService.instance = new VrCacheService();
+  public static getInstance(): VRCacheService {
+    if (!VRCacheService.instance) {
+      VRCacheService.instance = new VRCacheService();
     }
-    return VrCacheService.instance;
+    return VRCacheService.instance;
   }
 
   /**
@@ -69,7 +69,7 @@ export class VrCacheService {
   // 同步 VR1 基础信息 (CSMCTL -> VrCacheBasic)
   private async syncBasicCache() {
     console.log('[VR_SYNC] 开始同步 VR1 基础信息...');
-    const repo = AppDataSource.getRepository(VrCacheBasic);
+    const repo = AppDataSource.getRepository(VRCacheBasic);
 
     try {
       // 拉取全量 (假设不超过 1000)
@@ -130,7 +130,7 @@ export class VrCacheService {
   // 同步 VR3 扩展信息 (CSMCTL -> VrCacheExtended)
   private async syncExtendedCache() {
     console.log('[VR_SYNC] 开始同步 VR3 扩展信息...');
-    const repo = AppDataSource.getRepository(VrCacheExtended);
+    const repo = AppDataSource.getRepository(VRCacheExtended);
 
     try {
       // 拉取全量
@@ -175,7 +175,7 @@ export class VrCacheService {
   // 同步本地 SASE 设备配置 (DB -> VrCacheDevice)
   private async syncDeviceCache() {
     console.log('[VR_SYNC] 开始同步本地设备配置...');
-    const deviceRepo = AppDataSource.getRepository(VrCacheDevice);
+    const deviceRepo = AppDataSource.getRepository(VRCacheDevice);
     const configRepo = AppDataSource.getRepository(VRConfig);
 
     try {
