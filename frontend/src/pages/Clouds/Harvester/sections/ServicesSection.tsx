@@ -10,7 +10,7 @@ interface Props {
   cloudId: string;
   services: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh }) => {
@@ -151,7 +151,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
             onChange={setTableColumns}
             settingsKey="harvester_services_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
         </div>
       }
     >

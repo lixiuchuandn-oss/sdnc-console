@@ -97,6 +97,8 @@ export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
     version: (cloud.config as any)?.harvesterVersion,
   } as any);
 
+  console.log(`[Harvester-Sync] ${cloud.name}: 镜像同步完成，共 ${items.length} 条`);
+
   const repo = AppDataSource.getRepository(HarvesterImageInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid || item.id,
@@ -122,9 +124,11 @@ export const syncHarvesterScheduleVmBackups = async (cloud: any, insecure: boole
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    console.warn(`[Sync] ScheduleVmBackups fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: 定时备份策略获取失败:`, e.message);
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 定时备份策略同步完成，共 ${items.length} 条`);
 
   // Filter out items that are marked for deletion
   const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
@@ -156,11 +160,13 @@ export const syncHarvesterTemplates = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Sync] Skipping Templates for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过模板同步 (401 未授权)`);
       return;
     }
     throw e;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 模板同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterTemplateInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -182,9 +188,11 @@ export const syncHarvesterUsbResources = async (cloud: any, insecure: boolean) =
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    console.warn(`[Sync] USB Resources fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: USB设备获取失败:`, e.message);
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: USB设备同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterUsbInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -210,11 +218,13 @@ export const syncHarvesterLoadBalancers = async (cloud: any, insecure: boolean) 
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Sync] Skipping LoadBalancers for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过负载均衡器同步 (401 未授权)`);
       return;
     }
     throw e;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 负载均衡器同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(KubevirtLoadBalancerInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -243,10 +253,12 @@ export const syncHarvesterLoadBalancerIPPools = async (cloud: any, insecure: boo
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) {
       return;
     }
-    console.warn(`[Sync] IPPools fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: 负载均衡IP池获取失败:`, e.message);
     // Non-critical, continue
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 负载均衡IP池同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterLoadBalancerIPPoolInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -268,6 +280,8 @@ export const syncKubevirtVms = async (cloud: any, insecure: boolean) => {
     insecure,
     version: (cloud.config as any)?.harvesterVersion,
   } as any);
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 虚拟机同步完成，共 ${items.length} 条`);
 
   // Calculate origin for view links fallback
   const base = (cloud.endpoint || '').replace(/\/+$/, '');
@@ -306,6 +320,8 @@ export const syncKubevirtVmis = async (cloud: any, insecure: boolean) => {
     version: (cloud.config as any)?.harvesterVersion,
   } as any);
 
+  console.log(`[Harvester-Sync] ${cloud.name}: 虚拟机实例同步完成，共 ${items.length} 条`);
+
   const repo = AppDataSource.getRepository(HarvesterVmiInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid,
@@ -334,6 +350,8 @@ export const syncHarvesterVolumes = async (cloud: any, insecure: boolean) => {
     insecure,
   } as any);
 
+  console.log(`[Harvester-Sync] ${cloud.name}: 存储卷同步完成，共 ${items.length} 条`);
+
   const repo = AppDataSource.getRepository(KubevirtVolumeInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid || item.id,
@@ -357,6 +375,8 @@ export const syncHarvesterNads = async (cloud: any, insecure: boolean) => {
     insecure,
   } as any);
 
+  console.log(`[Harvester-Sync] ${cloud.name}: 网络定义同步完成，共 ${items.length} 条`);
+
   const repo = AppDataSource.getRepository(KubevirtNadInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid || item.id,
@@ -379,6 +399,8 @@ export const syncKubeOvnVpcs = async (cloud: any, insecure: boolean) => {
     version: (cloud.config as any)?.harvesterVersion,
   } as any);
 
+  console.log(`[Harvester-Sync] ${cloud.name}: VPC同步完成，共 ${items.length} 条`);
+
   const repo = AppDataSource.getRepository(KubeOvnVpcInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid || item.id,
@@ -399,6 +421,8 @@ export const syncKubeOvnSubnets = async (cloud: any, insecure: boolean) => {
     insecure,
     version: (cloud.config as any)?.harvesterVersion,
   } as any);
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 子网同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -423,6 +447,8 @@ export const syncHarvesterGpus = async (cloud: any, insecure: boolean) => {
     insecure,
   } as any);
 
+  console.log(`[Harvester-Sync] ${cloud.name}: GPU同步完成，共 ${items.length} 条`);
+
   const repo = AppDataSource.getRepository(HarvesterGpuInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.uid || item.raw?.metadata?.uid || `${item.nodeName}-${item.address}`, // Fallback ID
@@ -442,6 +468,8 @@ export const syncHarvesterNamespaces = async (cloud: any, insecure: boolean) => 
     token: cloud.secretKey,
     insecure,
   } as any);
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 命名空间同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -463,9 +491,11 @@ export const syncHarvesterNodes = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    console.warn(`[Sync] Nodes fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: 节点列表获取失败:`, e.message);
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 节点同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterNodeInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -501,11 +531,13 @@ export const syncHarvesterStorageClasses = async (cloud: any, insecure: boolean)
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Sync] Skipping StorageClasses for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过存储类同步 (401 未授权)`);
       return;
     }
     throw e;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 存储类同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(KubevirtStorageClassInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -533,11 +565,13 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Sync] Skipping Snapshots for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过快照同步 (401 未授权)`);
       return;
     }
     throw e;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 快照同步完成，共 ${items.length} 条`);
 
   // Filter out items that are marked for deletion
   const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
@@ -568,11 +602,13 @@ export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Sync] Skipping Backups for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过备份同步 (401 未授权)`);
       return;
     }
     throw e;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 备份同步完成，共 ${items.length} 条`);
 
   // Filter out items that are marked for deletion
   const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
@@ -601,11 +637,13 @@ export const syncHarvesterSshKeys = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Sync] Skipping SSH Keys for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过SSH密钥同步 (401 未授权)`);
       return;
     }
     throw e;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: SSH密钥同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterSshKeyInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -630,11 +668,13 @@ export const syncHarvesterCloudInits = async (cloud: any, insecure: boolean) => 
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Sync] Skipping Cloud Inits for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过CloudInit配置同步 (401 未授权)`);
       return;
     }
     throw e;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: CloudInit配置同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterCloudInitInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -658,11 +698,13 @@ export const syncHarvesterIngresses = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Sync] Skipping Ingresses for cloud ${cloud.name} (${cloud.id}) due to 401 Unauthorized`);
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过路由同步 (401 未授权)`);
       return;
     }
     throw e;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 路由同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(KubeOvnIngressInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -687,9 +729,11 @@ export const syncHarvesterPciDevices = async (cloud: any, insecure: boolean) => 
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    console.warn(`[Sync] PCI Devices fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: PCI设备获取失败:`, e.message);
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: PCI设备同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterPciDeviceInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -716,9 +760,11 @@ export const syncHarvesterCapabilities = async (cloud: any, insecure: boolean) =
       insecure,
     } as any);
   } catch (e: any) {
-    console.warn(`[Sync] Capabilities fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: 功能集获取失败:`, e.message);
     return;
   }
+  
+  console.log(`[Harvester-Sync] ${cloud.name}: 功能集同步完成，共 ${item ? 1 : 0} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterCapabilityInventory);
   if (item) {
@@ -741,9 +787,11 @@ export const syncHarvesterServices = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    console.warn(`[Sync] Services fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: 服务(Service)获取失败:`, e.message);
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 服务(Service)同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterServiceInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -772,9 +820,11 @@ export const syncKubeOvnEips = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    console.warn(`[Sync] OVN EIPs fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: EIP获取失败:`, e.message);
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: EIP同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(KubeOvnEipInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -803,9 +853,11 @@ export const syncKubeOvnFips = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    console.warn(`[Sync] OVN FIPs fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: FIP获取失败:`, e.message);
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: FIP同步完成，共 ${items.length} 条`);
 
   const repo = AppDataSource.getRepository(KubeOvnFipInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
@@ -838,9 +890,11 @@ export const syncKubeOvnNatRules = async (cloud: any, insecure: boolean) => {
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
-    console.warn(`[Sync] OVN NAT Rules fetch failed for ${cloud.name}:`, e.message);
+    console.warn(`[Harvester-Sync] ${cloud.name}: NAT规则获取失败:`, e.message);
     return;
   }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: NAT规则同步完成，共 ${snatItems.length + dnatItems.length} 条`);
 
   // Combine them, marking type
   const combined = [

@@ -10,7 +10,7 @@ import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 type Props = {
   nads: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
   cloudId?: string;
 };
 
@@ -227,7 +227,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
             onChange={setTableColumns}
             settingsKey="harvester_nads_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} loading={loading} />
         </>
       )}
     >

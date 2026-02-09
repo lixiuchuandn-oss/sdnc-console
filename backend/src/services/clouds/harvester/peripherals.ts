@@ -30,7 +30,7 @@ export const listHarvesterGpuResources = async ({
   }
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -39,7 +39,10 @@ export const listHarvesterGpuResources = async ({
     const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
     const any = local || cItems[0];
     clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
-  } catch {}
+  } catch {
+    // Suppress cluster fetch errors (404/403)
+  }
+
   const kvCandidates = [
     ...(clusterId
       ? [
@@ -55,7 +58,7 @@ export const listHarvesterGpuResources = async ({
   let kv: any = null;
   for (const url of kvCandidates) {
     try {
-      const json = await getJsonOnce(url, token, insecure);
+      const json = await getJsonOnce(url, token, insecure, true);
       if (json && (json?.metadata || json?.spec || json?.configuration)) {
         kv = json;
         break;
@@ -117,7 +120,7 @@ export const listHarvesterGpuResources = async ({
   let pciJson: any = null;
   for (const url of pciDevCandidates) {
     try {
-      const j = await getJsonOnce(url, token, insecure);
+      const j = await getJsonOnce(url, token, insecure, true);
       if (j) {
         pciJson = j;
         break;
@@ -203,7 +206,7 @@ export const listHarvesterPciDevices = async ({
   
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -223,6 +226,7 @@ export const listHarvesterPciDevices = async ({
       : []),
     `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices`,
     `${origin}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
+    `${origin}/apis/devices.harvesterhci.io/v1beta1/pcidevices`, // Added fallback
     `${origin}/v1/harvester/pcidevices.harvesterhci.io.pcidevices`,
     `${origin}/v1/harvester/devices.harvesterhci.io.pcidevices`,
     ...(clusterId
@@ -234,12 +238,14 @@ export const listHarvesterPciDevices = async ({
   let pciJson: any = null;
   for (const url of pciDevCandidates) {
     try {
-      const j = await getJsonOnce(url, token, insecure);
+      const j = await getJsonOnce(url, token, insecure, true);
       if (j) {
         pciJson = j;
         break;
       }
-    } catch {}
+    } catch (e: any) {
+      // Suppress 404 errors during probing
+    }
   }
   const pciItems = Array.isArray(pciJson?.data)
     ? pciJson?.data
@@ -312,7 +318,7 @@ export const listHarvesterUsbResources = async ({
     `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent('kubevirt')}/kubevirts/${encodeURIComponent('kubevirt')}`,
   ];
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -337,7 +343,7 @@ export const listHarvesterUsbResources = async ({
   let kv: any = null;
   for (const url of candidates) {
     try {
-      const json = await getJsonOnce(url, token, insecure);
+      const json = await getJsonOnce(url, token, insecure, true);
       if (json && (json?.metadata || json?.spec || json?.configuration)) {
         kv = json;
         break;

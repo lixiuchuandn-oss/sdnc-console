@@ -135,6 +135,7 @@ export const harvesterAddVolumeToVM = async (
           `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(guessNs)}/${encodeURIComponent(guessName)}`,
           token,
           insecure,
+          true,
         );
         if (probe && (probe?.metadata?.name || probe?.name)) {
           path = { namespace: guessNs, name: guessName };
@@ -156,7 +157,7 @@ export const harvesterAddVolumeToVM = async (
     ];
     for (const p of candidates) {
       try {
-        const j = await getJsonOnce(p, token, insecure);
+        const j = await getJsonOnce(p, token, insecure, true);
         const k = j?.status?.kubernetesStatus?.pvcName || '';
         const pv = j?.status?.kubernetesStatus?.pvName || '';
         if (typeof k === 'string' && k.trim()) {
@@ -177,7 +178,7 @@ export const harvesterAddVolumeToVM = async (
       ];
       for (const u of urls) {
         try {
-          const j = await getJsonOnce(u, token, insecure);
+          const j = await getJsonOnce(u, token, insecure, true);
           const pv = j?.spec?.volumeName || '';
           if (typeof pv === 'string' && pv.trim()) {
             pvName = String(pv).trim();
@@ -283,7 +284,7 @@ export const harvesterAddVolumeToVMDirect = async (
       let listJson: any = null;
       for (const u of candidatesAll) {
         try {
-          listJson = await getJsonOnce(u, token, insecure);
+          listJson = await getJsonOnce(u, token, insecure, true);
           if (listJson) break;
         } catch {}
       }
@@ -337,7 +338,7 @@ export const harvesterAddVolumeToVMDirect = async (
       ];
       for (const u of urls) {
         try {
-          const j = await getJsonOnce(u, token, insecure);
+          const j = await getJsonOnce(u, token, insecure, true);
           const pv = j?.spec?.volumeName || '';
           if (typeof pv === 'string' && pv.trim()) {
             pvName = String(pv).trim();

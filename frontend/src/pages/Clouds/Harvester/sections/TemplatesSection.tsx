@@ -9,7 +9,7 @@ interface Props {
   cloudId: string;
   templates: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, onRefresh }) => {
@@ -80,7 +80,7 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
           {onRefresh && (
             <Button 
               icon={<ReloadOutlined />} 
-              onClick={onRefresh} 
+              onClick={() => onRefresh?.(true)} 
               loading={loading}
             />
           )}

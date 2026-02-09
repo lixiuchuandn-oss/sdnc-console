@@ -85,9 +85,9 @@ export const fetchHarvesterBackups = async (cloudId: string, force = false) => {
   return await res.json();
 };
 
-export const fetchHarvesterSshKeys = async (cloudId: string) => {
+export const fetchHarvesterSshKeys = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/sshkeys`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/sshkeys${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -98,9 +98,9 @@ export const fetchHarvesterSshKeys = async (cloudId: string) => {
 
 
 
-export const fetchHarvesterCloudInits = async (cloudId: string) => {
+export const fetchHarvesterCloudInits = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/cloudinits`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/cloudinits${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -109,9 +109,9 @@ export const fetchHarvesterCloudInits = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchHarvesterIngresses = async (cloudId: string) => {
+export const fetchHarvesterIngresses = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/ingresses`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/ingresses${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -120,9 +120,9 @@ export const fetchHarvesterIngresses = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchHarvesterServices = async (cloudId: string) => {
+export const fetchHarvesterServices = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/services`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/services${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -131,9 +131,9 @@ export const fetchHarvesterServices = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchHarvesterTemplates = async (cloudId: string) => {
+export const fetchHarvesterTemplates = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/templates`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/templates${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -142,9 +142,9 @@ export const fetchHarvesterTemplates = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchHarvesterIPPools = async (cloudId: string) => {
+export const fetchHarvesterIPPools = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ippools`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ippools${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -263,9 +263,9 @@ export const fetchHarvesterSystemPods = async (cloudId: string, params: { page: 
   return await res.json();
 };
 
-export const fetchCloudProviderOvnEips = async (cloudId: string) => {
+export const fetchCloudProviderOvnEips = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovneips`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovneips${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -274,9 +274,9 @@ export const fetchCloudProviderOvnEips = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchCloudProviderOvnFips = async (cloudId: string) => {
+export const fetchCloudProviderOvnFips = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovnfips`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovnfips${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -285,9 +285,9 @@ export const fetchCloudProviderOvnFips = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchCloudProviderOvnSnatRules = async (cloudId: string) => {
+export const fetchCloudProviderOvnSnatRules = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovnsnatrules`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovnsnatrules${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -296,9 +296,9 @@ export const fetchCloudProviderOvnSnatRules = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchCloudProviderOvnDnatRules = async (cloudId: string) => {
+export const fetchCloudProviderOvnDnatRules = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovndnatrules`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ovndnatrules${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -467,9 +467,9 @@ export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
   return await res.json();
 };
 
-export const fetchHarvesterNamespaces = async (cloudId: string) => {
+export const fetchHarvesterNamespaces = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -531,9 +531,10 @@ export const deleteHarvesterNamespace = async (cloudId: string, name: string) =>
   return await res.json();
 };
 
-export const fetchHarvesterVolumes = async (cloudId: string) => {
+export const fetchHarvesterVolumes = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/volumes`, {
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/volumes${force ? '?force=true' : ''}`;
+  const res = await fetch(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -554,9 +555,9 @@ export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?
   return await res.json();
 };
 
-export const fetchHarvesterStorageClasses = async (cloudId: string) => {
+export const fetchHarvesterStorageClasses = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/storage-classes`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/storage-classes${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -576,9 +577,10 @@ export const fetchHarvesterStorageClassDetail = async (cloudId: string, name: st
   return await res.json();
 };
 
-export const fetchHarvesterImages = async (cloudId: string) => {
+export const fetchHarvesterImages = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images`, {
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images${force ? '?force=true' : ''}`;
+  const res = await fetch(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -642,7 +644,7 @@ export const attachHarvesterVolumeToVmByName = async (
   return await res.json();
 };
 
-export const exportHarvesterImageFromVolume = async (cloudId: string, namespace: string, pvcName: string, payload: { displayName?: string; targetStorageClassName?: string }) => {
+export const exportHarvesterImageFromVolume = async (cloudId: string, namespace: string, pvcName: string, payload: { displayName?: string; targetStorageClassName?: string; namespace?: string }) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(pvcName)}/export-image`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload||{}), credentials: 'include'
@@ -770,9 +772,9 @@ export const updateHarvesterImage = async (cloudId: string, namespace: string, n
   return await res.json();
 };
 
-export const fetchHarvesterNodes = async (cloudId: string) => {
+export const fetchHarvesterNodes = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/nodes`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/nodes${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -803,9 +805,9 @@ export const fetchHarvesterVmDetail = async (cloudId: string, namespace: string,
   return await res.json();
 };
 
-export const fetchKubeOvnVpcs = async (cloudId: string) => {
+export const fetchKubeOvnVpcs = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -814,9 +816,9 @@ export const fetchKubeOvnVpcs = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchKubeOvnSubnets = async (cloudId: string) => {
+export const fetchKubeOvnSubnets = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -825,9 +827,9 @@ export const fetchKubeOvnSubnets = async (cloudId: string) => {
   return await res.json();
 };
 
-export const fetchHarvesterGpuResources = async (cloudId: string) => {
+export const fetchHarvesterGpuResources = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/gpus`, {
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/gpus${force ? '?force=true' : ''}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',

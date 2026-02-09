@@ -9,7 +9,7 @@ import MetadataModal from './MetadataModal';
 interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
 }
 
 interface EipSectionProps extends BaseSectionProps {
@@ -36,7 +36,7 @@ export const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, subnets, 
       message.success('EIP 创建成功');
       setIsCreateVisible(false);
       form.resetFields();
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       let errMsg = e.message || '创建失败';
       try {
@@ -68,7 +68,7 @@ export const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, subnets, 
           try {
             await deleteCloudProviderOvnEip(cloudId, record.metadata?.name);
             message.success('删除成功');
-            onRefresh();
+            onRefresh(true);
           } catch (e: any) {
             message.error(`删除失败: ${e.message}`);
           }
@@ -101,7 +101,7 @@ export const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, subnets, 
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
         <Space>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateVisible(true)}>创建EIP</Button>
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading}>刷新</Button>
         </Space>
       </div>
       <Table 

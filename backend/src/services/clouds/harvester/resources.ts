@@ -24,8 +24,12 @@ export const listHarvesterPVCRaw = async ({
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
-      if (json) break;
+      if (json) {
+        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        break;
+      }
     } catch (e: any) {
+      console.warn(`[Harvester-API] 存储卷从 ${url} 获取失败: ${e.message}`);
       lastErr = e;
     }
   }
@@ -85,8 +89,12 @@ export const listHarvesterAvailableVolumesStandard = async (
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
-      if (json) break;
+      if (json) {
+        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        break;
+      }
     } catch (e: any) {
+      console.warn(`[Harvester可用卷] 获取失败: 请求地址=${url} 错误=${e.message}`);
       lastErr = e;
     }
   }
@@ -144,8 +152,12 @@ export const listHarvesterStorageClassesStandard = async ({
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
-      if (json) break;
+      if (json) {
+        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        break;
+      }
     } catch (e: any) {
+      console.warn(`[Harvester-API] 存储类获取失败: 请求地址=${url} 错误=${e.message}`);
       lastErr = e;
     }
   }
@@ -199,25 +211,22 @@ export const listHarvesterImagesRaw = async ({
       ];
   }
 
-  console.log(`[HarvesterImages] Fetching images for namespace '${namespace || 'all'}'. Origin: ${origin}. Candidates: ${JSON.stringify(candidates)}`);
-
   let json: any = null;
   let lastErr: any = null;
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
       if (json) {
-        console.log(`[HarvesterImages] Successfully fetched from ${url}. Items count: ${Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0)}`);
         break;
       }
     } catch (e: any) {
-      console.warn(`[HarvesterImages] Failed to fetch from ${url}: ${e.message}`);
+      console.warn(`[Harvester-API] 镜像从 ${url} 获取失败: ${e.message}`);
       lastErr = e;
     }
   }
 
   if (!json && lastErr) {
-    console.error(`listHarvesterImagesRaw failed: ${lastErr?.message || lastErr}`);
+    console.error(`[Harvester镜像] listHarvesterImagesRaw 执行失败: ${lastErr?.message || lastErr}`);
     return [];
   }
 
@@ -253,7 +262,7 @@ export const listHarvesterImagesStandard = async ({
   let hitUrl: string | null = null;
   for (const url of candidates) {
     try {
-      json = await getJsonOnce(url, token, insecure);
+      json = await getJsonOnce(url, token, insecure, true);
       hitUrl = url;
       if (json) break;
     } catch (e: any) {
@@ -261,7 +270,7 @@ export const listHarvesterImagesStandard = async ({
     }
   }
   if (!json && lastErr) {
-    console.error(`listHarvesterImagesStandard failed: ${lastErr?.message || lastErr}`);
+    console.error(`[Harvester-API] listHarvesterImagesStandard 执行失败: ${lastErr?.message || lastErr}`);
     json = { items: [], data: [] };
   }
   const items = Array.isArray(json?.data)
@@ -269,20 +278,7 @@ export const listHarvesterImagesStandard = async ({
     : Array.isArray(json?.items)
       ? json?.items
       : [];
-  try {
-    const topKeys = Object.keys(json || {});
-    const dataKeys = Object.keys(json?.data || {});
-    const itemsLen = Array.isArray(items) ? items.length : 0;
-    console.info(
-      `listHarvesterImagesStandard url=${hitUrl || candidates[candidates.length - 1]} insecure=${insecure} itemsLen=${itemsLen} topKeys=${topKeys.join(',')} dataKeys=${dataKeys.join(',')}`,
-    );
-    if (itemsLen === 0) {
-      const msg = typeof json?.message === 'string' ? json.message : '';
-      console.warn(
-        `listHarvesterImagesStandard empty url=${hitUrl} insecure=${insecure} message=${msg}`,
-      );
-    }
-  } catch {}
+
   return items.map((img: any) => ({
     name: img?.metadata?.name || img?.name || '',
     namespace: img?.metadata?.namespace || img?.namespace || '',
@@ -620,6 +616,7 @@ export const clonePVC = async (
 export const createHarvesterNamespace = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   name: string,
+  annotations?: Record<string, string>,
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -640,6 +637,7 @@ export const createHarvesterNamespace = async (
       labels: {
         'kubernetes.io/metadata.name': name,
       },
+      annotations: annotations,
     },
   };
 
@@ -865,9 +863,29 @@ export const listHarvesterSnapshotsStandard = async ({
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   
-  const url = `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinesnapshots`;
-  const json = await getJsonOnce(url, token, insecure);
-  return Array.isArray(json?.items) ? json.items : [];
+  // Try v1beta1 first, then fallback to v1alpha1
+  const candidates = [
+    `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinesnapshots`,
+    `${origin}/apis/harvesterhci.io/v1alpha1/virtualmachinesnapshots`,
+    `${origin}/v1/harvester/harvesterhci.io.virtualmachinesnapshots`
+  ];
+
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      if (json && (Array.isArray(json.items) || Array.isArray(json.data))) {
+        return json.items || json.data || [];
+      }
+    } catch (e: any) {
+      // 404 means this version is not supported, continue to next
+      if (Number(e?.status) !== 404 && !String(e?.message).includes('404')) {
+         // Log non-404 errors as warnings but don't crash
+         console.warn(`[Harvester] Snapshot list warning for ${url}: ${e.message}`);
+      }
+    }
+  }
+
+  return [];
 };
 
 export const listHarvesterBackupsStandard = async ({

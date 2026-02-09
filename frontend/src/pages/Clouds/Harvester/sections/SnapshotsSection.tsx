@@ -9,7 +9,7 @@ interface Props {
   cloudId: string;
   snapshots: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefresh }) => {
@@ -53,7 +53,7 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
         try {
           await deleteHarvesterSnapshot(cloudId, record.namespace, record.name);
           message.success('删除成功');
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -108,7 +108,7 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
       )}
       toolbarRight={
         <>
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
         </>
       }
     >

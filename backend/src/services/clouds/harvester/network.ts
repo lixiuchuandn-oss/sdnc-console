@@ -63,6 +63,8 @@ export const listHarvesterNADsStandard = async ({
   const candidates = [
     `${origin}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions`,
     `${origin}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions`,
+    `${origin}/apis/k8s.cni.cncf.io/v1/network-attachment-definitions`,
+    `${origin}/apis/k8s.cni.cncf.io/v1/networkattachmentdefinitions`,
   ];
   let json: any = null;
   let lastErr: any = null;
@@ -70,9 +72,14 @@ export const listHarvesterNADsStandard = async ({
   // 策略 A: 尝试列出所有 (Cluster 级别)
   for (const url of candidates) {
     try {
-      json = await getJsonOnce(url, token, insecure);
-      if (json) break;
+      json = await getJsonOnce(url, token, insecure, true);
+      if (json) {
+        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        break;
+      }
     } catch (e: any) {
+      // 仅在 debug 模式或所有尝试都失败后才作为警告/错误输出，此处仅记录过程
+      // console.debug(`[Harvester网络] 尝试路径失败 (将重试下一个): 请求地址=${url} 错误=${e.message}`);
       lastErr = e;
     }
   }
@@ -87,8 +94,11 @@ export const listHarvesterNADsStandard = async ({
           ? `${baseUrl}&namespace=${encodeURIComponent(ns)}`
           : `${baseUrl}?namespace=${encodeURIComponent(ns)}`;
         try {
-          json = await getJsonOnce(u, token, insecure);
-          if (json) break;
+          json = await getJsonOnce(u, token, insecure, true);
+          if (json) {
+             const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+             break;
+          }
         } catch (e: any) {
           lastErr = e;
         }
@@ -102,6 +112,10 @@ export const listHarvesterNADsStandard = async ({
     const s = Number((lastErr as any)?.status || 0);
     const m = String((lastErr as any)?.message || '').toLowerCase();
     const b = String((lastErr as any)?.body || '').toLowerCase();
+    
+    // 只有在最终完全失败时，才打印警告日志
+    console.warn(`[Harvester-API] NAD列表所有路径均获取失败: 最终错误=${m} 状态码=${s}`);
+
     if (s === 401 || m.includes('unauthorized') || b.includes('unauthorized')) return [];
     if (s === 404 || m.includes('not found') || b.includes('not found')) return [];
     throw lastErr;
@@ -152,8 +166,12 @@ export const listKubeOvnSubnets = async ({
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
-      if (json) break;
+      if (json) {
+        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        break;
+      }
     } catch (e: any) {
+      console.warn(`[Harvester-API] 子网列表获取失败: 请求地址=${url} 错误=${e.message}`);
       lastErr = e;
     }
   }
@@ -220,8 +238,12 @@ export const listKubeOvnVpcs = async ({
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
-      if (json) break;
+      if (json) {
+        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        break;
+      }
     } catch (e: any) {
+      console.warn(`[Harvester-API] VPC列表获取失败: 请求地址=${url} 错误=${e.message}`);
       lastErr = e;
     }
   }
@@ -308,6 +330,7 @@ export const listHarvesterLoadBalancers = async ({
       json = await getJsonOnce(url, token, insecure);
       if (json) break;
     } catch (e: any) {
+      console.warn(`[Harvester-API] 负载均衡器获取失败: 请求地址=${url} 错误=${e.message}`);
       lastErr = e;
     }
   }

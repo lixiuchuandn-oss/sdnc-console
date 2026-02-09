@@ -4,6 +4,7 @@ import PageContainer from '../../components/PageContainer';
 import { useNavigate, useParams } from 'react-router-dom';
 import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud } from '../../services/api';
 import { fetchCloudProviderEnis } from '../../services/aliyunApi';
+import { cnVmStatus } from '../../utils/harvesterUtils';
 
 const InstanceDetail: React.FC = () => {
   const navigate = useNavigate();
@@ -91,7 +92,7 @@ const InstanceDetail: React.FC = () => {
     <Descriptions bordered column={2} size="small">
       <Descriptions.Item label="实例ID">{instanceId}</Descriptions.Item>
       <Descriptions.Item label="实例名">{instance?.name || instance?.InstanceName || '-'}</Descriptions.Item>
-      <Descriptions.Item label="状态">{instance?.status || instance?.Status || '-'}</Descriptions.Item>
+      <Descriptions.Item label="状态">{cnVmStatus(instance?.status || instance?.Status)}</Descriptions.Item>
       <Descriptions.Item label="规格">{instance?.instanceType || instance?.InstanceType || '-'}</Descriptions.Item>
       <Descriptions.Item label="可用区">{instance?.zoneId || instance?.ZoneId || '-'}</Descriptions.Item>
       <Descriptions.Item label="VPC">{(instance?.extra?.vpcName || instance?.VpcId || instance?.VpcAttributes?.VpcId || '-') as any}</Descriptions.Item>
@@ -155,7 +156,7 @@ const InstanceDetail: React.FC = () => {
           <Descriptions bordered column={2} size="small">
             <Descriptions.Item label="命名空间">{detail?.metadata?.namespace || '-'}</Descriptions.Item>
             <Descriptions.Item label="名称">{detail?.metadata?.name || '-'}</Descriptions.Item>
-            <Descriptions.Item label="状态">{status?.printableStatus || status?.phase || '-'}</Descriptions.Item>
+            <Descriptions.Item label="状态">{cnVmStatus(status?.printableStatus || status?.phase)}</Descriptions.Item>
             <Descriptions.Item label="节点">{status?.nodeName || '-'}</Descriptions.Item>
             <Descriptions.Item label="镜像">{(() => { const ann = detail?.metadata?.annotations || {}; const volTpl = ann['harvesterhci.io/volumeClaimTemplates']; return volTpl ? '模板中包含镜像PVC' : '-' })()}</Descriptions.Item>
           </Descriptions>

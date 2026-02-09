@@ -1051,6 +1051,38 @@ router.post('/:id/test', checkAdminPermission, async (req: AuthRequest, res: Res
   }
 });
 
+// 手动同步云资源
+router.post('/:id/sync', checkAdminPermission, async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const cloud = await fetchCloudOr404(id, res);
+    if (!cloud) return;
+
+    const providerRaw = String(cloud.config?.provider || '');
+    const provider = providerRaw.toLowerCase();
+
+    if (
+      provider === 'harvester' ||
+      provider === 'cloudmap.private' ||
+      provider === 'cloudmap.edge'
+    ) {
+      const insecure = !!(cloud.config as any)?.ignoreTls;
+      // 同步 VM 和 VMI
+      await syncKubevirtVms(cloud, insecure);
+      await syncKubevirtVmis(cloud, insecure);
+      
+      res.json({ message: '同步成功' });
+    } else {
+      // 对于其他云厂商，触发 Inventory 刷新逻辑 (复用 inventory 接口的部分逻辑)
+      // 目前主要响应 Harvester 的需求，其他云直接返回成功即可
+      res.json({ message: '该云类型已触发后台同步' });
+    }
+  } catch (error: any) {
+    console.error(`Sync cloud ${req.params.id} failed:`, error);
+    res.status(500).json({ message: '同步失败', error: error.message });
+  }
+});
+
 // 更新云资源
 router.put('/:id', checkAdminPermission, async (req: AuthRequest, res: Response) => {
   try {

@@ -9,7 +9,7 @@ interface Props {
   cloudId: string;
   resources: any[];
   loading?: boolean;
-  onRefresh: () => void | Promise<void>;
+  onRefresh: (force?: boolean) => void | Promise<void>;
   raw?: any;
   showLog?: boolean;
 }
@@ -166,10 +166,8 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
             />
             <Button
               icon={<ReloadOutlined />}
-              onClick={async () => {
-                try { setRefreshing(true); await Promise.resolve(onRefresh()); }
-                finally { setRefreshing(false); }
-              }}
+              onClick={() => onRefresh(true)}
+              loading={loading}
             />
           </>
         )}

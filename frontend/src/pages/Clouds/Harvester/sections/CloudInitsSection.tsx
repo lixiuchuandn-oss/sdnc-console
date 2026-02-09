@@ -9,7 +9,7 @@ interface Props {
   cloudId: string;
   cloudInits: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRefresh }) => {
@@ -81,7 +81,7 @@ const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRe
             onChange={setTableColumns}
             settingsKey="harvester_cloud_inits_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
         </>
       )}
     >

@@ -9,6 +9,7 @@ import { UserSpace } from '../entities/UserSpace';
 import { UserSpaceAllocation } from '../entities/UserSpaceAllocation';
 import { TenantLeasedLine } from '../entities/TenantLeasedLine';
 import { Cloud } from '../entities/Cloud';
+import { HarvesterNamespaceInventory } from '../entities/harvester/HarvesterNamespaceInventory';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { createHarvesterNamespace, deleteHarvesterNamespace } from '../services/clouds/harvester/client';
 import bcrypt from 'bcryptjs';
@@ -638,6 +639,11 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       return res.status(400).json({ message: '部分资源池不存在' });
     }
 
+    // Fetch Tenant Name for annotations
+    const tenantRepository = AppDataSource.getRepository(Tenant);
+    const tenant = await tenantRepository.findOne({ where: { id: organization.tenantId } });
+    const tenantName = tenant?.name || '';
+
     const isHarvesterLike = (pv: string) => {
       const p = String(pv || '').toLowerCase();
       return p === 'harvester' || p === 'cloudmap.private' || p === 'cloudmap.edge';
@@ -689,16 +695,36 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       for (const pool of harvesterPools) {
         try {
           const config = (pool as any).config || {};
-          // 尝试获取 token: config.token > config.apiToken > pool.accessKey
-          const token = config.token || config.apiToken || pool.accessKey;
+          // 尝试获取 token: config.token > config.apiToken > pool.secretKey > pool.accessKey
+          const token = config.token || config.apiToken || pool.secretKey || pool.accessKey;
           const endpoint = pool.endpoint || config.endpoint;
           const insecure = config.insecure !== undefined ? config.insecure : (config.ignoreTls !== undefined ? config.ignoreTls : false);
 
           if (endpoint && token) {
             for (const ns of namespacesToCreate) {
               try {
-                await createHarvesterNamespace({ endpoint, token, insecure }, ns);
+                const annotations = (ns !== 'default' && ns !== 'cloud-public') ? {
+                  'tower.io/tenant': tenantName,
+                  'tower.io/organization': organization.name
+                } : undefined;
+
+                await createHarvesterNamespace({ endpoint, token, insecure }, ns, annotations);
                 console.log(`已在资源池 ${pool.name} 中自动创建/确认 Namespace: ${ns}`);
+
+                // Update Inventory immediately to ensure visibility without waiting for sync
+                try {
+                    const nsRepo = AppDataSource.getRepository(HarvesterNamespaceInventory);
+                    const existing = await nsRepo.findOne({ where: { cloudId: pool.id, name: ns } });
+                    if (!existing) {
+                         await nsRepo.save({
+                             cloudId: pool.id,
+                             name: ns,
+                             rawData: { metadata: { name: ns, uid: 'pending-sync' } }
+                         });
+                    }
+                } catch (e) {
+                    console.warn(`Failed to update local inventory for namespace ${ns}`, e);
+                }
               } catch (err: any) {
                  const isConflict =
                   err?.response?.status === 409 ||
@@ -855,7 +881,8 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
         };
         const config = (userSpace.cloud as any).config || {};
         if (isHarvesterLike(config.provider)) {
-           const token = config.token || config.apiToken || (userSpace.cloud as any).accessKey;
+           // 优先使用 config.token，其次是 cloud.secretKey (Harvester 常用)，最后是 accessKey
+           const token = config.token || config.apiToken || (userSpace.cloud as any).secretKey || (userSpace.cloud as any).accessKey;
            const endpoint = userSpace.cloud.endpoint || config.endpoint;
            const insecure = config.insecure !== undefined ? config.insecure : (config.ignoreTls !== undefined ? config.ignoreTls : false);
            

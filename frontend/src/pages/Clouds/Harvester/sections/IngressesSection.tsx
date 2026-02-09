@@ -8,7 +8,7 @@ interface Props {
   cloudId: string;
   ingresses: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefresh }) => {
@@ -78,7 +78,7 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
         />
       )}
       toolbarRight={
-        <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading}>刷新</Button>
+        <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
       }
     >
       <Table

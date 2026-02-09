@@ -13,7 +13,7 @@ interface Props {
   cloudId: string;
   data: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const formatAge = (timestamp: string) => {
@@ -45,7 +45,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       const newSuspend = !record.suspended;
       await updateHarvesterScheduleVmBackup(cloudId, record.namespace, record.id, { suspend: newSuspend });
       message.success(`${newSuspend ? '停用' : '启用'}成功`);
-      onRefresh?.();
+      onRefresh?.(true);
     } catch (e: any) {
       message.error(`操作失败: ${e.message}`);
     }
@@ -62,7 +62,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         try {
           await deleteHarvesterScheduleVmBackup(cloudId, record.namespace, record.id);
           message.success('删除成功');
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -237,7 +237,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         toolbarRight={(
            <div className="toolbar-actions">
              <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建定时策略</Button>
-             <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading} />
+             <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
            </div>
         )}
       >
@@ -265,7 +265,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={() => {
           setCreateModalVisible(false);
-          onRefresh?.();
+          onRefresh?.(true);
         }}
       />
 
@@ -276,7 +276,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         onCancel={() => setEditModalVisible(false)}
         onSuccess={() => {
           setEditModalVisible(false);
-          onRefresh?.();
+          onRefresh?.(true);
         }}
       />
     </>

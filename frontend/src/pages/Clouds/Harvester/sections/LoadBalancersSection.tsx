@@ -8,7 +8,7 @@ interface Props {
   cloudId: string;
   services: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const LoadBalancersSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh }) => {
@@ -86,7 +86,7 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, services, loading, onR
         />
       }
       toolbarRight={
-        <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading}>刷新</Button>
+        <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} loading={loading}>刷新</Button>
       }
     >
       <Table

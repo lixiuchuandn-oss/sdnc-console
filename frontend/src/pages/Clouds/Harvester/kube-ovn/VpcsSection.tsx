@@ -12,7 +12,7 @@ interface KubeOvnVpcsSectionProps {
   vpcs: any[];
   subnets?: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 /**
@@ -249,7 +249,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
             onChange={setTableColumns}
             settingsKey="harvester_vpcs_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
         </>
       )}
     >

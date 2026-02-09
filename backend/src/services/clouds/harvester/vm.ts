@@ -22,6 +22,7 @@ export const listKubevirtVMsRaw = async ({
   // Use Harvester API strict mode for now to ensure cleaner code structure
   // as requested by user.
   const candidates = [
+    `${origin}/apis/kubevirt.io/v1/virtualmachines`,
     `${origin}/v1/harvester/kubevirt.io.virtualmachines`, // Harvester/Steve API (Has links/actions)
   ];
 
@@ -29,15 +30,16 @@ export const listKubevirtVMsRaw = async ({
     try {
       const json = await getJsonOnce(url, token, insecure);
       if (json && (Array.isArray(json.items) || Array.isArray(json.data))) {
-        return json.items || json.data;
+        const items = json.items || json.data;
+        return items;
       }
     } catch (e: any) {
+      console.warn(`[Harvester-API] 虚拟机获取失败: 请求地址=${url} 错误=${e.message}`);
       // Continue to next candidate
     }
   }
   
-  // If all failed, try the strict default path but return empty array instead of throwing
-  // to avoid blocking the whole UI if just one API is weird.
+  console.warn(`[Harvester-API] 虚拟机所有地址获取失败或为空`);
   return [];
 };
 
@@ -56,6 +58,7 @@ export const listKubevirtVMsRawWithMeta = async ({
   }
 
   const candidates = [
+    `${origin}/apis/kubevirt.io/v1/virtualmachines`,
     `${origin}/v1/harvester/kubevirt.io.virtualmachines`, // Harvester/Steve API (Has links/actions)
   ];
 
@@ -65,7 +68,7 @@ export const listKubevirtVMsRawWithMeta = async ({
       if (json && (Array.isArray(json.items) || Array.isArray(json.data))) {
         return {
           items: json.items || json.data,
-          resourceVersion: json.metadata?.resourceVersion || '',
+          resourceVersion: json.metadata?.resourceVersion || json.resourceVersion || '',
           url
         };
       }
@@ -94,6 +97,7 @@ export const listKubevirtVMIsRaw = async ({
   }
 
   const candidates = [
+    `${origin}/apis/kubevirt.io/v1/virtualmachineinstances`,
     `${origin}/v1/harvester/kubevirt.io.virtualmachineinstances`,
   ];
 
@@ -106,6 +110,7 @@ export const listKubevirtVMIsRaw = async ({
       // Continue
     }
   }
+  console.warn(`[Harvester-API] 虚拟机实例所有地址获取失败或为空`);
   return [];
 };
 
@@ -124,6 +129,7 @@ export const listKubevirtVMIsRawWithMeta = async ({
   }
 
   const candidates = [
+    `${origin}/apis/kubevirt.io/v1/virtualmachineinstances`,
     `${origin}/v1/harvester/kubevirt.io.virtualmachineinstances`,
   ];
 
@@ -133,7 +139,7 @@ export const listKubevirtVMIsRawWithMeta = async ({
       if (json && (Array.isArray(json.items) || Array.isArray(json.data))) {
         return {
           items: json.items || json.data,
-          resourceVersion: json.metadata?.resourceVersion || '',
+          resourceVersion: json.metadata?.resourceVersion || json.resourceVersion || '',
           url
         };
       }
@@ -280,44 +286,6 @@ export const listHarvesterVMsStandard = async ({
       },
     };
   });
-};
-
-export const buildHarvesterVMManifest = (payload: any) => {
-  // If payload already looks like a manifest (has apiVersion and kind), return it
-  if (payload?.apiVersion && payload?.kind) {
-      return payload;
-  }
-
-  // Simplistic manifest builder if missing
-  return {
-    apiVersion: 'kubevirt.io/v1',
-    kind: 'VirtualMachine',
-    metadata: {
-      name: payload.name,
-      namespace: payload.namespace || 'default',
-    },
-    spec: {
-      running: true,
-      template: {
-        spec: {
-          domain: {
-            devices: {
-              disks: payload.disks || [],
-              interfaces: payload.interfaces || [],
-            },
-            resources: {
-              requests: {
-                memory: payload.memory || '2Gi',
-                cpu: payload.cpu ? String(payload.cpu) : undefined
-              },
-            },
-          },
-          networks: payload.networks || [],
-          volumes: payload.volumes || []
-        },
-      },
-    },
-  };
 };
 
 export const getHarvesterVM = async (

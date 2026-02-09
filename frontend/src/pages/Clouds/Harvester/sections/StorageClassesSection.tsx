@@ -11,7 +11,7 @@ type Props = {
   cloudId: string;
   storageClasses: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 };
 
 const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh }) => {
@@ -118,7 +118,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
             onChange={setTableColumns}
             settingsKey="harvester_storageclasses_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} />
         </>
       )}
     >

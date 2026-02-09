@@ -17,7 +17,6 @@ import {
   createHarvesterVM,
   listKubeOvnVpcs,
   listKubeOvnSubnets,
-  buildHarvesterVMManifest,
   harvesterStartVM,
   harvesterStopVM,
   harvesterRebootVM,
@@ -35,7 +34,6 @@ import {
   createVolumeSnapshot,
   updatePVCSpec,
   clonePVC,
-  updateHarvesterVMSpec,
   getHarvesterVmVncUrl,
   listKubevirtVMsRaw,
   listKubevirtVMIsRaw,
@@ -372,12 +370,35 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
         const vmiRepo = AppDataSource.getRepository(HarvesterVmiInventory);
 
+        // 系统 Namespace 黑名单定义
+        const isSystemNamespace = (ns: string) => {
+            if (!ns) return false;
+            // 精确匹配
+            const exactBlacklist = ['cloud-public', 'ingress-nginx'];
+            if (exactBlacklist.includes(ns)) return true;
+            
+            // 前缀匹配
+            // 注意: 'default' 不是系统命名空间
+            const prefixBlacklist = ['cattle', 'fleet', 'longhorn', 'kube', 'harvester', 'cluster', 'cluster-fleet', 'local', 'user'];
+            return prefixBlacklist.some(p => ns.startsWith(p));
+        };
+
         // Tenant Isolation: Filter by UserSpace Namespace
         let vmWhere: any = { cloudId: id };
         let vmiWhere: any = { cloudId: id };
         
         let validNamespaces: string[] | null = null;
-        if ((req as any).user?.role === 'tenant') {
+        
+        // 统一租户判断逻辑：只要有 tenantId 且非 sase_device 即视为租户
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req.user as any)?.role === 'tenant';
+        const isTenant = isTenantUser || isTenantRole;
+
+        if (isTenant) {
+          // 租户模式下，默认初始化为空数组，确保如果没有查到权限则什么都看不到
+          // 只有查到明确的 UserSpace 且有 namespace 时才填充
+          validNamespaces = [];
+
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
           if ((req.user as any).organizationId) {
@@ -397,7 +418,11 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             if ((req.user as any).organizationId) {
                 nsList.push(`ns-${(req.user as any).organizationId}`);
             }
-            if (nsList.length > 0) validNamespaces = nsList;
+            
+            // 只有当有明确的 namespace 时才更新 validNamespaces
+            if (nsList.length > 0) {
+                validNamespaces = nsList;
+            }
           }
         }
 
@@ -422,10 +447,19 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
 
         let vmisRaw = vmiItems.map(i => i.rawData);
 
-        // Apply namespace filter in memory (simpler than complex TypeORM ORs for JSON fields)
+        // Apply namespace filter in memory
+        // 1. 租户白名单过滤
         if (validNamespaces) {
             vmItems = vmItems.filter((i) => validNamespaces!.includes(i.namespace));
             vmisRaw = vmisRaw.filter((v: any) => validNamespaces!.includes(v.metadata?.namespace));
+        }
+
+        // 2. 系统 Namespace 过滤 (对租户强制，对管理员默认开启但可通过参数关闭)
+        // 管理员可以通过 ?includeSystem=true 查看所有资源
+        const includeSystem = req.query.includeSystem === 'true';
+        if (isTenant || !includeSystem) {
+             vmItems = vmItems.filter((i) => !isSystemNamespace(i.namespace));
+             vmisRaw = vmisRaw.filter((v: any) => !isSystemNamespace(v.metadata?.namespace));
         }
 
         // Build VMI map for fast lookup by Namespace/Name
@@ -625,8 +659,15 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           }
           const userSpace = await userSpaceRepo.findOne({ where });
           if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
+          
           const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map(s => s.trim()) : [];
-          if (userSpace.namespace && !validNamespaces.includes(namespace)) {
+          
+          // Add Dynamic Org Namespace
+          if ((req.user as any).organizationId) {
+             validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          }
+
+          if (!validNamespaces.includes(namespace)) {
             return res.status(403).json({ message: '无权访问该命名空间资源' });
           }
         }
@@ -1206,7 +1247,16 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
-        // Tenant Check
+        // 确定目标命名空间
+        // 优先级：Metadata (标准 Manifest) > Root (旧版/查询参数)
+        // 严格模式：必须显式指定命名空间，禁止默认回退到 'default'
+        const targetNamespace = req.body.metadata?.namespace || req.body.namespace;
+
+        if (!targetNamespace) {
+            return res.status(400).json({ message: '参数错误：必须指定 namespace (在 metadata.namespace 或 namespace 字段中)' });
+        }
+
+        // 租户检查
         let tenantNamespace: string | undefined;
         const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
         const isTenantRole = (req.user as any)?.role === 'tenant';
@@ -1225,7 +1275,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
              if (!us) return res.status(403).json({ message: 'Access denied to this resource pool' });
              tenantNamespace = us.namespace;
 
-             // Dynamic Org Namespace
+             // 动态组织命名空间
              if ((req.user as any).organizationId) {
                  const orgNs = `ns-${(req.user as any).organizationId}`;
                  tenantNamespace = tenantNamespace ? `${tenantNamespace},${orgNs}` : orgNs;
@@ -1234,25 +1284,27 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
 
         if (tenantNamespace) {
             const allowed = tenantNamespace.split(',').map(s => s.trim());
-            if (req.body.namespace) {
-                if (!allowed.includes(req.body.namespace)) {
-                    return res.status(403).json({ message: 'Access denied to this namespace' });
-                }
-            } else {
-                req.body.namespace = allowed[0];
+            
+            // 如果目标命名空间不被允许，直接拒绝
+            if (!allowed.includes(targetNamespace)) {
+                return res.status(403).json({ message: `无权访问命名空间 '${targetNamespace}'。允许的范围: ${allowed.join(', ')}` });
             }
         }
 
-        // Enforce namespace consistency in metadata
+        // Payload 准备
+        // 1. 确保 metadata.namespace 与 targetNamespace 一致
+        // 如果它是类似 Manifest 的对象，必须正确设置 metadata.namespace。
         if (req.body.metadata) {
-            req.body.metadata.namespace = req.body.namespace || 'default';
+            req.body.metadata.namespace = targetNamespace;
         }
 
-        const { namespace, ...payload } = req.body;
+        // 2. 移除根级别的 'namespace' 以确保 Payload 纯净
+        const payload = { ...req.body };
+        delete payload.namespace;
 
         const data = await createHarvesterVM(
             { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-            namespace || 'default',
+            targetNamespace,
             payload
         );
         res.json({ message: '创建成功', data });
@@ -2554,11 +2606,11 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachineimages/${encodeURIComponent(name)}`;
         let json: any = null;
         try {
-            json = await getJsonOnce(url, cloud.secretKey || '', insecure);
+            json = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
         } catch (e) {
             // Fallback to v1 if v1beta1 fails
             const urlV1 = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachineimages/${encodeURIComponent(name)}`;
-            json = await getJsonOnce(urlV1, cloud.secretKey || '', insecure);
+            json = await getJsonOnce(urlV1, cloud.secretKey || '', insecure, true);
         }
         
         res.json({ message: '查询成功', data: json });
@@ -2797,7 +2849,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         }
         let clusterId: string | null = null;
         try {
-          const clusters = await getJsonOnce(`${origin}/v3/clusters`, cloud.secretKey || '', insecure);
+          const clusters = await getJsonOnce(`${origin}/v3/clusters`, cloud.secretKey || '', insecure, true);
           const arr = Array.isArray(clusters?.data) ? clusters?.data : (Array.isArray(clusters?.items) ? clusters?.items : []);
           const local = arr.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
           const any = arr[0];
@@ -2813,7 +2865,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         let lastErr: any = null;
         for (const url of candidates) {
           try {
-            json = await getJsonOnce(url, cloud.secretKey || '', insecure);
+            json = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
             if (json) break;
           } catch (e: any) {
             lastErr = e;

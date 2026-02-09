@@ -37,7 +37,7 @@ vrConfigRoutes.get('/:uuid/cached', async (req, res) => {
       },
     });
   } catch (err: any) {
-    console.error('[VR_CONFIG] get cached error', err);
+    console.error('[VR-CONFIG] get cached error', err);
     return res.status(500).json({ message: err?.message || '内部错误' });
   }
 });
@@ -83,7 +83,7 @@ vrConfigRoutes.post('/bind', async (req, res) => {
 
     return res.json(result);
   } catch (err: any) {
-    console.error('[VR_CONFIG] bind error', err);
+    console.error('[VR-CONFIG] bind error', err);
     if (err.message && err.message.includes('VR已绑定')) {
       return res.status(409).json({ message: err.message, ...err.details });
     }

@@ -1321,6 +1321,7 @@ router.get(
         // Cache for VM and VMI objects: key = `${namespace}/${name}`
         const vmCache = new Map<string, any>();
         const vmiCache = new Map<string, any>();
+        const lastSentStatus = new Map<string, string>();
         
         // Send helper
         const send = (event: string, payload: any) => {
@@ -1375,7 +1376,17 @@ router.get(
                    if (Array.isArray(i.ipAddresses)) ips.push(...i.ipAddresses);
                  });
                }
-               send('vm_status', { iid: item.id, status, nodeName, ips: Array.from(new Set(ips)) });
+               
+               const payload = { iid: item.id, status, nodeName, ips: Array.from(new Set(ips)) };
+               const payloadStr = JSON.stringify(payload);
+               
+               // Deduplicate: If status/node/ips haven't changed, don't send event
+               if (lastSentStatus.get(item.id) === payloadStr) {
+                   return;
+               }
+               lastSentStatus.set(item.id, payloadStr);
+               
+               send('vm_status', payload);
            }
         };
 
@@ -1458,9 +1469,11 @@ router.get(
             
             // Watch VMs
             if (vmsResult?.url) {
-                const vmRv = vmsResult.resourceVersion || '0';
+                const vmRv = vmsResult.resourceVersion;
                 // Ensure URL has no query params yet (it shouldn't from our helper)
-                const vmUrl = `${vmsResult.url}?watch=true&resourceVersion=${vmRv}`;
+                const vmUrl = vmRv 
+                    ? `${vmsResult.url}?watch=true&resourceVersion=${vmRv}`
+                    : `${vmsResult.url}?watch=true`;
                 console.log(`[SSE] Starting VM watch on: ${vmUrl}`);
                 
                 const w1 = watchJsonStream(vmUrl, cloud.secretKey || '', insecure, (event) => {
@@ -1495,8 +1508,10 @@ router.get(
 
             // Watch VMIs
             if (vmisResult?.url) {
-                const vmiRv = vmisResult.resourceVersion || '0';
-                const vmiUrl = `${vmisResult.url}?watch=true&resourceVersion=${vmiRv}`;
+                const vmiRv = vmisResult.resourceVersion;
+                const vmiUrl = vmiRv 
+                    ? `${vmisResult.url}?watch=true&resourceVersion=${vmiRv}`
+                    : `${vmisResult.url}?watch=true`;
                 console.log(`[SSE] Starting VMI watch on: ${vmiUrl}`);
 
                 const w2 = watchJsonStream(vmiUrl, cloud.secretKey || '', insecure, (event) => {

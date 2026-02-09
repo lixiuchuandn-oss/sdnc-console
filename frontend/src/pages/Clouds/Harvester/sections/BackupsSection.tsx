@@ -11,7 +11,7 @@ interface Props {
   cloudId: string;
   backups: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
   namespaces: any[];
   vms: any[];
   type?: 'backup' | 'snapshot';
@@ -153,7 +153,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       toolbarRight={(
          <div className="toolbar-actions">
            <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建{type === 'backup' ? '备份' : '快照'}</Button>
-           <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading} />
+           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
          </div>
       )}
     >
@@ -171,7 +171,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={() => {
           setCreateModalVisible(false);
-          onRefresh?.();
+          onRefresh?.(true);
         }}
         cloudId={cloudId}
         namespaces={namespaces}

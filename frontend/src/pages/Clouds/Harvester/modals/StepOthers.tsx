@@ -25,14 +25,27 @@ const StepOthers: React.FC<StepOthersProps> = ({
     <>
       <Typography.Paragraph type="secondary">配置新建云主机的启动、Cloud-Init和USB设备参数</Typography.Paragraph>
       <div className="wizard-group-title">启动与可用性</div>
-      <Form.Item label="运行策略" name="runStrategy" initialValue="RerunOnFailure">
-        <Select options={[
-          { label: '始终运行（Always）', value: 'Always' },
-          { label: '故障重试（RerunOnFailure）', value: 'RerunOnFailure' },
-          { label: '手动（Manual）', value: 'Manual' },
-          { label: '停止（Halted）', value: 'Halted' },
-        ]} style={{ width: 240 }} />
-      </Form.Item>
+      <Row gutter={16}>
+        <Col span={12}>
+          <Form.Item label="运行策略" name="runStrategy" initialValue="RerunOnFailure">
+            <Select options={[
+              { label: '始终运行（Always）', value: 'Always' },
+              { label: '故障重试（RerunOnFailure）', value: 'RerunOnFailure' },
+              { label: '手动（Manual）', value: 'Manual' },
+              { label: '停止（Halted）', value: 'Halted' },
+            ]} />
+          </Form.Item>
+        </Col>
+        <Col span={12}>
+          <Form.Item label="驱逐策略" name="evictionStrategy" initialValue="LiveMigrateIfPossible" tooltip="节点维护时的迁移策略">
+            <Select options={[
+              { label: '尽可能热迁移（LiveMigrateIfPossible）', value: 'LiveMigrateIfPossible' },
+              { label: '强制热迁移（LiveMigrate）', value: 'LiveMigrate' },
+              { label: '不迁移（None）', value: 'None' },
+            ]} />
+          </Form.Item>
+        </Col>
+      </Row>
       <Form.Item>
         <Checkbox checked={autoStart} onChange={(e) => setAutoStart(!!e.target?.checked)}>创建后自动开机</Checkbox>
       </Form.Item>

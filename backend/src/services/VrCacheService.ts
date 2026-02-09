@@ -25,14 +25,14 @@ export class VRCacheService {
    * @param intervalMs 同步间隔，默认 5 分钟
    */
   public startSyncJob(intervalMs: number = 300000) {
-    console.log('[VR_SYNC] 启动后台同步任务...');
+    console.log('[VR-CACHE] 启动后台同步任务...');
 
     // 立即执行一次
-    this.syncAll().catch((err) => console.error('[VR_SYNC] 初始同步失败', err));
+    this.syncAll().catch((err) => console.error('[VR-CACHE] 初始同步失败', err));
 
     if (this.timer) clearInterval(this.timer);
     this.timer = setInterval(() => {
-      this.syncAll().catch((err) => console.error('[VR_SYNC] 定时同步失败', err));
+      this.syncAll().catch((err) => console.error('[VR-CACHE] 定时同步失败', err));
     }, intervalMs);
   }
 
@@ -41,7 +41,7 @@ export class VRCacheService {
       clearInterval(this.timer);
       this.timer = null;
     }
-    console.log('[VR_SYNC] 后台同步任务已停止。');
+    console.log('[VR-CACHE] 后台同步任务已停止。');
   }
 
   /**
@@ -49,18 +49,18 @@ export class VRCacheService {
    */
   public async syncAll() {
     if (this.isRunning) {
-      // console.log('[VR_CACHE_SERVICE] 同步进行中，跳过...');
+      // console.log('[VR-CACHE] 同步进行中，跳过...');
       return;
     }
 
     this.isRunning = true;
-    console.log('[VR_SYNC] 开始全量同步...');
+    console.log('[VR-CACHE] 开始全量同步...');
 
     try {
       await Promise.all([this.syncBasicCache(), this.syncExtendedCache(), this.syncDeviceCache()]);
-      console.log('[VR_SYNC] 全量同步完成。');
+      console.log('[VR-CACHE] 全量同步完成。');
     } catch (err) {
-      console.error('[VR_SYNC] 严重错误:', err);
+      console.error('[VR-CACHE] 严重错误:', err);
     } finally {
       this.isRunning = false;
     }
@@ -68,7 +68,7 @@ export class VRCacheService {
 
   // 同步 VR1 基础信息 (CSMCTL -> VrCacheBasic)
   private async syncBasicCache() {
-    console.log('[VR_SYNC] 开始同步 VR1 基础信息...');
+    console.log('[VR-CACHE] 开始同步 VR1 基础信息...');
     const repo = AppDataSource.getRepository(VRCacheBasic);
 
     try {
@@ -79,9 +79,9 @@ export class VRCacheService {
       if (csmData) {
         // 用户要求完整显示，不截断
         // const debugStr = JSON.stringify(csmData);
-        // console.log(`[VR_SYNC] VR1 响应预览: ${debugStr}`);
+        // console.log(`[VR-CACHE] VR1 响应预览: ${debugStr}`);
       } else {
-        console.warn('[VR_SYNC] VR1 响应为空');
+        console.warn('[VR-CACHE] VR1 响应为空');
       }
 
       const rows = extractRows(csmData);
@@ -101,9 +101,9 @@ export class VRCacheService {
         .filter((e: any) => !!e.uuid);
 
       await repo.save(entities);
-      console.log(`[VR_SYNC] VR1 同步完成: 写入 ${entities.length} 条记录`);
+      console.log(`[VR-CACHE] VR1 同步完成: 写入 ${entities.length} 条记录`);
     } catch (err) {
-      console.error('[VR_SYNC] VR1 同步失败:', err);
+      console.error('[VR-CACHE] VR1 同步失败:', err);
     }
   }
 
@@ -129,7 +129,7 @@ export class VRCacheService {
 
   // 同步 VR3 扩展信息 (CSMCTL -> VrCacheExtended)
   private async syncExtendedCache() {
-    console.log('[VR_SYNC] 开始同步 VR3 扩展信息...');
+    console.log('[VR-CACHE] 开始同步 VR3 扩展信息...');
     const repo = AppDataSource.getRepository(VRCacheExtended);
 
     try {
@@ -140,7 +140,7 @@ export class VRCacheService {
       if (csmData) {
         // 用户要求完整显示，不截断
         // const debugStr = JSON.stringify(csmData);
-        // console.log(`[VR_SYNC] VR3 响应预览: ${debugStr}`);
+        // console.log(`[VR-CACHE] VR3 响应预览: ${debugStr}`);
       }
 
       const rows = extractRows(csmData);
@@ -166,15 +166,15 @@ export class VRCacheService {
         .filter((e: any) => !!e.uuid);
 
       await repo.save(entities);
-      console.log(`[VR_SYNC] VR3 同步完成: 写入 ${entities.length} 条记录`);
+      console.log(`[VR-CACHE] VR3 同步完成: 写入 ${entities.length} 条记录`);
     } catch (err) {
-      console.error('[VR_SYNC] VR3 同步失败:', err);
+      console.error('[VR-CACHE] VR3 同步失败:', err);
     }
   }
 
   // 同步本地 SASE 设备配置 (DB -> VrCacheDevice)
   private async syncDeviceCache() {
-    console.log('[VR_SYNC] 开始同步本地设备配置...');
+    console.log('[VR-CACHE] 开始同步本地设备配置...');
     const deviceRepo = AppDataSource.getRepository(VRCacheDevice);
     const configRepo = AppDataSource.getRepository(VRConfig);
 
@@ -195,9 +195,9 @@ export class VRCacheService {
         .filter((e: any) => !!e.uuid);
 
       await deviceRepo.save(entities);
-      console.log(`[VR_SYNC] 设备同步完成: 写入 ${entities.length} 条记录`);
+      console.log(`[VR-CACHE] 设备同步完成: 写入 ${entities.length} 条记录`);
     } catch (err) {
-      console.error('[VR_SYNC] 设备同步失败:', err);
+      console.error('[VR-CACHE] 设备同步失败:', err);
     }
   }
 }

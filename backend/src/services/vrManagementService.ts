@@ -95,7 +95,7 @@ export const vrManagementService = {
       deviceRecord.data = JSON.stringify(record);
       await deviceRepo.save(deviceRecord);
     } catch (e) {
-      console.error('[VR_MGM] Failed to sync to VrCacheDevice', e);
+      console.error('[VR-MGM] Failed to sync to VrCacheDevice', e);
       // Don't fail the main operation
     }
 

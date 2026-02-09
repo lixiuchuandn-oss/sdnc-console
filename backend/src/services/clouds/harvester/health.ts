@@ -54,7 +54,7 @@ export const listHarvesterNodesStandard = async ({
   const clusterId = await (async () => {
     try {
       const url = `${origin}/v3/clusters`;
-      const json = await getJsonOnce(url, token, insecure);
+      const json = await getJsonOnce(url, token, insecure, true);
       const items = Array.isArray(json?.data)
         ? json?.data
         : Array.isArray(json?.items)
@@ -71,9 +71,10 @@ export const listHarvesterNodesStandard = async ({
   let json: any = null;
   let lastErr: any = null;
   try {
-    json = await getJsonOnce(url, token, insecure);
+    json = await getJsonOnce(url, token, insecure, true);
   } catch (e: any) {
     lastErr = e;
+    console.warn(`[Harvester-API] 节点获取失败: 请求地址=${url} 错误=${e.message}`);
   }
   if (!json && lastErr) {
     const status = Number((lastErr as any)?.status || 0);
@@ -410,7 +411,7 @@ export const listHarvesterServices = async ({
   const url = `${origin}/v1/services`;
   
   try {
-    const json = await getJsonOnce(url, token, insecure);
+    const json = await getJsonOnce(url, token, insecure, true);
     const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
     
     return items.map((s: any) => {
@@ -479,7 +480,8 @@ export const listHarvesterStorageClassesStandard = async ({
 
 export const createHarvesterNamespace = async (
     { endpoint, token, insecure = false }: HarvesterTestParams,
-    name: string
+    name: string,
+    annotations?: Record<string, string>
 ): Promise<any> => {
     const base = (endpoint || '').replace(/\/+$/, '');
     let origin = base;
@@ -494,7 +496,8 @@ export const createHarvesterNamespace = async (
         apiVersion: 'v1',
         kind: 'Namespace',
         metadata: {
-            name: name
+            name: name,
+            annotations: annotations,
         }
     };
     return requestJson('POST', url, token, insecure, body);
@@ -531,7 +534,7 @@ export const listHarvesterNamespacesRaw = async (
     // Try Steve API first to get links
     const url = `${origin}/v1/namespaces`;
     try {
-        const json = await getJsonOnce(url, token, insecure);
+        const json = await getJsonOnce(url, token, insecure, true);
         const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
         return items;
     } catch (e) {

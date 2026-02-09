@@ -158,6 +158,7 @@ export const buildHarvesterVmPayload = (params: {
   
   disks.push({
       name: rootDiskName,
+      bootOrder: 1,
       [v.rootDeviceType || 'disk']: {
           bus: (v.rootDeviceType === 'cd-rom' || v.rootDeviceType === 'cdrom') 
             ? (isArm64 ? 'scsi' : 'sata') 
@@ -297,6 +298,7 @@ export const buildHarvesterVmPayload = (params: {
                 annotations: {}
             },
             spec: {
+                evictionStrategy: (v.evictionStrategy && v.evictionStrategy !== 'None') ? v.evictionStrategy : undefined,
                 hostname: v.name,
                 nodeSelector: nodeSelector,
                 affinity: nodeName ? {

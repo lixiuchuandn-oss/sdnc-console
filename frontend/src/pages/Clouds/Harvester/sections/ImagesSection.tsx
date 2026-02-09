@@ -13,7 +13,7 @@ type Props = {
   cloudId: string;
   images: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 };
 
 const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh }) => {
@@ -126,7 +126,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
           if (ok > 0) message.success(`删除成功 ${ok} 条`);
           if (fail.length > 0) message.error(`删除失败 ${fail.length} 条：${fail.map(f=>f.name).join(', ')}`);
           setSelectedKeys([]);
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(e?.message || '批量删除失败');
         }
@@ -194,7 +194,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
       });
       message.success('创建成功');
       setCreating(false);
-      onRefresh?.();
+      onRefresh?.(true);
     } catch (e: any) {
       message.error(e?.message || '创建失败');
     }
@@ -235,7 +235,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
             onChange={setTableColumns}
             settingsKey="harvester_images_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
         </>
       )}
     >

@@ -9,6 +9,7 @@ import { getAuthHeaders } from '../../../../services/api';
 import { fetchHarvesterVmDetail, detachHarvesterVolumeFromVm, fetchHarvesterVncUrl } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import { isSystemNamespace, cnVmStatus } from '../../../../utils/harvesterUtils';
 
 type Props = {
   vms: any[];
@@ -20,7 +21,7 @@ type Props = {
   nodeValue?: string;
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
   // onOpenDetail removed
   onOpenReconfigure: (vm: any) => void;
   onStart: (iid: string) => void;
@@ -30,23 +31,11 @@ type Props = {
   onPause?: (iid: string) => void;
   onUnpause?: (iid: string) => void;
   onDelete: (iid: string, deleteImage?: boolean) => void;
+  images?: any[];
+  namespaces?: any[];
 };
 
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete }) => {
-  const cnVmStatus = (v?: string): string => {
-    const k = String(v || '').toLowerCase();
-    const m: Record<string, string> = {
-      running: '运行中',
-      starting: '启动中',
-      stopping: '停止中',
-      stopped: '已停止',
-      terminated: '已删除',
-      error: '错误',
-      waitingforvolumebinding: '等待卷绑定',
-      unknown: '未知'
-    };
-    return m[k] || (v || '-');
-  };
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [] }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [keyword, setKeyword] = useState<string>('');
@@ -75,14 +64,47 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const SafeRead = {
     name: (r: any) => r?.metadata?.name || r?.InstanceName || r?.name || '',
     namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
+    tenant: (r: any) => {
+      // 优先从 Namespace Annotations 获取 (tower.io/tenant)
+      const nsName = r?.metadata?.namespace || r?.namespace || '';
+      const nsObj = namespaces.find((n: any) => n?.metadata?.name === nsName);
+      if (nsObj?.metadata?.annotations?.['tower.io/tenant']) {
+        return nsObj.metadata.annotations['tower.io/tenant'];
+      }
+      // 其次从 Extra 中获取
+      return r?.Extra?.TenantName || '';
+    },
+    organization: (r: any) => {
+      // 优先从 Namespace Annotations 获取 (tower.io/organization)
+      const nsName = r?.metadata?.namespace || r?.namespace || '';
+      const nsObj = namespaces.find((n: any) => n?.metadata?.name === nsName);
+      if (nsObj?.metadata?.annotations?.['tower.io/organization']) {
+        return nsObj.metadata.annotations['tower.io/organization'];
+      }
+      // 其次从 Extra 中获取
+      return r?.Extra?.OrganizationName || '';
+    },
     uid: (r: any) => r?.metadata?.uid || r?.InstanceId || r?.id || '',
     status: (r: any) => {
       if (typeof r?.status === 'string') return r.status;
       return r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown';
     },
     node: (r: any) => r?.nodeName || r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.Extra?.NodeName || '',
-    cpu: (r: any) => r?.cpu || r?.spec?.template?.spec?.domain?.cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || r?.Extra?.CPU,
-    memory: (r: any) => r?.memoryGb || r?.spec?.template?.spec?.domain?.resources?.requests?.memory || r?.spec?.template?.spec?.domain?.memory?.guest || r?.vmi?.spec?.domain?.memory?.guest || r?.Extra?.Memory,
+    cpu: (r: any) => {
+      // 优先计算完整拓扑 (cores * sockets * threads)
+      const cpu = r?.spec?.template?.spec?.domain?.cpu;
+      if (cpu?.cores && cpu?.sockets && cpu?.threads) {
+        return Number(cpu.cores) * Number(cpu.sockets) * Number(cpu.threads);
+      }
+      return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || r?.Extra?.CPU;
+    },
+    memory: (r: any) => {
+       // 优先使用 spec.template.spec.domain.memory.guest
+       const guest = r?.spec?.template?.spec?.domain?.memory?.guest;
+       if (guest) return guest;
+       
+       return r?.memoryGb || r?.spec?.template?.spec?.domain?.resources?.requests?.memory || r?.vmi?.spec?.domain?.memory?.guest || r?.Extra?.Memory;
+    },
     creationTimestamp: (r: any) => r?.createdAt || r?.metadata?.creationTimestamp,
     networks: (r: any) => {
       if (Array.isArray(r?.networks) && r.networks.length > 0 && typeof r.networks[0] === 'string') return r.networks;
@@ -103,6 +125,32 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         }
       } catch (e) {}
       return r?.Extra?.Image || '';
+    },
+    imageDisplayName: (r: any) => {
+      const imgId = SafeRead.image(r);
+      if (!imgId) return '';
+      // Try to find in images prop
+      // imgId usually is 'namespace/name' or just 'name'
+      // Harvester image IDs are typically 'namespace/name'
+      const found = images.find((i: any) => {
+         const id = i?.metadata?.name;
+         const ns = i?.metadata?.namespace;
+         const fullId = `${ns}/${id}`;
+         return fullId === imgId || id === imgId || i.id === imgId;
+      });
+      if (found) {
+        // 1. 优先使用 harvesterhci.io/image-name 注解
+        const imageName = found.metadata?.annotations?.['harvesterhci.io/image-name'];
+        if (imageName) return imageName;
+
+        // 2. 其次使用 field.cattle.io/displayName 注解
+        const displayName = found.metadata?.annotations?.['field.cattle.io/displayName'];
+        if (displayName) return displayName;
+        
+        // 3. 再次使用 spec.displayName
+        if (found.spec?.displayName) return found.spec.displayName;
+      }
+      return '';
     },
     imageSize: (r: any) => {
       try {
@@ -208,12 +256,15 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         if (k==='running') return 'success';
         if (k==='starting') return 'processing';
         if (k==='stopping') return 'warning';
-        if (k==='error') return 'error';
+        if (k==='terminating') return 'warning';
+        if (k==='error' || k==='errorunschedulable') return 'error';
         return 'default';
       })();
       return <Badge status={status as any} text={cnVmStatus(s)} />;
     } },
     { title: '命名空间', key: 'namespace', ellipsis: true, render: (_: any, r: any) => SafeRead.namespace(r) || '-' },
+    { title: '租户', key: 'tenant', ellipsis: true, render: (_: any, r: any) => SafeRead.tenant(r) || '-' },
+    { title: '组织', key: 'organization', ellipsis: true, render: (_: any, r: any) => SafeRead.organization(r) },
     { title: '节点', key: 'node',  ellipsis: true, render: (_: any, r: any) => {
       const node = String(SafeRead.node(r)).trim();
       return node ? <Tag>{node}</Tag> : '-';
@@ -223,7 +274,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return v ? `${v} C` : '-';
     } },
     { title: '内存', key: 'memory',  render: (_: any, r: any) => SafeRead.memory(r) || '-' },
-    { title: '镜像', key: 'image',  ellipsis: true, render: (_: any, r: any) => {
+    { title: '镜像名称', key: 'imageName',  ellipsis: true, render: (_: any, r: any) => {
+        const displayName = SafeRead.imageDisplayName(r);
+        return displayName ? <Tooltip title={displayName}>{displayName}</Tooltip> : '-';
+     } },
+    { title: '镜像ID', key: 'image',  ellipsis: true, render: (_: any, r: any) => {
         const img = SafeRead.image(r);
         return img ? <Tooltip title={img}>{img}</Tooltip> : '-';
      } },
@@ -360,6 +415,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
+    
     return (vms || []).filter((r: any) => {
       const iid = getIid(r);
       const name = String(SafeRead.name(r)).toLowerCase();
@@ -367,6 +423,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const node = String(SafeRead.node(r));
       const sKey = String(SafeRead.status(r)).toLowerCase();
       
+      // 强制过滤系统 Namespace
+      if (isSystemNamespace(ns)) return false;
+
       if (nsValue && ns !== nsValue) return false;
       if (nodeValue && node !== nodeValue) return false;
       if (kw && !(iid.toLowerCase().includes(kw) || name.includes(kw))) return false;
@@ -439,7 +498,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             value={statusFilter || undefined}
             onChange={(v)=> setStatusFilter(v || '')}
             allowClear
-            options={[{ value: '', label: '全部' }, ...['Running','Starting','Stopping','Stopped','Terminated','Error','Unknown'].map(k=> ({ value: k.toLowerCase(), label: (function(){ const m:any={ running:'运行中', starting:'启动中', stopping:'停止中', stopped:'已停止', terminated:'已删除', error:'错误', unknown:'未知' }; return m[k.toLowerCase()] || k; })() }))]}
+            options={[{ value: '', label: '全部' }, ...['Running','Starting','Stopping','Terminating','Stopped','Terminated','Error','Unknown'].map(k=> ({ value: k.toLowerCase(), label: cnVmStatus(k) }))]}
           />
         </>
       )}
@@ -464,7 +523,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             onChange={setTableColumns}
             settingsKey="harvester_vm_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} />
         </>
       )}
     >
@@ -476,6 +535,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={{ size: 'small'}}
       />
       <HarvesterResourceDrawer

@@ -1,7 +1,7 @@
 export { HarvesterTestParams } from './types';
 export {
   listHarvesterVMsStandard,
-  buildHarvesterVMManifest,
+  // 移除 buildHarvesterVMManifest,
   listKubevirtVMsRaw,
   listKubevirtVMIsRaw,
   listKubevirtVMsRawWithMeta,

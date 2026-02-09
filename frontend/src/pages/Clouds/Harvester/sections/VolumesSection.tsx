@@ -17,7 +17,7 @@ type Props = {
   loading: boolean;
   vms?: any[];
   storageClasses?: any[];
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 };
 
 // ----------------------------------------------------------------------
@@ -143,12 +143,60 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     try {
       const cur = createForm.getFieldValue('storageClassName');
       if (!cur && storageClasses.length > 0) {
-        const names = storageClasses.map(s => s?.name).filter(Boolean);
+        const names = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
         const prefer = names.find(n => n.toLowerCase().includes('longhorn')) || names[0];
         if (prefer) createForm.setFieldsValue({ storageClassName: prefer });
       }
     } catch {}
   }, [storageClasses, createForm]);
+
+  // ----------------------------------------------------------------
+  // SafeRead Helper (Robust Data Access)
+  // ----------------------------------------------------------------
+  const SafeRead = {
+    name: (r: any) => r?.name || r?.metadata?.name || '',
+    namespace: (r: any) => r?.namespace || r?.metadata?.namespace || '',
+    phase: (r: any) => r?.phase || r?.status?.phase || r?.status?.state || 'Unknown',
+    capacity: (r: any) => r?.capacityRaw || r?.status?.capacity?.storage || r?.spec?.resources?.requests?.storage || '',
+    storageClass: (r: any) => r?.storageClass || r?.spec?.storageClassName || '',
+    accessModes: (r: any) => {
+      const modes = r?.accessModes || r?.spec?.accessModes || r?.status?.accessModes;
+      return Array.isArray(modes) ? modes : (modes ? [modes] : []);
+    },
+    attachedTo: (r: any) => {
+      if (Array.isArray(r?.attachedTo)) return r.attachedTo;
+      // Harvester/K8s usually doesn't have attachedTo in status, but if backend provides it:
+      return [];
+    },
+    // Find the VM this volume is attached to
+    attachedVm: (r: any) => {
+      const list = Array.isArray(vms) ? vms : [];
+      const pvcName = SafeRead.name(r); // PVC Name (metadata.name)
+      const pvcNs = SafeRead.namespace(r);
+
+      // Strictly use PVC Name to match VM's volumeClaims
+      // This is the most reliable way as Harvester/K8s maps PVCs to VMs via spec.volumes.persistentVolumeClaim.claimName
+      return list.find((vm: any) => {
+        // Check Namespace (Support both flat object and K8s object)
+        const vmNs = vm.namespace || vm.metadata?.namespace || vm.extra?.namespace || vm.Extra?.Namespace || '';
+        if (String(vmNs) !== pvcNs) return false;
+
+        // Check Claims
+        // Strategy 1: Check pre-parsed volumeClaims (from backend)
+        const claims = vm.volumeClaims || vm.extra?.volumeClaims || vm.Extra?.VolumeClaims;
+        if (Array.isArray(claims) && claims.includes(pvcName)) return true;
+
+        // Strategy 2: Deep inspect spec.template.spec.volumes (Standard K8s/Harvester structure)
+        const volumes = vm?.spec?.template?.spec?.volumes;
+        if (Array.isArray(volumes)) {
+            const found = volumes.some((v: any) => v?.persistentVolumeClaim?.claimName === pvcName);
+            if (found) return true;
+        }
+
+        return false;
+      });
+    }
+  };
 
   // ----------------------------------------------------------------
   // Core Data Normalization (The "Rewrite" Logic)
@@ -200,29 +248,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   // ----------------------------------------------------------------
   // Helper: Find VM for a Volume
   // ----------------------------------------------------------------
-  const findVmForVolume = (vol: VolumeView): any | undefined => {
-    const list = Array.isArray(vms) ? vms : [];
-    
-    // 1. Check attachedTo list (if backend provided)
-    for (const nm of vol.attachedTo) {
-      const iid = vol.namespace && nm ? `${vol.namespace}/${nm}` : nm;
-      const hit = list.find((vm: any) => 
-        String(vm?.id || vm?.InstanceId || '') === iid || 
-        String(vm?.name || vm?.InstanceName || '') === nm
-      );
-      if (hit) return hit;
-    }
+  // Replaced by SafeRead.attachedVm
 
-    // 2. Check VM Extra.VolumeClaims
-    // Matches if VM has this PVC name in its claims list AND is in same namespace
-    const hit = list.find((vm: any) => 
-      String(vm?.extra?.namespace || vm?.namespace || vm?.Extra?.Namespace || '') === vol.namespace &&
-      Array.isArray(vm?.extra?.volumeClaims || vm?.Extra?.VolumeClaims) && 
-      (vm?.extra?.volumeClaims || vm?.Extra?.VolumeClaims).includes(vol.name)
-    );
-    
-    return hit;
-  };
 
   // ----------------------------------------------------------------
   // Filtering
@@ -310,7 +337,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           if (ok > 0) message.success(`成功删除 ${ok} 个卷`);
           if (fail > 0) message.error(`${fail} 个卷删除失败`);
           setSelectedRowKeys([]);
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(e.message || '批量删除失败');
         }
@@ -319,7 +346,12 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   };
 
   const handleAttach = (r: VolumeView) => {
-    const vm = findVmForVolume(r);
+    // Proactively refresh if vms are missing (common issue on fresh load)
+    if (!vms || vms.length === 0) {
+      onRefresh?.(true);
+    }
+
+    const vm = SafeRead.attachedVm(r);
     setCurrentRecord(r);
     attachForm.resetFields();
     attachForm.setFieldsValue({ 
@@ -331,8 +363,18 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   };
 
   const handleDetach = async (r: VolumeView) => {
-    const vm = findVmForVolume(r);
-    if (!vm) return;
+    // Proactively refresh if vms are missing
+    if (!vms || vms.length === 0) {
+      onRefresh?.();
+      message.loading('正在同步云主机数据，请稍后重试...', 1);
+      return;
+    }
+
+    const vm = SafeRead.attachedVm(r);
+    if (!vm) {
+      message.warning('无法找到关联的云主机，请确认数据已同步');
+      return;
+    }
     
     // Attempt to find the disk name used in the VM (might not be PVC name)
     const diskName = vm?.Extra?.VolumeMap?.[r.name] || ''; 
@@ -361,7 +403,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             }
           }
           message.success('卸载成功');
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(e.message || '卸载失败');
         }
@@ -420,8 +462,11 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       title: '挂载云主机', 
       key: 'attachedTo', 
       render: (_: any, r: VolumeView) => {
-        const vm = findVmForVolume(r);
-        if (vm) return vm.InstanceName || vm.InstanceId;
+        const vm = SafeRead.attachedVm(r);
+        if (vm) {
+            const name = vm.name || vm.metadata?.name || vm.InstanceName || vm.InstanceId;
+            return name;
+        }
         return r.attachedTo.length > 0 ? r.attachedTo.join(', ') : '-';
       } 
     },
@@ -437,7 +482,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       width: 80,
       fixed: 'right' as const,
       render: (_: any, r: VolumeView) => {
-        const vm = findVmForVolume(r);
+        const vm = SafeRead.attachedVm(r);
         
         const items: any[] = [
           { key: 'detail', label: '查看摘要', onClick: () => handleOpenDrawer(r, 'detail') },
@@ -580,7 +625,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             settingsKey="harvester_volumes_table"
             defaultHiddenColumns={['pvName', 'namespace', 'volumeMode']}
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
         </>
       )}
     >
@@ -595,6 +640,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={{size:'small'}}
       />
 
@@ -638,7 +684,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             <Select options={[{ value: 'Block', label: 'Block' }, { value: 'Filesystem', label: 'Filesystem' }]} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="存储类" name="storageClassName">
-            <Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} />
+            <Select allowClear options={storageClasses.map(s => {
+              const n = s?.metadata?.name || s?.name;
+              return { value: n, label: n };
+            }).filter(x => x.value)} style={{ width: '100%' }} />
           </Form.Item>
       </StdFormModal>
 
@@ -671,13 +720,17 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             });
             message.success('挂载成功');
             setAttachOpen(false);
-            onRefresh?.();
+            onRefresh?.(true);
           } catch (e: any) { message.error(e.message || '挂载失败'); }
         }}
       >
           <Form.Item label="云主机" name="instanceId" rules={[{ required: true }]}>
             <Select showSearch placeholder="选择云主机" options={(vms || [])
-              .filter((vm: any) => (vm?.extra?.namespace || vm?.namespace || vm?.Extra?.Namespace) === currentRecord?.namespace)
+              .filter((vm: any) => {
+                const extra = vm?.extra || vm?.Extra || {};
+                const vmNs = extra.namespace || vm.namespace || extra.Namespace;
+                return vmNs === currentRecord?.namespace;
+              })
               .map((vm: any) => ({ value: vm.id || vm.InstanceId, label: vm.name || vm.InstanceName || vm.id || vm.InstanceId }))} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="总线" name="bus" initialValue="virtio">
@@ -696,7 +749,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             if (!currentRecord) return;
             await exportHarvesterImageFromVolume(cloudId, currentRecord.namespace, currentRecord.name, {
               displayName: v.displayName,
-              targetStorageClassName: v.targetStorageClassName
+              targetStorageClassName: v.targetStorageClassName,
+              namespace: currentRecord.namespace
             });
             message.success('任务已提交');
             setExportOpen(false);
@@ -704,7 +758,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         }}
       >
           <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="存储类" name="targetStorageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} /></Form.Item>
+          <Form.Item label="存储类" name="targetStorageClassName"><Select allowClear options={storageClasses.map(s => {
+            const n = s?.metadata?.name || s?.name;
+            return { value: n, label: n };
+          }).filter(x => x.value)} style={{ width: '100%' }} /></Form.Item>
       </StdFormModal>
 
       {/* 5. Snapshot */}
@@ -729,13 +786,13 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             <Select 
               allowClear 
               placeholder="请选择快照类 (默认使用 VolumeSnapshotClass)" 
-              options={snapshotClasses.map(sc => ({ value: sc.metadata?.name, label: sc.metadata?.name }))} 
+              options={snapshotClasses.filter(sc => sc?.metadata?.name).map(sc => ({ value: sc.metadata.name, label: sc.metadata.name }))} 
               onDropdownVisibleChange={async (open) => {
                 if (open && snapshotClasses.length === 0) {
                   try {
                     const data = await listHarvesterSnapshotClasses(cloudId);
                     setSnapshotClasses(data?.items || []);
-                  } catch (e) { console.error(e); }
+                  } catch (e: any) { message.error(e.message || '获取快照类失败'); }
                 }
               }}
             />
@@ -765,7 +822,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           <Form.Item label="容量(GB)" name="sizeGi"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="访问模式" name="accessModes"><Select mode="multiple" options={['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="卷类型" name="volumeMode"><Select options={['Block', 'Filesystem'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} /></Form.Item>
+          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => {
+            const n = s?.metadata?.name || s?.name;
+            return { value: n, label: n };
+          }).filter(x => x.value)} style={{ width: '100%' }} /></Form.Item>
       </StdFormModal>
 
       {/* 7. Clone */}
@@ -796,7 +856,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           <Form.Item label="容量(GB)" name="sizeGi"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="访问模式" name="accessModes"><Select mode="multiple" options={['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="卷类型" name="volumeMode"><Select options={['Block', 'Filesystem'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => ({ value: s.name, label: s.name }))} style={{ width: '100%' }} /></Form.Item>
+          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => {
+            const n = s?.metadata?.name || s?.name;
+            return { value: n, label: n };
+          }).filter(x => x.value)} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="来源快照" name="fromSnapshotName"><Input placeholder="可选" /></Form.Item>
       </StdFormModal>
 

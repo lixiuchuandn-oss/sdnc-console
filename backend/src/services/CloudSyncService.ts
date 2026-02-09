@@ -66,29 +66,32 @@ export class CloudSyncService {
    */
   public async syncAllClouds() {
     if (this.isRunning) {
-      console.log('[CloudSync] Sync already in progress, skipping...');
+      console.log('[CloudSync] 同步正在进行中，跳过...');
       return;
     }
 
     this.isRunning = true;
-    console.log('[CloudSync] Beginning cloud synchronization...');
+    console.log('[CloudSync] 开始云同步...');
 
     try {
       const cloudRepo = AppDataSource.getRepository(Cloud);
       const clouds = await cloudRepo.find();
 
+      // 串行同步所有云，以避免 SQLite 事务冲突
+      // 使用 try-catch 确保一个失败不影响其他
       for (const cloud of clouds) {
         try {
           await this.syncSingleCloud(cloud);
         } catch (err) {
-          console.error(`[CloudSync] Error syncing cloud ${cloud.name} (${cloud.id}):`, err);
+          console.error(`[CloudSync] 同步云 ${cloud.name} (${cloud.id}) 时出错:`, err);
         }
       }
+      
     } catch (err) {
-      console.error('[CloudSync] Critical error in sync job:', err);
+      console.error('[CloudSync] 同步任务发生严重错误:', err);
     } finally {
       this.isRunning = false;
-      console.log('[CloudSync] Synchronization completed.');
+      console.log('[CloudSync] 同步完成。');
     }
   }
 
@@ -181,7 +184,6 @@ export class CloudSyncService {
       await syncHarvesterCloudInits(cloud, insecure);
       await syncHarvesterIngresses(cloud, insecure);
       await syncHarvesterPciDevices(cloud, insecure);
-      await syncHarvesterCapabilities(cloud, insecure);
       await syncHarvesterServices(cloud, insecure);
       await syncKubeOvnEips(cloud, insecure);
       await syncKubeOvnFips(cloud, insecure);

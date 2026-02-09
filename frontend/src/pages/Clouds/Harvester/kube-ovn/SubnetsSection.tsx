@@ -11,7 +11,7 @@ type Props = {
   subnets: any[];
   vpcList?: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 };
 
 const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading, onRefresh }) => {
@@ -115,7 +115,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       setIsEditMode(false);
       setCurrentSubnet(null);
       form.resetFields();
-      onRefresh?.();
+      onRefresh?.(true);
     } catch (e: any) {
       message.error(`${isEditMode ? '更新' : '创建'}失败: ${e.message}`);
     } finally {
@@ -161,7 +161,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         try {
           await deleteKubeOvnSubnet(cloudId!, name);
           message.success('删除成功');
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -256,7 +256,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
             onChange={setTableColumns}
             settingsKey="harvester_subnets_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} />
         </>
       )}
     >

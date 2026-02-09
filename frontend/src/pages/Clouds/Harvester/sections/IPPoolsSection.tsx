@@ -8,7 +8,7 @@ interface Props {
   cloudId: string;
   ippools: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh }) => {
@@ -80,7 +80,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
         />
       }
       toolbarRight={
-        <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading}>刷新</Button>
+        <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
       }
     >
       <Table

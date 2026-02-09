@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Button, Form, Input, Tabs, Alert, Tree, App, Space, Modal } from 'antd';
 import { ReloadOutlined, CloudServerOutlined, CloudOutlined, BranchesOutlined, ApartmentOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
-import { fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../utils/harvesterUtils';
+import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
 import { 
   fetchClouds, fetchCloudProviderEcs, API_BASE_URL, getAuthHeaders,
   startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs
@@ -45,6 +46,7 @@ const CloudConsolePage: React.FC = () => {
   
   // 各类资源数据列表
   const [ecs, setEcs] = useState<any[]>([]);        // 云主机
+  const [namespaces, setNamespaces] = useState<any[]>([]); // 命名空间
   const [pvcs, setPvcs] = useState<any[]>([]);      // 虚拟卷 (Harvester)
   const [images, setImages] = useState<any[]>([]);  // 镜像 (Harvester)
   const [templates, setTemplates] = useState<any[]>([]); // 模板 (Harvester)
@@ -80,6 +82,9 @@ const CloudConsolePage: React.FC = () => {
   const [nodeValue, setNodeValue] = useState<string | undefined>(undefined);
   const [reconfVisible, setReconfVisible] = useState(false);
   const [reconfVm, setReconfVm] = useState<any>(null);
+  
+  // SSE Status Buffer
+  const vmStatusBuffer = useRef(new Map<string, any>());
 
   // ==================== Action Handlers ====================
   const handleStart = async (iid: string) => {
@@ -135,8 +140,8 @@ const CloudConsolePage: React.FC = () => {
     
     let eventSource: EventSource | null = null;
     const connectSSE = () => {
-      const token = localStorage.getItem('token');
-      const sseUrl = `/api/clouds/${currentCloudId}/resources/ecs/events?token=${token}`;
+      const token = localStorage.getItem('token') || '';
+      const sseUrl = `${API_BASE_URL}/api/clouds/${currentCloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       
       eventSource = new EventSource(sseUrl);
       
@@ -144,43 +149,58 @@ const CloudConsolePage: React.FC = () => {
         // console.log('[SSE] Connected');
       };
 
-      eventSource.onmessage = (event) => {
+      // Full list update (optional, usually initial load handles it)
+      eventSource.addEventListener('vms', (ev: MessageEvent) => {
         try {
-          const msg = JSON.parse(event.data);
+          const json = JSON.parse(String(ev.data || '{}'));
+          const items: any[] = Array.isArray(json?.items) ? json.items : [];
+          if (items.length > 0) setEcs(items);
+        } catch {}
+      });
+
+      // VM Created
+      eventSource.addEventListener('vm_created', (ev: MessageEvent) => {
+        try {
+          const json = JSON.parse(String(ev.data || '{}'));
+          const r = json?.item;
+          if (!r) return;
           setEcs(prev => {
-            const currentData = [...prev];
-            if (msg.type === 'add' || msg.type === 'update') {
-              const newItem = msg.data;
-              const idx = currentData.findIndex(item => 
-                (item.id && item.id === newItem.id) || 
-                (item.InstanceId && item.InstanceId === newItem.InstanceId) ||
-                (item?.metadata?.uid && item?.metadata?.uid === newItem?.metadata?.uid)
-              );
-              
-              if (idx > -1) {
-                currentData[idx] = newItem;
-              } else {
-                currentData.unshift(newItem);
-              }
-              return currentData;
-            } else if (msg.type === 'delete') {
-              const delItem = msg.data;
-              return currentData.filter(item => 
-                !((item.id && item.id === delItem.id) || 
-                  (item.InstanceId && item.InstanceId === delItem.InstanceId) ||
-                  (item?.metadata?.uid && item?.metadata?.uid === delItem?.metadata?.uid))
-              );
-            }
-            return currentData;
+            const iid = String(r?.InstanceId || r?.id || '');
+            if (!iid) return prev;
+            if ((prev || []).some((x:any)=> String(x?.InstanceId||x?.id||'')===iid)) return prev;
+            return [r, ...(prev || [])];
           });
-        } catch (e) {
-          console.error('[SSE] Parse error', e);
-        }
-      };
+        } catch {}
+      });
+
+      // VM Deleted
+      eventSource.addEventListener('vm_deleted', (ev: MessageEvent) => {
+        try {
+          const json = JSON.parse(String(ev.data || '{}'));
+          const iid = String(json?.iid || '');
+          if (!iid) return;
+          setEcs(prev => (prev || []).filter(item => 
+             !((item.id && item.id === iid) || 
+               (item.InstanceId && item.InstanceId === iid) ||
+               (item?.metadata?.uid && item?.metadata?.uid === iid))
+          ));
+        } catch {}
+      });
+
+      // VM Status Update (Buffered)
+      eventSource.addEventListener('vm_status', (ev: MessageEvent) => {
+        try {
+          const json = JSON.parse(String(ev.data || '{}'));
+          const iid = String(json?.iid || '');
+          if (!iid) return;
+          vmStatusBuffer.current.set(iid, json);
+        } catch {}
+      });
 
       eventSource.onerror = (err) => {
         // console.error('[SSE] Error', err);
         eventSource?.close();
+        // Retry logic could be added here, but EventSource usually retries automatically
       };
     };
 
@@ -192,6 +212,55 @@ const CloudConsolePage: React.FC = () => {
       }
     };
   }, [currentCloudId]);
+
+  // SSE Buffer Flush Effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (vmStatusBuffer.current.size === 0) return;
+      
+      const updates = new Map(vmStatusBuffer.current);
+      vmStatusBuffer.current.clear();
+      
+      setEcs(prev => {
+        let hasChanges = false;
+        const next = (prev || []).map((x:any)=> {
+           const xiid = String(x?.InstanceId||x?.id||x?.metadata?.uid||'');
+           if (updates.has(xiid)) {
+              const json = updates.get(xiid);
+              const statusStr = String(json?.status || '');
+              const nodeName = String(json?.nodeName || '');
+              const ips = Array.isArray(json?.ips) ? json.ips : [];
+              
+              // Deep merge logic or simple update
+              // Here we update specific fields that change frequently
+              const newStatus = { ...x.status, printableStatus: statusStr };
+              if (x.status?.phase) newStatus.phase = statusStr;
+
+              // Check for changes to avoid unnecessary re-renders
+              if (
+                 x.status?.printableStatus !== statusStr ||
+                 x.nodeName !== nodeName ||
+                 JSON.stringify(x.ips) !== JSON.stringify(ips)
+              ) {
+                 hasChanges = true;
+                 return {
+                    ...x,
+                    status: newStatus,
+                    nodeName: nodeName,
+                    ips: ips,
+                    // Also update Extra if needed
+                    Extra: { ...(x.Extra || {}), NodeName: nodeName }
+                 };
+              }
+           }
+           return x;
+        });
+        return hasChanges ? next : prev;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   // ==================== Permissions & Memoized Data (权限与缓存数据) ====================
 
@@ -289,6 +358,20 @@ const CloudConsolePage: React.FC = () => {
       }
     } catch (e) {
       // ignore
+    }
+  };
+
+  // 加载命名空间列表
+  const loadNamespaces = async (cloudId?: string) => {
+    const cid = cloudId || currentCloudId;
+    if (!cid || cid === 'all') return;
+    try {
+      const res = await fetchHarvesterNamespaces(cid);
+      const list: any[] = Array.isArray(res?.data?.items) ? res.data.items : (Array.isArray(res?.items) ? res.items : []);
+      setNamespaces(list);
+    } catch (e: any) {
+      console.error('[CloudConsole] loadNamespaces error:', e);
+      setNamespaces([]);
     }
   };
 
@@ -703,6 +786,7 @@ const CloudConsolePage: React.FC = () => {
   // 当识别为 Harvester 环境时，预加载所有相关资源以显示 Tab 统计计数
   useEffect(() => {
     if (currentCloudId && caps?.isHarvester) {
+      loadNamespaces(currentCloudId);
       loadPvcs(currentCloudId);
       loadImages(currentCloudId);
       loadTemplates(currentCloudId);
@@ -756,8 +840,13 @@ const CloudConsolePage: React.FC = () => {
   // ==================== Render Helpers (渲染辅助) ====================
   
   const namespacesOptions = useMemo(() => {
-    return Array.from(new Set(ecs.map(r => r?.metadata?.namespace || r?.namespace).filter(Boolean))) as string[];
-  }, [ecs]);
+    const s = new Set<string>();
+    (namespaces || []).forEach((n:any)=>{ 
+        const ns = n?.metadata?.name || n?.name || '';
+        if (ns && !isSystemNamespace(ns)) s.add(ns); 
+    });
+    return Array.from(s).sort();
+  }, [namespaces]);
 
   const nodesOptions = useMemo(() => {
     return Array.from(new Set(ecs.map(r => r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.nodeName || r?.Extra?.NodeName).filter(Boolean))) as string[];
@@ -913,6 +1002,7 @@ const CloudConsolePage: React.FC = () => {
                   <CloudConsoleHarvester
                     cloudId={currentCloudId || ''}
                     vms={ecs}
+                    namespaces={namespaces}
                     templates={templates}
                     sshKeys={sshKeys}
                     volumes={pvcs}

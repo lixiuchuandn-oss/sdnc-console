@@ -9,7 +9,7 @@ import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 type Props = {
   nodes: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
   cloudId?: string;
 };
 
@@ -189,7 +189,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
             icon={<ReloadOutlined />} 
             onClick={() => {
               if (onRefresh) {
-                onRefresh();
+                onRefresh(true);
               } else {
                 message.warning('刷新功能未绑定');
               }

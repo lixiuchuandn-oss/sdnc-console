@@ -42,7 +42,7 @@ export const requestOnce = (target: string, token: string, insecure: boolean = f
   });
 };
 
-export const getJsonOnce = async (target: string, token: string, insecure: boolean = false) => {
+export const getJsonOnce = async (target: string, token: string, insecure: boolean = false, silent: boolean = false) => {
   try {
     const res = await axios.get(target, {
       headers: {
@@ -57,6 +57,9 @@ export const getJsonOnce = async (target: string, token: string, insecure: boole
   } catch (error: any) {
     if (axios.isAxiosError(error)) {
         if (error.response) {
+            if (!silent) {
+                console.error(`[Harvester] Request failed for ${target}: ${error.response.status}`);
+            }
             throw {
                 status: error.response.status,
                 body: typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data),
@@ -78,6 +81,7 @@ export const watchJsonStream = (
   onError?: (err: any) => void,
 ) => {
   const mod = getRequestModule(target);
+  console.log(`[Watch] Initiating request to ${target}`);
   const req = mod.request(
     target,
     {
@@ -90,6 +94,7 @@ export const watchJsonStream = (
     },
     (res) => {
       // Check for non-2xx status codes (e.g. 401, 403, 404, 410, 500)
+      console.log(`[Watch] Connected to ${target}, Status: ${res.statusCode}`);
       if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
         if (onError) onError(new Error(`Stream HTTP Error ${res.statusCode}`));
         // Consume data to avoid memory leaks, then destroy
@@ -99,6 +104,7 @@ export const watchJsonStream = (
 
       let buffer = '';
       res.on('data', (chunk) => {
+        // console.log(`[Watch] Data received: ${chunk.length} bytes`);
         buffer += chunk.toString('utf-8');
         const lines = buffer.split('\n');
         // Keep the last partial line in buffer
@@ -110,11 +116,12 @@ export const watchJsonStream = (
             const json = JSON.parse(line);
             callback(json);
           } catch (e) {
-            // ignore parse errors
+            console.warn('[Watch] JSON Parse Error:', e, 'Line:', line.slice(0, 100));
           }
         }
       });
       res.on('end', () => {
+        console.log(`[Watch] Stream ended for ${target}`);
         if (buffer.trim()) {
            try {
              const json = JSON.parse(buffer);
@@ -132,6 +139,7 @@ export const watchJsonStream = (
     if (onError) onError(err);
   });
   req.end();
+  console.log(`[Watch] Request end called for ${target}`);
   
   return {
     abort: () => {

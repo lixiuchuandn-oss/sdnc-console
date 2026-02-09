@@ -9,7 +9,7 @@ interface Props {
   cloudId: string;
   sshKeys: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 }
 
 const SshKeysSection: React.FC<Props> = ({ cloudId, sshKeys, loading, onRefresh }) => {
@@ -81,7 +81,7 @@ const SshKeysSection: React.FC<Props> = ({ cloudId, sshKeys, loading, onRefresh 
             onChange={setTableColumns}
             settingsKey="harvester_ssh_keys_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
         </>
       )}
     >

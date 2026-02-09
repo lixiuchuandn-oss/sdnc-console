@@ -50,6 +50,7 @@ interface Props {
   
   // VmSection specific props
   namespacesOptions: string[];
+  namespaces?: any[];
   nodesOptions: string[];
   nsValue?: string;
   nodeValue?: string;
@@ -108,6 +109,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   dnatRules = [],
   loading,
   namespacesOptions,
+  namespaces,
   nodesOptions,
   nsValue,
   nodeValue,
@@ -220,8 +222,10 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         return (
           <VmSection
             vms={vms}
+            images={images}
             loading={loading}
             namespacesOptions={namespacesOptions}
+            namespaces={namespaces}
             nodesOptions={nodesOptions}
             cloudId={cloudId}
             nsValue={nsValue}

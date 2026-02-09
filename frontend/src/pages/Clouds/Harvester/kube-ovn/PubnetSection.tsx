@@ -10,7 +10,7 @@ import { createKubeOvnSubnet, deleteKubeOvnSubnet, fetchHarvesterNads } from '..
 type Props = {
   subnets: any[];
   loading: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
 };
 
 const KubeOvnPublicNetworksSection: React.FC<Props> = ({ subnets, loading, onRefresh }) => {
@@ -111,7 +111,7 @@ const KubeOvnPublicNetworksSection: React.FC<Props> = ({ subnets, loading, onRef
       message.success('创建外部网络成功');
       setIsModalOpen(false);
       form.resetFields();
-      onRefresh?.();
+      onRefresh?.(true);
     } catch (e: any) {
       message.error(`创建失败: ${e.message}`);
     } finally {
@@ -128,7 +128,7 @@ const KubeOvnPublicNetworksSection: React.FC<Props> = ({ subnets, loading, onRef
         try {
           await deleteKubeOvnSubnet(cloudId!, name);
           message.success('删除成功');
-          onRefresh?.();
+          onRefresh?.(true);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }
@@ -205,7 +205,7 @@ const KubeOvnPublicNetworksSection: React.FC<Props> = ({ subnets, loading, onRef
             onChange={setTableColumns}
             settingsKey="harvester_kubeovn_networks_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} />
         </>
       )}
     >
