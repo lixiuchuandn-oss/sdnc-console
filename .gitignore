@@ -44,4 +44,7 @@ Thumbs.db
 /backend/temp_uploads/
 /backend/uploads/
 
+# Do directory (Tasks & Tracking)
+do/
+
 
