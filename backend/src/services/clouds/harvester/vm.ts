@@ -1,5 +1,6 @@
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson, requestOnce } from './utils';
+import { createHarvesterSecret } from './resources';
 
 // ==================================================================================
 // VM List (Direct API - Auto Discovery)
@@ -338,7 +339,97 @@ export const createHarvesterVM = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachines`;
-  return await requestJson('POST', url, token, insecure, payload);
+
+  // --- CloudInit Secret Handling ---
+  // If the payload contains inline cloudInitNoCloud data (userData/networkData),
+  // we extract it, convert it to a Secret, and link it.
+  let cloudInitSecret: any = null;
+  
+  // Clone payload to avoid side effects
+  const vmPayload = JSON.parse(JSON.stringify(payload));
+  const vmName = vmPayload.metadata?.name;
+
+  if (vmName && vmPayload.spec?.template?.spec?.volumes) {
+    const volumes = vmPayload.spec.template.spec.volumes;
+    const ciVolIndex = volumes.findIndex((v: any) => v.cloudInitNoCloud);
+    
+    if (ciVolIndex >= 0) {
+      const ciVol = volumes[ciVolIndex];
+      const ciConfig = ciVol.cloudInitNoCloud;
+      
+      // Check for inline data or custom top-level fields
+      // Note: Harvester/Kubevirt prefers Secrets for CloudInit to support networkData and large userData
+      const userData = ciConfig.userData || vmPayload.userData;
+      const networkData = ciConfig.networkData || vmPayload.networkData;
+      
+      // Only proceed if we have data and it's NOT already a secretRef
+      if ((userData || networkData) && !ciConfig.secretRef) {
+         const secretName = `${vmName}-${Math.random().toString(36).substring(2, 7)}-cloudinit`;
+         
+         // Prepare Secret Data (Base64)
+         const data: any = {};
+         if (userData) {
+             data.userdata = Buffer.from(userData).toString('base64');
+         }
+         if (networkData) {
+             data.networkdata = Buffer.from(networkData).toString('base64');
+         }
+         
+         // Update VM Payload to use SecretRef
+         volumes[ciVolIndex] = {
+             name: ciVol.name,
+             cloudInitNoCloud: {
+                 secretRef: { name: secretName }
+             }
+         };
+         
+         // Prepare Secret Object
+         cloudInitSecret = {
+             apiVersion: 'v1',
+             kind: 'Secret',
+             metadata: {
+                 name: secretName,
+                 namespace,
+                 labels: {
+                     "harvesterhci.io/cloud-init-template": "harvester"
+                 }
+             },
+             type: "Opaque",
+             data
+         };
+         
+         // Clean up custom/inline fields
+         delete ciConfig.userData;
+         delete ciConfig.networkData;
+         delete vmPayload.userData;
+         delete vmPayload.networkData;
+      }
+    }
+  }
+
+  // 1. Create VM
+  const vm = await requestJson('POST', url, token, insecure, vmPayload);
+
+  // 2. Create Secret (if needed) and link OwnerReference
+  if (cloudInitSecret && vm?.metadata?.uid) {
+      cloudInitSecret.metadata.ownerReferences = [{
+          apiVersion: vm.apiVersion || "kubevirt.io/v1",
+          kind: vm.kind || "VirtualMachine",
+          name: vm.metadata.name,
+          uid: vm.metadata.uid,
+          blockOwnerDeletion: true
+      }];
+      
+      try {
+          await createHarvesterSecret({ endpoint, token, insecure }, namespace, cloudInitSecret);
+      } catch (e: any) {
+          console.error(`[Harvester] Failed to create CloudInit secret for VM ${vmName}:`, e);
+          // Optional: We could try to delete the VM if secret creation fails, but that might be aggressive.
+          // For now, we log the error. The VM will likely fail to start (Volume mismatch).
+      }
+  }
+
+  return vm;
 };
 
 export const updateHarvesterVMSpec = async (

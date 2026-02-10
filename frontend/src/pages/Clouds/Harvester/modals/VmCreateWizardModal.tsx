@@ -10,7 +10,7 @@ import StepNetworks from './StepNetworks';
 import StepOthers from './StepOthers';
 import WizardSummary from './WizardSummary';
 import { useHarvesterData } from './useHarvesterData';
-import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange } from './VmWizardUtils';
+import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange, generateUniqueVmId } from './VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 
 const VmCreateWizardModal: React.FC = () => {
@@ -163,8 +163,12 @@ const VmCreateWizardModal: React.FC = () => {
         } catch (e: any) { throw new Error(e?.message || 'GPU 资源不可用'); }
       }
 
+      // ...
+      // 生成唯一ID
+      const vmId = await generateUniqueVmId(cid, v.namespace || 'default');
+
       const payload = constructVmPayload({
-        v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu, capabilities,
+        v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu, capabilities, vmId, // 传入 vmId
         isArm64: (function() {
             if (nodes && nodes.length > 0) {
                  const n = nodes[0];
@@ -178,7 +182,7 @@ const VmCreateWizardModal: React.FC = () => {
       await createHarvesterVm(cid, payload);
 
       if (autoStart) {
-        await handleAutoStart(cid, v);
+        await handleAutoStart(cid, vmId, v); // 使用 vmId 启动
       }
       message.success('创建成功');
       navigate(-1);

@@ -62,7 +62,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   };
   
   const SafeRead = {
-    name: (r: any) => r?.metadata?.name || r?.InstanceName || r?.name || '',
+    name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.InstanceName || r?.name || r?.metadata?.name || '', // 优先显示别名
+    vmId: (r: any) => r?.metadata?.name || '', // 读取真实ID
     namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
     tenant: (r: any) => {
       // 优先从 Namespace Annotations 获取 (tower.io/tenant)
@@ -248,6 +249,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         { title: '实例名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
       const text = SafeRead.name(r) || '-';
       return <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>{text}</span>;
+    } },
+    { title: '实例ID', key: 'vmId', ellipsis: true, render: (_: any, r: any) => {
+      const id = SafeRead.vmId(r);
+      return id ? <Tooltip title={id}>{id}</Tooltip> : '-';
     } },
     { title: '状态', key: 'status', fixed: 'left' as any, render: (_: any, r: any) => {
       const s = String(SafeRead.status(r));
@@ -521,7 +526,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           <TableColumnSettings 
             columns={allColumns} 
             onChange={setTableColumns}
-            settingsKey="harvester_vm_table"
+            settingsKey="harvester_vm_table_v2"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} />
         </>

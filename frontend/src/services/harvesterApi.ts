@@ -155,6 +155,17 @@ export const fetchHarvesterIPPools = async (cloudId: string, force = false) => {
 
 export const fetchHarvesterNads = (cloudId: string, force = false) => apiRequest(`/api/clouds/${cloudId}/resources/nads${force ? '?force=true' : ''}`);
 
+export const fetchHarvesterClusterNetworks = async (cloudId: string, force = false) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/cluster_networks${force ? '?force=true' : ''}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
 export const fetchHarvesterNadDetail = async (cloudId: string, namespace: string, name: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/nads/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, {
@@ -163,6 +174,51 @@ export const fetchHarvesterNadDetail = async (cloudId: string, namespace: string
     credentials: 'include',
   });
   if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const createHarvesterNad = async (cloudId: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/nads`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    try {
+      const j = JSON.parse(t);
+      const msg = j?.message || '请求失败';
+      const detail = j?.error ? (typeof j.error === 'string' ? j.error : JSON.stringify(j.error)) : '';
+      throw new Error(detail ? `${msg} | ${detail}` : msg);
+    } catch (e: any) {
+      if (e.message && e.message.includes('|')) throw e;
+      throw new Error(t);
+    }
+  }
+  return await res.json();
+};
+
+export const deleteHarvesterNad = async (cloudId: string, namespace: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/nads/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    try {
+      const j = JSON.parse(t);
+      const msg = j?.message || '删除失败';
+      const detail = j?.error ? (typeof j.error === 'string' ? j.error : JSON.stringify(j.error)) : '';
+      throw new Error(detail ? `${msg} | ${detail}` : msg);
+    } catch (e: any) {
+      if (e.message && e.message.includes('|')) throw e;
+      throw new Error(t);
+    }
+  }
   return await res.json();
 };
 
@@ -653,9 +709,18 @@ export const exportHarvesterImageFromVolume = async (cloudId: string, namespace:
   return await res.json();
 };
 
-export const createHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, pvcName: string, payload: { name?: string; snapshotClassName?: string }) => {
+export const createHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, pvcName: string, payload: { name?: string; snapshotClassName?: string; alias?: string }) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(pvcName)}/snapshots`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload||{}), credentials: 'include'
+  });
+  if (!res.ok) { const t=await res.text(); try{ const j=JSON.parse(t); throw new Error(String(j?.message||j?.error||t)); }catch{ throw new Error(t);} }
+  return await res.json();
+};
+
+export const restoreHarvesterVolumeSnapshot = async (cloudId: string, namespace: string, snapshotName: string, payload: { name: string; storageClassName?: string; size?: string; accessModes?: string[]; volumeMode?: string }) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/snapshots/${encodeURIComponent(namespace)}/${encodeURIComponent(snapshotName)}/restore`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload||{}), credentials: 'include'
   });
   if (!res.ok) { const t=await res.text(); try{ const j=JSON.parse(t); throw new Error(String(j?.message||j?.error||t)); }catch{ throw new Error(t);} }

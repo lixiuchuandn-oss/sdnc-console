@@ -143,6 +143,108 @@ export const listHarvesterNADsStandard = async ({
 };
 
 /**
+ * 获取集群网络 (ClusterNetworks)
+ * API: /apis/network.harvesterhci.io/v1beta1/clusternetworks
+ */
+export const listHarvesterClusterNetworks = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  // 尝试不同的 API 路径
+  const candidates = [
+    `${origin}/apis/network.harvesterhci.io/v1beta1/clusternetworks`,
+  ];
+  let json: any = null;
+  let lastErr: any = null;
+
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure, true);
+      if (json) {
+        break;
+      }
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+
+  if (!json && lastErr) {
+    const s = Number((lastErr as any)?.status || 0);
+    const m = String((lastErr as any)?.message || '').toLowerCase();
+    const b = String((lastErr as any)?.body || '').toLowerCase();
+    
+    console.warn(`[Harvester-API] ClusterNetwork列表获取失败: 最终错误=${m} 状态码=${s}`);
+
+    if (s === 401 || m.includes('unauthorized') || b.includes('unauthorized')) return [];
+    if (s === 404 || m.includes('not found') || b.includes('not found')) return [];
+    throw lastErr;
+  }
+
+  const items = Array.isArray(json?.items)
+    ? json?.items
+    : Array.isArray(json?.data)
+      ? json?.data
+      : [];
+
+  return items.map((cn: any) => ({
+    ...cn,
+    links: {
+      view: `${origin}/apis/network.harvesterhci.io/v1beta1/clusternetworks/${cn?.metadata?.name || cn?.name || ''}`
+    }
+  }));
+};
+
+/**
+ * 获取集群网络配置 (VlanConfigs - 用于配置 Uplink)
+ * API: /apis/network.harvesterhci.io/v1beta1/vlanconfigs
+ */
+export const listHarvesterClusterNetworkConfigs = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/network.harvesterhci.io/v1beta1/vlanconfigs`;
+  let json: any = null;
+  let lastErr: any = null;
+
+  try {
+    json = await getJsonOnce(url, token, insecure, true);
+  } catch (e: any) {
+    lastErr = e;
+  }
+
+  if (!json && lastErr) {
+    const s = Number((lastErr as any)?.status || 0);
+    // Ignore 404/403 (VlanConfigs might not exist in some versions or permissions)
+    if (s === 404 || s === 403) return [];
+    console.warn(`[Harvester-API] VlanConfigs列表获取失败: 状态码=${s}`);
+    return [];
+  }
+
+  const items = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+  return items;
+};
+
+/**
  * 获取 Kube-OVN 子网列表
  */
 export const listKubeOvnSubnets = async ({

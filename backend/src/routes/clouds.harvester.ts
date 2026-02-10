@@ -4,6 +4,8 @@ import { Cloud } from '../entities/Cloud';
 import { UserSpace } from '../entities/UserSpace';
 import { HarvesterNamespace } from '../entities/harvester/HarvesterNamespace';
 import { HarvesterNamespaceInventory } from '../entities/harvester/HarvesterNamespaceInventory';
+import { HarvesterClusterNetworkInventory } from '../entities/harvester/HarvesterClusterNetworkInventory';
+import { HarvesterVlanConfigInventory } from '../entities/harvester/HarvesterVlanConfigInventory';
 import {
   listHarvesterVMsStandard,
   listHarvesterAvailableVolumesStandard,
@@ -46,6 +48,7 @@ import {
   createHarvesterVirtualMachineRestore,
   deleteHarvesterVirtualMachineBackup,
   deleteHarvesterVirtualMachineSnapshot,
+  deleteHarvesterVolumeSnapshot,
 } from '../services/clouds/harvester/client';
 import {
   syncHarvesterVolumes,
@@ -68,6 +71,7 @@ import {
   syncHarvesterUsbResources,
   syncHarvesterTemplates,
   syncHarvesterScheduleVmBackups,
+  syncHarvesterClusterNetworks,
 } from '../services/clouds/harvester/syncInventory';
 import { KubevirtVolumeInventory } from '../entities/kubevirt/KubevirtVolumeInventory';
 import { KubevirtNadInventory } from '../entities/kubevirt/KubevirtNadInventory';
@@ -174,6 +178,64 @@ const ensureProvider = (cloud: any, provider: string, res: Response, msg: string
 };
 
 export const registerHarvesterRoutes = (router: Router, checkAdminPermission: any) => {
+  // ==================================================================================
+  // Cluster Networks
+  // ==================================================================================
+  /**
+   * [GET] /:id/resources/cluster_networks
+   * 获取集群网络列表
+   */
+  router.get(
+    '/:id/resources/cluster_networks',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(HarvesterClusterNetworkInventory);
+        const vlanConfigRepo = AppDataSource.getRepository(HarvesterVlanConfigInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+
+        // Sync fallback logic
+        if (count === 0 || String(force) === 'true') {
+          try {
+            await syncHarvesterClusterNetworks(cloud, insecure);
+          } catch (e: any) {
+            console.warn('Sync ClusterNetworks failed, falling back to empty/stale', e);
+            if (count === 0) throw e;
+          }
+        }
+
+        const [items, vlanConfigs] = await Promise.all([
+          repo.find({ where: { cloudId: id } }),
+          vlanConfigRepo.find({ where: { cloudId: id } })
+        ]);
+
+        const list = items.map((i: any) => {
+          const configs = vlanConfigs.filter((c: any) => c.clusterNetwork === i.name);
+          return {
+            ...(i.rawData || {}),
+            view: i.links?.view || i.rawData?.links?.view,
+            vlanConfigs: configs.map((c: any) => ({
+              ...c,
+              ...(c.rawData || {})
+            }))
+          };
+        });
+
+        res.json({ items: list });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '查询集群网络失败', error: error.message });
+      }
+    },
+  );
+
   // ==================================================================================
   // VPCs (Kube-OVN)
   // ==================================================================================
@@ -551,8 +613,19 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           const creator = vm?.metadata?.labels?.['harvesterhci.io/creator'] || '';
           const conditions = vm?.status?.conditions || [];
 
+          // Merge annotations explicitly from DB entity to ensure they are available
+          // This fixes the issue where rawData might miss annotations or they get lost
+          const mergedAnnotations = {
+            ...(vm?.metadata?.annotations || {}),
+            ...(item.annotations || {})
+          };
+
           return {
             ...vm,
+            metadata: {
+              ...(vm?.metadata || {}),
+              annotations: mergedAnnotations
+            },
             view: viewUrl, // Expose view link at root level for easier access
             links: { view: viewUrl },
             id: uid, // Use K8s UID as ID
@@ -1538,6 +1611,153 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
   );
 
   /**
+   * [POST] /:id/resources/harvester/nads
+   * 创建网络附件定义 (NAD)
+   * 
+   * 策略: Direct API Call
+   * 描述: 在 Harvester 集群中创建新的 NAD。
+   */
+  router.post(
+    '/:id/resources/harvester/nads',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const namespace = req.body.namespace || req.body.metadata?.namespace;
+        
+        if (!namespace) {
+          return res.status(400).json({ message: '缺少必要参数: namespace' });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源创建', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        let endpoint = (cloud.endpoint || '').replace(/\/+$/, '');
+        
+        // Smart Endpoint Cleaning:
+        // 1. If it looks like a Rancher Proxy URL (/k8s/clusters/...), keep it.
+        // 2. Otherwise, if it has a version suffix (/v1, /v3), strip it to avoid double versioning.
+        if (!endpoint.includes('/k8s/clusters/')) {
+            endpoint = endpoint.replace(/\/v[0-9]+(\/harvester)?$/, '');
+        }
+
+        const nsEncoded = encodeURIComponent(namespace);
+
+        console.log(`[NAD Create] Payload for ${namespace}:`, JSON.stringify(req.body, null, 2));
+
+        // Candidates for Creation (Compatibility for different Harvester/K8s versions)
+        // 1. Standard K8s API (Preferred)
+        // 2. Fallback K8s API (No hyphen)
+        // 3. Steve API (Rancher proxy style) - Namespace in body
+        const candidates = [
+            `${endpoint}/apis/k8s.cni.cncf.io/v1/namespaces/${nsEncoded}/network-attachment-definitions`,
+            `${endpoint}/apis/k8s.cni.cncf.io/v1/namespaces/${nsEncoded}/networkattachmentdefinitions`,
+            `${endpoint}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions`,
+            `${endpoint}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions`
+        ];
+
+        let lastError: any = null;
+        let success = false;
+
+        for (const url of candidates) {
+            try {
+                const data = await requestJson('POST', url, cloud.secretKey || '', insecure, req.body);
+                res.json({ message: '创建成功', data });
+                success = true;
+                break;
+            } catch (innerError: any) {
+                // Retry logic:
+                // 1. 404 Not Found: Path incorrect, try next.
+                // 2. 405 Method Not Allowed: Path exists but verb wrong, try next.
+                // 3. 422 Unprocessable Entity / 400 Bad Request: 
+                //    Payload format might not match the API endpoint (e.g. sending Rancher-style payload to K8s API).
+                //    So we should try next candidate which might accept this payload.
+                const status = Number(innerError.status || 0);
+                const msg = String(innerError.message || '');
+                
+                if (status === 404 || status === 405 || status === 422 || status === 400 || msg.includes('404')) {
+                    lastError = innerError;
+                    continue;
+                }
+                // If other error (e.g. 401, 403, 500), stop and throw immediately
+                throw innerError;
+            }
+        }
+
+        if (!success) {
+            console.error(`[NAD Create Error] All candidates failed. Namespace: ${namespace}. Last Error: ${lastError?.message}`);
+            // Include lastError body if available for better debugging
+            const lastErrorDetail = lastError?.body ? ` Details: ${lastError.body}` : '';
+            throw new Error(`Harvester API 404 Not Found. 无法找到有效的创建路径 (尝试了标准K8s API和Rancher API)。请检查命名空间 '${namespace}' 是否存在。${lastErrorDetail}`);
+        }
+      } catch (error: any) {
+        // Expose raw upstream error body if available (for "friendly encapsulation" removal)
+        const rawError = error.body || error.message;
+        res.status(500).json({ message: '创建网络附件定义失败', error: rawError });
+      }
+    },
+  );
+
+  /**
+   * [DELETE] /:id/resources/harvester/nads/:namespace/:name
+   * 删除网络附件定义 (NAD)
+   */
+  router.delete(
+    '/:id/resources/harvester/nads/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        let endpoint = (cloud.endpoint || '').replace(/\/+$/, '');
+        if (!endpoint.includes('/k8s/clusters/')) {
+            endpoint = endpoint.replace(/\/v[0-9]+(\/harvester)?$/, '');
+        }
+        const nsEncoded = encodeURIComponent(namespace);
+        
+        // Candidates for Deletion
+        const candidates = [
+            `${endpoint}/apis/k8s.cni.cncf.io/v1/namespaces/${nsEncoded}/network-attachment-definitions/${name}`,
+            `${endpoint}/apis/k8s.cni.cncf.io/v1/namespaces/${nsEncoded}/networkattachmentdefinitions/${name}`,
+            `${endpoint}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions/${namespace}/${name}`,
+            `${endpoint}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions/${namespace}/${name}`
+        ];
+
+        let lastError: any = null;
+        let success = false;
+
+        for (const url of candidates) {
+            try {
+                await requestJson('DELETE', url, cloud.secretKey || '', insecure);
+                success = true;
+                break;
+            } catch (e: any) {
+                lastError = e;
+                // Continue to next candidate
+            }
+        }
+
+        if (success) {
+            syncHarvesterNads(cloud, insecure).catch(e => console.error('Background sync failed', e));
+            return res.json({ message: '删除成功' });
+        }
+
+        const rawError = lastError?.body || lastError?.message || '未知错误';
+        res.status(500).json({ message: '删除失败', error: rawError });
+
+      } catch (error: any) {
+        res.status(500).json({ message: '删除失败', error: error.message });
+      }
+    }
+  );
+
+  /**
    * [GET] /:id/resources/harvester/volumes/:namespace/:name
    * 获取单个卷 (PVC) 详情
    * 
@@ -2430,7 +2650,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     async (req: any, res: Response) => {
       try {
         const { id } = req.params as any;
-        const { namespace, name, sizeGi, size, accessModes, volumeMode, storageClassName } =
+        const { namespace, name, sizeGi, size, accessModes, volumeMode, storageClassName, annotations } =
           (req.body || {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -2440,7 +2660,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const data = await createHarvesterPVCVolume(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-          { namespace, name, sizeGi: sizeGi || size, accessModes, volumeMode, storageClassName },
+          { namespace, name, sizeGi: sizeGi || size, accessModes, volumeMode, storageClassName, annotations },
         );
         res.json({ message: '创建成功', data });
       } catch (error: any) {
@@ -3166,15 +3386,30 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
-        await deleteHarvesterVirtualMachineSnapshot(
-          {
-            endpoint: cloud.endpoint,
-            token: cloud.secretKey,
-            insecure,
-          } as any,
-          namespace,
-          name
-        );
+        const opts = {
+          endpoint: cloud.endpoint,
+          token: cloud.secretKey,
+          insecure,
+        } as any;
+
+        // Try deleting as VirtualMachineSnapshot first
+        try {
+          await deleteHarvesterVirtualMachineSnapshot(opts, namespace, name);
+        } catch (e: any) {
+          // If 404, try deleting as VolumeSnapshot
+          if (Number(e?.status) === 404 || String(e?.message).includes('404')) {
+             try {
+               await deleteHarvesterVolumeSnapshot(opts, namespace, name);
+             } catch (e2: any) {
+               // If both failed, throw the last error (or first if 404?)
+               // If e2 is also 404, it means neither existed, so returning 404 is correct.
+               throw e2;
+             }
+          } else {
+            // Other errors (403, 500), throw immediately
+            throw e;
+          }
+        }
         
         // Sync immediately
         try {

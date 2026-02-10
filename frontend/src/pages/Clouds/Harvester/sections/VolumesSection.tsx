@@ -21,24 +21,25 @@ type Props = {
 };
 
 // ----------------------------------------------------------------------
-// 1. Clean Data Model (ViewModel) based on PCV Spec
-// ----------------------------------------------------------------------
-interface VolumeView {
-  key: string;
-  name: string;              // metadata.name (PVC Name)
-  namespace: string;         // metadata.namespace
-  pvName: string;            // spec.volumeName (PV Name)
-  phase: string;             // status.phase
-  capacityRaw: string;       // status.capacity.storage | spec.resources.requests.storage
-  capacityBytes: number;     // parsed value
-  storageClass: string;      // spec.storageClassName
-  accessModes: string[];     // spec.accessModes
-  volumeMode: string;        // spec.volumeMode
-  creationTimestamp: string; // metadata.creationTimestamp
-  attachedTo: string[];      // status.attachedTo (legacy/extra) or calculated
-  links?: { view?: string };
-  raw: any;                  // Original Record
-}
+  // 1. Clean Data Model (ViewModel) based on PCV Spec
+  // ----------------------------------------------------------------------
+  interface VolumeView {
+    key: string;
+    name: string;              // metadata.name (PVC Name)
+    alias?: string;            // metadata.annotations['tower.io/alias']
+    namespace: string;         // metadata.namespace
+    pvName: string;            // spec.volumeName (PV Name)
+    phase: string;             // status.phase
+    capacityRaw: string;       // status.capacity.storage | spec.resources.requests.storage
+    capacityBytes: number;     // parsed value
+    storageClass: string;      // spec.storageClassName
+    accessModes: string[];     // spec.accessModes
+    volumeMode: string;        // spec.volumeMode
+    creationTimestamp: string; // metadata.creationTimestamp
+    attachedTo: string[];      // status.attachedTo (legacy/extra) or calculated
+    links?: { view?: string };
+    raw: any;                  // Original Record
+  }
 
 // ----------------------------------------------------------------------
 // 2. Helpers
@@ -154,7 +155,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   // SafeRead Helper (Robust Data Access)
   // ----------------------------------------------------------------
   const SafeRead = {
-    name: (r: any) => r?.name || r?.metadata?.name || '',
+    // Real ID / Name (for logic)
+    id: (r: any) => r?.name || r?.metadata?.name || '',
+    // Display Name (for UI)
+    name: (r: any) => r?.alias || r?.metadata?.annotations?.['tower.io/alias'] || r?.name || r?.metadata?.name || '',
     namespace: (r: any) => r?.namespace || r?.metadata?.namespace || '',
     phase: (r: any) => r?.phase || r?.status?.phase || r?.status?.state || 'Unknown',
     capacity: (r: any) => r?.capacityRaw || r?.status?.capacity?.storage || r?.spec?.resources?.requests?.storage || '',
@@ -171,7 +175,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     // Find the VM this volume is attached to
     attachedVm: (r: any) => {
       const list = Array.isArray(vms) ? vms : [];
-      const pvcName = SafeRead.name(r); // PVC Name (metadata.name)
+      const pvcName = SafeRead.id(r); // PVC Name (metadata.name)
       const pvcNs = SafeRead.namespace(r);
 
       // Strictly use PVC Name to match VM's volumeClaims
@@ -211,6 +215,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       // 1. Extract Basic Meta (Prioritize PCV Spec > Flat/Legacy)
       const name = source?.metadata?.name || r?.name || '';
       const namespace = source?.metadata?.namespace || r?.namespace || '';
+      const alias = source?.metadata?.annotations?.['tower.io/alias'] || '';
       
       // 2. Extract Spec Details
       const pvName = source?.spec?.volumeName || r?.volumeName || r?.pvcName || ''; 
@@ -229,6 +234,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       return {
         key: source?.metadata?.uid || r?.id || `${namespace}/${name}`,
         name,
+        alias,
         namespace,
         pvName,
         phase,
@@ -419,9 +425,17 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       title: 'PVC名称', 
       dataIndex: 'name',
       key: 'name', 
-      render: (v: string, r: VolumeView) => (
-        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>{v}</span> 
+      render: (_: string, r: VolumeView) => (
+        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+          {r.alias || r.name}
+        </span> 
       )
+    },
+    { 
+      title: 'PVC ID', 
+      dataIndex: 'name',
+      key: 'id', 
+      render: (v: string) => <span className="text-secondary">{v}</span> 
     },
     { 
       title: '卷名称 (PV)', 
@@ -464,7 +478,9 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       render: (_: any, r: VolumeView) => {
         const vm = SafeRead.attachedVm(r);
         if (vm) {
-            const name = vm.name || vm.metadata?.name || vm.InstanceName || vm.InstanceId;
+            // 优先显示别名，其次是 InstanceName 或 name
+            const alias = vm.metadata?.annotations?.['tower.io/alias'];
+            const name = alias || vm.name || vm.metadata?.name || vm.InstanceName || vm.InstanceId;
             return name;
         }
         return r.attachedTo.length > 0 ? r.attachedTo.join(', ') : '-';
@@ -525,7 +541,14 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           { 
             key: 'snapshot', 
             label: '创建快照', 
-            onClick: () => { setCurrentRecord(r); snapshotForm.resetFields(); snapshotForm.setFieldsValue({ name: `${r.name}-snap` }); setSnapshotOpen(true); } 
+            onClick: () => { 
+              setCurrentRecord(r); 
+              snapshotForm.resetFields(); 
+              // 生成带随机后缀的快照名称以避免冲突
+              const suffix = Math.random().toString(36).substring(2, 7);
+              snapshotForm.setFieldsValue({ name: `${r.name}-snap-${suffix}` }); 
+              setSnapshotOpen(true); 
+            } 
           },
 
           { 
@@ -609,7 +632,22 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       )}
       toolbarRight={(
         <>
-          <Button type="primary" onClick={() => { createForm.resetFields(); createForm.setFieldsValue({ namespace: 'default', accessModes: ['ReadWriteOnce'], volumeMode: 'Block' }); setCreateOpen(true); }}>创建卷</Button>
+          <Button type="primary" onClick={() => { 
+            createForm.resetFields(); 
+            const scNames = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
+            const defaultSc = scNames.find(n => n.toLowerCase().includes('longhorn')) || scNames[0];
+            const defaultNs = nsOptions.length > 0 ? nsOptions[0].value : undefined;
+            
+            createForm.setFieldsValue({ 
+              alias: '测试pvc',
+              namespace: defaultNs,
+              sizeGi: 40,
+              accessModes: 'ReadWriteMany',
+              volumeMode: 'Block',
+              storageClassName: defaultSc
+            }); 
+            setCreateOpen(true); 
+          }}>创建卷</Button>
           <Dropdown
             trigger={["click"]}
             menu={{
@@ -623,7 +661,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             columns={allColumns} 
             onChange={setTableColumns}
             settingsKey="harvester_volumes_table"
-            defaultHiddenColumns={['pvName', 'namespace', 'volumeMode']}
+            defaultHiddenColumns={['namespace', 'volumeMode']}
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
         </>
@@ -656,13 +694,24 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         onFinish={async (v: any) => {
           try {
             setCreating(true);
+            const modes = Array.isArray(v.accessModes) ? v.accessModes : (v.accessModes ? [v.accessModes] : ['ReadWriteMany']);
+            
+            // Generate ID: id-vol-{11 random chars}
+            let suffix = Math.random().toString(36).substring(2);
+            while (suffix.length < 11) suffix += Math.random().toString(36).substring(2);
+            suffix = suffix.substring(0, 11);
+            const customId = `id-vol-${suffix}`;
+
             const payload = {
-              namespace: String(v.namespace || 'default'),
-              name: String(v.name || ''),
+              namespace: String(v.namespace || ''),
+              name: customId,
               sizeGi: Number(v.sizeGi || 0),
-              accessModes: Array.isArray(v.accessModes) ? v.accessModes : ['ReadWriteOnce'],
+              accessModes: modes,
               volumeMode: String(v.volumeMode || 'Block'),
-              storageClassName: String(v.storageClassName || '') || undefined
+              storageClassName: String(v.storageClassName || '') || undefined,
+              annotations: {
+                'tower.io/alias': v.alias || ''
+              }
             };
             await createHarvesterVolume(cloudId, payload);
             message.success('创建成功');
@@ -672,13 +721,13 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           finally { setCreating(false); }
         }}
       >
-          <Form.Item label="卷名称" name="name" rules={[{ required: true }]}><Input placeholder="例如: my-disk" /></Form.Item>
-          <Form.Item label="命名空间" name="namespace" initialValue="default" rules={[{ required: true }]}>
+          <Form.Item label="别名" name="alias" rules={[{ required: true }]}><Input placeholder="例如: 测试pvc" /></Form.Item>
+          <Form.Item label="命名空间" name="namespace" rules={[{ required: true }]}>
             <Select showSearch options={nsOptions} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="访问模式" name="accessModes" initialValue={["ReadWriteOnce"]}>
-            <Select mode="multiple" options={[{ value: 'ReadWriteOnce', label: 'RWO' }, { value: 'ReadWriteMany', label: 'RWX' }, { value: 'ReadOnlyMany', label: 'ROX' }]} style={{ width: '100%' }} />
+          <Form.Item label="访问模式" name="accessModes" initialValue="ReadWriteMany">
+            <Select options={[{ value: 'ReadWriteOnce', label: 'RWO' }, { value: 'ReadWriteMany', label: 'RWX' }, { value: 'ReadOnlyMany', label: 'ROX' }]} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="卷类型" name="volumeMode" initialValue="Block">
             <Select options={[{ value: 'Block', label: 'Block' }, { value: 'Filesystem', label: 'Filesystem' }]} style={{ width: '100%' }} />
@@ -772,9 +821,12 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         onFinish={async (v: any) => {
           try {
             if (!currentRecord) return;
+            // Generate ID: id-vs-{11 random chars}
+            const id = `id-vs-${Math.random().toString(36).substring(2, 13)}`;
             await createHarvesterVolumeSnapshot(cloudId, currentRecord.namespace, currentRecord.name, {
-              name: v.name,
-              snapshotClassName: v.snapshotClassName
+              name: id,
+              snapshotClassName: 'longhorn-snapshot',
+              alias: v.name // Use user input as alias
             });
             message.success('创建成功');
             setSnapshotOpen(false);
@@ -782,21 +834,6 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         }}
       >
           <Form.Item label="快照名称" name="name"><Input placeholder="留空自动生成" /></Form.Item>
-          <Form.Item label="快照类" name="snapshotClassName">
-            <Select 
-              allowClear 
-              placeholder="请选择快照类 (默认使用 VolumeSnapshotClass)" 
-              options={snapshotClasses.filter(sc => sc?.metadata?.name).map(sc => ({ value: sc.metadata.name, label: sc.metadata.name }))} 
-              onDropdownVisibleChange={async (open) => {
-                if (open && snapshotClasses.length === 0) {
-                  try {
-                    const data = await listHarvesterSnapshotClasses(cloudId);
-                    setSnapshotClasses(data?.items || []);
-                  } catch (e: any) { message.error(e.message || '获取快照类失败'); }
-                }
-              }}
-            />
-          </Form.Item>
       </StdFormModal>
 
       {/* 6. Edit */}

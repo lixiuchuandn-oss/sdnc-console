@@ -3,9 +3,11 @@ import { Table, Input, Select, Tag, Button, Modal, Tabs, Space, Descriptions, me
 import { ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchHarvesterNadDetail } from '../../../../services/harvesterApi';
+import { fetchHarvesterNadDetail, deleteHarvesterNad } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import NadCreateModal from '../modals/NadCreateModal';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 type Props = {
   nads: any[];
@@ -25,10 +27,32 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
+  // Create Modal State
+  const [createVisible, setCreateVisible] = useState(false);
+
   const handleOpenDrawer = async (record: any, tab: string = 'detail') => {
     setDetailRecord({ ...record, kind: 'NetworkAttachmentDefinition' });
     setDetailActiveTab(tab);
     setDetailVisible(true);
+  };
+
+  const handleDelete = async (record: any) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除网络 ${record._name} 吗？此操作不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteHarvesterNad(cloudId || '', record._namespace, record._name);
+          message.success('删除成功');
+          onRefresh && onRefresh(true);
+        } catch (e: any) {
+          message.error(e.message || '删除失败');
+        }
+      }
+    });
   };
 
   // Robust Data Processing
@@ -176,9 +200,18 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
       width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
+          const isSys = isSystemNamespace(r._namespace);
           const items: any[] = [
               { key: 'detail', label: '查看摘要', onClick: () => handleOpenDrawer(r, 'detail') },
               { key: 'events', label: '操作记录', onClick: () => handleOpenDrawer(r, 'events') },
+              { type: 'divider' },
+              { 
+                key: 'delete', 
+                label: '删除', 
+                danger: true, 
+                disabled: isSys,
+                onClick: () => handleDelete(r) 
+              }
           ];
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
@@ -222,6 +255,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
       )}
       toolbarRight={(
         <>
+          <Button type="primary" onClick={() => setCreateVisible(true)}>创建网络</Button>
           <TableColumnSettings 
             columns={allColumns} 
             onChange={setTableColumns}
@@ -249,6 +283,16 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
         activeTab={detailActiveTab}
         onTabChange={setDetailActiveTab}
         cloudId={cloudId}
+      />
+
+      <NadCreateModal
+        open={createVisible}
+        onCancel={() => setCreateVisible(false)}
+        onSuccess={() => {
+          setCreateVisible(false);
+          onRefresh && onRefresh(true);
+        }}
+        cloudId={cloudId || ''}
       />
     </PageDetailSection>
   );

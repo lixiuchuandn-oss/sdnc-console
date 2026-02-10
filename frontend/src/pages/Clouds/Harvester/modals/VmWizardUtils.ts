@@ -1,4 +1,5 @@
 import { startCloudProviderEcs } from '../../../../services/api';
+import { fetchHarvesterVmDetail } from '../../../../services/harvesterApi'; // 新增导入
 
  
 
@@ -54,8 +55,9 @@ export const buildHarvesterVmPayload = (params: {
   selectedGpu: any;
   capabilities?: any;
   isArm64?: boolean;
+  vmId?: string;
 }) => {
-  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64 } = params;
+  const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64, vmId } = params;
   
   // 1. Calculate GPU
   const finalGpuResName = (function() {
@@ -173,8 +175,8 @@ export const buildHarvesterVmPayload = (params: {
       });
   } else {
       // Image source -> PVC via volumeClaimTemplates
-      // Name format: {vmName}-{rootDiskName}-{random}
-      const pvcName = `${v.name}-${rootDiskName}-${randSuffix()}`;
+      // Name format: {vmId}-{rootDiskName}-{random}
+      const pvcName = `${vmId || v.name}-${rootDiskName}-${randSuffix()}`;
       
       volumes.push({
           name: rootVolName,
@@ -251,7 +253,7 @@ export const buildHarvesterVmPayload = (params: {
                   persistentVolumeClaim: { claimName: d.pvc }
               });
           } else {
-              const pvcName = `${v.name}-${dName}-${randSuffix()}`;
+              const pvcName = `${vmId || v.name}-${dName}-${randSuffix()}`;
               volumes.push({
                   name: dVolName,
                   persistentVolumeClaim: { claimName: pvcName }
@@ -279,13 +281,14 @@ export const buildHarvesterVmPayload = (params: {
     kind: "VirtualMachine",
     metadata: {
         namespace: v.namespace || 'default',
-        name: v.name,
+        name: vmId || v.name,
         labels: {
             "harvesterhci.io/creator": "harvester",
-            "harvesterhci.io/vmName": v.name,
+            "harvesterhci.io/vmName": vmId || v.name,
         },
         annotations: {
              "harvesterhci.io/volumeClaimTemplates": JSON.stringify(volumeClaimTemplates),
+             ...(v.name ? { "tower.io/alias": String(v.name) } : {})
         }
     },
     spec: {
@@ -293,13 +296,13 @@ export const buildHarvesterVmPayload = (params: {
         template: {
             metadata: {
                 labels: {
-                    "harvesterhci.io/vmName": v.name
+                    "harvesterhci.io/vmName": vmId || v.name
                 },
                 annotations: {}
             },
             spec: {
                 evictionStrategy: (v.evictionStrategy && v.evictionStrategy !== 'None') ? v.evictionStrategy : undefined,
-                hostname: v.name,
+                hostname: vmId || v.name,
                 nodeSelector: nodeSelector,
                 affinity: nodeName ? {
                     nodeAffinity: {
@@ -465,8 +468,8 @@ export const validateImageSize = (v: any, images: any[]) => {
 };
 
 
-export const handleAutoStart = async (cid: string, v: any) => {
-    const instanceId = `${v.namespace}/${v.name}`;
+export const handleAutoStart = async (cid: string, vmId: string, v: any) => {
+    const instanceId = `${v.namespace}/${vmId}`;
     try { await startCloudProviderEcs(cid, instanceId); } catch { }
 };
 
@@ -481,6 +484,7 @@ export const constructVmPayload = (params: {
   selectedGpu: any;
   capabilities?: any;
   isArm64?: boolean;
+  vmId?: string;
 }) => {
    return buildHarvesterVmPayload(params);
 };
@@ -498,4 +502,29 @@ export const handleRootPvcChange = (form: any, availableVolumes: any[], pvcName:
     })();
     form.setFieldsValue({ rootSize: display });
   } catch {}
+};
+
+// 新增ID生成逻辑
+export const randSeg = (len: number = 4): string => {
+  let s = Math.random().toString(36).substring(2, 2 + len);
+  if (s.length < len) s = (s + Math.random().toString(36).substring(2)).substring(0, len);
+  return s.toLowerCase();
+};
+
+const generateVmIdFormat = (): string => {
+  return `id-vm-${randSeg(11)}`;
+};
+
+export const generateUniqueVmId = async (cloudId: string, namespace: string): Promise<string> => {
+  const ns = namespace || 'default';
+  for (let i = 0; i < 8; i++) {
+    const candidate = generateVmIdFormat();
+    try {
+      await fetchHarvesterVmDetail(cloudId, ns, candidate);
+      continue;
+    } catch {
+      return candidate;
+    }
+  }
+  throw new Error('生成唯一实例ID失败，请重试');
 };

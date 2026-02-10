@@ -35,6 +35,8 @@ export {
   listKubeOvnFips,
   listKubeOvnSnatRules,
   listKubeOvnDnatRules,
+  listHarvesterClusterNetworks,
+  listHarvesterClusterNetworkConfigs,
 } from './network';
 export {
   listHarvesterVolumesStandard,
@@ -50,7 +52,8 @@ export {
   updatePVCSpec,
   clonePVC,
   listHarvesterSnapshotClassesRaw,
-  listHarvesterSnapshotsStandard,
+  listHarvesterVirtualMachineSnapshots,
+  listHarvesterVolumeSnapshots,
   listHarvesterBackupsStandard,
   listHarvesterSshKeysStandard,
   listHarvesterCloudInitsStandard,
@@ -62,8 +65,12 @@ export {
   deleteHarvesterScheduleVmBackup,
   createHarvesterVirtualMachineBackup,
   createHarvesterVirtualMachineRestore,
+  restoreVolumeSnapshot,
   deleteHarvesterVirtualMachineBackup,
   deleteHarvesterVirtualMachineSnapshot,
+  deleteHarvesterVolumeSnapshot,
+  createHarvesterSecret,
+  deleteHarvesterSecret,
 } from './resources';
 export {
   listHarvesterNodesStandard,

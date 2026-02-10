@@ -39,6 +39,7 @@ import {
   createVolumeSnapshot,
   exportImageFromPVC,
   clonePVC,
+  restoreVolumeSnapshot,
   updatePVCSpec,
   createHarvesterVM,
   updateHarvesterVMSpec,
@@ -251,6 +252,45 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
         } catch (e: any) {
             res.status(500).json({ error: e.message });
         }
+    }
+  );
+
+  // Restore Volume Snapshot (Create PVC from Snapshot)
+  router.post(
+    '/:id/resources/harvester/snapshots/:namespace/:name/restore',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+        
+        if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, namespace)) {
+             return res.status(403).json({ message: 'Access denied to this namespace' });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const result = await restoreVolumeSnapshot(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure },
+          namespace,
+          name, // snapshot name
+          {
+            newName: req.body.name, // Target PVC Name
+            storageClassName: req.body.storageClassName,
+            size: req.body.size,
+            accessModes: req.body.accessModes,
+            volumeMode: req.body.volumeMode
+          }
+        );
+        res.json({ message: '快照恢复任务已提交', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '快照恢复失败', error: error.body || error.message });
+      }
     }
   );
 

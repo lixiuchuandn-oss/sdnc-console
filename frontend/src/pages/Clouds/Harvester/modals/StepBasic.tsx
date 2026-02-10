@@ -272,11 +272,10 @@ const StepBasic: React.FC<StepBasicProps> = ({
         label="虚拟机名称" 
         name="name" 
         rules={[
-          { required: true, message: '请输入虚拟机名称' },
-          { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '仅支持小写字母、数字和连字符，且不能以连字符开头或结尾' }
+          { required: true, message: '请输入虚拟机名称' }
         ]}
       >
-        <Input placeholder="如：vm-001" />
+        <Input placeholder="显示名称（支持中文）" />
       </Form.Item>
       <Form.Item label="描述" name="description">
         <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />

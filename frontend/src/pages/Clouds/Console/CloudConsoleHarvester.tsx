@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Tabs, Layout, Menu, Empty } from 'antd';
-import { 
-  DesktopOutlined, DatabaseOutlined, HistoryOutlined, 
-  GlobalOutlined, ClusterOutlined, CloudOutlined, FileImageOutlined
-} from '@ant-design/icons';
+import { Tabs, Empty, Dropdown, Space } from 'antd';
+import { DownOutlined } from '@ant-design/icons';
 import VmSection from '../Harvester/sections/VmSection';
 import TemplatesSection from '../Harvester/sections/TemplatesSection';
 import SshKeysSection from '../Harvester/sections/SshKeysSection';
@@ -19,11 +16,11 @@ import EipSection from '../Harvester/kube-ovn/EipSection';
 import FipSection from '../Harvester/kube-ovn/FipSection';
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
-import CloudConsoleNadTable from './CloudConsoleNadTable';
-import CloudConsoleLbTable from './CloudConsoleLbTable';
-import { CloudConsoleVpcTable } from './CloudConsoleVpcTable';
+import NadsSection from '../Harvester/sections/NadsSection';
+import LoadBalancersSection from '../Harvester/sections/LoadBalancersSection';
+import VpcsSection from '../Harvester/kube-ovn/VpcsSection';
 
-const { Sider, Content } = Layout;
+
 
 interface Props {
   cloudId: string;
@@ -150,70 +147,60 @@ const CloudConsoleHarvester: React.FC<Props> = ({
     return namespacesOptions.map(ns => ({ metadata: { name: ns } }));
   }, [namespacesOptions]);
 
-  // Define Category Menu
-  const categories = [
-    { key: 'compute', icon: <DesktopOutlined />, label: '云主机' },
-    { key: 'image', icon: <FileImageOutlined />, label: '镜像' },
-    { key: 'storage', icon: <DatabaseOutlined />, label: '存储' },
-    { key: 'backup', icon: <HistoryOutlined />, label: '快照/备份' },
-    { key: 'flatnet', icon: <GlobalOutlined />, label: '扁平网络' },
-    { key: 'vpc', icon: <ClusterOutlined />, label: 'VPC网络' },
-  ];
-
-  // Define Resources for each Category
-  const getResources = (category: string) => {
-    switch (category) {
-      case 'compute':
-        return [
-          { key: 'vm', label: '云主机实例' },
-          { key: 'ssh', label: 'SSH密钥' },
-          { key: 'cloudinit', label: 'Cloud init' },
-          { key: 'gpu', label: 'GPU' },
-        ];
-
-      case 'image':
-        return [
-          { key: 'image', label: '公共镜像' },
-          { key: 'template', label: '云主机模板' },
-        ];
-
-      case 'storage':
-        return [
-          { key: 'volume', label: '虚拟磁盘' },
-          { key: 'volume-snapshot', label: '虚拟磁盘快照' },
-        ];
-      case 'backup':
-        return [
-          { key: 'snapshot', label: '云主机快照' },
-          { key: 'backup', label: '云主机备份' },
-          { key: 'schedule', label: '定时策略' },
-        ];
-      case 'flatnet':
-        return [
-          { key: 'nad', label: '扁平网络' },
-          { key: 'lb', label: '负载均衡' },
-          { key: 'ippool', label: '地址池' },
-        ];
-      case 'vpc':
-        return [
-          { key: 'vpc-subnet', label: 'VPC / 子网' },
-          { key: 'eip', label: 'EIP (公网IP)' },
-          { key: 'fip', label: 'FIP (浮动IP)' },
-          { key: 'snat', label: 'SNAT 规则' },
-          { key: 'dnat', label: 'DNAT 规则' },
-        ];
-      default:
-        return [];
+  const tabConfig = useMemo(() => [
+    {
+      key: 'compute',
+      label: '云主机',
+      resources: [
+        { key: 'vm', label: '实例' },
+        { key: 'image', label: '镜像' },
+        { key: 'ssh', label: 'SSH密钥' },
+        { key: 'cloudinit', label: 'Cloud init' },
+      ]
+    },
+    {
+      key: 'storage',
+      label: '云盘',
+      resources: [
+        { key: 'volume', label: '实例' },
+        { key: 'volume-snapshot', label: '快照' },
+      ]
+    },
+    {
+      key: 'backup',
+      label: '整机',
+      resources: [
+        { key: 'snapshot', label: '快照' },
+        { key: 'backup', label: '备份' },
+        { key: 'schedule', label: '定时策略' },
+      ]
+    },
+    {
+      key: 'flatnet',
+      label: 'VLAN',
+      resources: [
+        { key: 'nad', label: '网络' },
+        { key: 'lb', label: 'SLB' },
+        { key: 'ippool', label: '地址池' },
+      ]
+    },
+    {
+      key: 'vpc',
+      label: 'VPC',
+      resources: [
+         { key: 'vpc-subnet', label: '网络' },
+         { key: 'eip', label: 'EIP' },
+         { key: 'fip', label: 'FIP' },
+         { key: 'snat', label: 'SNAT' },
+         { key: 'dnat', label: 'DNAT' },
+      ]
     }
+  ], []);
+
+  const getDefaultResource = (catKey: string) => {
+    const cat = tabConfig.find(c => c.key === catKey);
+    return cat ? cat.resources[0].key : '';
   };
-
-  // Reset active resource when category changes
-  useEffect(() => {
-    const resources = getResources(activeCategory);
-    if (resources.length > 0) {
-      setActiveResource(resources[0].key);
-    }
-  }, [activeCategory]);
 
   const renderContent = () => {
     switch (activeResource) {
@@ -313,11 +300,14 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       // Backup
       case 'snapshot':
         return (
-          <SnapshotsSection
-            snapshots={snapshots}
+          <BackupsSection
+            backups={backups}
             loading={loading}
-            onRefresh={onRefreshSnapshots}
+            onRefresh={onRefreshBackups}
             cloudId={cloudId}
+            namespaces={namespaceObjects}
+            vms={vms}
+            type="snapshot"
           />
         );
       case 'backup':
@@ -344,18 +334,20 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       // Flat Network
       case 'nad':
         return (
-          <CloudConsoleNadTable 
-            dataSource={nads}
+          <NadsSection 
+            nads={nads}
             loading={loading}
             onRefresh={onRefreshNads}
+            cloudId={cloudId}
           />
         );
       case 'lb':
         return (
-          <CloudConsoleLbTable 
-            dataSource={lbs}
+          <LoadBalancersSection 
+            services={lbs}
             loading={loading}
             onRefresh={onRefreshLbs}
+            cloudId={cloudId}
           />
         );
       case 'ippool':
@@ -371,8 +363,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       // VPC Network
       case 'vpc-subnet':
          return (
-             <CloudConsoleVpcTable
-                 dataSource={vpcs}
+             <VpcsSection
+                 vpcs={vpcs}
                  subnets={subnets}
                  loading={loading}
                  onRefresh={onRefreshVpcs}
@@ -428,39 +420,62 @@ const CloudConsoleHarvester: React.FC<Props> = ({
     }
   };
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'row-reverse', height: '100%', background: '#fff' }}>
-      {/* Level 1: Category Menu (Right Sidebar) */}
-      <div className="harvester-menu-sidebar" style={{ width: 120, borderLeft: '1px solid #f0f0f0',marginLeft:12}}>
-        <Menu
-          mode="inline"
-          inlineIndent={10}
-          selectedKeys={[activeCategory]}
-          onClick={({ key }) => setActiveCategory(key)}
-          items={categories.map(c => ({ key: c.key, icon: c.icon, label: c.label }))}
-          style={{ height: '100%', borderRight: 0,  padding: 0 }}
-        />
-      </div>
+  const tabItems = useMemo(() => {
+    return tabConfig.map(cat => {
+      const isActive = cat.key === activeCategory;
+      // Inactive tabs show default resource label. Active tab shows current resource label.
+      const currentResKey = isActive ? activeResource : cat.resources[0].key;
+      const currentResLabel = cat.resources.find(r => r.key === currentResKey)?.label || cat.resources[0].label;
 
-      {/* Level 2: Resource Tabs (Top of Content) */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-        <div >
-           <Tabs
-             type='card'
-             activeKey={activeResource}
-             onChange={setActiveResource}
-             items={getResources(activeCategory).map(r => ({
-               key: r.key,
-               label: r.label
-             }))}
-           />
-        </div>
-        
-        {/* Level 3: Content Area */}
-        <div style={{ flex: 1,  overflow: 'auto' }}>
-           {renderContent()}
-        </div>
-      </div>
+      return {
+        key: cat.key,
+        label: (
+          <Space size={4}>
+            <span>{cat.label} {currentResLabel}</span>
+            <Dropdown
+              menu={{
+                items: cat.resources.map(res => ({
+                  key: res.key,
+                  label: res.label,
+                  onClick: (e: any) => {
+                    e.domEvent.stopPropagation();
+                    setActiveCategory(cat.key);
+                    setActiveResource(res.key);
+                  }
+                })),
+                selectedKeys: [isActive ? activeResource : '']
+              }}
+              trigger={['click']}
+            >
+              <span 
+                onClick={(e) => e.stopPropagation()} 
+                style={{ cursor: 'pointer', padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }}
+              >
+                <DownOutlined style={{ fontSize: 12 }} />
+              </span>
+            </Dropdown>
+          </Space>
+        ),
+        children: (
+          <div>
+             {isActive ? renderContent() : null}
+          </div>
+        )
+      };
+    });
+  }, [tabConfig, activeCategory, activeResource, vms, templates, sshKeys, volumes, images, snapshots, backups, schedules, cloudInits, gpus, ippools, nads, lbs, vpcs, subnets, eips, fips, snatRules, dnatRules, loading, namespacesOptions, namespaces, nodesOptions, nsValue, nodeValue]);
+
+  return (
+    <div style={{ height: '100%', background: '#fff'}}>
+      <Tabs
+        type="card"
+        activeKey={activeCategory}
+        onChange={(key) => {
+          setActiveCategory(key);
+          setActiveResource(getDefaultResource(key));
+        }}
+        items={tabItems}
+      />
     </div>
   );
 };

@@ -27,6 +27,8 @@ import { KubeOvnFipInventory } from '../../../entities/kubeovn/KubeOvnFipInvento
 import { KubeOvnNatRuleInventory } from '../../../entities/kubeovn/KubeOvnNatRuleInventory';
 import { HarvesterTemplateInventory } from '../../../entities/harvester/HarvesterTemplateInventory';
 import { HarvesterScheduleVmBackupInventory } from '../../../entities/harvester/HarvesterScheduleVmBackupInventory';
+import { HarvesterClusterNetworkInventory } from '../../../entities/harvester/HarvesterClusterNetworkInventory';
+import { HarvesterVlanConfigInventory } from '../../../entities/harvester/HarvesterVlanConfigInventory';
 
 import {
   listHarvesterImagesStandard,
@@ -42,7 +44,8 @@ import {
   listHarvesterNodesStandard,
   listHarvesterStorageClassesStandard,
   listHarvesterLoadBalancers,
-  listHarvesterSnapshotsStandard,
+  listHarvesterVirtualMachineSnapshots,
+  listHarvesterVolumeSnapshots,
   listHarvesterBackupsStandard,
   listHarvesterSshKeysStandard,
   listHarvesterCloudInitsStandard,
@@ -57,6 +60,8 @@ import {
   listHarvesterPciDevices,
   listHarvesterTemplatesRaw,
   listHarvesterScheduleVmBackupsStandard,
+  listHarvesterClusterNetworks,
+  listHarvesterClusterNetworkConfigs,
 } from './client';
 
 const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (item: any) => any) => {
@@ -144,6 +149,74 @@ export const syncHarvesterScheduleVmBackups = async (cloud: any, insecure: boole
     status: item.spec?.suspend ? 'Suspended' : 'Active',
     maxFailure: item.spec?.maxFailure,
     links: item.links,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+export const syncHarvesterClusterNetworks = async (cloud: any, insecure: boolean) => {
+  const [items, configs] = await Promise.all([
+    listHarvesterClusterNetworks({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any),
+    listHarvesterClusterNetworkConfigs({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any),
+  ]);
+
+  console.log(`[Harvester-Sync] ${cloud.name}: 集群网络同步完成，共 ${items.length} 条 (配置 ${configs.length} 条)`);
+
+  const repo = AppDataSource.getRepository(HarvesterClusterNetworkInventory);
+  await upsertItems(repo, cloud.id, items, (item) => {
+    // Match Configs (VlanConfigs) by spec.clusterNetwork
+    // Note: A ClusterNetwork can have multiple VlanConfigs (for different node groups)
+    const matchedConfigs = configs.filter((c: any) => c.spec?.clusterNetwork === item.metadata?.name);
+    
+    // Extract Uplink info
+    // Aggregate nics from all matched configs
+    let uplinks: any = null;
+    if (matchedConfigs.length > 0) {
+      const allNics = new Set<string>();
+      matchedConfigs.forEach((c: any) => {
+        const nics = c.spec?.uplink?.nics || [];
+        if (Array.isArray(nics)) {
+          nics.forEach((nic: string) => allNics.add(nic));
+        }
+      });
+
+      uplinks = {
+        nics: Array.from(allNics),
+        // Use the first config's attributes as representative (usually consistent within a cluster network)
+        linkAttributes: matchedConfigs[0]?.spec?.uplink?.linkAttributes,
+        bondOptions: matchedConfigs[0]?.spec?.uplink?.bondOptions
+      };
+    }
+
+    return {
+      name: item.metadata?.name,
+      description: item.metadata?.annotations?.['field.cattle.io/description'] || '',
+      labels: item.metadata?.labels,
+      annotations: item.metadata?.annotations,
+      links: item.links,
+      uplinks,
+      rawData: item,
+    };
+  });
+
+  // Sync VlanConfigs to its own table
+  console.log(`[Harvester-Sync] ${cloud.name}: VLAN配置同步完成，共 ${configs.length} 条`);
+  const vlanConfigRepo = AppDataSource.getRepository(HarvesterVlanConfigInventory);
+  await upsertItems(vlanConfigRepo, cloud.id, configs, (item) => ({
+    name: item.metadata?.name,
+    description: item.metadata?.annotations?.['field.cattle.io/description'] || '',
+    clusterNetwork: item.spec?.clusterNetwork,
+    nodeSelector: item.spec?.nodeSelector,
+    uplink: item.spec?.uplink,
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
     rawData: item,
@@ -556,22 +629,41 @@ export const syncHarvesterStorageClasses = async (cloud: any, insecure: boolean)
 };
 
 export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
-  let items: any[] = [];
+  let vmSnapshots: any[] = [];
+  let volumeSnapshots: any[] = [];
+  
+  // 1. Sync Virtual Machine Snapshots
   try {
-    items = await listHarvesterSnapshotsStandard({
+    vmSnapshots = await listHarvesterVirtualMachineSnapshots({
       endpoint: cloud.endpoint,
       token: cloud.secretKey,
       insecure,
     } as any);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过快照同步 (401 未授权)`);
-      return;
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过虚拟机快照同步 (401 未授权)`);
+    } else {
+      console.warn(`[Harvester-Sync] ${cloud.name}: 虚拟机快照获取失败: ${e.message}`);
     }
-    throw e;
   }
 
-  console.log(`[Harvester-Sync] ${cloud.name}: 快照同步完成，共 ${items.length} 条`);
+  // 2. Sync Volume Snapshots
+  try {
+    volumeSnapshots = await listHarvesterVolumeSnapshots({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+      console.warn(`[Harvester-Sync] ${cloud.name}: 跳过卷快照同步 (401 未授权)`);
+    } else {
+      console.warn(`[Harvester-Sync] ${cloud.name}: 卷快照获取失败: ${e.message}`);
+    }
+  }
+
+  const items = [...vmSnapshots, ...volumeSnapshots];
+  console.log(`[Harvester-Sync] ${cloud.name}: 快照同步完成，共 ${items.length} 条 (VM: ${vmSnapshots.length}, Volume: ${volumeSnapshots.length})`);
 
   // Filter out items that are marked for deletion
   const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
@@ -581,6 +673,8 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
     uid: item.metadata?.uid || item.id,
     name: item.metadata?.name,
     namespace: item.metadata?.namespace,
+    // Note: For VMSnapshot, spec.source.name is the VM name. For VolumeSnapshot, spec.source.persistentVolumeClaimName is the PVC name.
+    // We store both in sourcePvc for now to maintain backward compatibility, or consider splitting columns in future.
     sourcePvc: item.spec?.source?.persistentVolumeClaimName || item.spec?.source?.name,
     status: item.status?.readyToUse ? 'Ready' : 'NotReady',
     size: item.status?.restoreSize,
