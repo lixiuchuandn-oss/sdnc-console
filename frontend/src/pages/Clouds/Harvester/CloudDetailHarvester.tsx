@@ -36,6 +36,7 @@ import TemplatesSection from './sections/TemplatesSection';
 import ScheduleVmBackupsSection from './sections/ScheduleVmBackupsSection';
 import EipSection from './kube-ovn/EipSection';
 import FipSection from './kube-ovn/FipSection';
+import HarvesterMonitoring from './Monitoring/HarvesterMonitoring';
 import SnatSection from './kube-ovn/SnatSection';
 import DnatSection from './kube-ovn/DnatSection';
 
@@ -882,7 +883,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 </>
               )
             },
-
+            {
+              key: 'monitoring',
+              label: '监控',
+              children: <HarvesterMonitoring cloudId={cloudId} />
+            },
             {
               key: 'cluster',
               label: '集群',

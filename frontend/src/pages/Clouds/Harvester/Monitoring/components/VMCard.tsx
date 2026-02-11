@@ -1,0 +1,147 @@
+/**
+ * 虚拟机卡片 - 总数 + 运行中/已暂停/已关机/其他
+ */
+import React, { useMemo } from 'react';
+import { Card, Typography, Spin } from 'antd';
+import {
+  DesktopOutlined,
+  PlayCircleOutlined,
+  PauseCircleOutlined,
+  PoweroffOutlined,
+  EllipsisOutlined,
+  InfoCircleOutlined,
+} from '@ant-design/icons';
+import { useDashboardSlowDataContext } from '../DashboardContext';
+import { parseVMInstancesToStatusCounts } from '../utils/vmInstances';
+
+const SEGMENT_ICONS: Record<string, typeof PlayCircleOutlined> = {
+  running: PlayCircleOutlined,
+  paused: PauseCircleOutlined,
+  stopped: PoweroffOutlined,
+  other: EllipsisOutlined,
+};
+const SEGMENT_COLORS: Record<string, string> = {
+  running: '#10B981',
+  paused: '#FAAD14',
+  stopped: '#64748B',
+  other: '#FF5C7C',
+};
+
+export const VMCard: React.FC = () => {
+  const slowCtx = useDashboardSlowDataContext();
+  const summary = useMemo(
+    () => parseVMInstancesToStatusCounts(slowCtx?.vmInstances ?? null),
+    [slowCtx?.vmInstances]
+  );
+  const loading = slowCtx?.loading ?? false;
+
+  if (loading) {
+    return (
+      <Card
+        size="small"
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <DesktopOutlined style={{ color: '#1677ff', fontSize: 20 }} />
+            <span style={{ fontSize: 16 }}>虚拟机</span>
+          </span>
+        }
+        styles={{
+          header: { padding: '16px 20px', height: 60, minHeight: 60 },
+          body: { display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 140 },
+        }}
+        style={{ height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+      >
+        <Spin tip="加载中..." />
+      </Card>
+    );
+  }
+
+  const total = summary?.total ?? 0;
+  const statusList = summary?.segments ?? [];
+
+  return (
+    <Card
+      size="small"
+      title={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <DesktopOutlined style={{ color: '#1677ff', fontSize: 20 }} />
+          <span style={{ fontSize: 16 }}>虚拟机</span>
+        </span>
+      }
+      styles={{
+        header: { padding: '16px 20px', height: 60, minHeight: 60 },
+        body: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, paddingLeft: 20, paddingRight: 20 },
+      }}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+    >
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 24, alignItems: 'stretch' }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minWidth: 80,
+            alignSelf: 'stretch',
+          }}
+        >
+          <DesktopOutlined style={{ color: '#1677ff', fontSize: 32, marginBottom: 8 }} />
+          <span style={{ fontSize: 16, fontWeight: 600 }}>{total}</span>
+          <Typography.Text type="secondary" style={{ fontSize: 14 }}>共 {total} 台</Typography.Text>
+        </div>
+        <div style={{ flex: 1, paddingRight: 12 }}>
+          {statusList.map((s, i) => {
+            const Icon = SEGMENT_ICONS[s.key] || EllipsisOutlined;
+            const color = SEGMENT_COLORS[s.key] ?? '#999';
+            return (
+              <div
+                key={s.key}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 0',
+                  borderBottom: i < statusList.length - 1 ? '1px solid #f0f0f0' : undefined,
+                }}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span
+                    style={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      border: `1px solid ${color}`,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Icon style={{ color, fontSize: 10 }} />
+                  </span>
+                  <Typography.Text style={{ fontSize: 14 }}>{s.label}</Typography.Text>
+                </span>
+                <span style={{ fontSize: 14 }}>{s.value}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div
+        style={{
+          borderTop: '1px solid #f0f0f0',
+          paddingTop: 12,
+          marginTop: 'auto',
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 6,
+        }}
+      >
+        <InfoCircleOutlined style={{ color: '#1677ff', fontSize: 14, marginTop: 3 }} />
+        <Typography.Text type="secondary" style={{ fontSize: 12, lineHeight: 1.5 }}>
+          按运行状态统计，展示虚拟机总数及运行中/暂停/关机等分布
+        </Typography.Text>
+      </div>
+    </Card>
+  );
+};

@@ -276,6 +276,8 @@ import { listCsmVms, csmRequest } from '../services/clouds/csm/client';
 import { registerCsmRoutes } from './clouds.csm';
 import { registerAliyunRoutes } from './clouds.aliyun';
 import { registerHuaweiRoutes } from './clouds.huaweicloud';
+import { registerMonitoringRoutes } from './clouds.monitoring';
+import { registerLoggingRoutes } from './clouds.logging';
 import { standardResourceService } from '../services/StandardResourceService';
 
 // Helper: Extract standardized identity (id, name) from raw cloud resources
@@ -328,6 +330,8 @@ registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
 registerCsmRoutes(router, checkAdminPermission);
+registerMonitoringRoutes(router, checkAdminPermission);
+registerLoggingRoutes(router, checkAdminPermission);
 
 const fetchInstancesForCloud = async (cloud: Cloud, raw: boolean = false) => {
   const providerRaw = String((cloud as any)?.config?.provider || '');
