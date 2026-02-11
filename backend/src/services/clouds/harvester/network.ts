@@ -453,6 +453,49 @@ export const listHarvesterLoadBalancers = async ({
 };
 
 /**
+ * 创建 Harvester 负载均衡器
+ */
+export const createHarvesterLoadBalancer = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  payload: any,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const ns = payload.namespace || 'default';
+  // 优先使用 v1beta1 API
+  const url = `${origin}/apis/loadbalancer.harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/loadbalancers`;
+  
+  // 构造标准 K8s CRD Payload
+  const body = {
+    apiVersion: 'loadbalancer.harvesterhci.io/v1beta1',
+    kind: 'LoadBalancer',
+    metadata: {
+      name: payload.name,
+      namespace: ns,
+      annotations: payload.annotations,
+      labels: payload.labels,
+    },
+    spec: payload.spec || {
+        description: payload.description,
+        ipam: payload.ipam || 'pool', // default to pool
+        listeners: payload.listeners || [],
+                workloadType: payload.workloadType || 'vm',
+                backendServerSelector: payload.backendServerSelector || {},
+                healthCheck: payload.healthCheck, // optional
+            }
+  };
+
+  return await requestJson('POST', url, token, insecure, body);
+};
+
+/**
  * 获取 Kube-OVN EIP 列表
  */
 export const listKubeOvnEips = async ({
@@ -628,8 +671,8 @@ export const listHarvesterLoadBalancerIPPools = async ({
   }
   
   const candidates = [
-    `${origin}/apis/loadbalancer.harvesterhci.io/v1beta1/ippools`,
     `${origin}/v1/harvester/loadbalancer.harvesterhci.io.ippools`,
+    `${origin}/apis/loadbalancer.harvesterhci.io/v1beta1/ippools`,
   ];
   let json: any = null;
   let lastErr: any = null;

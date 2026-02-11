@@ -1,6 +1,7 @@
 import React from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
+import { isSystemStorageClass } from '../../../../utils/harvesterUtils';
 
 /**
  * StepDisks 组件
@@ -65,69 +66,132 @@ const StepDisks: React.FC<StepDisksProps> = ({
       <div className="wizard-group-title">系统盘</div>
       <Row gutter={12}>
         <Col span={8}>
-          {/* 系统盘来源选择：镜像 (Image) 或 现有卷 (Existing PVC) */}
+          {/* 系统盘来源选择 */}
           <Form.Item label="来源" name="rootSourceType" rules={[{ required: true }]}> 
             <Select 
-              options={[{ label: '镜像', value: 'image' }, { label: '现有磁盘', value: 'existing' }]} 
+              options={[
+                { label: 'ISO', value: 'iso' },
+                { label: '镜像', value: 'image' },
+                { label: '现有磁盘', value: 'existing' }
+              ]} 
               onChange={(v) => { 
-                // 切换来源时，重新加载对应的数据资源
                 if (v === 'existing') { reloadVolumes(); } else { reloadImages(); } 
-                // 如果切回镜像，尝试自动填充默认存储类
-                if (v === 'image') { 
+                if (v === 'image' || v === 'iso') { 
                   try { 
                     const sc = defaultStorageClassName; 
                     if (!sc) reloadStorageClasses(); 
                     form.setFieldsValue({ storageClassName: sc || form.getFieldValue('storageClassName') }); 
                   } catch { } 
-                } 
+                }
+                if (v === 'iso') { try { form.setFieldsValue({ rootDeviceType: 'cdrom' }); } catch {} }
+                else if (v === 'image') { try { form.setFieldsValue({ rootDeviceType: 'disk' }); } catch {} }
               }} 
             />
           </Form.Item>
         </Col>
         <Col span={16}>
-          {/* 如果来源是镜像，显示镜像选择框 */}
+          {/* 来源=镜像 (非 ISO) */}
           {(form.getFieldValue('rootSourceType') || 'image') === 'image' && (
             <Form.Item label="选择镜像" name="image" rules={[{ required: true }]}> 
               <Select
-                options={imageOptions}
+                options={(images || []).filter((x: any) => {
+                  const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
+                  const disp = String(x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
+                  const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
+                  return !isIso;
+                }).map((x: any) => {
+                  const name = x?.metadata?.name || x?.name;
+                  const ns = x?.metadata?.namespace || x?.namespace;
+                  const disp = x?.spec?.displayName || x?.displayName || name;
+                  return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
+                })}
                 placeholder="选择镜像"
                 loading={imageLoading}
                 onOpenChange={(open) => { if (open) reloadImages(); }}
                 onChange={(val) => {
-                  // 选中镜像后的联动逻辑
                   try {
                     if (!defaultStorageClassName) { reloadStorageClasses(); }
-                    // 1. 找到选中的镜像对象
                     const it = (images || []).find((x: any) => {
                       const name = x?.metadata?.name || x?.name;
                       const ns = x?.metadata?.namespace || x?.namespace;
                       const v = ns && name ? `${ns}/${name}` : name;
                       return v === val;
                     });
-                    
-                    // 2. 根据镜像名称判断是否需要 UEFI 启动 (如 Windows)
-                    const nameText = String(it?.displayName || it?.name || '').toLowerCase();
-                    const needEfi = /windows|win|uefi/.test(nameText);
-                    
-                    // 3. 设置存储类和启动模式
+                    const dispName = String(
+                      it?.spec?.displayName ||
+                      it?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
+                      it?.metadata?.annotations?.['field.cattle.io/displayName'] ||
+                      it?.displayName || it?.name || ''
+                    );
+                    const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
+                    const isIso = /\.iso$/i.test(dispName) || dispName.toLowerCase().includes('iso');
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
-                    form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi });
-                    
-                    // 4. 自动计算并填充系统盘大小 (rootSize)
-                    const raw = (function () { const v = (it as any)?.virtualSize; return (v !== undefined && v !== null && v !== 0) ? v : (it as any)?.size; })();
+                    form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: isIso ? 'cdrom' : 'disk' });
+                    const raw = (it as any)?.virtualSize ?? (it as any)?.size;
                     let gi = 0;
-                    if (typeof raw === 'number') { 
-                      gi = Math.max(1, Math.round(Number(raw) / (1024 * 1024 * 1024))); 
-                    } else { 
-                      // 解析带单位的字符串 (e.g., "10Gi")
-                      const ss = String(raw || '').toUpperCase(); 
-                      const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; 
-                      if (/GI$/.test(ss)) gi = num; 
-                      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024); 
-                      else gi = Math.round(num / (1024 * 1024 * 1024)); 
+                    if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
+                    else {
+                      const ss = String(raw || '').toUpperCase();
+                      const num = Number(ss.replace(/[^0-9]/g, '')) || 0;
+                      if (/GI$/.test(ss)) gi = num;
+                      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024);
+                      else gi = Math.round(num / (1024 ** 3));
                     }
-                    if (gi) { form.setFieldsValue({ rootSize: `${gi}` }); }
-                  } catch { }
+                    if (gi) form.setFieldsValue({ rootSize: `${gi}` });
+                  } catch {}
+                }}
+              />
+            </Form.Item>
+          )}
+
+          {/* 来源=ISO */}
+          {(form.getFieldValue('rootSourceType') || 'image') === 'iso' && (
+            <Form.Item label="选择 ISO 镜像" name="image" rules={[{ required: true }]}>
+              <Select
+                options={(images || []).filter((x: any) => {
+                  const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
+                  const disp = String(x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
+                  const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
+                  return isIso;
+                }).map((x: any) => {
+                  const name = x?.metadata?.name || x?.name;
+                  const ns = x?.metadata?.namespace || x?.namespace;
+                  const disp = x?.spec?.displayName || x?.displayName || name;
+                  return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
+                })}
+                placeholder="选择 ISO 镜像"
+                loading={imageLoading}
+                onOpenChange={(open) => { if (open) reloadImages(); }}
+                onChange={(val) => {
+                  try {
+                    if (!defaultStorageClassName) { reloadStorageClasses(); }
+                    const it = (images || []).find((x: any) => {
+                      const name = x?.metadata?.name || x?.name;
+                      const ns = x?.metadata?.namespace || x?.namespace;
+                      const v = ns && name ? `${ns}/${name}` : name;
+                      return v === val;
+                    });
+                    const dispName = String(
+                      it?.spec?.displayName ||
+                      it?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
+                      it?.metadata?.annotations?.['field.cattle.io/displayName'] ||
+                      it?.displayName || it?.name || ''
+                    );
+                    const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
+                    const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
+                    form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: 'cdrom' });
+                    const raw = (it as any)?.virtualSize ?? (it as any)?.size;
+                    let gi = 0;
+                    if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
+                    else {
+                      const ss = String(raw || '').toUpperCase();
+                      const num = Number(ss.replace(/[^0-9]/g, '')) || 0;
+                      if (/GI$/.test(ss)) gi = num;
+                      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024);
+                      else gi = Math.round(num / (1024 ** 3));
+                    }
+                    if (gi) form.setFieldsValue({ rootSize: `${gi}` });
+                  } catch {}
                 }}
               />
             </Form.Item>
@@ -181,13 +245,12 @@ const StepDisks: React.FC<StepDisksProps> = ({
               label="设备类型" 
               name="rootDeviceType" 
               initialValue="disk"
-              dependencies={['extraDisks']}
+              dependencies={['extraDisks','rootDeviceType']}
               rules={[
                 {
                   validator: async (_, value) => {
                     if (value === 'cdrom') {
                       const extraDisks = form.getFieldValue('extraDisks') || [];
-                      // 检查是否存在非 CDROM 类型的磁盘（即数据盘）
                       const hasDataDisk = extraDisks.some((d: any) => d?.type !== 'cdrom' && d?.deviceType !== 'cdrom');
                       if (!hasDataDisk) {
                         return Promise.reject(new Error('系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统'));
@@ -197,19 +260,27 @@ const StepDisks: React.FC<StepDisksProps> = ({
                   }
                 }
               ]}
+              help={(form.getFieldValue('rootDeviceType') === 'cdrom') ? (
+                <span style={{ color: '#ff4d4f' }}>
+                  系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统
+                </span>
+              ) : undefined}
             > 
               <Select options={[{ label: 'DISK', value: 'disk' }, { label: 'CDROM', value: 'cdrom' }]} />
             </Form.Item>
           </Col>
-          {/* 仅当来源为镜像时，才需要选择存储类（现有卷已有存储类） */}
-          {(form.getFieldValue('rootSourceType') || 'image') === 'image' && (
+          {(form.getFieldValue('rootSourceType') || 'image') !== 'existing' && (
             <Col span={16}>
-              <Form.Item label="存储类" name="storageClassName"> 
+              <Form.Item label="存储类" name="storageClassName">
                 <Select
+                  disabled={['image', 'iso'].includes(form.getFieldValue('rootSourceType') || 'image')}
                   placeholder="选择存储类"
-                  options={(storageClasses || []).map((x: any) => ({ label: x?.name, value: x?.name }))}
+                  options={(storageClasses || []).filter((x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name)).map((x: any) => {
+                    const nm = x?.metadata?.name || x?.name;
+                    return { label: nm, value: nm };
+                  })}
                   loading={storageClassLoading}
-                  onOpenChange={(open) => { if (open) reloadStorageClasses(); }}
+                  onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
                 />
               </Form.Item>
             </Col>
@@ -385,19 +456,29 @@ const StepDisks: React.FC<StepDisksProps> = ({
                           </>
                         );
                       } else if (st === 'image') {
-                        // === 挂载 ISO：选择镜像 ===
+                        // === 挂载 ISO：仅选择 ISO ===
                         return (
                           <Row gutter={12}>
-                             <Col span={24}>
-                               <Form.Item label="选择镜像" name={[name, 'image']} rules={[{ required: true, message: '请选择镜像' }]} style={{ marginBottom: 0 }}>
-                                 <Select
-                                   options={imageOptions}
-                                   placeholder="选择镜像 (ISO)"
-                                   loading={imageLoading}
-                                   onDropdownVisibleChange={(open) => { if (open) reloadImages(); }}
-                                 />
-                               </Form.Item>
-                             </Col>
+                            <Col span={24}>
+                              <Form.Item label="选择 ISO" name={[name, 'image']} rules={[{ required: true, message: '请选择 ISO' }]} style={{ marginBottom: 0 }}>
+                                <Select
+                                  options={(images || []).filter((x: any) => {
+                                    const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
+                                    const disp = String(x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
+                                    const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
+                                    return isIso;
+                                  }).map((x: any) => {
+                                    const name = x?.metadata?.name || x?.name;
+                                    const ns = x?.metadata?.namespace || x?.namespace;
+                                    const disp = x?.spec?.displayName || x?.displayName || name;
+                                    return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
+                                  })}
+                                  placeholder="选择 ISO"
+                                  loading={imageLoading}
+                                  onDropdownVisibleChange={(open) => { if (open) reloadImages(); }}
+                                />
+                              </Form.Item>
+                            </Col>
                           </Row>
                         );
                       } else {
@@ -409,7 +490,10 @@ const StepDisks: React.FC<StepDisksProps> = ({
                               <Form.Item label="存储类" name={[name, 'storageClassName']} rules={[{ required: true, message: '请选择存储类' }]} style={{ marginBottom: 0 }}> 
                                 <Select
                                   placeholder="选择存储类"
-                                  options={(storageClasses || []).map((x: any) => ({ label: x?.name, value: x?.name }))}
+                                  options={(storageClasses || []).filter((x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name)).map((x: any) => {
+                                    const nm = x?.metadata?.name || x?.name;
+                                    return { label: nm, value: nm };
+                                  })}
                                   loading={storageClassLoading}
                                   onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
                                 />
@@ -443,7 +527,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
             
             {/* 添加按钮区域 */}
             <Space>
-              <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'new', name: `disk-${generateDiskName()}` })}>新建空白卷</Button>
+              <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'new', name: `disk-${generateDiskName()}`, storageClassName: 'longhorn', volumeMode: 'Block', size: 40 })}>新建空白卷</Button>
               <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'existing', name: `disk-${generateDiskName()}` })}>挂载已有卷</Button>
               <Button onClick={() => add({ type: 'cdrom', bus: 'sata', sourceType: 'image', name: `iso-${generateDiskName()}` })}>挂载 ISO</Button>
             </Space>

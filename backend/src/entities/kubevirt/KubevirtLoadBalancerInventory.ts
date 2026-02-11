@@ -39,6 +39,9 @@ export class KubevirtLoadBalancerInventory {
   ports?: Record<string, any>[];
 
   @Column({ type: 'simple-json', nullable: true })
+  links?: Record<string, string>;
+
+  @Column({ type: 'simple-json', nullable: true })
   labels?: Record<string, string>;
 
   @Column({ type: 'simple-json', nullable: true })

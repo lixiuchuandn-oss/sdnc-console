@@ -215,12 +215,18 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   }), [images]);
   
   const volumeOptions = useMemo(() => (availableVolumes || [])
-    .filter((v: any) => !!v?.pvcName)
+    .filter((v: any) => {
+      if (!v?.pvcName) return false;
+      const attachedArr = Array.isArray(v?.attachedTo) ? v.attachedTo : [];
+      const attachedFlag = Boolean(v?.attached || v?.inUse || v?.used || v?.mounted);
+      return attachedArr.length === 0 && !attachedFlag;
+    })
     .map((v: any) => {
       const n = parseSizeToGi(v?.size);
+      const pvcName = v?.pvcName;
       return {
-        label: `${v?.name || '-'}${n ? ` (${n} GiB)` : ''}`,
-        value: v?.pvcName
+        label: `${pvcName || '-'}` + (n ? ` (${n} GiB)` : ''),
+        value: pvcName
       };
     }), [availableVolumes]);
 

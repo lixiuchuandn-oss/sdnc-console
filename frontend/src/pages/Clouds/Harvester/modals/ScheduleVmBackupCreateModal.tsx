@@ -180,7 +180,6 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
           rules={[
             { required: true, message: '请输入策略名称' }
           ]}
-          extra="将作为别名存储，系统会自动生成唯一资源 ID (如 id-svmb-xxxx)"
         >
           <Input placeholder="请输入名称" />
         </Form.Item>

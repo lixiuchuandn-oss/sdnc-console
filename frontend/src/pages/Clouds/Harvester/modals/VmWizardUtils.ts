@@ -322,20 +322,51 @@ export const buildHarvesterVmPayload = (params: {
                         cores: cores,
                         sockets: sockets,
                         threads: threads,
-                        maxSockets: v.hotExpandEnabled ? sockets * 4 : undefined
+                        maxSockets: v.hotExpandEnabled ? sockets * 4 : undefined,
+                        dedicatedCpuPlacement: !!v.dedicatedCPUPlacement,
+                        isolateEmulatorThread: !!v.isolateEmulatorThread,
+                        model: (function () {
+                          const m = String(v.cpuModel || 'host-passthrough');
+                          if (m === 'custom') {
+                            const c = String(v.cpuModelCustom || '').trim();
+                            return c || undefined;
+                          }
+                          return m;
+                        })()
                     },
                     memory: {
                         guest: memory,
                         maxGuest: v.hotExpandEnabled ? `${memGi * 4}Gi` : undefined
                     },
                     resources: {
-                        limits: {
-                            cpu: v.hotExpandEnabled ? String(cpu * 4) : String(cpu),
-                            memory: v.hotExpandEnabled ? `${memGi * 4}Gi` : memory
-                        },
+                        limits: (function () {
+                          const cpuLimit = (function () {
+                            if (v.cpuBurstUnlimited) return undefined;
+                            if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) return String(v.cpuLimit);
+                            return v.hotExpandEnabled ? String(cpu * 4) : String(cpu);
+                          })();
+                          const memLimit = (function () {
+                            if (typeof v.memoryLimitGi === 'number' && v.memoryLimitGi > 0) return `${v.memoryLimitGi}Gi`;
+                            return v.hotExpandEnabled ? `${memGi * 4}Gi` : memory;
+                          })();
+                          const obj: any = {};
+                          if (cpuLimit !== undefined) obj.cpu = cpuLimit;
+                          if (memLimit !== undefined) obj.memory = memLimit;
+                          return obj;
+                        })(),
                         requests: {
-                            memory: v.memoryRequestGi ? `${v.memoryRequestGi}Gi` : memory,
-                            cpu: v.cpuRequest ? String(v.cpuRequest) : undefined
+                          cpu: (function () {
+                            if (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) return String(v.cpuRequest);
+                            return undefined;
+                          })(),
+                          memory: (function () {
+                            if (typeof v.memoryRequestGi === 'number' && v.memoryRequestGi > 0) {
+                              const val = Number(v.memoryRequestGi);
+                              if (Number.isInteger(val)) return `${val}Gi`;
+                              return undefined;
+                            }
+                            return undefined;
+                          })()
                         }
                     },
                     features: {
@@ -406,6 +437,9 @@ export const parseSizeToGi = (raw: any) => {
 export const initialWizardValues = (memGi: number, initialVmName: string) => ({
   name: initialVmName,
   cpu: 2,
+  cpuModel: 'host-passthrough',
+  dedicatedCPUPlacement: false,
+  isolateEmulatorThread: false,
   memory: `${memGi}Gi`,
   machineType: undefined,
   rootSourceType: 'image',

@@ -30,6 +30,7 @@ export {
   updateHarvesterSubnet,
   listHarvesterLoadBalancers,
   listHarvesterLoadBalancerIPPools,
+  createHarvesterLoadBalancer,
   listHarvesterIngressesStandard,
   listKubeOvnEips,
   listKubeOvnFips,

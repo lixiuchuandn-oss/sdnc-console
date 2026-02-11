@@ -30,7 +30,7 @@ type Props = {
   onSoftReboot?: (iid: string) => void;
   onPause?: (iid: string) => void;
   onUnpause?: (iid: string) => void;
-  onDelete: (iid: string, deleteImage?: boolean) => void;
+  onDelete: (iid: string, deleteVolumes?: boolean) => void;
   images?: any[];
   namespaces?: any[];
 };
@@ -100,11 +100,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || r?.Extra?.CPU;
     },
     memory: (r: any) => {
-       // 优先使用 spec.template.spec.domain.memory.guest
-       const guest = r?.spec?.template?.spec?.domain?.memory?.guest;
-       if (guest) return guest;
-       
-       return r?.memoryGb || r?.spec?.template?.spec?.domain?.resources?.requests?.memory || r?.vmi?.spec?.domain?.memory?.guest || r?.Extra?.Memory;
+      const lim = r?.spec?.template?.spec?.domain?.resources?.limits?.memory;
+      if (lim) return lim;
+      const guest = r?.spec?.template?.spec?.domain?.memory?.guest;
+      if (guest) return guest;
+      return r?.memoryGb || r?.vmi?.spec?.domain?.memory?.guest || r?.Extra?.Memory;
     },
     creationTimestamp: (r: any) => r?.createdAt || r?.metadata?.creationTimestamp,
     networks: (r: any) => {
@@ -279,6 +279,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return v ? `${v} C` : '-';
     } },
     { title: '内存', key: 'memory',  render: (_: any, r: any) => SafeRead.memory(r) || '-' },
+    { title: '说明', key: 'memSpec', width: 200, ellipsis: true, render: (_: any, r: any) => SafeRead.memSpec(r) },
     { title: '镜像名称', key: 'imageName',  ellipsis: true, render: (_: any, r: any) => {
         const displayName = SafeRead.imageDisplayName(r);
         return displayName ? <Tooltip title={displayName}>{displayName}</Tooltip> : '-';
@@ -339,7 +340,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
               const volumes = (r?.spec?.template?.spec?.volumes || []).filter((v: any) => v.persistentVolumeClaim);
               const volumeNames = volumes.map((v: any) => v.persistentVolumeClaim.claimName).join(', ');
               
-              let deleteImage = false;
+              let deleteVolumes = false;
               Modal.confirm({
                 title: '确认删除该实例？',
                 icon: <ExclamationCircleOutlined />,
@@ -359,20 +360,17 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                        <div style={{ marginBottom: 16, background: '#f5f5f5', padding: '8px 12px', borderRadius: 4 }}>
                          <div style={{ fontWeight: 500, marginBottom: 4 }}>关联的数据卷 (PVC):</div>
                          <div style={{ color: 'rgba(0,0,0,0.65)' }}>{volumeNames}</div>
-                         <div style={{ fontSize: 12, color: '#faad14', marginTop: 4 }}>
-                           注意：删除实例通常不会自动删除数据卷，请手动清理。
-                         </div>
                        </div>
                     )}
 
                     <div style={{ marginTop: 16 }}>
-                       <Checkbox onChange={(e) => { deleteImage = e.target.checked; }}>同步删除关联镜像 (如有)</Checkbox>
+                       <Checkbox onChange={(e) => { deleteVolumes = e.target.checked; }}>同步删除关联卷 (PVC) <span style={{ color:'#999', fontSize:12 }}>(推荐)</span></Checkbox>
                     </div>
                   </div>
                 ),
                 okText: isRunning ? '强制删除' : '删除',
                 okType: 'danger',
-                onOk: () => onDelete(iid, deleteImage)
+                onOk: () => onDelete(iid, deleteVolumes)
               });
       };
 
@@ -398,19 +396,37 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
       const isCdromBoot = disks.length > 0 && !!disks[0].cdrom;
 
+      const statusStr = String(SafeRead.status(r)).toLowerCase();
+      const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
+
       const items: any[] = [
+        // 基础操作 - 始终显示
         { key: 'detail', label: '资源详情', onClick: () => handleShowMetadata(r, 'detail') },
         { key: 'reconf', label: '资源变配', onClick: () => onOpenReconfigure(r) },
         ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', onClick: handleEjectCdrom }] : []),
-        { key: 'webvnc', label: 'WebVNC（浏览器）', onClick: handleWebVnc },
+        
+        // WebVNC (仅在非停止状态显示)
+        ...(!isStopped ? [{ key: 'webvnc', label: 'WebVNC（浏览器）', onClick: handleWebVnc }] : []),
+        
         { type: 'divider' },
-        { key: 'start', label: '启动', onClick: () => onStart(iid) },
-        { key: 'stop', label: '停止', onClick: () => onStop(iid) },
-        { key: 'reboot', label: '重启', onClick: () => onReboot(iid) },
-        { key: 'softreboot', label: '软重启', onClick: () => onSoftReboot && onSoftReboot(iid) },
-        { key: 'pause', label: '暂停', onClick: () => onPause && onPause(iid) },
-        { key: 'unpause', label: '恢复', onClick: () => onUnpause && onUnpause(iid) },
+        
+        // 电源操作 - 启动 (仅在停止状态显示)
+        ...(isStopped ? [
+          { key: 'start', label: '启动', onClick: () => onStart(iid) }
+        ] : []),
+
+        // 电源操作 - 停止/重启/暂停等 (仅在非停止状态显示)
+        ...(!isStopped ? [
+          { key: 'stop', label: '停止', onClick: () => onStop(iid) },
+          { key: 'reboot', label: '重启', onClick: () => onReboot(iid) },
+          { key: 'softreboot', label: '软重启', onClick: () => onSoftReboot && onSoftReboot(iid) },
+          { key: 'pause', label: '暂停', onClick: () => onPause && onPause(iid) },
+          { key: 'unpause', label: '恢复', onClick: () => onUnpause && onUnpause(iid) },
+        ] : []),
+
         { type: 'divider' },
+        
+        // 删除 - 始终显示
         { key: 'delete', label: '删除', danger: true, onClick: handleDeleteConfirm },
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
@@ -461,19 +477,87 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       setSelectedKeys([]);
     } catch(e:any){ message.error(e?.message||'批量重启失败'); }
   };
-  const batchDelete = async () => {
+  const [deleteVolumes, setDeleteVolumes] = useState(false);
+
+  const batchDelete = () => {
     if (selectedKeys.length === 0) return;
-    Modal.confirm({ title:'确认批量删除所选实例？', onOk: async ()=>{
-      try {
-        const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r))).map(getIid);
-        const results = await Promise.all(targets.map(async (iid)=> { try { await onDelete(iid); return { ok:true, iid }; } catch(e:any){ return { ok:false, iid, err:e?.message||String(e) }; } }));
-        const ok = results.filter(x=>x.ok).length; const fail = results.filter(x=>!x.ok);
-        if (ok>0) message.success(`删除成功 ${ok} 台`);
-        if (fail.length>0) message.error(`删除失败 ${fail.length} 台：${fail.map(f=>f.iid).join(', ')}`);
-        setSelectedKeys([]);
-        
-      } catch(e:any){ message.error(e?.message||'批量删除失败'); }
-    } });
+    
+    // Create a local variable to capture the checkbox state in the modal closure
+    let batchDeleteVolumes = false;
+
+    Modal.confirm({
+      title: '确认批量删除所选实例？',
+      width: 500,
+      content: (
+        <div>
+          <p>即将删除 {selectedKeys.length} 台虚拟机。此操作不可恢复。</p>
+          <div style={{ marginTop: 16, borderTop: '1px solid #eee', paddingTop: 16 }}>
+             <Checkbox onChange={(e) => { batchDeleteVolumes = e.target.checked; }}>
+               同步删除关联卷 (PVC)
+             </Checkbox>
+             <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>
+               注意：将删除所有关联的 DataVolume 和 PVC，数据无法找回。
+             </div>
+          </div>
+        </div>
+      ),
+      okText: '批量删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r))).map(getIid);
+          const results = await Promise.all(targets.map(async (iid)=> { 
+            try { 
+              // Pass batchDeleteVolumes to onDelete
+              await onDelete(iid, batchDeleteVolumes); 
+              return { ok:true, iid }; 
+            } catch(e:any){ 
+              return { ok:false, iid, err:e?.message||String(e) }; 
+            } 
+          }));
+          
+          const ok = results.filter(x=>x.ok).length; 
+          const fail = results.filter(x=>!x.ok);
+          
+          if (ok>0) message.success(`删除指令已发送: ${ok} 台`);
+          if (fail.length>0) {
+            console.error('Batch delete errors:', fail);
+            message.error(`删除失败 ${fail.length} 台`);
+          }
+          
+          setSelectedKeys([]);
+          if (onRefresh) onRefresh(true);
+          
+        } catch(e:any){ 
+          message.error(e?.message||'批量删除失败'); 
+        }
+      }
+    });
+  };
+
+  const handleDeleteConfirm = (iid: string) => {
+    let deleteVolumes = false;
+    Modal.confirm({
+      title: '确认删除云主机？',
+      content: (
+        <div>
+          <p>确定要删除该云主机吗？此操作不可恢复。</p>
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Checkbox onChange={(e) => { deleteVolumes = e.target.checked; }}>同步删除关联卷 (PVC) <span style={{ color:'#999', fontSize:12 }}>(推荐)</span></Checkbox>
+            </div>
+          </div>
+        </div>
+      ),
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        await onDelete(iid, deleteVolumes);
+        if (onRefresh) onRefresh(true);
+      }
+    });
   };
   return (
     <PageDetailSection

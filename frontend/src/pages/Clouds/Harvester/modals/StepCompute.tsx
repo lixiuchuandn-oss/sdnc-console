@@ -153,11 +153,11 @@ const StepCompute: React.FC<StepComputeProps> = ({
             <Space>
               <Typography.Text>平时至少需要</Typography.Text>
               <Form.Item noStyle name="cpuRequest">
-                <InputNumber min={0} max={512} style={{ width: 100 }} />
+                <InputNumber min={0} max={512} precision={0} style={{ width: 100 }} />
               </Form.Item>
               <Typography.Text>核，最多使用</Typography.Text>
               <Form.Item noStyle name="cpuLimit">
-                <InputNumber min={0} max={512} style={{ width: 100 }} />
+                <InputNumber min={0} max={512} precision={0} style={{ width: 100 }} />
               </Form.Item>
               <Typography.Text>核</Typography.Text>
             </Space>
@@ -191,11 +191,11 @@ const StepCompute: React.FC<StepComputeProps> = ({
             <Space>
               <Typography.Text>平时至少需要</Typography.Text>
               <Form.Item noStyle name="memoryRequestGi">
-                <InputNumber min={0} max={2048} style={{ width: 100 }} />
+                <InputNumber min={0} max={2048} precision={0} style={{ width: 100 }} />
               </Form.Item>
               <Typography.Text>GiB，最多使用</Typography.Text>
               <Form.Item noStyle name="memoryLimitGi">
-                <InputNumber min={0} max={4096} style={{ width: 100 }} />
+                <InputNumber min={0} max={4096} precision={0} style={{ width: 100 }} />
               </Form.Item>
               <Typography.Text>GiB</Typography.Text>
             </Space>

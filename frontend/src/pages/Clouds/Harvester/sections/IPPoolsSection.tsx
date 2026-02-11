@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Button, message, Input } from 'antd';
-import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
+import { Table, Button, message, Input, Modal } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import IPPoolCreateModal from '../modals/IPPoolCreateModal';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import { deleteHarvesterIpPool } from '../../../../services/harvesterApi';
 
 interface Props {
   cloudId: string;
@@ -15,21 +17,22 @@ interface Props {
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [createVisible, setCreateVisible] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState('detail');
+  const [selectedRecord, setSelectedRecord] = useState<any>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   
   const dataSource = useMemo(() => {
     return (ippools || []).map((pool: any) => {
       const raw = pool.rawData || pool;
       
-      // Harvester/Kube-VIP IP Pool structure typically has ranges or cidr in spec
-      // Adjust based on actual CRD structure if needed. 
-      // Common structure: spec.ranges, spec.cidrs
       const ranges = (raw.spec?.ranges || []).map((r: any) => `${r.start}-${r.end}`).join(', ');
       const cidrs = (raw.spec?.cidrs || []).join(', ');
 
       return {
         key: raw.metadata?.uid || pool.id,
         name: raw.metadata?.name || pool.name,
-        namespace: raw.metadata?.namespace || pool.namespace || '-', // Some IPPools might be cluster-scoped
+        namespace: raw.metadata?.namespace || pool.namespace || '-',
         ranges: ranges || cidrs || '-',
         selector: raw.spec?.selector ? JSON.stringify(raw.spec.selector) : '-',
         creationTimestamp: raw.metadata?.creationTimestamp || pool.createdAt,
@@ -47,8 +50,114 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
     return d;
   }, [dataSource, keyword]);
 
+  const handleOpenDrawer = (record: any) => {
+    if (record?.raw) {
+      setSelectedRecord(record.raw);
+      setDrawerTab('detail');
+      setDrawerOpen(true);
+    }
+  };
+
+  const handleDelete = (record: any) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除地址池 ${record.name} 吗？此操作不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteHarvesterIpPool(cloudId, record.name);
+          message.success('删除成功');
+          onRefresh?.(true);
+        } catch (e: any) {
+          const errMsg = e.message || '';
+          if (errMsg.includes("can't delete pool before releasing all the allocated IP")) {
+            Modal.error({
+              title: '删除失败',
+              content: (
+                <div>
+                  <p>无法删除该地址池，因为其中仍有已分配的 IP 地址。</p>
+                  <p>请先删除使用该地址池的 LoadBalancer 或其他服务，释放所有 IP 后再试。</p>
+                  <div style={{ marginTop: 8, color: '#999', fontSize: 12, wordBreak: 'break-all' }}>
+                    原始错误: {errMsg}
+                  </div>
+                </div>
+              ),
+            });
+          } else {
+            message.error(errMsg || '删除失败');
+          }
+        }
+      }
+    });
+  };
+
+  const handleBatchDelete = () => {
+    Modal.confirm({
+      title: '确认批量删除',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 个地址池吗？此操作不可恢复。`,
+      okText: '批量删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const promises = selectedRowKeys.map(key => {
+            const item = dataSource.find(d => d.key === key);
+            if (item) {
+              return deleteHarvesterIpPool(cloudId, item.name);
+            }
+            return Promise.resolve();
+          });
+          
+          await Promise.all(promises);
+          message.success('批量删除成功');
+          setSelectedRowKeys([]);
+          onRefresh?.(true);
+        } catch (e: any) {
+           const errMsg = e.message || '';
+           if (errMsg.includes("can't delete pool before releasing all the allocated IP")) {
+             Modal.error({
+               title: '部分删除失败',
+               content: (
+                 <div>
+                   <p>无法删除部分地址池，因为其中仍有已分配的 IP 地址。</p>
+                   <p>请先删除使用该地址池的 LoadBalancer 或其他服务，释放所有 IP 后再试。</p>
+                   <div style={{ marginTop: 8, color: '#999', fontSize: 12, wordBreak: 'break-all' }}>
+                     原始错误: {errMsg}
+                   </div>
+                 </div>
+               ),
+             });
+           } else {
+             message.error(errMsg || '部分删除失败');
+           }
+           onRefresh?.(true);
+        }
+      }
+    });
+  };
+
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+  };
+
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
+    { 
+      title: '名称', 
+      dataIndex: 'name', 
+      key: 'name', 
+      width: 200, 
+      render: (t: string, record: any) => (
+        <a 
+          style={{ fontWeight: 500 }}
+          onClick={() => handleOpenDrawer(record)}
+        >
+          {t}
+        </a>
+      ) 
+    },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
     { title: 'IP 范围/CIDR', dataIndex: 'ranges', key: 'ranges', width: 250 },
     { title: '选择器', dataIndex: 'selector', key: 'selector', width: 200, ellipsis: true },
@@ -60,9 +169,14 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <ResourceActionsDropdown 
-          buttonProps={{ className: 'row-actions-trigger' }}
           items={[
-            { key: 'delete', label: '删除', danger: true, onClick: () => message.info('暂不支持删除') }
+            { 
+              key: 'detail', 
+              label: '资源详情', 
+              onClick: () => handleOpenDrawer(record)
+            },
+            { type: 'divider' },
+            { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) }
           ]}
         />
       ),
@@ -83,8 +197,11 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
       }
       toolbarRight={
         <>
-          <Button icon={<PlusOutlined />} type="primary" onClick={() => setCreateVisible(true)}>创建</Button>
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
+          {selectedRowKeys.length > 0 && (
+            <Button danger onClick={handleBatchDelete}>批量删除</Button>
+          )}
+          <Button type="primary" onClick={() => setCreateVisible(true)}>创建</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}></Button>
         </>
       }
     >
@@ -96,11 +213,22 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
         rowKey="key"
         loading={loading}
         pagination={{size: 'small'}}
+        rowSelection={rowSelection}
       />
       <IPPoolCreateModal
-        visible={createVisible}
-        onCancel={() => setCreateVisible(false)}
+        open={createVisible}
+        cloudId={cloudId}
+        onClose={() => setCreateVisible(false)}
         onSuccess={() => onRefresh?.(true)}
+      />
+
+      <HarvesterResourceDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        resourceType="IPPool"
+        record={selectedRecord}
+        activeTab={drawerTab}
+        onTabChange={setDrawerTab}
         cloudId={cloudId}
       />
     </PageDetailSection>

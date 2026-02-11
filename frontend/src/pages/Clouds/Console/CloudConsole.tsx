@@ -6,7 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
-import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
+import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchHarvesterLoadBalancers, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
 import { 
   fetchClouds, fetchCloudProviderEcs, API_BASE_URL, getAuthHeaders,
   startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs
@@ -121,10 +121,10 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (iid: string, deleteImage?: boolean) => {
+  const handleDelete = async (iid: string, deleteVolumes?: boolean) => {
     if (!currentCloudId) return;
     try {
-      await deleteCloudProviderEcs(currentCloudId, iid, deleteImage);
+      await deleteCloudProviderEcs(currentCloudId, iid, deleteVolumes);
       message.success('已发送删除指令');
       loadEcs(currentCloudId);
     } catch (e: any) {
@@ -679,10 +679,9 @@ const CloudConsolePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // 使用 Harvester 专用的 LB 接口 (基于 Flat Network)
-      const res = await fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/harvester-loadbalancers`, { headers: getAuthHeaders() });
-      const json = await res.json();
-      setLbrules(json?.data?.items || []);
+      // 使用 Harvester 专用的 LB 接口
+      const items = await fetchHarvesterLoadBalancers(cid);
+      setLbrules(Array.isArray(items) ? items : []);
     } catch (e: any) {
       console.error('[CloudConsole] loadLbrules error:', e);
       setLbrules([]);

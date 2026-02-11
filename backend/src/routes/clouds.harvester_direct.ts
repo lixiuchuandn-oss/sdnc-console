@@ -47,6 +47,7 @@ import {
   harvesterAddVolumeToVM,
   harvesterRemoveVolumeFromVM,
   listHarvesterLoadBalancers,
+  createHarvesterLoadBalancer,
   listHarvesterLoadBalancerIPPools,
   getHarvesterCapabilities,
   listHarvesterSnapshotClassesRaw,
@@ -322,6 +323,47 @@ export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermissi
         res.status(500).json({ message: '查询Capabilities失败', error: error.body || error.message });
       }
     },
+  );
+
+  /**
+   * [GET] /:id/resources/harvester/nads/:namespace/:name
+   * 获取单个网络附件定义 (NAD) 详情
+   */
+  router.get(
+    '/:id/resources/harvester/nads/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+        
+        if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, namespace)) {
+             return res.status(403).json({ message: 'Access denied to this namespace' });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+            const u = new URL(base);
+            origin = `${u.protocol}//${u.host}`;
+        } catch {
+            origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const url = `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${encodeURIComponent(namespace)}/network-attachment-definitions/${encodeURIComponent(name)}`;
+        const json = await requestJson('GET', url, cloud.secretKey || '', insecure);
+        res.json({ message: '查询成功', data: json });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '获取网络附件定义详情失败', error: error.body || error.message });
+      }
+    }
   );
 
   // ==================================================================================
@@ -787,6 +829,41 @@ router.get(
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '查询 Harvester 负载均衡失败', error: error.body || error.message });
+      }
+    },
+  );
+
+  // Create Load Balancer
+  router.post(
+    '/:id/resources/harvester-loadbalancers',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const payload = req.body;
+        // Tenant namespace validation
+        if (tenantNamespace) {
+            const allowedNs = tenantNamespace.split(',').map(s => s.trim());
+            if (!allowedNs.includes(payload.namespace)) {
+                return res.status(403).json({ message: 'Access denied to this namespace' });
+            }
+        }
+
+        const result = await createHarvesterLoadBalancer(
+            { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure },
+            payload
+        );
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '创建负载均衡失败', error: error.body || error.message });
       }
     },
   );
@@ -1265,6 +1342,52 @@ router.get(
     },
   );
 
+  router.delete(
+    '/:id/resources/harvester/services/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        // Prepare endpoint base
+        let endpointBase = (cloud.endpoint || '').replace(/\/+$/, '');
+        if (!endpointBase.includes('/k8s/clusters/')) {
+            endpointBase = endpointBase.replace(/\/v[0-9]+(\/harvester)?$/, '');
+        }
+
+        // Target: DELETE /apis/loadbalancer.harvesterhci.io/v1beta1/namespaces/{namespace}/loadbalancers/{name}
+        const url = `${endpointBase}/apis/loadbalancer.harvesterhci.io/v1beta1/namespaces/${namespace}/loadbalancers/${name}`;
+
+        console.log(`[Service] Deleting LoadBalancer CRD: ${namespace}/${name} | URL: ${url}`);
+
+        try {
+            const data = await requestJson(
+                'DELETE',
+                url,
+                cloud.secretKey || '',
+                insecure
+            );
+            console.log(`[Service] Delete Success:`, name);
+            return res.json({ message: '删除成功', data });
+        } catch (e: any) {
+            console.error(`[Service] Delete Failed: ${e.message}`, e.body || e);
+            const rawError = e.body || e.message || '删除失败';
+            res.status(e.status || 500).json({ message: '删除失败', error: rawError });
+        }
+      } catch (error: any) {
+        console.error('[Service] Delete failed:', error);
+        res.status(500).json({ message: `删除负载均衡失败 | ${error.body || error.message}`, error: error.body });
+      }
+    }
+  );
+
   // ==================================================================================
   // IP Pools (LoadBalancerIPPools)
   // ==================================================================================
@@ -1395,6 +1518,52 @@ router.get(
       } catch (error: any) {
         console.error('[IPPool] Create failed:', error);
         res.status(500).json({ message: `创建 IP 池失败 | ${error.body || error.message}`, error: error.body });
+      }
+    }
+  );
+
+  router.delete(
+    '/:id/resources/ippools/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, name } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        // Prepare endpoint base
+        let endpointBase = (cloud.endpoint || '').replace(/\/+$/, '');
+        if (!endpointBase.includes('/k8s/clusters/')) {
+            endpointBase = endpointBase.replace(/\/v[0-9]+(\/harvester)?$/, '');
+        }
+
+        // Target: DELETE /v1/harvester/loadbalancer.harvesterhci.io.ippools/{name}
+        const url = `${endpointBase}/v1/harvester/loadbalancer.harvesterhci.io.ippools/${encodeURIComponent(name)}`;
+
+        console.log(`[IPPool] Deleting IP Pool: ${name} | URL: ${url}`);
+
+        try {
+            const data = await requestJson(
+                'DELETE',
+                url,
+                cloud.secretKey || '',
+                insecure
+            );
+            console.log(`[IPPool] Delete Success:`, name);
+            return res.json({ message: '删除成功', data });
+        } catch (e: any) {
+            console.error(`[IPPool] Delete Failed: ${e.message}`, e.body || e);
+            const rawError = e.body || e.message || '删除失败';
+            res.status(e.status || 500).json({ message: '删除失败', error: rawError });
+        }
+      } catch (error: any) {
+        console.error('[IPPool] Delete failed:', error);
+        res.status(500).json({ message: `删除 IP 池失败 | ${error.body || error.message}`, error: error.body });
       }
     }
   );
@@ -1907,7 +2076,7 @@ router.get(
     async (req: any, res: Response, next: any) => {
       try {
         const { id, instanceId } = req.params;
-        const { deleteImage } = req.query;
+        const { deleteImage, deleteVolumes } = req.query;
         const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
         if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
         if (isTenant) {
@@ -1927,7 +2096,8 @@ router.get(
         const data = await harvesterDeleteVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
           resolvedId,
-          String(deleteImage) === 'true',
+          String(deleteVolumes) === 'true',
+          true, // background execution
         );
         res.json({ message: '删除成功', data });
       } catch (error: any) {

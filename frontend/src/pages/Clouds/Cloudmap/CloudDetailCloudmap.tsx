@@ -406,7 +406,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     onSoftReboot={async (iid:string)=>{ try { await softRebootCloudProviderEcs(cloudId, iid); message.success('软重启指令已发送'); } catch(e:any){ message.error(e?.message||'软重启失败'); } }}
                     onPause={async (iid:string)=>{ try { await pauseCloudProviderEcs(cloudId, iid); message.success('暂停指令已发送'); } catch(e:any){ message.error(e?.message||'暂停失败'); } }}
                     onUnpause={async (iid:string)=>{ try { await unpauseCloudProviderEcs(cloudId, iid); message.success('恢复指令已发送'); } catch(e:any){ message.error(e?.message||'恢复失败'); } }}
-                    onDelete={async (iid:string, deleteImage?: boolean)=>{ try { await deleteCloudProviderEcs(cloudId, iid, deleteImage); message.success('删除成功'); } catch(e:any){ message.error(e?.message||'删除失败'); } }}
+                    onDelete={async (iid:string, deleteVolumes?: boolean)=>{ try { await deleteCloudProviderEcs(cloudId, iid, deleteVolumes); message.success('删除成功'); } catch(e:any){ message.error(e?.message||'删除失败'); } }}
                   />
                   <VmReconfigureModal open={vmReconfOpen} cloudId={cloudId} record={vmReconfTarget} onClose={()=>{ setVmReconfOpen(false); setVmReconfTarget(null); }} onOk={loadAll} storageClasses={harvesterStorageClasses} images={harvesterImages} gpuResources={harvesterGpuResources} />
                   {showLog && (

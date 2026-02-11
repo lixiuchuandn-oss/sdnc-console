@@ -14,7 +14,7 @@ export interface HarvesterResourceDrawerProps {
   cloudId?: string;
 }
 
-const EventsTab: React.FC<{ cloudId?: string; record: any; active: boolean }> = ({ cloudId, record, active }) => {
+const EventsTab: React.FC<{ cloudId?: string; record: any; active: boolean; kind?: string }> = ({ cloudId, record, active, kind: propKind }) => {
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -32,7 +32,7 @@ const EventsTab: React.FC<{ cloudId?: string; record: any; active: boolean }> = 
           const ns = record.metadata?.namespace || record.namespace;
           const name = record.metadata?.name || record.name;
           const uid = record.metadata?.uid || record.uid;
-          const kind = record.kind || 'VirtualMachine'; 
+          const kind = record.kind || propKind || 'VirtualMachine'; 
 
           if (ns || kind === 'Node' || kind === 'Namespace') {
              const res = await fetchHarvesterEvents(cloudId!, ns, uid, name, kind);
@@ -247,7 +247,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = ({
           ...(record ? [{
             key: 'events',
             label: '事件 (Events)',
-            children: <EventsTab cloudId={cloudId} record={record} active={activeTab === 'events'} />
+            children: <EventsTab cloudId={cloudId} record={record} active={activeTab === 'events'} kind={resourceType} />
           }] : [])
         ]}
       />

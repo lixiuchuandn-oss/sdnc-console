@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Input, Select, Radio, message, Space } from 'antd';
 import { createHarvesterIPPool, fetchHarvesterNamespaces, fetchHarvesterNads } from '../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 interface Props {
-  visible: boolean;
-  onCancel: () => void;
+  open: boolean;
+  onClose: () => void;
   onSuccess: () => void;
   cloudId: string;
 }
 
-const IPPoolCreateModal: React.FC<Props> = ({ visible, onCancel, onSuccess, cloudId }) => {
+const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -17,19 +18,21 @@ const IPPoolCreateModal: React.FC<Props> = ({ visible, onCancel, onSuccess, clou
   const [type, setType] = useState<'range' | 'cidr'>('cidr');
 
   useEffect(() => {
-    if (visible) {
+    if (open) {
       loadNamespaces();
       loadNetworks();
       form.resetFields();
       form.setFieldsValue({ type: 'cidr', namespace: 'default' });
     }
-  }, [visible]);
+  }, [open]);
 
   const loadNamespaces = async () => {
     try {
       const res = await fetchHarvesterNamespaces(cloudId);
       const items = res?.data?.items || res || [];
-      const nsList = items.map((i: any) => i.metadata?.name || i.name).filter(Boolean);
+      const nsList = items
+        .map((i: any) => i.metadata?.name || i.name)
+        .filter((n: string) => n && !isSystemNamespace(n));
       setNamespaces(nsList);
     } catch (e) {
       console.error('Failed to load namespaces', e);
@@ -55,11 +58,13 @@ const IPPoolCreateModal: React.FC<Props> = ({ visible, onCancel, onSuccess, clou
         type: 'loadbalancer.harvesterhci.io.ippool',
         metadata: {
           name: values.name,
-          namespace: values.namespace,
         },
         spec: {
           selector: {
             network: values.network,
+            scope: [
+              { namespace: values.namespace }
+            ]
           },
         },
       };
@@ -78,7 +83,7 @@ const IPPoolCreateModal: React.FC<Props> = ({ visible, onCancel, onSuccess, clou
       await createHarvesterIPPool(cloudId, payload);
       message.success('IP池创建成功');
       onSuccess();
-      onCancel();
+      onClose();
     } catch (e: any) {
       message.error(e.message || '创建失败');
     } finally {
@@ -89,8 +94,8 @@ const IPPoolCreateModal: React.FC<Props> = ({ visible, onCancel, onSuccess, clou
   return (
     <Modal
       title="创建 IP 池"
-      open={visible}
-      onCancel={onCancel}
+      open={open}
+      onCancel={onClose}
       onOk={handleOk}
       confirmLoading={loading}
       width={600}

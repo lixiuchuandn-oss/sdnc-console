@@ -401,8 +401,8 @@ export const harvesterRebootVM = async (
 export const harvesterDeleteVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
-  deleteImage: boolean = false,
   deleteVolumes: boolean = false,
+  background: boolean = false,
 ) => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -414,77 +414,125 @@ export const harvesterDeleteVM = async (
   }
   const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
   if (!path) throw new Error('无法解析实例标识');
+  console.info('[DeleteVM] Start', {
+    instanceId: String(instanceId || ''),
+    namespace: path.namespace,
+    name: path.name,
+    params: { deleteVolumes, background }
+  });
 
-  if (deleteVolumes) {
+  // 1. 预先读取 VM 信息，解析出需要删除的关联资源 (PVCs)
+  let pvcNames: string[] = [];
+
+  try {
+    let vm: any = null;
     try {
-      const vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
-      const volumes = vm?.spec?.template?.spec?.volumes || [];
-      for (const vol of volumes) {
-        const claimName = vol.persistentVolumeClaim?.claimName;
-        if (claimName) {
-          try {
-            // Try standard PVC path first, then namespaced path
-            const delUrl = `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(path.namespace)}/${encodeURIComponent(claimName)}`;
-            await requestJson('DELETE', delUrl, token, insecure);
-            console.info(`[DeleteVM] Triggered deletion for PVC: ${claimName}`);
-          } catch (e: any) {
-             // Ignore 404 (already deleted)
-             if (e?.status !== 404) {
-                 console.warn(`[DeleteVM] Failed to delete PVC ${claimName}:`, e.message);
-             }
-          }
-        }
+      vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+    } catch (e: any) {
+      if (e?.status === 404) {
+        console.warn('[DeleteVM] VM not found, may already be deleted.', { namespace: path.namespace, name: path.name });
+      } else {
+        throw e;
       }
-    } catch (e) {
-      console.warn('[DeleteVM] Failed to process deleteVolumes logic:', e);
     }
+    
+    // 1.1 解析 PVC Names
+    if (deleteVolumes) {
+      const volumes = vm?.spec?.template?.spec?.volumes || [];
+      pvcNames = volumes.map((v: any) => v?.persistentVolumeClaim?.claimName).filter((n: any) => !!n);
+      try {
+        const vctStr = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+        if (vctStr) {
+          const vct = JSON.parse(vctStr);
+          if (Array.isArray(vct)) {
+            const tplNames = vct
+              .map((t: any) => t?.metadata?.name)
+              .filter((n: any) => typeof n === 'string' && !!n);
+            pvcNames = [...pvcNames, ...tplNames];
+          }
+        }
+      } catch {}
+      try {
+        const dvts = Array.isArray(vm?.spec?.dataVolumeTemplates) ? vm.spec.dataVolumeTemplates : [];
+        const dvNames = dvts
+          .map((d: any) => d?.metadata?.name)
+          .filter((n: any) => typeof n === 'string' && !!n);
+        pvcNames = [...pvcNames, ...dvNames];
+      } catch {}
+      pvcNames = Array.from(new Set(pvcNames));
+      console.info('[DeleteVM] PVCs to delete:', pvcNames);
+    }
+  } catch (e) {
+    console.warn('[DeleteVM] Failed to read VM info before deletion. Associated resources may not be deleted.', e);
   }
 
-  if (deleteImage) {
-    try {
-      const vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
-      const findImageId = (v: any) => {
-        // 1. Check DataVolumeTemplates
-        const dvts = Array.isArray(v?.spec?.dataVolumeTemplates) ? v.spec.dataVolumeTemplates : [];
-        for (const d of dvts) {
-          const id = d?.metadata?.annotations?.['harvesterhci.io/imageId'];
-          if (id) return id;
-        }
-        // 2. Check VolumeClaimTemplates in annotation
+  // 2. 删除 VM
+  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}`;
+  console.info('[DeleteVM] Request delete VM', { namespace: path.namespace, name: path.name, url });
+  const delRes = await requestJson('DELETE', url, token, insecure);
+  console.info('[DeleteVM] Delete VM request sent', { namespace: path.namespace, name: path.name });
+
+  // 3. 定义后续清理任务 (等待 VM 删除 -> 删除关联资源)
+  const cleanupTask = async () => {
+    // 3.1 等待 VM 删除完成
+    const waitUntilDeleted = async () => {
+      console.info('[DeleteVM] Waiting for VM deletion', { namespace: path.namespace, name: path.name });
+      const start = Date.now();
+      const timeoutMs = 120000;
+      const intervalMs = 1500;
+      while (Date.now() - start < timeoutMs) {
         try {
-          const vctStr = v?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
-          if (vctStr) {
-            const vct = JSON.parse(vctStr);
-            if (Array.isArray(vct)) {
-              for (const d of vct) {
-                const id = d?.metadata?.annotations?.['harvesterhci.io/imageId'];
-                if (id) return id;
-              }
-            }
-          }
-        } catch {}
-        return null;
-      };
-      const imageId = findImageId(vm);
-      if (imageId) {
-        const parts = String(imageId).split('/');
-        const imgNs = parts.length > 1 ? parts[0] : path.namespace;
-        const imgName = parts.length > 1 ? parts[1] : parts[0];
-        try {
-          const delUrl = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(imgNs)}/virtualmachineimages/${encodeURIComponent(imgName)}`;
-          await requestJson('DELETE', delUrl, token, insecure);
+          await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
         } catch (e: any) {
-          if (parts.length === 1 && imgNs !== 'cloud-public') {
-            try {
-              const delUrl2 = `${origin}/apis/harvesterhci.io/v1/namespaces/cloud-public/virtualmachineimages/${encodeURIComponent(imgName)}`;
-              await requestJson('DELETE', delUrl2, token, insecure);
-            } catch {}
+          // Check for 404
+          if (e?.status === 404 || e?.message?.includes('not found') || e?.message?.includes('404')) {
+            console.info('[DeleteVM] VM deletion confirmed', { namespace: path.namespace, name: path.name });
+            return;
+          }
+        }
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+      console.warn(`[DeleteVM] Timeout waiting for VM ${path.namespace}/${path.name} deletion`);
+    };
+    await waitUntilDeleted();
+
+    // 3.2 删除 PVC
+    if (deleteVolumes && pvcNames.length > 0) {
+      for (const claimName of pvcNames) {
+        try {
+          const delUrl = `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(path.namespace)}/${encodeURIComponent(claimName)}`;
+          console.info('[DeleteVM] Request delete PVC', { namespace: path.namespace, name: claimName, url: delUrl });
+          await requestJson('DELETE', delUrl, token, insecure);
+          console.info(`[DeleteVM] Deleted PVC: ${claimName}`);
+        } catch (e: any) {
+          if (e?.status !== 404) {
+            console.warn(`[DeleteVM] Failed to delete PVC ${claimName}:`, e?.message || e);
           }
         }
       }
-    } catch {}
-  }
+    }
 
-  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}`;
-  return await requestJson('DELETE', url, token, insecure);
+    console.info('[DeleteVM] Workflow finished', { namespace: path.namespace, name: path.name, deletedPVCCount: pvcNames.length });
+  };
+
+  if (background) {
+    // 异步后台执行清理
+    cleanupTask().catch(err => {
+      console.error('[DeleteVM] Background cleanup error:', { namespace: path.namespace, name: path.name, err });
+    });
+    return {
+      vm: delRes,
+      status: 'Deleting',
+      message: 'Deletion initiated in background. Associated resources (PVCs) will be deleted shortly.',
+      workflow: 'background-cleanup'
+    };
+  } else {
+    // 同步等待清理完成
+    await cleanupTask();
+    return {
+      vm: delRes,
+      deletedVolumes: pvcNames || [],
+      workflow: 'sync-cleanup'
+    };
+  }
 };

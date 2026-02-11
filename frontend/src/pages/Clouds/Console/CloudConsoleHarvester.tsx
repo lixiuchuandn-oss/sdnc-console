@@ -344,7 +344,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       case 'lb':
         return (
           <LoadBalancersSection 
-            services={lbs}
+            loadBalancers={lbs}
             loading={loading}
             onRefresh={onRefreshLbs}
             cloudId={cloudId}

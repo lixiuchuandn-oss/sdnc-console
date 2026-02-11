@@ -308,6 +308,7 @@ export const syncHarvesterLoadBalancers = async (cloud: any, insecure: boolean) 
     vpc: item.spec?.vpc,
     externalIP: item.status?.externalIP,
     ports: item.spec?.ports,
+    links: item.links,
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
     rawData: item,
@@ -338,6 +339,7 @@ export const syncHarvesterLoadBalancerIPPools = async (cloud: any, insecure: boo
     uid: item.metadata?.uid || item.id,
     name: item.metadata?.name,
     namespace: item.metadata?.namespace,
+    links: item.links,
     ipam: item.spec?.ipam,
     selector: item.spec?.selector,
     subnet: item.status?.allocated?.subnet, // Common status field for subnet? Need to verify schema but saving rawData covers it

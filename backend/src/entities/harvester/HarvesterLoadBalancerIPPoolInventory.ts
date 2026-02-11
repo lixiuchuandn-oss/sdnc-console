@@ -27,6 +27,9 @@ export class HarvesterLoadBalancerIPPoolInventory {
   namespace?: string;
 
   @Column({ type: 'simple-json', nullable: true })
+  links?: Record<string, string>;
+
+  @Column({ type: 'simple-json', nullable: true })
   ipam?: any;
 
   @Column({ type: 'simple-json', nullable: true })

@@ -29,7 +29,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
 import VmReconfigureModal from './modals/VmReconfigureModal';
 import VmSection from './sections/VmSection';
 import TemplatesSection from './sections/TemplatesSection';
@@ -105,6 +105,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [harvesterCloudInits, setHarvesterCloudInits] = useState<any[]>([]); // CloudInit 配置
   const [harvesterIngresses, setHarvesterIngresses] = useState<any[]>([]); // Ingress 路由
   const [harvesterServices, setHarvesterServices] = useState<any[]>([]); // K8s 服务
+  const [harvesterLoadBalancers, setHarvesterLoadBalancers] = useState<any[]>([]); // Harvester LoadBalancers
   const [harvesterIPPools, setHarvesterIPPools] = useState<any[]>([]); // IP 地址池
   const [harvesterClusterNetworks, setHarvesterClusterNetworks] = useState<any[]>([]); // 集群网络
   const [harvesterTemplates, setHarvesterTemplates] = useState<any[]>([]); // 虚拟机模板
@@ -138,6 +139,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [rawCloudInits, setRawCloudInits] = useState<any | null>(null);
   const [rawIngresses, setRawIngresses] = useState<any | null>(null);
   const [rawServices, setRawServices] = useState<any | null>(null);
+  const [rawLoadBalancers, setRawLoadBalancers] = useState<any | null>(null);
   const [rawTemplates, setRawTemplates] = useState<any | null>(null);
   const [rawScheduleVmBackups, setRawScheduleVmBackups] = useState<any | null>(null);
   const [rawIPPools, setRawIPPools] = useState<any | null>(null);
@@ -370,6 +372,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               }, force);
             }
             break;
+          case 'load_balancers':
+            if (checkPerm('clouds.loadbalancers:read')) {
+              loadResource('loadBalancers', () => fetchHarvesterLoadBalancers(cloudId, force), (json) => {
+                const list = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                setHarvesterLoadBalancers(list);
+                setRawLoadBalancers(json || null);
+              }, force);
+            }
+            break;
           case 'cluster_services':
           case 'services':
             if (checkPerm('clouds.services:read')) {
@@ -478,7 +489,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
     
     // 4. 智能刷新已加载的按需资源
     if (isForce) {
-        const secondaryKeys = ['snapshots', 'backups', 'ssh_keys', 'cloud_inits', 'templates', 'gpu', 'services', 'ingresses', 'ippools', 'cluster_networks', 'eips', 'fips', 'snat', 'dnat'];
+        const secondaryKeys = ['snapshots', 'backups', 'ssh_keys', 'cloud_inits', 'templates', 'gpu', 'services', 'ingresses', 'ippools', 'cluster_networks', 'eips', 'fips', 'snat', 'dnat', 'load_balancers'];
         // 只有当资源之前被加载过，才刷新它
         secondaryKeys.forEach(k => {
              // 注意：这里简化判断，只要之前请求过相关key，就刷新
@@ -499,6 +510,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
              if (k === 'services' && previouslyLoaded.includes('services')) shouldRefresh = true;
              if (k === 'ingresses' && previouslyLoaded.includes('ingresses')) shouldRefresh = true;
              if (k === 'ippools' && previouslyLoaded.includes('ippools')) shouldRefresh = true;
+             if (k === 'load_balancers' && previouslyLoaded.includes('loadBalancers')) shouldRefresh = true;
              if (k === 'cluster_networks' && previouslyLoaded.includes('clusterNetworks')) shouldRefresh = true;
              if (k === 'eips' && previouslyLoaded.includes('eips')) shouldRefresh = true;
              if (k === 'fips' && previouslyLoaded.includes('fips')) shouldRefresh = true;
@@ -549,7 +561,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
 
       // 内层 Tabs 映射
       if (key === 'cluster_services') { loadTabResource('services'); return; }
-      if (key === 'load_balancers') { loadTabResource('services'); return; }
+      if (key === 'load_balancers') { loadTabResource('load_balancers'); return; }
       if (key === 'kubeovn_eips') { loadTabResource('eips'); return; }
       if (key === 'kubeovn_fips') { loadTabResource('fips'); return; }
       if (key === 'kubeovn_snat') { loadTabResource('snat'); return; }
@@ -1036,9 +1048,9 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
                               } catch(e:any){ message.error(e?.message||'恢复失败'); } 
                             }}
-                            onDelete={async (iid:string, deleteImage?: boolean)=>{ 
+                            onDelete={async (iid:string, deleteVolumes?: boolean)=>{ 
                               try { 
-                                await deleteCloudProviderEcs(cloudId, iid, deleteImage); 
+                                await deleteCloudProviderEcs(cloudId, iid, deleteVolumes); 
                                 message.success('删除成功'); 
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
                               } catch(e:any){ message.error(e?.message||'删除失败'); } 
@@ -1268,10 +1280,16 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '负载均衡',
                       children: (
                         <>
-                          <LoadBalancersSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} />
+                          <LoadBalancersSection 
+                            cloudId={cloudId} 
+                            loadBalancers={harvesterLoadBalancers}
+                            namespaces={harvesterNamespaces}
+                            loading={resourceLoading.loadBalancers} 
+                            onRefresh={() => loadTabResource('load_balancers', true)} 
+                          />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
-                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawServices, null, 2)}</pre>
+                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawLoadBalancers, null, 2)}</pre>
                             </div>
                           )}
                         </>

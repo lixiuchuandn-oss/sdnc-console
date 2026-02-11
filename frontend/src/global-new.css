@@ -298,26 +298,24 @@
 /* 
  * 行操作菜单触发器样式 (Row Actions)
  * 用于规范化表格中的操作列按钮 (通常是 <EllipsisOutlined />)
- * 替代 ResourceActionsDropdown 组件的强制尺寸逻辑
+ * 增加点击区域，优化悬停效果
  */
 .row-actions-trigger {
-  width: 32px !important;
-  height: 32px !important;
-  padding: 0 !important;
-  display: inline-flex !important;
-  justify-content: center;
+  width: 24px;
+  height: 24px;
+  display: flex;
   align-items: center;
-  border: none !important; /* 移除边框，保持纯图标外观 */
-  background: transparent !important;
-  color: #1f2329;
+  justify-content: center;
+  border-radius: 4px;
+  color: #666;
   cursor: pointer;
-  transition: color 0.3s;
+  transition: all 0.2s;
+  margin: 0 auto; /* 居中 */
 }
 
 .row-actions-trigger:hover {
-  color: var(--primary-color, #1677ff);
-  background: rgba(0, 0, 0, 0.04) !important; /* 悬停时添加淡淡的背景 */
-  border-radius: 4px;
+  background-color: rgba(0, 0, 0, 0.06);
+  color: #1677ff;
 }
 
 /* 
@@ -331,3 +329,50 @@
   background-color: #f5f5f5;
 }
 
+/* UI Norm: In Modal forms, ensure spacing below help/extra text */
+.ant-modal .ant-form-item-explain,
+.ant-modal .ant-form-item-extra {
+  margin-bottom: 24px;
+}
+
+/* 
+ * 带行号的文本区域 (LinedTextArea)
+ * 用于显示 JSON/YAML/Code 等元数据
+ */
+.lined-textarea {
+  display: flex;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  overflow: hidden;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  background-color: #fff;
+}
+
+.lined-textarea-gutter {
+  background-color: #f5f5f5;
+  border-right: 1px solid #d9d9d9;
+  padding: 8px 4px;
+  text-align: right;
+  color: rgba(0, 0, 0, 0.45);
+  user-select: none;
+  min-width: 32px;
+  overflow: hidden;
+}
+
+.lined-textarea-line {
+  padding: 0 4px;
+}
+
+.lined-textarea-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  padding: 8px;
+  resize: none;
+  white-space: pre;
+  overflow: auto;
+  background-color: transparent;
+  color: #1f2329;
+}

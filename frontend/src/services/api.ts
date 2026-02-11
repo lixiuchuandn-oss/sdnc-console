@@ -51,6 +51,38 @@ const uuidToObjectIdHex = (uuidStr: string): string => {
   return out;
 };
 
+// Helper: Parse error response
+const parseErrorResponse = async (response: Response) => {
+    let errorMsg = `HTTP error! status: ${response.status}`;
+    try {
+        const data = await response.json();
+        if (data && typeof data === 'object') {
+             // 1. Prefer 'message' field
+             if (data.message) {
+                 errorMsg = data.message;
+                 // Append 'error' detail if exists
+                 if (data.error) {
+                     const detail = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+                     // Avoid duplication
+                     if (!errorMsg.includes(detail)) {
+                        errorMsg += `: ${detail}`;
+                     }
+                 }
+             } 
+             // 2. Fallback to 'error' field
+             else if (data.error) {
+                 errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+             }
+        }
+    } catch (e) {
+        // ignore JSON parse error
+    }
+    const err: any = new Error(errorMsg);
+    err.status = response.status;
+    err.response = response;
+    throw err;
+};
+
 // 通用请求函数
 export const apiRequest = async (endpoint: string) => {
   try {
@@ -61,7 +93,7 @@ export const apiRequest = async (endpoint: string) => {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      await parseErrorResponse(response);
     }
 
     return await response.json();
@@ -82,7 +114,7 @@ export const apiPost = async (endpoint: string, body: any = {}) => {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      await parseErrorResponse(response);
     }
 
     return await response.json();
@@ -100,7 +132,7 @@ export const apiDelete = async (endpoint: string) => {
       credentials: 'include',
     });
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      await parseErrorResponse(response);
     }
     if (response.status === 204) {
       return null;
@@ -122,7 +154,7 @@ export const apiPatch = async (endpoint: string, body: any = {}) => {
       credentials: 'include',
     });
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      await parseErrorResponse(response);
     }
     return await response.json();
   } catch (error) {
@@ -635,10 +667,9 @@ export const deleteCloudProviderNetworkAcl = async (cloudId: string, aclId: stri
   return await apiDelete(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}`);
 };
 
-export const deleteCloudProviderEcs = async (cloudId: string, instanceId: string, deleteImage?: boolean, deleteVolumes?: boolean) => {
+export const deleteCloudProviderEcs = async (cloudId: string, instanceId: string, deleteVolumes?: boolean) => {
   let url = `/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}`;
   const params = new URLSearchParams();
-  if (deleteImage !== undefined) params.append('deleteImage', String(deleteImage));
   if (deleteVolumes !== undefined) params.append('deleteVolumes', String(deleteVolumes));
   const qs = params.toString();
   if (qs) url += `?${qs}`;

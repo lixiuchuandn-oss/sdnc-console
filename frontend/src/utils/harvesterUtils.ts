@@ -3,7 +3,7 @@ export const isSystemNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
   
   // Exact matches
-  if (['cloud-public', 'default', 'ingress-nginx'].includes(n)) return true;
+  if (['cloud-public', 'ingress-nginx'].includes(n)) return true;
 
   // Prefix matches
   const prefixes = [
@@ -19,6 +19,11 @@ export const isSystemNamespace = (name: string): boolean => {
   ];
   
   return prefixes.some(p => n.startsWith(p));
+};
+
+export const isSystemStorageClass = (name: string): boolean => {
+  const n = String(name || '').toLowerCase();
+  return n.includes('harvester-') || n.includes('longhorn-');
 };
 
 export const cnVmStatus = (v?: string): string => {

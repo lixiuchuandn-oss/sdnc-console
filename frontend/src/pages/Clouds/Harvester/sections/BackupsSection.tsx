@@ -187,6 +187,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         cloudId={cloudId}
         resource={currentSnapshot}
         resourceType={type}
+        vms={vms}
       />
     </PageDetailSection>
   );

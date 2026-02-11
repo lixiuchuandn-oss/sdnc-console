@@ -1,0 +1,387 @@
+import React, { useState, useEffect } from 'react';
+import { Modal, Form, Input, Select, Button, Space, message, InputNumber, Radio, Tag } from 'antd';
+import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { apiPost, apiRequest } from '../../../../services/api';
+import { fetchHarvesterNadDetail } from '../../../../services/harvesterApi';
+
+interface Props {
+  open: boolean;
+  cloudId: string;
+  namespaces: any[];
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, onClose, onSuccess }) => {
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+  const [ipPools, setIpPools] = useState<any[]>([]);
+  const [nadInfo, setNadInfo] = useState<{name: string, bridge: string, range?: string} | null>(null);
+
+  // Fetch IP Pools
+  useEffect(() => {
+    if (open) {
+      apiRequest(`/api/clouds/${cloudId}/resources/ippools`)
+        .then((res: any) => {
+            const items = res.data?.items || [];
+            setIpPools(items);
+        })
+        .catch((err: any) => console.error('Failed to fetch IP pools', err));
+    }
+  }, [open, cloudId]);
+
+  // Reset form when modal opens
+  useEffect(() => {
+    if (open) {
+      form.resetFields();
+      // Set default namespace if available
+      if (namespaces && namespaces.length > 0) {
+        // Prefer 'default' if exists, otherwise first one
+        const def = namespaces.find(n => (n.metadata?.name || n.name) === 'default');
+        form.setFieldValue('namespace', def ? (def.metadata?.name || def.name) : (namespaces[0].metadata?.name || namespaces[0].name));
+      }
+    }
+  }, [open, namespaces, form]);
+
+  const onPoolChange = async (poolName: string) => {
+      setNadInfo(null);
+      if (!poolName) return;
+
+      const selectedPool = ipPools.find(p => (p.metadata?.name || p.name) === poolName);
+      if (!selectedPool) return;
+
+      const poolSpec = selectedPool?.spec || selectedPool?.rawData?.spec;
+      const networkRef = poolSpec?.selector?.network || poolSpec?.network;
+
+      if (networkRef) {
+          let nadNs, nadName;
+          if (networkRef.includes('/')) {
+            [nadNs, nadName] = networkRef.split('/');
+          } else {
+            nadName = networkRef;
+            nadNs = selectedPool?.metadata?.namespace || selectedPool?.namespace || 'default';
+          }
+          
+          // Extract ranges
+          let rangeStr = '';
+          if (poolSpec?.ranges && Array.isArray(poolSpec.ranges)) {
+              rangeStr = poolSpec.ranges.map((r: any) => {
+                  if (r.rangeStart && r.rangeEnd) return `${r.rangeStart}-${r.rangeEnd}`;
+                  if (r.subnet) return r.subnet;
+                  return '';
+              }).filter(Boolean).join(', ');
+          }
+
+          if (nadNs && nadName) {
+            try {
+                const res = await fetchHarvesterNadDetail(cloudId, nadNs, nadName);
+                // Backend returns { message: '...', data: { ... } }
+                const nad = res?.data || res;
+                if (nad?.spec?.config) {
+                      const config = JSON.parse(nad.spec.config);
+                      if (config.bridge) {
+                          setNadInfo({
+                              name: `${nadNs}/${nadName}`,
+                              bridge: config.bridge,
+                              range: rangeStr
+                          });
+                      }
+                }
+            } catch(e) {
+                console.error('Failed to fetch NAD detail for bridge info', e);
+            }
+          }
+      }
+  };
+
+  const handleOk = async () => {
+    try {
+      const values = await form.validateFields();
+      setLoading(true);
+
+      // Construct payload
+      // Transform listeners array
+      const listeners = (values.listeners || []).map((l: any) => ({
+        name: l.name,
+        port: l.port,
+        protocol: l.protocol,
+        backendPort: l.backendPort,
+      }));
+
+      // Transform selector to map of string arrays { "key": ["value"] }
+      // Harvester LoadBalancer v1beta1 expects backendServerSelector to be map[string][]string
+      const backendServerSelector: Record<string, string[]> = {};
+      (values.selectors || []).forEach((s: any) => {
+        if (s.key && s.value) {
+          if (backendServerSelector[s.key]) {
+             backendServerSelector[s.key].push(s.value);
+          } else {
+             backendServerSelector[s.key] = [s.value];
+          }
+        }
+      });
+
+      const payload: any = {
+        name: values.name,
+        namespace: values.namespace,
+        ipam: values.ipam || 'pool',
+        listeners,
+        workloadType: 'vm', // Currently fixed to VM as per typical Harvester usage
+        backendServerSelector,
+      };
+      
+      // If specific pool selected, add annotation
+      if (values.ipam === 'pool' && values.ipPool) {
+          if (!payload.annotations) payload.annotations = {};
+          payload.annotations['loadbalancer.harvesterhci.io/ip-pool'] = values.ipPool;
+
+          // Auto-inject kube-vip.io/serviceInterface from NAD bridge
+          try {
+            const selectedPool = ipPools.find(p => (p.metadata?.name || p.name) === values.ipPool);
+            const poolSpec = selectedPool?.spec || selectedPool?.rawData?.spec;
+            const networkRef = poolSpec?.selector?.network || poolSpec?.network;
+
+            if (networkRef) {
+              let nadNs, nadName;
+              if (networkRef.includes('/')) {
+                [nadNs, nadName] = networkRef.split('/');
+              } else {
+                nadName = networkRef;
+                nadNs = selectedPool?.metadata?.namespace || selectedPool?.namespace || 'default';
+              }
+
+              if (nadNs && nadName) {
+                const res = await fetchHarvesterNadDetail(cloudId, nadNs, nadName);
+                const nad = res?.data || res;
+                if (nad?.spec?.config) {
+                  const config = JSON.parse(nad.spec.config);
+                  if (config.bridge) {
+                    payload.annotations['kube-vip.io/serviceInterface'] = config.bridge;
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.warn('Failed to inject kube-vip bridge annotation:', error);
+          }
+      }
+
+      await apiPost(`/api/clouds/${cloudId}/resources/harvester-loadbalancers`, payload);
+      
+      message.success('负载均衡创建成功');
+      onSuccess();
+      onClose();
+    } catch (e: any) {
+      console.error(e);
+      let errorMsg = e.message || '未知错误';
+      
+      // Handle 409 Conflict / AlreadyExists
+      if (typeof errorMsg === 'string') {
+          if (errorMsg.includes('already exists') || errorMsg.includes('AlreadyExists')) {
+              errorMsg = '该负载均衡名称已存在，请使用其他名称';
+          } else if (errorMsg.includes('{')) {
+              try {
+                  // Try to parse JSON from error message if present
+                  const jsonStart = errorMsg.indexOf('{');
+                  const jsonPart = errorMsg.substring(jsonStart);
+                  const errObj = JSON.parse(jsonPart);
+                  if (errObj.reason === 'AlreadyExists' || errObj.code === 409) {
+                      errorMsg = '该负载均衡名称已存在，请使用其他名称';
+                  } else if (errObj.message) {
+                      errorMsg = errObj.message;
+                  }
+              } catch {
+                  // Ignore JSON parse error, use original message
+              }
+          }
+      }
+      
+      message.error(`创建失败: ${errorMsg}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const nsOptions = (namespaces || []).map((n: any) => ({
+    label: n.metadata?.name || n.name,
+    value: n.metadata?.name || n.name,
+  }));
+  
+  const poolOptions = ipPools.map((p: any) => ({
+      label: p.metadata?.name || p.name,
+      value: p.metadata?.name || p.name,
+  }));
+
+  return (
+    <Modal
+      title="创建负载均衡"
+      open={open}
+      onOk={handleOk}
+      onCancel={onClose}
+      confirmLoading={loading}
+      width={700}
+      destroyOnClose
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          ipam: 'pool',
+          listeners: [{ protocol: 'TCP' }],
+        }}
+      >
+        <Form.Item
+          name="name"
+          label="名称"
+          rules={[{ required: true, message: '请输入名称' }]}
+        >
+          <Input placeholder="请输入负载均衡名称" />
+        </Form.Item>
+
+        <Form.Item
+          name="namespace"
+          label="命名空间"
+          rules={[{ required: true, message: '请选择命名空间' }]}
+        >
+          <Select options={nsOptions} placeholder="请选择命名空间" showSearch />
+        </Form.Item>
+
+        <Form.Item label="IP 分配模式" name="ipam">
+          <Radio.Group>
+            <Radio value="pool">IP Pool (自动分配)</Radio>
+            <Radio value="dhcp" disabled>DHCP (暂不支持)</Radio>
+          </Radio.Group>
+        </Form.Item>
+
+        <Form.Item 
+            noStyle 
+            shouldUpdate={(prev, curr) => prev.ipam !== curr.ipam}
+        >
+            {({ getFieldValue }) => {
+                return getFieldValue('ipam') === 'pool' ? (
+                    <Form.Item 
+                        name="ipPool" 
+                        label="指定 IP Pool (可选)"
+                        help={nadInfo ? (
+                            <Space size={16} style={{ marginTop: 4, flexWrap: 'wrap' }}>
+                                <Space size={4}>
+                                    <span style={{ color: '#888' }}>NAD:</span>
+                                    <Tag>{nadInfo.name}</Tag>
+                                </Space>
+                                <Space size={4}>
+                                    <span style={{ color: '#888' }}>Bridge:</span>
+                                    <Tag color="blue">{nadInfo.bridge}</Tag>
+                                </Space>
+                                {nadInfo.range && (
+                                    <Space size={4}>
+                                        <span style={{ color: '#888' }}>Range:</span>
+                                        <Tag color="cyan">{nadInfo.range}</Tag>
+                                    </Space>
+                                )}
+                            </Space>
+                        ) : "留空则使用默认 IP Pool"}
+                    >
+                        <Select 
+                            options={poolOptions} 
+                            placeholder="请选择 IP Pool" 
+                            allowClear
+                            onChange={onPoolChange}
+                        />
+                    </Form.Item>
+                ) : null;
+            }}
+        </Form.Item>
+
+        <Form.Item label="监听端口配置 (Listeners)" required>
+          <Form.List name="listeners">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map(({ key, name, ...restField }) => (
+                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'name']}
+                      rules={[{ required: true, message: '请输入名称' }]}
+                    >
+                      <Input placeholder="名称 (e.g. http)" style={{ width: 120 }} />
+                    </Form.Item>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'protocol']}
+                      initialValue="TCP"
+                    >
+                      <Select style={{ width: 80 }}>
+                        <Select.Option value="TCP">TCP</Select.Option>
+                        <Select.Option value="UDP">UDP</Select.Option>
+                      </Select>
+                    </Form.Item>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'port']}
+                      rules={[{ required: true, message: 'Port' }]}
+                    >
+                      <InputNumber placeholder="前端端口" min={1} max={65535} style={{ width: 100 }} />
+                    </Form.Item>
+                    <span style={{ margin: '0 8px' }}>→</span>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'backendPort']}
+                      rules={[{ required: true, message: 'Target' }]}
+                    >
+                      <InputNumber placeholder="后端端口" min={1} max={65535} style={{ width: 100 }} />
+                    </Form.Item>
+                    <MinusCircleOutlined onClick={() => remove(name)} />
+                  </Space>
+                ))}
+                <Form.Item>
+                  <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                    添加监听端口
+                  </Button>
+                </Form.Item>
+              </>
+            )}
+          </Form.List>
+        </Form.Item>
+
+        <Form.Item label="后端关联标签 (Selector)">
+          <div style={{ marginBottom: 8, color: '#888' }}>
+            负载均衡将流量转发到具有这些标签的 VM。
+          </div>
+          <Form.List name="selectors">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map(({ key, name, ...restField }) => (
+                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'key']}
+                      rules={[{ required: true, message: 'Key' }]}
+                    >
+                      <Input placeholder="Label Key" />
+                    </Form.Item>
+                    <span style={{ margin: '0 8px' }}>=</span>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'value']}
+                      rules={[{ required: true, message: 'Value' }]}
+                    >
+                      <Input placeholder="Label Value" />
+                    </Form.Item>
+                    <MinusCircleOutlined onClick={() => remove(name)} />
+                  </Space>
+                ))}
+                <Form.Item>
+                  <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                    添加关联标签
+                  </Button>
+                </Form.Item>
+              </>
+            )}
+          </Form.List>
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+};
+
+export default CreateLoadBalancerModal;

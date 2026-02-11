@@ -202,8 +202,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
       render: (_: any, r: any) => {
           const isSys = isSystemNamespace(r._namespace);
           const items: any[] = [
-              { key: 'detail', label: '查看摘要', onClick: () => handleOpenDrawer(r, 'detail') },
-              { key: 'events', label: '操作记录', onClick: () => handleOpenDrawer(r, 'events') },
+              { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
               { type: 'divider' },
               { 
                 key: 'delete', 

@@ -3353,7 +3353,24 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
           });
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
-          if (us.namespace) whereCondition.namespace = us.namespace;
+          
+          // 构建允许的命名空间列表
+          const allowedNamespaces: string[] = [];
+          if (us.namespace) {
+            us.namespace.split(',').forEach(ns => allowedNamespaces.push(ns.trim()));
+          }
+          
+          // 添加动态组织命名空间
+          if ((req.user as any).organizationId) {
+            allowedNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          }
+          
+          // 构建TypeORM查询条件
+          if (allowedNamespaces.length > 0) {
+            whereCondition = [
+              ...allowedNamespaces.map(ns => ({ cloudId: id, namespace: ns }))
+            ];
+          }
         }
 
         const count = await repo.count({ where: whereCondition });
@@ -3450,7 +3467,24 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
           });
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
-          if (us.namespace) whereCondition.namespace = us.namespace;
+          
+          // 构建允许的命名空间列表
+          const allowedNamespaces: string[] = [];
+          if (us.namespace) {
+            us.namespace.split(',').forEach(ns => allowedNamespaces.push(ns.trim()));
+          }
+          
+          // 添加动态组织命名空间
+          if ((req.user as any).organizationId) {
+            allowedNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          }
+          
+          // 构建TypeORM查询条件
+          if (allowedNamespaces.length > 0) {
+            whereCondition = [
+              ...allowedNamespaces.map(ns => ({ cloudId: id, namespace: ns }))
+            ];
+          }
         }
 
         const count = await repo.count({ where: whereCondition });
@@ -3497,7 +3531,24 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
             where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
           });
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
-          if (us.namespace) whereCondition.namespace = us.namespace;
+          
+          // 构建允许的命名空间列表
+          const allowedNamespaces: string[] = [];
+          if (us.namespace) {
+            us.namespace.split(',').forEach(ns => allowedNamespaces.push(ns.trim()));
+          }
+          
+          // 添加动态组织命名空间
+          if ((req.user as any).organizationId) {
+            allowedNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          }
+          
+          // 构建TypeORM查询条件
+          if (allowedNamespaces.length > 0) {
+            whereCondition = [
+              ...allowedNamespaces.map(ns => ({ cloudId: id, namespace: ns }))
+            ];
+          }
         }
 
         const count = await repo.count({ where: whereCondition });

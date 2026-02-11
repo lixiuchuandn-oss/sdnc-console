@@ -131,6 +131,17 @@ export const fetchHarvesterServices = async (cloudId: string, force = false) => 
   return await res.json();
 };
 
+export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester-loadbalancers${force ? '?force=true' : ''}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
 export const fetchHarvesterTemplates = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/templates${force ? '?force=true' : ''}`, {
@@ -1071,6 +1082,20 @@ export const deleteHarvesterIpPool = async (cloudId: string, name: string) => {
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
   });
-  if (!res.ok) { throw new Error(await res.text()); }
+  if (!res.ok) {
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text);
+      // Backend returns { message: "...", error: "..." }
+      // If error is a stringified JSON, we might want to keep it or parse it, but here we just throw the best message we have.
+      throw new Error(json?.error || json?.message || text);
+    } catch (e: any) {
+      // If we just threw an error above, rethrow it
+      if (e.message !== text && (e.message === JSON.parse(text)?.error || e.message === JSON.parse(text)?.message)) {
+         throw e;
+      }
+      throw new Error(text);
+    }
+  }
   return await res.json();
 };

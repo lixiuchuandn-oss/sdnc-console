@@ -471,6 +471,24 @@ router.delete('/organizations/:orgId', async (req, res) => {
   }
 });
 
+// 获取租户的所有用户
+router.get('/:tenantId/users', async (req, res) => {
+  try {
+    const userRepository = AppDataSource.getRepository(TenantUser);
+    const users = await userRepository.find({
+      where: {
+        tenantId: req.params.tenantId,
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    res.json(users);
+  } catch (error) {
+    console.error('获取租户用户列表失败:', error);
+    res.status(500).json({ message: '获取租户用户列表失败' });
+  }
+});
+
 // 获取组织的用户
 router.get('/:tenantId/organizations/:orgId/users', async (req, res) => {
   try {
