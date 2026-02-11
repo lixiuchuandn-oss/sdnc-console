@@ -1043,6 +1043,23 @@ export const deleteHarvesterService = async (cloudId: string, namespace: string,
   return await res.json();
 };
 
+export const createHarvesterIPPool = async (cloudId: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ippools`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let json: any = text;
+    try { json = JSON.parse(text); } catch {}
+    throw new Error(typeof json === 'string' ? json : (json?.message || json?.error || '创建失败'));
+  }
+  return await res.json();
+};
+
 export const deleteHarvesterIpPool = async (cloudId: string, name: string) => {
   const token = localStorage.getItem('token');
   // IpPool is usually cluster-scoped (no namespace in URL usually, but check Harvester API)

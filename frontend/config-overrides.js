@@ -14,6 +14,13 @@ function override(config, env) {
     ...config.plugins,
     new webpack.ProvidePlugin({ Buffer: ['buffer', 'Buffer'] }),
   ];
+
+  // Enable Top-level await for @novnc/novnc
+  config.experiments = {
+    ...config.experiments,
+    topLevelAwait: true,
+  };
+
   return config;
 }
 

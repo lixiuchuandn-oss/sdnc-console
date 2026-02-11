@@ -1307,6 +1307,98 @@ router.get(
     },
   );
 
+  router.post(
+    '/:id/resources/ippools',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        // Prepare endpoint base
+        let endpointBase = (cloud.endpoint || '').replace(/\/+$/, '');
+        if (!endpointBase.includes('/k8s/clusters/')) {
+            endpointBase = endpointBase.replace(/\/v[0-9]+(\/harvester)?$/, '');
+        }
+
+        const ns = req.body?.metadata?.namespace || 'default';
+        console.log(`[IPPool] Creating IP Pool in namespace: ${ns} | EndpointBase: ${endpointBase}`);
+
+        // Construct Payload according to User's specific example
+        // Target: POST /v1/harvester/loadbalancer.harvesterhci.io.ippools
+        // Note: IPPool is Cluster Scoped in this context, do NOT include namespace in metadata.
+        const payload: any = {
+            type: 'loadbalancer.harvesterhci.io.ippool',
+            metadata: {
+                name: req.body.metadata?.name,
+                annotations: req.body.metadata?.annotations || {}
+                // namespace: ns // REMOVED per user verification
+            },
+            spec: {
+                selector: {
+                    network: req.body.spec?.selector?.network,
+                    scope: req.body.spec?.selector?.scope || [{ namespace: '*', guestCluster: '' }]
+                }
+            }
+        };
+
+        // Normalize ranges/cidrs to 'ranges'
+        // User verified body uses 'ranges' for both CIDR and Range types
+        payload.spec.ranges = [];
+
+        if (req.body.spec?.cidrs && Array.isArray(req.body.spec.cidrs)) {
+            // Frontend sends cidrs as string array for CIDR type
+            payload.spec.ranges = req.body.spec.cidrs.map((cidr: string) => ({
+                subnet: cidr,
+                type: 'cidr'
+                // gateway: '' // Optional/Not provided by frontend
+            }));
+        } else if (req.body.spec?.ranges && Array.isArray(req.body.spec.ranges)) {
+            // Frontend sends ranges as [{start, end, subnet, gateway}] for Range type
+            payload.spec.ranges = req.body.spec.ranges.map((r: any) => ({
+                rangeStart: r.start,
+                rangeEnd: r.end,
+                subnet: r.subnet, // Required by backend validation
+                gateway: r.gateway, // Optional but good practice
+                type: 'range'
+            }));
+        }
+
+        // Use the specific Steve API endpoint verified by user
+        const url = `${endpointBase}/v1/harvester/loadbalancer.harvesterhci.io.ippools`;
+
+        console.log(`[IPPool] Posting to URL: ${url}`);
+        console.log(`[IPPool] Payload:`, JSON.stringify(payload, null, 2));
+
+        try {
+            const data = await requestJson(
+                'POST',
+                url,
+                cloud.secretKey || '',
+                insecure,
+                payload
+            );
+            console.log(`[IPPool] Success:`, data?.id);
+            return res.json({ message: '创建成功', data });
+        } catch (e: any) {
+            console.error(`[IPPool] Creation Failed: ${e.message}`, e.body || e);
+            const rawError = e.body || e.message || '创建失败';
+            res.status(e.status || 500).json({ message: '创建失败', error: rawError });
+        }
+
+      } catch (error: any) {
+        console.error('[IPPool] Create failed:', error);
+        res.status(500).json({ message: `创建 IP 池失败 | ${error.body || error.message}`, error: error.body });
+      }
+    }
+  );
+
   // ==================================================================================
   // ECS (VirtualMachines)
   // ==================================================================================

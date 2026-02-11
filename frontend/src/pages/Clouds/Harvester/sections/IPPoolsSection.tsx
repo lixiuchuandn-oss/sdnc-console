@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import IPPoolCreateModal from '../modals/IPPoolCreateModal';
 
 interface Props {
   cloudId: string;
@@ -13,6 +14,7 @@ interface Props {
 
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh }) => {
   const [keyword, setKeyword] = useState<string>('');
+  const [createVisible, setCreateVisible] = useState(false);
   
   const dataSource = useMemo(() => {
     return (ippools || []).map((pool: any) => {
@@ -80,7 +82,10 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
         />
       }
       toolbarRight={
-        <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
+        <>
+          <Button icon={<PlusOutlined />} type="primary" onClick={() => setCreateVisible(true)}>创建</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
+        </>
       }
     >
       <Table
@@ -91,6 +96,12 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
         rowKey="key"
         loading={loading}
         pagination={{size: 'small'}}
+      />
+      <IPPoolCreateModal
+        visible={createVisible}
+        onCancel={() => setCreateVisible(false)}
+        onSuccess={() => onRefresh?.(true)}
+        cloudId={cloudId}
       />
     </PageDetailSection>
   );
