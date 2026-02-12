@@ -494,7 +494,11 @@ export const updateHarvesterVMSpec = async (
   
   if (spec.dedicatedCPUPlacement !== undefined) {
       ensureCpu();
-      domain.cpu.dedicatedCpuPlacement = !!spec.dedicatedCPUPlacement;
+      if (spec.dedicatedCPUPlacement) {
+          domain.cpu.dedicatedCpuPlacement = true;
+      } else {
+          delete domain.cpu.dedicatedCpuPlacement;
+      }
   }
   
   if (spec.cpuRequest !== undefined) {

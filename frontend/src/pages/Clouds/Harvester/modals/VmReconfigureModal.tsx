@@ -12,7 +12,7 @@
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, InputNumber, Select, Input, Space, message, Switch, Button, Table, Radio, Row, Col, Card } from 'antd';
+import { Modal, Form, InputNumber, Select, Input, Space, message, Switch, Button, Table, Radio, Row, Col, Card, Collapse, Typography, Checkbox } from 'antd';
 import { 
   SlidersOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, 
   HddOutlined, GlobalOutlined, AppstoreOutlined, DashboardOutlined
@@ -218,8 +218,43 @@ const VmReconfigureModal: React.FC<Props> = ({
         form.setFieldsValue({ secondaryNics: secondary });
         break;
       }
-      // Add other cases if they need initialization from record
-      // e.g. cpu_advanced might need current values if available in record
+      case 'cpu_advanced': {
+        const cpu = record?.spec?.template?.spec?.domain?.cpu || {};
+        const resources = record?.spec?.template?.spec?.domain?.resources || {};
+        form.setFieldsValue({
+          cpuSockets: cpu.sockets || 1,
+          cpuCores: cpu.cores || 1,
+          cpuThreads: cpu.threads || 1,
+          dedicatedCPUPlacement: !!cpu.dedicatedCpuPlacement,
+          cpuRequest: resources.requests?.cpu,
+          cpuLimit: resources.limits?.cpu,
+          cpuModel: cpu.mode || 'host-passthrough',
+          cpuModelCustom: cpu.model,
+          isolateEmulatorThread: !!cpu.isolateEmulatorThread,
+          cpuBurstUnlimited: false, // 暂无法从 record 直接推断，默认为 false
+        });
+        break;
+      }
+      case 'mem_advanced': {
+        const resources = record?.spec?.template?.spec?.domain?.resources || {};
+        const req = getMemoryInGi(resources.requests?.memory);
+        const lim = getMemoryInGi(resources.limits?.memory);
+        form.setFieldsValue({
+          memoryRequestGi: req || undefined,
+          memoryLimitGi: lim || undefined,
+          memoryBurstUnlimited: false,
+        });
+        break;
+      }
+      case 'change_gpu': {
+        const gpus = record?.spec?.template?.spec?.domain?.devices?.gpus || [];
+        const gpu = gpus.length > 0 ? gpus[0] : null;
+        form.setFieldsValue({
+          gpuMode: gpu ? 'passthrough' : undefined, 
+          gpuResourceName: gpu?.deviceName,
+        });
+        break;
+      }
     }
   }, [selectedKey, open, record, form]);
 
@@ -239,7 +274,12 @@ const VmReconfigureModal: React.FC<Props> = ({
 
   const handleOk = async () => {
     try {
-      const iid = String(record?.InstanceId || record?.id || '');
+      let iid = String(record?.InstanceId || record?.id || '');
+      // 兼容直接包含 metadata 的对象结构
+      if ((!iid || !iid.includes('/')) && record?.metadata?.namespace && record?.metadata?.name) {
+        iid = `${record.metadata.namespace}/${record.metadata.name}`;
+      }
+
       if (!iid || !iid.includes('/')) { message.error('实例ID缺失'); return; }
       const ns = iid.split('/')[0];
       const name = iid.split('/')[1];
@@ -256,18 +296,30 @@ const VmReconfigureModal: React.FC<Props> = ({
         }
         case 'cpu_advanced': {
           // CPU 高级配置 (Topology/QoS)
-          const vals = await form.validateFields(['cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 'cpuRequest', 'cpuLimit']);
+          const vals = await form.validateFields([
+            'cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 
+            'cpuRequest', 'cpuLimit', 'cpuModel', 'cpuModelCustom', 
+            'isolateEmulatorThread', 'cpuBurstUnlimited'
+          ]);
           await updateHarvesterVmSpec(cloudId, ns, name, { 
             cpuSockets: vals.cpuSockets, cpuCores: vals.cpuCores, cpuThreads: vals.cpuThreads, 
-            dedicatedCPUPlacement: vals.dedicatedCPUPlacement, cpuRequest: vals.cpuRequest, cpuLimit: vals.cpuLimit 
+            dedicatedCPUPlacement: vals.dedicatedCPUPlacement, cpuRequest: vals.cpuRequest, cpuLimit: vals.cpuLimit,
+            cpuModel: vals.cpuModel, cpuModelCustom: vals.cpuModelCustom,
+            isolateEmulatorThread: vals.isolateEmulatorThread, cpuBurstUnlimited: vals.cpuBurstUnlimited
           });
           message.success('CPU高级配置已更新');
           break;
         }
         case 'mem_advanced': {
-          // 内存高级配置 (Limit)
-          const vals = await form.validateFields(['memoryLimit']);
-          await updateHarvesterVmSpec(cloudId, ns, name, { memoryLimit: vals.memoryLimit });
+          // 内存高级配置 (Limit/Request/Burst)
+          const vals = await form.validateFields(['memoryRequestGi', 'memoryLimitGi', 'memoryBurstUnlimited']);
+          const payload: any = {
+             memoryBurstUnlimited: vals.memoryBurstUnlimited
+          };
+          if (vals.memoryRequestGi !== undefined && vals.memoryRequestGi !== null) payload.memoryRequest = `${vals.memoryRequestGi}Gi`;
+          if (vals.memoryLimitGi !== undefined && vals.memoryLimitGi !== null) payload.memoryLimit = `${vals.memoryLimitGi}Gi`;
+          
+          await updateHarvesterVmSpec(cloudId, ns, name, payload);
           message.success('内存高级配置已更新');
           break;
         }
@@ -504,23 +556,89 @@ const VmReconfigureModal: React.FC<Props> = ({
         );
       case 'cpu_advanced':
         return (
-          <>
-            <Form.Item name="cpuSockets" label="Sockets"><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="cpuCores" label="Cores"><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="cpuThreads" label="Threads"><InputNumber min={1} precision={0} style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="dedicatedCPUPlacement" label="CPU绑定" valuePropName="checked"><Switch /></Form.Item>
-            <Form.Item name="cpuRequest" label="CPU Request"><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="cpuLimit" label="CPU Limit"><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item>
-            <div style={{ color: '#999', marginTop: 16 }}>支持CPU拓扑、绑定、QoS等高级配置</div>
-          </>
+          <div style={{ padding: '0 8px' }}>
+            <Form.Item label="CPU 拓扑">
+              <Space>
+                <Typography.Text>插槽</Typography.Text>
+                <Form.Item noStyle name="cpuSockets">
+                  <InputNumber min={1} max={8} style={{ width: 100 }} />
+                </Form.Item>
+                <Typography.Text>每插槽</Typography.Text>
+                <Form.Item noStyle name="cpuCores">
+                  <InputNumber min={1} max={64} style={{ width: 100 }} />
+                </Form.Item>
+                <Typography.Text>核</Typography.Text>
+                <Typography.Text>线程</Typography.Text>
+                <Form.Item noStyle name="cpuThreads">
+                  <InputNumber min={1} max={8} style={{ width: 100 }} />
+                </Form.Item>
+              </Space>
+            </Form.Item>
+            <Form.Item label="CPU 模式" name="cpuModel" initialValue="host-passthrough">
+              <Select options={[{ label: 'Host-Passthrough', value: 'host-passthrough' }, { label: 'Host-Model', value: 'host-model' }, { label: '自定义', value: 'custom' }]} style={{ width: 220 }} />
+            </Form.Item>
+            <Form.Item noStyle shouldUpdate={(prev, curr) => prev.cpuModel !== curr.cpuModel}>
+              {({ getFieldValue }) => (getFieldValue('cpuModel') === 'custom' ? (
+                <Form.Item label="自定义模型" name="cpuModelCustom" extra={<Typography.Text type="secondary">指定 CPU 型号名称，例如 Skylake-Client-IBRS</Typography.Text>}>
+                  <Input placeholder="如：Skylake-Client-IBRS" />
+                </Form.Item>
+              ) : null)}
+            </Form.Item>
+            <Form.Item label="CPU 绑定" name="dedicatedCPUPlacement" valuePropName="checked">
+              <Space>
+                <Checkbox>启用</Checkbox>
+                <Typography.Text type="secondary">保证用固定的物理 CPU 核心，减少切换损耗</Typography.Text>
+              </Space>
+            </Form.Item>
+            <Form.Item label="CPU 隔离" name="isolateEmulatorThread" valuePropName="checked">
+              <Space>
+                <Checkbox>启用</Checkbox>
+                <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰</Typography.Text>
+              </Space>
+            </Form.Item>
+            <Form.Item label="CPU QoS">
+              <Space>
+                <Typography.Text>平时至少需要</Typography.Text>
+                <Form.Item noStyle name="cpuRequest">
+                  <InputNumber min={0} max={512} precision={0} style={{ width: 100 }} />
+                </Form.Item>
+                <Typography.Text>核，最多使用</Typography.Text>
+                <Form.Item noStyle name="cpuLimit">
+                  <InputNumber min={0} max={512} precision={0} style={{ width: 100 }} />
+                </Form.Item>
+                <Typography.Text>核</Typography.Text>
+              </Space>
+            </Form.Item>
+            <Form.Item label="CPU 峰值保护" name="cpuBurstUnlimited" valuePropName="checked">
+              <Space>
+                <Checkbox>启用</Checkbox>
+                <Typography.Text type="secondary">业务峰值时自动取消最多使用核数限制</Typography.Text>
+              </Space>
+            </Form.Item>
+          </div>
         );
       case 'mem_advanced':
         return (
           <>
-            <Form.Item name="memoryLimit" label="内存上限" rules={[{ required: true, message: '请输入内存上限' }]}>
-              <Input placeholder="例如 8Gi" style={{ width: '100%' }} />
+            <Form.Item label="内存 QoS">
+              <Space>
+                <Typography.Text>平时至少需要</Typography.Text>
+                <Form.Item noStyle name="memoryRequestGi">
+                  <InputNumber min={0} max={2048} precision={0} style={{ width: 100 }} />
+                </Form.Item>
+                <Typography.Text>GiB，最多使用</Typography.Text>
+                <Form.Item noStyle name="memoryLimitGi">
+                  <InputNumber min={0} max={4096} precision={0} style={{ width: 100 }} />
+                </Form.Item>
+                <Typography.Text>GiB</Typography.Text>
+              </Space>
             </Form.Item>
-            <div style={{ color: '#999', marginTop: 16 }}>支持QoS高级配置</div>
+            <Form.Item label="内存峰值保护" name="memoryBurstUnlimited" valuePropName="checked">
+              <Space>
+                <Checkbox>启用</Checkbox>
+                <Typography.Text type="secondary">业务峰值时自动取消最多使用内存限制</Typography.Text>
+              </Space>
+            </Form.Item>
           </>
         );
       case 'change_gpu':
@@ -964,7 +1082,7 @@ const VmReconfigureModal: React.FC<Props> = ({
                         display: 'flex', 
                         lineHeight: '32px', 
                         padding: '0 10px',
-                        marginBottom: 10,
+                        marginBottom: 6,
                         borderRadius: '8px',
                         background: selectedKey === child.key ? '#e6f7ff' : 'transparent',
                         color: selectedKey === child.key ? '#1677ff' : 'inherit',

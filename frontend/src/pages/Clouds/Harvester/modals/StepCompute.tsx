@@ -64,7 +64,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
               if (v !== 'custom') {
                 const n = Number(v);
                 setCpuValue(n);
-                form.setFieldsValue({ cpu: n });
+                form.setFieldsValue({ cpu: n, cpuRequest: n, cpuLimit: n });
               }
               try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
             }}
@@ -83,7 +83,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
             onChange={(val) => {
               const n = Number(val || 1);
               setCpuValue(n);
-              form.setFieldsValue({ cpu: n });
+              form.setFieldsValue({ cpu: n, cpuRequest: n, cpuLimit: n });
               setCpuPreset('custom');
               try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
             }}
@@ -96,13 +96,13 @@ const StepCompute: React.FC<StepComputeProps> = ({
       <Form.Item name="machineType" hidden><Input /></Form.Item>
       <Form.Item label="内存分配" required>
         <Space>
-          <Radio.Group value={memPreset} buttonStyle="solid" onChange={(e) => { const v = String(e.target.value); setMemPreset(v); if (v !== 'custom') { const gi = Number(v); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); } }}>
+          <Radio.Group value={memPreset} buttonStyle="solid" onChange={(e) => { const v = String(e.target.value); setMemPreset(v); if (v !== 'custom') { const gi = Number(v); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi`, memoryRequestGi: gi, memoryLimitGi: gi }); } }}>
             <Radio.Button value="4">4 GB</Radio.Button>
             <Radio.Button value="8">8 GB</Radio.Button>
             <Radio.Button value="16">16 GB</Radio.Button>
             <Radio.Button value="custom">自定义</Radio.Button>
           </Radio.Group>
-          <InputNumber min={1} max={1024} value={memGi} addonAfter="GB" style={{ width: 160 }} onChange={(val) => { const gi = Number(val || 1); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); setMemPreset('custom'); }} />
+          <InputNumber min={1} max={1024} value={memGi} addonAfter="GB" style={{ width: 160 }} onChange={(val) => { const gi = Number(val || 1); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi`, memoryRequestGi: gi, memoryLimitGi: gi }); setMemPreset('custom'); }} />
         </Space>
       </Form.Item>
       <Form.Item name="memory" hidden rules={[{ required: true, message: '请选择或输入内存' }, { pattern: /^[0-9]+(Gi|Mi)$/i, message: '格式如 4Gi 或 8192Mi' }]}>

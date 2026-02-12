@@ -181,6 +181,7 @@ const ensureProvider = (cloud: any, provider: string, res: Response, msg: string
     actual === 'cloudmap.edge';
 
   if (!isHarvesterLike) {
+    console.log('[DEBUG] ensureProvider failed. CloudId:', cloud.id, 'Actual:', actual, 'Expected like:', provider);
     if (next) {
       next();
       return false;
@@ -2214,6 +2215,44 @@ router.get(
                 namespace || 'default',
                 cleanName,
                 spec
+            );
+            res.json({ message: '更新成功', data });
+        } catch (error: any) {
+            res.status(500).json({ message: '更新实例失败', error: error.body || error.message });
+        }
+    }
+  );
+
+  router.post(
+    '/:id/resources/harvester/vms/:namespace/:name/update-spec',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+        console.log('[DEBUG] update-spec route hit', req.params);
+        try {
+            const { id, namespace, name } = req.params;
+            const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+            if (isTenant) {
+                 const p = (req.user as any)?.permissions || [];
+                 if (!p.includes('clouds.console:write')) return res.status(403).json({ message: 'Permission denied: Requires clouds.console:write' });
+            }
+
+            const cloud = await fetchCloudOr404(id, res);
+            if (!cloud) return;
+            if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+            const insecure = !!(cloud.config as any)?.ignoreTls;
+
+            if (tenantNamespace) {
+                if (!isNamespaceAllowed(tenantNamespace, namespace)) {
+                     return res.status(403).json({ message: 'Access denied to this namespace' });
+                }
+            }
+
+            const data = await updateHarvesterVMSpec(
+                { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+                namespace,
+                name,
+                req.body
             );
             res.json({ message: '更新成功', data });
         } catch (error: any) {
