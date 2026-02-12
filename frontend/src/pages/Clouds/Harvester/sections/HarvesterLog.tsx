@@ -1,17 +1,17 @@
 import React from 'react';
 import { Tabs } from 'antd';
-import MonitoringOverview from './MonitoringOverview';
-import MonitoringAlerts from './MonitoringAlerts';
-import LogsConfig from './LogsConfig';
-import LogOutputs from './LogOutputs';
-import LogsFlowConfig from './LogsFlowConfig';
-import LogsOutputConfig from './LogsOutputConfig';
+import MonitoringOverview from '../Monitoring/MonitoringOverview';
+import MonitoringAlerts from '../Monitoring/MonitoringAlerts';
+import LogsConfig from '../Monitoring/LogsConfig';
+import LogOutputs from '../Monitoring/LogOutputs';
+import LogsFlowConfig from '../Monitoring/LogsFlowConfig';
+import LogsOutputConfig from '../Monitoring/LogsOutputConfig';
 
 interface HarvesterMonitoringProps {
   cloudId: string;
 }
 
-const HarvesterMonitoring: React.FC<HarvesterMonitoringProps> = ({ cloudId }) => {
+const HarvesterLog: React.FC<HarvesterMonitoringProps> = ({ cloudId }) => {
   return (
     <Tabs
       defaultActiveKey="overview"
@@ -19,16 +19,6 @@ const HarvesterMonitoring: React.FC<HarvesterMonitoringProps> = ({ cloudId }) =>
       type="line"
       destroyInactiveTabPane
       items={[
-        {
-          key: 'overview',
-          label: '概览',
-          children: <MonitoringOverview cloudId={cloudId} />,
-        },
-        {
-          key: 'alerts',
-          label: '监控告警',
-          children: <MonitoringAlerts cloudId={cloudId} />,
-        },
         {
           key: 'logs-config',
           label: '集群日志配置',
@@ -41,12 +31,12 @@ const HarvesterMonitoring: React.FC<HarvesterMonitoringProps> = ({ cloudId }) =>
         },
         {
           key: 'logs-flow-config',
-          label: '命名空间日志配置',
+          label: '租户日志配置',
           children: <LogsFlowConfig cloudId={cloudId} />,
         },
         {
           key: 'logs-output-config',
-          label: '命名空间日志外发',
+          label: '租户日志外发',
           children: <LogsOutputConfig cloudId={cloudId} />,
         },
       ]}
@@ -54,4 +44,4 @@ const HarvesterMonitoring: React.FC<HarvesterMonitoringProps> = ({ cloudId }) =>
   );
 };
 
-export default HarvesterMonitoring;
+export default HarvesterLog;

@@ -3,7 +3,7 @@ export const isSystemNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
   
   // Exact matches
-  if (['cloud-public', 'ingress-nginx'].includes(n)) return true;
+  if (['cloud-public','default', 'ingress-nginx'].includes(n)) return true;
 
   // Prefix matches
   const prefixes = [

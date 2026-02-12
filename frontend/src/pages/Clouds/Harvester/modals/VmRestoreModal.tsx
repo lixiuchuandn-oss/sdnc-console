@@ -23,6 +23,7 @@ const VmRestoreModal: React.FC<Props> = ({
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [keepMacAddress, setKeepMacAddress] = useState(false);
   const newVM = Form.useWatch('newVM', form);
   const targetVmName = Form.useWatch('targetVmName', form);
 
@@ -50,12 +51,13 @@ const VmRestoreModal: React.FC<Props> = ({
   useEffect(() => {
     if (visible && resource) {
       form.resetFields();
+      setKeepMacAddress(false);
       form.setFieldsValue({
         name: `restore-${resource.name}-${Math.floor(Date.now() / 1000)}`,
         targetVmName: resource.targetVm !== '-' ? resource.targetVm : '',
         newVM: true,
         deletionPolicy: 'Delete', // Default to Delete
-        keepMacAddress: true // Default to Reset MAC (Enabled) -> Reset MAC
+        keepMacAddress: false // Default to Keep MAC (Disabled) -> Reset MAC
       });
     }
   }, [visible, resource, form]);
@@ -101,7 +103,8 @@ const VmRestoreModal: React.FC<Props> = ({
         // 当选择替换虚拟机时，需要传deletionPolicy为retain以避免删除策略冲突，且不需要传newVM字段
         if (values.newVM === false) {
           // 替换模式：添加deletionPolicy字段，不需要传newVM字段
-          payload.spec.deletionPolicy = values.deletionPolicy || "Delete";
+          // 注意：快照类型需要小写的deletionPolicy值
+          payload.spec.deletionPolicy = (values.deletionPolicy || "retain").toLowerCase();
         } else {
           // 新建模式：添加newVM字段
           payload.spec.newVM = true;
@@ -111,10 +114,12 @@ const VmRestoreModal: React.FC<Props> = ({
         payload.spec.virtualMachineBackupNamespace = resource.namespace;
         // Harvester Backup specific options
         if (values.newVM !== undefined) payload.spec.newVM = values.newVM;
-        // The UI label is "MAC Address Reset" (Enabled/Disabled).
-        // If Enabled (true) -> Reset MAC -> keepMacAddress = false.
-        // If Disabled (false) -> Keep MAC -> keepMacAddress = true.
-        if (values.keepMacAddress !== undefined) payload.spec.keepMacAddress = !values.keepMacAddress;
+        // The UI label is "MAC Address Keep" (Enabled/Disabled).
+        // If Enabled (true) -> Keep MAC -> keepMacAddress = true.
+        // If Disabled (false) -> Reset MAC -> keepMacAddress = false.
+        if (values.keepMacAddress !== undefined) {
+          payload.spec.keepMacAddress = values.keepMacAddress;
+        }
       }
 
       await createHarvesterVirtualMachineRestore(
@@ -184,7 +189,7 @@ const VmRestoreModal: React.FC<Props> = ({
           name="newVM" 
           label="恢复模式"
         >
-           <Radio.Group onChange={() => form.setFieldsValue({ deletionPolicy: 'Delete' })}>
+           <Radio.Group onChange={() => form.setFieldsValue({ deletionPolicy: resourceType === 'snapshot' ? 'retain' : 'Delete' })}>
               <Radio value={true}>新建虚拟机</Radio>
               <Radio value={false} disabled={isTargetVmRunning || !isTargetVmExists}>
                 替换虚拟机
@@ -194,15 +199,35 @@ const VmRestoreModal: React.FC<Props> = ({
            </Radio.Group>
         </Form.Item>
 
+        {resourceType === 'backup' && newVM === true && (
+          <Form.Item 
+            name="keepMacAddress" 
+            label="MAC 地址保留"
+            valuePropName="checked"
+          >
+            <Tooltip title="启用后将保留虚拟机的MAC地址">
+              <Switch 
+                checked={keepMacAddress}
+                onChange={(checked) => {
+                  setKeepMacAddress(checked);
+                  form.setFieldsValue({ keepMacAddress: checked });
+                }}
+              />
+            </Tooltip>
+          </Form.Item>
+        )}
+
         {newVM === false && (
           <Form.Item 
             name="deletionPolicy" 
             label="删除以前的虚拟磁盘"
-            initialValue="Delete"
+            initialValue="retain"
           >
             <Select>
-              <Select.Option value="Delete">Delete</Select.Option>
-              <Select.Option value="Retain">Retain</Select.Option>
+              {resourceType !== 'snapshot' && (
+                <Select.Option value="delete">Delete</Select.Option>
+              )}
+              <Select.Option value="retain">Retain</Select.Option>
             </Select>
           </Form.Item>
         )}

@@ -36,7 +36,8 @@ import TemplatesSection from './sections/TemplatesSection';
 import ScheduleVmBackupsSection from './sections/ScheduleVmBackupsSection';
 import EipSection from './kube-ovn/EipSection';
 import FipSection from './kube-ovn/FipSection';
-import HarvesterMonitoring from './Monitoring/HarvesterMonitoring';
+import HarvesterOverview from './sections/HarvesterOverview';
+import HarvesterLog from './sections/HarvesterLog';
 import SnatSection from './kube-ovn/SnatSection';
 import DnatSection from './kube-ovn/DnatSection';
 
@@ -864,29 +865,38 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
           onChange={handleTabChange}
           items={[
             {
-              key: 'overview',
+              key: 'Overview',
               label: '资源总览',
               children: (
-                <>
-                  <Row gutter={[16, 16]}>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CloudServerOutlined style={{ color:'#1677ff', marginRight:8 }} />云主机（VM）</span>} value={ecs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><AppstoreOutlined style={{ color:'#1677ff', marginRight:8 }} />命名空间</span>} value={harvesterNamespaces.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CameraOutlined style={{ color:'#1677ff', marginRight:8 }} />镜像</span>} value={harvesterImages.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><HddOutlined style={{ color:'#1677ff', marginRight:8 }} />虚拟卷</span>} value={harvesterVolumes.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                  </Row>
-                  <Row gutter={[16, 16]} style={{ marginTop: 12 }}>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />节点</span>} value={harvesterNodes.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><GlobalOutlined style={{ color:'#1677ff', marginRight:8 }} />NAD 网络</span>} value={harvesterNads.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><ClusterOutlined style={{ color:'#1677ff', marginRight:8 }} />Kube-OVN VPC</span>} value={kubeOvnVpcs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                    <Col xs={24} sm={12} md={6}><Card size="small" variant="outlined" style={{ borderRadius: 8 }}><Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />Kube-OVN 子网</span>} value={kubeOvnSubnets.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} /></Card></Col>
-                  </Row>
-                </>
+                <HarvesterOverview 
+                  cloudId={cloudId}
+                  vmCount={ecs.length}
+                  namespaceCount={harvesterNamespaces.length}
+                  imageCount={harvesterImages.length}
+                  volumeCount={harvesterVolumes.length}
+                  nodeCount={harvesterNodes.length}
+                  nadCount={harvesterNads.length}
+                  vpcCount={kubeOvnVpcs.length}
+                  subnetCount={kubeOvnSubnets.length}
+                  storageClassCount={harvesterStorageClasses.length}
+                  snapshotCount={harvesterSnapshots.length}
+                  backupCount={harvesterBackups.length}
+                  scheduleVmBackupCount={harvesterScheduleVmBackups.length}
+                  templateCount={harvesterTemplates.length}
+                  sshKeyCount={harvesterSshKeys.length}
+                  cloudInitCount={harvesterCloudInits.length}
+                  ingressCount={harvesterIngresses.length}
+                  serviceCount={harvesterServices.length}
+                  loadBalancerCount={harvesterLoadBalancers.length}
+                  ipPoolCount={harvesterIPPools.length}
+                  clusterNetworkCount={harvesterClusterNetworks.length}
+                  eipCount={kubeOvnEips.length}
+                  fipCount={kubeOvnFips.length}
+                  snatCount={kubeOvnSnatRules.length}
+                  dnatCount={kubeOvnDnatRules.length}
+                  gpuCount={harvesterGpuResources.length}
+                />
               )
-            },
-            {
-              key: 'monitoring',
-              label: '监控',
-              children: <HarvesterMonitoring cloudId={cloudId} />
             },
             {
               key: 'cluster',
@@ -1456,7 +1466,12 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                   })}
                 />
               )
-            }
+            },
+            {
+              key: 'logs-config',
+              label: '日志管理',
+              children: <HarvesterLog cloudId={cloudId} />
+            },
           ]}
       />
     </PageDetailContainer>

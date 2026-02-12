@@ -108,6 +108,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
           {
             key: 'restore',
             label: '恢复',
+            disabled: !record.readyToUse,
             onClick: () => {
               setCurrentSnapshot(record);
               setRestoreModalVisible(true);

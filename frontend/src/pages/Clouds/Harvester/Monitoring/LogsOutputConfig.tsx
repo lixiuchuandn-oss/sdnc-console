@@ -33,6 +33,7 @@ import {
 } from '../../../../services/loggingApi';
 import { fetchAllowedNamespaces } from '../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 const PROVIDER_OPTIONS = [
   { label: 'Syslog', value: 'syslog' },
@@ -42,7 +43,10 @@ const PROVIDER_OPTIONS = [
   { label: 'Kafka', value: 'kafka' },
 ];
 
-const SYSTEM_NS = new Set(['kube-system', 'kube-public', 'kube-node-lease', 'fleet-default', 'cattle-logging-system']);
+function getOrgIdFromNamespace(ns: string): string | null {
+  const match = ns.match(/^ns-([a-z0-9]+)$/);
+  return match ? match[1] : null;
+}
 
 interface OutputItem {
   id?: string;
@@ -67,7 +71,7 @@ function normalizeListPayload(res: unknown): OutputItem[] {
     const i = item as OutputItem;
     return {
       ...i,
-      id: i.id ?? `${i.metadata?.namespace ?? ''}/${i.metadata?.name ?? ''}` ?? String(Math.random()),
+      id: i.id ?? `${i.metadata?.namespace ?? ''}/${i.metadata?.name ?? ''}`,
     };
   });
 }
@@ -156,9 +160,12 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
         const items: any[] = Array.isArray(res?.data?.items) ? res.data.items : res?.data ?? res?.items ?? [];
         const raw = items
           .map((i: any) => i?.metadata?.name ?? i?.name)
-          .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0 && !SYSTEM_NS.has(n));
+          .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0 && !isSystemNamespace(n));
         const uniq = [...new Set(raw)].sort();
-        setNamespaceOptions([{ label: '全部', value: '' }, ...uniq.map((ns) => ({ label: ns, value: ns }))]);
+        setNamespaceOptions([{ label: '全部', value: '' }, ...uniq.map((ns) => {
+          const orgId = getOrgIdFromNamespace(ns);
+          return { label: orgId ? `${ns} (组织: ${orgId})` : ns, value: ns };
+        })]);
       } else {
         const { data, ok } = await fetchAllowedNamespaces(cloudId);
         if (ok && data?.namespaces?.length) {
@@ -415,7 +422,27 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
           </Button>
         ),
       },
-      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', width: 160, render: (v: string) => v || '-' },
+      {
+        title: '命名空间',
+        dataIndex: ['metadata', 'namespace'],
+        key: 'namespace',
+        width: 160,
+        render: (v: string) => v || '-',
+      },
+      {
+        title: '归属租户/组织',
+        key: 'tenant',
+        width: 140,
+        render: (_, row) => {
+          const ns = row?.metadata?.namespace || '';
+          const orgId = getOrgIdFromNamespace(ns);
+          return orgId ? (
+            <span style={{ color: 'rgba(0,0,0,0.65)', fontSize: 12 }}>
+              组织: {orgId}
+            </span>
+          ) : '-';
+        },
+      },
       { title: '提供商', key: 'provider', width: 120, render: (_, row) => getProviderFromSpec(row.spec) },
       { title: '存活时间', key: 'retention', width: 100, render: (_, row) => renderRetention(row) },
       {
@@ -520,7 +547,7 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
         <Table
           className="std-table"
           bordered
-          rowKey={(row: OutputItem) => row.id ?? `${row.metadata?.namespace ?? ''}/${row.metadata?.name ?? ''}` ?? String(Math.random())}
+          rowKey={(row: OutputItem) => row.id ?? `${row.metadata?.namespace ?? ''}/${row.metadata?.name ?? ''}`}
           loading={loading}
           columns={columns}
           dataSource={filteredList}
