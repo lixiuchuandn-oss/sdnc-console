@@ -9,7 +9,7 @@ import TableColumnSettings from '../../../../components/TableColumnSettings';
 
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, isSystemStorageClass } from '../../../../utils/harvesterUtils';
 
 type Props = {
   cloudId: string;
@@ -17,6 +17,7 @@ type Props = {
   loading: boolean;
   vms?: any[];
   storageClasses?: any[];
+  namespacesOptions?: string[];
   onRefresh?: (force?: boolean) => void;
 };
 
@@ -95,7 +96,7 @@ const statusBadge = (s: string) => {
 // ----------------------------------------------------------------------
 // 3. Component
 // ----------------------------------------------------------------------
-const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, storageClasses: propStorageClasses, onRefresh }) => {
+const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, storageClasses: propStorageClasses, namespacesOptions, onRefresh }) => {
   // Filters
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -284,12 +285,21 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   // Options for Filters
   const nsOptions = useMemo(() => {
     const set = new Set<string>();
-    dataSource.forEach(v => v.namespace && set.add(v.namespace));
-    (vms || []).forEach((vm: any) => {
-      const ns = vm?.extra?.namespace || vm?.namespace || vm?.Extra?.Namespace;
-      if (ns) set.add(ns);
-    });
-    if (!set.has('default')) set.add('default');
+
+    // Priority 1: Use provided namespacesOptions (from CloudConsole)
+    if (Array.isArray(namespacesOptions)) {
+      namespacesOptions.forEach(ns => ns && set.add(ns));
+    }
+
+    // Priority 2: Fallback to data from volumes and VMs
+    if (set.size === 0) {
+      dataSource.forEach(v => v.namespace && set.add(v.namespace));
+      (vms || []).forEach((vm: any) => {
+        const ns = vm?.extra?.namespace || vm?.namespace || vm?.Extra?.Namespace;
+        if (ns) set.add(ns);
+      });
+      if (!set.has('default')) set.add('default');
+    }
     
     // Filter system namespaces unless "showSystemVolumes" is true
     let list = Array.from(set);
@@ -298,7 +308,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     }
     
     return list.sort().map(s => ({ value: s, label: s }));
-  }, [dataSource, vms, showSystemVolumes]);
+  }, [dataSource, vms, showSystemVolumes, namespacesOptions]);
 
   const statusOptions = [
     'healthy','degraded','faulted','detached','attaching','attached','detaching','maintenance','restoring','creating','deleting','error','bound','pending','lost'
@@ -501,8 +511,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         const vm = SafeRead.attachedVm(r);
         
         const items: any[] = [
-          { key: 'detail', label: '查看摘要', onClick: () => handleOpenDrawer(r, 'detail') },
-          { key: 'events', label: '操作记录', onClick: () => handleOpenDrawer(r, 'events') },
+          { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
           { type: 'divider' as const },
           { 
             key: 'edit', 
@@ -511,10 +520,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
               setCurrentRecord(r); 
               editForm.resetFields(); 
               editForm.setFieldsValue({ 
-                sizeGi: r.capacityBytes / (1024**3), 
-                accessModes: r.accessModes, 
-                volumeMode: r.volumeMode, 
-                storageClassName: r.storageClass 
+                sizeGi: r.capacityBytes / (1024**3)
               }); 
               setEditOpen(true); 
             } 
@@ -536,7 +542,14 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           { 
             key: 'export', 
             label: '导出为镜像', 
-            onClick: () => { setCurrentRecord(r); exportForm.resetFields(); exportForm.setFieldsValue({ displayName: r.name }); setExportOpen(true); } 
+            onClick: () => { 
+              setCurrentRecord(r); 
+              exportForm.resetFields(); 
+              const scNames = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
+              const defaultSc = scNames.find(n => n.toLowerCase() === 'longhorn') || scNames.find(n => n.toLowerCase().includes('longhorn')) || scNames[0];
+              exportForm.setFieldsValue({ displayName: r.name, targetStorageClassName: defaultSc }); 
+              setExportOpen(true); 
+            } 
           },
           { 
             key: 'snapshot', 
@@ -736,7 +749,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             <Select allowClear options={storageClasses.map(s => {
               const n = s?.metadata?.name || s?.name;
               return { value: n, label: n };
-            }).filter(x => x.value)} style={{ width: '100%' }} />
+            }).filter(x => x.value && !isSystemStorageClass(x.value))} style={{ width: '100%' }} />
           </Form.Item>
       </StdFormModal>
 
@@ -798,8 +811,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             if (!currentRecord) return;
             await exportHarvesterImageFromVolume(cloudId, currentRecord.namespace, currentRecord.name, {
               displayName: v.displayName,
-              targetStorageClassName: v.targetStorageClassName,
-              namespace: currentRecord.namespace
+              targetStorageClassName: v.targetStorageClassName
             });
             message.success('任务已提交');
             setExportOpen(false);
@@ -810,7 +822,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           <Form.Item label="存储类" name="targetStorageClassName"><Select allowClear options={storageClasses.map(s => {
             const n = s?.metadata?.name || s?.name;
             return { value: n, label: n };
-          }).filter(x => x.value)} style={{ width: '100%' }} /></Form.Item>
+          }).filter(x => x.value && !isSystemStorageClass(x.value))} style={{ width: '100%' }} /></Form.Item>
       </StdFormModal>
 
       {/* 5. Snapshot */}
@@ -845,10 +857,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           try {
             if (!currentRecord) return;
             await updateHarvesterVolume(cloudId, currentRecord.namespace, currentRecord.name, {
-              sizeGi: Number(v.sizeGi),
-              accessModes: v.accessModes,
-              volumeMode: v.volumeMode,
-              storageClassName: v.storageClassName
+              sizeGi: Number(v.sizeGi)
             });
             message.success('更新成功');
             setEditOpen(false);
@@ -856,13 +865,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           } catch (e: any) { message.error(e.message || '更新失败'); }
         }}
       >
-          <Form.Item label="容量(GB)" name="sizeGi"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="访问模式" name="accessModes"><Select mode="multiple" options={['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="卷类型" name="volumeMode"><Select options={['Block', 'Filesystem'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => {
-            const n = s?.metadata?.name || s?.name;
-            return { value: n, label: n };
-          }).filter(x => x.value)} style={{ width: '100%' }} /></Form.Item>
+          <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
       </StdFormModal>
 
       {/* 7. Clone */}

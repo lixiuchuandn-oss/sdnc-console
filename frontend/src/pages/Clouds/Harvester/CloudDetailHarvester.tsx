@@ -36,10 +36,15 @@ import TemplatesSection from './sections/TemplatesSection';
 import ScheduleVmBackupsSection from './sections/ScheduleVmBackupsSection';
 import EipSection from './kube-ovn/EipSection';
 import FipSection from './kube-ovn/FipSection';
-import HarvesterOverview from './sections/HarvesterOverview';
-import HarvesterLog from './sections/HarvesterLog';
 import SnatSection from './kube-ovn/SnatSection';
 import DnatSection from './kube-ovn/DnatSection';
+import MonitoringOverview from './Monitoring/MonitoringOverview';
+import MonitoringAlerts from './Monitoring/MonitoringAlerts';
+import ResourceStatistics from './Monitoring/ResourceStatistics';
+import LogsConfig from './Monitoring/LogsConfig';
+import LogOutputs from './Monitoring/LogOutputs';
+import LogsFlowConfig from './Monitoring/LogsFlowConfig';
+import LogsOutputConfig from './Monitoring/LogsOutputConfig';
 
 /**
  * 云资源项接口定义
@@ -868,33 +873,60 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               key: 'Overview',
               label: '资源总览',
               children: (
-                <HarvesterOverview 
-                  cloudId={cloudId}
-                  vmCount={ecs.length}
-                  namespaceCount={harvesterNamespaces.length}
-                  imageCount={harvesterImages.length}
-                  volumeCount={harvesterVolumes.length}
-                  nodeCount={harvesterNodes.length}
-                  nadCount={harvesterNads.length}
-                  vpcCount={kubeOvnVpcs.length}
-                  subnetCount={kubeOvnSubnets.length}
-                  storageClassCount={harvesterStorageClasses.length}
-                  snapshotCount={harvesterSnapshots.length}
-                  backupCount={harvesterBackups.length}
-                  scheduleVmBackupCount={harvesterScheduleVmBackups.length}
-                  templateCount={harvesterTemplates.length}
-                  sshKeyCount={harvesterSshKeys.length}
-                  cloudInitCount={harvesterCloudInits.length}
-                  ingressCount={harvesterIngresses.length}
-                  serviceCount={harvesterServices.length}
-                  loadBalancerCount={harvesterLoadBalancers.length}
-                  ipPoolCount={harvesterIPPools.length}
-                  clusterNetworkCount={harvesterClusterNetworks.length}
-                  eipCount={kubeOvnEips.length}
-                  fipCount={kubeOvnFips.length}
-                  snatCount={kubeOvnSnatRules.length}
-                  dnatCount={kubeOvnDnatRules.length}
-                  gpuCount={harvesterGpuResources.length}
+                <Tabs
+                  defaultActiveKey="overview"
+                  tabPosition="top"
+                  type="line"
+                  destroyInactiveTabPane
+                  items={[
+                    {
+                      key: 'overview',
+                      label: '概览',
+                      children: <MonitoringOverview cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'resource-statistics',
+                      label: '资源统计',
+                      children: (
+                        <ResourceStatistics 
+                          vmCount={ecs.length}
+                          namespaceCount={harvesterNamespaces.length}
+                          imageCount={harvesterImages.length}
+                          volumeCount={harvesterVolumes.length}
+                          nodeCount={harvesterNodes.length}
+                          nadCount={harvesterNads.length}
+                          vpcCount={kubeOvnVpcs.length}
+                          subnetCount={kubeOvnSubnets.length}
+                          storageClassCount={harvesterStorageClasses.length}
+                          snapshotCount={harvesterSnapshots.length}
+                          backupCount={harvesterBackups.length}
+                          scheduleVmBackupCount={harvesterScheduleVmBackups.length}
+                          templateCount={harvesterTemplates.length}
+                          sshKeyCount={harvesterSshKeys.length}
+                          cloudInitCount={harvesterCloudInits.length}
+                          ingressCount={harvesterIngresses.length}
+                          serviceCount={harvesterServices.length}
+                          loadBalancerCount={harvesterLoadBalancers.length}
+                          ipPoolCount={harvesterIPPools.length}
+                          clusterNetworkCount={harvesterClusterNetworks.length}
+                          eipCount={kubeOvnEips.length}
+                          fipCount={kubeOvnFips.length}
+                          snatCount={kubeOvnSnatRules.length}
+                          dnatCount={kubeOvnDnatRules.length}
+                          gpuCount={harvesterGpuResources.length}
+                        />
+                      ),
+                    },
+                    {
+                      key: 'alerts',
+                      label: '告警列表',
+                      children: <MonitoringAlerts cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'alert-rules',
+                      label: '告警规则',
+                    },
+                  ]}
                 />
               )
             },
@@ -1470,7 +1502,36 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             {
               key: 'logs-config',
               label: '日志管理',
-              children: <HarvesterLog cloudId={cloudId} />
+              children: (
+                <Tabs
+                  defaultActiveKey="logs-config"
+                  tabPosition="top"
+                  type="line"
+                  destroyInactiveTabPane
+                  items={[
+                    {
+                      key: 'logs-config',
+                      label: '集群日志配置',
+                      children: <LogsConfig cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'log-outputs',
+                      label: '集群日志外发',
+                      children: <LogOutputs cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'logs-flow-config',
+                      label: '租户日志配置',
+                      children: <LogsFlowConfig cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'logs-output-config',
+                      label: '租户日志外发',
+                      children: <LogsOutputConfig cloudId={cloudId} />,
+                    },
+                  ]}
+                />
+              )
             },
           ]}
       />

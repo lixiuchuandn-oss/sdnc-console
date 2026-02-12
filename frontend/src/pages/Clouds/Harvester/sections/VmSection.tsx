@@ -2,11 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox, Descriptions, Tag, Tabs, Tooltip } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { getAuthHeaders } from '../../../../services/api';
-import { fetchHarvesterVmDetail, detachHarvesterVolumeFromVm, fetchHarvesterVncUrl } from '../../../../services/harvesterApi';
+import { fetchHarvesterVmDetail, detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import { isSystemNamespace, cnVmStatus } from '../../../../utils/harvesterUtils';
@@ -311,14 +311,21 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       
       const handleWebVnc = async () => {
               try {
+                let ns = '', name = '';
                 if (iid.includes('/')) {
-                  const ns = iid.split('/')[0];
-                  const name = iid.split('/')[1];
+                   [ns, name] = iid.split('/');
+                } else {
+                   ns = SafeRead.namespace(r);
+                   name = SafeRead.vmId(r);
+                }
+                
+                if (ns && name) {
                   const url = `/clouds/${cloudId}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`;
                   // Open in a new tab instead of a popup window
                   window.open(url, '_blank');
                   return;
                 }
+                
                 const j = await fetchHarvesterVncUrl(cloudId, iid);
                 const url = j?.data?.VncUrl || j?.data?.vncUrl || j?.data?.url;
                 if (url) {
@@ -378,16 +385,82 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
         const cdrom = disks[0];
         if (!cdrom) return;
+        
+        const statusStr = String(SafeRead.status(r)).toLowerCase();
+        const isRunning = !['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
+        
+        let deletePvc = true;
+        
         Modal.confirm({
-          title: '确认弹出 CD-ROM？',
-          content: `即将弹出设备: ${cdrom.name}`,
+          title: isRunning ? '安全弹出 CD-ROM (需要重启)' : '弹出 CD-ROM',
+          width: 500,
+          content: (
+            <div>
+               <p>即将弹出设备: <b>{cdrom.name}</b></p>
+               {isRunning && (
+                 <div style={{ marginBottom: 16, color: '#faad14', background: '#fffbe6', padding: '8px 12px', border: '1px solid #ffe58f', borderRadius: 4 }}>
+                    <InfoCircleOutlined style={{ marginRight: 8 }} />
+                    实例正在运行。系统将自动停止实例，弹出光驱，然后重新启动。
+                 </div>
+               )}
+               <div style={{ marginTop: 16 }}>
+                  <Checkbox defaultChecked={true} onChange={(e) => { deletePvc = e.target.checked; }}>
+                     同步删除关联卷 (PVC) <span style={{ color:'#999', fontSize:12 }}>(推荐，避免残留孤儿卷)</span>
+                  </Checkbox>
+               </div>
+            </div>
+          ),
           onOk: async () => {
+            const hide = message.loading('正在执行弹出操作...', 0);
             try {
-              await detachHarvesterVolumeFromVm(cloudId, iid, { name: cdrom.name });
+              const iidStr = getIid(r);
+              let ns = '', name = '';
+              if (iidStr.includes('/')) {
+                 [ns, name] = iidStr.split('/');
+              } else {
+                 ns = SafeRead.namespace(r);
+                 name = SafeRead.vmId(r);
+              }
+              
+              if (!ns || !name) throw new Error('无法解析实例信息');
+
+              // 1. Stop VM if running
+              if (isRunning) {
+                 await stopHarvesterVm(cloudId, ns, name, true);
+                 await new Promise(resolve => setTimeout(resolve, 5000)); // Wait for stop
+              }
+
+              // 2. Detach Volume
+              await detachHarvesterVolumeFromVm(cloudId, iidStr, { name: cdrom.name });
+
+              // 3. Delete PVC if requested
+              if (deletePvc) {
+                 const volumes = r?.spec?.template?.spec?.volumes || [];
+                 const vol = volumes.find((v: any) => v.name === cdrom.name);
+                 const pvcName = vol?.persistentVolumeClaim?.claimName;
+                 
+                 if (pvcName) {
+                    try {
+                       await deleteHarvesterPVC(cloudId, ns, pvcName);
+                    } catch (e: any) {
+                       console.warn('Delete PVC failed', e);
+                       message.warning(`PVC删除失败: ${e.message}`);
+                    }
+                 }
+              }
+
+              // 4. Start VM if it was running
+              if (isRunning) {
+                 await new Promise(resolve => setTimeout(resolve, 2000));
+                 await startHarvesterVm(cloudId, ns, name);
+              }
+
               message.success('已发送弹出指令');
               onRefresh();
             } catch(e:any) {
               message.error(`弹出失败: ${e.message}`);
+            } finally {
+              hide();
             }
           }
         });
@@ -406,7 +479,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', onClick: handleEjectCdrom }] : []),
         
         // WebVNC (仅在非停止状态显示)
-        ...(!isStopped ? [{ key: 'webvnc', label: 'WebVNC（浏览器）', onClick: handleWebVnc }] : []),
+        ...(!isStopped ? [{ key: 'webvnc', label: 'VNC (浏览器)', onClick: handleWebVnc }] : []),
         
         { type: 'divider' },
         
@@ -458,8 +531,27 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const batchStop = async () => {
     if (selectedKeys.length === 0) return;
     try {
-      const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r))).map(getIid);
-      const results = await Promise.all(targets.map(async (iid)=> { try { await onStop(iid); return { ok:true, iid }; } catch(e:any){ return { ok:false, iid, err:e?.message||String(e) }; } }));
+      const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r)));
+      const results = await Promise.all(targets.map(async (r: any)=> { 
+          const iid = getIid(r);
+          try { 
+             let ns = '', name = '';
+             if (iid.includes('/')) {
+                 [ns, name] = iid.split('/');
+             } else {
+                 ns = SafeRead.namespace(r);
+                 name = SafeRead.vmId(r);
+             }
+             if (ns && name) {
+                await stopHarvesterVm(cloudId, ns, name, true);
+             } else {
+                await onStop(iid); 
+             }
+             return { ok:true, iid }; 
+          } catch(e:any){ 
+             return { ok:false, iid, err:e?.message||String(e) }; 
+          } 
+      }));
       const ok = results.filter(x=>x.ok).length; const fail = results.filter(x=>!x.ok);
       if (ok>0) message.success(`停止成功 ${ok} 台`);
       if (fail.length>0) message.error(`停止失败 ${fail.length} 台：${fail.map(f=>f.iid).join(', ')}`);
@@ -469,8 +561,30 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const batchReboot = async () => {
     if (selectedKeys.length === 0) return;
     try {
-      const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r))).map(getIid);
-      const results = await Promise.all(targets.map(async (iid)=> { try { await onReboot(iid); return { ok:true, iid }; } catch(e:any){ return { ok:false, iid, err:e?.message||String(e) }; } }));
+      const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r)));
+      const results = await Promise.all(targets.map(async (r: any)=> { 
+          const iid = getIid(r);
+          try { 
+             let ns = '', name = '';
+             if (iid.includes('/')) {
+                 [ns, name] = iid.split('/');
+             } else {
+                 ns = SafeRead.namespace(r);
+                 name = SafeRead.vmId(r);
+             }
+             if (ns && name) {
+                 // Currently Harvester reboot API might still need standardization or we use start/stop
+                 // But for now, let's keep onReboot for generic, but maybe we should use harvesterRebootVM if available
+                 // For now, let's fall back to onReboot which likely uses the old API or we need to update it
+                 await onReboot(iid);
+             } else {
+                 await onReboot(iid); 
+             }
+             return { ok:true, iid }; 
+          } catch(e:any){ 
+             return { ok:false, iid, err:e?.message||String(e) }; 
+          } 
+      }));
       const ok = results.filter(x=>x.ok).length; const fail = results.filter(x=>!x.ok);
       if (ok>0) message.success(`重启成功 ${ok} 台`);
       if (fail.length>0) message.error(`重启失败 ${fail.length} 台：${fail.map(f=>f.iid).join(', ')}`);
@@ -479,7 +593,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   };
   const [deleteVolumes, setDeleteVolumes] = useState(false);
 
-  const batchDelete = () => {
+      const batchDelete = () => {
     if (selectedKeys.length === 0) return;
     
     // Create a local variable to capture the checkbox state in the modal closure
@@ -506,10 +620,22 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       cancelText: '取消',
       onOk: async () => {
         try {
-          const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r))).map(getIid);
-          const results = await Promise.all(targets.map(async (iid)=> { 
+          const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r)));
+          const results = await Promise.all(targets.map(async (r: any)=> { 
+            const iid = getIid(r);
             try { 
-              // Pass batchDeleteVolumes to onDelete
+              // Try to resolve namespace/name for better deletion handling if needed
+              let ns = '', name = '';
+              if (iid.includes('/')) {
+                 [ns, name] = iid.split('/');
+              } else {
+                 ns = SafeRead.namespace(r);
+                 name = SafeRead.vmId(r);
+              }
+
+              // Use new delete logic if we have ns/name, or fallback to generic onDelete
+              // For now, onDelete (from props) handles generic deletion, but we need to ensure it supports PVC deletion
+              // The props 'onDelete' signature in Harvester CloudDetail is: (id, deleteVolumes?)
               await onDelete(iid, batchDeleteVolumes); 
               return { ok:true, iid }; 
             } catch(e:any){ 

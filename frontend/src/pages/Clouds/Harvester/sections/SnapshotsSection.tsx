@@ -5,6 +5,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { deleteHarvesterSnapshot } from '../../../../services/harvesterApi';
 import VolumeSnapshotRestoreModal from '../modals/VolumeSnapshotRestoreModal';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
 interface Props {
   cloudId: string;
@@ -20,6 +21,11 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
   
   const [restoreVisible, setRestoreVisible] = useState(false);
   const [restoreRecord, setRestoreRecord] = useState<any>(null);
+
+  // Detail Drawer State
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<any>(null);
+  const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
   const dataSource = useMemo(() => {
     return (snapshots || []).map((s: any) => {
@@ -62,6 +68,26 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
   const handleRestore = (record: any) => {
     setRestoreRecord(record);
     setRestoreVisible(true);
+  };
+
+  const handleOpenDrawer = (record: any, tab: string = 'detail') => {
+    const raw = record.raw || record;
+    // Inject kind for EventsTab
+    if (!raw.kind) raw.kind = 'VolumeSnapshot';
+    
+    // Inject view link if missing
+    if (!raw.links) raw.links = {};
+    if (!raw.links.view) {
+        const ns = raw.metadata?.namespace || raw.namespace;
+        const name = raw.metadata?.name || raw.name;
+        if (ns && name) {
+            raw.links.view = `/apis/snapshot.storage.k8s.io/v1/namespaces/${ns}/volumesnapshots/${name}`;
+        }
+    }
+    
+    setDetailRecord(raw);
+    setDetailActiveTab(tab);
+    setDetailVisible(true);
   };
 
   const handleDelete = (record: any) => {
@@ -111,7 +137,17 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
   };
 
   const columns = [
-    { title: '名称', dataIndex: 'alias', key: 'alias', width: 200 },
+    { 
+      title: '名称', 
+      dataIndex: 'alias', 
+      key: 'alias', 
+      width: 200,
+      render: (_: any, r: any) => (
+        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+          {r.alias !== '-' ? r.alias : r.name}
+        </span>
+      )
+    },
     { title: 'ID', dataIndex: 'name', key: 'name', width: 200 },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
     { title: '源资源', dataIndex: 'sourcePvc', key: 'sourcePvc', width: 200 },
@@ -141,6 +177,8 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
       render: (_: any, record: any) => (
         <ResourceActionsDropdown 
           items={[
+            { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(record, 'detail') },
+            { type: 'divider' as const },
             { key: 'restore', label: '恢复', onClick: () => handleRestore(record), disabled: !record.readyToUse },
             { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) }
           ]}
@@ -219,6 +257,16 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
           setRestoreVisible(false);
           message.success('已提交恢复任务，请前往“数据卷”列表查看');
         }}
+      />
+
+      <HarvesterResourceDrawer
+        open={detailVisible}
+        onClose={() => setDetailVisible(false)}
+        resourceType="VolumeSnapshot"
+        record={detailRecord}
+        cloudId={cloudId}
+        activeTab={detailActiveTab}
+        onTabChange={setDetailActiveTab}
       />
     </PageDetailSection>
   );

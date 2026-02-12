@@ -471,22 +471,37 @@ export const exportImageFromPVC = async (
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  const urlPath = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachineimages`;
   const body = {
     apiVersion: 'harvesterhci.io/v1beta1',
     kind: 'VirtualMachineImage',
     metadata: { generateName: 'image-', namespace },
     spec: {
       displayName: opts?.displayName || pvcName,
-      sourceType: 'export',
+      sourceType: 'export-from-volume',
       pvcName,
+      pvcNamespace: namespace,
       ...(opts?.targetStorageClassName
         ? { targetStorageClassName: opts.targetStorageClassName }
         : {}),
     },
   } as any;
-  const json = await requestJson('POST', urlPath, token, insecure, body);
-  return json;
+  const ns = encodeURIComponent(namespace);
+  const candidates = [
+    `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachineimages`,
+    `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachineimages`,
+    `${origin}/apis/harvesterhci.io/v1/namespaces/${ns}/virtualmachineimages`,
+  ];
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      const json = await requestJson('POST', url, token, insecure, body);
+      return json;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+  if (lastErr) throw lastErr;
+  return {};
 };
 
 /**
@@ -526,7 +541,7 @@ export const createVolumeSnapshot = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
   pvcName: string,
-  opts: { name?: string; snapshotClassName?: string },
+  opts: { name?: string; snapshotClassName?: string; alias?: string },
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -537,13 +552,22 @@ export const createVolumeSnapshot = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const urlPath = `${origin}/apis/snapshot.storage.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/volumesnapshots`;
+  
+  const metadata: any = {
+    ...(opts?.name ? { name: opts.name } : { generateName: `${pvcName}-snap-` }),
+    namespace,
+  };
+  
+  if (opts?.alias) {
+      metadata.annotations = {
+          'tower.io/alias': opts.alias
+      };
+  }
+
   const body = {
     apiVersion: 'snapshot.storage.k8s.io/v1',
     kind: 'VolumeSnapshot',
-    metadata: {
-      ...(opts?.name ? { name: opts.name } : { generateName: `${pvcName}-snap-` }),
-      namespace,
-    },
+    metadata,
     spec: {
       source: { persistentVolumeClaimName: pvcName },
       ...(opts?.snapshotClassName ? { volumeSnapshotClassName: opts.snapshotClassName } : {}),

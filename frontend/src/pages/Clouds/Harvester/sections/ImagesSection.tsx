@@ -166,8 +166,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
         <ResourceActionsDropdown 
           buttonProps={{ className: 'row-actions-trigger' }}
           items={[
-            { key: 'detail', label: '查看摘要', onClick: () => handleOpenDrawer(r, 'detail') },
-            { key: 'events', label: '操作记录', onClick: () => handleOpenDrawer(r, 'events') },
+            { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
             { type: 'divider' },
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },

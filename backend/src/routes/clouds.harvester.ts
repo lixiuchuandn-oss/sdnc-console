@@ -236,6 +236,168 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/vms/:namespace/:name/stop
+   * 停止 Harvester 虚拟机
+   */
+  router.post(
+    '/:id/resources/harvester/vms/:namespace/:name/stop',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const { force } = req.body;
+
+        // Tenant Isolation Check
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+             where.organizationId = (req.user as any).organizationId;
+          }
+          const userSpace = await userSpaceRepo.findOne({ where });
+          if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
+          
+          const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map(s => s.trim()) : [];
+          if ((req.user as any).organizationId) {
+             validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          }
+
+          if (!validNamespaces.includes(namespace)) {
+            return res.status(403).json({ message: '无权访问该命名空间资源' });
+          }
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 操作', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        await harvesterStopVM(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          `${namespace}/${name}`,
+          !!force
+        );
+
+        res.json({ message: '已发送停止指令' });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '停止VM失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [POST] /:id/resources/harvester/vms/:namespace/:name/start
+   * 启动 Harvester 虚拟机
+   */
+  router.post(
+    '/:id/resources/harvester/vms/:namespace/:name/start',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+
+        // Tenant Isolation Check
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+             where.organizationId = (req.user as any).organizationId;
+          }
+          const userSpace = await userSpaceRepo.findOne({ where });
+          if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
+          
+          const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map(s => s.trim()) : [];
+          if ((req.user as any).organizationId) {
+             validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          }
+
+          if (!validNamespaces.includes(namespace)) {
+            return res.status(403).json({ message: '无权访问该命名空间资源' });
+          }
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 操作', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        await harvesterStartVM(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          `${namespace}/${name}`
+        );
+
+        res.json({ message: '已发送启动指令' });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '启动VM失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [DELETE] /:id/resources/harvester/longhorn/volumes/:namespace/:name
+   * 删除 Harvester Longhorn 卷 (底层卷)
+   */
+  router.delete(
+    '/:id/resources/harvester/longhorn/volumes/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+
+        // Tenant Isolation Check
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+             where.organizationId = (req.user as any).organizationId;
+          }
+          const userSpace = await userSpaceRepo.findOne({ where });
+          if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
+          
+          const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map(s => s.trim()) : [];
+          if ((req.user as any).organizationId) {
+             validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          }
+
+          if (!validNamespaces.includes(namespace)) {
+            return res.status(403).json({ message: '无权访问该命名空间资源' });
+          }
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 操作', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        await deleteHarvesterLonghornVolume(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          namespace,
+          name
+        );
+
+        res.json({ message: '删除成功' });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '删除卷失败', error: error.message });
+      }
+    },
+  );
+
   // ==================================================================================
   // VPCs (Kube-OVN)
   // ==================================================================================
@@ -695,7 +857,17 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         } else {
              // Clean path to ensure it starts with / and doesn't duplicate
              const cleanPath = path.startsWith('/') ? path : `/${path}`;
-             target = `${cloud.endpoint.replace(/\/+$/, '')}${cleanPath}`;
+             
+             let base = cloud.endpoint.replace(/\/+$/, '');
+             
+             // Smart Endpoint Handling:
+             // If requesting K8s API Root (/api or /apis) AND Endpoint has version suffix (/v1, /v3) AND NOT Rancher Proxy
+             // Then strip the version suffix to ensure we hit the K8s root
+             if ((cleanPath.startsWith('/api/') || cleanPath.startsWith('/apis/')) && !base.includes('/k8s/clusters/')) {
+                 base = base.replace(/\/v[0-9]+(\/harvester)?$/, '');
+             }
+
+             target = `${base}${cleanPath}`;
         }
         console.log(`[HarvesterProxy] Proxying to: ${target}`);
 
@@ -2519,7 +2691,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     async (req: any, res: Response) => {
       try {
         const { id, namespace, pvcName } = req.params as any;
-        const { name, snapshotClassName } = (req.body || {}) as any;
+        const { name, snapshotClassName, alias } = (req.body || {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
@@ -2528,7 +2700,7 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
           namespace,
           pvcName,
-          { name, snapshotClassName },
+          { name, snapshotClassName, alias },
         );
         res.json({ message: '创建快照成功', data });
       } catch (error: any) {

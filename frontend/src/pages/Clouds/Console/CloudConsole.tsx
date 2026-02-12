@@ -6,7 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
-import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchHarvesterLoadBalancers, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
+import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchHarvesterLoadBalancers, fetchHarvesterStorageClasses, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
 import { 
   fetchClouds, fetchCloudProviderEcs, API_BASE_URL, getAuthHeaders,
   startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs
@@ -65,6 +65,7 @@ const CloudConsolePage: React.FC = () => {
   const [vpcs, setVpcs] = useState<any[]>([]);      // VPC 列表
   const [subnets, setSubnets] = useState<any[]>([]); // 子网列表
   const [lbrules, setLbrules] = useState<any[]>([]); // 负载均衡 (Harvester)
+  const [storageClasses, setStorageClasses] = useState<any[]>([]); // 存储类
   
   // UI 状态
   const [loading, setLoading] = useState(false);
@@ -512,6 +513,23 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
+  // 加载存储类
+  const loadStorageClasses = async (cloudId?: string) => {
+    const cid = cloudId || currentCloudId;
+    if (!cid || cid === 'all') return;
+    setLoading(true);
+    try {
+      const res = await fetchHarvesterStorageClasses(cid);
+      const list: any[] = Array.isArray((res as any)?.data?.items) ? (res as any).data.items : (Array.isArray((res as any)?.items) ? (res as any).items : []);
+      setStorageClasses(Array.isArray(list) ? list : []);
+    } catch (e: any) {
+      console.error('[CloudConsole] loadStorageClasses error:', e);
+      setStorageClasses([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 加载 SSH 密钥列表
   const loadSshKeys = async (cloudId?: string) => {
     const cid = cloudId || currentCloudId;
@@ -799,6 +817,7 @@ const CloudConsolePage: React.FC = () => {
       loadFips(currentCloudId);
       loadSnatRules(currentCloudId);
       loadDnatRules(currentCloudId);
+      loadStorageClasses(currentCloudId); // 添加存储类加载
     }
   }, [currentCloudId, caps?.isHarvester]);
 
@@ -1020,6 +1039,7 @@ const CloudConsolePage: React.FC = () => {
                     fips={fips}
                     snatRules={snatRules}
                     dnatRules={dnatRules}
+                    storageClasses={storageClasses}
                     loading={loading}
                     
                     namespacesOptions={namespacesOptions}

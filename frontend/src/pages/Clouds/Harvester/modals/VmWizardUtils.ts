@@ -268,8 +268,8 @@ export const buildHarvesterVmPayload = (params: {
                               storage: d.size ? (String(d.size).endsWith('i') ? d.size : `${d.size}Gi`) : '10Gi'
                           }
                       },
-                      volumeMode: "Block",
-                      storageClassName: v.storageClassName || undefined
+                      volumeMode: d.volumeMode || "Block",
+                      storageClassName: d.storageClassName || undefined
                   }
               });
           }

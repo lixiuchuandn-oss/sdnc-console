@@ -12,6 +12,28 @@ export const fetchHarvesterSnapshots = async (cloudId: string, force = false) =>
   return await res.json();
 };
 
+export const deleteHarvesterLonghornVolume = async (cloudId: string, namespace: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/longhorn/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const deleteHarvesterPVC = async (cloudId: string, namespace: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
 export const fetchHarvesterScheduleVmBackups = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
   const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${force ? '?force=true' : ''}`;
@@ -964,11 +986,12 @@ export const patchHarvesterVm = async (cloudId: string, namespace: string, name:
   return await res.json();
 };
 
-export const stopHarvesterVm = async (cloudId: string, namespace: string, name: string) => {
+export const stopHarvesterVm = async (cloudId: string, namespace: string, name: string, force = false) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/stop`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify({ force }),
     credentials: 'include',
   });
   if (!res.ok) { throw new Error(await res.text()); }

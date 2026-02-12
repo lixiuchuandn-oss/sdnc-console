@@ -500,6 +500,19 @@ const StepDisks: React.FC<StepDisksProps> = ({
                               </Form.Item>
                             </Col>
                             <Col span={12}>
+                              <Form.Item label="存储类" name={[name, 'storageClassName']} style={{ marginBottom: 0 }}>
+                                <Select
+                                  placeholder="选择存储类"
+                                  options={(storageClasses || []).filter((x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name)).map((x: any) => {
+                                    const nm = x?.metadata?.name || x?.name;
+                                    return { label: nm, value: nm };
+                                  })}
+                                  loading={storageClassLoading}
+                                  onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col span={12}>
                                 <Form.Item label="卷模式" name={[name, 'volumeMode']} style={{ marginBottom: 0 }}> 
                                   <Select
                                     placeholder="选择卷模式"

@@ -43,6 +43,7 @@ interface Props {
   fips?: any[];
   snatRules?: any[];
   dnatRules?: any[];
+  storageClasses?: any[]; // 添加存储类属性
   loading: boolean;
   
   // VmSection specific props
@@ -104,6 +105,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   fips = [],
   snatRules = [],
   dnatRules = [],
+  storageClasses = [], // 添加存储类解构
   loading,
   namespacesOptions,
   namespaces,
@@ -276,6 +278,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onRefresh={onRefreshVolumes}
             cloudId={cloudId}
             vms={vms}
+            storageClasses={storageClasses}
+            namespacesOptions={namespacesOptions}
           />
         );
       case 'volume-snapshot':

@@ -23,7 +23,16 @@ export const isSystemNamespace = (name: string): boolean => {
 
 export const isSystemStorageClass = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
-  return n.includes('harvester-') || n.includes('longhorn-');
+  // 过滤系统前缀
+  if (n.includes('harvester-') || n.includes('longhorn-')) return true;
+  
+  // 过滤特定的存储类
+  if (['vmstate-persistence', 'longhorn-static'].includes(n)) return true;
+  
+  // 过滤掉镜像相关的存储类
+  if (n.includes('image')) return true;
+  
+  return false;
 };
 
 export const cnVmStatus = (v?: string): string => {
