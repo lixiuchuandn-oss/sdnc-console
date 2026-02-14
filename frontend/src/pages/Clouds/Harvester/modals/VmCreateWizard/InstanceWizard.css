@@ -23,6 +23,9 @@
 /* Radio 外观（中间列） */
 .wizard-container .ant-radio-group .ant-radio-button-wrapper { height: 28px; line-height: 26px; padding: 0 10px; font-size: 12px; }
 /* 中间列磁盘卡片状态 */
+.wizard-disk-card {
+  border: 1px solid #d9d9d9;
+}
 .wizard-disk-card.active { border-color: #91caff; }
 .wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
 /* 右侧列（Preview） */
@@ -43,9 +46,7 @@
 .wizard-preview-title { font-size: 14px; color: #000; font-weight: 400; }
 /* 右侧列底部操作（Preview） */
 .wizard-preview-actions { margin-top: auto; display: flex; justify-content: flex-end; flex: 0 0 var(--preview-actions-h); }
-/* 中间列磁盘卡片状态 */
-.wizard-disk-card.active { border-color: #91caff; }
-.wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
+
 .wizard-bottombar { position: absolute; left: 24px; right: 24px; bottom: 0; background: #f5f7fa; border-top: 1px solid #f0f0f0; padding: 12px 24px; }
 .wizard-bottombar-inner { display: flex; justify-content: center; }
 

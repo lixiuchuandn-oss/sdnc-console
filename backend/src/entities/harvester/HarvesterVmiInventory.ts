@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 
 @Entity('harvester_vmi_inventory')
+@Index(['cloudId', 'uid'], { unique: true })
 export class HarvesterVmiInventory {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

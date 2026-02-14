@@ -42,6 +42,9 @@ import LogsConfig from '../Harvester/Monitoring/LogsConfig';
 import LogOutputs from '../Harvester/Monitoring/LogOutputs';
 import LogsFlowConfig from '../Harvester/Monitoring/LogsFlowConfig';
 import LogsOutputConfig from '../Harvester/Monitoring/LogsOutputConfig';
+import MonitoringPrometheusRules from '../Harvester/Monitoring/MonitoringPrometheusRules';
+import MonitoringAlertNotificationPolicy from '../Harvester/Monitoring/MonitoringAlertNotificationPolicy';
+import MonitoringAlertNotificationTargets from '../Harvester/Monitoring/MonitoringAlertNotificationTargets';
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
 
@@ -276,7 +279,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
 
     if (checkPerm('clouds.volumes:read')) {
       loadResource('volumes', () => fetchHarvesterVolumes(cloudId, force), (json) => {
-        const list: any[] = (json as any)?.data?.items || [];
+        const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
         setHarvesterVolumes(Array.isArray(list) ? list : []);
         setRawVolumes(json || null);
       }, force);
@@ -789,7 +792,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       </Space>
       }
       asCard={false}
-      subtitle="Cloudmap 详情（独立页面），汇总平台内资源与网络"
+      subtitle="Cloudmap云平台详情页，统一纳管与可视化平台资源及网络拓扑"
       overviewContent={(
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
@@ -901,6 +904,17 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     {
                       key: 'alert-rules',
                       label: '告警规则',
+                      children: <MonitoringPrometheusRules cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'notification-policy',
+                      label: '告警通知策略',
+                      children: <MonitoringAlertNotificationPolicy cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'notification-targets',
+                      label: '告警通知对象',
+                      children: <MonitoringAlertNotificationTargets cloudId={cloudId} />,
                     },
                   ]}
                 />
@@ -1064,6 +1078,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                             }}
                             images={harvesterImages}
                             namespaces={harvesterNamespaces}
+                            volumes={harvesterVolumes}
                           />
                           <VmReconfigureModal open={vmReconfOpen} cloudId={cloudId} record={vmReconfTarget} onClose={()=>{ setVmReconfOpen(false); setVmReconfTarget(null); }} onOk={refreshVms} storageClasses={harvesterStorageClasses} images={harvesterImages} gpuResources={harvesterGpuResources} />
                           <DebugJSON data={rawEcs} show={showLog} />

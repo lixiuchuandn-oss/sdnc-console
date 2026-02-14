@@ -26,14 +26,41 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
     return (ippools || []).map((pool: any) => {
       const raw = pool.rawData || pool;
       
-      const ranges = (raw.spec?.ranges || []).map((r: any) => `${r.start}-${r.end}`).join(', ');
-      const cidrs = (raw.spec?.cidrs || []).join(', ');
+      // 解析命名空间信息
+      let namespace = '-';
+      if (raw.metadata?.namespace || pool.namespace) {
+        namespace = raw.metadata?.namespace || pool.namespace;
+      } else if (raw.spec?.selector?.scope && Array.isArray(raw.spec.selector.scope)) {
+        // 从 scope 中获取命名空间
+        const scopeWithNamespace = raw.spec.selector.scope.find((s: any) => s?.namespace);
+        if (scopeWithNamespace?.namespace) {
+          namespace = scopeWithNamespace.namespace;
+        }
+      }
+      
+      // 解析 IP 范围/CIDR
+      let rangesText = '-';
+      if (raw.spec?.ranges && Array.isArray(raw.spec.ranges)) {
+        const rangeTexts = raw.spec.ranges.map((r: any) => {
+          if (r.subnet) {
+            return r.subnet;
+          } else if (r.rangeStart && r.rangeEnd) {
+            return `${r.rangeStart}-${r.rangeEnd}`;
+          } else if (r.start && r.end) {
+            return `${r.start}-${r.end}`;
+          }
+          return '';
+        }).filter(Boolean);
+        rangesText = rangeTexts.join(', ') || '-';
+      } else if (raw.spec?.cidrs && Array.isArray(raw.spec.cidrs)) {
+        rangesText = raw.spec.cidrs.join(', ') || '-';
+      }
 
       return {
         key: raw.metadata?.uid || pool.id,
         name: raw.metadata?.name || pool.name,
-        namespace: raw.metadata?.namespace || pool.namespace || '-',
-        ranges: ranges || cidrs || '-',
+        namespace: namespace,
+        ranges: rangesText,
         selector: raw.spec?.selector ? JSON.stringify(raw.spec.selector) : '-',
         creationTimestamp: raw.metadata?.creationTimestamp || pool.createdAt,
         raw,

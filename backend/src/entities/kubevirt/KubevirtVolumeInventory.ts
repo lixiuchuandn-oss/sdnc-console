@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 
 @Entity('kubevirt_volume_inventory')
+@Index(['cloudId', 'uid'], { unique: true })
 export class KubevirtVolumeInventory {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

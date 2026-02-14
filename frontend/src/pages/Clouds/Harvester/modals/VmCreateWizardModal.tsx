@@ -1,16 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Form, Row, Col, Modal, Spin, message, Space } from 'antd';
 import { CheckOutlined, ProfileOutlined, DesktopOutlined, HddOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons';
-import './InstanceWizard.css';
+import './VmCreateWizard/InstanceWizard.css';
 import { useNavigate, useParams } from 'react-router-dom';
-import StepBasic from './StepBasic';
-import StepCompute from './StepCompute';
-import StepDisks from './StepDisks';
-import StepNetworks from './StepNetworks';
-import StepOthers from './StepOthers';
-import WizardSummary from './WizardSummary';
-import { useHarvesterData } from './useHarvesterData';
-import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange, generateUniqueVmId } from './VmWizardUtils';
+import StepBasic from './VmCreateWizard/StepBasic';
+import StepCompute from './VmCreateWizard/StepCompute';
+import StepDisks from './VmCreateWizard/StepDisks';
+import StepNetworks from './VmCreateWizard/StepNetworks';
+import StepOthers from './VmCreateWizard/StepOthers';
+import WizardSummary from './VmCreateWizard/WizardSummary';
+import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
+import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange, generateUniqueVmId } from './VmCreateWizard/VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 
 const VmCreateWizardModal: React.FC = () => {
@@ -308,7 +308,6 @@ const VmCreateWizardModal: React.FC = () => {
                   kubeVpcOptions={kubeVpcOptions}
                   reloadKubeVpcs={reloadKubeVpcs}
                   kubeSubnets={kubeSubnets}
-                  kubeSubnetOptions={kubeSubnetOptions}
                   reloadKubeSubnets={reloadKubeSubnets}
                   selectedNetIdx={selectedNetIdx}
                   setSelectedNetIdx={setSelectedNetIdx}

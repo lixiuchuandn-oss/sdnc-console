@@ -1,7 +1,7 @@
 import React from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
-import { CloseOutlined } from '@ant-design/icons';
-import { isSystemStorageClass } from '../../../../utils/harvesterUtils';
+import { MinusCircleOutlined } from '@ant-design/icons';
+import { isSystemStorageClass } from '../../../../../utils/harvesterUtils';
 
 /**
  * StepDisks 组件
@@ -328,7 +328,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
               })();
 
               const title = (
-                <div role="button" onClick={() => setSelectedDiskIdx(idx)}>
+                <div>
                   {titleText}
                 </div>
               );
@@ -341,14 +341,13 @@ const StepDisks: React.FC<StepDisksProps> = ({
                   extra={
                     <Button
                       type="text"
-                      icon={<CloseOutlined />}
+                      icon={<MinusCircleOutlined />}
                       onClick={(e) => { e.stopPropagation?.(); remove(name); }}
-                      style={{ width: 24, height: 24, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#000' }}
+                      danger
                     />
                   }
-                  className={`wizard-disk-card ${selectedDiskIdx === idx ? 'active' : ''}`}
-                  style={{ marginBottom: 8 }}
-                  onClick={() => setSelectedDiskIdx(idx)}
+                  className="wizard-disk-card"
+                  style={{ marginBottom: 12 }}
                 >
                   <Row gutter={12}>
                     <Col span={8}>
@@ -486,7 +485,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                         // 使用 Row/Col 布局防止换行问题
                         return (
                           <Row gutter={12}>
-                            <Col span={12}>
+                            <Col span={16}>
                               <Form.Item label="存储类" name={[name, 'storageClassName']} rules={[{ required: true, message: '请选择存储类' }]} style={{ marginBottom: 0 }}> 
                                 <Select
                                   placeholder="选择存储类"
@@ -499,20 +498,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                                 />
                               </Form.Item>
                             </Col>
-                            <Col span={12}>
-                              <Form.Item label="存储类" name={[name, 'storageClassName']} style={{ marginBottom: 0 }}>
-                                <Select
-                                  placeholder="选择存储类"
-                                  options={(storageClasses || []).filter((x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name)).map((x: any) => {
-                                    const nm = x?.metadata?.name || x?.name;
-                                    return { label: nm, value: nm };
-                                  })}
-                                  loading={storageClassLoading}
-                                  onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col span={12}>
+                            <Col span={8}>
                                 <Form.Item label="卷模式" name={[name, 'volumeMode']} style={{ marginBottom: 0 }}> 
                                   <Select
                                     placeholder="选择卷模式"

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress } from 'antd';
 import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -17,6 +17,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
   const [readyFilter, setReadyFilter] = useState<string>('');
+  const [metricsMap, setMetricsMap] = useState<Record<string, { cpuUsedCores?: number; memUsedBytes?: number }>>({});
   
   // Metadata Drawer State
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -111,6 +112,64 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     return '-';
   };
 
+  const parseCpuToCores = (s?: string): number => {
+    if (!s) return 0;
+    const t = String(s).trim();
+    if (/m$/i.test(t)) {
+      const v = Number(t.replace(/m$/i, ''));
+      return isFinite(v) ? v / 1000 : 0;
+    } else if (/n$/i.test(t)) {
+      const v = Number(t.replace(/n$/i, ''));
+      return isFinite(v) ? v / 1e9 : 0;
+    } else if (/u$/i.test(t)) {
+      const v = Number(t.replace(/u$/i, ''));
+      return isFinite(v) ? v / 1e6 : 0;
+    }
+    const v = Number(t);
+    return isFinite(v) ? v : 0;
+  };
+  const parseMemoryToBytes = (s?: string): number => {
+    if (!s) return 0;
+    const t = String(s).trim();
+    const m = t.match(/^(\d+(?:\.\d+)?)([KMGTP]i?)?$/i);
+    if (!m) return 0;
+    const val = Number(m[1]);
+    const unit = (m[2] || '').toLowerCase();
+    let bytes = val;
+    if (unit === 'ki') bytes = val * 1024;
+    else if (unit === 'mi') bytes = val * 1024 * 1024;
+    else if (unit === 'gi') bytes = val * 1024 * 1024 * 1024;
+    else if (unit === 'ti') bytes = val * 1024 * 1024 * 1024 * 1024;
+    else if (unit === 'k') bytes = val * 1000;
+    else if (unit === 'm') bytes = val * 1e6;
+    else if (unit === 'g') bytes = val * 1e9;
+    else if (unit === 't') bytes = val * 1e12;
+    return bytes;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        if (!cloudId) return;
+        const res = await (await import('../../../../services/harvesterApi')).fetchHarvesterResourceByLink(cloudId, '/apis/metrics.k8s.io/v1beta1/nodes');
+        const items: any[] = Array.isArray((res as any)?.items) ? (res as any).items : [];
+        const map: Record<string, { cpuUsedCores?: number; memUsedBytes?: number }> = {};
+        for (const it of items) {
+          const name = it?.metadata?.name || '';
+          const cpuUsed = parseCpuToCores(it?.usage?.cpu);
+          const memUsed = parseMemoryToBytes(it?.usage?.memory);
+          if (name) map[name] = { cpuUsedCores: cpuUsed, memUsedBytes: memUsed };
+        }
+        if (!cancelled) setMetricsMap(map);
+      } catch {
+        if (!cancelled) setMetricsMap({});
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [cloudId, nodes]);
+
   const allColumns = useMemo(() => [
     { title: '名称', key: 'name', render: (_:any, r:any)=> {
       const text = r?.name || r?.metadata?.name || '-';
@@ -137,6 +196,45 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     },
     { title: 'CPU', key: 'cpu', render: (_:any, r:any)=> formatCpu(r?.cpu ?? r?.status?.capacity?.cpu) },
     { title: '内存', key: 'mem', render: (_:any, r:any)=> formatMemGb(r?.memory ?? r?.status?.capacity?.memory) },
+    { title: 'CPU使用率', key: 'cpu_usage', render: (_:any, r:any)=> {
+      const name = r?.name || r?.metadata?.name || '';
+      const used = metricsMap[name]?.cpuUsedCores ?? 0;
+      const total = parseCpuToCores(r?.status?.allocatable?.cpu || r?.status?.capacity?.cpu || r?.cpu);
+      const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : undefined;
+      return (
+        <div style={{ minWidth: 180 }}>
+          {typeof pct === 'number' ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Progress percent={Math.max(0, Math.min(100, pct))} size="small" showInfo={false} />
+                <span>{Math.max(0, Math.min(100, pct)).toFixed(1)}%</span>
+              </div>
+              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>已用 {used.toFixed(2)} 核，{pct.toFixed(1)}%</div>
+            </>
+          ) : <span>-</span>}
+        </div>
+      );
+    } },
+    { title: '内存使用率', key: 'mem_usage', render: (_:any, r:any)=> {
+      const name = r?.name || r?.metadata?.name || '';
+      const used = metricsMap[name]?.memUsedBytes ?? 0;
+      const total = parseMemoryToBytes(r?.status?.allocatable?.memory || r?.status?.capacity?.memory || r?.memory);
+      const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : undefined;
+      const toGiBNum = (bytes: number) => (bytes > 0 ? (bytes / (1024 * 1024 * 1024)) : 0);
+      return (
+        <div style={{ minWidth: 180 }}>
+          {typeof pct === 'number' ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Progress percent={Math.max(0, Math.min(100, pct))} size="small" showInfo={false} />
+                <span>{Math.max(0, Math.min(100, pct)).toFixed(1)}%</span>
+              </div>
+              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>已用 {toGiBNum(used).toFixed(2)} GiB，{pct.toFixed(1)}%</div>
+            </>
+          ) : <span>-</span>}
+        </div>
+      );
+    } },
     { title: '版本', key: 'version', render: (_:any, r:any)=> r?.kubeletVersion || r?.status?.nodeInfo?.kubeletVersion || r?.version || '-' },
     { title: '架构', key: 'arch', render: (_:any, r:any)=> r?.architecture || r?.status?.nodeInfo?.architecture || '-' },
     { title: '系统镜像', key: 'os', render: (_:any, r:any)=> r?.osImage || r?.status?.nodeInfo?.osImage || '-' },

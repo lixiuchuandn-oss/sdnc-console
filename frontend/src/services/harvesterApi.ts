@@ -107,6 +107,53 @@ export const fetchHarvesterBackups = async (cloudId: string, force = false) => {
   return await res.json();
 };
 
+export const fetchHarvesterMigrations = async (cloudId: string, force = false) => {
+  const token = localStorage.getItem('token');
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/migrations${force ? '?force=true' : ''}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+ 
+export const fetchHarvesterMigrationsDirect = async (cloudId: string, force = false) => {
+  const token = localStorage.getItem('token');
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/migrations-direct${force ? '?force=true' : ''}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const migrateHarvesterVm = async (cloudId: string, instanceId: string, targetNode?: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/migrate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify({ targetNode }),
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const abortHarvesterMigration = async (cloudId: string, instanceId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/abort-migration`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
 export const fetchHarvesterSshKeys = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/sshkeys${force ? '?force=true' : ''}`, {

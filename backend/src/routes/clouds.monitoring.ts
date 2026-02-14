@@ -5,6 +5,7 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
+import { PrometheusRulesGroup } from '../entities/monitoring/PrometheusRulesGroupEntity'; // 导入 PrometheusRulesGroup 实体
 import { UserSpace } from '../entities/UserSpace';
 import { getJsonOnce, requestJson } from '../services/clouds/harvester/utils';
 
@@ -143,11 +144,15 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
   router.get('/:id/monitoring/alerts-rules', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
+      const datasource = String(req.query?.datasource ?? 'prometheus').trim().toLowerCase();
+      if (datasource && datasource !== 'prometheus') {
+        return res.status(400).json({ message: '暂不支持的数据源，当前仅支持 prometheus' });
+      }
       const tenant = await getTenantAccess(req, cloudId);
       if (!tenant.allowed) return res.status(403).json({ message: '您没有该资源池的访问权限' });
       const conn = await getCloudAndConn(cloudId, res);
       if (!conn) return;
-      // 固定从 cattle-monitoring-system 的 Alertmanager 拉取；固定 receiver，过滤仅按返回数据中的 labels.namespace 在内存中做
+      // datasource=prometheus（或未传）：调用 Harvester Alertmanager 拉取告警
       const query = new URLSearchParams();
       query.set('silenced', 'false');
       query.set('inhibited', 'false');
@@ -188,6 +193,114 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     } catch (e: any) {
       const status = (e as any).status || 500;
       res.status(status).json({ message: e?.message || '请求告警列表失败' });
+    }
+  });
+
+  // GET /:id/monitoring/prometheusrules：仅当 datasource=prometheus 时调用，返回 PrometheusRule 列表及规则明细
+  const PROMETHEUSRULES_PATH = 'v1/harvester/monitoring.coreos.com.prometheusrules';
+  const PROMETHEUSRULES_EXCLUDE =
+    'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state&labelSelector=app.kubernetes.io/rule-type=custom-rules';
+
+  router.get('/:id/monitoring/prometheusrules', async (req: any, res: Response) => {
+    try {
+      const cloudId = req.params.id;
+      const datasource = String(req.query?.datasource ?? '').trim().toLowerCase();
+      if (datasource !== 'prometheus') {
+        return res.status(400).json({ message: '此接口仅支持 datasource=prometheus' });
+      }
+      const tenant = await getTenantAccess(req, cloudId);
+      if (!tenant.allowed) return res.status(403).json({ message: '您没有该资源池的访问权限' });
+      const conn = await getCloudAndConn(cloudId, res);
+      if (!conn) return;
+
+      const url = `${conn.origin}/${PROMETHEUSRULES_PATH}?limit=-1&${PROMETHEUSRULES_EXCLUDE}`;
+      const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
+      let data: any[] = Array.isArray((raw as any)?.data) ? (raw as any).data : [];
+
+      if (!tenant.isAdmin && tenant.namespaces.length > 0) {
+        const allowedSet = new Set(tenant.namespaces);
+        data = data.filter((item: any) => allowedSet.has(String(item?.metadata?.namespace ?? '').trim()));
+      }
+
+      const rulesGroupMap: Record<string, string> = {};
+      const rules: Array<{
+        datasource: string;
+        groupName: string;
+        groupAliasName: string;
+        namespace?: string;
+        name: string;
+        aliasName: string;
+        expression: string;
+        interval: string;
+        severity: string;
+      }> = [];
+
+      for (const item of data) {
+        const meta = item?.metadata ?? {};
+        const groupName = String(meta.name ?? '').trim();
+        const groupAliasName = String(meta.annotations?.['cloudhci.io/rule-name'] ?? '').trim();
+        const namespace = meta.namespace ? String(meta.namespace).trim() : undefined;
+        if (groupName) rulesGroupMap[groupName] = groupAliasName || groupName;
+
+        const groups = item?.spec?.groups ?? [];
+        for (const grp of groups) {
+          const ruleList = grp?.rules ?? [];
+          for (const r of ruleList) {
+            if (!r?.alert) continue;
+            rules.push({
+              datasource: 'prometheus',
+              groupName,
+              groupAliasName: groupAliasName || groupName,
+              namespace,
+              name: String(r.alert),
+              aliasName: String(r.annotations?.summary ?? r.alert),
+              expression: String(r.expr ?? ''),
+              interval: String(r.for ?? ''),
+              severity: String(r.labels?.severity ?? ''),
+            });
+          }
+        }
+      }
+
+      // rulesGroupMap 缓存到数据库，不返回给前端
+      try {
+        const repo = AppDataSource.getRepository(PrometheusRulesGroup);
+        let row = await repo.findOne({ where: { cloudId } });
+        if (row) {
+          row.data = JSON.stringify(rulesGroupMap);
+          await repo.save(row);
+        } else {
+          await repo.save(repo.create({ cloudId, data: JSON.stringify(rulesGroupMap) }));
+        }
+      } catch (dbErr: any) {
+        console.warn('[monitoring] prometheus-rules cache save failed:', dbErr?.message);
+      }
+
+      res.json({ rules });
+    } catch (e: any) {
+      const status = (e as any).status || 500;
+      res.status(status).json({ message: e?.message || '请求 Prometheus 规则失败' });
+    }
+  });
+
+  // GET /:id/monitoring/prometheusrules-groups：返回后端缓存的 rulesGroupMap（告警分组下拉用），需 datasource=prometheus
+  router.get('/:id/monitoring/prometheusrules-groups', async (req: any, res: Response) => {
+    try {
+      const cloudId = req.params.id;
+      const datasource = String(req.query?.datasource ?? '').trim().toLowerCase();
+      if (datasource !== 'prometheus') {
+        return res.status(400).json({ message: '此接口仅支持 datasource=prometheus' });
+      }
+      const tenant = await getTenantAccess(req, cloudId);
+      if (!tenant.allowed) return res.status(403).json({ message: '您没有该资源池的访问权限' });
+
+      const repo = AppDataSource.getRepository(PrometheusRulesGroup);
+      const row = await repo.findOne({ where: { cloudId } });
+      const rulesGroupMap: Record<string, string> = row?.data ? JSON.parse(row.data) : {};
+      res.json({ rulesGroupMap });
+    } catch (e: any) {
+      const status = (e as any).status || 500;
+      res.status(status).json({ message: e?.message || '获取告警分组失败' });
     }
   });
 
@@ -314,8 +427,8 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       const conn = await getCloudAndConn(cloudId, res);
       if (!conn) return;
       const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-      await requestJson('DELETE', `${conn.origin}/${path}`, conn.token, conn.insecure);
-      res.status(204).send();
+      const data = await requestJson('DELETE', `${conn.origin}/${path}`, conn.token, conn.insecure);
+      res.json(data);
     } catch (e: any) {
       const status = (e as any).status || 500;
       res.status(status).json({ message: e?.message || '删除告警外发配置失败' });

@@ -29,6 +29,8 @@ import { HarvesterTemplateInventory } from '../../../entities/harvester/Harveste
 import { HarvesterScheduleVmBackupInventory } from '../../../entities/harvester/HarvesterScheduleVmBackupInventory';
 import { HarvesterClusterNetworkInventory } from '../../../entities/harvester/HarvesterClusterNetworkInventory';
 import { HarvesterVlanConfigInventory } from '../../../entities/harvester/HarvesterVlanConfigInventory';
+import { HarvesterMigrationInventory } from '../../../entities/harvester/HarvesterMigrationInventory';
+import { getJsonOnce } from './utils';
 
 import {
   listHarvesterImagesStandard,
@@ -251,6 +253,57 @@ export const syncHarvesterTemplates = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+export const syncKubevirtMigrations = async (cloud: any, insecure: boolean) => {
+  const base = (cloud.endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const clusterUrl = `${origin}/apis/kubevirt.io/v1/virtualmachineinstancemigrations`;
+  let items: any[] = [];
+  let clusterErr: any = null;
+  try {
+    const raw = await getJsonOnce(clusterUrl, cloud.secretKey || '', insecure);
+    items = Array.isArray(raw?.items) ? raw.items : [];
+  } catch (e: any) {
+    clusterErr = e;
+  }
+
+  if (items.length === 0 && clusterErr) {
+    const nsRepo = AppDataSource.getRepository(HarvesterNamespaceInventory);
+    const dbItems = await nsRepo.find({ where: { cloudId: cloud.id } });
+    const nsList = dbItems.map(i => String(i?.name || i?.rawData?.metadata?.name || '').trim()).filter(Boolean);
+    const uniqueNs = Array.from(new Set(nsList)).filter(Boolean);
+    for (const ns of uniqueNs) {
+      const nsUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachineinstancemigrations`;
+      try {
+        const rawNs = await getJsonOnce(nsUrl, cloud.secretKey || '', insecure, true);
+        const arr = Array.isArray(rawNs?.items) ? rawNs.items : [];
+        if (arr.length > 0) items.push(...arr);
+      } catch {}
+    }
+  }
+
+  const repo = AppDataSource.getRepository(HarvesterMigrationInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item?.metadata?.uid || item?.id,
+    name: item?.metadata?.name,
+    namespace: item?.metadata?.namespace,
+    vmiName: item?.spec?.vmiName,
+    phase: item?.status?.phase,
+    startTimestamp: item?.status?.startTimestamp,
+    endTimestamp: item?.status?.endTimestamp,
+    labels: item?.metadata?.labels,
+    annotations: item?.metadata?.annotations,
+    rawData: item,
+  }));
+
+  return items.length;
+};
 export const syncHarvesterUsbResources = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {

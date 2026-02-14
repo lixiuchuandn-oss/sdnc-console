@@ -8,7 +8,7 @@ import {
   EyeOutlined, EyeInvisibleOutlined,
   AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, ClusterOutlined, AppstoreOutlined, CodeSandboxOutlined, HddOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined
 } from '@ant-design/icons';
-import './Harvester/modals/InstanceWizard.css';
+import './Harvester/modals/VmCreateWizard/InstanceWizard.css';
 
 const { Title, Text } = Typography;
 const { Option } = Select;

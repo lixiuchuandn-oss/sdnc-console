@@ -37,6 +37,7 @@ import {
   updatePVCSpec,
   clonePVC,
   getHarvesterVmVncUrl,
+  syncVmVolumeSize,
   listKubevirtVMsRaw,
   listKubevirtVMIsRaw,
   listKubevirtVMsRawWithMeta,
@@ -92,7 +93,9 @@ import { HarvesterTemplateInventory } from '../entities/harvester/HarvesterTempl
 import { HarvesterUsbInventory } from '../entities/harvester/HarvesterUsbInventory';
 import { HarvesterServiceInventory } from '../entities/harvester/HarvesterServiceInventory';
 import { KubeOvnIngressInventory } from '../entities/kubeovn/KubeOvnIngressInventory';
+import { HarvesterMigrationInventory } from '../entities/harvester/HarvesterMigrationInventory';
 import { requestJson, getJsonOnce, watchJsonStream } from '../services/clouds/harvester/utils';
+import { syncKubevirtMigrations } from '../services/clouds/harvester/syncInventory';
 
 /**
  * ==================================================================================
@@ -234,6 +237,38 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         res.status(500).json({ message: '查询集群网络失败', error: error.message });
       }
     },
+  );
+
+  // ==================================================================================
+  // VM Migrations (Cached Read + Direct Fallback)
+  // ==================================================================================
+  router.get(
+    '/:id/resources/harvester/migrations',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const repo = AppDataSource.getRepository(HarvesterMigrationInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+        if (String(force) === 'true' || count === 0) {
+          try {
+            await syncKubevirtMigrations(cloud, insecure);
+          } catch (e: any) {
+            if (count === 0) throw e;
+          }
+        }
+        const items = await repo.find({ where: { cloudId: id } });
+        res.json({ message: '查询成功', data: { items } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询迁移记录失败', error: error.body || error.message || error });
+      }
+    }
   );
 
   /**
@@ -467,12 +502,14 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
         }));
         
         if (isTenant && tenantNamespace) {
+            const userNamespaces = tenantNamespace.split(',').map(n => n.trim());
             list = list.filter((vpc: any) => {
                 const allowed = vpc?.spec?.namespaces || [];
                 if (!Array.isArray(allowed)) return false;
-                // Allow if tenantNamespace is in the list OR 'cloud-public' (case-insensitive) is in the list
-                return allowed.includes(tenantNamespace) || 
-                       allowed.some((n: string) => String(n).toLowerCase() === 'cloud-public');
+                // Allow if ANY of user's namespaces are in the allowed list OR 'cloud-public' is in the list
+                const isAllowed = userNamespaces.some(ns => allowed.includes(ns));
+                const isPublic = allowed.some((n: string) => String(n).toLowerCase() === 'cloud-public');
+                return isAllowed || isPublic;
             });
         }
         
@@ -2739,6 +2776,47 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           pvcName,
           { sizeGi, size, accessModes, volumeMode, storageClassName, annotations, labels },
         );
+
+        // Sync VM annotation if size changed
+        if (sizeGi || size) {
+             const newSize = size || (sizeGi ? `${sizeGi}Gi` : '');
+             if (newSize) {
+                 // Try to get owner from returned data, if not present (unlikely but possible), try fetch PVC
+                 let owner = (data?.metadata?.ownerReferences || []).find((r: any) => r.kind === 'VirtualMachine');
+                 
+                 if (!owner) {
+                    try {
+                        // Fallback: fetch PVC again to check owner
+                        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+                        let origin = base;
+                        try {
+                            const u = new URL(base);
+                            origin = `${u.protocol}//${u.host}`;
+                        } catch {
+                            origin = base.replace(/\/v[0-9].*$/, '');
+                        }
+                        const getUrl = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(pvcName)}`;
+                        const pvc = await getJsonOnce(getUrl, cloud.secretKey || '', insecure);
+                        owner = (pvc?.metadata?.ownerReferences || []).find((r: any) => r.kind === 'VirtualMachine');
+                    } catch (e) {
+                        console.warn('Failed to fetch PVC for owner check', e);
+                    }
+                 }
+
+                 if (owner && owner.name) {
+                     syncVmVolumeSize(
+                         { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+                         namespace,
+                         owner.name,
+                         pvcName,
+                         newSize
+                     ).catch(err => console.error('Failed to sync VM volume size annotation', err));
+                 } else {
+                     console.log(`[PVC Update] No VM owner found for PVC ${pvcName}, skipping annotation sync.`);
+                 }
+             }
+        }
+
         res.json({ message: '更新成功', data });
       } catch (error: any) {
         const status = Number(error?.status || 0);

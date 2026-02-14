@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Table, Tag, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Checkbox, Tabs, Descriptions } from 'antd';
+import { Table, Tag, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Checkbox, Tabs, Descriptions, Badge } from 'antd';
+import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume, listHarvesterSnapshotClasses } from '../../../../services/harvesterApi';
@@ -79,19 +80,33 @@ const cnStatus = (s: string): string => {
   return m[k] || s;
 };
 
-const statusBadge = (s: string) => {
-  const k = s.toLowerCase();
-  const text = cnStatus(s);
-  let color: string | undefined = undefined;
-  
-  if (['healthy', 'bound'].includes(k)) color = 'green';
-  else if (['degraded', 'pending'].includes(k)) color = 'orange';
-  else if (['faulted', 'error', 'lost'].includes(k)) color = 'red';
-  else if (['maintenance'].includes(k)) color = 'gold';
-  else if (['attached', 'attaching', 'detaching', 'restoring', 'creating', 'deleting'].includes(k)) color = 'blue';
+const statusBadge = (phase: string) => {
+  const p = (phase || '').toLowerCase();
+  let status = 'default';
+  let text = phase;
+  let icon = null;
 
-  return <Tag color={color}>{text}</Tag>;
-};
+  if (p === 'bound' || p === 'available') {
+    status = 'success';
+    text = '正常 (Bound)';
+  } else if (p === 'lost') {
+    status = 'error';
+    text = '丢失 (Lost)';
+  } else if (p === 'pending') {
+    status = 'processing';
+    text = '创建中 (Pending)';
+  } else if (p === 'resizing') {
+      status = 'processing';
+      text = '扩容中 (Resizing)';
+      icon = <SyncOutlined spin />;
+    } else if (p === 'filesystemresizepending') {
+      status = 'warning';
+      text = '等待文件系统扩容';
+      icon = <ExclamationCircleOutlined />;
+    }
+
+    return <Badge status={status as any} text={icon ? <span style={{display:'inline-flex', alignItems:'center', gap:6}}>{text}{icon}</span> : text} />;
+  };
 
 // ----------------------------------------------------------------------
 // 3. Component
@@ -146,7 +161,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       const cur = createForm.getFieldValue('storageClassName');
       if (!cur && storageClasses.length > 0) {
         const names = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
-        const prefer = names.find(n => n.toLowerCase().includes('longhorn')) || names[0];
+        let prefer = names.find(n => n.toLowerCase() === 'longhorn');
+        if (!prefer) {
+          prefer = names.find(n => n.toLowerCase().includes('longhorn')) || names[0];
+        }
         if (prefer) createForm.setFieldsValue({ storageClassName: prefer });
       }
     } catch {}
@@ -209,7 +227,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   const dataSource = useMemo<VolumeView[]>(() => {
     const rawList = Array.isArray(volumes) ? volumes : [];
     
-    return rawList.map((r: any) => {
+    const mapped = rawList.map((r: any) => {
       // Prioritize rawData (K8s Spec) if available (e.g. from backend wrapper)
       const source = r?.rawData || r || {};
       
@@ -226,7 +244,21 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
 
       // 3. Extract Status & Capacity
       // PCV Spec: status.phase, status.capacity.storage
-      const phase = source?.status?.phase || r?.phase || source?.status?.state || r?.state || 'Unknown';
+      let phase = source?.status?.phase || r?.phase || source?.status?.state || r?.state || 'Unknown';
+      
+      // Check for Resizing conditions (Resizing or FileSystemResizePending)
+      const conditions = source?.status?.conditions || r?.status?.conditions;
+      if (Array.isArray(conditions)) {
+          const isResizing = conditions.some((c: any) => c.type === 'Resizing' && c.status === 'True');
+          const isFsPending = conditions.some((c: any) => c.type === 'FileSystemResizePending' && c.status === 'True');
+          
+          if (isFsPending) {
+              phase = 'FileSystemResizePending';
+          } else if (isResizing) {
+              phase = 'Resizing';
+          }
+      }
+
       const capacityRaw = source?.status?.capacity?.storage || source?.spec?.resources?.requests?.storage || r?.size || r?.capacity || '';
       
       // 4. Attached Info (Legacy might have attachedTo array, otherwise computed)
@@ -250,6 +282,17 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         raw: r // Keep original record
       };
     }).filter(v => !!v.name); // Filter out empty records
+
+    // De-duplicate: Ensure unique namespace/name combination
+    const uniqueMap = new Map<string, VolumeView>();
+    mapped.forEach(v => {
+      const uniqKey = `${v.namespace}/${v.name}`;
+      if (!uniqueMap.has(uniqKey)) {
+        uniqueMap.set(uniqKey, v);
+      }
+    });
+    
+    return Array.from(uniqueMap.values());
   }, [volumes]);
 
   // ----------------------------------------------------------------
@@ -392,16 +435,44 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       return;
     }
     
-    // Attempt to find the disk name used in the VM (might not be PVC name)
-    const diskName = vm?.Extra?.VolumeMap?.[r.name] || ''; 
-    
+    // Attempt to resolve volume/disk name:
+    // 1) From VM spec.volumes[].name where claimName === pvc
+    // 2) From Extra.VolumeMap[pvcName]
+    const pvcName = r.name;
+    const vmVolumes = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
+    const volEntry = vmVolumes.find((v: any) => v?.persistentVolumeClaim?.claimName === pvcName);
+    const volName = volEntry?.name || '';
+    const mappedName = vm?.Extra?.VolumeMap?.[pvcName] || '';
+    const diskName = volName || mappedName || '';
+
     if (!diskName) {
-      message.warning('无法确定挂载的磁盘名称');
+      const iid = String(vm.InstanceId || '');
+      Modal.confirm({
+        title: '无法确定挂载的磁盘名称',
+        content: '请先在虚机内卸载该卷（umount/移除磁盘），以避免数据损坏。是否重启虚拟机以完成卸载？',
+        okText: '重启虚拟机',
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            const ns = vm?.metadata?.namespace || vm?.namespace || vm?.extra?.namespace || vm?.Extra?.Namespace || '';
+            const name = vm?.name || vm?.metadata?.name || vm?.InstanceName || '';
+            const resolvedId = iid ? iid : (ns && name ? `${ns}/${name}` : '');
+            if (!resolvedId) { message.error('实例标识缺失，无法重启'); return; }
+            await rebootCloudProviderEcs(cloudId, resolvedId);
+            message.success('已触发重启');
+          } catch (e: any) {
+            message.error(e.message || '重启失败');
+          }
+        }
+      });
       return;
     }
 
     const iid = String(vm.InstanceId || '');
-    const iidNameOnly = iid.includes('/') ? iid.split('/').pop() : iid;
+    const ns = vm?.metadata?.namespace || vm?.namespace || vm?.extra?.namespace || vm?.Extra?.Namespace || '';
+    const name = vm?.name || vm?.metadata?.name || vm?.InstanceName || '';
+    const iidNameOnly = (iid && iid.includes('/')) ? iid.split('/').pop() : iid || name;
+    const resolvedId = iid ? iid : (ns && name ? `${ns}/${name}` : iidNameOnly);
 
     Modal.confirm({
       title: '确认卸载',
@@ -410,7 +481,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         try {
           // Try with full ID first, then short name fallback
           try {
-            await detachHarvesterVolumeFromVm(cloudId, iid, { name: String(diskName) });
+            await detachHarvesterVolumeFromVm(cloudId, resolvedId, { name: String(diskName) });
           } catch (e: any) {
             if (String(e?.message).includes('NotFound')) {
               await detachHarvesterVolumeFromVm(cloudId, iidNameOnly!, { name: String(diskName) });
@@ -571,13 +642,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
               setCurrentRecord(r); 
               cloneForm.resetFields(); 
               cloneForm.setFieldsValue({ 
-                targetNamespace: r.namespace, 
-                newName: `${r.name}-clone`, 
-                sizeGi: r.capacityBytes / (1024**3), 
-                storageClassName: r.storageClass,
-                fromSnapshotName: r.name, // Usually snapshot name, but API might accept PVC name for direct clone if supported, or this is placeholder
-                accessModes: ['ReadWriteOnce'],
-                volumeMode: 'Block'
+                cloneData: true, 
+                newName: `${r.name}-clone`
               }); 
               setCloneOpen(true); 
             } 
@@ -648,13 +714,17 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
           <Button type="primary" onClick={() => { 
             createForm.resetFields(); 
             const scNames = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
-            const defaultSc = scNames.find(n => n.toLowerCase().includes('longhorn')) || scNames[0];
+            // 优先选择 longhorn，然后选择包含 longhorn 的存储类
+            let defaultSc = scNames.find(n => n.toLowerCase() === 'longhorn');
+            if (!defaultSc) {
+              defaultSc = scNames.find(n => n.toLowerCase().includes('longhorn')) || scNames[0];
+            }
             const defaultNs = nsOptions.length > 0 ? nsOptions[0].value : undefined;
             
             createForm.setFieldsValue({ 
-              alias: '测试pvc',
+              alias: '',
               namespace: defaultNs,
-              sizeGi: 40,
+              sizeGi: undefined,
               accessModes: 'ReadWriteMany',
               volumeMode: 'Block',
               storageClassName: defaultSc
@@ -870,37 +940,72 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
 
       {/* 7. Clone */}
       <StdFormModal
-        title="克隆" open={cloneOpen} onCancel={() => setCloneOpen(false)}
-        okText="克隆"
+        title="克隆虚拟卷" open={cloneOpen} onCancel={() => setCloneOpen(false)}
+        okText="创建"
         form={cloneForm}
         onFinish={async (v: any) => {
           try {
             if (!currentRecord) return;
-            await cloneHarvesterVolume(cloudId, currentRecord.namespace, currentRecord.name, {
-              targetNamespace: v.targetNamespace,
-              newName: v.newName,
-              sizeGi: Number(v.sizeGi),
-              storageClassName: v.storageClassName,
-              fromSnapshotName: v.fromSnapshotName,
-              accessModes: v.accessModes,
-              volumeMode: v.volumeMode
-            });
+            
+            // 根据是否勾选克隆数据使用不同的API传参
+            if (v.cloneData) {
+              // 克隆虚拟卷数据 - 传递与原卷一致的参数
+              await cloneHarvesterVolume(cloudId, currentRecord.namespace, currentRecord.name, {
+                newName: v.newName,
+                sizeGi: currentRecord.capacityBytes / (1024**3),
+                storageClassName: currentRecord.storageClass,
+                accessModes: currentRecord.accessModes || ['ReadWriteOnce'],
+                volumeMode: currentRecord.volumeMode || 'Block'
+              });
+            } else {
+              // 不克隆虚拟卷数据，进入创建卷弹窗
+              setCloneOpen(false);
+              createForm.resetFields();
+              const scNames = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
+              const defaultSc = scNames.find(n => n.toLowerCase().includes('longhorn')) || scNames[0];
+              const defaultNs = nsOptions.length > 0 ? nsOptions[0].value : currentRecord.namespace;
+              
+              createForm.setFieldsValue({ 
+                alias: v.newName,
+                namespace: defaultNs,
+                sizeGi: currentRecord.capacityBytes / (1024**3),
+                accessModes: 'ReadWriteMany',
+                volumeMode: 'Block',
+                storageClassName: currentRecord.storageClass || defaultSc
+              }); 
+              setCreateOpen(true);
+              return;
+            }
+            
             message.success('克隆成功');
             setCloneOpen(false);
             onRefresh?.();
-          } catch (e: any) { message.error(e.message || '克隆失败'); }
+          } catch (e: any) { message.error(e.message || '操作失败'); }
         }}
       >
-          <Form.Item label="目标命名空间" name="targetNamespace"><Select options={nsOptions} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="新卷名称" name="newName" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="容量(GB)" name="sizeGi"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="访问模式" name="accessModes"><Select mode="multiple" options={['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="卷类型" name="volumeMode"><Select options={['Block', 'Filesystem'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="存储类" name="storageClassName"><Select allowClear options={storageClasses.map(s => {
-            const n = s?.metadata?.name || s?.name;
-            return { value: n, label: n };
-          }).filter(x => x.value)} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="来源快照" name="fromSnapshotName"><Input placeholder="可选" /></Form.Item>
+          <Form.Item name="cloneData" valuePropName="checked" initialValue={true}>
+            <Checkbox>克隆虚拟卷数据</Checkbox>
+          </Form.Item>
+          
+          <Form.Item 
+            name="newName" 
+            label="名称" 
+            rules={[
+              {
+                required: true,
+                message: '请输入新卷名称',
+                validator: (_, value) => {
+                  const cloneData = cloneForm.getFieldValue('cloneData');
+                  if (cloneData && !value) {
+                    return Promise.reject(new Error('请输入新卷名称'));
+                  }
+                  return Promise.resolve();
+                }
+              }
+            ]}
+          >
+            <Input placeholder="请输入新卷名称" />
+          </Form.Item>
       </StdFormModal>
 
       {/* 8. Resource Drawer */}

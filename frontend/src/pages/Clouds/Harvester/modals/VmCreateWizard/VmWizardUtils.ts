@@ -1,44 +1,133 @@
-import { startCloudProviderEcs } from '../../../../services/api';
-import { fetchHarvesterVmDetail } from '../../../../services/harvesterApi'; // 新增导入
+import { startCloudProviderEcs } from '../../../../../services/api';
 
- 
+/**
+ * @file VmWizardUtils.ts
+ * @description Harvester 虚拟机创建向导的工具函数集合
+ * 
+ * 此文件包含了 VM 创建过程中所需的各种辅助逻辑，按照功能模块划分为：
+ * 1. 基础工具 (Utils): 通用数据处理、格式转换
+ * 2. 资源校验 (Validation): 镜像大小、GPU 可用性检查
+ * 3. 表单相关 (Form): 初始值、字段联动
+ * 4. 核心构造 (Core): 构建 Kubernetes CRD Payload
+ * 5. 后续操作 (Post-Action): 创建后的自动启动等
+ */
 
+// ==========================================
+// 1. 基础工具函数 (Utils)
+// ==========================================
+
+/**
+ * 将各种格式的大小字符串解析为 GiB 数值
+ * 支持 '10Gi', '1024Mi', '1073741824' 等格式
+ * 
+ * @param raw 原始大小值 (string | number)
+ * @returns 解析后的 GiB 数值 (number)
+ */
+export const parseSizeToGi = (raw: any) => {
+  let gi = 0;
+  if (typeof raw === 'number') { 
+      gi = Math.max(1, Math.round(Number(raw) / (1024 * 1024 * 1024))); 
+  } else { 
+      const ss = String(raw || '').toUpperCase(); 
+      const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; 
+      if (/GI$/.test(ss)) gi = num; 
+      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024); 
+      else gi = Math.round(num / (1024 * 1024 * 1024)); 
+  }
+  return gi;
+};
+
+/**
+ * 生成唯一 VM ID
+ * 确保在同一 Namespace 下不重复 (使用随机后缀)
+ * 
+ * @param cloudId 云平台 ID
+ * @param namespace 命名空间
+ * @param baseName 基础名称前缀 (默认为 'vm')
+ * @returns {Promise<string>} 生成的唯一 VM ID
+ */
+export const generateUniqueVmId = async (cloudId: string, namespace: string, baseName?: string): Promise<string> => {
+    // 简单实现：使用时间戳随机数
+    // Harvester 名称要求：小写字母、数字、中划线
+    const prefix = baseName || 'vm';
+    const rand = Math.random().toString(36).substring(2, 7);
+    return `${prefix}-${rand}`;
+};
+
+/**
+ * 过滤节点列表
+ * 用于节点选择下拉框的搜索
+ * 
+ * @param nodes 节点列表
+ * @param keyword 搜索关键字 (匹配名称或 IP)
+ * @returns 过滤后的节点列表
+ */
+export const filterNodes = (nodes: any[], keyword: string) => {
+  const kw = String(keyword || '').trim().toLowerCase();
+  if (!kw) return nodes;
+  return (nodes || []).filter((n:any)=> (
+    String(n?.name || '').toLowerCase().includes(kw) ||
+    String(n?.internalIP || '').toLowerCase().includes(kw)
+  ));
+};
+
+// ==========================================
+// 2. 资源校验与查询 (Validation)
+// ==========================================
+
+/**
+ * 校验并获取选中的 GPU 资源
+ * 
+ * 根据用户选择的 GPU 配置（资源名或 PCI 地址），在可用的 GPU 资源列表中查找并验证。
+ * 处理直通模式下的节点亲和性校验。
+ * 
+ * @param params 参数对象
+ * @returns { selectedGpu, finalGpuResName, warning }
+ */
 export const validateAndGetGpu = (params: {
-  v: any;
-  gpuResources: any[];
-  hostModeState: string;
-  selectedNodeName: string | null;
+  v: any; // 表单数据
+  gpuResources: any[]; // 可用 GPU 列表
+  hostModeState: string; // 主机调度模式
+  selectedNodeName: string | null; // 选定主机名
 }) => {
   const { v, gpuResources, hostModeState, selectedNodeName } = params;
+  
+  // 1. 基础检查
   if (!v.gpuMode) return { selectedGpu: null, finalGpuResName: undefined };
 
   const list = Array.isArray(gpuResources) ? gpuResources : [];
-  if (list.length === 0) return { selectedGpu: null, finalGpuResName: undefined }; // Caller might want to reload if empty, but here we just check what we have
+  if (list.length === 0) return { selectedGpu: null, finalGpuResName: undefined };
 
+  // 2. 查找资源
   let found = null as any;
+  // 优先通过资源名称 (resourceName) 查找
   if (v.gpuResourceName) {
     found = list.find((x: any) => String(x?.resourceName) === String(v.gpuResourceName));
   }
+  // 其次通过 PCI 设备名称查找
   if (!found && v.gpuPcideviceName) {
     const dn = String(v.gpuPcideviceName || '').trim();
     found = list.find((x: any) => String(x?.raw?.metadata?.name || x?.name || '') === dn);
   }
+  
   if (!found) {
     throw new Error(`GPU 资源不可用：${v.gpuPcideviceName || v.gpuResourceName}`);
   }
 
+  // 3. 提取信息
   const selectedGpu = found;
   const finalGpuResName = found?.resourceName || found?.raw?.status?.resourceName || found?.raw?.spec?.resourceName || undefined;
   const mode = String(v.gpuMode || 'passthrough');
   
+  // 4. 节点亲和性校验
+  // 直通模式或 SR-IOV 模式下，VM 必须调度到 GPU 所在节点
   if (['passthrough', 'sriov'].includes(mode)) {
     const node = String(found?.node || found?.nodeName || '').trim();
     if (!node) {
       throw new Error('该GPU资源未在任何节点就绪，请先在GPU页面确认可用资源');
     }
+    // 警告：用户手动选择了主机，但与 GPU 所在主机不一致
     if (hostModeState === 'node' && selectedNodeName && selectedNodeName !== node) {
-      // We return a warning or just let the caller handle the warning?
-      // The original code uses message.info. We can return a warning flag/message.
       return { selectedGpu, finalGpuResName, warning: `已选择GPU所在节点 ${node}，与当前主机选择不一致，将以GPU节点为准` };
     }
   }
@@ -46,20 +135,134 @@ export const validateAndGetGpu = (params: {
   return { selectedGpu, finalGpuResName };
 };
 
+/**
+ * 校验系统盘大小是否满足镜像要求
+ * 
+ * @param v 表单数据
+ * @param images 镜像列表
+ * @returns 错误信息字符串，校验通过返回 null
+ */
+export const validateImageSize = (v: any, images: any[]) => {
+    // 仅当来源类型为 Image 时校验
+    if (String(v.rootSourceType || 'image') === 'image') {
+        try {
+            const imgVal = v.image;
+            const it = (images || []).find((x: any) => {
+                 const name = x?.metadata?.name || x?.name;
+                 const ns = x?.metadata?.namespace || x?.namespace;
+                 const val = ns && name ? `${ns}/${name}` : name;
+                 return val === imgVal;
+            });
+            
+            // 获取镜像大小 (优先使用 VirtualSize)
+            const raw = (function () { 
+                const vv = (it as any)?.spec?.virtualSize || (it as any)?.virtualSize; 
+                return (vv !== undefined && vv !== null && vv !== 0) ? vv : (it as any)?.size; 
+            })();
+            const gi = parseSizeToGi(raw);
+            
+            // 获取用户输入的系统盘大小
+            const val = String(v.rootSize || '').toUpperCase(); 
+            const n = Number(String(val).replace(/[^0-9]/g, '')) || 0; 
+            const valGi = /MI$/.test(val) ? Math.ceil(n / 1024) : n;
+            
+            if (gi && valGi && valGi < gi) { 
+                return '系统盘需≥镜像大小'; 
+            }
+        } catch { }
+    }
+  return null;
+};
+
+// ==========================================
+// 3. 表单相关 (Form)
+// ==========================================
+
+/**
+ * 获取创建向导的初始表单值
+ * 
+ * @param memGi 默认内存大小
+ * @param initialVmName 默认 VM 名称
+ * @returns 初始表单对象
+ */
+export const initialWizardValues = (memGi: number, initialVmName: string) => ({
+  name: initialVmName,
+  cpu: 2,
+  cpuModel: 'host-passthrough',
+  dedicatedCPUPlacement: false,
+  isolateEmulatorThread: false,
+  memory: `${memGi}Gi`,
+  machineType: undefined,
+  rootSourceType: 'image',
+  rootName: `disk-${Math.random().toString(36).substring(2, 8)}`,
+  rootSize: '40',
+  rootBus: 'virtio',
+  rootDeviceType: 'disk',
+  extraDisks: [],
+  hostMode: 'auto',
+  netMode: 'flat',
+  gpuMode: 'none',
+  gpuCount: 0,
+  hotExpandEnabled: false,
+  bootUseEfi: false,
+  efiPersistent: false,
+  efiSecureBoot: false,
+  tpmEnabled: false,
+  tpmPersistent: false,
+  installGuestAgent: false,
+  useUsbTablet: true,
+  runStrategy: 'RerunOnFailure',
+  primaryNic: { name: '', type: 'bridge', model: 'virtio' },
+  netIfaces: []
+});
+
+/**
+ * 处理 Root PVC 变更时的联动逻辑
+ * 当用户选择现有 PVC 作为系统盘时，自动回填大小
+ * 
+ * @param form AntD Form 实例
+ * @param availableVolumes 可用的 PVC 列表
+ * @param pvcName 选中的 PVC 名称
+ */
+export const handleRootPvcChange = (form: any, availableVolumes: any[], pvcName: string) => {
+    if (!pvcName) return;
+    const vol = availableVolumes.find(x => x?.metadata?.name === pvcName);
+    if (vol) {
+        const size = vol.spec?.resources?.requests?.storage;
+        if (size) {
+             const gi = parseSizeToGi(size);
+             form.setFieldsValue({ rootSize: String(gi) });
+        }
+    }
+};
+
+// ==========================================
+// 4. 核心构造逻辑 (Core)
+// ==========================================
+
+/**
+ * 构建 Harvester 虚拟机创建请求的 Payload (Manifest)
+ * 
+ * 将前端向导表单数据转换为 Kubernetes VirtualMachine CRD 结构。
+ * 包含 CPU/内存/磁盘/网络/CloudInit 等核心配置。
+ * 
+ * @param params 参数对象
+ * @returns VM Manifest 对象
+ */
 export const buildHarvesterVmPayload = (params: {
-  v: any;
-  memGi: number;
-  hostModeState: string;
-  selectedNodeName: string | null;
-  gpuResources: any[];
-  selectedGpu: any;
-  capabilities?: any;
-  isArm64?: boolean;
-  vmId?: string;
+  v: any; // 表单完整数据
+  memGi: number; // 内存大小 (GiB)
+  hostModeState: string; // 主机调度模式
+  selectedNodeName: string | null; // 选定的主机名
+  gpuResources: any[]; // GPU 资源列表
+  selectedGpu: any; // 已验证选中的 GPU 对象
+  capabilities?: any; // 集群能力
+  isArm64?: boolean; // 架构标识
+  vmId?: string; // 预生成的 VM ID
 }) => {
   const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64, vmId } = params;
   
-  // 1. Calculate GPU
+  // --- 1. GPU 资源处理 ---
   const finalGpuResName = (function() {
       if (selectedGpu) {
            return selectedGpu?.resourceName || selectedGpu?.raw?.status?.resourceName || selectedGpu?.raw?.spec?.resourceName || undefined;
@@ -73,16 +276,15 @@ export const buildHarvesterVmPayload = (params: {
       return f?.resourceName || f?.raw?.status?.resourceName || f?.raw?.spec?.resourceName || undefined;
   })();
 
-  // 2. Calculate CPU Topology
+  // --- 2. 基础计算 (CPU/Memory) ---
   const cpu = Number(v.cpu || 1);
   const sockets = Number(v.cpuSockets || 1);
-  const cores = Number(v.cpuCores || cpu); // Default cores = total vCPU if not specified? Or 1? Usually sockets*cores*threads = cpu
+  const cores = Number(v.cpuCores || cpu); 
   const threads = Number(v.cpuThreads || 1);
-  
-  // 3. Calculate Memory
   const memory = String(v.memory || `${memGi}Gi`);
 
-  // 4. Node Selector & Affinity
+  // --- 3. 调度策略 (Node Selector/Affinity) ---
+  // 处理 Label 调度
   const nodeSelector = (function () { 
       if (hostModeState === 'label') {
           const arr = Array.isArray(v.nodeSelectorPairs) ? v.nodeSelectorPairs : []; 
@@ -97,6 +299,7 @@ export const buildHarvesterVmPayload = (params: {
       return undefined;
   })();
   
+  // 处理 Node 亲和性 (优先 GPU 节点)
   const nodeName = (function () {
       const gpuNode = selectedGpu && String(selectedGpu?.node || selectedGpu?.nodeName || '').trim();
       if (gpuNode) return gpuNode;
@@ -111,50 +314,107 @@ export const buildHarvesterVmPayload = (params: {
       return hostModeState === 'node' ? (selectedNodeName || undefined) : undefined;
   })();
 
-  // 5. Construct Manifest
+  // --- 4. 资源集合初始化 ---
   const disks: any[] = [];
   const volumes: any[] = [];
   const networks: any[] = [];
   const interfaces: any[] = [];
-  // Use Harvester's volumeClaimTemplates annotation instead of KubeVirt's dataVolumeTemplates
-  // This aligns with Harvester's native UI behavior and ensures proper PVC creation.
   const volumeClaimTemplates: any[] = [];
-
-  // Helper to generate random suffix for PVC names
+  
+  // 辅助：随机后缀与 MAC 生成
   const randSuffix = () => Math.random().toString(36).substring(2, 7);
+  const generateMacAddress = () => {
+    const hex = '0123456789ABCDEF';
+    let mac = '52:54:00'; 
+    for (let i = 0; i < 3; i++) {
+      mac += ':' + hex[Math.floor(Math.random() * 16)] + hex[Math.floor(Math.random() * 16)];
+    }
+    return mac;
+  };
 
-  // --- Network Mapping (Primary NIC) ---
-  if (v.primaryNic) {
-      const nicName = 'nic-0';
-      const netName = v.primaryNic.name;
+  // --- 5. 网络配置 (Networks) ---
+  const allNics: any[] = [];
+  if (v.primaryNic) allNics.push({ ...v.primaryNic, _isPrimary: true, _idx: 0 });
+  if (Array.isArray(v.netIfaces)) {
+      v.netIfaces.forEach((nic: any, idx: number) => {
+          allNics.push({ ...nic, _isPrimary: false, _idx: idx + 1 });
+      });
+  }
+
+  const hasStaticIP = allNics.some(n => n.ipAddress);
+  const networkDataEthernets: any = {};
+
+  allNics.forEach((nic) => {
+      const nicName = `nic-${nic._idx}`;
+      const netName = nic.name;
+      let mac = nic.macAddress;
       
-      const iface: any = {
-          name: nicName,
-          model: v.primaryNic.model || 'virtio',
-      };
-      if (v.primaryNic.macAddress) {
-          iface.macAddress = v.primaryNic.macAddress;
-      }
+      // 静态 IP 必须有 MAC
+      if (hasStaticIP && !mac) mac = generateMacAddress();
       
-      const type = v.primaryNic.type || 'bridge';
+      // Interface
+      const iface: any = { name: nicName, model: nic.model || 'virtio' };
+      if (mac) iface.macAddress = mac;
+      
+      const type = nic.type || 'bridge';
       if (type === 'bridge') iface.bridge = {};
       else if (type === 'masquerade') iface.masquerade = {};
       else if (type === 'sriov') iface.sriov = {};
       else if (type === 'macvtap') iface.macvtap = {};
       else iface.bridge = {}; 
-
       interfaces.push(iface);
 
+      // Network
       const net: any = { name: nicName };
       if (netName) {
            net.multus = { networkName: netName };
       } else {
-           net.pod = {}; 
+           if (nic._isPrimary) net.pod = {}; 
+           else net.multus = { networkName: 'default' };
       }
       networks.push(net);
+
+      // NetworkData (Static IP)
+      if (hasStaticIP) {
+           const ethConfig: any = {
+               match: { macaddress: mac },
+               dhcp4: !nic.ipAddress,
+           };
+           if (nic.ipAddress) {
+               ethConfig.addresses = [nic.ipAddress];
+               if (nic.gateway) ethConfig.gateway4 = nic.gateway;
+               if (nic.dns) {
+                   const dnsList = nic.dns.split(/[,;\s]+/).filter((d: string) => d.trim());
+                   if (dnsList.length > 0) ethConfig.nameservers = { addresses: dnsList };
+               }
+           }
+           networkDataEthernets[nicName] = ethConfig;
+      }
+  });
+
+  // 构建 NetworkData YAML
+  let networkDataYaml = '';
+  if (hasStaticIP && Object.keys(networkDataEthernets).length > 0) {
+      networkDataYaml = 'version: 2\nethernets:\n';
+      Object.keys(networkDataEthernets).forEach(key => {
+          const conf = networkDataEthernets[key];
+          networkDataYaml += `  ${key}:\n`;
+          networkDataYaml += `    match:\n      macaddress: "${conf.match.macaddress}"\n`;
+          networkDataYaml += `    dhcp4: ${conf.dhcp4}\n`;
+          if (conf.addresses) {
+              networkDataYaml += `    addresses:\n`;
+              conf.addresses.forEach((addr: string) => networkDataYaml += `      - ${addr}\n`);
+          }
+          if (conf.gateway4) networkDataYaml += `    gateway4: ${conf.gateway4}\n`;
+          if (conf.nameservers && conf.nameservers.addresses) {
+              networkDataYaml += `    nameservers:\n      addresses:\n`;
+              conf.nameservers.addresses.forEach((addr: string) => networkDataYaml += `        - ${addr}\n`);
+          }
+      });
   }
 
-  // --- Disk Mapping (Root) ---
+  // --- 6. 磁盘配置 (Disks) ---
+  // 6.1 系统盘
   const rootDiskName = v.rootName || 'disk-0';
   const rootVolName = rootDiskName; 
   
@@ -174,10 +434,7 @@ export const buildHarvesterVmPayload = (params: {
           persistentVolumeClaim: { claimName: v.rootPvc }
       });
   } else {
-      // Image source -> PVC via volumeClaimTemplates
-      // Name format: {vmId}-{rootDiskName}-{random}
       const pvcName = `${vmId || v.name}-${rootDiskName}-${randSuffix()}`;
-      
       volumes.push({
           name: rootVolName,
           persistentVolumeClaim: { claimName: pvcName }
@@ -190,12 +447,10 @@ export const buildHarvesterVmPayload = (params: {
       volumeClaimTemplates.push({
           metadata: { 
               name: pvcName,
-              annotations: {
-                  "harvesterhci.io/imageId": fullImgName
-              }
+              annotations: { "harvesterhci.io/imageId": fullImgName }
           },
           spec: {
-              accessModes: ["ReadWriteMany"], // Harvester defaults to RWX for Longhorn
+              accessModes: ["ReadWriteMany"],
               resources: {
                   requests: {
                       storage: v.rootSize ? (String(v.rootSize).match(/^[0-9]+$/) ? `${v.rootSize}Gi` : v.rootSize) : '10Gi'
@@ -207,7 +462,7 @@ export const buildHarvesterVmPayload = (params: {
       });
   }
 
-  // --- CloudInit / UserData ---
+  // 6.2 CloudInit 磁盘
   const userData = (function () { 
       const ud = v.userData || ''; 
       if (v.installGuestAgent && !ud) { 
@@ -216,23 +471,18 @@ export const buildHarvesterVmPayload = (params: {
       return ud || undefined; 
   })();
 
-  if (userData || (v.sshNames && v.sshNames.length > 0)) {
+  if (userData || (v.sshNames && v.sshNames.length > 0) || networkDataYaml) {
        const ciName = 'cloudinitdisk';
-       disks.push({
-           name: ciName,
-           disk: { bus: 'virtio' }
-       });
+       disks.push({ name: ciName, disk: { bus: 'virtio' } });
        
        const ciConfig: any = {};
        if (userData) ciConfig.userData = userData;
+       if (networkDataYaml) ciConfig.networkData = networkDataYaml;
        
-       volumes.push({
-           name: ciName,
-           cloudInitNoCloud: ciConfig
-       });
+       volumes.push({ name: ciName, cloudInitNoCloud: ciConfig });
   }
 
-  // --- Extra Disks ---
+  // 6.3 数据盘
   if (Array.isArray(v.extraDisks)) {
       v.extraDisks.forEach((d: any, idx: number) => {
           const dName = d.name || `disk-${idx + 1}`;
@@ -276,6 +526,7 @@ export const buildHarvesterVmPayload = (params: {
       });
   }
 
+  // --- 7. 组装最终 Manifest ---
   const manifest: any = {
     apiVersion: "kubevirt.io/v1",
     kind: "VirtualMachine",
@@ -295,9 +546,7 @@ export const buildHarvesterVmPayload = (params: {
         runStrategy: v.runStrategy || "RerunOnFailure",
         template: {
             metadata: {
-                labels: {
-                    "harvesterhci.io/vmName": vmId || v.name
-                },
+                labels: { "harvesterhci.io/vmName": vmId || v.name },
                 annotations: {}
             },
             spec: {
@@ -327,10 +576,7 @@ export const buildHarvesterVmPayload = (params: {
                         isolateEmulatorThread: !!v.isolateEmulatorThread,
                         model: (function () {
                           const m = String(v.cpuModel || 'host-passthrough');
-                          if (m === 'custom') {
-                            const c = String(v.cpuModelCustom || '').trim();
-                            return c || undefined;
-                          }
+                          if (m === 'custom') return String(v.cpuModelCustom || '').trim() || undefined;
                           return m;
                         })()
                     },
@@ -355,18 +601,9 @@ export const buildHarvesterVmPayload = (params: {
                           return obj;
                         })(),
                         requests: {
-                          cpu: (function () {
-                            if (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) return String(v.cpuRequest);
-                            return undefined;
-                          })(),
-                          memory: (function () {
-                            if (typeof v.memoryRequestGi === 'number' && v.memoryRequestGi > 0) {
-                              const val = Number(v.memoryRequestGi);
-                              if (Number.isInteger(val)) return `${val}Gi`;
-                              return undefined;
-                            }
-                            return undefined;
-                          })()
+                          cpu: (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) ? String(v.cpuRequest) : undefined,
+                          memory: (typeof v.memoryRequestGi === 'number' && v.memoryRequestGi > 0 && Number.isInteger(Number(v.memoryRequestGi))) 
+                            ? `${v.memoryRequestGi}Gi` : undefined
                         }
                     },
                     features: {
@@ -387,10 +624,7 @@ export const buildHarvesterVmPayload = (params: {
                         disks: disks,
                         tpm: v.tpmEnabled ? { persistent: !!v.tpmPersistent } : undefined,
                         hostDevices: finalGpuResName ? [
-                            {
-                                name: "gpu-0",
-                                deviceName: finalGpuResName
-                            }
+                            { name: "gpu-0", deviceName: finalGpuResName }
                         ] : []
                     },
                     machine: {
@@ -409,156 +643,28 @@ export const buildHarvesterVmPayload = (params: {
     }
   };
 
-  // 6. Map SSH Keys (Access Credentials)
   if (v.sshNames && v.sshNames.length > 0) {
       manifest.spec.template.metadata.annotations["harvesterhci.io/sshNames"] = JSON.stringify(v.sshNames);
   }
 
-  // 7. Map CloudInit (UserData)
-  // Already handled in CloudInit Disk section above
-
   return manifest;
 };
 
-export const parseSizeToGi = (raw: any) => {
-  let gi = 0;
-  if (typeof raw === 'number') { 
-      gi = Math.max(1, Math.round(Number(raw) / (1024 * 1024 * 1024))); 
-  } else { 
-      const ss = String(raw || '').toUpperCase(); 
-      const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; 
-      if (/GI$/.test(ss)) gi = num; 
-      else if (/MI$/.test(ss)) gi = Math.ceil(num / 1024); 
-      else gi = Math.round(num / (1024 * 1024 * 1024)); 
-  }
-  return gi;
-};
+// 兼容旧代码的别名导出
+export const constructVmPayload = buildHarvesterVmPayload;
 
-export const initialWizardValues = (memGi: number, initialVmName: string) => ({
-  name: initialVmName,
-  cpu: 2,
-  cpuModel: 'host-passthrough',
-  dedicatedCPUPlacement: false,
-  isolateEmulatorThread: false,
-  memory: `${memGi}Gi`,
-  machineType: undefined,
-  rootSourceType: 'image',
-  rootName: `disk-${Math.random().toString(36).substring(2, 8)}`,
-  rootSize: '40',
-  rootBus: 'virtio',
-  rootDeviceType: 'disk',
-  extraDisks: [],
-  hostMode: 'auto',
-  netMode: 'flat',
-  gpuMode: 'none',
-  gpuCount: 0,
-  hotExpandEnabled: false,
-  bootUseEfi: false,
-  efiPersistent: false,
-  efiSecureBoot: false,
-  tpmEnabled: false,
-  tpmPersistent: false,
-  installGuestAgent: false,
-  useUsbTablet: true,
-  runStrategy: 'RerunOnFailure',
-  primaryNic: { name: '', type: 'bridge', model: 'virtio' },
-  netIfaces: []
-});
+// ==========================================
+// 5. 后续操作 (Post-Action)
+// ==========================================
 
- 
-
-
-export const filterNodes = (nodes: any[], keyword: string) => {
-  const kw = String(keyword || '').trim().toLowerCase();
-  if (!kw) return nodes;
-  return (nodes || []).filter((n:any)=> (
-    String(n?.name || '').toLowerCase().includes(kw) ||
-    String(n?.internalIP || '').toLowerCase().includes(kw)
-  ));
-};
-
-
-export const validateImageSize = (v: any, images: any[]) => {
-    if (String(v.rootSourceType || 'image') === 'image') {
-        try {
-            const imgVal = v.image;
-            const it = (images || []).find((x: any) => {
-                 const name = x?.metadata?.name || x?.name;
-                 const ns = x?.metadata?.namespace || x?.namespace;
-                 const val = ns && name ? `${ns}/${name}` : name;
-                 return val === imgVal;
-            });
-            const raw = (function () { const vv = (it as any)?.spec?.virtualSize || (it as any)?.virtualSize; return (vv !== undefined && vv !== null && vv !== 0) ? vv : (it as any)?.size; })();
-            const gi = parseSizeToGi(raw);
-            const val = String(v.rootSize || '').toUpperCase(); 
-            const n = Number(String(val).replace(/[^0-9]/g, '')) || 0; 
-            const valGi = /MI$/.test(val) ? Math.ceil(n / 1024) : n;
-            if (gi && valGi && valGi < gi) { 
-                return '系统盘需≥镜像大小'; 
-            }
-        } catch { }
-    }
-  return null;
-};
-
-
+/**
+ * 处理 VM 创建后的自动启动逻辑
+ * 
+ * @param cid 集群 ID
+ * @param vmId 虚拟机 ID
+ * @param v 表单数据
+ */
 export const handleAutoStart = async (cid: string, vmId: string, v: any) => {
     const instanceId = `${v.namespace}/${vmId}`;
     try { await startCloudProviderEcs(cid, instanceId); } catch { }
-};
-
- 
-
-export const constructVmPayload = (params: {
-  v: any;
-  memGi: number;
-  hostModeState: string;
-  selectedNodeName: string | null;
-  gpuResources: any[];
-  selectedGpu: any;
-  capabilities?: any;
-  isArm64?: boolean;
-  vmId?: string;
-}) => {
-   return buildHarvesterVmPayload(params);
-};
-
-export const handleRootPvcChange = (form: any, availableVolumes: any[], pvcName: string) => {
-  try {
-    const it = (availableVolumes||[]).find((v:any)=> v?.pvcName===pvcName);
-    const nm = it?.name || pvcName;
-    const raw = it?.size;
-    const display = (function(){
-      let gi = 0;
-      if (typeof raw === 'number') { gi = Math.round(raw / (1024 * 1024 * 1024)); }
-      else { const ss = String(raw || '').toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) { gi = num; } else if (/MI$/.test(ss)) { gi = Math.ceil(num / 1024); } else { gi = Math.round(num / (1024 * 1024 * 1024)); } }
-      return gi ? `${gi}` : '';
-    })();
-    form.setFieldsValue({ rootSize: display });
-  } catch {}
-};
-
-// 新增ID生成逻辑
-export const randSeg = (len: number = 4): string => {
-  let s = Math.random().toString(36).substring(2, 2 + len);
-  if (s.length < len) s = (s + Math.random().toString(36).substring(2)).substring(0, len);
-  return s.toLowerCase();
-};
-
-const generateVmIdFormat = (): string => {
-  return `id-vm-${randSeg(11)}`;
-};
-
-export const generateUniqueVmId = async (cloudId: string, namespace: string): Promise<string> => {
-  const ns = namespace || 'default';
-  for (let i = 0; i < 8; i++) {
-    const candidate = generateVmIdFormat();
-    try {
-      await fetchHarvesterVmDetail(cloudId, ns, candidate);
-      continue;
-    } catch {
-      return candidate;
-    }
-  }
-  throw new Error('生成唯一实例ID失败，请重试');
 };

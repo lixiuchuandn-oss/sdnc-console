@@ -23,14 +23,12 @@ export const isSystemNamespace = (name: string): boolean => {
 
 export const isSystemStorageClass = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
-  // 过滤系统前缀
-  if (n.includes('harvester-') || n.includes('longhorn-')) return true;
+// 过滤特定的存储类
+  if (['vmstate-persistence', 'longhorn-static', 'harvester-longhorn'].includes(n)) return true;
   
-  // 过滤特定的存储类
-  if (['vmstate-persistence', 'longhorn-static'].includes(n)) return true;
-  
-  // 过滤掉镜像相关的存储类
-  if (n.includes('image')) return true;
+  // 过滤掉镜像相关的存储类（使用前缀匹配，避免误过滤用户自定义的存储类）
+  if (n.startsWith('image-')) return true;
+  if (n.startsWith('longhorn-image-')) return true;
   
   return false;
 };

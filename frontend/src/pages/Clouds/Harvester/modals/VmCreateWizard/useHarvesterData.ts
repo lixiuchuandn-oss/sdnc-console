@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { message } from 'antd';
 import {
   fetchClouds
-} from '../../../../services/api';
+} from '../../../../../services/api';
 import {
   fetchHarvesterImages,
   fetchHarvesterNads,
@@ -15,7 +15,7 @@ import {
   fetchHarvesterSshKeys,
   fetchKubeOvnSubnets,
   fetchKubeOvnVpcs
-} from '../../../../services/harvesterApi';
+} from '../../../../../services/harvesterApi';
 
 import { parseSizeToGi } from './VmWizardUtils';
 
@@ -235,9 +235,15 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   const nadOptions = useMemo(() => (nads || []).map((x: any) => {
     const name = x?.metadata?.name || x?.name;
     const ns = x?.metadata?.namespace || x?.namespace;
+    let type = '' as any; let vlan: any = undefined;
+    try { const cfg = JSON.parse(x?.spec?.config || '{}'); type = String(cfg?.type || '').toLowerCase(); vlan = cfg?.vlan; } catch {}
+    const tag = type || '-';
+    const labelBase = `${name || '-'} (${ns || '-'})`;
+    const label = vlan ? `${labelBase} · ${tag} · VLAN ${vlan}` : `${labelBase} · ${tag}`;
     return {
-      label: `${name || '-'} (${ns || '-'})`,
-      value: ns && name ? `${ns}/${name}` : (name || '-')
+      label,
+      value: ns && name ? `${ns}/${name}` : (name || '-'),
+      _type: tag
     };
   }), [nads]);
   

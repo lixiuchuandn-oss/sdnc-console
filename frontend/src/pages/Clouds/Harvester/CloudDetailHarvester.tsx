@@ -10,6 +10,7 @@ import KubeOvnVpcsSection from './kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from './kube-ovn/SubnetsSection';
 import KubeOvnPublicNetworksSection from './kube-ovn/PubnetSection';
 import GpusSection from './sections/GpusSection';
+import MigrationsSection from './sections/MigrationsSection';
 import StorageClassesSection from './sections/StorageClassesSection';
 import SnapshotsSection from './sections/SnapshotsSection';
 import BackupsSection from './sections/BackupsSection';
@@ -45,6 +46,9 @@ import LogsConfig from './Monitoring/LogsConfig';
 import LogOutputs from './Monitoring/LogOutputs';
 import LogsFlowConfig from './Monitoring/LogsFlowConfig';
 import LogsOutputConfig from './Monitoring/LogsOutputConfig';
+import MonitoringPrometheusRules from './Monitoring/MonitoringPrometheusRules';
+import MonitoringAlertNotificationPolicy from './Monitoring/MonitoringAlertNotificationPolicy';
+import MonitoringAlertNotificationTargets from './Monitoring/MonitoringAlertNotificationTargets';
 
 /**
  * 云资源项接口定义
@@ -272,7 +276,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
 
     if (checkPerm('clouds.volumes:read')) {
       loadResource('volumes', () => fetchHarvesterVolumes(cloudId, force), (json) => {
-        const list: any[] = (json as any)?.data?.items || [];
+        const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
         setHarvesterVolumes(Array.isArray(list) ? list : []);
         setRawVolumes(json || null);
       }, force);
@@ -925,6 +929,17 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     {
                       key: 'alert-rules',
                       label: '告警规则',
+                      children: <MonitoringPrometheusRules cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'notification-policy',
+                      label: '告警通知策略',
+                      children: <MonitoringAlertNotificationPolicy cloudId={cloudId} />,
+                    },
+                    {
+                      key: 'notification-targets',
+                      label: '告警通知对象',
+                      children: <MonitoringAlertNotificationTargets cloudId={cloudId} />,
                     },
                   ]}
                 />
@@ -1029,6 +1044,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         <>
                           <VmSection
                             vms={ecs}
+                            volumes={harvesterVolumes}
                             loading={resourceLoading.ecs}
                             namespacesOptions={namespacesOptions}
                             nodesOptions={nodesOptions}
@@ -1047,6 +1063,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                     setHarvesterImages(json?.data?.items || []);
                                   }, true);
                                 }
+                                if (checkPerm('clouds.volumes:read')) {
+                                  loadResource('volumes', () => fetchHarvesterVolumes(cloudId, true), (json) => {
+                                    setHarvesterVolumes(json?.data?.items || []);
+                                  }, true);
+                                }
                                 loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, true), (json) => {
                                   setHarvesterNamespaces(json?.data?.items || []);
                                 }, true);
@@ -1055,10 +1076,47 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             onOpenReconfigure={(r:any)=> { setVmReconfTarget(r); setVmReconfOpen(true); }}
                             onStart={async (iid:string)=>{ 
                               try { 
+                                // Pre-flight check for resizing volumes to avoid 500 error
+                                const vm = ecs.find((v: any) => {
+                                  const vId = v?.metadata?.name && v?.metadata?.namespace ? `${v.metadata.namespace}/${v.metadata.name}` : (v?.InstanceId || v?.id);
+                                  return vId === iid;
+                                });
+                                
+                                if (vm && harvesterVolumes.length > 0) {
+                                  const vmVolumes = vm?.spec?.template?.spec?.volumes || [];
+                                  const pvcNames = vmVolumes.map((vol: any) => vol?.persistentVolumeClaim?.claimName).filter(Boolean);
+                                  
+                                  if (pvcNames.length > 0) {
+                                    const vmNamespace = vm?.metadata?.namespace || vm?.namespace;
+                                    const resizingPvc = harvesterVolumes.find((pvc: any) => {
+                                      const pvcName = pvc?.metadata?.name;
+                                      const pvcNs = pvc?.metadata?.namespace;
+                                      if (pvcNs !== vmNamespace || !pvcNames.includes(pvcName)) return false;
+                                      
+                                      const conditions = pvc?.status?.conditions || [];
+                                      // Only block if 'Resizing' is true (Backend operation). 
+                                      // 'FileSystemResizePending' is safe to start (User needs to resize FS manually).
+                                      return conditions.some((c: any) => c.type === 'Resizing' && c.status === 'True');
+                                    });
+                                    
+                                    if (resizingPvc) {
+                                       message.error(`无法启动: 关联的磁盘 ${resizingPvc.metadata.name} 正在进行扩容操作 (Resizing)。请等待扩容完成。`);
+                                       return;
+                                    }
+                                  }
+                                }
+
                                 await startCloudProviderEcs(cloudId, iid); 
                                 message.success('启动成功'); 
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
-                              } catch(e:any){ message.error(e?.message||'启动失败'); } 
+                              } catch(e:any){ 
+                                const errMsg = e?.message || String(e);
+                                if (errMsg.includes('resizing volume') || errMsg.includes('Resizing')) {
+                                  message.warning('启动被拒绝: 关联磁盘正在进行扩容操作，请等待扩容完成后再试。');
+                                } else {
+                                  message.error(errMsg || '启动失败'); 
+                                }
+                              } 
                             }}
                             onStop={async (iid:string)=>{ 
                               try { 
@@ -1162,6 +1220,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       key: 'gpu',
                       label: 'GPU',
                       children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={refreshGpu} raw={rawGpu} showLog={showLog} />)
+                    },
+                    {
+                      key: 'migrations',
+                      label: '迁移记录',
+                      children: <MigrationsSection cloudId={cloudId} />
                     }
                   ].filter((i:any) => {
                       if (i.key === 'ecs') return checkPerm('clouds.instances:read');
@@ -1169,6 +1232,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       if (i.key === 'ssh_keys') return checkPerm('clouds.sshkeys:read');
                       if (i.key === 'cloud_inits') return checkPerm('clouds.cloudinits:read');
                       if (i.key === 'gpu') return checkPerm('clouds.instances:read');
+                      if (i.key === 'migrations') return checkPerm('clouds.instances:read');
                       return true;
                   })}
                 />

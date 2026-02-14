@@ -10,6 +10,7 @@ export {
   createHarvesterVM,
   updateHarvesterVMSpec,
   getHarvesterVmVncUrl,
+  syncVmVolumeSize,
 } from './vm';
 export {
   harvesterStartVM,
@@ -22,6 +23,8 @@ export {
   harvesterAddVolumeToVM,
   harvesterRemoveVolumeFromVM,
   harvesterAddVolumeToVMDirect,
+  harvesterMigrateVM,
+  harvesterAbortMigration,
 } from './lifecycle';
 export {
   listHarvesterNADsStandard,

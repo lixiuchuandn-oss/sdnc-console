@@ -3,6 +3,7 @@ import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
 import { UserSpace } from '../entities/UserSpace';
 import { HarvesterNamespaceInventory } from '../entities/harvester/HarvesterNamespaceInventory';
+import { HarvesterVmInventory } from '../entities/harvester/HarvesterVmInventory';
 
 
 import { syncHarvesterNamespaces } from '../services/clouds/harvester/syncInventory';
@@ -52,6 +53,9 @@ import {
   getHarvesterCapabilities,
   listHarvesterSnapshotClassesRaw,
   harvesterHealthCheck,
+  syncVmVolumeSize,
+  harvesterMigrateVM,
+  harvesterAbortMigration,
 } from '../services/clouds/harvester/client';
 import { getJsonOnce, requestJson, watchJsonStream } from '../services/clouds/harvester/utils';
 
@@ -81,6 +85,8 @@ const isNamespaceAllowed = (allowedNamespacesStr: string | undefined, targetName
  * - Write Operations: Proxy requests to Harvester API -> Response
  * - No dependency on *Inventory entities.
  */
+
+// Direct Connection mode: 不使用本地缓存或 Inventory
 
 const checkTenantAccess = async (req: any, cloudId: string): Promise<{ allowed: boolean; namespace?: string; isTenant?: boolean }> => {
     // Check if user is a tenant user (excluding device roles)
@@ -2223,6 +2229,64 @@ router.get(
     }
   );
 
+  router.patch(
+    '/:id/resources/harvester/vms/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+        try {
+            const { id, namespace, name } = req.params;
+            const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+            if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+            if (isTenant) {
+                 const p = (req.user as any)?.permissions || [];
+                 if (!p.includes('clouds.console:write')) return res.status(403).json({ message: 'Permission denied: Requires clouds.console:write' });
+            }
+
+            const cloud = await fetchCloudOr404(id, res);
+            if (!cloud) return;
+            if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next)) return;
+            const insecure = !!(cloud.config as any)?.ignoreTls;
+
+            if (tenantNamespace) {
+                if (!isNamespaceAllowed(tenantNamespace, namespace)) {
+                     return res.status(403).json({ message: 'Access denied to this namespace' });
+                }
+            }
+
+            const data = await updateHarvesterVMSpec(
+                { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+                namespace,
+                name,
+                req.body
+            );
+
+            // Update local inventory cache to reflect changes immediately
+            try {
+                const repo = AppDataSource.getRepository(HarvesterVmInventory);
+                await repo.update(
+                    { cloudId: id, uid: data.metadata.uid },
+                    {
+                        name: data.metadata?.name,
+                        namespace: data.metadata?.namespace,
+                        running: data.spec?.running,
+                        runStrategy: data.spec?.runStrategy,
+                        template: data.spec?.template,
+                        labels: data.metadata?.labels,
+                        annotations: data.metadata?.annotations,
+                        rawData: data
+                    }
+                );
+            } catch (ignore) {
+                console.warn('[HarvesterDirect] Failed to update local cache:', ignore);
+            }
+
+            res.json({ message: '更新成功', data });
+        } catch (error: any) {
+            res.status(500).json({ message: '更新实例失败', error: error.body || error.message });
+        }
+    }
+  );
+
   router.post(
     '/:id/resources/harvester/vms/:namespace/:name/update-spec',
     checkAdminPermission,
@@ -2254,6 +2318,27 @@ router.get(
                 name,
                 req.body
             );
+
+            // Update local inventory cache to reflect changes immediately
+            try {
+                const repo = AppDataSource.getRepository(HarvesterVmInventory);
+                await repo.update(
+                    { cloudId: id, uid: data.metadata.uid },
+                    {
+                        name: data.metadata?.name,
+                        namespace: data.metadata?.namespace,
+                        running: data.spec?.running,
+                        runStrategy: data.spec?.runStrategy,
+                        template: data.spec?.template,
+                        labels: data.metadata?.labels,
+                        annotations: data.metadata?.annotations,
+                        rawData: data
+                    }
+                );
+            } catch (ignore) {
+                console.warn('[HarvesterDirect] Failed to update local cache:', ignore);
+            }
+
             res.json({ message: '更新成功', data });
         } catch (error: any) {
             res.status(500).json({ message: '更新实例失败', error: error.body || error.message });
@@ -2708,6 +2793,38 @@ router.get(
                 name,
                 req.body
             );
+
+            // Sync VM annotation if this volume is attached to a VM (and size was updated)
+            // We pass null for vmName to let it discover via PVC name
+            const sizeStr = (function () {
+                const raw =
+                typeof (req.body as any)?.size === 'number'
+                    ? String((req.body as any).size)
+                    : String((req.body as any)?.size || '').trim();
+                if (raw) {
+                    const hasUnit = /[a-zA-Z]/.test(raw);
+                    if (hasUnit) return raw;
+                    const n = Number(raw);
+                    if (!isNaN(n) && n > 0) return `${Math.round(n)}Gi`;
+                }
+                const g = Number((req.body as any)?.sizeGi || 0);
+                return g > 0 ? `${g}Gi` : undefined;
+            })();
+
+            if (sizeStr) {
+                try {
+                    await syncVmVolumeSize(
+                        { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+                        namespace,
+                        null, 
+                        name, 
+                        sizeStr
+                    );
+                } catch (e) {
+                    console.warn(`[HarvesterDirect] Failed to sync VM volume size for PVC ${name}`, e);
+                }
+            }
+
             res.json({ message: '更新卷成功', data });
         } catch (error: any) {
             res.status(500).json({ message: '更新卷失败', error: error.body || error.message });
@@ -3109,4 +3226,136 @@ router.get(
     }
   );
 
+  // ==================================================================================
+  // List VM Migrations (VirtualMachineInstanceMigration)
+  // ==================================================================================
+  router.get(
+    '/:id/resources/harvester/migrations-direct',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { force } = req.query;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+        
+        // 优先尝试集群级获取；若超时或失败，则按命名空间降级查询以避免超时
+        const clusterUrl = `${origin}/apis/kubevirt.io/v1/virtualmachineinstancemigrations`;
+        let items: any[] = [];
+        let clusterErr: any = null;
+        try {
+          const raw = await getJsonOnce(clusterUrl, cloud.secretKey || '', insecure);
+          items = Array.isArray(raw?.items) ? raw.items : [];
+        } catch (e: any) {
+          clusterErr = e;
+          console.warn(`[Migrations] Cluster-wide list failed: ${e?.message || e}`);
+        }
+
+        // 降级策略：租户按允许的命名空间精确查询；管理员按已知命名空间列表分批查询
+        if (items.length === 0 && clusterErr) {
+          const nsList: string[] = [];
+          if (isTenant || tenantNamespace) {
+            const allowedNs = (tenantNamespace || '').split(',').map(s => s.trim()).filter(Boolean);
+            nsList.push(...allowedNs);
+          } else {
+            const repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
+            const dbItems = await repo.find({ where: { cloudId: id } });
+            nsList.push(...dbItems.map(i => String(i?.name || i?.rawData?.metadata?.name || '').trim()).filter(Boolean));
+          }
+          // 去重与过滤
+          const uniqueNs = Array.from(new Set(nsList)).filter(Boolean);
+          // 按命名空间逐个拉取，避免超大聚合超时
+          for (const ns of uniqueNs) {
+            const nsUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachineinstancemigrations`;
+            try {
+              const rawNs = await getJsonOnce(nsUrl, cloud.secretKey || '', insecure, true);
+              const arr = Array.isArray(rawNs?.items) ? rawNs.items : [];
+              if (arr.length > 0) items.push(...arr);
+            } catch (eNs: any) {
+              // 忽略单个命名空间错误，继续其它命名空间
+              console.warn(`[Migrations] Namespace list failed for ${ns}: ${eNs?.message || eNs}`);
+            }
+          }
+        }
+
+        // 最终租户过滤（双重保障）
+        if (isTenant || tenantNamespace) {
+          const allowedNs = (tenantNamespace || '').split(',').map(s => s.trim()).filter(Boolean);
+          if (allowedNs.length > 0) {
+            items = items.filter((m: any) => allowedNs.includes(String(m?.metadata?.namespace || '').trim()));
+          } else {
+            items = [];
+          }
+        }
+        
+        res.json({ message: '查询成功', data: { items } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询迁移记录失败', error: error.body || error.message || error });
+      }
+    }
+  );
+ 
+  // ==================================================================================
+  // VM Migration
+  // ==================================================================================
+  router.post('/:id/resources/ecs/:instanceId/migrate', async (req: any, res: Response) => {
+    try {
+      const { id, instanceId } = req.params;
+      const { allowed, namespace, isTenant } = await checkTenantAccess(req, id);
+      if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
+      const cloud = await fetchCloudOr404(id, res);
+      if (!cloud) return;
+      if (!ensureProvider(cloud, 'harvester', res, 'Provider mismatch')) return;
+
+      const { resolvedId, error } = await resolveTenantVmId(namespace, instanceId, cloud, isTenant);
+      if (error) return res.status(error.status).json({ message: error.message });
+
+      const result = await harvesterMigrateVM(
+        { endpoint: cloud.endpoint || cloud.config.endpoint, token: cloud.secretKey || cloud.config.token, insecure: !!(cloud.config as any)?.ignoreTls || !!(cloud.config as any)?.insecure },
+        resolvedId,
+        req.body.targetNode,
+      );
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  router.post('/:id/resources/ecs/:instanceId/abort-migration', async (req: any, res: Response) => {
+    try {
+      const { id, instanceId } = req.params;
+      const { allowed, namespace, isTenant } = await checkTenantAccess(req, id);
+      if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
+      const cloud = await fetchCloudOr404(id, res);
+      if (!cloud) return;
+      if (!ensureProvider(cloud, 'harvester', res, 'Provider mismatch')) return;
+
+      const { resolvedId, error } = await resolveTenantVmId(namespace, instanceId, cloud, isTenant);
+      if (error) return res.status(error.status).json({ message: error.message });
+
+      const result = await harvesterAbortMigration(
+        { endpoint: cloud.endpoint || cloud.config.endpoint, token: cloud.secretKey || cloud.config.token, insecure: !!(cloud.config as any)?.ignoreTls || !!(cloud.config as any)?.insecure },
+        resolvedId,
+      );
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
 };

@@ -4,7 +4,7 @@ import { SafetyCertificateOutlined, GlobalOutlined, DesktopOutlined, CheckCircle
 import { fetchAllInstances, createService, updateService, fetchClouds, fetchCloudProviderEcs } from '../../../services/api';
 import { listSecurityDomains } from '../../../services/securityDomainApi';
 import { WizardModal } from '../../../components/WizardShell';
-import '../../../pages/Clouds/Harvester/modals/InstanceWizard.css';
+import '../../../pages/Clouds/Harvester/modals/VmCreateWizard/InstanceWizard.css';
 
 interface AppWizardProps {
   open: boolean;

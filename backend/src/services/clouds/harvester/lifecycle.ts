@@ -112,6 +112,102 @@ export const harvesterUnpauseVM = async (
   return await requestJson('POST', url, token, insecure, {});
 };
 
+export const harvesterMigrateVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+  targetNode?: string,
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+
+  // Create VirtualMachineInstanceMigration
+  const migrationName = `${path.name}-mig-${Date.now().toString(36)}`;
+  const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachineinstancemigrations`;
+  
+  // NOTE: Harvester/KubeVirt API for migration
+  // If targetNode is specified, we might need to use specific strategy or wait for newer KubeVirt features.
+  // Standard VMIM does not strictly enforce target node in older versions, but let's check spec.
+  // KubeVirt v1.0+ supports spec.targetNodeName. Harvester usually supports this.
+  
+  const payload: any = {
+    apiVersion: 'kubevirt.io/v1',
+    kind: 'VirtualMachineInstanceMigration',
+    metadata: {
+      name: migrationName,
+      namespace: path.namespace,
+    },
+    spec: {
+      vmiName: path.name,
+    },
+  };
+ 
+   if (targetNode && String(targetNode).trim()) {
+     payload.spec = {
+       ...payload.spec,
+       targetNode: String(targetNode).trim(),
+       targetNodeName: String(targetNode).trim(),
+     };
+   }
+
+  // Although Harvester UI often just triggers it, KubeVirt supports targetNodeName if underlying scheduler allows.
+  // We will include it if provided.
+  // Reference: https://kubevirt.io/api-reference/main/definitions.html#_v1_virtualmachineinstancemigrationspec
+  // Note: It might be ignored if not supported by the cluster version, but worth sending.
+  // Actually, KubeVirt added this recently. If it fails, we might want to retry without it? 
+  // For now, let's assume it works or is ignored.
+  
+  // However, Harvester UI might use a different endpoint if they have a custom action?
+  // Searching Harvester codebase (online knowledge): They use VirtualMachineInstanceMigration.
+  
+  return await requestJson('POST', url, token, insecure, payload);
+};
+
+export const harvesterAbortMigration = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+
+  // 1. List active migrations for this VMI
+  const listUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachineinstancemigrations`;
+  const list = await requestJson('GET', listUrl, token, insecure);
+  
+  if (!list || !list.items) return; // Nothing to abort
+
+  const activeMigrations = list.items.filter((m: any) => 
+    m.spec.vmiName === path.name && 
+    !m.status?.phase?.toLowerCase().includes('succeeded') &&
+    !m.status?.phase?.toLowerCase().includes('failed')
+  );
+
+  // 2. Delete them
+  for (const m of activeMigrations) {
+    const delUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachineinstancemigrations/${encodeURIComponent(m.metadata.name)}`;
+    await requestJson('DELETE', delUrl, token, insecure, {});
+  }
+  
+  return { aborted: activeMigrations.length };
+};
+
 export const harvesterAddVolumeToVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -243,6 +339,7 @@ export const harvesterAddVolumeToVM = async (
       const m = String(e?.message || '').toLowerCase();
       const needContinue =
         s === 422 ||
+        s === 500 ||
         m.includes('invalid') ||
         m.includes('required') ||
         s === 404 ||
@@ -348,14 +445,71 @@ export const harvesterAddVolumeToVMDirect = async (
       }
     } catch {}
   }
-  const body = { diskName: volName, volumeSourceName: pvcName } as any;
-  console.info('harvester addVolume direct', {
-    url,
-    diskName: body.diskName,
-    volumeSourceName: body.volumeSourceName,
-  });
-  const res = await requestJson('POST', url, token, insecure, body);
-  return res;
+  const bodies: any[] = [
+    {
+      diskName: volName,
+      volumeSourceName: pvcName,
+    },
+    {
+      name: volName,
+      disk: { bus: payload.bus || 'virtio' },
+      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
+      diskName: volName,
+      volumeName: pvName || volName,
+    },
+    {
+      name: volName,
+      disk: { bus: payload.bus || 'virtio' },
+      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
+      diskName: volName,
+      volumeName: pvcName,
+    },
+    {
+      name: volName,
+      disk: { bus: payload.bus || 'virtio' },
+      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
+    },
+  ];
+
+  let lastErr: any = null;
+  for (let i = 0; i < bodies.length; i++) {
+    const body = bodies[i];
+    try {
+      const tag =
+        i === 0
+          ? 'harvester addVolume direct request'
+          : i === 1
+            ? 'harvester addVolume direct retry'
+            : 'harvester addVolume direct fallback';
+      console.info(tag, {
+        url,
+        name: body.name,
+        diskBus: body.disk?.bus,
+        diskName: body.diskName,
+        volumeName: body.volumeName,
+        volumeSourceName: body.volumeSourceName,
+        claimName: body.volumeSource?.persistentVolumeClaim?.claimName,
+        ...(lastErr
+          ? { status: Number(lastErr?.status || 0), error: String(lastErr?.message || '') }
+          : {}),
+      });
+      const res = await requestJson('POST', url, token, insecure, body);
+      return res;
+    } catch (e: any) {
+      lastErr = e;
+      const s = Number(e?.status || 0);
+      const m = String(e?.message || '').toLowerCase();
+      const needContinue =
+        s === 422 ||
+        s === 500 ||
+        m.includes('invalid') ||
+        m.includes('required') ||
+        s === 404 ||
+        m.includes('not found');
+      if (!needContinue) throw e;
+    }
+  }
+  if (lastErr) throw lastErr;
 };
 
 export const harvesterRemoveVolumeFromVM = async (

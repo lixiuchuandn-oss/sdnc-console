@@ -163,3 +163,35 @@ export function fetchPrometheusRuleVmCustomRules(cloudId: string, options?: { si
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiGet(`${base(cloudId)}/prometheusrules/vm-custom-rules`, options);
 }
+
+export interface PrometheusRuleItem {
+  id?: string;
+  name?: string;
+  group?: string;
+  severity?: string;
+  state?: string;
+  message?: string;
+  duration?: string;
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  activeAt?: string;
+  value?: string;
+  // New fields from backend normalization
+  datasource?: string;
+  groupName?: string;
+  groupAliasName?: string;
+  aliasName?: string;
+  expression?: string;
+  interval?: string;
+  namespace?: string;
+}
+
+export function fetchPrometheusRules(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet<{ rules: PrometheusRuleItem[] }>(`${base(cloudId)}/prometheusrules?datasource=prometheus`, options);
+}
+
+export function fetchPrometheusRulesGroups(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet<{ rulesGroupMap: Record<string, string> }>(`${base(cloudId)}/prometheusrules-groups?datasource=prometheus`, options);
+}

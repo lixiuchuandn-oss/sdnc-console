@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
-import { fetchHarvesterCapabilities } from '../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { fetchHarvesterCapabilities } from '../../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../../utils/harvesterUtils';
 
 interface StepBasicProps {
   form: any;
