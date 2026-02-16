@@ -28,6 +28,18 @@ import ChangeSecondaryNic from './VmReconfigure/ChangeSecondaryNic';
 import { useVmReconfigure } from './VmReconfigure/useVmReconfigure';
 import { isSystemStorageClass } from '../../../../utils/harvesterUtils';
 
+/**
+ * 组件入参说明：
+ * - open: 模态框是否可见
+ * - cloudId: 云 ID，用于后端请求
+ * - record: 当前 VM 的记录（包含规格、磁盘、网络等信息）
+ * - onClose: 关闭模态框回调
+ * - onOk: 变配成功后的回调（通常用于刷新列表）
+ * - storageClasses: 可选的存储类列表（外部可预加载传入）
+ * - images: 可选的镜像列表
+ * - gpuResources: 可选的 GPU 资源列表
+ * - initialConfigType: 默认选中的变配功能 key
+ */
 type Props = {
   open: boolean;
   cloudId: string;
@@ -45,6 +57,16 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     open, record, onClose
   } = props;
 
+  /**
+   * useVmReconfigure Hook 统一封装了所有与“变配”相关的状态与方法：
+   * - form: Antd Form 实例；
+   * - selectedKey: 当前选中的变配菜单项 key；
+   * - scs/images/gpuResources/nads/vpcs/subnets: 各类下拉资源数据；
+   * - reloadXXX: 对应资源的刷新函数；
+   * - systemDisk/systemDiskSize/systemDiskLoading: 系统盘信息及加载状态；
+   * - getCurrentSpec/getMemoryInGi/isHotPlugEnabledOnVm: 用于计算当前规格与热扩容能力的工具函数；
+   * - handleSubmit: 提交当前选中任务的统一入口。
+   */
   const {
     form,
     selectedKey, setSelectedKey,
@@ -61,12 +83,12 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     isHotPlugEnabledOnVm
   } = useVmReconfigure(props);
 
-  // Watch form values for dynamic UI logic
+  // 监听表单中的 CPU / 内存 / 热扩容开关，用于动态计算按钮文案等
   const cpu = Form.useWatch('cpu', form);
   const memory = Form.useWatch('memory', form);
   const enableHotPlug = Form.useWatch('enableHotPlug', form);
   
-  // Calculate current specs
+  // 计算当前实例规格（作为“变配前”的基准值）
   const { cpu: currentCpuRaw, memory: currentMemoryRaw } = useMemo(() => {
      if (!getCurrentSpec) return { cpu: 0, memory: 0 };
      return getCurrentSpec();
@@ -75,11 +97,19 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   const currentCpu = Number(currentCpuRaw || 0);
   const currentMemory = getMemoryInGi ? getMemoryInGi(currentMemoryRaw) : 0;
   
-  // Calculate initial hotplug status
+  // 当前 VM 是否已启用 CPU / 内存热扩容能力（基于注解/feature 判断）
   const isHotPlugEnabledOnVmVal = useMemo(() => {
     return isHotPlugEnabledOnVm ? isHotPlugEnabledOnVm() : false;
   }, [isHotPlugEnabledOnVm, record]);
 
+  /**
+   * 左侧菜单分组：
+   * - 资源配置：规格、CPU 高级、内存高级、GPU 变更；
+   * - 系统与存储：更换系统镜像、系统盘扩容、添加数据盘；
+   * - 网络配置：主网卡/辅助网卡变更。
+   *
+   * 注意：该菜单结构与文案属于“样式冻结”范围，修改前需与产品确认。
+   */
   const menuGroups = [
     {
       title: '资源配置',
@@ -111,8 +141,15 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   ];
 
   // --- Dynamic Form Rendering (动态表单渲染) ---
+  /**
+   * 根据当前选中的菜单 key 动态渲染右侧内容区域：
+   * - 每个子组件仅关注自己职责范围内的表单字段；
+   * - 通过 props 传入所需的资源列表及刷新函数；
+   * - 保证不同任务之间的表单字段互不干扰。
+   */
   const renderContent = () => {
         
+    // 过滤掉系统存储类，仅允许用户选择业务存储类
     const scOptions = (scs || [])
       .filter((x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name))
       .map((x: any) => ({ value: x?.metadata?.name || x?.name, label: x?.metadata?.name || x?.name }));
@@ -172,7 +209,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
           />
         );
 
-      // --- Network Config ---
+      // --- Network Config (网络配置) ---
       case 'change_primary_nic':
         return (
           <ChangePrimaryNic
@@ -210,26 +247,24 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   // Any changes to the layout, spacing, or visual appearance must be approved by the user.
   // -----------------------------------------------------
 
-  // --- Alert & Footer Logic ---
-  // Split Alert message out of Footer to place it in the body content
+  // --- Alert & Footer Logic (提示信息与底部按钮文案计算) ---
+  // 这里根据 CPU/内存热扩容配置，动态决定按钮文案：普通“提交”或“提交（冷扩容）”
+  // 同时预留 alertMessage 以便在未来增加风险提示文案。
   const { alertMessage, okText } = useMemo(() => {
     let messageNode = null;
     let buttonText = "提交";
 
     if (selectedKey === 'change_spec') {
-        // Scenario 3: Not Enabled in form OR Not Enabled on VM
-        // If enableHotPlug (form) is true, but isHotPlugEnabledOnVmVal (VM) is false, it means we are turning it ON, which requires restart.
-        // So effectively, we only support HotPlug if BOTH are true.
-        const isActuallyHotPlug = enableHotPlug && isHotPlugEnabledOnVmVal;
-
+        // 仅在“变更实例规格”任务下，才需要根据热扩容能力调整按钮文案
+        // 场景：
+        // - 表单未开启热扩容开关 -> 冷扩容；
+        // - VM 本身未启用热扩容能力 -> 冷扩容；
+        // - 虽然表单与 VM 均支持热扩容，但超过 4 倍上限或缩配 -> 强制冷扩容。
         if (!enableHotPlug) {
-           // Case A: Form switch is OFF -> Cold Plug
            buttonText = "提交（冷扩容）";
         } else if (enableHotPlug && !isHotPlugEnabledOnVmVal) {
-           // Case B: Form switch is ON, but VM was OFF -> Cold Plug (Turning it on requires reboot)
            buttonText = "提交（冷扩容）";
         } else {
-           // Case C: Both ON -> Potential Hot Plug (check limits)
            const limitCpu = currentCpu * 4;
            const limitMem = currentMemory * 4;
            
@@ -237,10 +272,8 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
            const isInvalid = (cpu !== undefined && cpu < currentCpu) || (memory !== undefined && memory < currentMemory);
     
            if (isOverLimit || isInvalid) {
-              // Scenario 2: Over limit
               buttonText = "提交（冷扩容）";
            } else {
-              // Scenario 1: Within Range
               buttonText = "提交";
            }
         }
@@ -248,6 +281,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     return { alertMessage: messageNode, okText: buttonText };
   }, [selectedKey, cpu, memory, enableHotPlug, currentCpu, currentMemory, isHotPlugEnabledOnVmVal]);
 
+  // 底部按钮区域，仅保留“取消 + 提交”两种操作
   const footer = (
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <Button onClick={onClose}>取消</Button>

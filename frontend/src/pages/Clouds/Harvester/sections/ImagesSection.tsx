@@ -1,3 +1,12 @@
+/**
+ * Harvester - 镜像 (Image) 列表 Section
+ * 负责展示 Harvester 集群中的虚拟机镜像，支持：
+ * - 关键字、状态过滤
+ * - 批量删除
+ * - 通过 URL 导入镜像
+ * - 通过“Cloudmap 镜像直传工具”在内网直传镜像
+ * - 打开资源详情抽屉查看更完整信息
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Descriptions, Modal, Row, Col, Tabs, Typography, Steps, Alert, Card } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
@@ -9,6 +18,13 @@ import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import { API_BASE_URL } from '../../../../services/api';
 import { deleteHarvesterImage, createHarvesterImage, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
 
+/**
+ * 组件入参说明
+ * - cloudId: 当前云 ID，用于调用 Harvester 镜像相关 API
+ * - images: 镜像列表（可能为原始对象或带 rawData 的包装对象）
+ * - loading: 外层传入的加载状态
+ * - onRefresh: 刷新回调，支持传入 force=true 强制从后端同步
+ */
 type Props = {
   cloudId: string;
   images: any[];
@@ -19,16 +35,21 @@ type Props = {
 const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [typeFilter, setTypeFilter] = useState<string>('');
+  // 创建镜像弹窗状态
   const [creating, setCreating] = useState<boolean>(false);
+  // 批量选择的行 key
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  // 创建表单实例
   const [form] = Form.useForm();
+  // 创建方式 Tab：URL 导入 / 直传工具说明
   const [createTab, setCreateTab] = useState<'url'|'tool'>('url');
   
-  // Storage Classes
+  // 存储类列表，用于 URL 导入时选择目标存储类
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
   const [scLoading, setScLoading] = useState(false);
 
-  // Drawer State
+  // 抽屉状态，用于展示镜像的 Harvester 详情与事件等
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<any>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
@@ -51,6 +72,9 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
     setDrawerOpen(true);
   };
 
+  /**
+   * 将镜像状态英文 key 转为中文描述
+   */
   const cnStatus = (s?: string): string => {
     const k = String(s || '').toLowerCase();
     const m: Record<string, string> = {
@@ -63,6 +87,9 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
     };
     return m[k] || (s || '-')
   };
+  /**
+   * 状态 Badge 渲染：根据状态选择不同颜色和中文文案
+   */
   const statusBadge = (s?: string) => {
     const k = String(s || '').toLowerCase();
     const text = cnStatus(s);
@@ -81,22 +108,50 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
     const gb = n / (1024 * 1024 * 1024);
     return `${gb.toFixed(2)}GB`;
   };
+  const resolveImageKind = (img: any): 'iso' | 'disk' | 'unknown' => {
+    const labels = img?.metadata?.labels || {};
+    const typeLabel = String(labels['harvesterhci.io/image-type'] || '').toLowerCase();
+    if (typeLabel === 'iso') return 'iso';
+    if (['raw_qcow2', 'qcow2', 'raw'].includes(typeLabel)) return 'disk';
+    const diskFormat = String(img?.spec?.diskFormat || img?.diskFormat || '').toLowerCase();
+    if (diskFormat === 'iso') return 'iso';
+    if (['qcow2', 'raw'].includes(diskFormat)) return 'disk';
+    const disp = String(
+      labels['harvesterhci.io/imageDisplayName'] ||
+      img?.metadata?.name ||
+      img?.name ||
+      ''
+    ).toLowerCase();
+    if (/\.(iso)$/.test(disp)) return 'iso';
+    if (/\.(qcow2|img|raw)$/.test(disp)) return 'disk';
+    return 'unknown';
+  };
+
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
     return (Array.isArray(images) ? images : []).filter((r:any) => {
-      const name = String(r?.displayName || r?.spec?.displayName || r?.spec?.name || '').toLowerCase();
+      const name = String(
+        r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || ''
+      ).toLowerCase();
       const id = String(r?.name || r?.metadata?.name || '').toLowerCase();
       if (kw && !(name.includes(kw) || id.includes(kw))) return false;
       const key = String((typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status)) || '').toLowerCase();
       if (st && key !== st) return false;
+      const kind = resolveImageKind(r);
+      if (typeFilter && kind !== typeFilter) return false;
       return true;
     });
-  }, [images, keyword, statusFilter]);
+  }, [images, keyword, statusFilter, typeFilter]);
   const statusOptions = ['imported','pending','downloading','ready','failed','unknown'];
   
+  /**
+   * 安全读取镜像属性的工具方法
+   * 统一封装 name / uid / os / 架构等常用字段的多来源兜底逻辑
+   */
   const SafeRead = {
-    name: (r: any) => r?.spec?.displayName || r?.displayName || r?.metadata?.name || r?.name || '',
+    name: (r: any) =>
+      r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || '-',
     uid: (r: any) => r?.metadata?.uid || r?.id || r?.metadata?.name || r?.name || '',
     os: (r: any) => r?.metadata?.labels?.['harvesterhci.io/os'] || '',
     kernel: (r: any) => '', 
@@ -106,6 +161,11 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
   const getId = (r: any): string => String(r?.name || r?.metadata?.name || '');
   const getNs = (r: any): string => String(r?.namespace || r?.metadata?.namespace || 'default');
 
+  /**
+   * 批量删除已选镜像
+   * - 根据 selectedKeys 从 images 中反查目标对象
+   * - 针对每个镜像调用删除接口，并统计成功/失败数量
+   */
   const batchDelete = async () => {
     if (!Array.isArray(images) || selectedKeys.length === 0) return;
     Modal.confirm({
@@ -134,12 +194,31 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
     });
   };
 
+  /**
+   * 表格列定义
+   * - 显示名称列可点击打开 Harvester 资源详情抽屉
+   * - 操作列包含：详情、下载、删除三种操作
+   */
   const allColumns = useMemo(() => [
-    { title: '显示名称', key: 'display_name', render: (_:any, r:any)=> (
-        <a onClick={() => handleOpenDrawer(r)}>{r?.displayName || r?.spec?.displayName || r?.spec?.name || '-'}</a>
-    ) },
+    { title: '显示名称', key: 'display_name', render: (_:any, r:any)=> {
+        const disp = r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || '-';
+        return (
+          <span
+            className="cell-link"
+            onClick={() => handleOpenDrawer(r)}
+          >
+            {disp}
+          </span>
+        );
+    } },
     { title: '资源名称', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
     { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) },
+    { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
+        const kind = resolveImageKind(r);
+        const text = kind === 'iso' ? 'ISO' : kind === 'disk' ? '云盘镜像' : '未知';
+        const color = kind === 'iso' ? 'blue' : kind === 'disk' ? 'purple' : undefined;
+        return <Tag color={color}>{text}</Tag>;
+    } },
     { title: '虚拟大小', key: 'vsize', render: (_:any, r:any)=> gbText(r?.virtualSize ?? r?.status?.virtualSize) },
     { title: '文件大小', key: 'size', render: (_:any, r:any)=> gbText(r?.size ?? r?.status?.size ?? r?.spec?.size ?? r?.status?.downloadedBytes) },
     { title: '存储类', key: 'sc', render: (_:any, r:any)=> r?.storageClassName || r?.spec?.storageClassName || r?.status?.storageClassName || '-' },
@@ -179,6 +258,11 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
 
   const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
 
+  /**
+   * 处理 URL 导入镜像的创建逻辑
+   * - 使用 StdFormModal 自带的校验流程
+   * - 创建成功后刷新列表并关闭弹窗
+   */
   const handleCreate = async () => {
     try {
       const v = await form.validateFields();
@@ -212,6 +296,19 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
             onChange={(v)=> setStatusFilter(v || '')}
             className="toolbar-filter"
             options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
+          />
+          <Select
+            allowClear
+            placeholder="镜像类型"
+            value={typeFilter || undefined}
+            onChange={(v)=> setTypeFilter(v || '')}
+            className="toolbar-filter"
+            options={[
+              { value: '', label: '全部' },
+              { value: 'iso', label: 'ISO' },
+              { value: 'disk', label: '云盘镜像' },
+              { value: 'unknown', label: '未知' },
+            ]}
           />
         </>
       )}
@@ -380,7 +477,10 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ size: 'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
       />
       <HarvesterResourceDrawer
         open={drawerOpen}

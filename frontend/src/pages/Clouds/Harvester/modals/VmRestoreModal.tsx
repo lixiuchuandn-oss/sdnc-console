@@ -1,7 +1,28 @@
+/**
+ * Harvester - 虚拟机恢复弹窗
+ *
+ * 支持从「备份」或「快照」恢复虚拟机：
+ * - 支持新建 VM 或替换已有 VM；
+ * - 备份恢复时可选是否保留 MAC 地址；
+ * - 针对快照恢复，兼容 Harvester API 对 VirtualMachineRestore 的要求：
+ *   - 一律使用 apiVersion: harvesterhci.io/v1beta1；
+ *   - 快照恢复走 virtualMachineBackupName/Namespace 字段传递来源信息；
+ *   - 替换模式下传 deletionPolicy=retain，避免删除策略冲突。
+ */
 import React, { useEffect, useState, useMemo } from 'react';
 import { Modal, Form, Input, message, Alert, Switch, Radio, Tooltip, Select } from 'antd';
 import { createHarvesterVirtualMachineRestore } from '../../../../services/harvesterApi';
 
+/**
+ * 组件入参
+ * - visible: 弹窗是否可见
+ * - onCancel: 关闭回调
+ * - onSuccess: 创建恢复任务成功回调
+ * - cloudId: 云 ID
+ * - resource: 源备份/快照记录
+ * - resourceType: 资源类型 backup/snapshot
+ * - vms: 当前集群中 VM 列表（用于辅助判断目标 VM 运行状态等）
+ */
 interface Props {
   visible: boolean;
   onCancel: () => void;
@@ -24,14 +45,17 @@ const VmRestoreModal: React.FC<Props> = ({
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [keepMacAddress, setKeepMacAddress] = useState(false);
+  // 监听表单字段，用于控制「新建/替换」模式与目标 VM
   const newVM = Form.useWatch('newVM', form);
   const targetVmName = Form.useWatch('targetVmName', form);
 
+  // 根据当前选择的目标 VM 名称在 vms 列表中查找完整对象
   const targetVmObj = useMemo(() => {
     if (!vms || !targetVmName || !resource) return null;
     return vms.find(v => v.metadata.name === targetVmName && v.metadata.namespace === resource.namespace);
   }, [vms, targetVmName, resource]);
 
+  // 根据资源记录的 targetVm 字段，判断目标 VM 在当前列表中是否存在
   const isTargetVmExists = useMemo(() => {
     if (!resource || !vms || vms.length === 0) return false;
     const originalTargetVmName = resource.targetVm || '';
@@ -42,12 +66,14 @@ const VmRestoreModal: React.FC<Props> = ({
     });
   }, [resource, vms]);
 
+  // 判断目标 VM 是否处于运行/启动中，用于决定是否允许「替换模式」
   const isTargetVmRunning = useMemo(() => {
     if (!targetVmObj) return false;
     const status = targetVmObj.status?.printableStatus || targetVmObj.status?.phase;
     return String(status).toLowerCase() === 'running' || String(status).toLowerCase() === 'starting';
   }, [targetVmObj]);
 
+  // 弹窗打开时重置表单并初始化默认值
   useEffect(() => {
     if (visible && resource) {
       form.resetFields();
@@ -62,6 +88,7 @@ const VmRestoreModal: React.FC<Props> = ({
     }
   }, [visible, resource, form]);
 
+  // 若目标 VM 正在运行或不存在，则强制切回「新建虚拟机」模式
   useEffect(() => {
     if (isTargetVmRunning || !isTargetVmExists) {
       const currentNewVM = form.getFieldValue('newVM');
@@ -71,6 +98,11 @@ const VmRestoreModal: React.FC<Props> = ({
     }
   }, [isTargetVmRunning, isTargetVmExists, form]);
 
+  /**
+   * 提交创建虚拟机恢复任务：
+   * - snapshot 恢复：统一走 backup 风格字段，并根据 newVM/deletionPolicy 区分新建/替换；
+   * - backup 恢复：支持 newVM + keepMacAddress 组合。
+   */
   const handleOk = async () => {
     try {
       const values = await form.validateFields();

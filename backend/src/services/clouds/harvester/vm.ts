@@ -1,10 +1,19 @@
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson, requestOnce } from './utils';
-import { createHarvesterSecret, createHarvesterPVCVolume, deleteHarvesterPVC, updatePVCSpec } from './resources';
+import { createHarvesterSecret, createHarvesterPVCVolume, deleteHarvesterPVC, updatePVCSpec } from './storage';
 
 // ==================================================================================
 // VM List (Direct API - Auto Discovery)
 // ==================================================================================
+/**
+ * 获取 KubeVirt 虚拟机原始列表（VirtualMachine）
+ * 直接访问 KubeVirt / Harvester API，返回未加工的原始 VM 对象数组
+ * - 优先走标准 KubeVirt API
+ * - 若失败则回退到 Harvester/Steve API（带有 links/actions）
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const listKubevirtVMsRaw = async ({
   endpoint,
   token,
@@ -44,6 +53,15 @@ export const listKubevirtVMsRaw = async ({
   return [];
 };
 
+/**
+ * 获取带元数据的 KubeVirt 虚拟机列表
+ * 在原始 VM 列表基础上，补充 resourceVersion 和实际命中的 URL
+ * 便于后续基于 RV 做 Watch / SSE 等增量更新
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 若成功返回 { items, resourceVersion, url }，否则返回 null
+ */
 export const listKubevirtVMsRawWithMeta = async ({
   endpoint,
   token,
@@ -83,6 +101,14 @@ export const listKubevirtVMsRawWithMeta = async ({
 // ==================================================================================
 // VMI List (Direct API - Auto Discovery)
 // ==================================================================================
+/**
+ * 获取 KubeVirt 虚拟机实例列表（VirtualMachineInstance）
+ * 用于获取实时运行状态（节点、网卡 IP、Phase 等）
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 原始 VMI 对象数组
+ */
 export const listKubevirtVMIsRaw = async ({
   endpoint,
   token,
@@ -115,6 +141,14 @@ export const listKubevirtVMIsRaw = async ({
   return [];
 };
 
+/**
+ * 获取带元数据的 KubeVirt 虚拟机实例列表
+ * 在 VMI 列表基础上返回 resourceVersion 和命中的 URL
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 若成功返回 { items, resourceVersion, url }，否则返回 null
+ */
 export const listKubevirtVMIsRawWithMeta = async ({
   endpoint,
   token,
@@ -155,6 +189,17 @@ export const listKubevirtVMIsRawWithMeta = async ({
 // Legacy / Standard Functions (Maintained for compatibility if needed, but simplified)
 // ==================================================================================
 
+/**
+ * 获取 Harvester 标准化虚拟机列表
+ * 基于 KubeVirt VM + VMI 原始列表做一次聚合和字段整理：
+ * - 合并 VM 与 VMI 的网络/IP/节点等实时信息
+ * - 提供兼容旧版 Cloud VM 列表的字段（InstanceId / Status 等）
+ * - 补充 view 链接，便于前端跳转到 Harvester 原生详情
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 标准化后的 VM 列表
+ */
 export const listHarvesterVMsStandard = async ({
   endpoint,
   token,
@@ -289,6 +334,18 @@ export const listHarvesterVMsStandard = async ({
   });
 };
 
+/**
+ * 获取单个 Harvester 虚拟机详情
+ * 通过多组候选 URL 自动探测：
+ * - 直接访问 KubeVirt API
+ * - 通过 gateway / k8s.clusters.local 代理访问
+ * 任一地址命中即返回对应 VM 对象
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @param namespace 命名空间
+ * @param name 虚拟机名称
+ */
 export const getHarvesterVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
@@ -325,6 +382,20 @@ export const getHarvesterVM = async (
   throw new Error(`VM ${namespace}/${name} not found in any candidate paths`);
 };
 
+/**
+ * 创建 Harvester 虚拟机
+ * - 直接向 KubeVirt VirtualMachine API 提交 VM 对象
+ * - 若检测到内联 cloudInitNoCloud（userData/networkData），自动：
+ *   1. 生成一个 CloudInit Secret（Base64 编码）
+ *   2. 将 VM Volume 改为通过 secretRef 引用该 Secret
+ *   3. 创建 Secret 并通过 ownerReferences 绑定到 VM
+ * 这样既兼容 Harvester UI，又避免内联大字段导致的请求体过大
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @param namespace 命名空间
+ * @param payload 完整 VM Spec（可能包含 cloudInit 相关字段）
+ */
 export const createHarvesterVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
@@ -432,6 +503,24 @@ export const createHarvesterVM = async (
   return vm;
 };
 
+/**
+ * 更新 Harvester 虚拟机规格（Spec）
+ * 支持两类能力：
+ * 1）简单规格变更走「最小 PATCH」：
+ *    - 仅修改 CPU/内存/RunStrategy/HotPlug 等基础字段
+ *    - 拼装极小的 merge-patch 以避免大 Spec 导致 ECONNRESET
+ * 2）复杂变更走「读当前 -> 深拷贝 -> 合并 -> PATCH」：
+ *    - 支持 CloudInit Secret 更新（userData/networkData）
+ *    - 支持重装系统盘（更换镜像 + 新建 PVC + 更新 volumeClaimTemplates 注解）
+ *    - 支持仅扩容系统盘（Resize PVC + 同步 VM 注解）
+ *    - 支持 GPU / 网络 / 接口 等高级字段修改
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @param namespace 命名空间
+ * @param name 虚拟机名称
+ * @param spec 变更请求体（由上层服务构造）
+ */
 export const updateHarvesterVMSpec = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
@@ -968,6 +1057,16 @@ export const updateHarvesterVMSpec = async (
   });
 };
 
+/**
+ * 获取 Harvester 虚拟机 VNC 访问 URL
+ * 直接拼接 KubeVirt Subresource vnc 地址，供前端透传给 WebSocket 代理
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @param namespace 命名空间
+ * @param name 虚拟机名称
+ * @returns VNC WebSocket 反向代理使用的 URL 字符串
+ */
 export const getHarvesterVmVncUrl = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
@@ -985,8 +1084,20 @@ export const getHarvesterVmVncUrl = async (
 };
 
 /**
- * Sync VM volumeClaimTemplates annotation when a PVC is resized.
- * This ensures the UI (Image Size column) reflects the new disk size.
+ * 同步 VM volumeClaimTemplates 注解中的磁盘大小
+ * 用于在 PVC 已经扩容后，更新 VM 注解中的模板信息：
+ * - Harvester UI 镜像列表中的 “Image Size” 实际读取的是注解里的模板规格
+ * - 若只扩容 PVC 而不更新注解，重启后 UI 会显示旧容量
+ * 支持两种定位方式：
+ * 1）直接通过 vmName 获取目标 VM
+ * 2）若 vmName 为空，则通过遍历 Namespace 下所有 VM，找到引用该 PVC 的 VM
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @param namespace 命名空间
+ * @param vmName 虚拟机名称（可为空，为空时通过 PVC 反查）
+ * @param pvcName 已扩容的 PVC 名称
+ * @param newSize 新的存储规格（例如 '40Gi'）
  */
 export const syncVmVolumeSize = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,

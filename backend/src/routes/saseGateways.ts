@@ -6,7 +6,7 @@ import { ServiceChain } from '../entities/ServiceChain';
 import { Cloud } from '../entities/Cloud';
 import { SASEDiscoveredAsset } from '../entities/vRouter/SASEDiscoveredAsset';
 import { listCsmElementGroups } from '../services/clouds/csm/client';
-import { vrManagementService } from '../services/vrManagementService';
+import { vrManagementService } from '../services/vrouter/vrManagementService';
 
 export const saseGatewayRoutes = Router();
 

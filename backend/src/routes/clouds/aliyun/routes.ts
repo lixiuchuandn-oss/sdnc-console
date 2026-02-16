@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
-import { AppDataSource } from '../config/database';
-import { Cloud } from '../entities/Cloud';
-import { callAliyunEcs, callAliyunVpc, callAliyunCms, callAliyunSlb } from '../services/aliyun';
+import { AppDataSource } from '../../../config/database';
+import { Cloud } from '../../../entities/Cloud';
+import { callAliyunEcs, callAliyunVpc, callAliyunCms, callAliyunSlb } from '../../../services/clouds/aliyun/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
   const repo = AppDataSource.getRepository(Cloud);

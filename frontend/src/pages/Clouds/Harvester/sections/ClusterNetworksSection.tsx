@@ -105,9 +105,9 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
       key: 'name',
       className: 'cell-link',
       render: (text: string, record: any) => (
-        <a onClick={() => handleOpenDrawer(record, 'detail')}>
+        <span onClick={() => handleOpenDrawer(record, 'detail')}>
           {text}
-        </a>
+        </span>
       ),
       sorter: (a: any, b: any) => (a.metadata?.name || '').localeCompare(b.metadata?.name || ''),
     },
@@ -174,9 +174,13 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
               { label: 'Unknown', value: 'unknown' },
             ]}
           />
-          <a className="toolbar-reset-btn" onClick={() => { setKeyword(''); setStatusFilter(''); }}>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => { setKeyword(''); setStatusFilter(''); }}
+          >
             重置
-          </a>
+          </button>
         </>
       )}
       toolbarRight={(
@@ -194,11 +198,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
         loading={loading}
         pagination={{ 
           size: 'small', 
-          showSizeChanger: true, 
-          defaultPageSize: 10, 
-          pageSizeOptions: ['10', '20', '50', '100'],
           showQuickJumper: false,
-          showTotal: (total) => `共 ${total} 条` 
         }}
         expandable={{ expandedRowRender }}
       />

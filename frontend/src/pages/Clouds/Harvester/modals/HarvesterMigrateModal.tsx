@@ -1,3 +1,12 @@
+/**
+ * Harvester - 虚拟机热迁移弹窗
+ *
+ * 负责发起 Harvester VM 的实时迁移：
+ * - 自动探测当前 VM 所在节点（优先使用 VM.status.nodeName，必要时回查 VMI）；
+ * - 展示当前节点与目标节点的资源对比：CPU / 内存 / 可承载 VM 数量（估算）；
+ * - 支持选择“最佳节点（自动调度）”或指定目标节点；
+ * - 提交时调用 migrateHarvesterVm，携带 instanceId 与目标节点。
+ */
 import React, { useState, useEffect, useMemo } from 'react';
 import { Form, Select, Alert, message, Typography, Table, Space, Row, Col, Input, Progress } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
@@ -5,6 +14,15 @@ import { migrateHarvesterVm, fetchHarvesterResourceByLink, fetchHarvesterNodeDet
 
 const { Text } = Typography;
 
+/**
+ * 组件入参
+ * - open: 弹窗是否打开
+ * - onClose: 关闭回调
+ * - onOk: 迁移任务提交成功回调
+ * - cloudId: 云 ID
+ * - vm: 当前需要迁移的 Harvester VM 对象
+ * - nodes: 当前集群可用于迁移的节点列表
+ */
 interface HarvesterMigrateModalProps {
   open: boolean;
   onClose: () => void;
@@ -34,6 +52,10 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
   const [currentNodePodsCount, setCurrentNodePodsCount] = useState<number | null>(null);
   const [targetNodePodsCount, setTargetNodePodsCount] = useState<number | null>(null);
 
+  // 弹窗打开时：
+  // - 重置表单
+  // - 初始化当前节点（优先取 VM.status.nodeName，如无则再查 VMI）
+  // - 默认选择“最佳节点（自动调度）”
   useEffect(() => {
     if (open) {
       form.resetFields();
@@ -59,6 +81,7 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
     }
   }, [open, form]);
 
+  // 加载当前节点详情（容量/可分配资源）
   useEffect(() => {
     const name = currentNodeName;
     if (!open || !name) {
@@ -77,6 +100,7 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
     return () => { cancelled = true; };
   }, [open, cloudId, currentNodeName]);
 
+  // 加载目标节点详情 + 目标节点上当前 Pod 数量，用于估算可再承载的 VM 数量
   useEffect(() => {
     const name = targetNodeName;
     if (!open || !name) {
@@ -104,6 +128,7 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
     return () => { cancelled = true; };
   }, [open, cloudId, targetNodeName]);
 
+  // 加载当前节点的实时 metrics（CPU/内存使用量）以及当前节点 Pod 数
   useEffect(() => {
     const name = currentNodeName;
     if (!open || !name) {
@@ -132,6 +157,7 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
     return () => { cancelled = true; };
   }, [open, cloudId, currentNodeName]);
 
+  // 加载目标节点的实时 metrics（CPU/内存使用量）
   useEffect(() => {
     const name = targetNodeName;
     if (!open || !name) {
@@ -151,6 +177,11 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
     return () => { cancelled = true; };
   }, [open, cloudId, targetNodeName]);
 
+  /**
+   * 提交迁移任务：
+   * - instanceId 统一使用 namespace/name 形式；
+   * - targetNode 为 "__AUTO__" 时传 undefined 以启用调度。
+   */
   const handleFinish = async (values: any) => {
     try {
       setLoading(true);
@@ -180,17 +211,20 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
   const currentNode = currentNodeName || vm?.status?.nodeName;
 
   // Filter out current node from options if needed, or just show all
+  // 节点下拉选项（排除当前所在节点）
   const nodeOptions = nodes
     .filter(n => n?.metadata?.name !== currentNode)
     .map(n => ({
       label: n?.metadata?.name,
       value: n?.metadata?.name,
     }));
+  // 下拉选项首项为“最佳节点（自动调度）”
   const selectOptions = useMemo(() => ([
     { label: '最佳节点（自动调度）', value: '__AUTO__' },
     ...nodeOptions
   ]), [nodeOptions]);
 
+  // 将节点数组转换为 name -> node 的 Map，便于后续查找
   const nodeMap = useMemo(() => {
     const m: Record<string, any> = {};
     nodes.forEach(n => {

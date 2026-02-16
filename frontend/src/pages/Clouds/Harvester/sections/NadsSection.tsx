@@ -1,3 +1,11 @@
+/**
+ * Harvester - 网络 (NetworkAttachmentDefinition / NAD) 列表 Section
+ * 展示 Harvester / Kube-OVN 中的网络附加定义（NAD），支持：
+ * - 关键字 / 命名空间 / IPAM 类型过滤
+ * - 新建网络（NadCreateModal）
+ * - 查看 Harvester 资源详情
+ * - 非系统命名空间网络的删除操作
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, Modal, Tabs, Space, Descriptions, message } from 'antd';
 import { ReloadOutlined, EyeOutlined } from '@ant-design/icons';
@@ -9,6 +17,13 @@ import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import NadCreateModal from '../modals/NadCreateModal';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
+/**
+ * 组件入参说明
+ * - nads: NAD 列表，可能为 Harvester/K8s 原始对象或平台包装后的对象
+ * - loading: 外层传入的加载状态
+ * - onRefresh: 刷新回调，支持传入 force=true
+ * - cloudId: 当前云 ID，用于调用删除等 API
+ */
 type Props = {
   nads: any[];
   loading: boolean;
@@ -17,25 +32,34 @@ type Props = {
 };
 
 const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }) => {
+  // 过滤条件：关键字 / 命名空间 / IPAM 类型
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [ipamFilter, setIpamFilter] = useState<string>('');
   const [tableColumns, setTableColumns] = useState<any[]>([]);
-  
-  // Detail Drawer State
+
+  // 详情抽屉状态
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
-  // Create Modal State
+  // 创建网络弹窗状态
   const [createVisible, setCreateVisible] = useState(false);
 
+  /**
+   * 打开 HarvesterResourceDrawer，查看 NAD 详情
+   * kind 固定为 NetworkAttachmentDefinition 以兼容事件等功能
+   */
   const handleOpenDrawer = async (record: any, tab: string = 'detail') => {
     setDetailRecord({ ...record, kind: 'NetworkAttachmentDefinition' });
     setDetailActiveTab(tab);
     setDetailVisible(true);
   };
 
+  /**
+   * 删除单个网络
+   * - 系统命名空间会在操作列中被禁用删除按钮
+   */
   const handleDelete = async (record: any) => {
     Modal.confirm({
       title: '确认删除',
@@ -55,7 +79,12 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
     });
   };
 
-  // Robust Data Processing
+  /**
+   * 预处理 NAD 数据
+   * - 解析 name / namespace
+   * - 解析并 JSON 化 config / ipam / vlan / bridge 等字段
+   * - 将结果挂载到以 _ 开头的内部字段上，方便后续渲染与过滤
+   */
   const processedData = useMemo(() => {
     return (Array.isArray(nads) ? nads : []).map(item => {
         // Robust extraction of name and namespace
@@ -101,7 +130,12 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
     });
   }, [nads]);
 
-  // Filtering
+  /**
+   * 过滤逻辑
+   * - 关键字匹配名称 / 命名空间
+   * - 命名空间精确匹配
+   * - IPAM 类型精确匹配
+   */
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const ns = nsFilter.trim().toLowerCase();
@@ -126,15 +160,22 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
     });
   }, [processedData, keyword, nsFilter, ipamFilter]);
 
-  // Options for filters
+  // 命名空间过滤下拉选项
   const nsOptions = useMemo(() => 
     Array.from(new Set(processedData.map(r => r._namespace).filter(Boolean))).sort(),
   [processedData]);
 
+  // IPAM 类型过滤下拉选项
   const ipamOptions = useMemo(() => 
     Array.from(new Set(processedData.map(r => r._ipamType).filter(Boolean))).sort(),
   [processedData]);
 
+  /**
+   * 表格列定义
+   * - 名称列可点击打开详情
+   * - IPAM 类型列用 std-badge 不同颜色区分 dhcp/static/host-local
+   * - 操作列会根据是否系统命名空间禁用删除按钮
+   */
   const allColumns = useMemo(() => [
     { 
       title: '网络名称', 
@@ -245,11 +286,17 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
             className="toolbar-filter"
             options={[{ value: '', label: '全部IPAM' }, ...ipamOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
           />
-          <a className="toolbar-reset-btn" onClick={() => {
-            setKeyword('');
-            setNsFilter('');
-            setIpamFilter('');
-          }}>重置</a>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setNsFilter('');
+              setIpamFilter('');
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={(
@@ -271,7 +318,10 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
-        pagination={{size: 'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
       />
 
       <HarvesterResourceDrawer

@@ -1,3 +1,12 @@
+/**
+ * Harvester - 虚拟机迁移记录列表 Section
+ * 展示通过 Harvester/KubeVirt 发起的虚拟机实时迁移任务，
+ * 支持：
+ * - 自动/手动刷新
+ * - 按关键字过滤任务 ID 与虚拟机名称
+ * - 查看迁移对象的 HarvesterResourceDrawer 详情
+ * - 针对运行中迁移任务执行“取消”操作（需要写权限）
+ */
 import React, { useMemo, useState, useEffect } from 'react';
 import { Table, Badge, Input, Button, Dropdown, message, Space, Popconfirm } from 'antd';
 import { ReloadOutlined, SearchOutlined, DeleteOutlined, EllipsisOutlined, SwapRightOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
@@ -10,6 +19,11 @@ import dayjs from 'dayjs';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import type { ColumnsType } from 'antd/es/table';
 
+/**
+ * SafeMig: 统一处理迁移对象的字段读取，兼容多种数据结构
+ * - 后端可能直接返回 KubeVirt 对象，也可能经过中间层结构化
+ * - 这里封装常用字段：phase、vmName、节点、命名空间、创建时间、任务 ID 等
+ */
 const SafeMig = {
   base: (r: any) => r?.rawData ? r.rawData : r,
   phase: (r: any) => {
@@ -46,20 +60,34 @@ const SafeMig = {
   }
 };
 
+/**
+ * 组件入参说明
+ * - cloudId: 当前云 ID，用于调用迁移相关 API
+ * - onRefresh: 外层可选回调，在列表手动刷新时一并触发
+ */
 interface Props {
   cloudId: string;
   onRefresh?: () => void;
 }
 
 const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
+  // 加载状态与数据源
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
+  // 关键字过滤
   const [keyword, setKeyword] = useState('');
+  // 当前登录用户，用于权限判断
   const { user } = useAuth();
+  // 详情抽屉状态
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
+  /**
+   * 从后端加载迁移记录
+   * - 优先调用通过平台封装的接口
+   * - 若无数据则尝试直接透传调用 Harvester API 作为兜底
+   */
   const loadData = async (force = false) => {
     setLoading(true);
     try {
@@ -81,10 +109,15 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     }
   };
 
+  // 当 cloudId 变化时自动加载一次数据
   useEffect(() => {
     loadData();
   }, [cloudId]);
 
+  /**
+   * 打开 HarvesterResourceDrawer 展示迁移对象及其关联事件
+   * - 自动拼接 view 链接以便 EventsTab 使用
+   */
   const handleOpenDrawer = (record: any, tab: string = 'detail') => {
     const ns = record?.metadata?.namespace;
     const name = record?.metadata?.name;
@@ -99,11 +132,18 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     setDetailVisible(true);
   };
 
+  /**
+   * 手动刷新列表，同时触发上层 onRefresh 回调
+   */
   const handleRefresh = () => {
     loadData(true);
     if (onRefresh) onRefresh();
   };
 
+  /**
+   * 取消正在运行的迁移任务
+   * - 根据 migration 对象中的 namespace + spec.vmiName 拼接 instanceId
+   */
   const handleAbort = async (record: any) => {
     try {
         // Namespace/Name for migration object, but API might need VM name
@@ -123,6 +163,10 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     }
   };
 
+  /**
+   * 关键字过滤
+   * - 匹配迁移任务名称或关联虚拟机名称
+   */
   const filteredData = useMemo(() => {
     if (!keyword) return data;
     const k = keyword.toLowerCase();
@@ -132,6 +176,11 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     );
   }, [data, keyword]);
 
+  /**
+   * 表格列定义
+   * - 状态列根据 Phase 渲染不同颜色的 Badge
+   * - 操作列在任务运行中且用户有写权限时提供“取消”按钮
+   */
   const allColumns: ColumnsType<any> = [
     {
       title: '任务ID',
@@ -234,10 +283,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
         loading={loading}
         pagination={{
           size: 'small',
-          showSizeChanger: true,
-          pageSize: 10,
-          pageSizeOptions: ['10', '20', '50', '100'],
-          showQuickJumper: false
+          showQuickJumper: false,
         }}
       />
       <HarvesterResourceDrawer

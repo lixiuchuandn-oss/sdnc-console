@@ -1,6 +1,9 @@
 import { HarvesterTestParams } from './types';
-import { requestOnce, getJsonOnce, requestJson } from './utils';
+import { requestOnce, getJsonOnce } from './utils';
 
+// 测试 Harvester 控制面是否可达以及 Token 是否有效
+// - 会尝试多个候选入口：原始 endpoint、/v1、/v3
+// - 若任一路径返回 2xx，则认为连通性正常
 export const testHarvesterConnection = async ({
   endpoint,
   token,
@@ -38,6 +41,11 @@ export const testHarvesterConnection = async ({
   }
 };
 
+// 获取 Harvester 节点（Host）标准化列表
+// - 通过 Harvester API 读取节点信息，并补全：
+//   - 内外网 IP（networkIps 或 K8s Node.status.addresses）
+//   - 角色、架构、版本等基础信息
+//   - links.view 供前端跳转 Harvester 详情
 export const listHarvesterNodesStandard = async ({
   endpoint,
   token,
@@ -151,6 +159,9 @@ export const listHarvesterNodesStandard = async ({
   });
 };
 
+// Harvester 健康检查：聚合多条关键探针并返回结果列表
+// - 用于 UI 上的“健康检查”页签展示
+// - 每一项都包含：用途说明、访问 URL、是否通过以及错误信息
 export const harvesterHealthCheck = async ({
   endpoint,
   token,
@@ -476,96 +487,4 @@ export const listHarvesterStorageClassesStandard = async ({
       }
     };
   });
-};
-
-export const createHarvesterNamespace = async (
-    { endpoint, token, insecure = false }: HarvesterTestParams,
-    name: string,
-    annotations?: Record<string, string>
-): Promise<any> => {
-    const base = (endpoint || '').replace(/\/+$/, '');
-    let origin = base;
-    try {
-      const u = new URL(base);
-      origin = `${u.protocol}//${u.host}`;
-    } catch {
-      origin = base.replace(/\/v[0-9].*$/, '');
-    }
-    const url = `${origin}/api/v1/namespaces`;
-    const body = {
-        apiVersion: 'v1',
-        kind: 'Namespace',
-        metadata: {
-            name: name,
-            annotations: annotations,
-        }
-    };
-    return requestJson('POST', url, token, insecure, body);
-};
-
-export const deleteHarvesterNamespace = async (
-    { endpoint, token, insecure = false }: HarvesterTestParams,
-    name: string
-): Promise<any> => {
-    const base = (endpoint || '').replace(/\/+$/, '');
-    let origin = base;
-    try {
-      const u = new URL(base);
-      origin = `${u.protocol}//${u.host}`;
-    } catch {
-      origin = base.replace(/\/v[0-9].*$/, '');
-    }
-    const url = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
-    return requestJson('DELETE', url, token, insecure);
-};
-
-export const listHarvesterNamespacesRaw = async (
-    { endpoint, token, insecure = false }: HarvesterTestParams
-): Promise<any[]> => {
-    const base = (endpoint || '').replace(/\/+$/, '');
-    let origin = base;
-    try {
-      const u = new URL(base);
-      origin = `${u.protocol}//${u.host}`;
-    } catch {
-      origin = base.replace(/\/v[0-9].*$/, '');
-    }
-    
-    // Try Steve API first to get links
-    const url = `${origin}/v1/namespaces`;
-    try {
-        const json = await getJsonOnce(url, token, insecure, true);
-        const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
-        return items;
-    } catch (e) {
-        // Fallback to K8s API
-        console.warn('[listHarvesterNamespacesRaw] Steve API failed, falling back to K8s API:', e);
-        const k8sUrl = `${origin}/api/v1/namespaces`;
-        const json = await getJsonOnce(k8sUrl, token, insecure);
-        const items = Array.isArray(json?.items) ? json.items : [];
-        // Polyfill links if missing
-        return items.map((item: any) => ({
-            ...item,
-            links: item.links || {
-                view: `${origin}/api/v1/namespaces/${item.metadata?.name}`,
-                self: `${origin}/api/v1/namespaces/${item.metadata?.name}`
-            }
-        }));
-    }
-};
-
-export const getHarvesterNamespaceRaw = async (
-    { endpoint, token, insecure = false }: HarvesterTestParams,
-    name: string
-): Promise<any> => {
-    const base = (endpoint || '').replace(/\/+$/, '');
-    let origin = base;
-    try {
-      const u = new URL(base);
-      origin = `${u.protocol}//${u.host}`;
-    } catch {
-      origin = base.replace(/\/v[0-9].*$/, '');
-    }
-    const url = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
-    return getJsonOnce(url, token, insecure);
 };

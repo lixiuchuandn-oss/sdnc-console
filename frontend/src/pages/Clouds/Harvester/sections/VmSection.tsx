@@ -1,12 +1,28 @@
-import React, { useMemo, useState, useEffect } from 'react';
+/**
+ * @file VmSection.tsx
+ * @description Harvester 虚拟机列表主视图
+ *
+ * 职责说明：
+ * - 展示 Harvester 集群中的虚拟机列表（仅业务 Namespace，自动过滤系统 Namespace）
+ * - 提供搜索 / 命名空间 / 节点 / 状态等多种组合筛选能力
+ * - 汇总展示计算、存储、网络、操作系统等关键信息（通过 SafeRead 统一兼容不同数据结构）
+ * - 支持单机操作：查看详情、资源变配、WebVNC、热迁移 / 取消迁移、电源控制、删除等
+ * - 支持批量操作：批量停止、批量重启、批量删除（可选同步删除关联 PVC）
+ * - 内联展示磁盘扩容状态，并提供“扩容指南”弹窗，指导用户在 Guest OS 内完成文件系统扩容
+ *
+ * 集成说明：
+ * - 该组件只关注前端展示与交互，通过 Props 将实际 API 调用 / 状态刷新委托给上层页面
+ * - 使用 utils/harvesterUtils 中的 isSystemNamespace、cnVmStatus 等工具函数
+ */
+
+import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox, Descriptions, Tag, Tabs, Tooltip, Alert } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox, Tag, Tabs, Tooltip, Alert } from 'antd';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { getAuthHeaders } from '../../../../services/api';
-import { fetchHarvesterVmDetail, detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration } from '../../../../services/harvesterApi';
+import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
@@ -88,7 +104,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
   // 扩容指南弹窗状态
   const [resizeGuideVisible, setResizeGuideVisible] = useState(false);
-  const [resizeGuideTarget, setResizeGuideTarget] = useState<any>(null);
 
   // 迁移弹窗状态
   const [migrateModalVisible, setMigrateModalVisible] = useState(false);
@@ -154,7 +169,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
    * 用于处理 Harvester 资源对象结构的复杂性和不确定性
    * 包含一系列读取器方法，支持从不同字段路径 (Annotation, Status, Spec) 获取数据
    */
-  const SafeRead = {
+  const SafeRead = useMemo(() => ({
     // ==========================================
     // 3.1 基本标识 (Identity)
     // ==========================================
@@ -293,16 +308,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
          return fullId === imgId || id === imgId || i.id === imgId;
       });
       if (found) {
-        // 1. 优先使用 harvesterhci.io/image-name 注解
-        const imageName = found.metadata?.annotations?.['harvesterhci.io/image-name'];
+        const labels = found.metadata?.labels || {};
+        const ann = found.metadata?.annotations || {};
+        const labelName = labels['harvesterhci.io/imageDisplayName'];
+        if (labelName) return labelName;
+        const imageName = ann['harvesterhci.io/image-name'];
         if (imageName) return imageName;
-
-        // 2. 其次使用 field.cattle.io/displayName 注解
-        const displayName = found.metadata?.annotations?.['field.cattle.io/displayName'];
+        const displayName = ann['field.cattle.io/displayName'];
         if (displayName) return displayName;
-        
-        // 3. 再次使用 spec.displayName
         if (found.spec?.displayName) return found.spec.displayName;
+        if (found.displayName) return found.displayName;
       }
       return '';
     },
@@ -482,7 +497,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     kernel: (r: any) => r?.vmi?.status?.guestOSInfo?.kernelRelease || '',
     arch: (r: any) => r?.vmi?.status?.guestOSInfo?.architecture || r?.spec?.template?.spec?.architecture || '',
     hostname: (r: any) => r?.spec?.template?.spec?.hostname || '',
-  };
+  }), [namespaces, volumes, images]);
 
   /**
    * 辅助函数：检查卷扩容状态
@@ -577,7 +592,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       if (st && sKey !== st) return false;
       return true;
     });
-  }, [vms, nsValue, nodeValue, keyword, statusFilter]);
+  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead]);
 
   // ==========================================
   // 5. 事件处理 - 单个操作 (Single Actions)
@@ -883,15 +898,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           const results = await Promise.all(targets.map(async (r: any)=> { 
             const iid = getIid(r);
             try { 
-              // Try to resolve namespace/name for better deletion handling if needed
-              let ns = '', name = '';
-              if (iid.includes('/')) {
-                 [ns, name] = iid.split('/');
-              } else {
-                 ns = SafeRead.namespace(r);
-                 name = SafeRead.vmId(r);
-              }
-
               // Use new delete logic if we have ns/name, or fallback to generic onDelete
               // For now, onDelete (from props) handles generic deletion, but we need to ensure it supports PVC deletion
               // The props 'onDelete' signature in Harvester CloudDetail is: (id, deleteVolumes?)
@@ -948,7 +954,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         return 'default';
       })();
       
-      const { isFsPending, isResizing, message: statusMsg } = checkResizeStatus(r);
+      const { isFsPending, isResizing } = checkResizeStatus(r);
       
       return (
         <div>
@@ -964,7 +970,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                       size="small" 
                       className="cell-link"
                       style={{ padding: 0, height: 'auto', fontSize: 12, marginLeft: 6 }}
-                      onClick={(e) => { e.stopPropagation(); setResizeGuideTarget(r); setResizeGuideVisible(true); }}
+                      onClick={(e) => { e.stopPropagation(); setResizeGuideVisible(true); }}
                   >
                       扩容指南
                   </Button>
@@ -1046,7 +1052,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const statusStr = String(SafeRead.status(r)).toLowerCase();
       const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
       const isMigrating = statusStr === 'migrating';
-      const { isResizing, isFsPending, pvcName } = checkResizeStatus(r);
+      const { isResizing, pvcName } = checkResizeStatus(r);
 
       const items: any[] = [
         // 基础操作 - 始终显示
@@ -1090,7 +1096,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
     } },
-  ], [cloudId, navigate, handleShowMetadata, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, volumes, namespaces, images]);
+  ], [handleShowMetadata, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, handleEjectCdrom, handleMigrate, handleAbortMigration]);
 
   // ==========================================
   // 8. 渲染 (Render)
@@ -1173,7 +1179,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         dataSource={filtered}
         loading={loading}
         scroll={{ x: 'max-content' }}
-        pagination={{ size: 'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
       />
       
       {/* 资源详情抽屉 (Metadata) */}

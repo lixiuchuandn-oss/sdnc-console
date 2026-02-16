@@ -1,5 +1,5 @@
-import { AppDataSource } from '../config/database';
-import { VRConfig } from '../entities/vRouter/VRConfig';
+import { AppDataSource } from '../../config/database';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
 
 export interface BindVRPayload {
   vr_uuid: string;
@@ -35,7 +35,6 @@ export const vrManagementService = {
     }
     const vrUniqueId = vr_uuid.trim();
 
-    // Validate VR Type if provided
     let validRole: string | undefined;
     if (vr_type) {
       const normalizedType = String(vr_type).trim().toUpperCase();
@@ -83,10 +82,8 @@ export const vrManagementService = {
 
     await repository.save(record);
 
-    // Sync to VrCacheDevice (New 3-table architecture)
     try {
-      // 动态导入以避免循环依赖或加载顺序问题
-      const { VRCacheDevice } = await import('../entities/vRouter/VRCacheDevice');
+      const { VRCacheDevice } = await import('../../entities/vRouter/VRCacheDevice');
       const deviceRepo = AppDataSource.getRepository(VRCacheDevice);
       let deviceRecord = await deviceRepo.findOne({ where: { uuid: record.uuid } });
       if (!deviceRecord) {
@@ -96,7 +93,6 @@ export const vrManagementService = {
       await deviceRepo.save(deviceRecord);
     } catch (e) {
       console.error('[VR-MGM] Failed to sync to VrCacheDevice', e);
-      // Don't fail the main operation
     }
 
     return {
@@ -110,3 +106,4 @@ export const vrManagementService = {
     };
   },
 };
+

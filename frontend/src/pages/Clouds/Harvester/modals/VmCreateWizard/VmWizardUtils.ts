@@ -1,4 +1,5 @@
 import { startCloudProviderEcs } from '../../../../../services/api';
+import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
 
 /**
  * @file VmWizardUtils.ts
@@ -38,20 +39,40 @@ export const parseSizeToGi = (raw: any) => {
 };
 
 /**
- * 生成唯一 VM ID
- * 确保在同一 Namespace 下不重复 (使用随机后缀)
- * 
- * @param cloudId 云平台 ID
- * @param namespace 命名空间
- * @param baseName 基础名称前缀 (默认为 'vm')
- * @returns {Promise<string>} 生成的唯一 VM ID
+ * 生成 VM ID（vmid，用于 VirtualMachine 的 metadata.name 等字段）
+ *
+ * 约定（统一的“集群实体 ID”规范）：
+ * - 统一格式：id-{实体缩写}-{11位随机字符串}
+ *   - 本函数用于 VM，实体缩写默认为 'vm'
+ *   - 示例：id-vm-3k9z0x8af21
+ *
+ * 作用与解耦：
+ * - vmid 作为集群内“技术 ID”，写入：
+ *   - VM metadata.name
+ *   - spec.template.metadata.labels['harvesterhci.io/vmName']
+ *   - spec.template.spec.hostname
+ * - 用户在表单中输入的“名称”(v.name) 作为展示名，仅写入：
+ *   - annotations['tower.io/alias']（Tower 层面的别名）
+ *   通过此约定，将“集群实体 ID”与“展示名称”解耦。
+ *
+ * 当前生成算法（仅在前端生成，未向后端做唯一性校验）：
+ * - 具体实现委托给 utils/harvesterUtils.generateHarvesterEntityId
+ * - 对 VM 场景，实体缩写默认为 'vm'
+ *
+ * 注意：
+ * - 该算法只是“尽量降低冲突概率”，并不能严格保证在同一 Namespace 内绝对唯一，
+ *   如需强唯一性需配合后端校验或冲突重试机制。
+ * - 生成结果满足 Harvester 名称要求：小写字母、数字、中划线。
+ *
+ * @param cloudId 云平台 ID（当前未参与计算，保留扩展能力）
+ * @param namespace 命名空间（当前未参与计算，保留扩展能力）
+ * @param baseName 实体缩写前缀 (默认为 'vm'，对应 id-vm-... 中的 vm)
+ * @returns {Promise<string>} 生成的 vmid（概率上唯一）
  */
 export const generateUniqueVmId = async (cloudId: string, namespace: string, baseName?: string): Promise<string> => {
-    // 简单实现：使用时间戳随机数
-    // Harvester 名称要求：小写字母、数字、中划线
-    const prefix = baseName || 'vm';
-    const rand = Math.random().toString(36).substring(2, 7);
-    return `${prefix}-${rand}`;
+    // 简单封装：遵循 id-{实体缩写}-{11位随机字符串} 规范，实体缩写默认为 'vm'
+    const entity = baseName || 'vm';
+    return generateHarvesterEntityId(entity);
 };
 
 /**
@@ -79,10 +100,10 @@ export const filterNodes = (nodes: any[], keyword: string) => {
  * 校验并获取选中的 GPU 资源
  * 
  * 根据用户选择的 GPU 配置（资源名或 PCI 地址），在可用的 GPU 资源列表中查找并验证。
- * 处理直通模式下的节点亲和性校验。
+ * 处理直通 / SR-IOV 模式下的节点亲和性校验。
  * 
  * @param params 参数对象
- * @returns { selectedGpu, finalGpuResName, warning }
+ * @returns { selectedGpu, finalGpuResName, warning? } warning 为可选
  */
 export const validateAndGetGpu = (params: {
   v: any; // 表单数据

@@ -58,6 +58,25 @@ const StepDisks: React.FC<StepDisksProps> = ({
     return nm.includes('rwx') || shared === 'true';
   };
 
+  const resolveImageKind = (img: any): 'iso' | 'disk' | 'unknown' => {
+    const labels = img?.metadata?.labels || {};
+    const typeLabel = String(labels['harvesterhci.io/image-type'] || '').toLowerCase();
+    if (typeLabel === 'iso') return 'iso';
+    if (['raw_qcow2', 'qcow2', 'raw'].includes(typeLabel)) return 'disk';
+    const diskFormat = String(img?.spec?.diskFormat || img?.diskFormat || '').toLowerCase();
+    if (diskFormat === 'iso') return 'iso';
+    if (['qcow2', 'raw'].includes(diskFormat)) return 'disk';
+    const disp = String(
+      labels['harvesterhci.io/imageDisplayName'] ||
+      img?.metadata?.name ||
+      img?.name ||
+      ''
+    ).toLowerCase();
+    if (/\.(iso)$/.test(disp)) return 'iso';
+    if (/\.(qcow2|img|raw)$/.test(disp)) return 'disk';
+    return 'unknown';
+  };
+
   return (
     <>
       <Typography.Paragraph type="secondary">配置新建云主机的系统盘和数据盘参数</Typography.Paragraph>
@@ -70,11 +89,14 @@ const StepDisks: React.FC<StepDisksProps> = ({
           <Form.Item label="来源" name="rootSourceType" rules={[{ required: true }]}> 
             <Select 
               options={[
-                { label: 'ISO', value: 'iso' },
                 { label: '镜像', value: 'image' },
+                { label: 'ISO', value: 'iso' },
                 { label: '现有磁盘', value: 'existing' }
               ]} 
               onChange={(v) => { 
+                try {
+                  form.setFieldsValue({ image: undefined, rootPvc: undefined, rootSize: undefined });
+                } catch {}
                 if (v === 'existing') { reloadVolumes(); } else { reloadImages(); } 
                 if (v === 'image' || v === 'iso') { 
                   try { 
@@ -95,14 +117,18 @@ const StepDisks: React.FC<StepDisksProps> = ({
             <Form.Item label="选择镜像" name="image" rules={[{ required: true }]}> 
               <Select
                 options={(images || []).filter((x: any) => {
-                  const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
-                  const disp = String(x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
-                  const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
-                  return !isIso;
+                  const kind = resolveImageKind(x);
+                  return kind !== 'iso';
                 }).map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
                   const ns = x?.metadata?.namespace || x?.namespace;
-                  const disp = x?.spec?.displayName || x?.displayName || name;
+                  const disp =
+                    x?.spec?.displayName ||
+                    x?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
+                    x?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
+                    x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
+                    x?.displayName ||
+                    name;
                   return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
                 })}
                 placeholder="选择镜像"
@@ -119,12 +145,16 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     });
                     const dispName = String(
                       it?.spec?.displayName ||
+                      it?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
                       it?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
                       it?.metadata?.annotations?.['field.cattle.io/displayName'] ||
-                      it?.displayName || it?.name || ''
+                      it?.displayName ||
+                      it?.name ||
+                      ''
                     );
                     const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
-                    const isIso = /\.iso$/i.test(dispName) || dispName.toLowerCase().includes('iso');
+                    const kind = resolveImageKind(it);
+                    const isIso = kind === 'iso';
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
                     form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: isIso ? 'cdrom' : 'disk' });
                     const raw = (it as any)?.virtualSize ?? (it as any)?.size;
@@ -149,14 +179,18 @@ const StepDisks: React.FC<StepDisksProps> = ({
             <Form.Item label="选择 ISO 镜像" name="image" rules={[{ required: true }]}>
               <Select
                 options={(images || []).filter((x: any) => {
-                  const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
-                  const disp = String(x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
-                  const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
-                  return isIso;
+                  const kind = resolveImageKind(x);
+                  return kind === 'iso';
                 }).map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
                   const ns = x?.metadata?.namespace || x?.namespace;
-                  const disp = x?.spec?.displayName || x?.displayName || name;
+                  const disp =
+                    x?.spec?.displayName ||
+                    x?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
+                    x?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
+                    x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
+                    x?.displayName ||
+                    name;
                   return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
                 })}
                 placeholder="选择 ISO 镜像"
@@ -173,9 +207,12 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     });
                     const dispName = String(
                       it?.spec?.displayName ||
+                      it?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
                       it?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
                       it?.metadata?.annotations?.['field.cattle.io/displayName'] ||
-                      it?.displayName || it?.name || ''
+                      it?.displayName ||
+                      it?.name ||
+                      ''
                     );
                     const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');

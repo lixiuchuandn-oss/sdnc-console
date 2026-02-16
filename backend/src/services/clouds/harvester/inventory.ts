@@ -32,6 +32,20 @@ import { HarvesterVlanConfigInventory } from '../../../entities/harvester/Harves
 import { HarvesterMigrationInventory } from '../../../entities/harvester/HarvesterMigrationInventory';
 import { getJsonOnce } from './utils';
 
+// Harvester Inventory 同步层（技术关注点）。
+// 设计约定：
+// - 本文件只做 “远端 Harvester/Kube-OVN 资源 → 本地 Inventory 表” 的同步，不暴露 HTTP 细节。
+// - 细粒度函数：syncHarvesterImages / syncHarvesterVolumes / syncKubeOvnVpcs 等，按资源类型一一对应。
+// - 聚合入口（给定一个 cloud，按领域同步一批资源），用于后台任务或一次性全量同步：
+//   - syncVmInventory(cloud, insecure)：同步 VM/VMI 相关库存
+//   - syncNamespaceInventory(cloud, insecure)：同步命名空间库存
+//   - syncVolumeInventory(cloud, insecure)：同步卷 / 存储类 / 快照 / 备份库存
+//   - syncNetworkInventory(cloud, insecure)：同步 NAD / VPC / Subnet / EIP / FIP / NAT / Ingress 库存
+//   - syncClusterInventory(cloud, insecure)：同步节点、集群网络等 cluster 级库存
+//   - syncPeripheralInventory(cloud, insecure)：同步 GPU / USB / PCI 等外设库存
+//   - syncTemplateInventory(cloud, insecure)：同步模板 / CloudInit / Schedule 备份等配置库存
+// 上层调用方只需选择需要的聚合入口，即可一次性刷新某个领域的本地 DB。
+
 import {
   listHarvesterImagesStandard,
   listHarvesterVolumesStandard,
@@ -66,6 +80,15 @@ import {
   listHarvesterClusterNetworkConfigs,
 } from './client';
 
+/**
+ * 通用库存同步工具：先全量删除，再按映射函数批量插入
+ * - 适用于“快照式”同步场景，每次同步都以远端返回为准
+ * - 使用事务保证同一云账号 cloudId 下的数据要么全部替换成功，要么全部回滚
+ * @param repo TypeORM Repository 实例
+ * @param cloudId 云账号 / Harvester 集群 ID
+ * @param items 远端返回的原始列表
+ * @param mapper 将远端对象映射为库存实体的函数（会自动补充 cloudId）
+ */
 const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (item: any) => any) => {
   if (!items || items.length === 0) {
     // If empty, we might want to clear existing? Or maybe API failed.
@@ -82,7 +105,7 @@ const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (it
   });
 
   // Use transaction to replace
-  await AppDataSource.transaction(async (manager) => {
+  await AppDataSource.transaction(async (manager: any) => {
     // 1. Delete all for this cloud (Simple Full Sync)
     // To be more efficient/safe, we could diff, but for inventory snapshot, replace is common.
     // However, to preserve history or if IDs are stable, upsert is better.
@@ -96,6 +119,12 @@ const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (it
   });
 };
 
+/**
+ * 同步 Harvester 镜像库存
+ * 从 Harvester API 获取 VirtualMachineImage 列表，写入 HarvesterImageInventory 表
+ * @param cloud 云账号配置（包含 endpoint / secretKey）
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
   const items = await listHarvesterImagesStandard({
     endpoint: cloud.endpoint,
@@ -121,6 +150,12 @@ export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Harvester 定时备份策略（ScheduleVMBackup）
+ * 过滤掉已标记删除的资源，仅保存有效计划
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterScheduleVmBackups = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -157,6 +192,13 @@ export const syncHarvesterScheduleVmBackups = async (cloud: any, insecure: boole
   }));
 };
 
+/**
+ * 同步 Harvester ClusterNetwork 与 VlanConfig
+ * - ClusterNetworkInventory：记录逻辑二层网络及其 Uplink 信息
+ * - VlanConfigInventory：记录 VLAN 配置及节点选择器等
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterClusterNetworks = async (cloud: any, insecure: boolean) => {
   const [items, configs] = await Promise.all([
     listHarvesterClusterNetworks({
@@ -225,6 +267,12 @@ export const syncHarvesterClusterNetworks = async (cloud: any, insecure: boolean
   }));
 };
 
+/**
+ * 同步 Harvester 虚拟机模板
+ * 只做简单映射，将模板描述等信息落库
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterTemplates = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -253,6 +301,13 @@ export const syncHarvesterTemplates = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 KubeVirt 虚拟机迁移任务（VirtualMachineInstanceMigration）
+ * 优先尝试集群级列表，失败时按命名空间降级遍历
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 返回同步到的迁移任务数量
+ */
 export const syncKubevirtMigrations = async (cloud: any, insecure: boolean) => {
   const base = (cloud.endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -276,10 +331,14 @@ export const syncKubevirtMigrations = async (cloud: any, insecure: boolean) => {
   if (items.length === 0 && clusterErr) {
     const nsRepo = AppDataSource.getRepository(HarvesterNamespaceInventory);
     const dbItems = await nsRepo.find({ where: { cloudId: cloud.id } });
-    const nsList = dbItems.map(i => String(i?.name || i?.rawData?.metadata?.name || '').trim()).filter(Boolean);
+    const nsList = dbItems
+      .map((i: any) => String(i?.name || i?.rawData?.metadata?.name || '').trim())
+      .filter(Boolean);
     const uniqueNs = Array.from(new Set(nsList)).filter(Boolean);
     for (const ns of uniqueNs) {
-      const nsUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachineinstancemigrations`;
+      const nsUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(
+        String(ns),
+      )}/virtualmachineinstancemigrations`;
       try {
         const rawNs = await getJsonOnce(nsUrl, cloud.secretKey || '', insecure, true);
         const arr = Array.isArray(rawNs?.items) ? rawNs.items : [];
@@ -304,6 +363,13 @@ export const syncKubevirtMigrations = async (cloud: any, insecure: boolean) => {
 
   return items.length;
 };
+
+/**
+ * 同步 Harvester USB 设备库存
+ * 数据来源为 listHarvesterUsbResources 的标准化结果
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterUsbResources = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -334,6 +400,12 @@ export const syncHarvesterUsbResources = async (cloud: any, insecure: boolean) =
   }));
 };
 
+/**
+ * 同步 Harvester 负载均衡器资源
+ * 将 Kube-OVN / Harvester LoadBalancer CRD 落库，包含端口、VPC 等信息
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterLoadBalancers = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -368,6 +440,12 @@ export const syncHarvesterLoadBalancers = async (cloud: any, insecure: boolean) 
   }));
 };
 
+/**
+ * 同步 Harvester 负载均衡 IP 池
+ * 记录 IP 池的 IPAM 策略、选择器等，用于 UI 展示和策略分析
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterLoadBalancerIPPools = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -401,6 +479,13 @@ export const syncHarvesterLoadBalancerIPPools = async (cloud: any, insecure: boo
   }));
 };
 
+/**
+ * 同步 KubeVirt 虚拟机（VM）库存
+ * 使用 listKubevirtVMsRaw 标准化的 VM 列表，写入 HarvesterVmInventory
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 返回同步到的 VM 数量
+ */
 export const syncKubevirtVms = async (cloud: any, insecure: boolean) => {
   const items = await listKubevirtVMsRaw({
     endpoint: cloud.endpoint,
@@ -440,6 +525,13 @@ export const syncKubevirtVms = async (cloud: any, insecure: boolean) => {
   return items.length;
 };
 
+/**
+ * 同步 KubeVirt 虚拟机实例（VMI）库存
+ * 提取运行状态、节点、IP 等实时信息
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 返回当前 Running 状态的 VMI 数量
+ */
 export const syncKubevirtVmis = async (cloud: any, insecure: boolean) => {
   const items = await listKubevirtVMIsRaw({
     endpoint: cloud.endpoint,
@@ -471,6 +563,12 @@ export const syncKubevirtVmis = async (cloud: any, insecure: boolean) => {
   return items.filter((i: any) => i.status?.phase === 'Running').length;
 };
 
+/**
+ * 同步 Harvester 卷（PVC）库存
+ * 使用 listHarvesterVolumesStandard，保留原始 PVC 状态并写入 VolumeInventory
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterVolumes = async (cloud: any, insecure: boolean) => {
   const items = await listHarvesterVolumesStandard({
     endpoint: cloud.endpoint,
@@ -496,6 +594,12 @@ export const syncHarvesterVolumes = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 网络附件定义（NAD，NetworkAttachmentDefinition）
+ * 保存原始 config 和 UI 需要的 view 链接
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterNads = async (cloud: any, insecure: boolean) => {
   const items = await listHarvesterNADsStandard({
     endpoint: cloud.endpoint,
@@ -519,6 +623,12 @@ export const syncHarvesterNads = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Kube-OVN VPC 库存
+ * 主要记录 VPC 名称、状态及关联的子网信息
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncKubeOvnVpcs = async (cloud: any, insecure: boolean) => {
   const items = await listKubeOvnVpcs({
     endpoint: cloud.endpoint,
@@ -542,6 +652,12 @@ export const syncKubeOvnVpcs = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Kube-OVN 子网库存
+ * 记录 VPC、CIDR、网关、协议等网络属性
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncKubeOvnSubnets = async (cloud: any, insecure: boolean) => {
   const items = await listKubeOvnSubnets({
     endpoint: cloud.endpoint,
@@ -568,6 +684,12 @@ export const syncKubeOvnSubnets = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Harvester GPU 库存
+ * 基于 listHarvesterGpuResources 的标准化结果写入 GPUInventory
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterGpus = async (cloud: any, insecure: boolean) => {
   const items = await listHarvesterGpuResources({
     endpoint: cloud.endpoint,
@@ -590,6 +712,12 @@ export const syncHarvesterGpus = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Harvester 命名空间库存
+ * 用于租户可见性和命名空间下拉列表等场景
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterNamespaces = async (cloud: any, insecure: boolean) => {
   const items = await listHarvesterNamespacesRaw({
     endpoint: cloud.endpoint,
@@ -609,6 +737,12 @@ export const syncHarvesterNamespaces = async (cloud: any, insecure: boolean) => 
   }));
 };
 
+/**
+ * 同步 Harvester 节点库存
+ * 记录节点就绪状态、IP、规格等信息，用于资源池视图
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterNodes = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -649,6 +783,12 @@ export const syncHarvesterNodes = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 存储类（StorageClass）库存
+ * 记录 Provisioner、回收策略、是否支持扩容等
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterStorageClasses = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -683,6 +823,12 @@ export const syncHarvesterStorageClasses = async (cloud: any, insecure: boolean)
   }));
 };
 
+/**
+ * 同步 快照库存（VM Snapshot + VolumeSnapshot）
+ * 将两类快照合并后统一写入 HarvesterSnapshotInventory
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
   let vmSnapshots: any[] = [];
   let volumeSnapshots: any[] = [];
@@ -741,6 +887,12 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 虚拟机备份库存
+ * 过滤掉已删除资源，记录源 VM、目标存储等信息
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -776,6 +928,12 @@ export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Harvester SSH 密钥库存
+ * 主要用于在 UI 中快速选择密钥和展示指纹
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterSshKeys = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -807,6 +965,12 @@ export const syncHarvesterSshKeys = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 CloudInit 配置库存
+ * 当前实现保持与 listHarvesterCloudInitsStandard 一致，方便后续扩展
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterCloudInits = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -837,6 +1001,12 @@ export const syncHarvesterCloudInits = async (cloud: any, insecure: boolean) => 
   }));
 };
 
+/**
+ * 同步 K8s Ingress 路由库存
+ * 记录主机名、规则、TLS 配置等，用于南北向流量视图
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterIngresses = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -868,6 +1038,12 @@ export const syncHarvesterIngresses = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Harvester PCI 设备库存
+ * 把 listHarvesterPciDevices 的标准化结果写入数据库，用于硬件资源视图
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterPciDevices = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -900,6 +1076,12 @@ export const syncHarvesterPciDevices = async (cloud: any, insecure: boolean) => 
   }));
 };
 
+/**
+ * 同步 Harvester 能力集（Capabilities）
+ * 记录 Harvester 版本及支持的特性集合，供前端能力开关使用
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterCapabilities = async (cloud: any, insecure: boolean) => {
   let item: any = null;
   try {
@@ -926,6 +1108,12 @@ export const syncHarvesterCapabilities = async (cloud: any, insecure: boolean) =
   }
 };
 
+/**
+ * 同步 Harvester Service 服务库存
+ * 保存 Service 类型、ClusterIP、端口、选择器等，用于服务拓扑展示
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncHarvesterServices = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -959,6 +1147,12 @@ export const syncHarvesterServices = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Kube-OVN EIP 库存
+ * 记录外网 IP、MAC、使用状态等，用于 EIP 管理视图
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncKubeOvnEips = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -992,6 +1186,12 @@ export const syncKubeOvnEips = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Kube-OVN FIP（浮动 IP）库存
+ * 记录绑定的 VPC、EIP、就绪状态等，用于 DNAT/FIP 配置展示
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncKubeOvnFips = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
@@ -1023,6 +1223,12 @@ export const syncKubeOvnFips = async (cloud: any, insecure: boolean) => {
   }));
 };
 
+/**
+ * 同步 Kube-OVN NAT 规则库存（SNAT + DNAT）
+ * 分别拉取 SNAT / DNAT 资源，打上 _type 标记后统一写入表
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
 export const syncKubeOvnNatRules = async (cloud: any, insecure: boolean) => {
   let snatItems: any[] = [];
   let dnatItems: any[] = [];
@@ -1066,4 +1272,53 @@ export const syncKubeOvnNatRules = async (cloud: any, insecure: boolean) => {
     protocol: item.spec?.protocol,
     rawData: item,
   }));
+};
+
+export const syncVmInventory = async (cloud: any, insecure: boolean) => {
+  const vms = await syncKubevirtVms(cloud, insecure);
+  const vmis = await syncKubevirtVmis(cloud, insecure);
+  return { vms, vmis };
+};
+
+export const syncVolumeInventory = async (cloud: any, insecure: boolean) => {
+  await syncHarvesterVolumes(cloud, insecure);
+  await syncHarvesterStorageClasses(cloud, insecure);
+  await syncHarvesterSnapshots(cloud, insecure);
+  await syncHarvesterBackups(cloud, insecure);
+};
+
+export const syncNetworkInventory = async (cloud: any, insecure: boolean) => {
+  await syncHarvesterNads(cloud, insecure);
+  await syncKubeOvnVpcs(cloud, insecure);
+  await syncKubeOvnSubnets(cloud, insecure);
+  await syncKubeOvnEips(cloud, insecure);
+  await syncKubeOvnFips(cloud, insecure);
+  await syncKubeOvnNatRules(cloud, insecure);
+  await syncHarvesterIngresses(cloud, insecure);
+};
+
+export const syncSecurityInventory = async (cloud: any, insecure: boolean) => {
+  await syncHarvesterSshKeys(cloud, insecure);
+};
+
+export const syncNamespaceInventory = async (cloud: any, insecure: boolean) => {
+  await syncHarvesterNamespaces(cloud, insecure);
+};
+
+export const syncClusterInventory = async (cloud: any, insecure: boolean) => {
+  await syncHarvesterNodes(cloud, insecure);
+  await syncHarvesterNamespaces(cloud, insecure);
+  await syncHarvesterClusterNetworks(cloud, insecure);
+};
+
+export const syncPeripheralInventory = async (cloud: any, insecure: boolean) => {
+  await syncHarvesterGpus(cloud, insecure);
+  await syncHarvesterUsbResources(cloud, insecure);
+  await syncHarvesterPciDevices(cloud, insecure);
+};
+
+export const syncTemplateInventory = async (cloud: any, insecure: boolean) => {
+  await syncHarvesterTemplates(cloud, insecure);
+  await syncHarvesterCloudInits(cloud, insecure);
+  await syncHarvesterScheduleVmBackups(cloud, insecure);
 };

@@ -1,3 +1,12 @@
+/**
+ * Harvester - 节点 (Node) 列表 Section
+ * 展示 Kubernetes/Harvester 集群中的 Node 资源，
+ * 支持：
+ * - 按名称关键字、角色、就绪状态过滤
+ * - 解析并展示 CPU/内存总量
+ * - 通过 metrics.k8s.io 获取实时 CPU/内存使用率并绘制进度条
+ * - 打开 HarvesterResourceDrawer 查看节点详情及事件
+ */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress } from 'antd';
 import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -6,6 +15,13 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
+/**
+ * 组件入参说明
+ * - nodes: 节点列表，可能为 Harvester 抽象对象或 K8s Node 原始对象
+ * - loading: 外层传入的加载状态
+ * - onRefresh: 列表刷新回调，支持 force=true
+ * - cloudId: 当前云 ID，用于调用 metrics.k8s.io 接口
+ */
 type Props = {
   nodes: any[];
   loading: boolean;
@@ -14,17 +30,22 @@ type Props = {
 };
 
 const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) => {
+  // 过滤条件：关键字、角色、就绪状态
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
   const [readyFilter, setReadyFilter] = useState<string>('');
+  // 从 metrics.k8s.io 拉取到的 CPU/内存使用数据，按节点名索引
   const [metricsMap, setMetricsMap] = useState<Record<string, { cpuUsedCores?: number; memUsedBytes?: number }>>({});
-  
-  // Metadata Drawer State
+
+  // 详情抽屉状态
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
 
-  // Unified Drawer Handler
+  /**
+   * 统一打开 HarvesterResourceDrawer 的入口
+   * - 在列表视图中 Node 通常没有 kind 字段，这里统一补充为 'Node'
+   */
   const handleOpenDrawer = async (record: any, tab: string) => {
     // Inject kind for EventsTab since Node doesn't usually carry it in list view
     setDrawerRecord({ ...record, kind: 'Node' });
@@ -32,6 +53,10 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     setDrawerVisible(true);
   };
 
+  /**
+   * 从节点对象中解析所有角色信息
+   * - 兼容 labels["kubernetes.io/role"] 以及 node-role.kubernetes.io/* 多种写法
+   */
   const getRoles = (r: any): string[] => {
     const base: string[] = (Array.isArray(r?.roles) ? r.roles : []).map((s: string) => {
       if (s.startsWith('node-role.kubernetes.io/')) return s.split('/').pop() || s;
@@ -47,11 +72,17 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
       .filter(Boolean);
     return Array.from(new Set(all));
   };
+  /**
+   * 判断节点是否 Ready
+   * - 优先使用 r.ready 布尔字段
+   * - 否则回退到 status.conditions 中查找 Ready=True 条目
+   */
   const isReady = (r: any): boolean => {
     if (typeof r?.ready === 'boolean') return r.ready;
     const conds: any[] = Array.isArray(r?.status?.conditions) ? r.status.conditions : [];
     return conds.some(c => String(c?.type || '') === 'Ready' && String(c?.status || '').toLowerCase() === 'true');
   };
+  // 角色过滤下拉选项，从当前节点列表中动态计算
   const roleOptions = useMemo(() => {
     const set = new Set<string>();
     for (const n of (nodes || [])) {
@@ -59,6 +90,9 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     }
     return Array.from(set).map(x => ({ label: x, value: x }));
   }, [nodes]);
+  /**
+   * 综合过滤：关键字 / 角色 / 就绪状态
+   */
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const role = roleFilter.trim().toLowerCase();
@@ -78,6 +112,9 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
       return true;
     });
   }, [nodes, keyword, roleFilter, readyFilter]);
+  /**
+   * 将 CPU 容量（core 或 m）格式化为可读文本
+   */
   const formatCpu = (cpu?: string | number): string => {
     if (cpu === undefined || cpu === null) return '-';
     const s = String(cpu);
@@ -90,6 +127,9 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     if (!isFinite(v)) return '-';
     return `${v} core`;
   };
+  /**
+   * 将内存容量（如 16Gi）转换为 GB 文本
+   */
   const formatMemGb = (mem?: string | number): string => {
     if (mem === undefined || mem === null) return '-';
     const s = String(mem);
@@ -112,6 +152,10 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     return '-';
   };
 
+  /**
+   * 解析 CPU 字符串为核数
+   * - 支持 m / n / u 等多种单位
+   */
   const parseCpuToCores = (s?: string): number => {
     if (!s) return 0;
     const t = String(s).trim();
@@ -128,6 +172,10 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     const v = Number(t);
     return isFinite(v) ? v : 0;
   };
+  /**
+   * 解析内存字符串为字节数
+   * - 支持 Ki/Mi/Gi/Ti 等二进制单位以及 K/M/G/T 十进制单位
+   */
   const parseMemoryToBytes = (s?: string): number => {
     if (!s) return 0;
     const t = String(s).trim();
@@ -147,6 +195,11 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     return bytes;
   };
 
+  /**
+   * 从 metrics.k8s.io 拉取节点实时指标
+   * - 仅在 cloudId 存在时请求
+   * - 将 cpu/memory 使用量解析后缓存到 metricsMap 中
+   */
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -170,6 +223,12 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     return () => { cancelled = true; };
   }, [cloudId, nodes]);
 
+  /**
+   * 表格列定义
+   * - CPU/内存容量使用 formatCpu/formatMemGb 做统一展示
+   * - CPU/内存使用率列结合 metricsMap 和节点 allocatable/capacity 计算百分比
+   * - 名称列可点击打开节点详情抽屉
+   */
   const allColumns = useMemo(() => [
     { title: '名称', key: 'name', render: (_:any, r:any)=> {
       const text = r?.name || r?.metadata?.name || '-';
@@ -267,12 +326,18 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
           <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=> { setKeyword(e.target.value); setPagination(p=>({...p, current:1})); }} className="toolbar-search" />
           <Select allowClear placeholder="角色" value={roleFilter || undefined} onChange={(v)=> { setRoleFilter(v || ''); setPagination(p=>({...p, current:1})); }} className="toolbar-filter" options={[{ value: '', label: '全部' }, ...roleOptions]} />
           <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> { setReadyFilter(v || ''); setPagination(p=>({...p, current:1})); }} className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
-          <a className="toolbar-reset-btn" onClick={() => {
-            setKeyword('');
-            setRoleFilter('');
-            setReadyFilter('');
-            setPagination(p=>({...p, current:1}));
-          }}>重置</a>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setRoleFilter('');
+              setReadyFilter('');
+              setPagination(p=>({...p, current:1}));
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={(
@@ -305,7 +370,10 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
       columns={tableColumns}
       dataSource={filtered}
       loading={loading}
-      pagination={{size: 'small'}}
+      pagination={{
+        size: 'small',
+        showQuickJumper: false,
+      }}
     />
     <HarvesterResourceDrawer
       open={drawerVisible}

@@ -1,3 +1,12 @@
+/**
+ * Harvester - 卷快照 (VolumeSnapshot) 列表 Section
+ * 展示存储卷快照资源，支持：
+ * - 关键字搜索（名称 / 命名空间 / 别名）
+ * - 按 Ready / NotReady 过滤
+ * - 单个/批量删除快照
+ * - 通过 VolumeSnapshotRestoreModal 发起基于快照的数据卷恢复
+ * - 打开 HarvesterResourceDrawer 查看快照详情及事件
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Badge, Button, Modal, Input, message, Dropdown, Select } from 'antd';
 import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
@@ -7,6 +16,13 @@ import { deleteHarvesterSnapshot } from '../../../../services/harvesterApi';
 import VolumeSnapshotRestoreModal from '../modals/VolumeSnapshotRestoreModal';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
+/**
+ * 组件入参说明
+ * - cloudId: 当前云 ID，用于调用快照删除与恢复相关 API
+ * - snapshots: 后端返回的快照列表（可能带 rawData 包装）
+ * - loading: 外层加载状态
+ * - onRefresh: 刷新回调，支持 force=true
+ */
 interface Props {
   cloudId: string;
   snapshots: any[];
@@ -15,18 +31,24 @@ interface Props {
 }
 
 const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefresh }) => {
+  // 工具栏过滤与选择状态
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   
+  // 恢复弹窗状态
   const [restoreVisible, setRestoreVisible] = useState(false);
   const [restoreRecord, setRestoreRecord] = useState<any>(null);
 
-  // Detail Drawer State
+  // 详情抽屉状态
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
+  /**
+   * 将快照列表转换为表格可用结构
+   * - 统一解析名称、命名空间、源 PVC、快照类、状态、别名等字段
+   */
   const dataSource = useMemo(() => {
     return (snapshots || []).map((s: any) => {
       const raw = s.rawData || s;
@@ -45,6 +67,11 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     });
   }, [snapshots]);
 
+  /**
+   * 前端过滤逻辑
+   * - 关键字：匹配名称 / 命名空间 / 别名
+   * - 状态：Ready / NotReady
+   */
   const filteredData = useMemo(() => {
     let d = dataSource;
     if (keyword) {
@@ -65,11 +92,18 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     return d;
   }, [dataSource, keyword, statusFilter]);
 
+  /**
+   * 打开恢复弹窗
+   */
   const handleRestore = (record: any) => {
     setRestoreRecord(record);
     setRestoreVisible(true);
   };
 
+  /**
+   * 打开 HarvesterResourceDrawer 展示快照详情
+   * - 注入 kind 与 view 链接以支持事件页签
+   */
   const handleOpenDrawer = (record: any, tab: string = 'detail') => {
     const raw = record.raw || record;
     // Inject kind for EventsTab
@@ -90,6 +124,9 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     setDetailVisible(true);
   };
 
+  /**
+   * 删除单个快照
+   */
   const handleDelete = (record: any) => {
     Modal.confirm({
       title: '确认删除',
@@ -108,6 +145,10 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     });
   };
 
+  /**
+   * 批量删除选中的快照
+   * - 逐个调用后端删除接口，并统计成功/失败数量
+   */
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter(s => selectedRowKeys.includes(s.key));
@@ -136,6 +177,12 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     });
   };
 
+  /**
+   * 表格列定义
+   * - 名称列使用 alias 优先展示，回退到 name
+   * - 状态列使用 Badge 区分 Ready / NotReady
+   * - 操作列提供恢复与删除操作
+   */
   const columns = [
     { 
       title: '名称', 
@@ -242,10 +289,7 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
         }}
         pagination={{
           size: 'small',
-          showSizeChanger: true,
-          pageSizeOptions: ['10', '20', '50', '100'],
           showQuickJumper: false,
-          defaultPageSize: 10
         }}
       />
       <VolumeSnapshotRestoreModal

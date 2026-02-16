@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { AppDataSource } from '../config/database';
 import { VRConfig } from '../entities/vRouter/VRConfig';
 import { VRCacheExtended } from '../entities/vRouter/VRCacheExtended';
-import { vrController } from '../services/vrController';
-import { vrManagementService } from '../services/vrManagementService';
+import { vrController } from '../services/vrouter/vrController';
+import { vrManagementService } from '../services/vrouter/vrManagementService';
 
 export const vrConfigRoutes = Router();
 

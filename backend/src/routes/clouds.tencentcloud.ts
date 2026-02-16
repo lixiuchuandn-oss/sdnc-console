@@ -5,7 +5,7 @@ import {
   tencentListInstances,
   tencentListVpcs,
   tencentListSubnets,
-} from '../services/tencentcloud';
+} from '../services/clouds/tencentcloud/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
   const repo = AppDataSource.getRepository(Cloud);

@@ -1,7 +1,23 @@
+/**
+ * Harvester - 卷快照恢复弹窗
+ *
+ * 负责基于 VolumeSnapshot 创建新的 PVC：
+ * - 默认用 `restore-{snapshotName}-{timestamp}` 作为新卷名称；
+ * - 加载可用存储类列表，并优先选择默认存储类或 Longhorn；
+ * - 支持覆写容量（size），否则使用快照原始大小。
+ */
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, message } from 'antd';
 import { restoreHarvesterVolumeSnapshot, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
 
+/**
+ * 组件入参
+ * - visible: 弹窗是否可见
+ * - onCancel: 关闭回调
+ * - onSuccess: 恢复任务创建成功回调
+ * - cloudId: 云 ID
+ * - resource: 源快照记录
+ */
 interface Props {
   visible: boolean;
   onCancel: () => void;
@@ -22,6 +38,7 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
   const [scLoading, setScLoading] = useState(false);
 
+  // 弹窗打开时重置表单，填充默认名称/容量，并加载存储类列表
   useEffect(() => {
     if (visible && resource) {
       form.resetFields();
@@ -33,6 +50,7 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
     }
   }, [visible, resource, form]);
 
+  // 加载存储类列表，并尽量自动选择默认存储类或 Longhorn
   const loadStorageClasses = async () => {
     try {
       setScLoading(true);
@@ -61,6 +79,12 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
     }
   };
 
+  /**
+   * 校验表单并提交卷快照恢复任务：
+   * - 必选：新卷名称；
+   * - 可选：存储类、容量；
+   * - 容量留空则在后端使用快照原始大小。
+   */
   const handleOk = async () => {
     try {
       const values = await form.validateFields();

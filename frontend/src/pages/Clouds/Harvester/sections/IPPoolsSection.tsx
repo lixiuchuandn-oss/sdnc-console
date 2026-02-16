@@ -1,3 +1,12 @@
+/**
+ * Harvester - IP 地址池 (IPPool) 列表 Section
+ * 展示 Harvester/Kube-OVN 中的 IPPool 资源，
+ * 支持：
+ * - 关键字过滤（名称 / 命名空间）
+ * - 单个/批量删除地址池
+ * - 打开 HarvesterResourceDrawer 查看原始资源详情
+ * - 通过 IPPoolCreateModal 创建新的地址池
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input, Modal } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -7,6 +16,13 @@ import IPPoolCreateModal from '../modals/IPPoolCreateModal';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import { deleteHarvesterIpPool } from '../../../../services/harvesterApi';
 
+/**
+ * 组件入参说明
+ * - cloudId: 当前云 ID，用于调用地址池删除等 API
+ * - ippools: 地址池列表，可能为原始对象或带 rawData 的包装对象
+ * - loading: 外层传入的加载状态
+ * - onRefresh: 刷新回调，支持传入 force=true
+ */
 interface Props {
   cloudId: string;
   ippools: any[];
@@ -15,13 +31,21 @@ interface Props {
 }
 
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh }) => {
+  // 工具栏状态：关键字搜索、创建弹窗、详情抽屉
   const [keyword, setKeyword] = useState<string>('');
   const [createVisible, setCreateVisible] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState('detail');
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
+  // 表格行选择（批量删除）
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  
+
+  /**
+   * 将原始 IPPool 对象转换为表格使用的扁平结构
+   * - 命名空间从 metadata.namespace / spec.selector.scope 中多种途径解析
+   * - IP 范围支持 ranges / cidrs 两种存储方式
+   * - selector 列直接序列化为 JSON 字符串，便于调试查看
+   */
   const dataSource = useMemo(() => {
     return (ippools || []).map((pool: any) => {
       const raw = pool.rawData || pool;
@@ -68,6 +92,9 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
     });
   }, [ippools]);
 
+  /**
+   * 根据关键字对名称 / 命名空间做包含匹配
+   */
   const filteredData = useMemo(() => {
     let d = dataSource;
     if (keyword) {
@@ -77,6 +104,9 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
     return d;
   }, [dataSource, keyword]);
 
+  /**
+   * 打开 HarvesterResourceDrawer 查看地址池原始对象详情
+   */
   const handleOpenDrawer = (record: any) => {
     if (record?.raw) {
       setSelectedRecord(record.raw);
@@ -85,6 +115,10 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
     }
   };
 
+  /**
+   * 删除单个地址池
+   * - 针对特定错误信息（仍有已分配 IP）做用户友好的错误提示
+   */
   const handleDelete = (record: any) => {
     Modal.confirm({
       title: '确认删除',
@@ -120,6 +154,11 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
     });
   };
 
+  /**
+   * 批量删除选中的地址池
+   * - 遍历 selectedRowKeys 从 dataSource 中反查对应对象并执行删除
+   * - 对“仍有 IP 被占用”的错误做统一处理
+   */
   const handleBatchDelete = () => {
     Modal.confirm({
       title: '确认批量删除',
@@ -165,11 +204,17 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
     });
   };
 
+  // 表格多选配置，仅记录选中的行 key
   const rowSelection = {
     selectedRowKeys,
     onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
   };
 
+  /**
+   * 表格列定义
+   * - 名称列可点击打开 Harvester 详情抽屉
+   * - 操作列支持单个删除
+   */
   const columns = [
     { 
       title: '名称', 
@@ -177,12 +222,13 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
       key: 'name', 
       width: 200, 
       render: (t: string, record: any) => (
-        <a 
+        <span 
+          className="cell-link"
           style={{ fontWeight: 500 }}
           onClick={() => handleOpenDrawer(record)}
         >
           {t}
-        </a>
+        </span>
       ) 
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
@@ -239,7 +285,10 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh 
         columns={columns}
         rowKey="key"
         loading={loading}
-        pagination={{size: 'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
         rowSelection={rowSelection}
       />
       <IPPoolCreateModal

@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
-import { AppDataSource } from '../config/database';
-import { Cloud } from '../entities/Cloud';
+import { AppDataSource } from '../../../config/database';
+import { Cloud } from '../../../entities/Cloud';
 import {
   listCsmVms,
   listCsmHosts,
@@ -21,8 +21,8 @@ import {
   csmAdminLogin,
   csmRequest,
   csmPreAuthLogin,
-} from '../services/clouds/csm/client';
-import { ServiceChain } from '../entities/ServiceChain';
+} from '../../../services/clouds/csm/client';
+import { ServiceChain } from '../../../entities/ServiceChain';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
   const repo = AppDataSource.getRepository(Cloud);

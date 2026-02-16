@@ -505,31 +505,6 @@ export const exportImageFromPVC = async (
 };
 
 /**
- * 删除 Harvester 命名空间
- * @param params 连接参数
- * @param name 命名空间名称
- * @returns 操作结果
- */
-export const deleteHarvesterNamespace = async (
-  { endpoint, token, insecure = false }: HarvesterTestParams,
-  name: string,
-): Promise<any> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-
-  const urlPath = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
-
-  const json = await requestJson('DELETE', urlPath, token, insecure);
-  return json;
-};
-
-/**
  * 创建卷快照 (VolumeSnapshot)
  * @param params 连接参数
  * @param namespace 命名空间

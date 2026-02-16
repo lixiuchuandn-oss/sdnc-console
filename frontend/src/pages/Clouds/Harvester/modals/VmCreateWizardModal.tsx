@@ -1,3 +1,18 @@
+/**
+ * Harvester - 云主机创建向导弹窗
+ *
+ * 多步骤创建云主机的核心入口，分为：
+ * 1. 基本信息：选择资源池、命名空间、名称、调度模式等；
+ * 2. 计算资源：CPU / 内存 / GPU；
+ * 3. 虚拟磁盘：系统盘来源 (镜像 / 现有卷) + 数据盘配置；
+ * 4. 虚拟网卡：Pod 网络 / VLAN / VPC 等网络配置；
+ * 5. 其它选项：USB 设备、SSH 密钥、自动启动等。
+ *
+ * 关键点：
+ * - 使用 useHarvesterData 统一加载镜像、卷、NAD、节点等基础数据；
+ * - 通过 VmWizardUtils 聚合验证逻辑与 payload 构造；
+ * - 提交时先生成唯一 vmId，再创建 VM，必要时根据 autoStart 自动开机。
+ */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Form, Row, Col, Modal, Spin, message, Space } from 'antd';
 import { CheckOutlined, ProfileOutlined, DesktopOutlined, HddOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons';
@@ -18,6 +33,7 @@ const VmCreateWizardModal: React.FC = () => {
   const { id } = useParams();
   const cloudId = id as string;
   const [form] = Form.useForm();
+  // 向导全局状态：跨步骤累积的表单数据、当前步骤索引、提交状态等
   const [wizardData, setWizardData] = useState<any>({});
   const [step, setStep] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
@@ -51,10 +67,14 @@ const VmCreateWizardModal: React.FC = () => {
     sshKeyOptions, reloadSshKeys
   } = useHarvesterData(cloudId, currentCloudId, form);
 
+  // 首次挂载时加载云列表，用于“跨资源池创建 VM”场景
   useEffect(() => {
     loadClouds();
   }, [loadClouds]);
 
+  // 当 cloudId / currentCloudId 变化时：
+  // - 查询 Harvester 能力（推荐机型等）；
+  // - 刷新 images/namespaces/nads/nodes 等基础数据。
   useEffect(() => {
     const load = async () => {
       if (!currentCloudId && cloudId === 'all') return;
@@ -75,6 +95,7 @@ const VmCreateWizardModal: React.FC = () => {
     load();
   }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes]);
 
+  // 进入“其它选项”步骤时，懒加载 USB 资源和 SSH 密钥
   useEffect(() => {
     if (step === 4) { 
       try { reloadUsbResources(); } catch {} 
@@ -82,19 +103,22 @@ const VmCreateWizardModal: React.FC = () => {
     }
   }, [step, reloadUsbResources, reloadSshKeys]);
 
+  // 进入“计算资源”步骤时，如有需要刷新 GPU 资源
   useEffect(() => {
     if (step === 1) { try { reloadGpuResources(); } catch {} }
   }, [step, reloadGpuResources]);
 
+  // cloudId 或 currentCloudId 变化时，尝试刷新 GPU 资源
   useEffect(() => {
     try { reloadGpuResources(); } catch {}
   }, [cloudId, currentCloudId, reloadGpuResources]);
 
+  // 组件初始化时记录一份表单快照，便于右侧摘要展示
   useEffect(() => {
     try { setFormSnapshot(form.getFieldsValue()); } catch {}
   }, []);
 
-
+  // 根据关键字过滤可选节点列表，用于“调度到指定主机”
   const filteredNodes = useMemo(() => filterNodes(nodes, nodeKeyword), [nodes, nodeKeyword]);
 
 
@@ -104,12 +128,19 @@ const VmCreateWizardModal: React.FC = () => {
 
 
 
+  // 向导步骤标签
   const steps = ['基本信息','计算资源','虚拟磁盘','虚拟网卡','其它选项'];
   const getStepIcon = (i: number): React.ReactNode => {
     const icons = [<ProfileOutlined />, <DesktopOutlined />, <HddOutlined />, <GlobalOutlined />, <SettingOutlined />];
     return icons[i] || <ProfileOutlined />;
   };
 
+  /**
+   * 进入下一步：
+   * - 按步骤只校验当前关键字段；
+   * - 合并当前表单值到 wizardData，并更新快照；
+   * - 步骤索引不会超过最后一步。
+   */
   const next = async () => {
     try {
       if (step === 0) {
@@ -132,6 +163,13 @@ const VmCreateWizardModal: React.FC = () => {
 
   
 
+  /**
+   * 最终提交创建云主机：
+   * - 汇总 wizardData + 当前表单值；
+   * - 校验镜像大小与磁盘容量是否匹配；
+   * - 构造 VM payload（含宿主调度/GPU/网络/磁盘等）；
+   * - 创建 VM，并在需要时执行自动开机。
+   */
   const submit = async () => {
     try {
       await form.validateFields();

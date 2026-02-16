@@ -1,9 +1,28 @@
+/**
+ * Harvester - 创建负载均衡弹窗
+ *
+ * 基于 IP 池 (IPPool) 与后端标签选择器创建 Harvester LoadBalancer。
+ * 功能：
+ * - 打开时加载 IP 池列表，并根据选择的 IP 池反查 NAD，展示 bridge 与地址段信息；
+ * - 配置监听端口列表 (listeners)：协议、前端端口、后端端口；
+ * - 配置后端选择器 (selectors)：转换为 Harvester 期望的 map[string][]string；
+ * - 若指定 IP Pool，会自动写入 `loadbalancer.harvesterhci.io/ip-pool` 注解，
+ *   并尝试自动注入 `kube-vip.io/serviceInterface`（根据 NAD bridge 推导）。
+ */
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Input, Select, Button, Space, message, InputNumber, Radio, Tag } from 'antd';
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { apiPost, apiRequest } from '../../../../services/api';
 import { fetchHarvesterNadDetail } from '../../../../services/harvesterApi';
 
+/**
+ * 组件入参说明
+ * - open: 弹窗是否打开
+ * - cloudId: 当前云 ID，用于拼接后端 API 路径
+ * - namespaces: 可用命名空间列表，用于默认命名空间及下拉选择
+ * - onClose: 关闭弹窗回调
+ * - onSuccess: 创建成功后的回调（通常用于刷新列表）
+ */
 interface Props {
   open: boolean;
   cloudId: string;
@@ -18,7 +37,7 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
   const [ipPools, setIpPools] = useState<any[]>([]);
   const [nadInfo, setNadInfo] = useState<{name: string, bridge: string, range?: string} | null>(null);
 
-  // Fetch IP Pools
+  // 打开弹窗时加载 IP 池列表
   useEffect(() => {
     if (open) {
       apiRequest(`/api/clouds/${cloudId}/resources/ippools`)
@@ -30,7 +49,7 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
     }
   }, [open, cloudId]);
 
-  // Reset form when modal opens
+  // 打开弹窗时重置表单，并自动选择一个命名空间（优先 default）
   useEffect(() => {
     if (open) {
       form.resetFields();
@@ -43,6 +62,12 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
     }
   }, [open, namespaces, form]);
 
+  /**
+   * 当选择 IP Pool 时：
+   * - 解析该 IP Pool 所引用的 NAD（networkRef）
+   * - 请求 NAD 详情，从 config 中解析 bridge
+   * - 将 NAD 名称 / bridge / 地址段 等信息展示在帮助区域
+   */
   const onPoolChange = async (poolName: string) => {
       setNadInfo(null);
       if (!poolName) return;
@@ -94,6 +119,12 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
       }
   };
 
+  /**
+   * 提交创建负载均衡：
+   * - 组装 listeners 和 backendServerSelector；
+   * - 若 IPAM=pool，则写入 IP Pool 注解，并尝试自动注入 kube-vip bridge；
+   * - 调用后端 /harvester-loadbalancers API 创建资源。
+   */
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
@@ -202,11 +233,13 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
     }
   };
 
+  // 命名空间下拉选项
   const nsOptions = (namespaces || []).map((n: any) => ({
     label: n.metadata?.name || n.name,
     value: n.metadata?.name || n.name,
   }));
   
+  // IP Pool 下拉选项
   const poolOptions = ipPools.map((p: any) => ({
       label: p.metadata?.name || p.name,
       value: p.metadata?.name || p.name,

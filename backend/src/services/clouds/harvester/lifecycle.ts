@@ -2,6 +2,11 @@ import { HarvesterTestParams } from './types';
 import { requestJson, getJsonOnce } from './utils';
 import { listHarvesterVMsStandard, getHarvesterVM } from './vm';
 
+// 将前端传入的实例标识解析为 { namespace, name }
+// - 支持格式：
+//   1) ns/name
+//   2) ns:name
+//   3) 仅传 InstanceId 或 InstanceName 时，会先查 VM 列表再反推命名空间和名称
 const resolveVmPath = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -21,6 +26,7 @@ const resolveVmPath = async (
   return null;
 };
 
+// 启动虚拟机（等价于 Harvester UI 的 Start 操作）
 export const harvesterStartVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -39,6 +45,8 @@ export const harvesterStartVM = async (
   return await requestJson('POST', url, token, insecure, {});
 };
 
+// 停止虚拟机
+// - force=true 时，Harvester 会尝试强制停止（内部语义由 Harvester 控制）
 export const harvesterStopVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -58,6 +66,8 @@ export const harvesterStopVM = async (
   return await requestJson('POST', url, token, insecure, { force });
 };
 
+// 软重启虚拟机
+// - 区别于 Stop+Start，软重启更接近 Guest OS 内部触发的重启
 export const harvesterSoftRebootVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -76,6 +86,8 @@ export const harvesterSoftRebootVM = async (
   return await requestJson('POST', url, token, insecure, {});
 };
 
+// 暂停虚拟机实例（VMI 级别）
+// - 仅对运行中的实例有效
 export const harvesterPauseVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -94,6 +106,7 @@ export const harvesterPauseVM = async (
   return await requestJson('POST', url, token, insecure, {});
 };
 
+// 取消暂停虚拟机实例（VMI 级别）
 export const harvesterUnpauseVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -112,6 +125,8 @@ export const harvesterUnpauseVM = async (
   return await requestJson('POST', url, token, insecure, {});
 };
 
+// 触发虚拟机热迁移（创建 VirtualMachineInstanceMigration 对象）
+// - targetNode 可选，用于指定目标节点（具体生效依赖集群版本）
 export const harvesterMigrateVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -171,6 +186,8 @@ export const harvesterMigrateVM = async (
   return await requestJson('POST', url, token, insecure, payload);
 };
 
+// 终止指定虚拟机当前正在进行的迁移任务
+// - 会列出关联该 VMI 的所有迁移对象，删除尚未完成的迁移
 export const harvesterAbortMigration = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,

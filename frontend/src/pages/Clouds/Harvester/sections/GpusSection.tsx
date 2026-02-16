@@ -1,3 +1,8 @@
+/**
+ * Harvester - GPU 资源列表 Section
+ * 负责展示集群内探测到的 GPU/PCI 设备资源，
+ * 提供类型（直通 / vGPU / SR-IOV）、状态和关键字过滤，以及元数据查看能力。
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, Space, Select, Tag, Input, Modal, Tabs } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -5,6 +10,15 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 
+/**
+ * 组件入参说明
+ * - cloudId: 当前云 ID，仅用于日志展示等场景（目前未直接参与逻辑）
+ * - resources: 后端返回的 GPU 资源数组，可能为多种结构的聚合结果
+ * - loading: 外层传入的加载状态
+ * - onRefresh: 列表刷新回调，支持传入 force=true
+ * - raw: 原始接口返回的完整数据，配合 showLog 进行调试展示
+ * - showLog: 是否渲染底部的原始 JSON 调试信息
+ */
 interface Props {
   cloudId: string;
   resources: any[];
@@ -15,12 +29,13 @@ interface Props {
 }
 
 const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, raw, showLog }) => {
+  // 筛选条件：类型、状态与关键字
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  // Metadata Modal State
+  // 元数据弹窗状态，支持查看单条记录的 raw JSON
   const [metadataModalVisible, setMetadataModalVisible] = useState(false);
   const [currentMetadata, setCurrentMetadata] = useState<any>(null);
 
@@ -29,6 +44,12 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     setMetadataModalVisible(true);
   };
 
+  /**
+   * 统一过滤逻辑
+   * 1. 先按类型筛选（直通 / vGPU / SR-IOV / 全部）
+   * 2. 再按状态筛选（活跃、非活跃、异常、变更中）
+   * 3. 最后按关键字在多个字段（资源名/设备名/节点/IP/描述/厂商ID）中模糊匹配
+   */
   const filtered = useMemo(() => {
     const arr = Array.isArray(resources) ? resources : [];
     const byType = typeFilter === 'all' ? arr : arr.filter((x: any) => String(x?.type) === typeFilter);
@@ -63,6 +84,10 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     });
   }, [resources, typeFilter, statusFilter, keyword]);
 
+  /**
+   * 根据厂商 ID 映射常见 GPU 厂商名称
+   * 未知 ID 则直接回显原始值
+   */
   const vendorName = (id?: string) => {
     const v = String(id || '').toLowerCase();
     if (v === '10de') return 'NVIDIA';
@@ -72,6 +97,12 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     return v || '-';
   };
 
+  /**
+   * 推导设备类型：
+   * - 已有 type 字段直接使用
+   * - Kubernetes PCI 设备推导为 passthrough
+   * - 带有 mdevName 视为 vGPU
+   */
   const deriveType = (x: any) => {
     const t = String(x?.type || '').toLowerCase();
     if (t) return t;
@@ -82,11 +113,19 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     return '';
   };
 
+  /**
+   * 按设备类型返回带颜色的 Tag
+   */
   const typeTag = (x: any) => {
     const m = String(deriveType(x) || '').toLowerCase();
     return m === 'passthrough' ? <Tag color="blue">直通</Tag> : m === 'vgpu' ? <Tag color="green">vGPU</Tag> : m === 'sriov' ? <Tag color="purple">SR-IOV</Tag> : <Tag>未知</Tag>;
   };
 
+  /**
+   * 表格列定义
+   * - 针对不同数据源做了较多兜底读取，保证列表对多来源数据具备兼容性
+   * - 操作列提供元数据查看与 SourceData 跳转
+   */
   const allColumns = useMemo(() => [
     { title: '类型', key: 'type', render: (_: any, r: any) => typeTag(r) },
     { title: '资源名', key: 'resourceName', render: (_: any, r: any) => r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.raw?.status?.resourceName || '-' },
@@ -176,7 +215,10 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
           className="std-table"
           bordered
           loading={loading || refreshing}
-          pagination={{size: 'small'}}
+          pagination={{
+            size: 'small',
+            showQuickJumper: false,
+          }}
           rowKey={(r: any) => {
             const rid = r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.metadata?.name || '';
             const fieldsArr = (r?.metadata?.fields || r?.fields);

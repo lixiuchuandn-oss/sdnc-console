@@ -22,7 +22,7 @@ import { callAliyunVpc, callAliyunEcs } from '../services/clouds/aliyun/client';
 import { huaweiListVpcs } from '../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../services/clouds/tencentcloud/client';
 import { listCsmElementGroups } from '../services/clouds/csm/client';
-import { vrController } from '../services/vrController';
+import { vrController } from '../services/vrouter/vrController';
 
 const router = Router();
 const repo = () => AppDataSource.getRepository(SecurityDomain);

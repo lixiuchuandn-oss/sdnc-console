@@ -476,11 +476,17 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
             ]}
             className="toolbar-filter-sm"
           />
-          <a className="toolbar-reset-btn" onClick={() => {
-            setKeyword('');
-            setFilterType('all');
-            setFilterStatus('all');
-          }}>重置</a>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setFilterType('all');
+              setFilterStatus('all');
+            }}
+          >
+            重置
+          </button>
         </>
       }
       // === 工具栏右侧：操作按钮 ===
@@ -503,7 +509,10 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         rowKey={(r: any) => r?.metadata?.name || r?.name || Math.random().toString(36).slice(2)}
         loading={loading}
         dataSource={filtered}
-        pagination={{ size: 'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
         columns={tableColumns}
       />
       

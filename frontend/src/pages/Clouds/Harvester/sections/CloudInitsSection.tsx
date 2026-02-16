@@ -1,3 +1,8 @@
+/**
+ * Harvester - Cloud Init 模板列表 Section
+ * 用于展示 Harvester 集群中的 Cloud Init 模板，
+ * 支持按名称/命名空间关键字过滤、列显示配置及手动刷新。
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -5,6 +10,13 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 
+/**
+ * 组件入参说明
+ * - cloudId: 当前云 ID，预留给后续与 Cloud Init 相关的操作调用使用
+ * - cloudInits: Cloud Init 模板列表，可能为原始对象或带 rawData 的包装对象
+ * - loading: 外部传入的加载状态，控制表格和刷新按钮的 loading
+ * - onRefresh: 手动刷新回调，支持传入 force=true 触发强制刷新
+ */
 interface Props {
   cloudId: string;
   cloudInits: any[];
@@ -13,8 +25,13 @@ interface Props {
 }
 
 const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRefresh }) => {
+  // 搜索关键字，仅在前端做简单的名称/命名空间模糊匹配
   const [keyword, setKeyword] = useState<string>('');
-  
+
+  /**
+   * 将后端返回的数据统一转换为表格可使用的扁平结构
+   * 优先读取 rawData.metadata 下的 K8s 原生字段，兼容回退到数据库字段
+   */
   const dataSource = useMemo(() => {
     return (cloudInits || []).map((c: any) => {
       const raw = c.rawData || c;
@@ -29,6 +46,10 @@ const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRe
     });
   }, [cloudInits]);
 
+  /**
+   * 前端过滤逻辑
+   * - 仅基于关键字对名称和命名空间做包含匹配
+   */
   const filteredData = useMemo(() => {
     let d = dataSource;
     if (keyword) {
@@ -38,6 +59,11 @@ const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRe
     return d;
   }, [dataSource, keyword]);
 
+  /**
+   * 表格列定义
+   * - 名称列使用 cell-link 样式，后续可扩展点击查看详情
+   * - 操作列当前仅提供“删除”占位操作，实际删除能力暂未开放
+   */
   const columns = [
     { title: '名称', dataIndex: 'name', key: 'name', className: 'cell-link' },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
@@ -92,7 +118,10 @@ const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRe
         columns={tableColumns}
         rowKey="key"
         loading={loading}
-        pagination={{size: 'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
       />
     </PageDetailSection>
   );

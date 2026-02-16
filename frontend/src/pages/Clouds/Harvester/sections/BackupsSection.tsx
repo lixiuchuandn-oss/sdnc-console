@@ -1,3 +1,8 @@
+/**
+ * Harvester - 云主机备份 / 快照列表 Section
+ * 负责展示当前 Harvester 云中某一类型（备份 / 快照）的 VM Backup 列表，
+ * 支持按状态与关键字筛选，以及发起删除和恢复操作，并在工具栏提供创建备份/快照入口。
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -7,6 +12,16 @@ import { deleteHarvesterBackup } from '../../../../services/harvesterApi';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
 
+/**
+ * 组件入参
+ * - cloudId: 当前云 ID，用于调用后端 Harvester API
+ * - backups: 后端返回的备份/快照列表（可能是原始数据或带 rawData 的包装对象）
+ * - loading: 数据加载中标记，用于控制表格与按钮的 loading 状态
+ * - onRefresh: 外层传入的刷新回调，支持强制刷新
+ * - namespaces: 命名空间列表，用于创建备份弹窗中的下拉框
+ * - vms: 虚拟机列表，用于创建/恢复时选择目标 VM
+ * - type: 列表类型，'backup' 或 'snapshot'，默认展示备份
+ */
 interface Props {
   cloudId: string;
   backups: any[];
@@ -18,12 +33,21 @@ interface Props {
 }
 
 const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup' }) => {
+  // 关键字搜索
   const [keyword, setKeyword] = useState<string>('');
+  // 状态过滤：all / ready / not_ready
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  // 创建备份/快照弹窗可见性
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  // 恢复弹窗可见性
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
+  // 当前选中的备份/快照，用于恢复操作
   const [currentSnapshot, setCurrentSnapshot] = useState<any>(null);
   
+  /**
+   * 将原始备份列表规范化为表格可直接使用的数据结构
+   * 同时按照 type 区分 Backup / Snapshot
+   */
   const dataSource = useMemo(() => {
     return (backups || [])
       .filter((b: any) => {
@@ -46,6 +70,11 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
     });
   }, [backups, type]);
 
+  /**
+   * 客户端过滤逻辑
+   * - 根据 readyToUse 状态过滤
+   * - 根据关键字在名称 / 命名空间中模糊匹配
+   */
   const filteredData = useMemo(() => {
     let d = dataSource;
     if (statusFilter !== 'all') {
@@ -59,6 +88,10 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
     return d;
   }, [dataSource, keyword, statusFilter]);
 
+  /**
+   * 删除单个备份 / 快照
+   * 弹出确认框后调用后端删除接口，成功后触发刷新
+   */
   const handleDelete = (record: any) => {
     Modal.confirm({
       title: '确认删除备份',
@@ -78,6 +111,12 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
     });
   };
 
+  /**
+   * 表格列定义
+   * - 名称列使用 alias，后台 metadata.name 作为 ID 独立展示
+   * - 状态列使用 Badge 显示 Ready / NotReady
+   * - 操作列支持恢复与删除
+   */
   const columns = [
 
     { title: '名称', dataIndex: 'alias', key: 'alias' },
@@ -132,6 +171,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       asCard={false}
       toolbarLeft={(
         <>
+          {/* 关键字搜索：按名称 / 命名空间模糊匹配 */}
           <Input
             className="toolbar-search"
             placeholder="搜索名称或命名空间"
@@ -139,6 +179,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
             onChange={e => setKeyword(e.target.value)}
             allowClear
           />
+          {/* 状态过滤：全部 / Ready / NotReady */}
           <Select
             className="toolbar-filter"
             value={statusFilter}
@@ -165,7 +206,10 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         columns={columns}
         rowKey="key"
         loading={loading}
-        pagination={{size: 'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
       />
       <VmBackupCreateModal
         visible={createModalVisible}

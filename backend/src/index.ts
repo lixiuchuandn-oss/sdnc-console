@@ -208,7 +208,7 @@ AppDataSource.initialize()
 
     // 启动 VR 列表同步任务
     try {
-      const { VRCacheService } = await import('./services/VRCacheService');
+      const { VRCacheService } = await import('./services/vrouter/VRCacheService');
       // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
       setTimeout(() => {
         VRCacheService.getInstance().startSyncJob();

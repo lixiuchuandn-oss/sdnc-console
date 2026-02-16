@@ -1,6 +1,17 @@
 import { HarvesterTestParams } from './types';
 import { getJsonOnce } from './utils';
 
+/**
+ * 获取 Harvester GPU 资源列表
+ * 通过读取 KubeVirt 配置和 PCI 设备 CRD，聚合出可分配的 GPU 资源
+ * - 优先从 kubevirt 配置中的 permittedHostDevices 中抽取逻辑资源
+ * - 再结合 pcidevices.harvesterhci.io 等 CRD 获取物理设备和节点信息
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 标准化后的 GPU 资源数组（包含 resourceName、类型、节点、PCI 地址等）
+ */
+
 export const listHarvesterGpuResources = async ({
   endpoint,
   token,
@@ -190,6 +201,14 @@ export const listHarvesterGpuResources = async ({
   return kvList;
 };
 
+/**
+ * 获取 Harvester PCI 设备列表（原始清单）
+ * 主要用于展示所有被接管的 PCI 设备（不限于 GPU），包括厂商/产品信息
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 原始 PCI 设备对象数组（保持与集群 CRD 结构尽量一致）
+ */
 export const listHarvesterPciDevices = async ({
   endpoint,
   token,
@@ -295,6 +314,14 @@ export const listHarvesterPciDevices = async ({
   });
 };
 
+/**
+ * 获取 Harvester USB 直通设备资源列表
+ * 从 KubeVirt 的 permittedHostDevices.usb 配置中提取可用 USB 资源
+ * @param endpoint Harvester 接入地址
+ * @param token 访问 Harvester 的 Token
+ * @param insecure 是否忽略 TLS 校验
+ * @returns 标准化后的 USB 资源数组（包含 resourceName / vendorId / productId）
+ */
 export const listHarvesterUsbResources = async ({
   endpoint,
   token,

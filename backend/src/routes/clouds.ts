@@ -10,9 +10,7 @@ import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
 import { UserSpace } from '../entities/UserSpace';
 import { AuthRequest } from '../middleware/auth';
 import { UserRole } from '../entities/User';
-import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/syncInventory';
-import { registerHarvesterDirectRoutes } from './clouds.harvester_direct';
-import { registerHarvesterRoutes } from './clouds.harvester';
+import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
 
 const router = Router();
 
@@ -251,7 +249,7 @@ import {
   callAliyunSlb,
   callAliyunVpc,
   callAliyunCms,
-} from '../services/aliyun';
+} from '../services/clouds/aliyun/client';
 // 引入华为云SDK调用
 import {
   testHuaweiConnection,
@@ -260,7 +258,7 @@ import {
   huaweiListSnapshots,
   huaweiListSubnets,
   huaweiListRouteTables,
-} from '../services/huaweicloud';
+} from '../services/clouds/huaweicloud/client';
 import {
   testHarvesterConnection,
   listHarvesterVMsStandard,
@@ -270,14 +268,17 @@ import {
   harvesterDeleteVM,
   listKubeOvnVpcs,
   listKubeOvnSubnets,
-} from '../services/harvester';
+} from '../services/clouds/harvester/client';
 import { listCsmVms, csmRequest } from '../services/clouds/csm/client';
-// import { registerHarvesterDirectRoutes } from './clouds.harvester_direct';
-import { registerCsmRoutes } from './clouds.csm';
-import { registerAliyunRoutes } from './clouds.aliyun';
-import { registerHuaweiRoutes } from './clouds.huaweicloud';
-import { registerMonitoringRoutes } from './clouds.monitoring';
-import { registerLoggingRoutes } from './clouds.logging';
+import { registerCsmRoutes } from './clouds/csm';
+import { registerAliyunRoutes } from './clouds/aliyun';
+import { registerHuaweiRoutes } from './clouds/huaweicloud';
+import {
+  registerHarvesterDirectRoutes,
+  registerHarvesterRoutes,
+  registerMonitoringRoutes,
+  registerLoggingRoutes,
+} from './clouds/harvester';
 import { standardResourceService } from '../services/StandardResourceService';
 
 // Helper: Extract standardized identity (id, name) from raw cloud resources

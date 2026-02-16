@@ -1,3 +1,12 @@
+/**
+ * Harvester - 定时备份/快照策略列表 Section
+ * 展示 Harvester 中的 ScheduleVmBackup 资源，
+ * 支持：
+ * - 过滤系统命名空间，只展示业务命名空间策略
+ * - 按关键字、类型过滤（备份 / 快照）
+ * - 查看、修改、启用/停用以及删除策略
+ * - 打开资源详情抽屉查看原始对象
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, Input, Badge, Tooltip, Dropdown, Menu, message, Modal, Select } from 'antd';
 import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
@@ -9,6 +18,13 @@ import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
 
+/**
+ * 组件入参说明
+ * - cloudId: 当前云 ID，用于调用定时备份相关 API
+ * - data: 后端返回的定时策略列表（可能带 rawData 包装）
+ * - loading: 外层加载状态
+ * - onRefresh: 刷新回调，支持 force=true
+ */
 interface Props {
   cloudId: string;
   data: any[];
@@ -16,6 +32,10 @@ interface Props {
   onRefresh?: (force?: boolean) => void;
 }
 
+/**
+ * 将创建时间转换为“存活时间”人类可读文案
+ * 如：5 分钟 / 3 小时 / 2 天
+ */
 const formatAge = (timestamp: string) => {
   if (!timestamp) return '-';
   const created = new Date(timestamp).getTime();
@@ -33,6 +53,7 @@ const formatAge = (timestamp: string) => {
 };
 
 const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onRefresh }) => {
+  // 工具栏过滤与抽屉/弹窗的本地状态
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -134,9 +155,12 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       dataIndex: 'name', 
       key: 'name', 
       render: (t: string, r: any) => (
-        <a className="cell-link" onClick={() => { setCurrentRecord(r.raw); setDrawerVisible(true); }}>
+        <span
+          className="cell-link"
+          onClick={() => { setCurrentRecord(r.raw); setDrawerVisible(true); }}
+        >
           {t}
-        </a>
+        </span>
       )
     },
     {
@@ -247,7 +271,10 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
           dataSource={filteredData}
           columns={columns}
           loading={loading}
-          pagination={{size: 'small'}}
+          pagination={{
+            size: 'small',
+            showQuickJumper: false,
+          }}
         />
       </PageDetailSection>
 

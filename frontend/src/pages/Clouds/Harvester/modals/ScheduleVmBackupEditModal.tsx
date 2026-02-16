@@ -1,8 +1,24 @@
+/**
+ * Harvester - 编辑定时备份/快照策略弹窗
+ *
+ * 在已有 ScheduleVmBackup 基础上进行修改：
+ * - 展示命名空间 / 源虚拟机等只读信息；
+ * - 支持修改别名、执行频率 (cron)、保留数量、最大失败次数、暂停状态；
+ * - 通过简单规则自动识别原有 cron 属于「每天」还是「每周」，并回填 UI。
+ */
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Form, Input, InputNumber, Switch, Select, message, Alert, Radio, Row, Col } from 'antd';
 import { updateHarvesterScheduleVmBackup } from '../../../../services/harvesterApi';
 import { formatCron } from '../../../../utils/cronFormatter';
 
+/**
+ * 组件入参
+ * - visible: 弹窗是否可见
+ * - onCancel: 关闭回调
+ * - onSuccess: 更新成功回调
+ * - cloudId: 云 ID
+ * - record: 当前要编辑的定时策略记录（包含 raw）
+ */
 interface Props {
   visible: boolean;
   onCancel: () => void;
@@ -15,12 +31,13 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSucce
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   
-  // UI States for Cron Construction
+  // Cron 构造所需的 UI 状态（模式 + 时分 + 星期）
   const [cronMode, setCronMode] = useState<'daily' | 'weekly' | 'custom'>('daily');
   const [uiCron, setUiCron] = useState({ hour: 2, minute: 0, weekDay: 0 }); // 0 = Sunday
 
   const cronValue = Form.useWatch('cron', form);
 
+  // 弹窗打开时，根据 record 内容回填表单，并尝试解析当前 cron 得到合适的 UI 模式
   useEffect(() => {
     if (visible && record) {
       const raw = record.raw || record;
@@ -65,7 +82,7 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSucce
     }
   }, [visible, record, form]);
 
-  // Sync UI State to Form Field
+  // 根据当前 cronMode + uiCron 同步计算 cron 字符串到表单字段
   useEffect(() => {
     if (!visible) return;
     
@@ -83,6 +100,11 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSucce
     }
   }, [cronMode, uiCron, visible]);
 
+  /**
+   * 校验表单并提交更新请求：
+   * - 仅更新 cron / retain / maxFailure / suspend 及 alias 注解；
+   * - 保持其他标签/字段不变。
+   */
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
@@ -117,6 +139,7 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSucce
     }
   };
 
+  // 使用 formatCron 将 cron 表达式转换为人类可读描述，展示在 Alert 中
   const cronPreview = useMemo(() => {
     if (!cronValue) return null;
     return formatCron(cronValue);

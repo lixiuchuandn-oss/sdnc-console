@@ -207,7 +207,13 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   const imageOptions = useMemo(() => (images || []).map((x: any) => {
     const name = x?.metadata?.name || x?.name;
     const ns = x?.metadata?.namespace || x?.namespace;
-    const disp = x?.spec?.displayName || x?.displayName || name;
+    const disp =
+      x?.spec?.displayName ||
+      x?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
+      x?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
+      x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
+      x?.displayName ||
+      name;
     return {
       label: disp || '-',
       value: ns && name ? `${ns}/${name}` : name

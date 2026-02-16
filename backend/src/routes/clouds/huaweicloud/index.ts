@@ -1,0 +1,1 @@
+export { registerHuaweiRoutes } from './routes';

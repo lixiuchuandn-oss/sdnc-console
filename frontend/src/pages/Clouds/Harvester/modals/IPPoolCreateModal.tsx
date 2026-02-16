@@ -1,8 +1,23 @@
+/**
+ * Harvester - 创建 IP 池弹窗
+ *
+ * 负责创建 Harvester IPPool 资源，支持两种模式：
+ * - CIDR 模式：为指定网络配置一个 CIDR 网段，由 IPAM 自动切分地址；
+ * - IP 范围模式：在指定子网下配置起止 IP 范围与网关。
+ * 通过 selector.network 关联到某个 NAD（namespace/name）。
+ */
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Input, Select, Radio, message, Space } from 'antd';
 import { createHarvesterIPPool, fetchHarvesterNamespaces, fetchHarvesterNads } from '../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
+/**
+ * 组件入参
+ * - open: 弹窗开关
+ * - onClose: 关闭回调
+ * - onSuccess: 创建成功回调
+ * - cloudId: 当前云 ID，用于调用 Harvester API
+ */
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -26,6 +41,7 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
     }
   }, [open]);
 
+  // 加载业务命名空间（过滤掉系统命名空间）
   const loadNamespaces = async () => {
     try {
       const res = await fetchHarvesterNamespaces(cloudId);
@@ -39,6 +55,7 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
     }
   };
 
+  // 加载可用 NAD 网络列表，用于 selector.network 下拉
   const loadNetworks = async () => {
     try {
       const res = await fetchHarvesterNads(cloudId);
@@ -49,6 +66,12 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
     }
   };
 
+  /**
+   * 提交创建 IPPool：
+   * - 基础结构使用 type + metadata + spec；
+   * - selector.network 为 namespace/name 字符串；
+   * - 根据类型选择填充 cidrs 或 ranges 字段。
+   */
   const handleOk = async () => {
     try {
       const values = await form.validateFields();

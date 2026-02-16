@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
-import { AppDataSource } from '../config/database';
-import { Cloud } from '../entities/Cloud';
+import { AppDataSource } from '../../../config/database';
+import { Cloud } from '../../../entities/Cloud';
 import {
   huaweiListVpcs,
   huaweiShowVpc,
@@ -42,7 +42,7 @@ import {
   huaweiStartServer,
   huaweiStopServer,
   huaweiRebootServer,
-} from '../services/huaweicloud';
+} from '../../../services/clouds/huaweicloud/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
   const repo = AppDataSource.getRepository(Cloud);

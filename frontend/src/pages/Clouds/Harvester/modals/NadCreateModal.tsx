@@ -1,9 +1,24 @@
+/**
+ * Harvester - 创建网络 (NAD) 弹窗
+ *
+ * 负责创建 NetworkAttachmentDefinition，绑定到 Harvester ClusterNetwork：
+ * - 通过 `network.harvesterhci.io/route-cluster-network` 注解关联 ClusterNetwork；
+ * - 使用 bridge CNI，桥接到指定 bridge（默认 mgmt 对应 mgmt-br）；
+ * - 可选配置 VLAN ID，用于为业务网络打 tag。
+ */
 import React, { useState, useEffect } from 'react';
 import { Form, Input, Select, InputNumber, Alert, message } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
 import { createHarvesterNad, fetchHarvesterNamespaces, fetchHarvesterClusterNetworks } from '../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
+/**
+ * 组件入参
+ * - open: 弹窗是否打开
+ * - onCancel: 关闭回调
+ * - onSuccess: 创建成功回调
+ * - cloudId: 当前云 ID，用于调用 Harvester API
+ */
 interface Props {
   open: boolean;
   onCancel: () => void;
@@ -29,6 +44,7 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
     }
   }, [open, cloudId]);
 
+  // 加载命名空间列表，并在前端过滤系统命名空间
   const loadNamespaces = async () => {
     setNsLoading(true);
     try {
@@ -44,6 +60,7 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
     }
   };
 
+  // 加载 ClusterNetwork 列表，用于绑定路由网络
   const loadClusterNetworks = async () => {
     setCnLoading(true);
     try {
@@ -65,6 +82,12 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
     }
   };
 
+  /**
+   * 提交创建 NAD：
+   * - 组装 bridge CNI config（含可选 VLAN ID）；
+   * - 以 k8s.cni.cncf.io.networkattachmentdefinition 类型提交给 Harvester；
+   * - 使用 annotation 将 NAD 与 ClusterNetwork 关联。
+   */
   const handleFinish = async (values: any) => {
     setLoading(true);
     try {

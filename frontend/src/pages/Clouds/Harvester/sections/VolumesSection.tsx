@@ -1,17 +1,47 @@
+/**
+ * @file VolumesSection.tsx
+ * @description Harvester 虚拟卷（PVC）列表视图
+ *
+ * 职责说明：
+ * - 以统一的视图模型 VolumeView 展示 Harvester/K8s PVC 列表（名称、容量、存储类、访问模式等）
+ * - 提供关键字、命名空间、状态、存储类等多维度筛选，并支持“显示系统卷”开关
+ * - 自动过滤系统命名空间和系统存储类（依赖 harvesterUtils 中的 isSystemNamespace / isSystemStorageClass）
+ * - 自动尝试关联卷所属的云主机（SafeRead.attachedVm），在列表中展示“挂载云主机”
+ * - 支持卷的全生命周期操作：创建、挂载到云主机、从云主机卸载、导出为镜像、创建快照、编辑容量、克隆、删除
+ * - 支持批量删除卷
+ * - 支持打开 HarvesterResourceDrawer 查看 PVC 详情 / 事件
+ *
+ * 集成说明：
+ * - 所有实际的后端调用（创建/删除/挂载/卸载/导出/快照/编辑/克隆）统一通过 services/harvesterApi 下的接口实现
+ * - 组件通过 Props 接收 volumes / vms / storageClasses 列表以及 onRefresh 回调，由上层页面负责数据拉取
+ * - 本组件内部不会做任何“Hack”式写法，只通过 ViewModel + SafeRead 做兼容性适配
+ */
+
 import React, { useMemo, useState, useEffect } from 'react';
-import { Table, Tag, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Checkbox, Tabs, Descriptions, Badge } from 'antd';
+import { Table, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Checkbox, Tabs, Badge } from 'antd';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume, listHarvesterSnapshotClasses } from '../../../../services/harvesterApi';
+import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
 import { isSystemNamespace, isSystemStorageClass } from '../../../../utils/harvesterUtils';
 
+/**
+ * Props 定义
+ *
+ * @property cloudId           云平台 ID（用于调用 Harvester 相关 API）
+ * @property volumes           后端返回的卷列表（PVC 或包装对象），作为原始数据源
+ * @property loading           上层传入的加载状态，用于控制表格 / 刷新按钮的 loading
+ * @property vms               当前集群中云主机列表，用于反查卷挂载到哪台 VM
+ * @property storageClasses    存储类列表（StorageClass），用于创建/导出卷时提供下拉选项
+ * @property namespacesOptions 可选的命名空间选项（如果不给，则从数据中推导）
+ * @property onRefresh         触发上层重新拉取 volumes / vms 等数据的回调
+ */
 type Props = {
   cloudId: string;
   volumes: any[];
@@ -23,29 +53,65 @@ type Props = {
 };
 
 // ----------------------------------------------------------------------
-  // 1. Clean Data Model (ViewModel) based on PCV Spec
-  // ----------------------------------------------------------------------
-  interface VolumeView {
-    key: string;
-    name: string;              // metadata.name (PVC Name)
-    alias?: string;            // metadata.annotations['tower.io/alias']
-    namespace: string;         // metadata.namespace
-    pvName: string;            // spec.volumeName (PV Name)
-    phase: string;             // status.phase
-    capacityRaw: string;       // status.capacity.storage | spec.resources.requests.storage
-    capacityBytes: number;     // parsed value
-    storageClass: string;      // spec.storageClassName
-    accessModes: string[];     // spec.accessModes
-    volumeMode: string;        // spec.volumeMode
-    creationTimestamp: string; // metadata.creationTimestamp
-    attachedTo: string[];      // status.attachedTo (legacy/extra) or calculated
-    links?: { view?: string };
-    raw: any;                  // Original Record
-  }
+// 1. Clean Data Model (ViewModel) based on PVC Spec
+// ----------------------------------------------------------------------
+/**
+ * VolumeView：前端使用的“干净视图模型”
+ *
+ * 设计目的：
+ * - 后端可能返回多种结构（原生 K8s PVC 对象、带 rawData 的包装对象等）
+ * - 通过统一映射到 VolumeView，表格渲染与后续逻辑都只依赖这一种结构
+ *
+ * 字段说明：
+ * - key：表格行唯一标识，优先使用 metadata.uid，其次使用 id 或 namespace/name
+ * - name：PVC 名称（metadata.name）
+ * - alias：展示别名（tower.io/alias），如果有的话
+ * - namespace：命名空间（metadata.namespace）
+ * - pvName：绑定的 PV 名称（spec.volumeName）
+ * - phase：卷状态（status.phase），增加了 Resizing / FileSystemResizePending 兼容
+ * - capacityRaw：原始容量字符串（如 "10Gi"）
+ * - capacityBytes：换算后的字节数，便于进行数值计算和排序
+ * - storageClass：存储类名称（spec.storageClassName）
+ * - accessModes：访问模式数组（如 ['ReadWriteOnce']）
+ * - volumeMode：卷类型（Block / Filesystem）
+ * - creationTimestamp：创建时间（metadata.creationTimestamp）
+ * - attachedTo：后端直接提供的“挂载到哪些实例”的列表（如果有）
+ * - links：扩展用链接信息（当前主要保留原样）
+ * - raw：原始记录（用于打开详情抽屉时传给 HarvesterResourceDrawer）
+ */
+interface VolumeView {
+  key: string;
+  name: string;
+  alias?: string;
+  namespace: string;
+  pvName: string;
+  phase: string;
+  capacityRaw: string;
+  capacityBytes: number;
+  storageClass: string;
+  accessModes: string[];
+  volumeMode: string;
+  creationTimestamp: string;
+  attachedTo: string[];
+  links?: { view?: string };
+  raw: any;
+}
 
 // ----------------------------------------------------------------------
-// 2. Helpers
+// 2. Helpers（通用辅助函数）
 // ----------------------------------------------------------------------
+/**
+ * parseQuantity：解析 K8s 容量字符串为字节数
+ *
+ * 支持格式：
+ * - 纯数字：默认视为字节数，例如 "10737418240"
+ * - 带二进制单位：Ki / Mi / Gi / Ti / Pi
+ * - 带十进制单位：k / M / G / T / P
+ *
+ * 示例：
+ * - "10Gi" => 10 * 1024^3
+ * - "500Mi" => 500 * 1024^2
+ */
 const parseQuantity = (s: string | number | undefined): number => {
   if (typeof s === 'number') return s;
   if (!s) return 0;
@@ -62,12 +128,26 @@ const parseQuantity = (s: string | number | undefined): number => {
   return parseFloat(str);
 };
 
+/**
+ * gbText：将字节数格式化为 GB 文本
+ *
+ * - 输入为字节数（通常来自 parseQuantity）
+ * - 输出保留两位小数的 "xx.xx GB" 文本
+ * - 如果字节数为空或 <= 0，则返回 "-"
+ */
 const gbText = (bytes: number): string => {
   if (!bytes || bytes <= 0) return '-';
   const gb = bytes / (1024 * 1024 * 1024);
   return `${gb.toFixed(2)} GB`;
 };
 
+/**
+ * cnStatus：将卷状态英文字符串转换为中文文案
+ *
+ * 用于：
+ * - 顶部“状态”筛选下拉框的展示（label）
+ * - 让终端用户看到中文状态而不是英文枚举
+ */
 const cnStatus = (s: string): string => {
   const k = s.toLowerCase();
   const m: Record<string, string> = {
@@ -80,6 +160,19 @@ const cnStatus = (s: string): string => {
   return m[k] || s;
 };
 
+/**
+ * statusBadge：根据 PVC phase 渲染状态徽标
+ *
+ * 映射规则（示例）：
+ * - bound / available          => 绿色“正常 (Bound)”
+ * - lost                       => 红色“丢失 (Lost)”
+ * - pending                    => 蓝色“创建中 (Pending)”
+ * - resizing                   => 带旋转图标的“扩容中 (Resizing)”
+ * - filesystemresizepending    => 黄色“等待文件系统扩容”
+ *
+ * 返回值：
+ * - Antd Badge 组件，用于表格“状态”列
+ */
 const statusBadge = (phase: string) => {
   const p = (phase || '').toLowerCase();
   let status = 'default';
@@ -111,18 +204,27 @@ const statusBadge = (phase: string) => {
 // ----------------------------------------------------------------------
 // 3. Component
 // ----------------------------------------------------------------------
+/**
+ * VolumesSection 组件
+ *
+ * 主要职责：
+ * - 将后端返回的 PVC 列表归一化为 VolumeView 视图模型
+ * - 提供多条件过滤（关键字、命名空间、状态、存储类、是否显示系统卷）
+ * - 提供卷生命周期相关操作（创建、挂载/卸载、导出、快照、编辑、克隆、删除）
+ * - 打开 HarvesterResourceDrawer 查看 PVC 详情
+ */
 const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, storageClasses: propStorageClasses, namespacesOptions, onRefresh }) => {
-  // Filters
+  // 过滤条件状态：关键字 / 状态 / 命名空间 / 存储类 / 是否展示系统卷
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [scFilter, setScFilter] = useState<string>('');
   const [showSystemVolumes, setShowSystemVolumes] = useState<boolean>(false);
   
-  // Selection
+  // 表格勾选的行，用于批量删除
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  // Modals
+  // 各类弹窗开关状态：创建 / 挂载 / 导出 / 快照 / 编辑 / 克隆
   const [createOpen, setCreateOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -130,12 +232,12 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   const [editOpen, setEditOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   
-  // Detail Drawer State
+  // 详情抽屉状态：是否可见 / 当前记录 / 当前 Tab
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
-  // Forms
+  // 表单实例：分别对应创建 / 挂载 / 导出 / 快照 / 编辑 / 克隆
   const [createForm] = Form.useForm();
   const [attachForm] = Form.useForm();
   const [exportForm] = Form.useForm();
@@ -143,19 +245,18 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   const [editForm] = Form.useForm();
   const [cloneForm] = Form.useForm();
 
-  // Active Record
+  // 当前正在操作的卷（配合各个弹窗使用）
   const [currentRecord, setCurrentRecord] = useState<VolumeView | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [storageClasses, setStorageClasses] = useState<any[]>([]);
-  const [tableColumns, setTableColumns] = useState<any[]>([]);
-  const [snapshotClasses, setSnapshotClasses] = useState<any[]>([]);
+  const [creating, setCreating] = useState(false);                 // 创建卷时的提交状态
+  const [storageClasses, setStorageClasses] = useState<any[]>([]); // 实际使用的存储类列表
+  const [tableColumns, setTableColumns] = useState<any[]>([]);     // 当前表格列配置（受 TableColumnSettings 控制）
 
-  // Sync Storage Classes
+  // 同步外部传入的 storageClasses 到本地 state
   useEffect(() => {
     if (propStorageClasses) setStorageClasses(propStorageClasses);
   }, [propStorageClasses]);
 
-  // Set default SC in Create Form
+  // 在“创建卷”表单中自动选择一个推荐的存储类（优先 longhorn）
   useEffect(() => {
     try {
       const cur = createForm.getFieldValue('storageClassName');
@@ -173,25 +274,38 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   // ----------------------------------------------------------------
   // SafeRead Helper (Robust Data Access)
   // ----------------------------------------------------------------
+  /**
+   * SafeRead：安全读取工具
+   *
+   * 作用：
+   * - 屏蔽后端数据结构差异（原生 PVC / 包装对象 / 扁平字段）
+   * - 对外提供一组统一的读取接口（id / name / namespace / phase 等）
+   */
   const SafeRead = {
-    // Real ID / Name (for logic)
+    // 真实 PVC 名称（逻辑 ID）：优先使用 r.name，其次 metadata.name
     id: (r: any) => r?.name || r?.metadata?.name || '',
-    // Display Name (for UI)
+    // 展示名称：优先别名，其次 name
     name: (r: any) => r?.alias || r?.metadata?.annotations?.['tower.io/alias'] || r?.name || r?.metadata?.name || '',
+    // 命名空间
     namespace: (r: any) => r?.namespace || r?.metadata?.namespace || '',
+    // 卷状态（Phase）
     phase: (r: any) => r?.phase || r?.status?.phase || r?.status?.state || 'Unknown',
+    // 原始容量
     capacity: (r: any) => r?.capacityRaw || r?.status?.capacity?.storage || r?.spec?.resources?.requests?.storage || '',
+    // 存储类
     storageClass: (r: any) => r?.storageClass || r?.spec?.storageClassName || '',
+    // 访问模式（统一为数组）
     accessModes: (r: any) => {
       const modes = r?.accessModes || r?.spec?.accessModes || r?.status?.accessModes;
       return Array.isArray(modes) ? modes : (modes ? [modes] : []);
     },
+    // 后端直接提供的挂载目标列表（如果有）
     attachedTo: (r: any) => {
       if (Array.isArray(r?.attachedTo)) return r.attachedTo;
       // Harvester/K8s usually doesn't have attachedTo in status, but if backend provides it:
       return [];
     },
-    // Find the VM this volume is attached to
+    // 查找该卷挂载到的 VM 对象
     attachedVm: (r: any) => {
       const list = Array.isArray(vms) ? vms : [];
       const pvcName = SafeRead.id(r); // PVC Name (metadata.name)
@@ -224,6 +338,15 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   // ----------------------------------------------------------------
   // Core Data Normalization (The "Rewrite" Logic)
   // ----------------------------------------------------------------
+  /**
+   * dataSource：核心数据归一化逻辑
+   *
+   * 作用：
+   * - 将原始 volumes 列表转为 VolumeView 数组
+   * - 处理多种来源字段（rawData / 扁平字段）
+   * - 识别并合并“扩容中 / 文件系统待扩容”等特殊状态
+   * - 去重：按 namespace/name 保证唯一
+   */
   const dataSource = useMemo<VolumeView[]>(() => {
     const rawList = Array.isArray(volumes) ? volumes : [];
     
@@ -231,19 +354,18 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       // Prioritize rawData (K8s Spec) if available (e.g. from backend wrapper)
       const source = r?.rawData || r || {};
       
-      // 1. Extract Basic Meta (Prioritize PCV Spec > Flat/Legacy)
+      // 1. 基础元信息：名称 / 命名空间 / 别名
       const name = source?.metadata?.name || r?.name || '';
       const namespace = source?.metadata?.namespace || r?.namespace || '';
       const alias = source?.metadata?.annotations?.['tower.io/alias'] || '';
       
-      // 2. Extract Spec Details
+      // 2. 规格信息：PV 名称 / 存储类 / 访问模式 / 卷类型
       const pvName = source?.spec?.volumeName || r?.volumeName || r?.pvcName || ''; 
       const storageClass = source?.spec?.storageClassName || r?.storageClassName || '';
       const accessModes = source?.spec?.accessModes || source?.status?.accessModes || r?.accessModes || [];
       const volumeMode = source?.spec?.volumeMode || r?.volumeMode || 'Block';
 
-      // 3. Extract Status & Capacity
-      // PCV Spec: status.phase, status.capacity.storage
+      // 3. 状态与容量：phase + capacityRaw（同时兼容 conditions 中的扩容状态）
       let phase = source?.status?.phase || r?.phase || source?.status?.state || r?.state || 'Unknown';
       
       // Check for Resizing conditions (Resizing or FileSystemResizePending)
@@ -261,7 +383,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
 
       const capacityRaw = source?.status?.capacity?.storage || source?.spec?.resources?.requests?.storage || r?.size || r?.capacity || '';
       
-      // 4. Attached Info (Legacy might have attachedTo array, otherwise computed)
+      // 4. 挂载信息：保留后端直接给出的 attachedTo（如果有）
       const attachedTo = Array.isArray(r?.attachedTo) ? r.attachedTo : [];
 
       return {
@@ -281,9 +403,9 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         links: r?.links,
         raw: r // Keep original record
       };
-    }).filter(v => !!v.name); // Filter out empty records
+    }).filter(v => !!v.name); // 过滤掉缺少名称的无效记录
 
-    // De-duplicate: Ensure unique namespace/name combination
+    // De-duplicate：按 namespace/name 去重
     const uniqueMap = new Map<string, VolumeView>();
     mapped.forEach(v => {
       const uniqKey = `${v.namespace}/${v.name}`;
@@ -302,8 +424,18 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
 
 
   // ----------------------------------------------------------------
-  // Filtering
+  // Filtering（列表过滤）
   // ----------------------------------------------------------------
+  /**
+   * filteredData：根据多种条件过滤之后的列表
+   *
+   * 条件：
+   * - 关键字：匹配 name（别名或 PVC 名称）
+   * - 状态：phase 精确匹配
+   * - 命名空间：精确匹配
+   * - 存储类：精确匹配
+   * - 是否显示系统卷：未勾选时，会自动隐藏系统命名空间下的卷
+   */
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
@@ -325,16 +457,16 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     });
   }, [dataSource, keyword, statusFilter, nsFilter, scFilter, showSystemVolumes]);
 
-  // Options for Filters
+  // Options for Filters（筛选下拉选项）
   const nsOptions = useMemo(() => {
     const set = new Set<string>();
 
-    // Priority 1: Use provided namespacesOptions (from CloudConsole)
+    // 优先使用外部传入的 namespacesOptions（CloudConsole 组合筛选）
     if (Array.isArray(namespacesOptions)) {
       namespacesOptions.forEach(ns => ns && set.add(ns));
     }
 
-    // Priority 2: Fallback to data from volumes and VMs
+    // 若未传入，则从卷和 VM 数据中推导命名空间列表
     if (set.size === 0) {
       dataSource.forEach(v => v.namespace && set.add(v.namespace));
       (vms || []).forEach((vm: any) => {
@@ -344,7 +476,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       if (!set.has('default')) set.add('default');
     }
     
-    // Filter system namespaces unless "showSystemVolumes" is true
+    // 默认过滤系统命名空间，除非用户勾选“显示系统卷”
     let list = Array.from(set);
     if (!showSystemVolumes) {
       list = list.filter(ns => !isSystemNamespace(ns));
@@ -353,13 +485,20 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     return list.sort().map(s => ({ value: s, label: s }));
   }, [dataSource, vms, showSystemVolumes, namespacesOptions]);
 
+  // 状态筛选可选值列表（结合 cnStatus 渲染为中文）
   const statusOptions = [
     'healthy','degraded','faulted','detached','attaching','attached','detaching','maintenance','restoring','creating','deleting','error','bound','pending','lost'
   ];
 
   // ----------------------------------------------------------------
-  // Actions Handlers
+  // Actions Handlers（单个 / 批量操作）
   // ----------------------------------------------------------------
+  /**
+   * handleOpenDrawer：打开资源详情抽屉
+   *
+   * - 确保传给 Drawer 的 record 至少包含 kind / metadata 基础信息
+   * - activeTab 控制默认打开的二级 Tab（detail / events 等）
+   */
   const handleOpenDrawer = async (record: VolumeView, tab: string = 'detail') => {
     // Inject kind: 'PersistentVolumeClaim' for events fetching
     const raw = record.raw || {};
@@ -380,6 +519,15 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     setDetailVisible(true);
   };
 
+  /**
+   * handleBatchDelete：批量删除选中卷
+   *
+   * 流程：
+   * - 根据 selectedRowKeys 找到目标 VolumeView
+   * - 弹出确认框展示即将删除的卷名称
+   * - 并发调用 deleteHarvesterVolume
+   * - 汇总成功/失败数量并提示
+   */
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter(v => selectedRowKeys.includes(v.key));
@@ -404,6 +552,14 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     });
   };
 
+  /**
+   * handleAttach：打开“挂载到云主机”弹窗
+   *
+   * 逻辑：
+   * - 如果当前 vms 列表为空，先尝试触发一次刷新（避免数据不同步）
+   * - 通过 SafeRead.attachedVm 找到当前卷已挂载的 VM（如果有）
+   * - 预填表单：instanceId / diskName / bus
+   */
   const handleAttach = (r: VolumeView) => {
     // Proactively refresh if vms are missing (common issue on fresh load)
     if (!vms || vms.length === 0) {
@@ -421,6 +577,16 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     setAttachOpen(true);
   };
 
+  /**
+   * handleDetach：从云主机卸载卷
+   *
+   * 核心步骤：
+   * 1. 校验 vms 数据是否存在，否则提示用户稍后重试
+   * 2. 通过 SafeRead.attachedVm 找到挂载的 VM；若找不到则提示
+   * 3. 尝试解析磁盘名称（优先 VM.spec.volumes，其次 Extra.VolumeMap）
+   * 4. 若仍无法确定磁盘名称，建议用户先在 VM 内卸载，并可选择重启 VM
+   * 5. 调用 detachHarvesterVolumeFromVm 进行卸载，必要时退化为使用短 ID
+   */
   const handleDetach = async (r: VolumeView) => {
     // Proactively refresh if vms are missing
     if (!vms || vms.length === 0) {
@@ -499,8 +665,18 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   };
 
   // ----------------------------------------------------------------
-  // Columns
+  // Columns（表格列定义）
   // ----------------------------------------------------------------
+  /**
+   * allColumns：卷列表表头配置
+   *
+   * 包含：
+   * - PVC名称 / PVC ID / PV 名称 / 状态 / 命名空间 / 存储类 / 访问模式 / 卷类型 / 挂载云主机 / 大小 / 操作
+   *
+   * 说明：
+   * - “挂载云主机”优先显示已解析的 VM 别名，否则回退到 InstanceName/InstanceId
+   * - “操作”列集中各类动作（编辑、挂载/卸载、导出、快照、克隆、删除）
+   */
   const allColumns = useMemo(() => [
     { 
       title: 'PVC名称', 
@@ -545,7 +721,31 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       title: '访问模式', 
       dataIndex: 'accessModes',
       key: 'accessModes',
-      render: (modes: string[]) => modes.length ? modes.map(m => <Tag key={m}>{m}</Tag>) : '-'
+      render: (modes: string[]) => {
+        const list = Array.isArray(modes) ? modes : (modes ? [modes] : []);
+        if (list.length === 0) return '-';
+        return list.map((m) => {
+          const raw = String(m || '');
+          const k = raw.toLowerCase();
+          let cls = 'std-badge std-badge-default';
+          let text = raw;
+          if (k === 'readwriteonce') {
+            cls = 'std-badge std-badge-info';
+            text = 'RWO';
+          } else if (k === 'readwritemany') {
+            cls = 'std-badge std-badge-success';
+            text = 'RWX';
+          } else if (k === 'readonlymany') {
+            cls = 'std-badge std-badge-warning';
+            text = 'ROX';
+          }
+          return (
+            <span key={raw} className={cls} style={{ marginRight: 4 }}>
+              {text}
+            </span>
+          );
+        });
+      }
     },
     { 
       title: '卷类型', 
@@ -674,10 +874,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer]);
+  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm]);
 
   // ----------------------------------------------------------------
-  // Render
+  // Render（渲染）
   // ----------------------------------------------------------------
   return (
     <PageDetailSection
@@ -762,7 +962,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         dataSource={filteredData}
         loading={loading}
         scroll={{ x: 'max-content' }}
-        pagination={{size:'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
       />
 
       {/* --- Modals --- */}

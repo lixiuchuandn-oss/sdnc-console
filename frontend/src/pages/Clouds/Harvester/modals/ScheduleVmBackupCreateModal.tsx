@@ -1,3 +1,12 @@
+/**
+ * Harvester - 创建定时备份/快照策略弹窗
+ *
+ * 提供向导式 UI 用于构造 ScheduleVmBackup：
+ * - 先选择命名空间与源虚拟机；
+ * - 支持「每天 / 每周 / 自定义 Cron」三种模式构造 cron 表达式；
+ * - 配置保留数量、最大失败次数、是否暂停；
+ * - 使用 formatCron 给出人类可读的时间预览。
+ */
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Form, Input, InputNumber, Switch, Select, message, Alert, Radio, Row, Col } from 'antd';
 import { fetchCloudProviderEcs } from '../../../../services/api';
@@ -5,6 +14,13 @@ import { fetchHarvesterNamespaces, createHarvesterScheduleVmBackup } from '../..
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import { formatCron } from '../../../../utils/cronFormatter';
 
+/**
+ * 组件入参
+ * - visible: 弹窗是否可见
+ * - onCancel: 关闭回调
+ * - onSuccess: 创建成功回调
+ * - cloudId: 当前云 ID，用于调用 Harvester API
+ */
 interface Props {
   visible: boolean;
   onCancel: () => void;
@@ -18,13 +34,14 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
   const [namespaces, setNamespaces] = useState<any[]>([]);
   const [vms, setVms] = useState<any[]>([]);
   
-  // UI States for Cron Construction
+  // Cron 构造的 UI 状态（模式 + 时分 + 星期）
   const [cronMode, setCronMode] = useState<'daily' | 'weekly' | 'custom'>('daily');
   const [uiCron, setUiCron] = useState({ hour: 2, minute: 0, weekDay: 0 }); // 0 = Sunday
 
   const cronValue = Form.useWatch('cron', form);
   const selectedNamespace = Form.useWatch('namespace', form);
 
+  // 弹窗打开时加载命名空间/云主机，并设置默认策略与随机分钟数
   useEffect(() => {
     if (visible && cloudId) {
       loadData();
@@ -45,7 +62,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
     }
   }, [visible, cloudId]);
 
-  // Sync UI State to Form Field
+  // 根据 cronMode + uiCron 推导 cron 字符串并写回表单字段
   useEffect(() => {
     if (!visible) return;
     
@@ -71,6 +88,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
   // But for simplicity, we just let the Effect handle the 'daily/weekly' -> 'cron' sync.
   // If user switches to Custom, the Input will show the current cron string.
 
+  // 加载命名空间和 VM 列表，并过滤系统命名空间
   const loadData = async () => {
     try {
       const [nsRes, vmRes] = await Promise.all([
@@ -97,11 +115,17 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
     }
   };
 
+  // 根据选中的命名空间过滤可选 VM
   const filteredVms = useMemo(() => {
     if (!selectedNamespace) return [];
     return vms.filter(v => v.namespace === selectedNamespace || v.metadata?.namespace === selectedNamespace);
   }, [vms, selectedNamespace]);
 
+  /**
+   * 校验表单并提交创建定时策略：
+   * - 直接将表单值透传给 createHarvesterScheduleVmBackup；
+   * - 若后端返回复合错误信息（带 JSON），尝试解析并友好提示。
+   */
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
@@ -147,6 +171,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
     }
   };
 
+  // 将 cron 表达式转换为人类可读的中文描述
   const cronPreview = useMemo(() => {
     if (!cronValue) return null;
     return formatCron(cronValue);

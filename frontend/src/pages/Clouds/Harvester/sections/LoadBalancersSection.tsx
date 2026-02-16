@@ -1,3 +1,12 @@
+/**
+ * Harvester - 负载均衡 (LoadBalancer Service) 列表 Section
+ * 展示基于 Harvester/Kubernetes Service 的负载均衡资源，
+ * 支持：
+ * - 关键字过滤（名称 / 命名空间）
+ * - 创建负载均衡
+ * - 单个/批量删除
+ * - 打开 HarvesterResourceDrawer 查看 Service 详情
+ */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Tag, Input, Space, Modal } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -7,6 +16,14 @@ import CreateLoadBalancerModal from '../modals/CreateLoadBalancerModal';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import { deleteHarvesterService } from '../../../../services/harvesterApi';
 
+/**
+ * 组件入参说明
+ * - cloudId: 当前云 ID，用于调用删除 Service 的 API
+ * - loadBalancers: 负载均衡 Service 列表
+ * - namespaces: 命名空间列表，供创建弹窗选择
+ * - loading: 外层传入的加载状态
+ * - onRefresh: 刷新回调，支持传入 force=true
+ */
 interface Props {
   cloudId: string;
   loadBalancers: any[];
@@ -16,13 +33,18 @@ interface Props {
 }
 
 const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh }) => {
+  // 工具栏与弹窗状态
   const [keyword, setKeyword] = useState<string>('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState('detail');
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  
+
+  /**
+   * 将 Service 对象转换为表格可直接展示的数据结构
+   * - listeners 字段将监听端口列表拼接为 "port:backendPort/protocol" 格式
+   */
   const dataSource = useMemo(() => {
     return (loadBalancers || []).map((raw: any) => {
       const listeners = (raw.spec?.listeners || []).map((l: any) => `${l.port}:${l.backendPort}/${l.protocol}`).join(', ');
@@ -40,6 +62,9 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     });
   }, [loadBalancers]);
 
+  /**
+   * 根据关键字对名称/命名空间进行模糊匹配
+   */
   const filteredData = useMemo(() => {
     let d = dataSource;
     if (keyword) {
@@ -49,6 +74,9 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     return d;
   }, [dataSource, keyword]);
 
+  /**
+   * 打开 HarvesterResourceDrawer 展示 Service 详情
+   */
   const handleOpenDrawer = (record: any) => {
     if (record?.raw) {
       setSelectedRecord(record.raw);
@@ -57,6 +85,9 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     }
   };
 
+  /**
+   * 删除单个负载均衡 Service
+   */
   const handleDelete = (record: any) => {
     Modal.confirm({
       title: '确认删除',
@@ -76,6 +107,9 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     });
   };
 
+  /**
+   * 批量删除选中的负载均衡
+   */
   const handleBatchDelete = () => {
     Modal.confirm({
       title: '确认批量删除',
@@ -105,11 +139,17 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     });
   };
 
+  // 表格多选配置
   const rowSelection = {
     selectedRowKeys,
     onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
   };
 
+  /**
+   * 表格列定义
+   * - 名称列可点击打开详情抽屉
+   * - IPAM 列使用 Tag 高亮展示地址分配模式
+   */
   const columns = [
     { 
       title: '名称', 
@@ -117,12 +157,13 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
       key: 'name', 
       width: 200, 
       render: (t: string, record: any) => (
-        <a 
+        <span 
+          className="cell-link"
           style={{ fontWeight: 500 }}
           onClick={() => handleOpenDrawer(record)}
         >
           {t}
-        </a>
+        </span>
       ) 
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
@@ -180,7 +221,10 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
         columns={columns}
         rowKey="key"
         loading={loading}
-        pagination={{size: 'small'}}
+        pagination={{
+          size: 'small',
+          showQuickJumper: false,
+        }}
         rowSelection={rowSelection}
       />
       

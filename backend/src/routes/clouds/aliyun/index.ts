@@ -1,0 +1,2 @@
+export { registerAliyunRoutes } from './routes';
+

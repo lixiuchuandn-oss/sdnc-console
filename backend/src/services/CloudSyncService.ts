@@ -1,7 +1,7 @@
 import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
-import { callAliyunEcs } from './aliyun';
-import { huaweiListServers } from './huaweicloud';
+import { callAliyunEcs } from './clouds/aliyun/client';
+import { huaweiListServers } from './clouds/huaweicloud/client';
 import { listCsmVms } from './clouds/csm/client';
 import {
   syncKubevirtVms,
@@ -30,8 +30,22 @@ import {
   syncKubeOvnNatRules,
   syncHarvesterTemplates,
   syncHarvesterScheduleVmBackups,
-} from './clouds/harvester/syncInventory';
+} from './clouds/harvester/inventory';
 
+/**
+ * 云资源同步服务（后台任务）
+ *
+ * 核心职责：
+ * - 周期性扫描数据库中的所有 Cloud（资源池）记录
+ * - 按 provider 类型调用对应云厂商 / Harvester / CSM 的同步逻辑
+ * - 更新 Cloud 表中的统计信息（如 vmCount、runningVmCount、lastSyncAt）
+ * - 对 Harvester 相关资源（VM、Volume、NAD、VPC 等）进行库存表同步
+ *
+ * 设计要点：
+ * - 采用单例模式，防止在同一进程内启动多个同步循环导致并发写冲突
+ * - syncAllClouds 串行处理每个云，避免 SQLite 写事务互相抢占
+ * - 单个云同步失败不会影响其他云的同步（内部有 try-catch）
+ */
 export class CloudSyncService {
   private static instance: CloudSyncService;
   private isRunning: boolean = false;
@@ -40,6 +54,10 @@ export class CloudSyncService {
 
   /**
    * 获取单例实例
+   *
+   * 使用方式：
+   *   const job = CloudSyncService.getInstance();
+   *   job.startSyncJob();
    */
   public static getInstance(): CloudSyncService {
     if (!CloudSyncService.instance) {
@@ -50,7 +68,13 @@ export class CloudSyncService {
 
   /**
    * 启动后台同步任务
+   *
    * @param intervalMs 同步间隔，默认 5 分钟 (300000ms)
+   *
+   * 行为说明：
+   * - 调用时会立即执行一次 syncAllClouds（启动即同步一次）
+   * - 之后以 intervalMs 为周期，定时触发后续同步
+   * - 内部使用 isRunning 标记，避免上一次同步未结束时再次进入
    */
   public startSyncJob(intervalMs: number = 300000) {
     console.log('[CloudSync] Starting background sync job...');
@@ -63,6 +87,11 @@ export class CloudSyncService {
   /**
    * 同步所有云平台的资源状态
    * 遍历数据库中所有云平台记录，逐个执行同步
+   *
+   * 处理流程：
+   * - 从数据库中读取所有 Cloud 记录
+   * - 按顺序逐个调用 syncSingleCloud
+   * - 单个云出错会被记录日志，但不会中断整个循环
    */
   public async syncAllClouds() {
     if (this.isRunning) {
@@ -98,6 +127,16 @@ export class CloudSyncService {
   /**
    * 同步单个云平台的资源
    * 根据 provider 类型分发到不同的同步逻辑
+   *
+   * 说明：
+   * - 根据 cloud.config.provider 判断云类型
+   * - 为不同 provider 调用不同的同步实现
+   *   - aliyun：通过 ECS API 统计实例总数 / 运行中数量
+   *   - huaweicloud：通过华为云 SDK 列出服务器，统计数量与运行中数量
+   *   - harvester / cloudmap.private / cloudmap.edge：
+   *       调用 Harvester / KubeVirt / Kube-OVN 同步逻辑，把各类资源落库
+   *   - cloudmap.public：
+   *       通过 CSM 接口获取 VM 列表，统计数量与运行中数量
    */
   private async syncSingleCloud(cloud: Cloud) {
     const provider = String(cloud.config?.provider || '').toLowerCase();
