@@ -68,12 +68,33 @@ const RouteEntryManageDrawer: React.FC<Props> = ({ open, cloudId, ecs, routeTabl
       styles={{ body: { padding: 16 } }}
       onClose={onClose}
     >
-      <div className="filters-row">
-        <Form form={filterForm} className="filter-tools filter-tools--center" layout="vertical" onValuesChange={(cv:any)=>{ if (cv.keyword !== undefined) filterForm.setFieldsValue({ keyword: cv.keyword || '' }); if (cv.type !== undefined) filterForm.setFieldsValue({ type: cv.type || '' }); }} style={{ rowGap: 12, columnGap: 12 }}>
-          <Form.Item name="keyword" label="关键字"> <Input allowClear placeholder="搜索目的网段/下一跳" style={{ width: 240 }} /> </Form.Item>
-          <Form.Item name="type" label="类型"> <Select allowClear placeholder="选择类型" options={[{ label:'ecs', value:'ecs' },{ label:'eni', value:'eni' },{ label:'nat', value:'nat' },{ label:'vip', value:'vip' },{ label:'pcn', value:'pcn' }]} style={{ width: 160 }} /> </Form.Item>
+      <div className="page-toolbar">
+        <Form
+          form={filterForm}
+          className="toolbar-container"
+          layout="vertical"
+          onValuesChange={(cv:any)=>{ if (cv.keyword !== undefined) filterForm.setFieldsValue({ keyword: cv.keyword || '' }); if (cv.type !== undefined) filterForm.setFieldsValue({ type: cv.type || '' }); }}
+          style={{ rowGap: 12, columnGap: 12 }}
+        >
+          <Form.Item name="keyword" label="关键字">
+            <Input allowClear placeholder="搜索目的网段/下一跳" className="toolbar-search" />
+          </Form.Item>
+          <Form.Item name="type" label="类型">
+            <Select
+              allowClear
+              placeholder="选择类型"
+              className="toolbar-filter-sm"
+              options={[
+                { label:'ecs', value:'ecs' },
+                { label:'eni', value:'eni' },
+                { label:'nat', value:'nat' },
+                { label:'vip', value:'vip' },
+                { label:'pcn', value:'pcn' },
+              ]}
+            />
+          </Form.Item>
         </Form>
-        <div className="filter-actions">
+        <div className="toolbar-actions">
           <Button type="primary" onClick={onOpenCreate}>添加路由</Button>
           <Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>
         </div>

@@ -8,7 +8,6 @@ import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudP
 import { showCloudProviderVpc, showCloudProviderSecurityGroup, deleteHuaweiCloudSecurityGroup, createHuaweiCloudSecurityGroupRule, deleteHuaweiCloudSecurityGroupRule, updateHuaweiCloudSecurityGroupRule, fetchHuaweiEcsMetrics, fetchHuaweiEcsAuditLogs, fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, bindHuaweiEip, unbindHuaweiEip, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup, deleteHuaweiCloudSubnet as deleteCloudProviderSubnet } from '../../../services/huaweiApi';
 import StdFormModal from '../../../components/StdFormModal';
 import StdSideDrawer from '../../../components/StdSideDrawer';
-import '../../common/filters.css';
 import { statusTag, EllipsisText, SubResourceCard, collectIpv4FromAddresses, collectInstanceIpv4 } from './components/Common';
 import { normalizeErr } from './utils/net';
 // force update

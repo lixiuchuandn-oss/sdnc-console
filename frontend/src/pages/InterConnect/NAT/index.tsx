@@ -4,7 +4,6 @@ import type { MenuProps } from 'antd';
 import { DeleteOutlined, EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
-import '../../common/filters.css';
 import type { ColumnsType } from 'antd/es/table';
 import { getNATRules, createNATRule, deleteNATRule, NATRule } from '../../../services/networkApi';
 import { vrApi } from '../../../services/virtualRouterApi';
@@ -256,7 +255,7 @@ const NATPage: React.FC = () => {
       defaultHiddenColumns={[]}
       toolbarLeft={(
         <Form
-          className="filter-tools filter-tools--center"
+          className="toolbar-container"
           form={filterForm}
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
@@ -267,15 +266,15 @@ const NATPage: React.FC = () => {
           }}
         >
           <Form.Item name="keyword" label="名称">
-            <Input allowClear placeholder="搜索名称" style={{ width: 200 }} />
+            <Input allowClear placeholder="搜索名称" className="toolbar-search" />
           </Form.Item>
           <Form.Item name="vrId" label="所属VR">
-            <Select allowClear placeholder="选择 VR" style={{ width: 180 }}>
+            <Select allowClear placeholder="选择 VR" className="toolbar-filter">
               {vrList.map(v => (<Option key={v.uuid} value={v.uuid}>{v.name}</Option>))}
             </Select>
           </Form.Item>
           <Form.Item name="type" label="类型">
-            <Select allowClear placeholder="选择类型" style={{ width: 160 }}>
+            <Select allowClear placeholder="选择类型" className="toolbar-filter-sm">
               <Option value="snat">SNAT</Option>
               <Option value="dnat">DNAT</Option>
               <Option value="static">STATIC</Option>

@@ -5,7 +5,6 @@ import { DeleteOutlined, EllipsisOutlined, SettingOutlined, PlusOutlined, Rocket
 import PageContainer from '../../../components/PageContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
-import '../../common/filters.css';
 import type { ColumnsType } from 'antd/es/table';
 import { 
   getACLRules, createACLRule, deleteACLRule, ACLRule,
@@ -437,7 +436,7 @@ const ACLPage: React.FC = () => {
       onTabChange={setActiveTab}
       toolbarLeft={(activeTab === 'groups' && (
         <Form
-          className="filter-tools filter-tools--center"
+          className="toolbar-container"
           form={groupFilterForm}
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
@@ -458,11 +457,17 @@ const ACLPage: React.FC = () => {
               })}
             </Select>
           </Form.Item>
-          <Button type="link" onClick={resetGroupFilters} style={{ height: 30, padding: 0, margin: 0, alignSelf: 'flex-end' }}>重置</Button>
+          <Button
+            type="link"
+            onClick={resetGroupFilters}
+            className="toolbar-reset-btn"
+          >
+            重置
+          </Button>
         </Form>
       )) || (activeTab === 'rules' && (
         <Form
-          className="filter-tools filter-tools--center"
+          className="toolbar-container"
           form={filterForm}
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}

@@ -11,7 +11,6 @@ import {
   fetchClouds, fetchCloudProviderEcs, API_BASE_URL, getAuthHeaders,
   startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs
 } from '../../../services/api';
-import '../../common/filters.css';
 import './CloudConsole.css';
 import CloudConsoleHarvester from './CloudConsoleHarvester';
 import VmSection from '../Harvester/sections/VmSection';

@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import '../../common/filters.css';
 import { Card, Row, Col, Table, Tag, Space as AntSpace, Button, Modal, Form, Input, message, Select, Badge, Dropdown } from 'antd';
 import PageContainer from '../../../components/PageContainer';
 import { 
@@ -322,7 +321,7 @@ const CenPage: React.FC = () => {
       )}
       toolbarLeft={(
         <Form
-          className="filter-tools"
+          className="toolbar-container"
           form={filterForm}
           layout="vertical"
           style={{ rowGap:12, columnGap:12, display:'flex', alignItems:'flex-end' }}
@@ -330,19 +329,25 @@ const CenPage: React.FC = () => {
           initialValues={{ status: [], tenant: undefined, plane: undefined }}
         >
           <Form.Item name="keyword" label="关键字">
-            <Input allowClear placeholder="搜索级联通道" style={{ width:200 }} />
+            <Input allowClear placeholder="搜索级联通道" className="toolbar-search" />
           </Form.Item>
           <Form.Item name="status" label="状态">
-            <Select allowClear placeholder="选择状态" mode="multiple" style={{ width:200 }} options={[{ value:'creating', label:'创建中' }, { value:'available', label:'可用' }]} />
+            <Select allowClear placeholder="选择状态" mode="multiple" className="toolbar-filter" options={[{ value:'creating', label:'创建中' }, { value:'available', label:'可用' }]} />
           </Form.Item>
           <Form.Item name="tenant" label="租户">
-            <Select allowClear placeholder="选择租户" style={{ width:200 }} options={tenants.map(t=>({ value:t.id, label:t.name }))} />
+            <Select allowClear placeholder="选择租户" className="toolbar-filter" options={tenants.map(t=>({ value:t.id, label:t.name }))} />
           </Form.Item>
           <Form.Item name="plane" label="级联通道">
-            <Select allowClear placeholder="选择级联通道状态" style={{ width:200 }} options={[{ value:'active', label:'已生效（≥2安全域）' }, { value:'none', label:'未生效（＜2安全域）' }]} />
+            <Select allowClear placeholder="选择级联通道状态" className="toolbar-filter" options={[{ value:'active', label:'已生效（≥2安全域）' }, { value:'none', label:'未生效（＜2安全域）' }]} />
           </Form.Item>
           <Form.Item>
-            <Button type="link" style={{ padding:0 }} onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTenantFilter(undefined); setPlaneFilter(undefined);}}>重置</Button>
+            <Button
+              type="link"
+              className="toolbar-reset-btn"
+              onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTenantFilter(undefined); setPlaneFilter(undefined);}}
+            >
+              重置
+            </Button>
           </Form.Item>
         </Form>
       )}

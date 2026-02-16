@@ -10,7 +10,6 @@ import { getVRRoles, setVRRole, getVRConfig, saveVRConfig, upsertVrCache, fetchV
 import { listSecurityDomains, updateSecurityDomain } from '../../../services/securityDomainApi';
 
 import { netClassLabel, netClassColor, getDomainClass } from '../../../utils/netClass';
-import '../../common/filters.css';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
 import StdFormModal from '../../../components/StdFormModal';
 import { fetchTenants, fetchOrganizationsByTenant, bindTenantVR, fetchOrganizationResourcePools, fetchAvailableResourcePools, fetchCloudProviderEcs, fetchCloudVpcs } from '../../../services/api';
@@ -1190,7 +1189,7 @@ const VRPage: React.FC = () => {
         ]}
       toolbarLeft={(
         <Form
-          className="filter-tools filter-tools--center"
+          className="toolbar-container"
           form={filterForm}
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
@@ -1202,16 +1201,16 @@ const VRPage: React.FC = () => {
           }}
         >
           <Form.Item name="keyword" label="名称">
-            <Input allowClear placeholder="搜索名称" style={{ width: 200 }} />
+            <Input allowClear placeholder="搜索名称" className="toolbar-search" />
           </Form.Item>
           <Form.Item name="status" label="状态">
-            <Select allowClear placeholder="选择状态" style={{ width: 200 }}>
+            <Select allowClear placeholder="选择状态" className="toolbar-filter">
               <Select.Option value="running">运行中</Select.Option>
               <Select.Option value="stopped">已停止</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item name="role" label="角色">
-            <Select allowClear placeholder="选择角色" style={{ width: 200 }}>
+            <Select allowClear placeholder="选择角色" className="toolbar-filter">
               <Select.Option value="标准">标准（虚拟路由）</Select.Option>
               <Select.Option value="SASE">SASE（安全网关）</Select.Option>
               <Select.Option value="PE">PE（BGP公网互联）</Select.Option>
@@ -1223,7 +1222,7 @@ const VRPage: React.FC = () => {
             <Select
               allowClear
               placeholder="选择租户"
-              style={{ width: 200 }}
+              className="toolbar-filter"
               showSearch
               optionFilterProp="label"
               loading={tenantLoading}

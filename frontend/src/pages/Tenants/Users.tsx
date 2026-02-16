@@ -7,8 +7,6 @@ import PageContainer from '../../components/PageContainer';
 import TableColumnSettings from '../../components/TableColumnSettings';
 import StdFormModal from '../../components/StdFormModal';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
-import '../common/filters.css';
-
 const { Option } = Select;
 
 interface TenantUser {

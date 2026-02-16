@@ -120,12 +120,35 @@ const RouteEntryManageDrawerAliyun: React.FC<Props> = ({ open, cloudId, ecs, rou
       styles={{ body: { padding: 16 } }}
       onClose={onClose}
     >
-      <div className="filters-row">
-        <Form form={filterForm} className="filter-tools filter-tools--center" layout="vertical" onValuesChange={(cv:any)=>{ if (cv.keyword !== undefined) filterForm.setFieldsValue({ keyword: cv.keyword || '' }); if (cv.type !== undefined) filterForm.setFieldsValue({ type: cv.type || '' }); }} style={{ rowGap: 12, columnGap: 12 }}>
-          <Form.Item name="keyword" label="关键字"> <Input allowClear placeholder="搜索目的网段/下一跳" style={{ width: 240 }} /> </Form.Item>
-          <Form.Item name="type" label="类型"> <Select allowClear placeholder="选择类型" options={[{ label:'ECS实例', value:'instance' },{ label:'弹性网卡', value:'networkinterface' },{ label:'NAT网关', value:'natgateway' },{ label:'VPN网关', value:'vpngateway' },{ label:'虚拟IP', value:'havip' },{ label:'云连接', value:'routerinterface' },{ label:'IPv6网关', value:'ipv6gateway' }]} style={{ width: 160 }} /> </Form.Item>
+      <div className="page-toolbar">
+        <Form
+          form={filterForm}
+          className="toolbar-container"
+          layout="vertical"
+          onValuesChange={(cv:any)=>{ if (cv.keyword !== undefined) filterForm.setFieldsValue({ keyword: cv.keyword || '' }); if (cv.type !== undefined) filterForm.setFieldsValue({ type: cv.type || '' }); }}
+          style={{ rowGap: 12, columnGap: 12 }}
+        >
+          <Form.Item name="keyword" label="关键字">
+            <Input allowClear placeholder="搜索目的网段/下一跳" className="toolbar-search" />
+          </Form.Item>
+          <Form.Item name="type" label="类型">
+            <Select
+              allowClear
+              placeholder="选择类型"
+              className="toolbar-filter-sm"
+              options={[
+                { label:'ECS实例', value:'instance' },
+                { label:'弹性网卡', value:'networkinterface' },
+                { label:'NAT网关', value:'natgateway' },
+                { label:'VPN网关', value:'vpngateway' },
+                { label:'虚拟IP', value:'havip' },
+                { label:'云连接', value:'routerinterface' },
+                { label:'IPv6网关', value:'ipv6gateway' },
+              ]}
+            />
+          </Form.Item>
         </Form>
-        <div className="filter-actions">
+        <div className="toolbar-actions">
           {selectedRowKeys.length > 0 && (
             <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>批量删除 ({selectedRowKeys.length})</Button>
           )}

@@ -24,9 +24,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import CloudWizard from './CloudWizard';
  
-import '../common/filters.css';
-
- 
 
 const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;midLabel:string;midValue:number;mainColor:string;usedLabel?:string}> = ({title,total,unit='',used,midLabel,midValue,mainColor,usedLabel})=>{
   const remain = Math.max(total-used-midValue,0);
@@ -571,7 +568,7 @@ const Clouds: React.FC = () => {
       asCard={false}
       toolbarLeft={(
         <Form
-          className="filter-tools"
+          className="toolbar-container"
           form={filterForm}
           layout="vertical"
           style={{ rowGap:12, columnGap:12, display:'flex', alignItems:'flex-end' }}

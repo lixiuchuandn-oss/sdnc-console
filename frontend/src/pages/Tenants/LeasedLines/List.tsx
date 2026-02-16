@@ -5,7 +5,6 @@ import { PlusOutlined, UploadOutlined, ReloadOutlined, EllipsisOutlined, FileWor
 import type { ColumnsType } from 'antd/es/table';
 import { listLeasedLines, createLeasedLine, updateLeasedLine, deleteLeasedLine, startSecurityReportTask, batchDeleteLeasedLines } from '../../../services/leasedLineApi';
 import type { TenantLeasedLine } from '../../../types/leasedLine';
-import '../../common/filters.css';
 import { provinces, cityOptionsByProvince, operators } from './constants';
 import ImportModal from './ImportModal';
 
@@ -209,9 +208,9 @@ const ListPage: React.FC<Props> = ({ onStartTask }) => {
 
   return (
     <>
-      <div className="filters-row">
+      <div className="page-toolbar">
         <Form
-          className="filter-tools"
+          className="toolbar-container"
           form={filterForm}
           layout="inline"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
@@ -250,10 +249,18 @@ const ListPage: React.FC<Props> = ({ onStartTask }) => {
             <Select allowClear placeholder="选择运营商" style={{ width: 140 }} options={operators.map(o => ({ value: o, label: o }))} />
           </Form.Item>
           <Form.Item>
-            <Button type="link" size="small" icon={<UndoOutlined />} style={{ marginLeft: 0, paddingLeft: 0 }} onClick={() => { filterForm.resetFields(); setKeyword(''); setProvinceFilter(undefined); setCityFilter(undefined); setOperatorFilter(undefined); setLogRange([]); }}>重置</Button>
+            <Button
+              type="link"
+              size="small"
+              icon={<UndoOutlined />}
+              className="toolbar-reset-btn"
+              onClick={() => { filterForm.resetFields(); setKeyword(''); setProvinceFilter(undefined); setCityFilter(undefined); setOperatorFilter(undefined); setLogRange([]); }}
+            >
+              重置
+            </Button>
           </Form.Item>
         </Form>
-        <div className="filter-actions">
+        <div className="toolbar-actions">
           <Dropdown
             menu={{
               items: [

@@ -415,9 +415,9 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
 
   return (
     <div>
-      <div className="filters-row">
+      <div className="page-toolbar">
         <Form
-          className="filter-tools"
+          className="toolbar-container"
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
         >
@@ -439,10 +439,18 @@ const TasksPage: React.FC<Props> = ({ startedTaskId, onClearStartedTaskId }) => 
             />
           </Form.Item>
           <Form.Item>
-            <Button type="link" size="small" icon={<UndoOutlined />} style={{ marginLeft: 0, paddingLeft: 0 }} onClick={() => { setFilterTenantName(''); setFilterStatus(undefined); setFilterRange([]); }}>重置</Button>
+            <Button
+              type="link"
+              size="small"
+              icon={<UndoOutlined />}
+              className="toolbar-reset-btn"
+              onClick={() => { setFilterTenantName(''); setFilterStatus(undefined); setFilterRange([]); }}
+            >
+              重置
+            </Button>
           </Form.Item>
         </Form>
-        <AntSpace className="filter-actions">
+        <AntSpace className="toolbar-actions">
           <Dropdown
             menu={{
               items: [

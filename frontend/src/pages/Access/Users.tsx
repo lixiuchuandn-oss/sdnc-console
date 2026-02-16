@@ -7,8 +7,6 @@ import { ReloadOutlined, SafetyCertificateOutlined, EllipsisOutlined } from '@an
 import PageContainer from '../../components/PageContainer';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../components/TableColumnSettings';
-import '../common/filters.css';
-
 type SysUser = {
   id: string;
   username: string;

@@ -4,8 +4,6 @@ import { useSearchParams } from 'react-router-dom';
 import ListPage from './List';
 import TasksPage from './Tasks';
 import LogsPage from './Logs';
-import '../../common/filters.css';
-
 const TenantLeasedLinesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('list');
   const [startedTaskId, setStartedTaskId] = useState<string | undefined>(undefined);

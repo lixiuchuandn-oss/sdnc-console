@@ -19,8 +19,6 @@ import { createACLRule } from '../../../services/networkApi';
 import { AppWizard } from './AppWizard';
 import DiscoveredAssets from './DiscoveredAssets';
 import { useNavigate } from 'react-router-dom';
-import '../../common/filters.css';
-
 const { Text } = Typography;
 
 interface AppItem {
@@ -452,7 +450,7 @@ const SecurityApps: React.FC = () => {
       pagePadding={0}
       toolbarLeft={(
           <Form
-            className="filter-tools"
+            className="toolbar-container"
             form={filterForm}
             layout="vertical"
             style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
@@ -463,13 +461,13 @@ const SecurityApps: React.FC = () => {
             }}
           >
             <Form.Item name="keyword" label="名称/描述" style={{ marginBottom: 0 }}>
-              <Input allowClear placeholder="搜索应用" style={{ width: 200 }} />
+              <Input allowClear placeholder="搜索应用" className="toolbar-search" />
             </Form.Item>
             <Form.Item name="domainId" label="安全域" style={{ marginBottom: 0 }}>
-              <Select allowClear placeholder="全部" style={{ width: 220 }} options={domains.map(d => ({ value: d.id, label: d.name }))} />
+              <Select allowClear placeholder="全部" className="toolbar-filter" options={domains.map(d => ({ value: d.id, label: d.name }))} />
             </Form.Item>
             <Form.Item name="status" label="状态" style={{ marginBottom: 0 }}>
-              <Select allowClear placeholder="全部" style={{ width: 180 }}>
+              <Select allowClear placeholder="全部" className="toolbar-filter">
                 <Select.Option value="running">运行中</Select.Option>
                 <Select.Option value="stopped">已停止</Select.Option>
                 <Select.Option value="degraded">告警</Select.Option>

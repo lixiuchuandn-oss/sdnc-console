@@ -25,8 +25,6 @@ import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../components/PageContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
 // import SharedToolbar from '../../components/SharedToolbar';
-import '../common/filters.css';
-
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 
 const { TextArea } = Input;

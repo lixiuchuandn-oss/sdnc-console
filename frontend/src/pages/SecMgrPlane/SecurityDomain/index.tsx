@@ -4,7 +4,6 @@ import { Button, Descriptions, Dropdown, Form, Input, message, Modal, Select, Sp
 import type { MenuProps } from 'antd';
 import { EllipsisOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
-import '../../common/filters.css';
 import { vrApi, fetchVrCachePageList, getVRRoles } from '../../../services/virtualRouterApi';
 import { fetchCloudProviderVpcs, fetchTenants, fetchOrganizationsByTenant } from '../../../services/api';
 import { listSecurityDomains, createSecurityDomain, updateSecurityDomain, deleteSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
@@ -683,7 +682,7 @@ const SecurityDomainPage: React.FC = () => {
       }}
       toolbarLeft={
         <Form
-          className="filter-tools filter-tools--center"
+          className="toolbar-container"
           layout="vertical"
           form={form}
           initialValues={{}}
@@ -695,13 +694,13 @@ const SecurityDomainPage: React.FC = () => {
           }}
         >
           <Form.Item name="keyword" label="关键字">
-            <Input allowClear placeholder="名称/云厂商/地域/描述" style={{ width: 240 }} />
+            <Input allowClear placeholder="名称/云厂商/地域/描述" className="toolbar-search" />
           </Form.Item>
           <Form.Item name="netClass" label="网络分类">
             <Select
               allowClear
               placeholder="全部"
-              style={{ width: 200 }}
+              className="toolbar-filter"
               options={[
                 { value: 'vpc', label: 'VPC网络' },
                 { value: 'flat', label: '扁平网络' },
@@ -712,7 +711,7 @@ const SecurityDomainPage: React.FC = () => {
             <Select
               allowClear
               placeholder="全部"
-              style={{ width: 200 }}
+              className="toolbar-filter"
               options={[
                 { value: 'active', label: '启用' },
                 { value: 'inactive', label: '停用' },

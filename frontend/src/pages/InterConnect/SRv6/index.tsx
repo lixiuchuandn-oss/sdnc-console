@@ -6,8 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
 import { vrApi, getVRRoles, fetchVrCachePageList } from '../../../services/virtualRouterApi';
-// 复用 VR 页的样式（filters-row / filter-tools / filter-actions / vr-table）
-import '../../common/filters.css';
+// 复用 VR 页的样式（page-toolbar / toolbar-container / toolbar-actions / vr-table）
 
 interface Srv6TunnelRow {
   id: string;
@@ -299,7 +298,7 @@ const SRv6Page: React.FC = () => {
       defaultHiddenColumns={[]} // Display all columns by default
       toolbarLeft={(
         <Form
-          className="filter-tools filter-tools--center"
+          className="toolbar-container"
           form={filterForm}
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
@@ -309,10 +308,10 @@ const SRv6Page: React.FC = () => {
           }}
         >
           <Form.Item name="keyword" label="名称">
-            <Input allowClear placeholder="搜索名称" style={{ width: 200 }} />
+            <Input allowClear placeholder="搜索名称" className="toolbar-search" />
           </Form.Item>
           <Form.Item name="status" label="状态">
-            <Select mode="multiple" allowClear placeholder="选择状态" style={{ width: 220 }}>
+            <Select mode="multiple" allowClear placeholder="选择状态" className="toolbar-filter">
               <Select.Option value="creating">创建中</Select.Option>
               <Select.Option value="available">可用</Select.Option>
             </Select>

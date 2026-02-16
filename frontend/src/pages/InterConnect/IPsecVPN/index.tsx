@@ -5,7 +5,6 @@ import { EllipsisOutlined, ExclamationCircleOutlined, SettingOutlined, SearchOut
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
-import '../../common/filters.css';
 import { fetchIPsecVPNs, fetchIPsecVPNsMerged, deleteIPsecVPN } from '../../../services/api';
 import { vrApi, getVR2Config, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import ReactFlow, { Background, Controls } from 'react-flow-renderer';
@@ -311,7 +310,7 @@ const IPsecVPNPage: React.FC = () => {
       defaultHiddenColumns={defaultHiddenColumns}
       toolbarLeft={(
         <Form
-          className="filter-tools filter-tools--center"
+          className="toolbar-container"
           form={filterForm}
           layout="vertical"
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
@@ -328,11 +327,11 @@ const IPsecVPNPage: React.FC = () => {
               allowClear 
               placeholder="搜索名称、ID" 
               prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
-              style={{ width: 220 }} 
+              className="toolbar-search"
             />
           </Form.Item>
           <Form.Item name="status" label="状态">
-            <Select allowClear placeholder="全部" style={{ width: 120 }}>
+            <Select allowClear placeholder="全部" className="toolbar-filter-sm">
               <Select.Option value="active">活跃</Select.Option>
               <Select.Option value="inactive">未激活</Select.Option>
               <Select.Option value="creating">创建中</Select.Option>
@@ -340,16 +339,16 @@ const IPsecVPNPage: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item name="ikeVersion" label="IKE版本">
-            <Select allowClear placeholder="全部" style={{ width: 120 }}>
+            <Select allowClear placeholder="全部" className="toolbar-filter-sm">
               <Select.Option value="ikev1">IKEv1</Select.Option>
               <Select.Option value="ikev2">IKEv2</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item name="localPublicIp" label="本端IP">
-            <Input allowClear placeholder="输入WAN IP或EIP" style={{ width: 150 }} />
+            <Input allowClear placeholder="输入WAN IP或EIP" className="toolbar-filter-sm" />
           </Form.Item>
           <Form.Item name="peerGateway" label="对端IP">
-            <Input allowClear placeholder="输入WAN IP或EIP" style={{ width: 150 }} />
+            <Input allowClear placeholder="输入WAN IP或EIP" className="toolbar-filter-sm" />
           </Form.Item>
         </Form>
       )}

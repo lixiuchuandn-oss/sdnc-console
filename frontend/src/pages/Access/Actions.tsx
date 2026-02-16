@@ -6,8 +6,6 @@ import axios from 'axios';
 import { routeSpecs } from '../../routes/RouteSpec';
 import PageContainer from '../../components/PageContainer';
 import { PLATFORMS, PLATFORM_LABELS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../catalogs/navCatalog';
-import '../common/filters.css';
-
 type ApiItem = { method: string; path: string; file: string };
 type ActionItem = { key: string; action: string; group: string; feature: string; platform: string; desc: string; bound: boolean; apis: ApiItem[] };
 
@@ -221,10 +219,10 @@ const AccessActionsPage: React.FC = () => {
           />
         </div>
         <div style={{ flex: 1, minWidth: 0, padding: 16 }}>
-          <div className="filters-row" style={{ marginBottom: 12 }}>
+          <div className="page-toolbar">
             <Form
               form={filterForm}
-              className="filter-tools filter-tools--center"
+              className="toolbar-container"
               layout="vertical"
               style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
               onValuesChange={(_, all) => {
@@ -245,7 +243,7 @@ const AccessActionsPage: React.FC = () => {
               <Form.Item name="status" label="状态" initialValue={activeStatus}>
                 <Select style={{ width: 160 }} options={[{ value: '全部', label: '全部' }, { value: '已绑定', label: '已绑定' }]} />
               </Form.Item>
-              <a className="filter-reset-link" onClick={() => { 
+              <a className="toolbar-reset-btn" onClick={() => { 
                 setKw(''); 
                 setActiveGroup('全部'); 
                 setActiveStatus('全部'); 
@@ -255,7 +253,7 @@ const AccessActionsPage: React.FC = () => {
                 filterForm.setFieldsValue({ group: '全部', status: '全部' }); 
               }}>重置</a>
             </Form>
-            <Space className="filter-actions">
+            <Space className="toolbar-actions">
               <Button icon={<ReloadOutlined />} onClick={load} />
             </Space>
           </div>
