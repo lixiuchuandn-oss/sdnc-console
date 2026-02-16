@@ -1,0 +1,1 @@
+export { registerTencentRoutes } from './routes';

@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { AppDataSource } from '../config/database';
-import { TenantUser } from '../entities/TenantUser';
-import { Tenant } from '../entities/Tenant';
-import { Organization } from '../entities/Organization';
+import { AppDataSource } from '../../config/database';
+import { TenantUser } from '../../entities/TenantUser';
+import { Tenant } from '../../entities/Tenant';
+import { Organization } from '../../entities/Organization';
 
 const router = Router();
 

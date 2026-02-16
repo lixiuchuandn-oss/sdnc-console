@@ -1,10 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { In } from 'typeorm';
-import { AppDataSource } from '../config/database';
-import { IPsecVPN, IPsecStatus } from '../entities/vRouter/IPsecVPN';
-import { VRConfig } from '../entities/vRouter/VRConfig';
-import { vrController } from '../services/vrouter/vrController';
-import { VRCacheExtended } from '../entities/vRouter/VRCacheExtended';
+import { AppDataSource } from '../../config/database';
+import { IPsecVPN, IPsecStatus } from '../../entities/vRouter/IPsecVPN';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { vrController } from '../../services/vrouter/vrController';
+import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
 
 export const ipsecRoutes = Router();
 const repo = () => AppDataSource.getRepository(IPsecVPN);

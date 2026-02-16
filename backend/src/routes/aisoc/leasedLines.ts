@@ -3,17 +3,20 @@ import type { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import archiver from 'archiver';
-const DocxMerger = require('docx-merger'); // No types available usually
-import { getDifyConfig } from '../config/runtimeConfig';
-import { AppDataSource } from '../config/database';
-import { saveRemoteReport, streamSavedDocx } from '../utils/reportSaver';
-import { TenantLeasedLine } from '../entities/TenantLeasedLine';
-import { Tenant } from '../entities/Tenant';
-import { Organization } from '../entities/Organization';
+// Docx 合并工具通常缺少类型定义，这里用 require 方式引入以绕过 TS 类型校验
+const DocxMerger = require('docx-merger');
+import { getDifyConfig } from '../../config/runtimeConfig';
+import { AppDataSource } from '../../config/database';
+import { saveRemoteReport, streamSavedDocx } from '../../utils/reportSaver';
+import { TenantLeasedLine } from '../../entities/TenantLeasedLine';
+import { Tenant } from '../../entities/Tenant';
+import { Organization } from '../../entities/Organization';
 import { Like, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
-import { SecurityReportTask } from '../entities/SecurityReportTask';
+import { SecurityReportTask } from '../../entities/SecurityReportTask';
 
+// 简单的调试日志函数，将安全报告任务相关的信息写入本地 data/security-logs/debug_tasks.log
+// 主要用于排查 Dify 调用链路和任务状态异常，不影响主业务流程
 function logDebug(msg: string) {
   try {
     const logDir = path.join(process.cwd(), 'data', 'security-logs');
@@ -29,7 +32,9 @@ function logDebug(msg: string) {
 
 export const leasedLineRoutes = Router();
 
-// 仅允许超级管理员或租户专线管理员访问
+// 权限拦截中间件：
+// - 仅允许超级管理员、租户专线管理员或拥有租户专线相关权限的用户访问后续路由
+// - 覆盖列表查看、管理、报告生成、告警日志查看等权限原子
 leasedLineRoutes.use((req: any, res: any, next: any) => {
   try {
     const role = (req.user as any)?.role;
@@ -51,6 +56,10 @@ leasedLineRoutes.use((req: any, res: any, next: any) => {
   }
 });
 
+// 从 Dify 工作流输出中抽取报告下载链接与文件名：
+// - 优先使用 outs.doc（Word 报告），其次 outs.pdf
+// - 若链接为相对路径，则拼接 Dify 基础地址
+// - 若未提供文件名，则根据租户名称与输出类型自动生成一个
 function extractOutputUrl(outs: any, safeName: string, difyBase: string) {
   let url = '';
   let filename = '';
@@ -137,6 +146,9 @@ function normalizeIps(input: string | string[]): string {
   return uniq.join(',');
 }
 
+// 根据租户名称查找或自动创建租户及其根组织：
+// - 若租户不存在，则自动创建 Tenant 记录与对应的一级 Organization
+// - 返回最终的 Tenant 实体，后续可用于挂载租户专线记录
 async function ensureTenantByName(name: string) {
   const tenantRepo = AppDataSource.getRepository(Tenant);
   const orgRepo = AppDataSource.getRepository(Organization);
@@ -188,7 +200,9 @@ leasedLineRoutes.get('/', async (req: any, res) => {
         { city: Like(k) },
       ];
     }
+    // 列出所有租户专线记录，并根据关键字在租户名、地域、运营商、IP 等字段中模糊匹配
     const list = await repo.find({ where, order: { createdAt: 'DESC' } });
+    // 读取 Dify 配置，定位安全日志目录，便于判断该专线是否已经上传过日志
     const cfg = getDifyConfig();
     const logsDir = cfg.logsDir || path.join(process.cwd(), 'data', 'security-logs');
     let filesInDir: string[] = [];
@@ -210,6 +224,8 @@ leasedLineRoutes.get('/', async (req: any, res) => {
         .toLowerCase();
     const strip = (s: string) =>
       String(s).replace(/(有限责任公司|有限公司|集团|控股|股份|科技|网络|信息|服务|实业)/g, '');
+    // 为每条专线附加 hasLog/logFileName/logFileSize/logModifiedAt 等日志信息，
+    // 方便前端判断是否可以直接基于现有日志生成报告。
     const augmented = await Promise.all(
       list.map(async (item) => {
         const safeName = String(item.tenantName || item.id).replace(/[^\u4e00-\u9fa5\w\-]+/g, '_');
@@ -297,7 +313,8 @@ leasedLineRoutes.delete('/security-report/tasks/batch/remove', async (req: any, 
   }
 });
 
-// 先声明批量删除，避免被 '/:id' 路由抢占
+// 批量删除租户专线：
+// 由于存在 '/:id' 路由，为避免路径冲突，批量删除接口需优先声明在此处
 leasedLineRoutes.delete('/batch', async (req: any, res) => {
   try {
     const perms: string[] = Array.isArray((req.user as any)?.permissions)
@@ -361,7 +378,7 @@ leasedLineRoutes.post('/', async (req: any, res) => {
     const prov = (province || '').trim();
     const ct = (city || '').trim();
     if (!prov || !ct) {
-      // 兼容仅提供 region 的旧调用
+      // 兼容仅提供 region（如“江苏/南京”）的旧接口调用，自动拆分成省、市
       const reg = (region || '').trim();
       if (!reg) return res.status(400).json({ message: '缺少地域信息：请提供省与市' });
       const parts = reg
@@ -482,7 +499,7 @@ leasedLineRoutes.patch('/:id', async (req: any, res) => {
     if (province !== undefined) existing.province = String(province || '').trim();
     if (city !== undefined) existing.city = String(city || '').trim();
     if (region !== undefined) existing.region = String(region || '').trim();
-    // 自动同步 region
+    // 自动同步 region 字段，保持 “省/市” 组合的一致性
     if ((province !== undefined || city !== undefined) && existing.province && existing.city) {
       existing.region = `${existing.province}/${existing.city}`;
     }
@@ -525,7 +542,9 @@ leasedLineRoutes.delete('/:id', async (req: any, res) => {
 
 export default leasedLineRoutes;
 
-// 异步任务：生成安全报告
+// 异步任务结构：生成安全报告
+// - 每个租户专线对应多个 SecurityReportTask 历史记录
+// - 内存中的 ReportTask 用于追踪当前进度与 SSE 推送内容
 type ReportTask = {
   id: string;
   lineId: string;
@@ -548,7 +567,9 @@ type ReportTask = {
 const reportTasks = new Map<string, ReportTask>();
 let queueProcessing = false;
 
-// SSE 订阅管理
+// SSE 订阅管理：
+// - taskId -> 订阅该任务进度的响应对象集合
+// - sseEmit 用于向所有订阅者推送 { type, task/line } 等事件
 const taskSubscribers = new Map<string, Set<any>>();
 function sseEmit(taskId: string, payload: any) {
   const subs = taskSubscribers.get(taskId);
@@ -561,6 +582,9 @@ function sseEmit(taskId: string, payload: any) {
   }
 }
 
+// 检查指定租户专线是否已经存在进行中的报告任务：
+// - 若任务处于 pending/running 且未被标记删除，则视为活跃
+// - 对于超过 30 分钟未更新的任务，自动标记为失败并触发一次快照持久化
 function hasActiveTask(lineId: string) {
   for (const t of reportTasks.values()) {
     if (t.lineId === lineId && (t.status === 'pending' || t.status === 'running') && !t.deleted) {
@@ -602,7 +626,8 @@ async function handleTaskOutputs(
 ) {
   if (!outs) return;
 
-  // 尝试智能提取所有文件下载链接
+  // 尝试从 Dify 输出中智能提取所有文件下载链接（doc/pdf/zip 等），
+  // 并将其下载到本地 reports 目录，同时更新 task.reportFiles 信息。
   const downloads: Array<{ url: string; suffix: string }> = [];
   const seenUrls = new Set<string>();
 

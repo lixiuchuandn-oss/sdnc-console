@@ -1,3 +1,14 @@
+// 系统级管理与配置相关路由：
+// - Dify（AI 工作流）集成配置读取与更新
+// - 简单的 Key-Value 形式系统设置读写
+// - RBAC 权限原子扫描与动作列表输出
+// - RBAC 角色（策略）增删改查与角色分配关系管理
+// - 安全告警日志文件（CSV/Excel）批量上传与列出
+//
+// 注意：
+// 1. 这里的接口一般挂载在 /api/system 前缀下，由后端入口统一加上鉴权中间件；
+// 2. RBAC 相关接口依赖数据库中的 RBACRole、RoleAssignment、TenantUser 等实体；
+// 3. 文件扫描与日志上传相关逻辑依赖后端运行目录（process.cwd()）以及 runtimeConfig 中的目录配置。
 import { Router } from 'express';
 import multer from 'multer';
 import fs from 'fs';
@@ -10,14 +21,20 @@ import { RoleAssignment } from '../entities/RoleAssignment';
 import { TenantUser } from '../entities/TenantUser';
 import { UserRole } from '../entities/User';
 
+// 全局系统路由实例，后续所有 /system 相关子路径都挂在该 Router 上
 const router = Router();
 
+// 读取当前 Dify（AI 工作流）集成配置
+// 用于前端系统设置页面展示当前配置，返回时会对 apiKey 进行脱敏处理
 router.get('/dify-config', async (_req, res) => {
   const cfg = getDifyConfig();
   const safe = { ...cfg } as any;
   res.json({ config: { ...safe, apiKey: !!cfg.apiKey ? '****' : '' } });
 });
 
+// 更新 Dify 集成配置
+// 请求体中只要带上需要修改的字段即可，底层会合并并持久化到 runtimeConfig
+// 返回值同样会对 apiKey 做脱敏，避免明文泄露
 router.patch('/dify-config', async (req, res) => {
   const { baseUrl, apiKey, workflowId, logsDir, reportsDir, mode, fileVarName } = req.body as any;
   const next = setDifyConfig({
@@ -33,12 +50,18 @@ router.patch('/dify-config', async (req, res) => {
   res.json({ config: { ...safe, apiKey: !!next.apiKey ? '****' : '' } });
 });
 
+// 读取单个系统设置项（简单的 KV 配置）
+// - key 从 URL 路径中获取
+// - value 如果不存在则返回空字符串，方便前端统一处理
 router.get('/settings/:key', (req, res) => {
   const key = req.params.key;
   const value = getSystemSetting(key);
   res.json({ data: { key, value: value || '' } });
 });
 
+// 更新单个系统设置项
+// - value 来源于请求体，内部统一转成字符串保存
+// - 适合存储一些轻量级的全局配置，例如开关、字符串参数等
 router.patch('/settings/:key', (req, res) => {
   const key = req.params.key;
   const { value } = req.body;
@@ -46,9 +69,16 @@ router.patch('/settings/:key', (req, res) => {
   res.json({ data: { key, value: String(value || '') } });
 });
 
+// 动态扫描系统中所有“权限原子”（action）以及对应的接口明细
+// 输出内容主要用于：
+// - RBAC 策略配置页面列出所有可用动作（actions）
+// - 结合 details 字段，让前端展示每个动作对应了哪些具体接口（method + path）
 router.get('/rbac/actions', async (_req, res) => {
+  // candidates：最终去重后的动作列表，例如 'clouds.instances:read'
   const candidates: string[] = [];
+  // scanned：通过静态扫描从代码中发现的原始动作字符串
   const scanned: string[] = [];
+  // details：动作 -> 对应的接口列表（包含 HTTP 方法、路径、定义所在文件）
   const details: Record<string, Array<{ method: string; path: string; file: string }>> = {};
   const add = (x: string) => {
     if (x && !candidates.includes(x)) candidates.push(x);
@@ -58,6 +88,8 @@ router.get('/rbac/actions', async (_req, res) => {
     if (!scanned.includes(x)) scanned.push(x);
     add(x);
   };
+  // curated：手工维护的一批“推荐动作”列表，用于补全扫描不到或尚未完全规范化的权限原子
+  // 命名约定大致为：domain.feature:verb
   const curated: string[] = [
     // 运维平台/系统与用户
     'ops.dashboard:read',
@@ -149,11 +181,14 @@ router.get('/rbac/actions', async (_req, res) => {
   ];
   curated.forEach(addScanned);
 
+  // baseMap：记录路由文件名 -> app.use 挂载前缀（base path）
+  // 例如：'clouds' => '/api/clouds'
   const baseMap: Record<string, string> = {};
   const buildBaseMap = async (file: string) => {
     try {
       if (!fs.existsSync(file)) return;
       const text = await fs.promises.readFile(file, 'utf8');
+      // 第一阶段：解析 index.ts 中 import ./routes/* 的路由变量名与对应文件名
       const importRegexDefault = /import\s+(\w+)\s+from\s+["']\.\/routes\/([^"']+)["']/g;
       const importRegexNamed = /import\s+\{\s*([^}]+)\s*\}\s+from\s+["']\.\/routes\/([^"']+)["']/g;
       const uses: Array<{ var: string; name: string }> = [];
@@ -177,6 +212,7 @@ router.get('/rbac/actions', async (_req, res) => {
           });
         }
       }
+      // 第二阶段：解析 app.use('/api/xxx', someRoutes) 来还原 base path 与路由变量之间的关系
       const useRegex = /app\.use\(\s*(["'][^"']+["'])\s*,[\s\S]*?(\w+)\s*\)/g;
       let um: RegExpExecArray | null;
       while ((um = useRegex.exec(text))) {
@@ -190,6 +226,7 @@ router.get('/rbac/actions', async (_req, res) => {
   await buildBaseMap(path.join(process.cwd(), 'src', 'index.ts'));
   await buildBaseMap(path.join(process.cwd(), 'dist', 'index.js'));
 
+  // 将 basePath 与 router 局部 path 合并并标准化，输出统一格式的 URL
   const normalizeFullPath = (base: string, subPath: string): string => {
     let b = String(base || '');
     let s = String(subPath || '');
@@ -200,6 +237,10 @@ router.get('/rbac/actions', async (_req, res) => {
     return p;
   };
 
+  // 尝试递归扫描指定目录下的所有 js/ts 文件：
+  // - 通过正则查找 perms.includes('xxx')，提取权限原子
+  // - 结合同文件内的 router.get/post/… 定义，定位最近的路由（method + path）
+  // - 再结合 baseMap 计算出完整 URL，用于 details 映射
   const tryScan = async (dir: string) => {
     try {
       const exists = fs.existsSync(dir);
@@ -213,9 +254,12 @@ router.get('/rbac/actions', async (_req, res) => {
           await tryScan(full);
         } else if (stat.isFile() && /\.(js|ts)$/.test(name)) {
           const text = await fs.promises.readFile(full, 'utf8').catch(() => '');
+          // perms.includes("xxx") 是当前项目对权限原子引用的统一写法
           const regex = /perms\.includes\(["'`]([^"'`]+)["'`]\)/g;
           const routes: Array<{ idx: number; method: string; path: string }> = [];
+          // routeRegexA：匹配 router.get('/path', ...) 这一类定义
           const routeRegexA = /router\.(get|post|patch|put|delete)\s*\(\s*(["'`])([^"'`]+)\2/g;
+          // routeRegexB：匹配 app.get('/path', ...) 或其他对象上的 get/post 等
           const routeRegexB = /\.(get|post|patch|put|delete)\(\s*(["'`])([^"'`]+)\2/g;
           {
             let rm: RegExpExecArray | null;
@@ -228,6 +272,9 @@ router.get('/rbac/actions', async (_req, res) => {
             routes.sort((a, b) => a.idx - b.idx);
           }
           let m: RegExpExecArray | null;
+          // 针对每一个 perms.includes('xxx')：
+          // - 记录动作字符串 rawAct
+          // - 找到最近的路由定义作为其“语义上的绑定接口”
           while ((m = regex.exec(text))) {
             const rawAct = m[1];
             addScanned(rawAct);
@@ -277,6 +324,7 @@ router.get('/rbac/actions', async (_req, res) => {
             }
           }
 
+          // 将某个动作与具体接口（method + path + file）做关联，用于 details 输出
           const addDetail = (act: string, method: string, fullPath: string, rel: string) => {
             const one = { method: method.toUpperCase(), path: fullPath, file: rel };
             const arr = details[act] || [];
@@ -296,6 +344,8 @@ router.get('/rbac/actions', async (_req, res) => {
           const routeName = routeNameMatch ? routeNameMatch[1] : '';
           const base = baseMap[routeName] || '';
           if (base) {
+            // 针对每个发现的路由定义，根据文件名与路径推导“动作前缀”（actionBase）
+            // 目前只对 clouds 路由做了较细粒度的拆分，其余可以按需要扩展
             for (const r of routes) {
               const fullPath = normalizeFullPath(base, r.path || '');
               const p = fullPath.toLowerCase();
@@ -340,7 +390,11 @@ router.get('/rbac/actions', async (_req, res) => {
   res.json({ actions: candidates.sort(), scanned: scanned.sort(), details });
 });
 
-// RBAC Roles (Policies) API
+// RBAC 角色（策略）列表查询
+// 将数据库中的 RBACRole 记录转换为前端所需的策略格式：
+// - actions：权限原子数组
+// - type：区分“系统策略”和“自定义策略”
+// - conditions：预留条件字段，由前端/后端共同约定结构
 router.get('/rbac/roles', async (req, res) => {
   try {
     const roleRepo = AppDataSource.getRepository(RBACRole);
@@ -383,6 +437,10 @@ router.get('/rbac/roles', async (req, res) => {
 });
 
 // 创建角色（仅超级管理员或拥有 system.roles:write 权限）
+// - name：角色名称（唯一）
+// - description：说明文本
+// - scope：作用域（默认为 'system'，可根据业务扩展）
+// - permissions：权限原子数组，将以 JSON 字符串形式存入数据库
 router.post('/rbac/roles', async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
@@ -409,6 +467,7 @@ router.post('/rbac/roles', async (req: any, res) => {
 });
 
 // 更新角色（仅超级管理员或拥有 system.roles:write 权限）
+// 支持增量更新 name/description/scope/status/permissions
 router.put('/rbac/roles/:id', async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
@@ -437,6 +496,9 @@ router.put('/rbac/roles/:id', async (req: any, res) => {
 });
 
 // 删除角色（仅超级管理员或拥有 system.roles:write 权限）
+// 删除前会做安全检查：
+// - 是否仍被 RoleAssignment 引用
+// - 是否仍有 TenantUser 的 role 字段指向该角色
 router.delete('/rbac/roles/:id', async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
@@ -469,6 +531,7 @@ router.delete('/rbac/roles/:id', async (req: any, res) => {
 });
 
 // 为用户分配角色（仅超级管理员）
+// 支持多种 userType（如 'tenant' / 'admin' 等），具体含义由业务约定
 router.post('/rbac/assignments', async (req: any, res) => {
   try {
     if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
@@ -486,7 +549,8 @@ router.post('/rbac/assignments', async (req: any, res) => {
   }
 });
 
-// 查询用户的角色分配
+// 查询某个用户的角色分配列表
+// - 通过 query.userType + query.userId 来限定查询范围
 router.get('/rbac/assignments', async (req: any, res) => {
   try {
     const { userType, userId } = req.query as any;
@@ -499,7 +563,7 @@ router.get('/rbac/assignments', async (req: any, res) => {
   }
 });
 
-// 取消分配角色（仅超级管理员）
+// 取消某条角色分配记录（仅超级管理员）
 router.delete('/rbac/assignments/:id', async (req: any, res) => {
   try {
     if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
@@ -516,14 +580,21 @@ router.delete('/rbac/assignments/:id', async (req: any, res) => {
 });
 
 // 清理角色中的已废弃原子（仅超级管理员）
-
+// 说明：该功能目前仅预留注释位，具体实现需要结合业务场景，
+// 例如：对比 actions 列表与 /rbac/actions 扫描结果，移除已经不存在的动作。
 export default router;
 
 // 批量上传告警日志（csv/xls/xlsx）
+// - 使用 Multer 将前端上传的文件先保存到临时目录 temp_uploads
+// - 再根据 Dify 配置中的 logsDir 或默认路径 data/security-logs 移动到目标目录
+// - 原始文件名会做简单的字符过滤，避免特殊字符导致的路径问题
 const tempUploadsDir = path.join(process.cwd(), 'temp_uploads');
 if (!fs.existsSync(tempUploadsDir)) fs.mkdirSync(tempUploadsDir, { recursive: true });
 const upload = multer({ dest: tempUploadsDir });
 
+// 上传接口：
+// - 表单字段名为 files，最多一次上传 50 个文件
+// - 返回成功保存的文件名、大小以及最终目标路径
 router.post('/upload-security-logs', upload.array('files', 50), async (req, res) => {
   try {
     const files = (req.files as Express.Multer.File[]) || [];
@@ -533,7 +604,9 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
     await fs.promises.mkdir(logsDir, { recursive: true });
     const saved: { fileName: string; size: number; target: string }[] = [];
 
+    // 对文件名做简单的安全过滤，去除在 Windows / POSIX 下不合法的字符
     const sanitize = (name: string) => name.replace(/[<>:"/\\|?*]+/g, '_');
+    // 兼容部分浏览器/代理上报的 latin1 文件名，这里尝试解码为 UTF-8，失败则按原始字符串处理
     const decodeName = (name: string) => {
       try {
         const decoded = Buffer.from(name, 'latin1').toString('utf8');
@@ -546,8 +619,8 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
     for (const f of files) {
       const base = decodeName(path.basename(f.originalname));
       const target = path.join(logsDir, base);
-      // Move from temp to target (rename is atomic on same volume, fast)
-      // If rename fails (cross-device), copy and unlink
+      // 先尝试通过 rename 在同一磁盘上“移动”文件（原子操作且效率高）
+      // 若因跨磁盘（EXDEV）导致失败，则退化为 copy + unlink 的方式
       try {
         await fs.promises.rename(f.path, target);
       } catch (err: any) {
@@ -562,7 +635,7 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
     }
     res.json({ ok: true, count: saved.length, files: saved });
   } catch (e: any) {
-    // Cleanup temp files on error
+    // 出错时清理所有临时文件，避免磁盘空间泄漏
     const files = (req.files as Express.Multer.File[]) || [];
     for (const f of files) {
       if (f.path) await fs.promises.unlink(f.path).catch(() => {});
@@ -573,6 +646,9 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
 });
 
 // 列出告警日志文件
+// - 自动创建日志目录（若不存在）
+// - 只返回扩展名为 .csv/.xls/.xlsx 的文件
+// - 携带文件大小与最近修改时间戳，方便前端排序与展示
 router.get('/security-logs', async (_req, res) => {
   try {
     const cfg = getDifyConfig();

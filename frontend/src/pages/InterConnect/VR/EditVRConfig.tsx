@@ -521,7 +521,7 @@ const EditVRConfig: React.FC = () => {
   const [sections, setSections] = useState<Record<SectionKey, string>>(() => {
     const initial: Record<SectionKey, string> = {} as any;
     (Object.keys(DEFAULT_TEMPLATE) as SectionKey[]).forEach((k) => {
-      initial[k] = JSON.stringify(DEFAULT_TEMPLATE[k], null, 2);
+      initial[k] = '';
     });
     return initial;
   });
@@ -529,7 +529,7 @@ const EditVRConfig: React.FC = () => {
   const [enabledSections, setEnabledSections] = useState<Record<SectionKey, boolean>>(() => {
     const initial: Record<SectionKey, boolean> = {} as any;
     (Object.keys(DEFAULT_TEMPLATE) as SectionKey[]).forEach((k) => {
-      initial[k] = true; // 默认全部启用
+      initial[k] = false;
     });
     return initial;
   });
@@ -592,7 +592,7 @@ const EditVRConfig: React.FC = () => {
     { title: '高可用', keys: ['vrrp'] },
   ];
 
-  const [activePanels, setActivePanels] = useState<string[]>(GROUPS.map((g) => g.title));
+  const [activePanels, setActivePanels] = useState<string[]>([]);
   const expandAll = () => setActivePanels(GROUPS.map((g) => g.title));
   const collapseAll = () => setActivePanels([]);
 
@@ -616,17 +616,19 @@ const EditVRConfig: React.FC = () => {
         // const clouds = await fetchClouds();
         // setCloudList(clouds);
 
-        // 优先加载平台已保存的配置；如果没有则初始化为模板结构
+        // 优先加载平台已保存的配置；如果没有则保持默认空白与关闭状态
         const existing = await getVRConfig(uuid);
         if (existing && typeof existing === 'object') {
           const next: Record<SectionKey, string> = { ...sections } as any;
           const nextEnabled: Record<SectionKey, boolean> = { ...enabledSections } as any;
           (Object.keys(DEFAULT_TEMPLATE) as SectionKey[]).forEach((k) => {
             const hasValue = typeof (existing as any)[k] !== 'undefined';
-            const value = hasValue ? (existing as any)[k] : DEFAULT_TEMPLATE[k];
-            next[k] = JSON.stringify(value, null, 2);
-            // 根据已保存的配置中是否存在该标识符，恢复启用/停用状态
-            nextEnabled[k] = !!hasValue;
+            if (hasValue) {
+              const value = (existing as any)[k];
+              next[k] = JSON.stringify(value, null, 2);
+              // 根据已保存的配置中是否存在该标识符，恢复启用/停用状态
+              nextEnabled[k] = true;
+            }
           });
           setSections(next);
           setEnabledSections(nextEnabled);

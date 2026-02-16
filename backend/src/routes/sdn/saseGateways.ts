@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
-import { VRConfig } from '../entities/vRouter/VRConfig';
-import { SecurityDomain } from '../entities/SecurityDomain';
-import { ServiceChain } from '../entities/ServiceChain';
-import { Cloud } from '../entities/Cloud';
-import { SASEDiscoveredAsset } from '../entities/vRouter/SASEDiscoveredAsset';
-import { listCsmElementGroups } from '../services/clouds/csm/client';
-import { vrManagementService } from '../services/vrouter/vrManagementService';
+import { AppDataSource } from '../../config/database';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { SecurityDomain } from '../../entities/SecurityDomain';
+import { ServiceChain } from '../../entities/ServiceChain';
+import { Cloud } from '../../entities/Cloud';
+import { SASEDiscoveredAsset } from '../../entities/vRouter/SASEDiscoveredAsset';
+import { listCsmElementGroups } from '../../services/clouds/csm/client';
+import { vrManagementService } from '../../services/vrouter/vrManagementService';
 
 export const saseGatewayRoutes = Router();
 

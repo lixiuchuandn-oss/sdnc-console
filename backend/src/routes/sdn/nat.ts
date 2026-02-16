@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
-import { NATRule, NATType } from '../entities/vRouter/NATRule';
-import { VRConfig } from '../entities/vRouter/VRConfig';
-import { vrController } from '../services/vrouter/vrController';
+import { AppDataSource } from '../../config/database';
+import { NATRule, NATType } from '../../entities/vRouter/NATRule';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { vrController } from '../../services/vrouter/vrController';
 
 export const natRoutes = Router();
 const repo = () => AppDataSource.getRepository(NATRule);

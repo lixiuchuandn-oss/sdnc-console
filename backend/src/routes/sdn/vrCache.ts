@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
-import { VRCacheBasic } from '../entities/vRouter/VRCacheBasic';
-import { VRCacheExtended } from '../entities/vRouter/VRCacheExtended';
-import { VRCacheDevice } from '../entities/vRouter/VRCacheDevice';
-import { VRCacheService } from '../services/vrouter/VRCacheService';
+import { AppDataSource } from '../../config/database';
+import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
+import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
+import { VRCacheDevice } from '../../entities/vRouter/VRCacheDevice';
+import { VRCacheService } from '../../services/vrouter/VRCacheService';
 
 export const vrCacheRoutes = Router();
 

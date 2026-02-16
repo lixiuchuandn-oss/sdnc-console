@@ -7,10 +7,15 @@ import { In } from 'typeorm';
 import { UserSpaceAllocation } from '../entities/UserSpaceAllocation';
 import { UserSpace } from '../entities/UserSpace';
 
-// 该路由无需过于严格的权限控制，只要通过身份验证即可
+// 仪表盘相关路由：
+// - 提供平台全局统计数据（云数量、用户数量等）
+// - 提供最近活动列表（云资源更新、用户登录）
+// - 提供按云类型聚合的资源配额与已分配用量，用于首页看板展示
+// 这些接口只要求通过身份认证，不再进行细粒度 RBAC 控制。
 const router = Router();
 
 // GET /api/dashboard/stats
+// 返回平台级别的基础统计信息：云资源数量、用户数量等
 router.get('/stats', async (_req: AuthRequest, res: Response) => {
   try {
     const cloudCount = await AppDataSource.getRepository(Cloud).count();
@@ -27,6 +32,7 @@ router.get('/stats', async (_req: AuthRequest, res: Response) => {
 });
 
 // GET /api/dashboard/recent-activities
+// 汇总最近的云资源更新和用户登录记录，按时间倒序返回
 router.get('/recent-activities', async (_req: AuthRequest, res: Response) => {
   try {
     // 最近创建/更新的实体，按时间合并排序
@@ -38,7 +44,7 @@ router.get('/recent-activities', async (_req: AuthRequest, res: Response) => {
       userRepo.find({ order: { lastLoginAt: 'DESC' }, take: 5 }),
     ]);
 
-    // 统一格式 { time, action, user, status }
+    // 将不同来源的事件统一为 { time, action, user, status } 格式，方便前端直接渲染时间线
     const activities: any[] = [];
 
     recentClouds.forEach((c) => {
@@ -71,16 +77,18 @@ router.get('/recent-activities', async (_req: AuthRequest, res: Response) => {
 });
 
 // GET /api/dashboard/cloud-usage
+// 聚合展示中心云与边缘云的总配额（CPU/内存/存储）与已分配用量，
+// 用于在仪表盘上显示资源总体使用率。
 router.get('/cloud-usage', async (_req: AuthRequest, res: Response) => {
   try {
     const cloudRepo = AppDataSource.getRepository(Cloud);
 
-    // 取出中心云和边缘云
+    // 仅统计中心云与边缘云两类云资源，其它类型忽略
     const clouds = await cloudRepo.find({
       where: { type: In(['central', 'edge']) },
     } as any);
 
-    // 按类型聚合
+    // 按云类型维度聚合资源使用情况
     const aggregate: Record<
       string,
       {
@@ -116,7 +124,8 @@ router.get('/cloud-usage', async (_req: AuthRequest, res: Response) => {
       },
     };
 
-    // in cloud-usage route, before aggregate loop, fetch allocations
+    // 在统计云资源使用情况前，先取出所有 UserSpace 及其配额分配记录，
+    // 之后按 cloudId 聚合，得到“已分配用量”，用于对比 Cloud.total* 字段。
     const usRepo = AppDataSource.getRepository(UserSpace);
     const allocRepo = AppDataSource.getRepository(UserSpaceAllocation);
 
@@ -130,7 +139,7 @@ router.get('/cloud-usage', async (_req: AuthRequest, res: Response) => {
       allocations = await allocRepo.find({ where: { userSpaceId: In(userSpaceIds) } as any });
     }
 
-    // 汇总分配到对应 cloud
+    // 将各个 UserSpace 的配额累加到对应的云资源上，得到每个云的总分配量
     const allocSumByCloud: Record<string, { cpu: number; memory: number; storage: number }> = {};
     userSpaces.forEach((us) => {
       allocSumByCloud[us.cloudId] = allocSumByCloud[us.cloudId] || {
@@ -148,6 +157,7 @@ router.get('/cloud-usage', async (_req: AuthRequest, res: Response) => {
       sum.storage += a.storage || 0;
     });
 
+    // 遍历云资源，累加总配额与已分配配额，并根据云在线状态计算整体状态
     clouds.forEach((c) => {
       const key = c.type as 'central' | 'edge';
       const entry = aggregate[key];
@@ -163,6 +173,7 @@ router.get('/cloud-usage', async (_req: AuthRequest, res: Response) => {
       if (c.status !== 'online') entry.status = 'maintenance';
     });
 
+    // 将内部聚合结构映射成前端友好的结构，并计算使用率百分比
     const result = Object.values(aggregate).map((item) => ({
       name: item.name,
       status: item.status,

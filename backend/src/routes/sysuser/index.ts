@@ -1,13 +1,13 @@
 import { Router, Response } from 'express';
-import { AppDataSource } from '../config/database';
-import { User, UserRole } from '../entities/User';
-import { TenantUser } from '../entities/TenantUser';
-import { Organization } from '../entities/Organization';
-import { Tenant } from '../entities/Tenant';
-import { RBACRole } from '../entities/RBACRole';
-import { RoleAssignment } from '../entities/RoleAssignment';
+import { AppDataSource } from '../../config/database';
+import { User, UserRole } from '../../entities/User';
+import { TenantUser } from '../../entities/TenantUser';
+import { Organization } from '../../entities/Organization';
+import { Tenant } from '../../entities/Tenant';
+import { RBACRole } from '../../entities/RBACRole';
+import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest } from '../../middleware/auth';
 import bcrypt from 'bcryptjs';
 
 const router = Router();
@@ -367,3 +367,4 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: '更新用户失败', error: String(e) });
   }
 });
+

@@ -1,11 +1,11 @@
 import { Router, Response } from 'express';
-import { AppDataSource } from '../config/database';
-import { CloudEnterpriseNetwork, CenStatus } from '../entities/CloudEnterpriseNetwork';
-import { CenAttachment, CenAttachmentStatus } from '../entities/CenAttachment';
-import { VpcNetwork } from '../entities/VpcNetwork';
-import { SecurityDomain } from '../entities/SecurityDomain';
-import { AuthRequest } from '../middleware/auth';
-import { logOperation } from '../utils/audit';
+import { AppDataSource } from '../../config/database';
+import { CloudEnterpriseNetwork, CenStatus } from '../../entities/CloudEnterpriseNetwork';
+import { CenAttachment, CenAttachmentStatus } from '../../entities/CenAttachment';
+import { VpcNetwork } from '../../entities/VpcNetwork';
+import { SecurityDomain } from '../../entities/SecurityDomain';
+import { AuthRequest } from '../../middleware/auth';
+import { logOperation } from '../../utils/audit';
 
 const router = Router();
 

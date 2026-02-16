@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
-import { ACLGroup } from '../entities/vRouter/ACLGroup';
-import { ACLRule } from '../entities/vRouter/ACLRule';
-import { VRConfig } from '../entities/vRouter/VRConfig';
-import { ACLGroupBinding } from '../entities/vRouter/ACLGroupBinding';
+import { AppDataSource } from '../../config/database';
+import { ACLGroup } from '../../entities/vRouter/ACLGroup';
+import { ACLRule } from '../../entities/vRouter/ACLRule';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { ACLGroupBinding } from '../../entities/vRouter/ACLGroupBinding';
 import { IsNull, In } from 'typeorm';
 
 export const aclGroupRoutes = Router();

@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
-import { ServiceCatalog } from '../entities/ServiceCatalog';
-import { SecurityDomain } from '../entities/SecurityDomain';
-import { ACLRule, ACLAction, ACLProtocol } from '../entities/vRouter/ACLRule';
-import { vrController } from '../services/vrouter/vrController';
-import { VRConfig } from '../entities/vRouter/VRConfig';
+import { AppDataSource } from '../../config/database';
+import { ServiceCatalog } from '../../entities/ServiceCatalog';
+import { SecurityDomain } from '../../entities/SecurityDomain';
+import { ACLRule, ACLAction, ACLProtocol } from '../../entities/vRouter/ACLRule';
+import { vrController } from '../../services/vrouter/vrController';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
 
 const router = Router();
 const repo = () => AppDataSource.getRepository(ServiceCatalog);

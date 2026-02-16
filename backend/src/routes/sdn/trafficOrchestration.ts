@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
-import { SecurityZone } from '../entities/SecurityZone';
-import { ProtectionObject } from '../entities/ProtectionObject';
-import { ServiceChain } from '../entities/ServiceChain';
-import { Tenant } from '../entities/Tenant';
+import { AppDataSource } from '../../config/database';
+import { SecurityZone } from '../../entities/SecurityZone';
+import { ProtectionObject } from '../../entities/ProtectionObject';
+import { ServiceChain } from '../../entities/ServiceChain';
+import { Tenant } from '../../entities/Tenant';
 import { Like } from 'typeorm';
 
 const router = Router();

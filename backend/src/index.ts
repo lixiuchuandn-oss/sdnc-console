@@ -1,5 +1,9 @@
+// Compute Tower 后端服务入口：
+// - 负责创建 Express 应用、挂载所有业务路由、托管静态资源
+// - 建立 HTTP Server，为后续 WebSocket (SSH/VNC 等) 复用同一端口
+// - 初始化数据库连接、种子数据（管理员账号、角色）及后台同步任务
+// - 对前端提供统一的 API 网关入口（/api/* 与 /api-proxy/*）
 import 'reflect-metadata';
-// Force restart for config reload (Restored User Logic: 2026-02-01)
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -8,31 +12,50 @@ import morgan from 'morgan';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import { AppDataSource } from './config/database';
-import { authRoutes } from './routes/auth';
-import { userRoutes } from './routes/users';
+// 认证与用户相关路由：
+// - authRoutes：登录/登出、令牌校验等认证能力
+// - userRoutes：系统用户（平台管理员/运维等）管理
+// - tenantRoutes：租户/组织/租户用户树管理
+import { authRoutes } from './routes/auth/auth';
+import { userRoutes } from './routes/sysuser';
 import { cloudRoutes } from './routes/clouds';
 import { tenantRoutes } from './routes/tenants';
 import { errorHandler } from './middleware/errorHandler';
 import { authMiddleware } from './middleware/auth';
 import { initializeAdmin } from './seeders/initAdmin';
 import { initializeRoles } from './seeders/initRoles';
-import { cenRoutes } from './routes/cens';
+// SDN / 安全相关路由：
+// - cenRoutes：云企业网（跨 VPC/跨云互联）管理
+// - vrCacheRoutes：VR 设备缓存（本地列表缓存，前端无鉴权读取）
+// - vrConfigRoutes：VR 配置下发与管理
+// - saseGatewayRoutes：SASE 网关管理
+// - srv6Routes / ipsecRoutes / aclRoutes / aclGroupRoutes / natRoutes：
+//   对应 SRv6 隧道、IPsec 隧道、ACL 规则与分组、NAT 规则等
+import { cenRoutes } from './routes/sdn/cens';
 import { dashboardRoutes } from './routes/dashboard';
-import { vrCacheRoutes } from './routes/vrCache';
-import { vrConfigRoutes } from './routes/vrConfig';
-import { saseGatewayRoutes } from './routes/saseGateways';
-import { srv6Routes } from './routes/srv6';
-import { ipsecRoutes } from './routes/ipsec';
-import { aclRoutes } from './routes/acl';
-import { aclGroupRoutes } from './routes/aclGroups';
-import { natRoutes } from './routes/nat';
-import { saseAuthRoutes } from './routes/saseAuth';
-import securityDomainRoutes from './routes/securityDomains';
-import leasedLineRoutes from './routes/leasedLines';
-import serviceRoutes from './routes/services';
-import trafficOrchestrationRoutes from './routes/trafficOrchestration';
+import { vrCacheRoutes } from './routes/sdn/vrCache';
+import { vrConfigRoutes } from './routes/sdn/vrConfig';
+import { saseGatewayRoutes } from './routes/sdn/saseGateways';
+import { srv6Routes } from './routes/sdn/srv6';
+import { ipsecRoutes } from './routes/sdn/ipsec';
+import { aclRoutes } from './routes/sdn/acl';
+import { aclGroupRoutes } from './routes/sdn/aclGroups';
+import { natRoutes } from './routes/sdn/nat';
+import { saseAuthRoutes } from './routes/auth/saseAuth';
+// 安全域 / 服务目录 / 流量编排等：
+// - securityDomainRoutes：安全域与防护对象建模
+// - serviceRoutes：服务目录与服务实例编排
+// - trafficOrchestrationRoutes：流量编排（安全链路编排）
+// 系统与 AISOC 相关：
+// - systemRoutes：系统设置、运行参数等平台级配置
+// - leasedLineRoutes：租户专线及其安全报告能力（对接 AISOC/Dify）
+// - threatRoutes：AISOC 威胁事件导入与报表查询
+import securityDomainRoutes from './routes/sdn/securityDomains';
+import leasedLineRoutes from './routes/aisoc/leasedLines';
+import serviceRoutes from './routes/sdn/services';
+import trafficOrchestrationRoutes from './routes/sdn/trafficOrchestration';
 import systemRoutes from './routes/system';
-import threatRoutes from './routes/threats';
+import threatRoutes from './routes/aisoc';
 // import standardResourceRoutes from './routes/standardResources';
 import apiProxyRoutes from './routes/apiProxy';
 
@@ -45,8 +68,9 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 const server = http.createServer(app);
 
-// CORS configuration
-// 开发阶段放宽到允许所有来源，避免CORS拦截调试请求
+// CORS 配置：
+// - 开发阶段放宽为允许任意 Origin，方便本地或不同域前端调试
+// - 线上可按需收紧为固定前端域名
 app.use(
   cors({
     origin: true,
@@ -56,8 +80,9 @@ app.use(
   }),
 );
 
-// 中间件
-// 配置 compression 中间件，跳过 SSE 接口 (Keep SSE fix)
+// 通用中间件：
+// 1) compression：开启响应压缩，但显式跳过 SSE（服务器推送）接口，
+//    避免对 text/event-stream 进行压缩导致长连接异常
 app.use(compression({
   filter: (req, res) => {
     if (req.headers['accept'] === 'text/event-stream' || res.getHeader('Content-Type') === 'text/event-stream') {
@@ -68,8 +93,9 @@ app.use(compression({
   }
 }));
 
-// Helmet 内容安全策略配置：允许加载外部资源（如图片、脚本等）
-// 在生产环境中托管前端时，如果使用了外部资源（如高德地图、CDN等），需要放宽 defaultSrc
+// Helmet 安全头：
+// - 关闭默认的 CSP 与 crossOriginEmbedderPolicy，避免在引入第三方脚本/地图等外部资源时产生过多限制
+// - 如需更严的安全策略，可在此根据生产环境单独收紧
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -80,10 +106,11 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// 静态文件托管
-// 策略：只要检测到静态文件目录存在，就启用托管。
-// 这允许在测试环境（非 strictly production）中也能直接通过后端访问前端页面，
-// 方便进行集成测试或预览，而无需强制设置 NODE_ENV=production。
+// 静态文件托管：
+// - 只要检测到 public 目录存在，就对外提供静态文件访问（前端构建产物）
+// - 兼容两种运行模式：
+//   a) 源码模式：backend/src/index.ts，对应 ../public
+//   b) 编译后模式：dist/src/index.js，对应 ../../public（backend/public）
 let staticPath = path.join(__dirname, '../public');
 
 // 智能路径检测：优先查找 backend/public，兼容 dist/src/index.js (运行时) 和 src/index.ts (开发时)
@@ -98,7 +125,7 @@ if (!fs.existsSync(staticPath) && fs.existsSync(rootPublicPath)) {
   console.log('Using relative public directory for static files:', staticPath);
 }
 
-// 只要目录存在，就开启静态托管
+// 只要最终解析出的 staticPath 存在，就开启静态托管
 if (fs.existsSync(staticPath)) {
   console.log('Static files found, enabling static serving from:', staticPath);
   app.use(
@@ -116,7 +143,9 @@ if (fs.existsSync(staticPath)) {
   console.log('Static files directory not found. Static serving disabled.');
 }
 
-// 工具下载路由（Cloudmap 别名）
+// 工具下载路由（Cloudmap 上传工具别名）：
+// - 固定从后端服务器上的 tools 目录读取 CloudmapUploader.exe
+// - 方便运维/用户从 Web 界面直接获取上传工具
 app.get('/api/tools/cloudmap-uploader.exe', (req, res) => {
     try {
       const toolPath = path.join('d:', 'ComputeTower', 'Compute.Tower', 'tools', 'harvester-uploader', 'CloudmapUploader.exe');
@@ -139,10 +168,16 @@ app.get('/api/tools/cloudmap-uploader.exe', (req, res) => {
     }
   });
 
-// Routes (Restored from user input)
-// CSMCTL Proxy Route (Before other routes)
+// 路由挂载区域：
+// 1) CSMCTL 代理路由（/api-proxy）：
+//    - 提供 /api/sign 兜底签名与通用反向代理能力
+//    - 必须在业务 API 之前挂载，以便被前端统一使用
 app.use('/api-proxy', apiProxyRoutes);
 
+// 2) 认证与用户体系相关 API：
+//    - /api/auth 与 /auth：登录、令牌刷新、登出等
+//    - /api/users：平台系统用户管理（受 authMiddleware 保护）
+//    - /api/tenants：租户/组织/租户用户管理
 app.use('/api/auth', authRoutes);
 app.use('/auth', authRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
@@ -150,11 +185,25 @@ app.use('/api/clouds', authMiddleware, cloudRoutes);
 
 app.use('/api/tenants', authMiddleware, tenantRoutes);
 app.use('/api/cens', authMiddleware, cenRoutes);
+// 3) 仪表盘与 VR 相关：
+//    - /api/dashboard：总览面板数据
+//    - /api/vr-cache：VR 列表缓存接口，不要求登录，便于前端本地化存储
+//    - /api/vr-config：VR 配置管理接口，必须登录
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 // VR缓存接口不需要登录，允许前端保存和读取缓存
 app.use('/api/vr-cache', vrCacheRoutes);
 app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
 // app.use('/api/vr-config', vrConfigRoutes); // Temporary debug: disable auth
+// 4) SASE / 网络与安全能力：
+//    - /api/sase/auth 与 /api/sase/gateways：SASE 专用认证与网关管理
+//    - /api/networks/*：SDN 网络能力（SRv6、IPsec、ACL、NAT 等）
+//    - /api/security-domains：安全域与防护对象
+//    - /api/security/traffic：安全流量编排（服务链）
+//    - /api/services：服务目录与服务实例
+// 5) AISOC 与系统配置：
+//    - /api/leased-lines：租户专线与安全报告生成/下载
+//    - /api/threats：AISOC 威胁事件导入与查询
+//    - /api/system：平台系统配置与运维接口
 app.use('/api/sase/auth', saseAuthRoutes);
 app.use('/api/sase/gateways', authMiddleware, saseGatewayRoutes);
 app.use('/api/networks/srv6', authMiddleware, srv6Routes);
@@ -170,15 +219,19 @@ app.use('/api/system', authMiddleware, systemRoutes);
 app.use('/api/threats', threatRoutes);
 // app.use('/api/standard', authMiddleware, standardResourceRoutes);
 
-// 健康检查
+// 健康检查：
+// - 简单返回服务状态与时间戳，供负载均衡或监控系统探活使用
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// 错误处理
+// 全局错误处理中间件：
+// - 捕获上游路由抛出的错误，并统一返回 JSON 结构
 app.use(errorHandler);
 
-// 前端路由回退（SPA 支持）：所有未匹配 API 的请求返回 index.html
+// 前端路由回退（SPA 支持）：
+// - 对非 /api 与 /ws 请求统一返回 index.html
+// - 让前端路由（React Router 等）接管 URL 解析
 if (fs.existsSync(path.join(staticPath, 'index.html'))) {
   app.get('*', (req, res, next) => {
     // 排除 API 和 WebSocket 路径，避免误返回 HTML
@@ -189,7 +242,11 @@ if (fs.existsSync(path.join(staticPath, 'index.html'))) {
   });
 }
 
-// Database connection and server start (Restored from user input)
+// 数据库连接与服务启动：
+// - 初始化 TypeORM 数据源
+// - 初始化管理员账号与基础角色
+// - 启动云资源同步任务与 VR 列表同步任务
+// - 初始化 WebSSH/WebVNC/KubeVirt VNC WebSocket 服务，并复用 HTTP Server 的 upgrade 事件
 AppDataSource.initialize()
   .then(async () => {
     console.log('数据库连接成功');

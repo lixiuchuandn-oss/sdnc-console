@@ -4,16 +4,22 @@ import https from 'https';
 import crypto from 'crypto';
 import { getSystemSetting } from '../config/systemSettings';
 
+// 该路由模块负责将前端请求转发到 CSMCTL 等后端控制面服务，
+// 同时本地实现 /api/sign 接口，用于在 CSMCTL 签名逻辑异常或不兼容时兜底，
+// 确保「专家模式」等依赖签名能力的功能仍然可用。
 const router = express.Router();
-// Create a shared agent to reuse connections and ignore SSL errors
+
+// 复用一个 HTTPS Agent，忽略目标服务的自签名证书错误
+// 适用于在内网环境或 PoC/实验环境下部署的 CSMCTL，避免因证书问题导致代理失败
 const agent = new https.Agent({ rejectUnauthorized: false });
 
-// Local implementation of /api/sign to bypass CSMCTL signature issues
-// This ensures that Expert Mode (which relies on /api-proxy/api/sign) works even if CSMCTL /api/sign is broken/incompatible
+// 本地实现 /api/sign 接口，用于在 CSMCTL 原生签名接口不可用时进行签名计算
+// 前端会优先调用 /api-proxy/api/sign 来生成 Authorization 头和 tonce，避免直接暴露密钥给浏览器逻辑
 router.post('/api/sign', (req, res) => {
   try {
     const { url, method, other, accessKey, secretKey } = req.query as any;
 
+    // 基础参数校验：URL、HTTP 方法与 AK/SK 均为必填
     if (!url || !method || !accessKey || !secretKey) {
       return res
         .status(400)
@@ -24,22 +30,26 @@ router.post('/api/sign', (req, res) => {
     const sk = secretKey;
     const tonce = (Date.now() * 1000).toString();
 
+    // 根据请求体生成 MD5 摘要，仅对非 GET/DELETE 且有 Body 的请求进行参与签名
     let md5Body = '';
     if (req.body && Object.keys(req.body).length > 0) {
       if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'DELETE') {
-        // Try to reproduce the body string for hashing
-        // Note: This assumes JSON body. If strict consistency is needed, we might need raw body parsing.
+        // 这里假定 Body 为 JSON 对象，直接使用 JSON.stringify 生成字符串进行 MD5 计算
+        // 如果未来需要 100% 还原原始报文，可改为使用 raw body 中间件获取原始字节流
         md5Body = crypto.createHash('md5').update(JSON.stringify(req.body)).digest('hex');
       }
     }
 
-    // Sign String Format: METHOD|URL|TONCE|ACCESS_KEY|QUERY_PARAMS|BODY_HASH
+    // 签名原始串格式：
+    // METHOD|URL|TONCE|ACCESS_KEY|QUERY_PARAMS|BODY_HASH
+    // 其中 other 字段用于承载额外参与签名的查询参数串（由前端或调用方拼接）
     const signStr = `${method}|${url}|${tonce}|${ak}|${other || ''}|${md5Body}`;
 
     const signHex = crypto.createHmac('sha256', sk).update(signStr).digest('hex');
     const rawStr = `${ak}:${signHex}`;
     const authBase64 = Buffer.from(rawStr).toString('base64');
 
+    // 日志中仅输出 Authorization 前缀，避免泄露完整签名信息
     console.log(
       `[API Proxy] Local Sign: ${method} ${url} -> Auth: ${authBase64.substring(0, 10)}...`,
     );
@@ -52,19 +62,22 @@ router.post('/api/sign', (req, res) => {
       },
     });
   } catch (e: any) {
+    // 本地签名计算失败时，视为服务器内部错误，不返回细节给前端
     console.error('[API Proxy] Local Sign Error:', e.message);
     res.status(500).json({ message: 'Local signing failed' });
   }
 });
 
 router.all('*', async (req, res) => {
-  // 优先使用系统设置，如果未设置，则默认尝试本地回环地址（更稳健，适用于同机部署），
-  // 如果本地不通，也可以回退到内网IP（保留旧默认值作为备选，但在代码逻辑中主要体现为默认值变更）
+  // 代理转发入口：
+  // 1. 优先读取系统配置中的 CSMCTL_ADDRESS（由管理员在系统设置中配置）
+  // 2. 若未配置，则默认使用本机回环地址 https://127.0.0.1:8016（假定 CSMCTL 与平台同机部署）
   const csmAddress = getSystemSetting('CSMCTL_ADDRESS') || 'https://127.0.0.1:8016';
-  // Remove trailing slash
+  // 去掉末尾多余斜杠，避免与后续路由拼接时出现重复 //
   const targetBase = csmAddress.replace(/\/+$/, '');
 
-  // If mounted at /api-proxy, req.url is the path after /api-proxy (e.g. /api/sign?foo=bar)
+  // 当该路由模块挂载在 /api-proxy 上时，req.url 为 /api-proxy 之后的子路径
+  // 例如前端请求 /api-proxy/api/sign?foo=bar，此处能拿到 /api/sign?foo=bar
   const targetUrl = `${targetBase}${req.url}`;
 
   console.log(`[API Proxy] ${req.method} ${req.originalUrl} -> ${targetUrl}`);
@@ -76,19 +89,19 @@ router.all('*', async (req, res) => {
       headers: {
         'Content-Type': req.headers['content-type'] || 'application/json',
         Accept: req.headers['accept'] || 'application/json',
-        // Pass auth headers if present
+        // 透传认证相关请求头（如 Authorization、tonce），保证后端鉴权链路完整
         ...(req.headers['authorization'] ? { Authorization: req.headers['authorization'] } : {}),
         ...(req.headers['tonce'] ? { tonce: req.headers['tonce'] } : {}),
       },
       responseType: 'stream',
       httpsAgent: agent,
-      validateStatus: () => true, // Allow any status code to be passed back
+      // validateStatus 返回 true，表示不在 axios 侧抛错，而是将状态码原样透传给调用方
+      validateStatus: () => true,
     };
 
-    // Handle body
+    // 仅对存在请求体且方法为写操作时透传 Body
     if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
-      // If body was already parsed by express.json(), we need to stringify it back
-      // If it's empty or not parsed, we might need to handle streams, but for now assume JSON
+      // 此处假定上游已通过 express.json() 等中间件将 Body 解析为对象，直接透传给 axios 即可
       if (req.body && Object.keys(req.body).length > 0) {
         config.data = req.body;
       }
@@ -96,21 +109,20 @@ router.all('*', async (req, res) => {
 
     const response = await axios(config);
 
-    // Set status
+    // 将下游服务返回的状态码原样设置给前端
     res.status(response.status);
 
-    // Forward headers
+    // 透传下游服务的响应头，部分与 Express 冲突或由框架自动处理的头（如 Content-Length）需要跳过
     Object.entries(response.headers).forEach(([key, value]) => {
-      // Skip some headers that might conflict or be handled by Express
       if (['transfer-encoding', 'connection', 'content-length'].includes(key.toLowerCase())) return;
       if (value) res.setHeader(key, value as string);
     });
 
-    // Pipe data
+    // 使用流的方式将响应体直接 pipe 给前端，避免在代理层缓存大体积数据
     response.data.pipe(res);
   } catch (error: any) {
     console.error('[API Proxy] Error:', error.message);
-    // If it's a network error (e.g. target unreachable), return 502
+    // 代理层无法连接下游服务时，统一返回 502 Bad Gateway，并附带目标地址与错误信息
     if (!res.headersSent) {
       res.status(502).json({
         message: 'Proxy Error: Failed to connect to remote service',

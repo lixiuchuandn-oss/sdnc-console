@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
-import { ACLRule, ACLAction, ACLProtocol } from '../entities/vRouter/ACLRule';
-import { VRConfig } from '../entities/vRouter/VRConfig';
-import { vrController } from '../services/vrouter/vrController';
+import { AppDataSource } from '../../config/database';
+import { ACLRule, ACLAction, ACLProtocol } from '../../entities/vRouter/ACLRule';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { vrController } from '../../services/vrouter/vrController';
 import { syncACLToVRConfig, syncGroupToVRs } from './aclGroups';
 
 export const aclRoutes = Router();

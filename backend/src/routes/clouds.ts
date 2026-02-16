@@ -12,8 +12,16 @@ import { AuthRequest } from '../middleware/auth';
 import { UserRole } from '../entities/User';
 import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
 
+// 多云接入与资源池路由：
+// - 管理云资源池（Cloud）对象的增删改查与连通性测试
+// - 按统一格式列出不同云厂商/Harvester/CloudMap 中的实例、VPC 等资源
+// - 提供权限控制中间件，细分到实例、控制台、VPC 等不同子资源
+// - 承接 Harvester、CloudMap 相关的同步任务
 const router = Router();
 
+// 对 Cloud 实体进行脱敏处理：
+// - 将枚举字段 type/status 统一小写，便于前端处理
+// - 对 accessKey/secretKey 仅保留末尾 4 位，避免在接口中泄露完整密钥
 const redactCloud = (cloud: any) => ({
   ...cloud,
   status: typeof cloud.status === 'string' ? cloud.status.toLowerCase() : cloud.status,
@@ -22,6 +30,9 @@ const redactCloud = (cloud: any) => ({
   secretKey: cloud.secretKey ? '***' + String(cloud.secretKey).slice(-4) : undefined,
 });
 
+// 统一的云连接测试入口：
+// 根据 provider 选择对应云厂商 / Harvester / CloudMap 的测试函数，
+// 返回 { ok, message } 结构，供创建/测试接口复用。
 const testCloudConnectionUnified = async (args: {
   provider?: string;
   accessKey?: string;
@@ -53,6 +64,7 @@ const testCloudConnectionUnified = async (args: {
     });
     return { ok: !!t.ok, message: t.message || '' };
   }
+  // 在平台当前版本中不再支持直接接入腾讯云，这里统一返回失败信息
   if (provider === 'tencentcloud') {
     return { ok: false, message: '已不支持腾讯云接入' };
   }
@@ -93,6 +105,7 @@ const testCloudConnectionUnified = async (args: {
   return { ok: false, message: '暂不支持该云接入' };
 };
 
+// 通用的 Cloud 查找函数，未找到时直接在响应中返回 404，并返回 null
 const fetchCloudOr404 = async (id: string, res: Response) => {
   const repo = AppDataSource.getRepository(Cloud);
   const cloud = await repo.findOne({ where: { id } });
@@ -103,6 +116,7 @@ const fetchCloudOr404 = async (id: string, res: Response) => {
   return cloud;
 };
 
+// 校验 Cloud 是否属于指定 provider，避免错误地在不兼容云类型上执行操作
 const ensureProvider = (cloud: any, provider: string, res: Response, msg: string) => {
   if (String(cloud?.config?.provider || '').toLowerCase() !== String(provider).toLowerCase()) {
     res.status(400).json({ message: msg });
@@ -111,7 +125,10 @@ const ensureProvider = (cloud: any, provider: string, res: Response, msg: string
   return true;
 };
 
-// 输入验证中间件
+// Cloud 创建/更新的输入验证中间件：
+// - 校验 name/type/region/endpoint/config.provider 等必填字段
+// - 限制 provider 必须在支持列表内
+// - 对 provider 值做 trim 与统一小写处理，并为 harvester 系列补充默认版本号
 const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
   const { name, type, region, endpoint, config } = req.body;
   if (!name || !type || !region || !endpoint || !config?.provider) {
@@ -143,7 +160,11 @@ const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
   next();
 };
 
-// 权限检查中间件：参照租户专线的权限原子逻辑，按读写与资源粒度判定
+// 权限检查中间件：
+// - 先区分请求是“读操作”(GET/HEAD) 还是“写操作”(其它方法)
+// - 根据路径识别访问的是哪个子资源（实例/VPC/控制台等），拼装成 clouds.instances / clouds.console 等 action 基础名
+// - 读操作需要 {actionBase}:read 或 clouds:read 权限；写操作需要 {actionBase}:write 或 clouds:write 权限
+// - 控制台/VNC 链接虽然是 GET，但属于建立会话的敏感行为，按 Write 权限处理
 const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
   try {
     const role: any = (req.user as any)?.role;
@@ -162,8 +183,8 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
         (path.includes('/csm/security/virtual-elements') && path.endsWith('/console')) ||
         path.endsWith('/vnc-url')
       ) {
-        // 特殊逻辑：获取控制台/VNC地址虽然是GET请求，但属于“建立连接”的敏感操作
-        // 因此强制归类为 Write 权限（clouds.console:write），以区分“查看列表(Read)”与“远程连接(Write)”
+        // 特殊逻辑：获取控制台/VNC 地址虽然是 GET 请求，但本质上是“建立远程连接”，
+        // 因此强制归类为 Write 权限（clouds.console:write），与普通查询列表的 Read 权限区分开。
         isRead = false;
         return 'clouds.console';
       }
@@ -193,9 +214,9 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
       ? [`${actionBase}:read`, 'clouds:read']
       : [`${actionBase}:write`, 'clouds:write'];
 
-    // Special case: Listing clouds (root 'clouds' action) should be allowed 
-    // if the user has specific sub-resource access that requires cloud context.
-    // e.g. Console page needs to list clouds to show instances.
+    // 特殊场景：前端在访问实例/控制台等页面时，需要先“列出云资源”以供选择，
+    // 因此如果用户拥有 clouds.console:read 或 clouds.instances:read 等权限，
+    // 也允许访问 GET /clouds 列表接口，避免额外赋予 clouds:read。
     if (actionBase === 'clouds' && isRead) {
       need.push('clouds.console:read');
       need.push('clouds.instances:read');
@@ -242,7 +263,7 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
   }
 };
 
-// 引入阿里云RPC测试（无SDK）
+// 引入阿里云 RPC 调用封装（不依赖官方 SDK）
 import {
   testAliyunConnection,
   callAliyunEcs,
@@ -250,7 +271,7 @@ import {
   callAliyunVpc,
   callAliyunCms,
 } from '../services/clouds/aliyun/client';
-// 引入华为云SDK调用
+// 引入华为云 SDK 封装
 import {
   testHuaweiConnection,
   huaweiListVpcs,
@@ -273,6 +294,7 @@ import { listCsmVms, csmRequest } from '../services/clouds/csm/client';
 import { registerCsmRoutes } from './clouds/csm';
 import { registerAliyunRoutes } from './clouds/aliyun';
 import { registerHuaweiRoutes } from './clouds/huaweicloud';
+import { registerTencentRoutes } from './clouds/tencentcloud';
 import {
   registerHarvesterDirectRoutes,
   registerHarvesterRoutes,
@@ -281,7 +303,8 @@ import {
 } from './clouds/harvester';
 import { standardResourceService } from '../services/StandardResourceService';
 
-// Helper: Extract standardized identity (id, name) from raw cloud resources
+// 工具函数：从不同云厂商/平台的原始资源对象中抽取统一的 id / name 标识，
+// 避免在前端或其它服务中到处写兼容逻辑。
 const extractIdentity = (provider: string, type: 'vm' | 'vpc', r: any) => {
   let id = '';
   let name = '';
@@ -326,14 +349,21 @@ const extractIdentity = (provider: string, type: 'vm' | 'vpc', r: any) => {
   return { id, name };
 };
 
+// 将各云厂商/Harvester/CloudMap 的子路由注册到统一的 /clouds 路由下，
+// 并统一使用 checkAdminPermission 做权限拦截。
 registerHarvesterDirectRoutes(router, checkAdminPermission);
 registerHarvesterRoutes(router, checkAdminPermission);
 registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
+registerTencentRoutes(router, checkAdminPermission);
+registerCsmRoutes(router, checkAdminPermission);
 registerCsmRoutes(router, checkAdminPermission);
 registerMonitoringRoutes(router, checkAdminPermission);
 registerLoggingRoutes(router, checkAdminPermission);
 
+// 标准化获取实例列表：
+// - 对不同 provider 的接口调用结果进行统一转换，输出统一结构的实例信息
+// - 支持 raw=true 直接返回云厂商原始响应，便于排查问题
 const fetchInstancesForCloud = async (cloud: Cloud, raw: boolean = false) => {
   const providerRaw = String((cloud as any)?.config?.provider || '');
   const provider = providerRaw.toLowerCase();
@@ -763,6 +793,8 @@ const fetchInstancesForCloud = async (cloud: Cloud, raw: boolean = false) => {
   return items;
 };
 
+// 标准化获取 VPC 列表：
+// - 目前仅对阿里云与华为云实现映射，其它 provider 视为不支持或返回空
 const fetchVpcsForCloud = async (cloud: Cloud, raw: boolean = false) => {
   const providerRaw = String((cloud as any)?.config?.provider || '');
   const provider = providerRaw.toLowerCase();
@@ -853,22 +885,23 @@ const fetchVpcsForCloud = async (cloud: Cloud, raw: boolean = false) => {
   return items;
 };
 
-// 获取云资源列表
+// 获取云资源列表：
+// - 管理员可看到所有云资源
+// - 租户用户(TenantUser)仅能看到与自己 UserSpace 关联的云资源，实现多租户隔离
 router.get('/', checkAdminPermission, async (req: AuthRequest, res: Response) => {
   try {
     const cloudRepository = AppDataSource.getRepository(Cloud);
     let clouds = await cloudRepository.find();
 
-    // Tenant Isolation: Only show clouds assigned via UserSpace
-    // Check if user is a TenantUser (has tenantId and not a sase_device)
-    // Note: TenantUser.role is usually 'user' or a custom role ID, NOT 'tenant'
+    // 租户隔离：
+    // - 当用户为租户用户（拥有 tenantId 且角色不是 sase_device）或角色为 'tenant' 时，
+    //   仅返回其所属租户下处于 active 状态的 UserSpace 所关联的 Cloud。
     const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
     
     if (isTenantUser || (req.user as any)?.role === 'tenant') {
       const tenantId = (req.user as any).tenantId;
-      // Only filter if we have a valid tenantId. 
-      // If role is 'tenant' but no tenantId (unlikely for TenantUser), we might be in a weird state, 
-      // but strictly speaking, isolation depends on tenantId.
+      // 只有在拿到有效 tenantId 的情况下才做过滤；如果角色为 'tenant' 却没有 tenantId，
+      // 说明用户数据存在异常，此时不额外做隔离逻辑（以避免误过滤所有结果）。
       if (tenantId) {
         const userSpaceRepo = AppDataSource.getRepository(UserSpace);
         const userSpaces = await userSpaceRepo.find({

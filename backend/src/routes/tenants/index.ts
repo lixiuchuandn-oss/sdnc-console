@@ -1,22 +1,28 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
+import { AppDataSource } from '../../config/database';
 import { In } from 'typeorm';
-import { Tenant } from '../entities/Tenant';
-import { Organization } from '../entities/Organization';
-import { TenantUser } from '../entities/TenantUser';
-import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
-import { UserSpace } from '../entities/UserSpace';
-import { UserSpaceAllocation } from '../entities/UserSpaceAllocation';
-import { TenantLeasedLine } from '../entities/TenantLeasedLine';
-import { Cloud } from '../entities/Cloud';
-import { HarvesterNamespaceInventory } from '../entities/harvester/HarvesterNamespaceInventory';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { createHarvesterNamespace, deleteHarvesterNamespace } from '../services/clouds/harvester/client';
+import { Tenant } from '../../entities/Tenant';
+import { Organization } from '../../entities/Organization';
+import { TenantUser } from '../../entities/TenantUser';
+import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
+import { UserSpace } from '../../entities/UserSpace';
+import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
+import { TenantLeasedLine } from '../../entities/TenantLeasedLine';
+import { Cloud } from '../../entities/Cloud';
+import { HarvesterNamespaceInventory } from '../../entities/harvester/HarvesterNamespaceInventory';
+import { authMiddleware, AuthRequest } from '../../middleware/auth';
+import { createHarvesterNamespace, deleteHarvesterNamespace } from '../../services/clouds/harvester/client';
 import bcrypt from 'bcryptjs';
 
+// 租户与组织/用户/资源池管理路由：
+// - 提供租户的增删改查接口
+// - 管理租户下的组织树结构及其顺序
+// - 管理租户用户（TenantUser）的创建、更新与删除
+// - 负责为组织分配云资源池，并在 Harvester 上创建/删除对应 Namespace 与 UserSpace/Quota
 const router = Router();
 
-// 获取可分配的资源池列表 - 必须放在参数路由之前，避免被 /:id 匹配
+// 获取可分配的资源池列表：
+// - 由于存在 /:id 等参数化路由，为避免路由匹配冲突，该接口必须放在前面
 router.get('/available-resource-pools', async (req, res) => {
   try {
     console.log('获取可分配资源池列表请求');
@@ -33,7 +39,7 @@ router.get('/available-resource-pools', async (req, res) => {
   }
 });
 
-// 获取所有租户
+// 获取所有租户列表
 router.get('/', async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
@@ -48,7 +54,9 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 创建租户
+// 创建租户：
+// - 创建 Tenant 记录
+// - 同时为其创建一个一级根组织（Root Organization），并回写 rootOrganizationId
 router.post('/', async (req, res) => {
   try {
     const { name, description } = req.body;
@@ -75,7 +83,7 @@ router.post('/', async (req, res) => {
 
     const savedTenant = await tenantRepository.save(tenant);
 
-    // 为租户创建根组织
+    // 为租户创建根组织，默认 level=1、status=active
     const rootOrganization = organizationRepository.create({
       name: `${name}-根组织`,
       description: `${name} 的根组织`,
@@ -86,7 +94,7 @@ router.post('/', async (req, res) => {
 
     const savedRootOrg = await organizationRepository.save(rootOrganization);
 
-    // 更新租户的根组织ID
+    // 更新租户的根组织 ID，方便后续前端快速定位根节点
     savedTenant.rootOrganizationId = savedRootOrg.id;
     await tenantRepository.save(savedTenant);
 
@@ -100,7 +108,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// 获取租户列表及其专线IP信息
+// 获取租户列表及其专线 IP 信息：
+// - 用于下拉框等场景，将租户与其所有专线 IP 一并返回，便于 AI/SOC 等模块选择
 router.get('/with-leased-lines', async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
@@ -141,7 +150,7 @@ router.get('/with-leased-lines', async (req, res) => {
   }
 });
 
-// 获取租户详情
+// 获取单个租户详情
 router.get('/:id', async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
@@ -160,7 +169,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// 更新租户
+// 更新租户基本信息（名称/描述/状态）
 router.put('/:id', async (req, res) => {
   try {
     const { name, description, status } = req.body;
@@ -190,7 +199,9 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// 删除租户
+// 删除租户：
+// - 级联删除租户下所有组织、资源池分配与租户用户
+// - 注意：与业务强关联的其它实体（如专线、防护策略等）需在对应模块中单独处理
 router.delete('/:id', async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
@@ -214,7 +225,7 @@ router.delete('/:id', async (req, res) => {
       }
     }
 
-    // 删除相关的用户
+    // 删除相关的租户用户
     const users = await userRepository.find({ where: { tenantId: req.params.id } });
     for (const user of users) {
       await userRepository.remove(user);
@@ -225,7 +236,7 @@ router.delete('/:id', async (req, res) => {
       await organizationRepository.remove(org);
     }
 
-    // 删除租户
+    // 删除租户本身
     await tenantRepository.remove(tenant);
 
     res.json({ message: '租户删除成功' });
@@ -235,7 +246,9 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// 获取租户的组织树
+// 获取租户的组织树：
+// - 将同一租户下的所有 Organization 转换为树形结构
+// - 按 level/parentId/orderIndex/createdAt 排序，保证层级与展示顺序稳定
 router.get('/:id/organizations', async (req, res) => {
   try {
     const organizationRepository = AppDataSource.getRepository(Organization);
@@ -276,7 +289,9 @@ router.get('/:id/organizations', async (req, res) => {
   }
 });
 
-// 创建组织
+// 创建组织：
+// - 支持创建任意层级（1~4 级），超过 4 级则拒绝
+// - 根据 parentId 决定 level，并为同级节点自动计算 orderIndex
 router.post('/:id/organizations', async (req, res) => {
   try {
     const { name, description, parentId } = req.body;
@@ -336,7 +351,9 @@ router.post('/:id/organizations', async (req, res) => {
   }
 });
 
-// 更新组织（名称/描述/父级/顺序）
+// 更新组织（名称/描述/父级/顺序）：
+// - 支持更改父级，从而实现组织树中的“拖拽移动”
+// - 对同一父级下的节点重新排序，保证 orderIndex 连续
 router.put('/organizations/:orgId', async (req, res) => {
   try {
     const { orgId } = req.params;
@@ -387,7 +404,7 @@ router.put('/organizations/:orgId', async (req, res) => {
 
     const saved = await organizationRepository.save(org);
 
-    // 重排同级顺序
+    // 重排同级顺序，确保同级组织的 orderIndex 连续且按创建时间稳定排序
     const sameParentId = saved.parentId || null;
     const siblings = await organizationRepository.find({
       where: sameParentId
@@ -409,7 +426,10 @@ router.put('/organizations/:orgId', async (req, res) => {
     return res.status(500).json({ message: '更新组织失败' });
   }
 });
-// 删除组织（非根组织可删除，可级联删除其子组织、相关用户与资源池分配）
+// 删除组织：
+// - 根组织不可删除（防止误删整个租户根节点）
+// - 对目标组织及其所有子孙组织进行级联删除
+// - 同时删除对应组织上的资源池分配与租户用户
 router.delete('/organizations/:orgId', async (req, res) => {
   try {
     const { orgId } = req.params;
@@ -428,7 +448,7 @@ router.delete('/organizations/:orgId', async (req, res) => {
       return res.status(400).json({ message: '根组织不可删除' });
     }
 
-    // 获取同租户下所有组织，计算待删除的组织ID集合（包含子孙）
+    // 获取同租户下所有组织，计算待删除的组织 ID 集合（包含子孙）
     const allOrgs = await organizationRepository.find({ where: { tenantId: target.tenantId } });
     const orgMap = new Map<string, Organization>();
     allOrgs.forEach((o) => orgMap.set(o.id, o));
@@ -457,7 +477,7 @@ router.delete('/organizations/:orgId', async (req, res) => {
     // 删除组织本身
     await organizationRepository.delete({ id: In(toDeleteIds) });
 
-    // 如果租户的根组织被误删（不应该发生），尝试修复：保持原值或置空
+    // 如果租户的根组织被误删（理论上不应发生），则将 rootOrganizationId 置空以自愈
     const tenant = await tenantRepository.findOne({ where: { id: target.tenantId } });
     if (tenant && tenant.rootOrganizationId && toDeleteIds.includes(tenant.rootOrganizationId)) {
       tenant.rootOrganizationId = undefined;
@@ -471,7 +491,7 @@ router.delete('/organizations/:orgId', async (req, res) => {
   }
 });
 
-// 获取租户的所有用户
+// 获取某租户下的所有用户
 router.get('/:tenantId/users', async (req, res) => {
   try {
     const userRepository = AppDataSource.getRepository(TenantUser);
@@ -489,7 +509,7 @@ router.get('/:tenantId/users', async (req, res) => {
   }
 });
 
-// 获取组织的用户
+// 获取某组织下的用户列表（附带租户维度过滤）
 router.get('/:tenantId/organizations/:orgId/users', async (req, res) => {
   try {
     const userRepository = AppDataSource.getRepository(TenantUser);
@@ -508,7 +528,9 @@ router.get('/:tenantId/organizations/:orgId/users', async (req, res) => {
   }
 });
 
-// 创建用户
+// 创建租户用户：
+// - 用户挂载到指定组织与租户
+// - 使用 bcrypt 对密码进行哈希存储
 router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
   try {
     const { username, email, fullName, password, role } = req.body;
@@ -520,7 +542,7 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
 
     const userRepository = AppDataSource.getRepository(TenantUser);
 
-    // 检查用户名和邮箱是否已存在
+    // 检查用户名和邮箱是否已存在（全局唯一）
     const existingUser = await userRepository.findOne({
       where: [{ username }, { email }],
     });
@@ -545,7 +567,7 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
 
     const savedUser = await userRepository.save(user);
 
-    // 返回时不包含密码
+    // 返回时不包含密码字段，避免泄露
     const { password: _, ...userWithoutPassword } = savedUser;
     res.status(201).json(userWithoutPassword);
   } catch (error) {
@@ -554,7 +576,9 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
   }
 });
 
-// 更新用户
+// 更新租户用户信息：
+// - 支持更新邮箱/姓名/密码/角色/状态
+// - 更新密码时重新进行哈希
 router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
   try {
     const { tenantId, orgId, userId } = req.params;
@@ -600,7 +624,7 @@ router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => 
   }
 });
 
-// 删除用户
+// 删除租户用户
 router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
   try {
     const { tenantId, orgId, userId } = req.params;

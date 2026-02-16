@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { AppDataSource } from '../config/database';
-import { User, UserRole } from '../entities/User';
-import { TenantUser } from '../entities/TenantUser';
-import { RBACRole } from '../entities/RBACRole';
-import { RoleAssignment } from '../entities/RoleAssignment';
+import { AppDataSource } from '../../config/database';
+import { User, UserRole } from '../../entities/User';
+import { TenantUser } from '../../entities/TenantUser';
+import { RBACRole } from '../../entities/RBACRole';
+import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
 
 const router = Router();

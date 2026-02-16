@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { AppDataSource } from '../config/database';
-import { SRv6Tunnel, SRv6Status } from '../entities/vRouter/SRv6Tunnel';
+import { AppDataSource } from '../../config/database';
+import { SRv6Tunnel, SRv6Status } from '../../entities/vRouter/SRv6Tunnel';
 
 export const srv6Routes = Router();
 const repo = () => AppDataSource.getRepository(SRv6Tunnel);
