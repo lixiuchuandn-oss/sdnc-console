@@ -56,7 +56,7 @@ import {
   listKubevirtVMIsRawWithMeta,
 } from '../../../services/clouds/harvester/client';
 import { syncKubevirtVms, syncKubevirtVmis } from '../../../services/clouds/harvester/inventory';
-import { getJsonOnce, watchJsonStream } from '../../../services/clouds/harvester/utils';
+import { getJsonOnce, requestJson, watchJsonStream } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
 /**
@@ -571,6 +571,151 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '查询VM详情失败', error: error.message });
+      }
+    },
+  );
+
+  router.post(
+    '/:id/resources/harvester/vms/:namespace/:name/save-as-template',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+            where.organizationId = (req.user as any).organizationId;
+          }
+          const userSpace = await userSpaceRepo.findOne({ where });
+          if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
+
+          const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map((s) => s.trim()) : [];
+
+          if ((req.user as any).organizationId) {
+            validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          }
+
+          if (!validNamespaces.includes(namespace)) {
+            return res.status(403).json({ message: '无权访问该命名空间资源' });
+          }
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 操作', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const vm = await getHarvesterVM(
+          {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey,
+            insecure,
+          } as any,
+          namespace,
+          name,
+        );
+
+        if (!vm || !vm.spec?.template?.spec) {
+          return res.status(400).json({ message: '当前 VM 不包含完整 template spec，无法保存为模板' });
+        }
+
+        const vmNamespace = vm.metadata?.namespace || namespace;
+        const vmName = vm.metadata?.name || name;
+        const body = req.body || {};
+
+        const targetNamespace =
+          (typeof body.namespace === 'string' && body.namespace.trim()) || vmNamespace;
+
+        const aliasFromBody =
+          typeof body.alias === 'string' && body.alias.trim() ? String(body.alias).trim() : undefined;
+        const descFromBody =
+          typeof body.description === 'string' && body.description.trim()
+            ? String(body.description).trim()
+            : undefined;
+
+        const vmAnnotations = vm.metadata?.annotations || {};
+
+        const alias =
+          aliasFromBody ||
+          vmAnnotations['tower.io/alias'] ||
+          vmAnnotations['harvesterhci.io/displayName'] ||
+          vmName;
+
+        const description =
+          descFromBody ||
+          vmAnnotations['description'] ||
+          vmAnnotations['harvesterhci.io/description'] ||
+          '';
+
+        let volumeClaimTemplates: any[] | undefined = undefined;
+        const vctRaw = vmAnnotations['harvesterhci.io/volumeClaimTemplates'];
+        if (vctRaw) {
+          try {
+            const parsed = JSON.parse(vctRaw);
+            if (Array.isArray(parsed)) {
+              volumeClaimTemplates = parsed;
+            }
+          } catch {
+          }
+        }
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
+          targetNamespace,
+        )}/virtualmachinetemplates`;
+
+        const resourceName = `id-vmtpl-${Math.random().toString(36).substring(2, 18)}`;
+
+        const templatePayload: any = {
+          apiVersion: 'harvesterhci.io/v1beta1',
+          kind: 'VirtualMachineTemplate',
+          metadata: {
+            name: resourceName,
+            namespace: targetNamespace,
+            labels: vm.metadata?.labels || undefined,
+            annotations: {
+              ...vmAnnotations,
+              'tower.io/alias': alias,
+            },
+          },
+          spec: {
+            description: description || undefined,
+            template: {
+              metadata: {
+                labels: vm.spec?.template?.metadata?.labels || undefined,
+                annotations: vm.spec?.template?.metadata?.annotations || undefined,
+              },
+              spec: vm.spec?.template?.spec,
+            },
+          },
+        };
+
+        if (volumeClaimTemplates && volumeClaimTemplates.length > 0) {
+          (templatePayload.spec as any).volumeClaimTemplates = volumeClaimTemplates;
+        }
+
+        const created = await requestJson(
+          'POST',
+          url,
+          cloud.secretKey || '',
+          insecure,
+          templatePayload,
+        );
+
+        res.json({ message: '模板创建成功', data: created });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '保存为模板失败', error: error.message || String(error) });
       }
     },
   );

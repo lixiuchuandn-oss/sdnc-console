@@ -258,8 +258,244 @@ export const handleRootPvcChange = (form: any, availableVolumes: any[], pvcName:
 };
 
 // ==========================================
+/**
+ * 将 Harvester VirtualMachineTemplate 的规格预填充到创建向导表单
+ *
+ * 主要映射内容：
+ * - CPU/内存
+ * - 系统盘容量、名称、设备类型
+ * - 数据盘列表
+ * - 主网卡和辅助网卡
+ */
+export const applyTemplateToWizardForm = (params: {
+  form: any;
+  template: any;
+  images?: any[];
+  availableVolumes?: any[];
+  nadOptions?: any[];
+  kubeSubnets?: any[];
+}) => {
+  const { form, template } = params;
+  if (!template || !template.spec || !template.spec.template) return;
+  const vmSpec = template.spec.template.spec || {};
+  const domain = vmSpec.domain || {};
+  const devices = domain.devices || {};
+  const cpu = domain.cpu || {};
+  const resources = domain.resources || {};
+
+  const next: any = {};
+
+  if (cpu.cores || cpu.sockets || cpu.threads) {
+    const cores = Number(cpu.cores || 0);
+    const sockets = Number(cpu.sockets || 1) || 1;
+    const threads = Number(cpu.threads || 1) || 1;
+    const total = cores || sockets * threads || 0;
+    if (total > 0) {
+      next.cpu = total;
+    }
+  }
+
+  const memRaw = resources.requests?.memory || resources.limits?.memory || domain.memory?.guest;
+  if (memRaw) {
+    const gi = parseSizeToGi(memRaw);
+    if (gi > 0) {
+      next.memory = `${gi}Gi`;
+    }
+  }
+
+  const disks = Array.isArray(devices.disks) ? devices.disks : [];
+  const volumes = Array.isArray(vmSpec.volumes) ? vmSpec.volumes : [];
+
+  const volumeTemplates = Array.isArray(template.spec.volumeClaimTemplates)
+    ? template.spec.volumeClaimTemplates
+    : [];
+
+  const findVolumeByName = (name: string) =>
+    volumes.find((v: any) => String(v?.name || '') === String(name || ''));
+
+  const pvcVolume = (vol: any) => vol?.persistentVolumeClaim?.claimName;
+  const containerDiskVolume = (vol: any) => vol?.containerDisk?.image;
+
+  let rootDisk: any = null;
+  if (disks.length > 0) {
+    rootDisk = disks[0];
+  }
+
+  if (rootDisk) {
+    const dName = rootDisk.name;
+    const vol = findVolumeByName(dName);
+    if (vol) {
+      const pvcName = pvcVolume(vol);
+      const imageName = containerDiskVolume(vol);
+
+      const tpl = pvcName
+        ? volumeTemplates.find(
+            (t: any) => String(t?.metadata?.name || '') === String(pvcName || ''),
+          )
+        : null;
+
+      const tplImageId =
+        tpl?.metadata?.annotations?.['harvesterhci.io/imageId'] ||
+        tpl?.metadata?.annotations?.['harvesterhci.io/imageID'] ||
+        tpl?.metadata?.annotations?.['harvesterhci.io/image'] ||
+        undefined;
+
+      if (tpl && tplImageId) {
+        next.rootSourceType = 'image';
+        next.image = tplImageId;
+        const sizeRaw =
+          tpl?.spec?.resources?.requests?.storage ||
+          tpl?.status?.capacity?.storage;
+        if (sizeRaw) {
+          const gi = parseSizeToGi(sizeRaw);
+          if (gi > 0) {
+            next.rootSize = String(gi);
+          }
+        }
+      } else if (pvcName) {
+        next.rootSourceType = 'existing';
+        next.rootPvc = pvcName;
+        const sizeRaw =
+          tpl?.spec?.resources?.requests?.storage ||
+          tpl?.status?.capacity?.storage;
+        if (sizeRaw) {
+          const gi = parseSizeToGi(sizeRaw);
+          if (gi > 0) {
+            next.rootSize = String(gi);
+          }
+        }
+      } else if (imageName) {
+        next.rootSourceType = 'image';
+        next.image = imageName;
+      }
+    }
+
+    if (rootDisk.disk) {
+      next.rootDeviceType = 'disk';
+    } else if (rootDisk.cdrom) {
+      next.rootDeviceType = 'cdrom';
+    }
+
+    if (rootDisk.disk && rootDisk.disk.bus) {
+      next.rootBus = rootDisk.disk.bus;
+    } else if (rootDisk.cdrom && rootDisk.cdrom.bus) {
+      next.rootBus = rootDisk.cdrom.bus;
+    }
+
+    if (rootDisk.name) {
+      next.rootName = rootDisk.name;
+    }
+  }
+
+  const extraDisks: any[] = [];
+  disks.slice(rootDisk ? 1 : 0).forEach((d: any) => {
+    const dName = d?.name;
+    if (!dName) return;
+    const vol = findVolumeByName(dName);
+    if (!vol) return;
+
+    const pvcName = pvcVolume(vol);
+    if (!pvcName) return;
+
+    const tpl = volumeTemplates.find(
+      (t: any) => String(t?.metadata?.name || '') === String(pvcName || ''),
+    );
+    const sizeRaw = tpl?.spec?.resources?.requests?.storage;
+    const gi = sizeRaw ? parseSizeToGi(sizeRaw) : 0;
+
+    extraDisks.push({
+      name: dName,
+      size: gi ? String(gi) : undefined,
+      pvc: pvcName,
+      sourceType: 'existing',
+      type: d?.cdrom ? 'cdrom' : 'disk',
+      deviceType: d?.cdrom ? 'cdrom' : 'disk',
+      bus: d?.disk?.bus || d?.cdrom?.bus || 'virtio',
+      mode: tpl?.spec?.volumeMode || undefined,
+      storageClassName: tpl?.spec?.storageClassName || undefined,
+    });
+  });
+
+  if (extraDisks.length > 0) {
+    next.extraDisks = extraDisks;
+  }
+
+  const ifaces = Array.isArray(devices.interfaces) ? devices.interfaces : [];
+  const nets = Array.isArray(vmSpec.networks) ? vmSpec.networks : [];
+
+  const findNetByName = (nm: string) =>
+    nets.find((n: any) => String(n?.name || '') === String(nm || ''));
+
+  if (ifaces.length > 0) {
+    const primary = ifaces[0];
+    const nName = primary?.name;
+    const net = findNetByName(nName);
+
+    const p: any = {};
+
+    p.name = (function () {
+      if (!net) return '';
+      if (net.pod) return '';
+      if (net.multus && net.multus.networkName) return net.multus.networkName;
+      return '';
+    })();
+
+    p.type = (function () {
+      const method = primary?.masquerade ? 'masquerade' : primary?.bridge ? 'bridge' : undefined;
+      if (method) return method;
+      if (primary?.sriov) return 'sriov';
+      if (primary?.macvtap) return 'macvtap';
+      return 'bridge';
+    })();
+
+    p.model = primary?.model || 'virtio';
+
+    next.primaryNic = p;
+
+    const mode = (function () {
+      if (!net) return 'flat';
+      if (net.pod) return 'flat';
+      return 'flat';
+    })();
+
+    next.netMode = mode;
+  }
+
+  const extraIfaces: any[] = [];
+  if (ifaces.length > 1) {
+    ifaces.slice(1).forEach((iface: any) => {
+      const nName = iface?.name;
+      const net = findNetByName(nName);
+      if (!net) return;
+      const it: any = {};
+      it.name = (function () {
+        if (net.pod) return '';
+        if (net.multus && net.multus.networkName) return net.multus.networkName;
+        return '';
+      })();
+      it.type = (function () {
+        const method = iface?.masquerade ? 'masquerade' : iface?.bridge ? 'bridge' : undefined;
+        if (method) return method;
+        if (iface?.sriov) return 'sriov';
+        if (iface?.macvtap) return 'macvtap';
+        return 'bridge';
+      })();
+      it.model = iface?.model || 'virtio';
+      it.mode = 'flat';
+      extraIfaces.push(it);
+    });
+  }
+
+  if (extraIfaces.length > 0) {
+    next.netIfaces = extraIfaces;
+  }
+
+  form.setFieldsValue(next);
+};
+
 // 4. 核心构造逻辑 (Core)
 // ==========================================
+
 
 /**
  * 构建 Harvester 虚拟机创建请求的 Payload (Manifest)

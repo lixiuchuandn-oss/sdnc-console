@@ -22,7 +22,7 @@ import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox
 import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration } from '../../../../services/harvesterApi';
+import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, saveHarvesterVmAsTemplate } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
@@ -108,6 +108,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // 迁移弹窗状态
   const [migrateModalVisible, setMigrateModalVisible] = useState(false);
   const [currentMigrateVm, setCurrentMigrateVm] = useState<any>(null);
+
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
 
 
@@ -639,6 +641,25 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     }
   };
 
+  const handleSaveAsTemplate = async (r: any) => {
+    if (!cloudId) return;
+    const ns = SafeRead.namespace(r);
+    const vmName = SafeRead.vmId(r);
+    if (!ns || !vmName) {
+      message.error('无法解析实例命名空间或名称');
+      return;
+    }
+    try {
+      setSavingTemplate(true);
+      await saveHarvesterVmAsTemplate(cloudId, ns, vmName, {});
+      message.success('已根据当前实例配置创建模板');
+    } catch (e: any) {
+      message.error(e?.message || '保存为模板失败');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
   // 处理删除确认 (支持同步删除关联 PVC)
   const handleDeleteConfirm = (r: any) => {
     const iid = getIid(r);
@@ -1058,6 +1079,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // 基础操作 - 始终显示
         { key: 'detail', label: '资源详情', onClick: () => handleShowMetadata(r, 'detail') },
         { key: 'reconf', label: '资源变配', onClick: () => onOpenReconfigure(r) },
+        { key: 'save_as_template', label: '保存为模板', disabled: savingTemplate, onClick: () => handleSaveAsTemplate(r) },
         ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', onClick: () => handleEjectCdrom(r) }] : []),
         
         // 迁移操作
@@ -1083,6 +1105,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // 电源操作 - 停止/重启/暂停等 (仅在非停止状态显示)
         ...(!isStopped ? [
           { key: 'stop', label: '停止', onClick: () => onStop(iid) },
+          { key: 'force_stop', label: '强制停止', danger: true, onClick: () => onStop && onStop(`${iid}::force`) },
           { key: 'reboot', label: '重启', onClick: () => onReboot(iid) },
           { key: 'softreboot', label: '软重启', onClick: () => onSoftReboot && onSoftReboot(iid) },
           { key: 'pause', label: '暂停', onClick: () => onPause && onPause(iid) },
@@ -1096,7 +1119,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
     } },
-  ], [handleShowMetadata, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, handleEjectCdrom, handleMigrate, handleAbortMigration]);
+  ], [handleShowMetadata, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, handleEjectCdrom, handleMigrate, handleAbortMigration, savingTemplate, handleSaveAsTemplate]);
 
   // ==========================================
   // 8. 渲染 (Render)

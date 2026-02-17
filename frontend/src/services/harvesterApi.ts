@@ -950,6 +950,35 @@ export const fetchHarvesterVmDetail = async (cloudId: string, namespace: string,
   return await res.json();
 };
 
+export const saveHarvesterVmAsTemplate = async (
+  cloudId: string,
+  namespace: string,
+  name: string,
+  payload?: { alias?: string; description?: string; namespace?: string },
+) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(
+    `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(
+      namespace,
+    )}/${encodeURIComponent(name)}/save-as-template`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+      body: JSON.stringify(payload || {}),
+      credentials: 'include',
+    },
+  );
+  const text = await res.text();
+  let json: any = text;
+  try {
+    json = JSON.parse(text);
+  } catch {}
+  if (!res.ok) {
+    throw new Error(typeof json === 'string' ? json : json?.message || json?.error || '请求失败');
+  }
+  return json;
+};
+
 export const fetchKubeOvnVpcs = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs${force ? '?force=true' : ''}`, {

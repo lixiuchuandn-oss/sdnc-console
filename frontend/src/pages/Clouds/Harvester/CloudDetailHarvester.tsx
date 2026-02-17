@@ -1120,8 +1120,14 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             }}
                             onStop={async (iid:string)=>{ 
                               try { 
-                                await stopCloudProviderEcs(cloudId, iid, false); 
-                                message.success('停止成功'); 
+                                let force = false;
+                                let realId = iid;
+                                if (iid.endsWith('::force')) {
+                                  force = true;
+                                  realId = iid.replace(/::force$/, '');
+                                }
+                                await stopCloudProviderEcs(cloudId, realId, force); 
+                                message.success(force ? '强制停止指令已下发' : '停止成功'); 
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
                               } catch(e:any){ message.error(e?.message||'停止失败'); } 
                             }}

@@ -451,8 +451,8 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     '/:id/resources/harvester/volumes/:namespace/:name',
     checkAdminPermission,
     async (req: any, res: Response) => {
+      const { id, namespace, name } = req.params as any;
       try {
-        const { id, namespace, name } = req.params as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除')) return;
@@ -474,7 +474,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
         } else if (status === 404 || lower.includes('not found')) {
           msg = '删除失败：未找到该卷（404）。请确认命名空间与卷名是否正确。';
         } else if (status === 409 || lower.includes('conflict') || lower.includes('in use')) {
-          msg = '删除失败：卷正在使用或已挂载（409）。请先卸载后再删除。';
+          msg = `删除虚拟磁盘失败：虚拟磁盘 ${name} 正在被云主机使用，请先在云主机中卸载该磁盘后再删除。`;
         } else if (lower.includes('method delete not supported')) {
           msg = '删除失败：当前接口不支持删除操作。请使用 Longhorn CRD API 路径删除。';
         }

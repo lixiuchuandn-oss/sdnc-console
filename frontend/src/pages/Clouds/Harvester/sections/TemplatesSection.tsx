@@ -17,8 +17,11 @@ import React, { useState, useMemo } from 'react';
 import { Table, Input, Button } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined } from '@ant-design/icons';
+import { useLocation, useNavigate } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
 /**
  * Props 定义
@@ -34,6 +37,20 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
 }
+
+const getTemplateNamespace = (tpl: any): string =>
+  tpl?.metadata?.namespace || tpl?.namespace || '';
+
+const getTemplateName = (tpl: any): string =>
+  tpl?.metadata?.name || tpl?.name || '';
+
+const getTemplateDescription = (tpl: any): string =>
+  tpl?.spec?.description || tpl?.metadata?.annotations?.description || '';
+
+const getTemplateDisplayName = (tpl: any): string =>
+  tpl?.spec?.displayName ||
+  tpl?.metadata?.annotations?.['tower.io/alias'] ||
+  getTemplateName(tpl);
 /**
  * TemplatesSection 组件
  *
@@ -52,6 +69,31 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
    * - 用于在前端过滤模板列表（按名称 / 命名空间模糊匹配）
    */
   const [searchText, setSearchText] = useState('');
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<any>(null);
+  const [detailActiveTab, setDetailActiveTab] = useState('detail');
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleCreateFromTemplate = (tpl: any) => {
+    if (!tpl) return;
+    const ns = getTemplateNamespace(tpl);
+    const name = getTemplateName(tpl);
+    navigate(`/clouds/${cloudId}/instances/create`, {
+      state: {
+        backgroundLocation: location,
+        fromTemplate: { namespace: ns, name, template: tpl },
+      },
+    });
+  };
+
+  const handleOpenDrawer = (tpl: any, tab: string = 'detail') => {
+    if (!tpl) return;
+    const r = { ...tpl, kind: tpl?.kind || 'VirtualMachineTemplate' };
+    setDetailRecord(r);
+    setDetailActiveTab(tab);
+    setDetailVisible(true);
+  };
   
   /**
    * 表格列定义（allColumns）
@@ -67,21 +109,26 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
    * - 创建时间：显示 metadata.creationTimestamp
    * - 操作：目前为占位文案“暂无操作”，后续可扩展
    */
-  const allColumns = useMemo<ColumnsType<any>>(() => [
+  const allColumns = useMemo<ColumnsType<any>>(
+    () => [
     {
       title: '名称',
       key: 'name',
-      render: (_: any, r: any) => <span>{r.metadata?.name}</span>
+      render: (_: any, r: any) => (
+        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+          {getTemplateDisplayName(r)}
+        </span>
+      )
     },
     {
       title: '命名空间',
       key: 'namespace',
-      render: (_: any, r: any) => r.metadata?.namespace || '-'
+      render: (_: any, r: any) => getTemplateNamespace(r) || '-'
     },
     {
       title: '描述',
       key: 'description',
-      render: (_: any, r: any) => r.spec?.description || '-'
+      render: (_: any, r: any) => getTemplateDescription(r) || '-'
     },
     {
       title: '创建时间',
@@ -91,12 +138,44 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
     {
       title: '操作',
       key: 'actions',
-      width: 120,
-      render: () => (
-        <span style={{ color: '#999', cursor: 'not-allowed' }}>暂无操作</span>
-      )
+      width: 200,
+      render: (_: any, r: any) => {
+        const items: any[] = [
+          {
+            key: 'create_vm',
+            label: '基于此模版创建虚拟机',
+            onClick: () => handleCreateFromTemplate(r),
+          },
+          {
+            key: 'edit_template',
+            label: '修改模版',
+            disabled: true,
+          },
+          {
+            key: 'set_default',
+            label: '设置默认版本',
+            disabled: true,
+          },
+          {
+            type: 'divider' as const,
+          },
+          {
+            key: 'detail',
+            label: '资源详情',
+            onClick: () => handleOpenDrawer(r, 'detail'),
+          },
+        ];
+        return (
+          <ResourceActionsDropdown
+            items={items}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
+      },
     }
-  ], []);
+  ],
+    [],
+  );
 
   /**
    * 当前表格实际使用的列配置
@@ -126,48 +205,58 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
   }, [templates, searchText]);
 
   return (
-    <PageDetailSection
-      toolbarLeft={(
-        <Input
-          placeholder="搜索名称或命名空间"
-          value={searchText}
-          onChange={e => setSearchText(e.target.value)}
-          className="toolbar-search"
-          allowClear
-        />
-      )}
-      toolbarGapLeft={12}
-      keywordWidth={200}
-      toolbarRight={(
-        <>
-          <TableColumnSettings
-            columns={allColumns}
-            onChange={setTableColumns}
-            settingsKey="harvester_templates_table"
+      <PageDetailSection
+        toolbarLeft={(
+          <Input
+            placeholder="搜索名称或命名空间"
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            className="toolbar-search"
+            allowClear
           />
-          {onRefresh && (
-            <Button 
-              icon={<ReloadOutlined />} 
-              onClick={() => onRefresh?.(true)} 
-              loading={loading}
+        )}
+        toolbarGapLeft={12}
+        keywordWidth={200}
+        toolbarRight={(
+          <>
+            <TableColumnSettings
+              columns={allColumns}
+              onChange={setTableColumns}
+              settingsKey="harvester_templates_table"
             />
-          )}
-        </>
-      )}
-    >
-      <Table
-        className="std-table"
-        bordered
-        rowKey={(r) => r.metadata?.uid || r.metadata?.name}
-        columns={tableColumns}
-        dataSource={filteredData}
-        loading={loading}
-        pagination={{
-          size: 'small',
-          showQuickJumper: false,
-        }}
-      />
-    </PageDetailSection>
+            {onRefresh && (
+              <Button 
+                icon={<ReloadOutlined />} 
+                onClick={() => onRefresh?.(true)} 
+                loading={loading}
+              />
+            )}
+          </>
+        )}
+      >
+        <Table
+          className="std-table"
+          bordered
+          rowKey={(r) => r.metadata?.uid || r.metadata?.name}
+          columns={tableColumns}
+          dataSource={filteredData}
+          loading={loading}
+          pagination={{
+            size: 'small',
+            showQuickJumper: false,
+          }}
+        />
+
+        <HarvesterResourceDrawer
+          open={detailVisible}
+          onClose={() => setDetailVisible(false)}
+          resourceType="VirtualMachineTemplate"
+          record={detailRecord}
+          cloudId={cloudId}
+          activeTab={detailActiveTab}
+          onTabChange={setDetailActiveTab}
+        />
+      </PageDetailSection>
   );
 };
 

@@ -17,7 +17,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Form, Row, Col, Modal, Spin, message, Space } from 'antd';
 import { CheckOutlined, ProfileOutlined, DesktopOutlined, HddOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons';
 import './VmCreateWizard/InstanceWizard.css';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import StepBasic from './VmCreateWizard/StepBasic';
 import StepCompute from './VmCreateWizard/StepCompute';
 import StepDisks from './VmCreateWizard/StepDisks';
@@ -25,11 +25,12 @@ import StepNetworks from './VmCreateWizard/StepNetworks';
 import StepOthers from './VmCreateWizard/StepOthers';
 import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
-import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange, generateUniqueVmId } from './VmCreateWizard/VmWizardUtils';
+import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm } from './VmCreateWizard/VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 
 const VmCreateWizardModal: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
   const cloudId = id as string;
   const [form] = Form.useForm();
@@ -66,6 +67,32 @@ const VmCreateWizardModal: React.FC = () => {
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
     sshKeyOptions, reloadSshKeys
   } = useHarvesterData(cloudId, currentCloudId, form);
+
+  const fromTemplateState = (location.state as any)?.fromTemplate;
+
+  useEffect(() => {
+    if (fromTemplateState && fromTemplateState.namespace && fromTemplateState.name) {
+      try {
+        form.setFieldsValue({
+          namespace: fromTemplateState.namespace,
+        });
+      } catch {}
+    }
+  }, [fromTemplateState, form]);
+
+  useEffect(() => {
+    if (!fromTemplateState || !fromTemplateState.template) return;
+    try {
+      applyTemplateToWizardForm({
+        form,
+        template: fromTemplateState.template,
+        images,
+        availableVolumes,
+        nadOptions,
+        kubeSubnets,
+      });
+    } catch {}
+  }, [fromTemplateState, form, images, availableVolumes, nadOptions, kubeSubnets]);
 
   // 首次挂载时加载云列表，用于“跨资源池创建 VM”场景
   useEffect(() => {
