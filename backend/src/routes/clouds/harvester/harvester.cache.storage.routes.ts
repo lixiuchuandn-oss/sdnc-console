@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
+import { In } from 'typeorm';
 import { UserSpace } from '../../../entities/UserSpace';
 import { KubevirtVolumeInventory } from '../../../entities/kubevirt/KubevirtVolumeInventory';
 import { KubevirtStorageClassInventory } from '../../../entities/kubevirt/KubevirtStorageClassInventory';
@@ -68,9 +69,28 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
           });
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+
+          // Auto-Fix: Ensure organization namespace is included in UserSpace
+          let allowedNamespaces: string[] = [];
           if (us.namespace) {
-            whereCondition.namespace = us.namespace;
+            allowedNamespaces = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
           }
+          if ((req.user as any).organizationId) {
+             const orgNs = `ns-${(req.user as any).organizationId}`;
+             if (!allowedNamespaces.includes(orgNs)) {
+                allowedNamespaces.push(orgNs);
+                us.namespace = allowedNamespaces.join(',');
+                try {
+                   await userSpaceRepo.save(us);
+                } catch (e) {
+                   console.warn('Failed to auto-update UserSpace namespace', e);
+                }
+             }
+          }
+          if (allowedNamespaces.length === 0) {
+             return res.json({ message: '查询成功', data: { items: [] } });
+          }
+          whereCondition.namespace = In(allowedNamespaces);
         }
 
         const count = await repo.count({ where: whereCondition });
@@ -736,9 +756,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
 
           const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map((s) => s.trim()) : [];
-          if ((req.user as any).organizationId) {
-            validNamespaces.push(`ns-${(req.user as any).organizationId}`);
-          }
+          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
+          // if ((req.user as any).organizationId) {
+          //   validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          // }
 
           if (!validNamespaces.includes(namespace)) {
             return res.status(403).json({ message: '无权访问该命名空间资源' });
@@ -801,16 +822,61 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
 
           if (us.namespace) {
+            const allowed = us.namespace.split(',').map(s => s.trim()).filter(Boolean);
+            
+            // Auto-Fix: Ensure organization namespace is included in UserSpace
+            if ((req.user as any).organizationId) {
+               const orgNs = `ns-${(req.user as any).organizationId}`;
+               if (!allowed.includes(orgNs)) {
+                  allowed.push(orgNs);
+                  // Update UserSpace record immediately
+                  us.namespace = allowed.join(',');
+                  try {
+                     await userSpaceRepo.save(us);
+                  } catch (e) {
+                     console.warn('Failed to auto-update UserSpace namespace', e);
+                  }
+               }
+            }
+
             whereCondition = [
-              { cloudId: id, namespace: us.namespace },
+              ...allowed.map(ns => ({ cloudId: id, namespace: ns })),
               { cloudId: id, namespace: 'cloud-public' },
               { cloudId: id, namespace: 'Cloud-Public' },
+              { cloudId: id, namespace: 'harvester-public' }, // Support harvester-public
+              { cloudId: id, namespace: 'default' }, // Allow access to default namespace images
             ];
           } else {
-            whereCondition = [
-              { cloudId: id, namespace: 'cloud-public' },
-              { cloudId: id, namespace: 'Cloud-Public' },
-            ];
+             // Even if namespace is empty, check for orgNs auto-fix
+             if ((req.user as any).organizationId) {
+                const orgNs = `ns-${(req.user as any).organizationId}`;
+                us.namespace = orgNs;
+                try {
+                   await userSpaceRepo.save(us);
+                   whereCondition = [
+                      { cloudId: id, namespace: orgNs },
+                      { cloudId: id, namespace: 'cloud-public' },
+                      { cloudId: id, namespace: 'Cloud-Public' },
+                      { cloudId: id, namespace: 'harvester-public' },
+                      { cloudId: id, namespace: 'default' },
+                   ];
+                } catch (e) {
+                   console.warn('Failed to auto-update UserSpace namespace', e);
+                   whereCondition = [
+                    { cloudId: id, namespace: 'cloud-public' },
+                    { cloudId: id, namespace: 'Cloud-Public' },
+                    { cloudId: id, namespace: 'harvester-public' },
+                    { cloudId: id, namespace: 'default' },
+                  ];
+                }
+             } else {
+                whereCondition = [
+                  { cloudId: id, namespace: 'cloud-public' },
+                  { cloudId: id, namespace: 'Cloud-Public' },
+                  { cloudId: id, namespace: 'harvester-public' },
+                  { cloudId: id, namespace: 'default' },
+                ];
+             }
           }
         }
 
@@ -1064,13 +1130,24 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             us.namespace.split(',').forEach((ns) => allowedNamespaces.push(ns.trim()));
           }
 
+          // Auto-Fix: Ensure organization namespace is included in UserSpace
           if ((req.user as any).organizationId) {
-            allowedNamespaces.push(`ns-${(req.user as any).organizationId}`);
+             const orgNs = `ns-${(req.user as any).organizationId}`;
+             if (!allowedNamespaces.includes(orgNs)) {
+                allowedNamespaces.push(orgNs);
+                us.namespace = allowedNamespaces.join(',');
+                try {
+                   await userSpaceRepo.save(us);
+                } catch (e) {
+                   console.warn('Failed to auto-update UserSpace namespace', e);
+                }
+             }
           }
 
-          if (allowedNamespaces.length > 0) {
-            whereCondition = [...allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns }))];
+          if (allowedNamespaces.length === 0) {
+             return res.json({ message: '查询成功', data: { items: [] } });
           }
+          whereCondition = allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns }));
         }
 
         const count = await repo.count({ where: whereCondition });
@@ -1167,13 +1244,24 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             us.namespace.split(',').forEach((ns) => allowedNamespaces.push(ns.trim()));
           }
 
+          // Auto-Fix: Ensure organization namespace is included in UserSpace
           if ((req.user as any).organizationId) {
-            allowedNamespaces.push(`ns-${(req.user as any).organizationId}`);
+             const orgNs = `ns-${(req.user as any).organizationId}`;
+             if (!allowedNamespaces.includes(orgNs)) {
+                allowedNamespaces.push(orgNs);
+                us.namespace = allowedNamespaces.join(',');
+                try {
+                   await userSpaceRepo.save(us);
+                } catch (e) {
+                   console.warn('Failed to auto-update UserSpace namespace', e);
+                }
+             }
           }
 
-          if (allowedNamespaces.length > 0) {
-            whereCondition = [...allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns }))];
+          if (allowedNamespaces.length === 0) {
+             return res.json({ message: '查询成功', data: { items: [] } });
           }
+          whereCondition = allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns }));
         }
 
         const count = await repo.count({ where: whereCondition });
@@ -1226,9 +1314,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             us.namespace.split(',').forEach((ns) => allowedNamespaces.push(ns.trim()));
           }
 
-          if ((req.user as any).organizationId) {
-            allowedNamespaces.push(`ns-${(req.user as any).organizationId}`);
-          }
+          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
+          // if ((req.user as any).organizationId) {
+          //   allowedNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          // }
 
           if (allowedNamespaces.length > 0) {
             whereCondition = [...allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns }))];

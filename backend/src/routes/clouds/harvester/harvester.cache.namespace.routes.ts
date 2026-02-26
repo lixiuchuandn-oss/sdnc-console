@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
+import { In } from 'typeorm';
 import { HarvesterNamespaceInventory } from '../../../entities/harvester/HarvesterNamespaceInventory';
 import { HarvesterNamespace } from '../../../entities/harvester/HarvesterNamespace';
 import { UserSpace } from '../../../entities/UserSpace';
@@ -43,7 +44,32 @@ export const registerHarvesterNamespaceRoutes = (
           const us = await userSpaceRepo.findOne({ where });
           if (!us)
             return res.json({ message: '查询成功', data: { items: [] } });
-          if (us.namespace) whereCondition.namespace = us.namespace;
+
+          // Auto-Fix: Ensure organization namespace is included in UserSpace
+          let allowedNamespaces: string[] = [];
+          if (us.namespace) {
+            allowedNamespaces = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
+          }
+          
+          if ((req.user as any).organizationId) {
+            const orgNs = `ns-${(req.user as any).organizationId}`;
+            if (!allowedNamespaces.includes(orgNs)) {
+              allowedNamespaces.push(orgNs);
+              // Update UserSpace record immediately
+              us.namespace = allowedNamespaces.join(',');
+              try {
+                 await userSpaceRepo.save(us);
+              } catch (e) {
+                 console.warn('Failed to auto-update UserSpace namespace', e);
+              }
+            }
+          }
+
+          if (allowedNamespaces.length === 0) {
+             return res.json({ message: '查询成功', data: { items: [] } });
+          }
+
+          whereCondition.name = In(allowedNamespaces);
         }
 
         const count = await repo.count({ where: whereCondition });

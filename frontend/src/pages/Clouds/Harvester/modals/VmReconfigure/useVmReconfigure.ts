@@ -5,7 +5,7 @@ import {
   updateHarvesterVmSpec, createHarvesterVolume, attachHarvesterVolumeToVmByName, 
   fetchHarvesterGpuResources, patchHarvesterVm, fetchHarvesterNads,
   fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterImages, fetchHarvesterStorageClasses,
-  fetchHarvesterVolume, fetchHarvesterVmDetail
+  fetchHarvesterVolume, fetchHarvesterVmDetail, updateHarvesterVolume
 } from '../../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../../services/api';
 
@@ -57,8 +57,8 @@ export const useVmReconfigure = (props: any) => {
     if (open && cloudId && record?.metadata?.name && record?.metadata?.namespace) {
        // Fetch fresh VM details to ensure disk/nic info is up-to-date
        fetchHarvesterVmDetail(cloudId, record.metadata.namespace, record.metadata.name)
-         .then((vm: any) => {
-            setLatestVm(vm);
+         .then((res: any) => {
+            setLatestVm(res?.data || res);
          })
          .catch((err: any) => {
             console.error('Failed to fetch latest VM details:', err);
@@ -76,10 +76,20 @@ export const useVmReconfigure = (props: any) => {
     
     // 1. Identify System Disk (Boot Disk)
     let sysDiskPvc = '';
-    let bootDisk = disks.find((d: any) => d.bootOrder === 1);
+    // Priority 1: Boot Order 1 AND Not CDROM
+    let bootDisk = disks.find((d: any) => d.bootOrder === 1 && !d.cdrom);
     
-    if (!bootDisk) bootDisk = disks.find((d: any) => d.name === 'disk-0');
+    // Priority 2: Named 'disk-0' AND Not CDROM
+    if (!bootDisk) bootDisk = disks.find((d: any) => d.name === 'disk-0' && !d.cdrom);
+
+    // Priority 3: Named 'rootdisk' AND Not CDROM (Common in some templates)
+    if (!bootDisk) bootDisk = disks.find((d: any) => d.name === 'rootdisk' && !d.cdrom);
+
+    // Priority 4: First non-CDROM disk
     if (!bootDisk && disks.length > 0) bootDisk = disks.find((d: any) => !d.cdrom);
+    
+    // Debug log for troubleshooting
+    console.debug('VM Reconfigure - Disk Detection:', { bootDisk, disks, volumes });
     
     if (bootDisk) {
        const volume = volumes.find((v: any) => v.name === bootDisk.name);
@@ -88,7 +98,7 @@ export const useVmReconfigure = (props: any) => {
        }
     }
     // Fallback to backend enriched field if not found in spec
-    if (!sysDiskPvc) sysDiskPvc = record?.Extra?.VolumeClaims?.[0] || '';
+    if (!sysDiskPvc) sysDiskPvc = record?.volumeClaims?.[0] || '';
 
     return { systemDisk: sysDiskPvc };
   }, [record, activeRecord]);
@@ -135,14 +145,22 @@ export const useVmReconfigure = (props: any) => {
     let cpu = record?.Extra?.CPU;
     let mem = record?.Extra?.Memory;
     
+    // Retrieve maxSockets and maxMemory from the active record (latest state)
+    const domain = activeRecord?.spec?.template?.spec?.domain;
+    const maxSockets = domain?.cpu?.maxSockets;
+    const maxMemory = domain?.memory?.maxGuest;
+
     if (cpu === undefined || cpu === null) {
-       cpu = record?.spec?.template?.spec?.domain?.cpu?.cores;
+       const sockets = domain?.cpu?.sockets || 1;
+       const cores = domain?.cpu?.cores || 1;
+       const threads = domain?.cpu?.threads || 1;
+       cpu = sockets * cores * threads;
     }
     if (mem === undefined || mem === null) {
-       mem = record?.spec?.template?.spec?.domain?.memory?.guest;
-       if (!mem) mem = record?.spec?.template?.spec?.domain?.resources?.requests?.memory;
+       mem = activeRecord?.spec?.template?.spec?.domain?.memory?.guest;
+       if (!mem) mem = activeRecord?.spec?.template?.spec?.domain?.resources?.requests?.memory;
     }
-    return { cpu: Number(cpu || 0), memory: mem };
+    return { cpu: Number(cpu || 0), memory: mem, maxSockets, maxMemory };
   };
 
   // Helper functions
@@ -182,13 +200,13 @@ export const useVmReconfigure = (props: any) => {
   };
 
   const isHotPlugEnabledOnVm = () => {
-    const cpuSpec = record?.spec?.template?.spec?.domain?.cpu;
+    const cpuSpec = activeRecord?.spec?.template?.spec?.domain?.cpu;
     const isConfigured = !!(cpuSpec?.maxSockets && cpuSpec?.maxSockets > (cpuSpec?.sockets || 1));
 
     // If RestartRequired condition is present and True, it means the current configuration (including hotplug)
     // might not be fully applied or the VM is in a state requiring restart.
     // In this case, we cannot perform a hot plug operation.
-    const conditions = record?.status?.conditions || [];
+    const conditions = activeRecord?.status?.conditions || [];
     const isRestartRequired = conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
 
     if (isRestartRequired) return false;
@@ -278,7 +296,10 @@ export const useVmReconfigure = (props: any) => {
         form.setFieldsValue({
           cpu,
           memory: memGi,
-          enableHotPlug: !!isHotPlug
+          enableHotPlug: !!isHotPlug,
+          cpuSockets: cpuSpec?.sockets || cpu,
+          cpuCores: cpuSpec?.cores || 1,
+          cpuThreads: cpuSpec?.threads || 1
         });
         break;
       }
@@ -286,6 +307,9 @@ export const useVmReconfigure = (props: any) => {
         const domain = record?.spec?.template?.spec?.domain;
         const cpuSpec = domain?.cpu;
         const resources = domain?.resources;
+
+        // Check if Hot Plug is enabled on the VM
+        const isHotPlug = cpuSpec?.maxSockets && cpuSpec?.maxSockets > (cpuSpec?.sockets || 1);
 
         const parseCpu = (v: any) => {
           if (!v) return null;
@@ -306,7 +330,8 @@ export const useVmReconfigure = (props: any) => {
           isolateEmulatorThread: !!cpuSpec?.isolateEmulatorThread,
           cpuRequest: parseCpu(resources?.requests?.cpu),
           cpuLimit: limit,
-          cpuBurstUnlimited: limit === null || limit === undefined
+          cpuBurstUnlimited: limit === null || limit === undefined,
+          enableHotPlug: !!isHotPlug
         });
         break;
       }
@@ -474,9 +499,63 @@ export const useVmReconfigure = (props: any) => {
       const namespace = record?.metadata?.namespace;
 
       switch (selectedKey) {
+        case 'expand_system_disk': {
+          const newSize = values.systemDiskSize;
+          if (systemDisk && newSize) {
+             // 1. Update PVC
+             await updateHarvesterVolume(cloudId, namespace, systemDisk, { sizeGi: newSize });
+             
+             // 2. Update VM Annotation if exists (for consistency)
+             // Use activeRecord to ensure we have the latest annotations
+             const currentAnnotations = (latestVm || record)?.metadata?.annotations || {};
+             const templateStr = currentAnnotations['harvesterhci.io/volumeClaimTemplates'];
+             
+             if (templateStr) {
+                 try {
+                     const templates = JSON.parse(templateStr);
+                     let hasChange = false;
+                     const updatedTemplates = templates.map((t: any) => {
+                         if (t.metadata.name === systemDisk) {
+                             hasChange = true;
+                             return {
+                                 ...t,
+                                 spec: {
+                                     ...t.spec,
+                                     resources: {
+                                         ...t.spec.resources,
+                                         requests: {
+                                             ...t.spec.resources.requests,
+                                             storage: `${newSize}Gi`
+                                         }
+                                     }
+                                 }
+                             };
+                         }
+                         return t;
+                     });
+                     
+                     if (hasChange) {
+                        await patchHarvesterVm(cloudId, namespace, vmName, {
+                            annotations: {
+                                'harvesterhci.io/volumeClaimTemplates': JSON.stringify(updatedTemplates)
+                            }
+                        });
+                     }
+                 } catch (e) {
+                     console.warn('Failed to update volumeClaimTemplates annotation', e);
+                 }
+             }
+             
+             message.success('系统盘扩容请求已提交。请注意：您仍需在操作系统内部扩展文件系统。');
+          }
+          break;
+        }
         case 'change_spec': {
           await updateHarvesterVmSpec(cloudId, namespace, vmName, { 
-            cpu: values.cpu, 
+            cpu: values.cpu,
+            cpuSockets: values.cpuSockets,
+            cpuCores: values.cpuCores,
+            cpuThreads: values.cpuThreads,
             memory: `${values.memory}Gi`,
             enableHotPlug: values.enableHotPlug
           });
@@ -761,10 +840,24 @@ export const useVmReconfigure = (props: any) => {
       console.error(e);
       // 如果不是表单校验错误，则提示后端/逻辑异常
       if (!e?.errorFields) {
-        message.error(e?.message || '操作失败');
+        let errorMsg = e?.message || '操作失败';
+        
+        if (typeof errorMsg === 'string') {
+          // KubeVirt/Harvester Webhook Error Translation
+          if (errorMsg.includes('Guest memory is greater than the configured maxGuest memory')) {
+            errorMsg = '调整后的内存超过了配置的最大限制（热扩容上限），请求被拒绝。';
+          }
+        }
+
+        message.error(errorMsg);
       }
     }
   };
+
+  const isRestartRequired = useMemo(() => {
+    const conditions = activeRecord?.status?.conditions || [];
+    return conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
+  }, [activeRecord]);
 
   return {
     form,
@@ -779,6 +872,7 @@ export const useVmReconfigure = (props: any) => {
     systemDiskLoading,
     getCurrentSpec,
     getMemoryInGi,
-    isHotPlugEnabledOnVm
+    isHotPlugEnabledOnVm,
+    isRestartRequired
   };
 };

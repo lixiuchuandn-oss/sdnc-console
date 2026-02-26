@@ -434,7 +434,10 @@ const CloudConsolePage: React.FC = () => {
         headers: getAuthHeaders()
       });
       const json = await res.json();
-      if (json?.data?.items) {
+      
+      const items = json?.data?.items || json?.items || [];
+      
+      if (items.length > 0) {
         // 过滤掉系统命名空间，只显示用户关心的卷
         const systemNamespaces = [
           'kube-system', 'harvester-system', 'longhorn-system', 
@@ -442,7 +445,7 @@ const CloudConsolePage: React.FC = () => {
           'cattle-monitoring-system',
           'kube-node-lease', 'kube-public'
         ];
-        const filtered = json.data.items.filter((item: any) => {
+        const filtered = items.filter((item: any) => {
           const ns = item?.metadata?.namespace || item?.namespace;
           if (!ns) return true;
           if (systemNamespaces.includes(ns)) return false;
@@ -483,8 +486,9 @@ const CloudConsolePage: React.FC = () => {
         headers: getAuthHeaders()
       });
       const json = await res.json();
-      if (json?.data?.items) {
-          setImages(json.data.items);
+      const items = json?.data?.items || json?.items || [];
+      if (items.length > 0) {
+          setImages(items);
       } else {
           setImages([]);
       }
@@ -1048,7 +1052,10 @@ const CloudConsolePage: React.FC = () => {
                     onNsChange={setNsValue}
                     onNodeChange={setNodeValue}
                     
-                    onRefreshVms={() => loadEcs(currentCloudId, true)}
+                    onRefreshVms={() => {
+                      loadEcs(currentCloudId, true);
+                      loadPvcs(currentCloudId);
+                    }}
                     onRefreshTemplates={() => loadTemplates(currentCloudId)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                     onRefreshVolumes={() => loadPvcs(currentCloudId)}

@@ -95,18 +95,55 @@ export function fetchNodeMetrics(cloudId: string, options?: { signal?: AbortSign
   return apiGet(`${base(cloudId)}/node-metrics`, options);
 }
 
+export function fetchMetricRange(
+  cloudId: string,
+  params: { query: string; start: number; end: number; step: number },
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = new URLSearchParams();
+  q.set('query', params.query);
+  q.set('start', params.start.toString());
+  q.set('end', params.end.toString());
+  q.set('step', params.step.toString());
+  return apiGet<{ data: { result: any[] } }>(`${base(cloudId)}/metrics/range?${q.toString()}`, options);
+}
+
+export interface PrometheusRuleItem {
+  datasource: string;
+  groupName: string;
+  groupAliasName: string;
+  namespace?: string;
+  name: string;
+  aliasName: string;
+  expression: string;
+  interval: string;
+  severity: string;
+}
+
+export function fetchPrometheusRules(cloudId: string, options?: { signal?: AbortSignal; alertNames?: string[] }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet<{ rules: PrometheusRuleItem[] }>(`${base(cloudId)}/prometheusrules?datasource=prometheus`, options);
+}
+
+export function fetchPrometheusRulesGroups(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet<{ rulesGroupMap: Record<string, string> }>(`${base(cloudId)}/prometheusrules-groups?datasource=prometheus`, options);
+}
+
 export function fetchAlertsRules(
   cloudId: string,
   options?: { signal?: AbortSignal; namespace?: string; page?: number; pageSize?: number }
 ) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  const params = new URLSearchParams();
-  if (options?.namespace) params.set('namespace', options.namespace);
-  if (options?.page != null) params.set('page', String(options.page));
-  if (options?.pageSize != null) params.set('pageSize', String(options.pageSize));
-  const q = params.toString();
-  return apiGet(`${base(cloudId)}/alerts-rules${q ? `?${q}` : ''}`, options);
+  const query = new URLSearchParams();
+  if (options?.namespace) query.set('namespace', options.namespace);
+  if (options?.page) query.set('page', String(options.page));
+  if (options?.pageSize) query.set('pageSize', String(options.pageSize));
+  return apiGet<{ data: any[]; total: number } | any[]>(`${base(cloudId)}/alerts-rules?${query.toString()}`, options);
 }
+
+
 
 export function fetchVirtualMachineInstances(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
@@ -161,37 +198,189 @@ export function deleteAlertmanagerconfig(cloudId: string, namespace: string, nam
 
 export function fetchPrometheusRuleVmCustomRules(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/prometheusrules/vm-custom-rules`, options);
+  return apiGet(`${base(cloudId)}/prometheus-rules/vm-custom-rules`, options);
 }
 
-export interface PrometheusRuleItem {
-  id?: string;
-  name?: string;
-  group?: string;
-  severity?: string;
-  state?: string;
-  message?: string;
-  duration?: string;
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
-  activeAt?: string;
-  value?: string;
-  // New fields from backend normalization
-  datasource?: string;
-  groupName?: string;
-  groupAliasName?: string;
-  aliasName?: string;
-  expression?: string;
-  interval?: string;
-  namespace?: string;
+export function fetchPrometheusRuleDetail(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiGet(`${base(cloudId)}/prometheus-rules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, options);
 }
 
-export function fetchPrometheusRules(cloudId: string, options?: { signal?: AbortSignal }) {
+export function createPrometheusRule(cloudId: string, body: unknown) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet<{ rules: PrometheusRuleItem[] }>(`${base(cloudId)}/prometheusrules?datasource=prometheus`, options);
+  return apiPostPut(`${base(cloudId)}/prometheus-rules`, 'POST', body);
 }
 
-export function fetchPrometheusRulesGroups(cloudId: string, options?: { signal?: AbortSignal }) {
+export function updatePrometheusRule(cloudId: string, namespace: string, name: string, body: unknown) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiPostPut(
+    `${base(cloudId)}/prometheus-rules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    'PUT',
+    body
+  );
+}
+
+export function deletePrometheusRule(cloudId: string, namespace: string, name: string) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiDelete(`${base(cloudId)}/prometheus-rules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+}
+
+// --- 告警通知策略（Secret + AlertmanagerConfig receiver/route） ---
+
+export function fetchAlertNotifications(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet<{ rulesGroupMap: Record<string, string> }>(`${base(cloudId)}/prometheusrules-groups?datasource=prometheus`, options);
+  return apiGet(`${base(cloudId)}/notifications`, options);
+}
+
+export function saveAlertNotifications(cloudId: string, body: unknown) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiPostPut(`${base(cloudId)}/notifications`, 'POST', body);
+}
+
+// --- 日志 API ---
+
+export function fetchClusterFlows(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet(`${base(cloudId)}/logging/clusterflows`, options);
+}
+
+// --- 告警通知对象 & Secret ---
+
+export interface OpaqueSecretItem {
+  name: string;
+  data: Record<string, string>;
+}
+
+export function fetchSecrets(cloudId: string, options?: { namespace?: string; signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = new URLSearchParams();
+  if (options?.namespace) q.set('namespace', options.namespace);
+  return apiGet<OpaqueSecretItem[]>(`${base(cloudId)}/secrets?${q.toString()}`, options);
+}
+
+export interface NotificationTargetReceiver {
+  namespace: string;
+  receiverName: string;
+  specReceivers: any[]; // 对应 AlertmanagerConfig spec.receivers
+}
+
+export function fetchNotificationTargetsList(
+  cloudId: string,
+  params?: { namespaces?: string[]; receiverName?: string[] },
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = new URLSearchParams();
+  if (params?.namespaces) {
+    params.namespaces.forEach((n) => q.append('namespaces', n));
+  }
+  if (params?.receiverName) {
+    params.receiverName.forEach((n) => q.append('receiverName', n));
+  }
+  return apiGet<{ receivers: NotificationTargetReceiver[] }>(`${base(cloudId)}/alertmanagerconfigs/receivers?${q.toString()}`, options);
+}
+
+export function deleteAlertmanagerconfigReceiver(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  specReceiverName: string
+) {
+  if (!cloudId || !namespace || !name || !specReceiverName) return Promise.resolve({ ok: false, error: '缺少必要参数' });
+  const q = new URLSearchParams({ specReceiverName });
+  return apiDelete(`${base(cloudId)}/alertmanagerconfigs/receivers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?${q.toString()}`);
+}
+
+export function postAlertmanagerconfigReceivers(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  body: unknown
+) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiPostPut(
+    `${base(cloudId)}/alertmanagerconfigs/receivers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    'POST',
+    body
+  );
+}
+
+export function fetchFlows(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet(`${base(cloudId)}/logging/flows`, options);
+}
+
+export function fetchClusterOutputs(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet(`${base(cloudId)}/logging/clusteroutputs`, options);
+}
+
+export function fetchOutputs(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet(`${base(cloudId)}/logging/outputs`, options);
+}
+
+export function createClusterFlow(cloudId: string, body: unknown) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiPostPut(`${base(cloudId)}/logging/clusterflows`, 'POST', body);
+}
+
+export function updateClusterFlow(cloudId: string, name: string, body: unknown) {
+  if (!cloudId || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/name' });
+  return apiPostPut(`${base(cloudId)}/logging/clusterflows/${encodeURIComponent(name)}`, 'PUT', body);
+}
+
+export function deleteClusterFlow(cloudId: string, name: string) {
+  if (!cloudId || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/name' });
+  return apiDelete(`${base(cloudId)}/logging/clusterflows/${encodeURIComponent(name)}`);
+}
+
+export function createFlow(cloudId: string, body: unknown) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiPostPut(`${base(cloudId)}/logging/flows`, 'POST', body);
+}
+
+export function updateFlow(cloudId: string, namespace: string, name: string, body: unknown) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiPostPut(`${base(cloudId)}/logging/flows/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, 'PUT', body);
+}
+
+export function deleteFlow(cloudId: string, namespace: string, name: string) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiDelete(`${base(cloudId)}/logging/flows/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+}
+
+export function createClusterOutput(cloudId: string, body: unknown) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiPostPut(`${base(cloudId)}/logging/clusteroutputs`, 'POST', body);
+}
+
+export function updateClusterOutput(cloudId: string, name: string, body: unknown) {
+  if (!cloudId || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/name' });
+  return apiPostPut(`${base(cloudId)}/logging/clusteroutputs/${encodeURIComponent(name)}`, 'PUT', body);
+}
+
+export function deleteClusterOutput(cloudId: string, name: string) {
+  if (!cloudId || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/name' });
+  return apiDelete(`${base(cloudId)}/logging/clusteroutputs/${encodeURIComponent(name)}`);
+}
+
+export function createOutput(cloudId: string, body: unknown) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiPostPut(`${base(cloudId)}/logging/outputs`, 'POST', body);
+}
+
+export function updateOutput(cloudId: string, namespace: string, name: string, body: unknown) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiPostPut(`${base(cloudId)}/logging/outputs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, 'PUT', body);
+}
+
+export function deleteOutput(cloudId: string, namespace: string, name: string) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiDelete(`${base(cloudId)}/logging/outputs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 }

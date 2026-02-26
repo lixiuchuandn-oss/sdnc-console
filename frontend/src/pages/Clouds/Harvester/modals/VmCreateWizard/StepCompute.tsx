@@ -49,6 +49,20 @@ const StepCompute: React.FC<StepComputeProps> = ({
   }, []);
   const [gpuKeyword, setGpuKeyword] = React.useState<string>('');
   const [gpuLoading, setGpuLoading] = React.useState<boolean>(false);
+
+  const cpu = Form.useWatch('cpu', form);
+  const hotExpandEnabled = Form.useWatch('hotExpandEnabled', form);
+
+  React.useEffect(() => {
+    if (hotExpandEnabled && cpu) {
+      form.setFieldsValue({
+        cpuSockets: cpu,
+        cpuCores: 1,
+        cpuThreads: 1
+      });
+    }
+  }, [cpu, hotExpandEnabled, form]);
+
   return (
     <>
       <Typography.Paragraph type="secondary">设定新建云主机的CPU和内存资源</Typography.Paragraph>
@@ -64,7 +78,10 @@ const StepCompute: React.FC<StepComputeProps> = ({
               if (v !== 'custom') {
                 const n = Number(v);
                 setCpuValue(n);
-                form.setFieldsValue({ cpu: n, cpuRequest: n, cpuLimit: n });
+                form.setFieldsValue({ cpu: n });
+                if (form.getFieldValue('hotExpandEnabled')) {
+                   form.setFieldsValue({ cpuSockets: n });
+                }
               }
               try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
             }}
@@ -83,7 +100,10 @@ const StepCompute: React.FC<StepComputeProps> = ({
             onChange={(val) => {
               const n = Number(val || 1);
               setCpuValue(n);
-              form.setFieldsValue({ cpu: n, cpuRequest: n, cpuLimit: n });
+              form.setFieldsValue({ cpu: n });
+              if (form.getFieldValue('hotExpandEnabled')) {
+                 form.setFieldsValue({ cpuSockets: n });
+              }
               setCpuPreset('custom');
               try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
             }}
@@ -96,38 +116,64 @@ const StepCompute: React.FC<StepComputeProps> = ({
       <Form.Item name="machineType" hidden><Input /></Form.Item>
       <Form.Item label="内存分配" required>
         <Space>
-          <Radio.Group value={memPreset} buttonStyle="solid" onChange={(e) => { const v = String(e.target.value); setMemPreset(v); if (v !== 'custom') { const gi = Number(v); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi`, memoryRequestGi: gi, memoryLimitGi: gi }); } }}>
+          <Radio.Group value={memPreset} buttonStyle="solid" onChange={(e) => { const v = String(e.target.value); setMemPreset(v); if (v !== 'custom') { const gi = Number(v); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); } }}>
             <Radio.Button value="4">4 GB</Radio.Button>
             <Radio.Button value="8">8 GB</Radio.Button>
             <Radio.Button value="16">16 GB</Radio.Button>
             <Radio.Button value="custom">自定义</Radio.Button>
           </Radio.Group>
-          <InputNumber min={1} max={1024} value={memGi} addonAfter="GB" style={{ width: 160 }} onChange={(val) => { const gi = Number(val || 1); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi`, memoryRequestGi: gi, memoryLimitGi: gi }); setMemPreset('custom'); }} />
+          <InputNumber min={1} max={1024} value={memGi} addonAfter="GB" style={{ width: 160 }} onChange={(val) => { const gi = Number(val || 1); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); setMemPreset('custom'); }} />
         </Space>
       </Form.Item>
       <Form.Item name="memory" hidden rules={[{ required: true, message: '请选择或输入内存' }, { pattern: /^[0-9]+(Gi|Mi)$/i, message: '格式如 4Gi 或 8192Mi' }]}>
         <Input />
       </Form.Item>
       <Form.Item label="热扩容" name="hotExpandEnabled" valuePropName="checked">
-        <Space>
-          <Checkbox>启用</Checkbox>
-          <Typography.Text type="secondary">支持 CPU/内存热扩容，上限为当前配额 4 倍，不支持缩容</Typography.Text>
-        </Space>
+        <Checkbox onChange={(e) => {
+          const checked = e.target.checked;
+          form.setFieldsValue({ hotExpandEnabled: checked });
+          if (checked) {
+            // 热扩容强制拓扑：sockets=vCPU, cores=1, threads=1
+            const currentCpu = form.getFieldValue('cpu') || 1;
+            form.setFieldsValue({
+              cpuSockets: currentCpu,
+              cpuCores: 1,
+              cpuThreads: 1
+            });
+          } else {
+            // 取消热扩容：清空拓扑值，恢复可编辑状态，让用户手动填
+            form.setFieldsValue({
+              cpuSockets: undefined,
+              cpuCores: undefined,
+              cpuThreads: undefined
+            });
+          }
+        }}>启用</Checkbox>
+        <Typography.Text type="secondary" style={{ marginLeft: 8 }}>支持 CPU/内存热扩容，上限为当前配额 4 倍，不支持缩容</Typography.Text>
       </Form.Item>
       <Collapse ghost defaultActiveKey={[]} className="wizard-collapse-nopad">
         <Collapse.Panel header="CPU高级配置" key="adv-cpu">
-          <Form.Item label="CPU 拓扑">
-            <Space>
-              <Typography.Text>插槽</Typography.Text>
-              <Form.Item noStyle name="cpuSockets">
-                <InputNumber min={1} max={8} style={{ width: 100 }} />
-              </Form.Item>
-              <Typography.Text>每插槽</Typography.Text>
-              <Form.Item noStyle name="cpuCores">
-                <InputNumber min={1} max={64} style={{ width: 100 }} />
-              </Form.Item>
-              <Typography.Text>核</Typography.Text>
-            </Space>
+          <Form.Item label="CPU 拓扑" shouldUpdate={(prev, curr) => prev.hotExpandEnabled !== curr.hotExpandEnabled || prev.cpu !== curr.cpu}>
+            {({ getFieldValue }) => {
+              const hotExpand = getFieldValue('hotExpandEnabled');
+              return (
+                <Space>
+                  <Typography.Text>插槽</Typography.Text>
+                  <Form.Item noStyle name="cpuSockets">
+                    <InputNumber min={1} max={64} style={{ width: 100 }} disabled={hotExpand} placeholder={hotExpand ? "" : "Socket"} />
+                  </Form.Item>
+                  <Typography.Text>每插槽</Typography.Text>
+                  <Form.Item noStyle name="cpuCores">
+                    <InputNumber min={1} max={64} style={{ width: 100 }} disabled={hotExpand} placeholder={hotExpand ? "" : "Core"} />
+                  </Form.Item>
+                  <Typography.Text>核</Typography.Text>
+                  <Typography.Text>线程</Typography.Text>
+                  <Form.Item noStyle name="cpuThreads">
+                    <InputNumber min={1} max={8} style={{ width: 100 }} disabled={hotExpand} placeholder={hotExpand ? "" : "Thread"} />
+                  </Form.Item>
+                </Space>
+              );
+            }}
           </Form.Item>
           <Form.Item label="CPU 模式" name="cpuModel" initialValue="host-passthrough">
             <Select options={[{ label: 'Host-Passthrough', value: 'host-passthrough' }, { label: 'Host-Model', value: 'host-model' }, { label: '自定义', value: 'custom' }]} style={{ width: 220 }} />

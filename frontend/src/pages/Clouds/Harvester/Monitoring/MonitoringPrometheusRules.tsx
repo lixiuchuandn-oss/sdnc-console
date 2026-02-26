@@ -7,10 +7,9 @@ import { Button, Dropdown, Input, Select, Space, Table, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table';
 import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import AlertForwardConfig from './AlertForwardConfig';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import { fetchPrometheusRules, fetchPrometheusRulesGroups, type PrometheusRuleItem } from '../../../../services/monitoringApi';
-import { CRITICAL_COLOR, LEVEL_FILTER_OPTIONS, WARNING_COLOR } from './constants';
+import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
 
 interface MonitoringPrometheusRulesProps {
   cloudId: string;
@@ -174,7 +173,6 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
       }
       toolbarRight={
         <>
-          <AlertForwardConfig cloudId={cloudId} />
           <TableColumnSettings
             columns={columns}
             onChange={setRulesTableColumns}

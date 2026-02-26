@@ -357,7 +357,6 @@ registerAliyunRoutes(router, checkAdminPermission);
 registerHuaweiRoutes(router, checkAdminPermission);
 registerTencentRoutes(router, checkAdminPermission);
 registerCsmRoutes(router, checkAdminPermission);
-registerCsmRoutes(router, checkAdminPermission);
 registerMonitoringRoutes(router, checkAdminPermission);
 registerLoggingRoutes(router, checkAdminPermission);
 

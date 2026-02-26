@@ -809,13 +809,16 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
       if (!existingAssignment) {
         const targetCloud = resourcePools.find((c) => c.id === resourcePoolId);
         
+        // Auto-generate namespace if not provided
+        const finalNamespace = targetNamespace || `ns-${orgId}`;
+
         // 创建 UserSpace
         const userSpace = userSpaceRepository.create({
-          name: targetNamespace || `ns-${orgId}`,
+          name: finalNamespace,
           tenantId: organization.tenantId,
           organizationId: orgId,
           cloudId: resourcePoolId,
-          namespace: targetNamespace,
+          namespace: finalNamespace,
           permissions: permissions ? JSON.stringify(permissions) : JSON.stringify(['read', 'use']),
           status: 'active',
           cpuQuota: 0,

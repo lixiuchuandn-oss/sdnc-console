@@ -12,7 +12,7 @@
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useMemo } from 'react';
-import { Modal, Form, Space, Radio, Button, Alert } from 'antd';
+import { Modal, Form, Space, Radio, Button, Alert, Tag } from 'antd';
 import { 
   HddOutlined, GlobalOutlined, DashboardOutlined
 } from '@ant-design/icons';
@@ -22,7 +22,8 @@ import CpuAdvanced from './VmReconfigure/CpuAdvanced';
 import MemAdvanced from './VmReconfigure/MemAdvanced';
 import ChangeGpu from './VmReconfigure/ChangeGpu';
 import ChangeOs from './VmReconfigure/ChangeOs';
-import DiskOperations from './VmReconfigure/DiskOperations';
+import SystemDiskExpand from './VmReconfigure/SystemDiskExpand';
+import AddDataDisk from './VmReconfigure/AddDataDisk';
 import ChangePrimaryNic from './VmReconfigure/ChangePrimaryNic';
 import ChangeSecondaryNic from './VmReconfigure/ChangeSecondaryNic';
 import { useVmReconfigure } from './VmReconfigure/useVmReconfigure';
@@ -80,7 +81,8 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     systemDiskLoading,
     getCurrentSpec,
     getMemoryInGi,
-    isHotPlugEnabledOnVm
+    isHotPlugEnabledOnVm,
+    isRestartRequired
   } = useVmReconfigure(props);
 
   // 监听表单中的 CPU / 内存 / 热扩容开关，用于动态计算按钮文案等
@@ -89,13 +91,14 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   const enableHotPlug = Form.useWatch('enableHotPlug', form);
   
   // 计算当前实例规格（作为“变配前”的基准值）
-  const { cpu: currentCpuRaw, memory: currentMemoryRaw } = useMemo(() => {
-     if (!getCurrentSpec) return { cpu: 0, memory: 0 };
+  const { cpu: currentCpuRaw, memory: currentMemoryRaw, maxSockets, maxMemory: maxMemoryRaw } = useMemo(() => {
+     if (!getCurrentSpec) return { cpu: 0, memory: 0, maxSockets: undefined, maxMemory: undefined };
      return getCurrentSpec();
   }, [getCurrentSpec, record]);
   
   const currentCpu = Number(currentCpuRaw || 0);
-  const currentMemory = getMemoryInGi ? getMemoryInGi(currentMemoryRaw) : 0;
+  const currentMemory = getMemoryInGi(currentMemoryRaw);
+  const maxMemory = maxMemoryRaw ? getMemoryInGi(maxMemoryRaw) : undefined;
   
   // 当前 VM 是否已启用 CPU / 内存热扩容能力（基于注解/feature 判断）
   const isHotPlugEnabledOnVmVal = useMemo(() => {
@@ -148,6 +151,12 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
    * - 保证不同任务之间的表单字段互不干扰。
    */
   const renderContent = () => {
+    
+    // Calculate maxCpuLimit for ChangeSpec
+    const cpuSpec = record?.spec?.template?.spec?.domain?.cpu;
+    const maxCpuLimit = cpuSpec?.maxSockets 
+      ? cpuSpec.maxSockets * (cpuSpec.cores || 1) * (cpuSpec.threads || 1)
+      : undefined;
         
     // 过滤掉系统存储类，仅允许用户选择业务存储类
     const scOptions = (scs || [])
@@ -163,6 +172,10 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             currentCpu={currentCpu} 
             currentMemory={currentMemory}
             isHotPlugEnabledOnVm={isHotPlugEnabledOnVmVal}
+            isRestartRequired={isRestartRequired}
+            maxCpuLimit={maxCpuLimit}
+            maxSockets={maxSockets}
+            maxMemory={maxMemory}
           />
         );
       case 'cpu_advanced':
@@ -196,9 +209,8 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
           />
         );
       case 'expand_system_disk':
-      case 'add_disk':
         return (
-          <DiskOperations 
+          <SystemDiskExpand 
             form={form}
             scOptions={scOptions}
             reloadScs={reloadScs}
@@ -206,6 +218,14 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             systemDisk={systemDisk}
             systemDiskSize={systemDiskSize}
             loading={systemDiskLoading}
+          />
+        );
+      case 'add_disk':
+        return (
+          <AddDataDisk 
+            form={form}
+            scOptions={scOptions}
+            reloadScs={reloadScs}
           />
         );
 
@@ -265,7 +285,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
         } else if (enableHotPlug && !isHotPlugEnabledOnVmVal) {
            buttonText = "提交（冷扩容）";
         } else {
-           const limitCpu = currentCpu * 4;
+           const limitCpu = maxSockets || (currentCpu * 4);
            const limitMem = currentMemory * 4;
            
            const isOverLimit = (cpu !== undefined && cpu > limitCpu) || (memory !== undefined && memory > limitMem);
@@ -279,7 +299,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
         }
     }
     return { alertMessage: messageNode, okText: buttonText };
-  }, [selectedKey, cpu, memory, enableHotPlug, currentCpu, currentMemory, isHotPlugEnabledOnVmVal]);
+  }, [selectedKey, cpu, memory, enableHotPlug, currentCpu, currentMemory, isHotPlugEnabledOnVmVal, maxSockets]);
 
   // 底部按钮区域，仅保留“取消 + 提交”两种操作
   const footer = (
@@ -291,11 +311,15 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
 
   return (
     <Modal
-      title={menuGroups.flatMap(g => g.children).find(c => c.key === selectedKey)?.label ? `资源变配 - ${menuGroups.flatMap(g => g.children).find(c => c.key === selectedKey)?.label}` : '资源变配'}
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>资源变配</span>
+          {isRestartRequired && <Tag color="warning" style={{ fontWeight: 'normal', margin: 0 }}>需重启</Tag>}
+        </div>
+      }
       open={open}
       onCancel={onClose}
       footer={footer}
-      destroyOnClose
       width={900}
       styles={{ body: { padding: 0 } }}
     >
@@ -320,7 +344,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
                   {group.icon}
                   <span>{group.title}</span>
                 </div>
-                <Space direction="vertical" style={{ width: '100%', gap: 0 }}>
+                <Space direction="vertical" style={{ width: '100%', gap: 4 }}>
                   {group.children.map(child => (
                     <Radio 
                       key={child.key} 

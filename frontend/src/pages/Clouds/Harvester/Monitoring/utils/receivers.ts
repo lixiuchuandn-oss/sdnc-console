@@ -1,38 +1,35 @@
-/**
- * 接收器配置工具：從 AlertmanagerConfig 列表扁平化為接收器列表，並推斷類型
- * 與 monitoring.coreos.com AlertmanagerConfig spec.receivers 結構對齊
- * 遷移自 Compute.Tower-Monitoring frontend/src/utils/receivers.ts
- */
+/** 与后端一致的接收器名称：email-receiver | dingtalk-receiver | website-receiver */
+export type ReceiverName = 'email-receiver' | 'dingtalk-receiver' | 'website-receiver';
 
-export type ReceiverUIType = 'dingtalk' | 'email' | 'inbox';
+/** UI 层与 ReceiverName 一致 */
+export type ReceiverUIType = ReceiverName;
 
-/** Kubernetes annotation key 只能包含一個 '/'（格式 prefix/name），以下均為單斜線格式。 */
+/** 通知方式下拉选项，value 为 receiverName */
+export const RECEIVER_NAME_OPTIONS: { value: ReceiverName; label: string }[] = [
+  { value: 'email-receiver', label: '邮件' },
+  { value: 'dingtalk-receiver', label: '钉钉' },
+  { value: 'website-receiver', label: '网站' },
+];
 
-/** 接收器類型：key = receiver-type/<receiverName>，值 dingtalk | email | inbox */
+export const RECEIVER_TYPE_OPTIONS = RECEIVER_NAME_OPTIONS;
+
+export const INBOX_WEBHOOK_PLACEHOLDER = 'internal-inbox-webhook';
+
 const RECEIVER_TYPE_ANNOTATION_PREFIX = 'receiver-type';
+const DINGTALK_SECRETS_ANNOTATION_PREFIX = 'dingtalk-secrets';
 
 function getReceiverTypeAnnotationKey(receiverName: string): string {
   return `${RECEIVER_TYPE_ANNOTATION_PREFIX}/${receiverName}`;
 }
 
-/** 钉钉签名密钥：key = receiver-dingtalk-secret/<receiverName>-<index>，避免多斜線導致 K8s 校驗失敗 */
-export const RECEIVER_ANNOTATION_DINGTALK_SECRET_PREFIX = 'receiver-dingtalk-secret';
-const RECEIVER_ANNOTATION_DINGTALK_SECRET_PREFIX_SLASH = `${RECEIVER_ANNOTATION_DINGTALK_SECRET_PREFIX}/`;
-
-function getDingtalkSecretAnnotationKey(receiverName: string, index: number): string {
-  return `${RECEIVER_ANNOTATION_DINGTALK_SECRET_PREFIX}/${receiverName}-${index}`;
-}
-
 /** 扁平化後的單條接收器（用於列表與下拉選項） */
 export interface FlattenedReceiver {
   namespace: string;
-  configName: string;
+  /** AlertmanagerConfig.metadata.name，对应 email-receiver | dingtalk-receiver */
   receiverName: string;
-  receiverType: ReceiverUIType;
-  /** 完整 receiver 物件，用於創建告警配置時帶入 spec */
+  /** spec.receivers[].name，具体接收器条目名 */
+  specReceiverName: string;
   receiverSpec: ReceiverSpec;
-  /** 钉钉签名密钥（僅在從帶 annotations 的 config 扁平化時可能帶出） */
-  dingtalkSigningSecret?: string;
 }
 
 /** AlertmanagerConfig spec.receivers[] 單項結構（與 Harvester/CRD 一致） */
@@ -55,32 +52,8 @@ export interface ReceiverSpec {
   }>;
 }
 
-/** 內建類型選項：邮箱第一，钉钉第二；站内信已取消 */
-export const RECEIVER_TYPE_OPTIONS: { value: ReceiverUIType; label: string; description: string }[] = [
-  { value: 'email', label: '邮箱', description: '通过 SMTP 发送邮件通知' },
-  { value: 'dingtalk', label: '钉钉', description: '通过钉钉机器人 Webhook 发送告警' },
-];
-
-/** 站内信使用佔位 URL，便於後端識別為內建類型 */
-export const INBOX_WEBHOOK_PLACEHOLDER = 'https://internal/inbox';
-
-function inferReceiverType(receiver: any): ReceiverUIType {
-  if (receiver.emailConfigs && Array.isArray(receiver.emailConfigs) && receiver.emailConfigs.length > 0) {
-    return 'email';
-  }
-  if (receiver.webhookConfigs && Array.isArray(receiver.webhookConfigs) && receiver.webhookConfigs.length > 0) {
-    const url = receiver.webhookConfigs[0]?.url ?? '';
-    if (url === INBOX_WEBHOOK_PLACEHOLDER || /inbox|站内信/i.test(url)) {
-      return 'inbox';
-    }
-    return 'dingtalk';
-  }
-  return 'dingtalk';
-}
-
 /**
  * 從 AlertmanagerConfig 列表扁平化出所有接收器
- * 若 config 帶 metadata.annotations，會解析钉钉簽名密鑰（receiver/<name>/dingtalkSigningSecret）
  */
 export function flattenReceiversFromConfigList(
   configList: Array<{
@@ -91,28 +64,15 @@ export function flattenReceiversFromConfigList(
   const out: FlattenedReceiver[] = [];
   for (const config of configList) {
     const namespace = config.metadata?.namespace ?? '';
-    const configName = config.metadata?.name ?? '';
-    const annotations = config.metadata?.annotations ?? {};
+    const receiverName = config.metadata?.name ?? '';
     const receivers = config.spec?.receivers;
     if (!Array.isArray(receivers)) continue;
     for (const r of receivers) {
-      const name = r?.name;
-      if (!name || typeof name !== 'string') continue;
-      const typeKey = getReceiverTypeAnnotationKey(name);
-      const annotatedType = annotations[typeKey];
-      const receiverType: ReceiverUIType =
-        annotatedType === 'dingtalk' || annotatedType === 'email' || annotatedType === 'inbox'
-          ? annotatedType
-          : inferReceiverType(r);
-      const dingtalkSecrets = receiverType === 'dingtalk' ? getDingtalkSecretsFromAnnotations(annotations, name) : [];
-      const dingtalkSigningSecret = dingtalkSecrets[0];
       out.push({
         namespace,
-        configName,
-        receiverName: name,
-        receiverType,
-        receiverSpec: { ...r },
-        dingtalkSigningSecret,
+        receiverName,
+        specReceiverName: r.name,
+        receiverSpec: r as ReceiverSpec,
       });
     }
   }
@@ -120,40 +80,49 @@ export function flattenReceiversFromConfigList(
 }
 
 /**
- * 組合成下拉選項用的唯一值（namespace/configName/receiverName）
+ * 組合成下拉選項用的唯一值（namespace/receiverName/specReceiverName）
  */
 export function receiverOptionValue(item: FlattenedReceiver): string {
-  return `${item.namespace}\t${item.configName}\t${item.receiverName}`;
+  return `${item.namespace}\t${item.receiverName}\t${item.specReceiverName}`;
 }
 
-export function parseReceiverOptionValue(value: string): { namespace: string; configName: string; receiverName: string } | null {
+export function parseReceiverOptionValue(value: string): { namespace: string; receiverName: string; specReceiverName: string } | null {
   if (!value || typeof value !== 'string') return null;
   const parts = value.split('\t');
   if (parts.length !== 3) return null;
-  return { namespace: parts[0], configName: parts[1], receiverName: parts[2] };
+  return { namespace: parts[0], receiverName: parts[1], specReceiverName: parts[2] };
+}
+
+/** 寫入接收器類型到 annotations */
+export function setReceiverTypeAnnotation(
+  annotations: Record<string, string>,
+  receiverName: string,
+  receiverNameValue: ReceiverName
+): void {
+  annotations[getReceiverTypeAnnotationKey(receiverName)] = receiverNameValue;
+}
+
+/** 從 annotations 刪除該接收器的類型標記 */
+export function removeReceiverTypeAnnotation(annotations: Record<string, string>, receiverName: string): void {
+  delete annotations[getReceiverTypeAnnotationKey(receiverName)];
 }
 
 /**
- * 根據表單值組裝 ReceiverSpec（支援多條钉钉/多條邮箱）
- * dingtalkList: [{ webhookUrl, dingtalkSigningSecret? }]
- * emailList: [{ emailTo, emailFrom?, smarthost?, requireTls?, authUsername?, authIdentity?, authSecretKey? }]
- * 出参对齐 Harvester：requireTLS、tlsConfig、authPassword 仅以 Secret 引用 { name, key } 形式提交。
+ * 根據表單值組裝 ReceiverSpec（仅支持邮箱；钉钉已去掉）
+ * Form 入参：
+ *   emailConfigs (或 emailList): [{ emailTo, emailFrom?, smarthost?, requireTls?, authUsername?, authIdentity?, authSecretKey? }]
+ * 出参 spec.emailConfigs 对齐 Harvester/CRD，单条示例：
+ *   { authPassword: { name: 'admin-email-secret', key: 'password' }, authUsername, from, requireTLS, sendResolved, smarthost, to }
+ * authPassword 仅以 Secret 引用 { name, key } 提交，不传明文。
  */
 export function buildReceiverSpec(
   name: string,
-  type: ReceiverUIType,
+  receiverName: ReceiverName,
   formValues: Record<string, any>
 ): ReceiverSpec {
   const spec: ReceiverSpec = { name: name.trim() };
-  if (type === 'dingtalk') {
-    const list = Array.isArray(formValues.dingtalkList) ? formValues.dingtalkList : [];
-    spec.webhookConfigs = list
-      .map((item: any) => (item?.webhookUrl ?? '').toString().trim())
-      .filter((url: string) => url)
-      .map((url: string) => ({ url, sendResolved: true }));
-    if (spec.webhookConfigs.length === 0) spec.webhookConfigs = [{ url: undefined, sendResolved: true }];
-  } else if (type === 'email') {
-    const list = Array.isArray(formValues.emailList) ? formValues.emailList : [];
+  if (receiverName === 'email-receiver') {
+    const list = Array.isArray(formValues.emailConfigs) ? formValues.emailConfigs : Array.isArray(formValues.emailList) ? formValues.emailList : [];
     spec.emailConfigs = list.map((item: any) => {
       const requireTLS = item?.requireTls !== false;
       const toRaw = (item?.emailTo ?? '').toString().trim();
@@ -182,64 +151,51 @@ export function buildReceiverSpec(
         authUsername: (item?.authUsername ?? '').toString().trim() || undefined,
         requireTLS,
         tlsConfig: {},
-        sendResolved: true,
+        sendResolved: item?.sendResolved !== false,
       };
       if (authIdentity) config.authPassword = { name: authIdentity, key: authSecretKey };
       return config;
     }).filter((c: any) => c.to);
     if (spec.emailConfigs.length === 0) spec.emailConfigs = [{ sendResolved: true, tlsConfig: {} }];
-  } else {
-    const inboxUrl = (formValues.inboxWebhookUrl ?? '').toString().trim() || INBOX_WEBHOOK_PLACEHOLDER;
-    spec.webhookConfigs = [{ url: inboxUrl, sendResolved: true }];
+  } else if (receiverName === 'dingtalk-receiver') {
+    const list = Array.isArray(formValues.dingtalkList) ? formValues.dingtalkList : [];
+    spec.webhookConfigs = list
+      .map((item: any) => (item?.webhookUrl ?? '').toString().trim())
+      .filter(Boolean)
+      .map((url: string) => ({ url, sendResolved: true }));
+    if (!spec.webhookConfigs.length) spec.webhookConfigs = [{ url: undefined, sendResolved: true }];
   }
   return spec;
 }
 
-/** 从 annotations 中读取该接收器所有钉钉签名密钥（按索引 0,1,2...），key 格式 receiver-dingtalk-secret/<name>-<index> */
-export function getDingtalkSecretsFromAnnotations(annotations: Record<string, string> | undefined, receiverName: string): string[] {
-  if (!annotations) return [];
-  const out: string[] = [];
-  let i = 0;
-  let v = annotations[getDingtalkSecretAnnotationKey(receiverName, i)];
-  while (v != null) {
-    out.push(v);
-    i += 1;
-    v = annotations[getDingtalkSecretAnnotationKey(receiverName, i)];
+export function getDingtalkSecretsFromAnnotations(
+  annotations: Record<string, string>,
+  receiverName: string
+): string[] {
+  const key = `${DINGTALK_SECRETS_ANNOTATION_PREFIX}/${receiverName}`;
+  const val = annotations[key];
+  if (!val) return [];
+  try {
+    return val.split(',');
+  } catch {
+    return [];
   }
-  return out;
 }
 
-/** 合并钉钉签名密钥到 annotations（按索引写入），key 格式 receiver-dingtalk-secret/<name>-<index> */
 export function mergeDingtalkSecretsIntoAnnotations(
   annotations: Record<string, string>,
   receiverName: string,
-  secrets: string[]
+  dingtalkList: Array<{ dingtalkSigningSecret?: string }>
 ): void {
-  for (let i = 0; i < secrets.length; i++) {
-    if (secrets[i]?.trim()) annotations[getDingtalkSecretAnnotationKey(receiverName, i)] = secrets[i].trim();
-  }
+  const secrets = dingtalkList.map(item => item.dingtalkSigningSecret || '').join(',');
+  const key = `${DINGTALK_SECRETS_ANNOTATION_PREFIX}/${receiverName}`;
+  annotations[key] = secrets;
 }
 
-/** 从 annotations 中删除该接收器所有钉钉签名密钥（含多条） */
-export function removeDingtalkSecretsFromAnnotations(annotations: Record<string, string>, receiverName: string): void {
-  const namePrefix = `${receiverName}-`;
-  Object.keys(annotations).forEach((k) => {
-    if (k.startsWith(RECEIVER_ANNOTATION_DINGTALK_SECRET_PREFIX_SLASH) && k.slice(RECEIVER_ANNOTATION_DINGTALK_SECRET_PREFIX_SLASH.length).startsWith(namePrefix)) {
-      delete annotations[k];
-    }
-  });
-}
-
-/** 寫入接收器類型到 annotations，供本平台及支援該約定的 UI（如 Harvester）顯示「钉钉」等 */
-export function setReceiverTypeAnnotation(
+export function removeDingtalkSecretsFromAnnotations(
   annotations: Record<string, string>,
-  receiverName: string,
-  type: ReceiverUIType
+  receiverName: string
 ): void {
-  annotations[getReceiverTypeAnnotationKey(receiverName)] = type;
-}
-
-/** 從 annotations 刪除該接收器的類型標記 */
-export function removeReceiverTypeAnnotation(annotations: Record<string, string>, receiverName: string): void {
-  delete annotations[getReceiverTypeAnnotationKey(receiverName)];
+  const key = `${DINGTALK_SECRETS_ANNOTATION_PREFIX}/${receiverName}`;
+  delete annotations[key];
 }

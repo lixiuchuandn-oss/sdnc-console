@@ -14,7 +14,7 @@
  * - 提交时先生成唯一 vmId，再创建 VM，必要时根据 autoStart 自动开机。
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Row, Col, Modal, Spin, message, Space } from 'antd';
+import { Button, Form, Row, Col, Modal, message, Space } from 'antd';
 import { CheckOutlined, ProfileOutlined, DesktopOutlined, HddOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons';
 import './VmCreateWizard/InstanceWizard.css';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -25,7 +25,7 @@ import StepNetworks from './VmCreateWizard/StepNetworks';
 import StepOthers from './VmCreateWizard/StepOthers';
 import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
-import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm } from './VmCreateWizard/VmWizardUtils';
+import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 
 const VmCreateWizardModal: React.FC = () => {
@@ -56,12 +56,12 @@ const VmCreateWizardModal: React.FC = () => {
   const {
     images, imageLoading, reloadImages, imageOptions,
     availableVolumes, reloadVolumes, volumeOptions,
-    namespaces, reloadNamespaces, namespaceOptions,
-    nads, reloadNads, nadOptions,
+    reloadNamespaces, namespaceOptions,
+    reloadNads, nadOptions,
     nodes, nodesLoading, reloadNodes,
     clouds, loadClouds, cloudOptions, currentProvider,
-    kubeSubnets, reloadKubeSubnets, kubeSubnetOptions,
-    kubeVpcs, reloadKubeVpcs, kubeVpcOptions,
+    kubeSubnets, reloadKubeSubnets,
+    reloadKubeVpcs, kubeVpcOptions,
     gpuResources, reloadGpuResources,
     usbResources, reloadUsbResources,
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
@@ -69,6 +69,7 @@ const VmCreateWizardModal: React.FC = () => {
   } = useHarvesterData(cloudId, currentCloudId, form);
 
   const fromTemplateState = (location.state as any)?.fromTemplate;
+  const fromVmState = (location.state as any)?.fromVm;
 
   useEffect(() => {
     if (fromTemplateState && fromTemplateState.namespace && fromTemplateState.name) {
@@ -77,22 +78,47 @@ const VmCreateWizardModal: React.FC = () => {
           namespace: fromTemplateState.namespace,
         });
       } catch {}
+    } else if (fromVmState && fromVmState.metadata?.namespace) {
+      try {
+        form.setFieldsValue({
+          namespace: fromVmState.metadata.namespace,
+        });
+      } catch {}
     }
-  }, [fromTemplateState, form]);
+  }, [fromTemplateState, fromVmState, form]);
 
   useEffect(() => {
-    if (!fromTemplateState || !fromTemplateState.template) return;
-    try {
-      applyTemplateToWizardForm({
-        form,
-        template: fromTemplateState.template,
-        images,
-        availableVolumes,
-        nadOptions,
-        kubeSubnets,
-      });
-    } catch {}
-  }, [fromTemplateState, form, images, availableVolumes, nadOptions, kubeSubnets]);
+    if (fromTemplateState && fromTemplateState.template) {
+      try {
+        applyTemplateToWizardForm({
+          form,
+          template: fromTemplateState.template,
+          images,
+          availableVolumes,
+          nadOptions,
+          kubeSubnets,
+        });
+        const m = form.getFieldValue('memory');
+        if (m) setMemGi(parseSizeToGi(m));
+      } catch {}
+    } else if (fromVmState) {
+      // 从现有 VM 克隆：复用 applyTemplateToWizardForm (因为 VM 结构与 Template 结构在 spec.template 部分兼容)
+      try {
+        applyTemplateToWizardForm({
+          form,
+          template: fromVmState,
+          images,
+          availableVolumes,
+          nadOptions,
+          kubeSubnets,
+        });
+        const m = form.getFieldValue('memory');
+        if (m) setMemGi(parseSizeToGi(m));
+        // 重置名称，避免与原 VM 冲突
+        form.setFieldsValue({ name: undefined });
+      } catch {}
+    }
+  }, [fromTemplateState, fromVmState, form, images, availableVolumes, nadOptions, kubeSubnets]);
 
   // 首次挂载时加载云列表，用于“跨资源池创建 VM”场景
   useEffect(() => {
@@ -120,7 +146,7 @@ const VmCreateWizardModal: React.FC = () => {
       reloadNodes();
     };
     load();
-  }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes]);
+  }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes, form]);
 
   // 进入“其它选项”步骤时，懒加载 USB 资源和 SSH 密钥
   useEffect(() => {
@@ -143,7 +169,7 @@ const VmCreateWizardModal: React.FC = () => {
   // 组件初始化时记录一份表单快照，便于右侧摘要展示
   useEffect(() => {
     try { setFormSnapshot(form.getFieldsValue()); } catch {}
-  }, []);
+  }, [form]);
 
   // 根据关键字过滤可选节点列表，用于“调度到指定主机”
   const filteredNodes = useMemo(() => filterNodes(nodes, nodeKeyword), [nodes, nodeKeyword]);
@@ -212,7 +238,7 @@ const VmCreateWizardModal: React.FC = () => {
       // Primary NIC name is optional now (defaults to Pod Network)
 
       let selectedGpu: any = null;
-      let finalGpuResName: string | undefined = undefined;
+      // let finalGpuResName: string | undefined = undefined;
       if (v.gpuMode) {
         let list = Array.isArray(gpuResources) ? gpuResources : [];
         if (list.length === 0) { 
@@ -222,7 +248,7 @@ const VmCreateWizardModal: React.FC = () => {
             const res = validateAndGetGpu({ v, gpuResources: list, hostModeState, selectedNodeName });
             if (res) {
                 selectedGpu = res.selectedGpu;
-                finalGpuResName = res.finalGpuResName;
+                // finalGpuResName = res.finalGpuResName;
                 if (res.warning) message.info(res.warning);
             }
         } catch (e: any) { throw new Error(e?.message || 'GPU 资源不可用'); }

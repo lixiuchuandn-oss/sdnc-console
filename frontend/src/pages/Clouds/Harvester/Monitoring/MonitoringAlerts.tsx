@@ -1,18 +1,18 @@
 /**
  * 监控服务 - 监控告警（告警列表）
  * 设计文档：plan/设计-监控服务-监控告警.md、设计-监控服务-租户入口与权限.md
- * 告警外发配置已迁移至「告警规则」Tab（AlertForwardConfig）。
+ * 告警通知配置已迁移至「告警通知策略」Tab（AlertForwardConfig）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Dropdown, Input, Select, Space, Table, Typography } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
+import { Button, Input, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../../contexts/AuthContext';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import { fetchAlertsRules, fetchAllowedNamespaces } from '../../../../services/monitoringApi';
 import { parseAlerts, type ParsedAlert } from './utils/prometheusAlerts';
-import { CRITICAL_COLOR, LEVEL_FILTER_OPTIONS, WARNING_COLOR } from './constants';
+import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
 
 interface MonitoringAlertsProps {
   cloudId: string;
@@ -97,9 +97,10 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
 
   const alertColumns: ColumnsType<ParsedAlert> = useMemo(
     () => [
+      { title: '数据源', key: 'dataSource', width: 120, render: () => 'Prometheus' },
       { title: '告警名称', dataIndex: 'title', key: 'title', width: 220, ellipsis: true, render: (t: string) => <Typography.Text strong ellipsis>{t || '--'}</Typography.Text> },
       {
-        title: '告警等级',
+        title: '等级',
         dataIndex: 'level',
         key: 'level',
         width: 100,
@@ -117,7 +118,6 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
                   borderRadius: '50%',
                   backgroundColor: color,
                   flexShrink: 0,
-                  
                 }}
               />
               <span>{label}</span>
@@ -125,7 +125,6 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
           );
         },
       },
-      { title: '数据源', key: 'dataSource', width: 120, render: () => 'Prometheus' },
       ...(isAdmin ? [] : [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120, render: (v: string) => v || '-' }]),
       { title: '触发时间', dataIndex: 'activeAt', key: 'activeAt', width: 160, render: (v: string) => v || '-' },
       { title: '描述', dataIndex: 'description', key: 'description', render: (v: string) => <Typography.Text type="secondary" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{v || '-'}</Typography.Text> },
@@ -142,7 +141,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     return [{ label: '全部', value: '' }, ...tenantNamespaces.map((ns) => ({ label: ns, value: ns }))];
   }, [isAdmin, alertsList, tenantNamespaces]);
 
-  // 始终用最新的 alertColumns（含告警等级颜色 render），仅用保存的列做可见性过滤，避免持久化列丢失 render
+  // 始终用最新的 alertColumns（含等级颜色 render），仅用保存的列做可见性过滤，避免持久化列丢失 render
   const getColumnKey = (col: { key?: string; dataIndex?: string | string[] }) => {
     if (col.key) return String(col.key);
     if (col.dataIndex) return Array.isArray(col.dataIndex) ? col.dataIndex.join('.') : String(col.dataIndex);

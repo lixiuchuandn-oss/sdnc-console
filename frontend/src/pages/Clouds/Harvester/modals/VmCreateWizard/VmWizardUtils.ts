@@ -295,7 +295,11 @@ export const applyTemplateToWizardForm = (params: {
     }
   }
 
-  const memRaw = resources.requests?.memory || resources.limits?.memory || domain.memory?.guest;
+  // 修复：优先读取 domain.memory.guest (真实内存)
+  // 避免因热扩容导致的 limits 放大 (4x) 误导前端显示
+  // 注意：Harvester 模板中 domain.memory.guest 可能不存在
+  const memRaw = domain.memory?.guest;
+  
   if (memRaw) {
     const gi = parseSizeToGi(memRaw);
     if (gi > 0) {
@@ -306,9 +310,19 @@ export const applyTemplateToWizardForm = (params: {
   const disks = Array.isArray(devices.disks) ? devices.disks : [];
   const volumes = Array.isArray(vmSpec.volumes) ? vmSpec.volumes : [];
 
-  const volumeTemplates = Array.isArray(template.spec.volumeClaimTemplates)
+  let volumeTemplates = Array.isArray(template.spec.volumeClaimTemplates)
     ? template.spec.volumeClaimTemplates
     : [];
+  
+  // 如果 spec 中没有 volumeClaimTemplates，尝试从 annotation 中读取 (通常用于从现有 VM 克隆场景)
+  if (volumeTemplates.length === 0 && template.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates']) {
+      try {
+          const parsed = JSON.parse(template.metadata.annotations['harvesterhci.io/volumeClaimTemplates']);
+          if (Array.isArray(parsed)) volumeTemplates = parsed;
+      } catch (e) {
+          console.warn('Failed to parse volumeClaimTemplates from annotation', e);
+      }
+  }
 
   const findVolumeByName = (name: string) =>
     volumes.find((v: any) => String(v?.name || '') === String(name || ''));
@@ -535,10 +549,11 @@ export const buildHarvesterVmPayload = (params: {
 
   // --- 2. 基础计算 (CPU/Memory) ---
   const cpu = Number(v.cpu || 1);
-  const sockets = Number(v.cpuSockets || 1);
-  const cores = Number(v.cpuCores || cpu); 
-  const threads = Number(v.cpuThreads || 1);
+  const sockets = v.hotExpandEnabled ? cpu : Number(v.cpuSockets || 1);
+  const cores = v.hotExpandEnabled ? 1 : Number(v.cpuCores || cpu);
+  const threads = v.hotExpandEnabled ? 1 : Number(v.cpuThreads || 1);
   const memory = String(v.memory || `${memGi}Gi`);
+  const actualMemGi = parseSizeToGi(memory);
 
   // --- 3. 调度策略 (Node Selector/Affinity) ---
   // 处理 Label 调度
@@ -832,36 +847,60 @@ export const buildHarvesterVmPayload = (params: {
                         dedicatedCpuPlacement: !!v.dedicatedCPUPlacement,
                         isolateEmulatorThread: !!v.isolateEmulatorThread,
                         model: (function () {
-                          const m = String(v.cpuModel || 'host-passthrough');
+                          const m = String(v.cpuModel || '').trim();
                           if (m === 'custom') return String(v.cpuModelCustom || '').trim() || undefined;
-                          return m;
+                          return undefined;
                         })()
                     },
                     memory: {
                         guest: memory,
-                        maxGuest: v.hotExpandEnabled ? `${memGi * 4}Gi` : undefined
+                        maxGuest: v.hotExpandEnabled ? `${actualMemGi * 4}Gi` : undefined
                     },
                     resources: {
                         limits: (function () {
-                          const cpuLimit = (function () {
-                            if (v.cpuBurstUnlimited) return undefined;
-                            if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) return String(v.cpuLimit);
-                            return v.hotExpandEnabled ? String(cpu * 4) : String(cpu);
-                          })();
-                          const memLimit = (function () {
-                            if (typeof v.memoryLimitGi === 'number' && v.memoryLimitGi > 0) return `${v.memoryLimitGi}Gi`;
-                            return v.hotExpandEnabled ? `${memGi * 4}Gi` : memory;
-                          })();
                           const obj: any = {};
-                          if (cpuLimit !== undefined) obj.cpu = cpuLimit;
-                          if (memLimit !== undefined) obj.memory = memLimit;
+                          
+                          // CPU Limit
+                          if (!v.cpuBurstUnlimited) {
+                            if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) {
+                              obj.cpu = String(v.cpuLimit);
+                            } else if (!v.hotExpandEnabled) {
+                              // 仅在未开启热扩容时，默认设置 Limit = Request
+                              // 开启热扩容时，不设置 Limit，避免限制扩容能力或触发后端自动调整 Guest 内存
+                              obj.cpu = String(cpu);
+                            }
+                          }
+
+                          // Memory Limit
+                          if (!v.memoryBurstUnlimited) {
+                            if (typeof v.memoryLimitGi === 'number' && v.memoryLimitGi > 0) {
+                              obj.memory = `${v.memoryLimitGi}Gi`;
+                            } else if (!v.hotExpandEnabled) {
+                              obj.memory = memory;
+                            }
+                          }
+                          
                           return obj;
                         })(),
-                        requests: {
-                          cpu: (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) ? String(v.cpuRequest) : undefined,
-                          memory: (typeof v.memoryRequestGi === 'number' && v.memoryRequestGi > 0 && Number.isInteger(Number(v.memoryRequestGi))) 
-                            ? `${v.memoryRequestGi}Gi` : undefined
-                        }
+                        requests: (function () {
+                            const obj: any = {};
+                            
+                            // CPU Request
+                            if (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) {
+                                obj.cpu = String(v.cpuRequest);
+                            } else {
+                                obj.cpu = String(cpu);
+                            }
+
+                            // Memory Request
+                            if (typeof v.memoryRequestGi === 'number' && v.memoryRequestGi > 0) {
+                                obj.memory = `${v.memoryRequestGi}Gi`;
+                            } else {
+                                obj.memory = memory;
+                            }
+                            
+                            return Object.keys(obj).length > 0 ? obj : undefined;
+                        })()
                     },
                     features: {
                         acpi: { enabled: true },

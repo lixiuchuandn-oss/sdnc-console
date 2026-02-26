@@ -3,6 +3,7 @@ import { Drawer, Tabs, Table, Tag, Descriptions } from 'antd';
 import yaml from 'js-yaml';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterEvents, fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
+import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
 
 export interface HarvesterResourceDrawerProps {
   open: boolean;
@@ -12,6 +13,17 @@ export interface HarvesterResourceDrawerProps {
   activeTab?: string;
   onTabChange?: (key: string) => void;
   cloudId?: string;
+  namespaces?: any[];
+  volumes?: any[];
+  images?: any[];
+  onRefresh?: (force?: boolean) => void;
+  onOpenReconfigure?: (vm: any) => void;
+  onBackup?: (vm: any) => void;
+  onSnapshot?: (vm: any) => void;
+  onClone?: (vm: any) => void;
+  onMigrate?: (vm: any) => void;
+  onDelete?: (vm: any) => void;
+  forceOpsMode?: boolean;
 }
 
 const EventsTab: React.FC<{ cloudId?: string; record: any; active: boolean; kind?: string }> = ({ cloudId, record, active, kind: propKind }) => {
@@ -117,15 +129,22 @@ const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boole
   );
 };
 
-const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = ({
-  open,
-  onClose,
-  resourceType,
-  record,
-  activeTab = 'detail',
-  onTabChange,
-  cloudId,
-}) => {
+const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) => {
+  const {
+    open,
+    onClose,
+    resourceType,
+    record,
+    activeTab = 'detail',
+    onTabChange,
+    cloudId,
+    forceOpsMode,
+  } = props;
+
+  if (resourceType === 'VirtualMachine' && !forceOpsMode) {
+    return <HarvesterVmDetailDrawer {...props} />;
+  }
+
   const drawerTitle = record 
     ? `${resourceType}: ${record.metadata?.name || record.name || ''}`
     : `Harvester ${resourceType} 详情`;

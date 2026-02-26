@@ -212,6 +212,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
           <VmSection
             vms={vms}
             images={images}
+            volumes={volumes}
             loading={loading}
             namespacesOptions={namespacesOptions}
             namespaces={namespaces}

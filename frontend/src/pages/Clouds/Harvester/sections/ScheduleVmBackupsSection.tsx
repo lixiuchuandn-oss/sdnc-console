@@ -14,6 +14,7 @@ import { formatCron } from '../../../../utils/cronFormatter';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from '../../../../services/harvesterApi';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import { TableColumnSettings } from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
@@ -30,6 +31,9 @@ interface Props {
   data: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  vmId?: string;
+  defaultHiddenColumns?: string[];
+  bordered?: boolean;
 }
 
 /**
@@ -52,7 +56,7 @@ const formatAge = (timestamp: string) => {
   return `${days} 天`;
 };
 
-const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onRefresh }) => {
+const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onRefresh, vmId, defaultHiddenColumns, bordered = true }) => {
   // 工具栏过滤与抽屉/弹窗的本地状态
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -60,6 +64,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<any>(null);
+  
+  // 列设置状态
+  const [visibleColumns, setVisibleColumns] = useState<any>();
 
   const handleSuspend = async (record: any) => {
     try {
@@ -146,8 +153,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
     }
+    if (vmId) {
+      d = d.filter((x: any) => x.vmName === vmId);
+    }
     return d;
-  }, [dataSource, keyword, typeFilter]);
+  }, [dataSource, keyword, typeFilter, vmId]);
 
   const columns = [
     { 
@@ -261,15 +271,21 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         toolbarRight={(
            <div className="toolbar-actions">
              <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建定时策略</Button>
+             <TableColumnSettings
+               columns={columns}
+               onChange={setVisibleColumns}
+               settingsKey="harvester_schedule_backups_list"
+               defaultHiddenColumns={defaultHiddenColumns}
+             />
              <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
            </div>
         )}
       >
         <Table
           className="std-table"
-          bordered
+          bordered={bordered}
           dataSource={filteredData}
-          columns={columns}
+          columns={visibleColumns || columns}
           loading={loading}
           pagination={{
             size: 'small',

@@ -15,7 +15,7 @@
  * - 使用 utils/harvesterUtils 中的 isSystemNamespace、cnVmStatus 等工具函数
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox, Tag, Tabs, Tooltip, Alert } from 'antd';
@@ -26,6 +26,7 @@ import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, sta
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
+import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import { isSystemNamespace, cnVmStatus } from '../../../../utils/harvesterUtils';
 
 /**
@@ -99,6 +100,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   
   // 详情抽屉 (Metadata Modal) 状态
   const [metadataModalVisible, setMetadataModalVisible] = useState(false);
+  const [metadataOpsMode, setMetadataOpsMode] = useState(false);
   const [currentMetadata, setCurrentMetadata] = useState<any>(null);
   const [metadataActiveTab, setMetadataActiveTab] = useState('detail');
 
@@ -110,6 +112,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const [currentMigrateVm, setCurrentMigrateVm] = useState<any>(null);
 
   const [savingTemplate, setSavingTemplate] = useState(false);
+
+  // 备份/快照弹窗状态
+  const [vmBackupModalVisible, setVmBackupModalVisible] = useState(false);
+  const [vmBackupModalType, setVmBackupModalType] = useState<'backup' | 'snapshot'>('backup');
+  const [vmBackupModalVm, setVmBackupModalVm] = useState<any>(null);
 
 
 
@@ -506,7 +513,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
    * 遍历 VM 关联的所有 PVC，检查是否存在 Resizing 或 FileSystemResizePending 状态
    * @returns {Object} 包含是否正在扩容、是否等待文件系统扩容、涉及的 PVC 名称及状态消息
    */
-  const checkResizeStatus = (r: any) => {
+  const checkResizeStatus = useCallback((r: any) => {
     if (!volumes || volumes.length === 0) return { isResizing: false, isFsPending: false, pvcName: '', message: '' };
     
     const vmVolumes = r?.spec?.template?.spec?.volumes || [];
@@ -567,7 +574,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         }
     }
     return { isResizing: false, isFsPending: false, pvcName: '', message: '' };
-  };
+  }, [volumes]);
 
   // ==========================================
   // 4. 数据处理 (Data Processing)
@@ -601,14 +608,15 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // ==========================================
 
   // 显示资源详情抽屉
-  const handleShowMetadata = async (record: any, tab: string = 'detail') => {
+  const handleShowMetadata = useCallback(async (record: any, tab: string = 'detail', opsMode: boolean = false) => {
     setCurrentMetadata(record);
     setMetadataActiveTab(tab);
+    setMetadataOpsMode(opsMode);
     setMetadataModalVisible(true);
-  };
+  }, []);
 
   // 处理打开 WebVNC
-  const handleWebVnc = async (r: any) => {
+  const handleWebVnc = useCallback(async (r: any) => {
     const iid = getIid(r);
     try {
       let ns = '', name = '';
@@ -639,9 +647,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       message.error(e?.message || '获取VNC地址失败');
       return;
     }
-  };
+  }, [cloudId, SafeRead]);
 
-  const handleSaveAsTemplate = async (r: any) => {
+  const handleSaveAsTemplate = useCallback(async (r: any) => {
     if (!cloudId) return;
     const ns = SafeRead.namespace(r);
     const vmName = SafeRead.vmId(r);
@@ -658,10 +666,29 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     } finally {
       setSavingTemplate(false);
     }
-  };
+  }, [cloudId, SafeRead]);
+
+  // 备份
+  const handleBackup = useCallback((r: any) => {
+    setVmBackupModalVm(r);
+    setVmBackupModalType('backup');
+    setVmBackupModalVisible(true);
+  }, []);
+
+  // 快照
+  const handleSnapshot = useCallback((r: any) => {
+    setVmBackupModalVm(r);
+    setVmBackupModalType('snapshot');
+    setVmBackupModalVisible(true);
+  }, []);
+
+  // 克隆 (跳转到创建向导)
+  const handleClone = useCallback((r: any) => {
+    navigate(`/clouds/${cloudId}/instances/create`, { state: { fromVm: r, backgroundLocation: location } });
+  }, [cloudId, location, navigate]);
 
   // 处理删除确认 (支持同步删除关联 PVC)
-  const handleDeleteConfirm = (r: any) => {
+  const handleDeleteConfirm = useCallback((r: any) => {
     const iid = getIid(r);
     const status = String(SafeRead.status(r)).toLowerCase();
     const isRunning = status === 'running' || status === 'starting';
@@ -700,10 +727,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       okType: 'danger',
       onOk: () => onDelete(iid, deleteVolumes)
     });
-  };
+  }, [onDelete, SafeRead]);
 
   // 处理弹出 CD-ROM (支持同步删除 PVC 以避免孤儿卷)
-  const handleEjectCdrom = async (r: any) => {
+  const handleEjectCdrom = useCallback(async (r: any) => {
     const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
     const cdrom = disks[0];
     if (!cdrom) return;
@@ -786,16 +813,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         }
       }
     });
-  };
+  }, [cloudId, onRefresh, SafeRead]);
 
   // 处理迁移操作
-  const handleMigrate = (r: any) => {
+  const handleMigrate = useCallback((r: any) => {
     setCurrentMigrateVm(r);
     setMigrateModalVisible(true);
-  };
+  }, []);
 
   // 处理取消迁移
-  const handleAbortMigration = (r: any) => {
+  const handleAbortMigration = useCallback((r: any) => {
     Modal.confirm({
       title: '确认取消迁移？',
       icon: <ExclamationCircleOutlined />,
@@ -816,7 +843,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         }
       }
     });
-  };
+  }, [cloudId, onRefresh, SafeRead]);
 
   // ==========================================
   // 6. 事件处理 - 批量操作 (Batch Actions)
@@ -1078,8 +1105,15 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const items: any[] = [
         // 基础操作 - 始终显示
         { key: 'detail', label: '资源详情', onClick: () => handleShowMetadata(r, 'detail') },
+        { key: 'detail_ops', label: '资源详情(运维)', onClick: () => handleShowMetadata(r, 'detail', true) },
         { key: 'reconf', label: '资源变配', onClick: () => onOpenReconfigure(r) },
         { key: 'save_as_template', label: '保存为模板', disabled: savingTemplate, onClick: () => handleSaveAsTemplate(r) },
+        
+        // 备份/快照/克隆
+        { key: 'backup', label: '创建备份', onClick: () => handleBackup(r) },
+        { key: 'snapshot', label: '创建快照', onClick: () => handleSnapshot(r) },
+        { key: 'clone', label: '克隆实例', onClick: () => handleClone(r) },
+
         ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', onClick: () => handleEjectCdrom(r) }] : []),
         
         // 迁移操作
@@ -1119,7 +1153,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
     } },
-  ], [handleShowMetadata, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, handleEjectCdrom, handleMigrate, handleAbortMigration, savingTemplate, handleSaveAsTemplate]);
+  ], [handleShowMetadata, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, handleEjectCdrom, handleMigrate, handleAbortMigration, savingTemplate, handleSaveAsTemplate, handleBackup, handleSnapshot, handleClone]);
 
   // ==========================================
   // 8. 渲染 (Render)
@@ -1213,12 +1247,38 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         open={metadataModalVisible}
         onClose={() => setMetadataModalVisible(false)}
         resourceType="VirtualMachine"
+        forceOpsMode={metadataOpsMode}
         record={currentMetadata}
         activeTab={metadataActiveTab}
         onTabChange={setMetadataActiveTab}
         cloudId={cloudId}
+        namespaces={namespaces}
+        volumes={volumes}
+        images={images}
+        onRefresh={onRefresh}
+        onOpenReconfigure={onOpenReconfigure}
+        onBackup={handleBackup}
+        onSnapshot={handleSnapshot}
+        onClone={handleClone}
+        onMigrate={handleMigrate}
+        onDelete={handleDeleteConfirm}
       />
       
+      {/* 备份/快照弹窗 */}
+      <VmBackupCreateModal
+        visible={vmBackupModalVisible}
+        onCancel={() => setVmBackupModalVisible(false)}
+        onSuccess={() => {
+          setVmBackupModalVisible(false);
+          if (onRefresh) onRefresh(true);
+        }}
+        cloudId={cloudId}
+        namespaces={namespaces}
+        vms={vms}
+        initialType={vmBackupModalType}
+        initialVm={vmBackupModalVm}
+      />
+
       {/* 迁移弹窗 */}
       <HarvesterMigrateModal
         open={migrateModalVisible}

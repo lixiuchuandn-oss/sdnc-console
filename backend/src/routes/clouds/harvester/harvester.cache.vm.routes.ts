@@ -140,9 +140,22 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
             if (userSpace.namespace) {
               userSpace.namespace.split(',').forEach((s) => nsList.push(s.trim()));
             }
+            
+            // Auto-Fix: Ensure organization namespace is included in UserSpace
             if ((req.user as any).organizationId) {
-              nsList.push(`ns-${(req.user as any).organizationId}`);
+              const orgNs = `ns-${(req.user as any).organizationId}`;
+              if (!nsList.includes(orgNs)) {
+                nsList.push(orgNs);
+                // Update UserSpace record immediately
+                userSpace.namespace = nsList.join(',');
+                try {
+                   await userSpaceRepo.save(userSpace);
+                } catch (e) {
+                   console.warn('Failed to auto-update UserSpace namespace', e);
+                }
+              }
             }
+
             if (nsList.length > 0) {
               validNamespaces = nsList;
             }
@@ -328,9 +341,10 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           const validNamespaces = userSpace.namespace
             ? userSpace.namespace.split(',').map((s) => s.trim())
             : [];
-          if ((req.user as any).organizationId) {
-            validNamespaces.push(`ns-${(req.user as any).organizationId}`);
-          }
+          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
+          // if ((req.user as any).organizationId) {
+          //   validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          // }
 
           if (!validNamespaces.includes(namespace)) {
             return res.status(403).json({ message: '无权访问该命名空间资源' });
@@ -383,9 +397,10 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           const validNamespaces = userSpace.namespace
             ? userSpace.namespace.split(',').map((s) => s.trim())
             : [];
-          if ((req.user as any).organizationId) {
-            validNamespaces.push(`ns-${(req.user as any).organizationId}`);
-          }
+          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
+          // if ((req.user as any).organizationId) {
+          //   validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          // }
 
           if (!validNamespaces.includes(namespace)) {
             return res.status(403).json({ message: '无权访问该命名空间资源' });
@@ -473,14 +488,15 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           tenantNamespace = us.namespace;
 
           // 动态组织命名空间
-          if ((req.user as any).organizationId) {
-            const orgNs = `ns-${(req.user as any).organizationId}`;
-            tenantNamespace = tenantNamespace ? `${tenantNamespace},${orgNs}` : orgNs;
-          }
+          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
+          // if ((req.user as any).organizationId) {
+          //   const orgNs = `ns-${(req.user as any).organizationId}`;
+          //   tenantNamespace = tenantNamespace ? `${tenantNamespace},${orgNs}` : orgNs;
+          // }
         }
 
-        if (tenantNamespace) {
-          const allowed = tenantNamespace.split(',').map((s) => s.trim());
+        if (isTenant) {
+          const allowed = tenantNamespace ? tenantNamespace.split(',').map((s) => s.trim()) : [];
 
           // 如果目标命名空间不被允许，直接拒绝
           if (!allowed.includes(targetNamespace)) {
@@ -543,9 +559,10 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
 
           const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map((s) => s.trim()) : [];
 
-          if ((req.user as any).organizationId) {
-            validNamespaces.push(`ns-${(req.user as any).organizationId}`);
-          }
+          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
+          // if ((req.user as any).organizationId) {
+          //   validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          // }
 
           if (!validNamespaces.includes(namespace)) {
             return res.status(403).json({ message: '无权访问该命名空间资源' });
@@ -593,9 +610,10 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
 
           const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map((s) => s.trim()) : [];
 
-          if ((req.user as any).organizationId) {
-            validNamespaces.push(`ns-${(req.user as any).organizationId}`);
-          }
+          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
+          // if ((req.user as any).organizationId) {
+          //   validNamespaces.push(`ns-${(req.user as any).organizationId}`);
+          // }
 
           if (!validNamespaces.includes(namespace)) {
             return res.status(403).json({ message: '无权访问该命名空间资源' });
@@ -796,6 +814,12 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           } else if (userSpace.namespace) {
             allowedNamespace = userSpace.namespace;
           }
+
+          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
+          // if ((req.user as any).organizationId) {
+          //   const orgNs = `ns-${(req.user as any).organizationId}`;
+          //   allowedNamespace = allowedNamespace ? `${allowedNamespace},${orgNs}` : orgNs;
+          // }
         }
 
         const send = (event: string, payload: any) => {

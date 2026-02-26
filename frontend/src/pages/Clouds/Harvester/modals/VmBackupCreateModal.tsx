@@ -11,7 +11,7 @@
  * - 提交时调用 createHarvesterVirtualMachineBackup，传入 name/vmName/type。
  */
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, Select, Radio, message } from 'antd';
+import { Modal, Form, Input, Select, message } from 'antd';
 import { createHarvesterVirtualMachineBackup } from '../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
@@ -33,6 +33,8 @@ interface Props {
   namespaces: any[];
   vms: any[];
   initialType?: 'backup' | 'snapshot';
+  initialVm?: any;
+  initialNamespace?: string;
 }
 
 const VmBackupCreateModal: React.FC<Props> = ({ 
@@ -42,7 +44,9 @@ const VmBackupCreateModal: React.FC<Props> = ({
   cloudId, 
   namespaces, 
   vms,
-  initialType = 'backup'
+  initialType = 'backup',
+  initialVm,
+  initialNamespace
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -54,9 +58,26 @@ const VmBackupCreateModal: React.FC<Props> = ({
     if (visible) {
       form.resetFields();
       setType(initialType);
-      form.setFieldsValue({ type: initialType });
+      
+      const initValues: any = { type: initialType };
+      
+      if (initialNamespace) {
+        initValues.namespace = initialNamespace;
+        setSelectedNamespace(initialNamespace);
+      }
+      
+      if (initialVm) {
+        initValues.vmName = initialVm.name || initialVm.metadata?.name;
+        // 如果有 initialVm，确保 namespace 也被选中（通常 initialNamespace 应该同时传递）
+        if (!initialNamespace && initialVm.metadata?.namespace) {
+           initValues.namespace = initialVm.metadata.namespace;
+           setSelectedNamespace(initialVm.metadata.namespace);
+        }
+      }
+
+      form.setFieldsValue(initValues);
     }
-  }, [visible, initialType, form]);
+  }, [visible, initialType, initialVm, initialNamespace, form]);
 
   /**
    * 校验表单并提交创建：

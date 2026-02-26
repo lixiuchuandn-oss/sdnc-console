@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
+import { In } from 'typeorm';
 import { UserSpace } from '../../../entities/UserSpace';
 import { HarvesterClusterNetworkInventory } from '../../../entities/harvester/HarvesterClusterNetworkInventory';
 import { HarvesterVlanConfigInventory } from '../../../entities/harvester/HarvesterVlanConfigInventory';
@@ -105,9 +106,20 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
           tenantNamespace = us.namespace;
 
+          // Auto-Fix: Ensure organization namespace is included in UserSpace
           if ((req.user as any).organizationId) {
-            const orgNs = `ns-${(req.user as any).organizationId}`;
-            tenantNamespace = tenantNamespace ? `${tenantNamespace},${orgNs}` : orgNs;
+             const orgNs = `ns-${(req.user as any).organizationId}`;
+             const nsList = tenantNamespace ? tenantNamespace.split(',').map((s) => s.trim()).filter(Boolean) : [];
+             if (!nsList.includes(orgNs)) {
+                nsList.push(orgNs);
+                tenantNamespace = nsList.join(',');
+                us.namespace = tenantNamespace;
+                try {
+                   await userSpaceRepo.save(us);
+                } catch (e) {
+                   console.warn('Failed to auto-update UserSpace namespace', e);
+                }
+             }
           }
         }
 
@@ -128,8 +140,8 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           view: i.view,
         }));
 
-        if (isTenant && tenantNamespace) {
-          const userNamespaces = tenantNamespace.split(',').map((n) => n.trim());
+        if (isTenant) {
+          const userNamespaces = tenantNamespace ? tenantNamespace.split(',').map((n) => n.trim()) : [];
           list = list.filter((vpc: any) => {
             const allowed = vpc?.spec?.namespaces || [];
             if (!Array.isArray(allowed)) return false;
@@ -184,9 +196,20 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
           tenantNamespace = us.namespace;
 
+          // Auto-Fix: Ensure organization namespace is included in UserSpace
           if ((req.user as any).organizationId) {
-            const orgNs = `ns-${(req.user as any).organizationId}`;
-            tenantNamespace = tenantNamespace ? `${tenantNamespace},${orgNs}` : orgNs;
+             const orgNs = `ns-${(req.user as any).organizationId}`;
+             const nsList = tenantNamespace ? tenantNamespace.split(',').map((s) => s.trim()).filter(Boolean) : [];
+             if (!nsList.includes(orgNs)) {
+                nsList.push(orgNs);
+                tenantNamespace = nsList.join(',');
+                us.namespace = tenantNamespace;
+                try {
+                   await userSpaceRepo.save(us);
+                } catch (e) {
+                   console.warn('Failed to auto-update UserSpace namespace', e);
+                }
+             }
           }
         }
 
@@ -204,10 +227,11 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         const dbItems = await repo.find({ where: whereCondition });
         let list = dbItems.map((i) => i.rawData);
 
-        if (isTenant && tenantNamespace) {
+        if (isTenant) {
+          const userNamespaces = tenantNamespace ? tenantNamespace.split(',').map((n) => n.trim()) : [];
           list = list.filter((subnet: any) => {
             const allowed = subnet?.spec?.namespaces || [];
-            return Array.isArray(allowed) && allowed.includes(tenantNamespace);
+            return Array.isArray(allowed) && userNamespaces.some((ns) => allowed.includes(ns));
           });
         }
 

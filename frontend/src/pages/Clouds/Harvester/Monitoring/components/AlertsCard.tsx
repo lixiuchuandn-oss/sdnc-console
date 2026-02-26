@@ -6,9 +6,7 @@ import { Card, Typography, Spin } from 'antd';
 import { WarningOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useDashboardSlowDataContext } from '../DashboardContext';
 import { parseAlerts, type ParsedAlert } from '../utils/prometheusAlerts';
-
-const CRITICAL_COLOR = '#FF5C7C';
-const WARNING_COLOR = '#f59e0b';
+import { CRITICAL_COLOR, WARNING_COLOR } from '../constants';
 
 export const AlertsCard: React.FC = () => {
   const slowCtx = useDashboardSlowDataContext();

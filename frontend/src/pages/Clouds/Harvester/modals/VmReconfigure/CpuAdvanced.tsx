@@ -6,25 +6,10 @@ type Props = {
 };
 
 const CpuAdvanced: React.FC<Props> = ({ form }) => {
+  const enableHotPlug = Form.useWatch('enableHotPlug', form);
+
   return (
     <div>
-      <Form.Item label="CPU 拓扑">
-        <Space>
-          <Typography.Text>插槽</Typography.Text>
-          <Form.Item noStyle name="cpuSockets">
-            <InputNumber min={1} max={8} style={{ width: 100 }} />
-          </Form.Item>
-          <Typography.Text>每插槽</Typography.Text>
-          <Form.Item noStyle name="cpuCores">
-            <InputNumber min={1} max={64} style={{ width: 100 }} />
-          </Form.Item>
-          <Typography.Text>核</Typography.Text>
-          <Typography.Text>线程</Typography.Text>
-          <Form.Item noStyle name="cpuThreads">
-            <InputNumber min={1} max={8} style={{ width: 100 }} />
-          </Form.Item>
-        </Space>
-      </Form.Item>
       <Form.Item label="CPU 模式" name="cpuModel" initialValue="host-passthrough">
         <Select options={[{ label: 'Host-Passthrough', value: 'host-passthrough' }, { label: 'Host-Model', value: 'host-model' }, { label: '自定义', value: 'custom' }]} style={{ width: 220 }} />
       </Form.Item>

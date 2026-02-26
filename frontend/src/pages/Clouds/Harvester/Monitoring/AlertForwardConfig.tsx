@@ -202,7 +202,7 @@ function AlertConfigPreview({
   const name = Form.useWatch('name', form) ?? '';
   const namespace = Form.useWatch('namespace', form) ?? '';
   const description = Form.useWatch('description', form) ?? '';
-  const receiverType: ReceiverUIType = Form.useWatch('receiverType', form) ?? 'email';
+  const receiverType: ReceiverUIType = Form.useWatch('receiverType', form) ?? 'email-receiver';
   const dingtalkList = Form.useWatch('dingtalkList', form) ?? [];
   const emailList = Form.useWatch('emailList', form) ?? [];
   const matchers = (Form.useWatch('matchers', form) ?? []) as string[];
@@ -210,8 +210,8 @@ function AlertConfigPreview({
   const dingtalkCount = Array.isArray(dingtalkList) ? dingtalkList.filter((i: any) => (i?.webhookUrl ?? '').toString().trim()).length : 0;
   const emailCount = Array.isArray(emailList) ? emailList.filter((i: any) => (i?.emailTo ?? '').toString().trim()).length : 0;
   const receiverDetail =
-    receiverType === 'email' ? (emailCount ? `邮箱 ${emailCount} 条` : '-')
-      : receiverType === 'dingtalk' ? (dingtalkCount ? `钉钉 ${dingtalkCount} 条` : '-') : '-';
+    receiverType === 'email-receiver' ? (emailCount ? `邮箱 ${emailCount} 条` : '-')
+      : receiverType === 'dingtalk-receiver' ? (dingtalkCount ? `钉钉 ${dingtalkCount} 条` : '-') : '-';
   const matcherLabels = isAdmin
     ? matcherPairs.filter((p) => (p?.key ?? '').trim()).map((p) => `${p?.key ?? ''}=${p?.value ?? ''}`)
     : (matchers.filter(Boolean) as string[]).map((v) => triggerOptions.find((o) => o.value === v)?.label ?? v);
@@ -220,7 +220,7 @@ function AlertConfigPreview({
       <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>名称</span><span>{name || '-'}</span></div>
       <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>命名空间</span><span>{namespace || '-'}</span></div>
       <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>描述</span><span>{(description || '').trim() || '-'}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>接收类型</span><span>{RECEIVER_TYPE_OPTIONS.find((o) => o.value === receiverType)?.label ?? receiverType}</span></div>
+      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>接收类型</span><span>{RECEIVER_TYPE_OPTIONS.find((o: any) => o.value === receiverType)?.label ?? receiverType}</span></div>
       <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>配置摘要</span><span>{receiverDetail}</span></div>
       <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>已选条件</span><span>{matcherLabels.length ? matcherLabels.join('、') : '-'}</span></div>
     </div>
@@ -354,12 +354,12 @@ const AlertForwardConfig: React.FC<AlertForwardConfigProps> = ({ cloudId }) => {
               const routeReceiver = d.spec?.route?.receiver ?? d.spec?.receivers?.[0]?.name;
               const receivers = Array.isArray(d.spec?.receivers) ? d.spec.receivers : [];
               const r0 = routeReceiver ? receivers.find((r: any) => r.name === routeReceiver) : receivers[0];
-              let receiverType: ReceiverUIType = 'email';
+              let receiverType: ReceiverUIType = 'email-receiver';
               let dingtalkList = [{ webhookUrl: '', dingtalkSigningSecret: '' }];
               let emailList = [{ emailTo: '', emailFrom: '', smarthost: '', requireTls: true, authUsername: '', authIdentity: '', authSecretKey: '' }];
               if (r0) {
                 if (r0.emailConfigs?.length) {
-                  receiverType = 'email';
+                  receiverType = 'email-receiver';
                   emailList = (r0.emailConfigs || []).map((e: any) => {
                     const ap = e?.authPassword;
                     const name = typeof ap === 'object' && ap !== null ? ap.name : (e?.authIdentity ?? '');
@@ -378,7 +378,7 @@ const AlertForwardConfig: React.FC<AlertForwardConfigProps> = ({ cloudId }) => {
                 } else if (r0.webhookConfigs?.length) {
                   const url0 = r0.webhookConfigs[0]?.url ?? '';
                   if (url0 !== INBOX_WEBHOOK_PLACEHOLDER && !/inbox|站内信/i.test(url0)) {
-                    receiverType = 'dingtalk';
+                    receiverType = 'dingtalk-receiver';
                     const secrets = getDingtalkSecretsFromAnnotations(annotations, r0.name);
                     dingtalkList = (r0.webhookConfigs || []).map((w: any, i: number) => ({
                       webhookUrl: w?.url ?? '',
@@ -434,7 +434,7 @@ const AlertForwardConfig: React.FC<AlertForwardConfigProps> = ({ cloudId }) => {
         const defaultNs = isAdmin ? undefined : (tenantNamespaces[0] ?? 'default');
         form.setFieldsValue({
           namespace: defaultNs,
-          receiverType: 'email',
+          receiverType: 'email-receiver',
           repeatInterval: '4h',
           dingtalkList: [{ webhookUrl: '', dingtalkSigningSecret: '' }],
           emailList: [{ emailTo: '', emailFrom: '', smarthost: '', requireTls: true, authUsername: '', authIdentity: '', authSecretKey: '' }],
@@ -472,7 +472,7 @@ const AlertForwardConfig: React.FC<AlertForwardConfigProps> = ({ cloudId }) => {
         description,
         receiverType,
       };
-      if (receiverType === 'dingtalk') {
+      if (receiverType === 'dingtalk-receiver') {
         mergeDingtalkSecretsIntoAnnotations(annotations, receiverName, values.dingtalkList);
       } else {
         removeDingtalkSecretsFromAnnotations(annotations, receiverName);
@@ -723,7 +723,7 @@ const AlertForwardConfig: React.FC<AlertForwardConfigProps> = ({ cloudId }) => {
                   <Form.Item shouldUpdate={(prev, curr) => prev.receiverType !== curr.receiverType} noStyle>
                     {({ getFieldValue }) => {
                       const type = getFieldValue('receiverType') as ReceiverUIType;
-                      if (type === 'dingtalk') {
+                      if (type === 'dingtalk-receiver') {
                         return (
                           <Form.List name="dingtalkList">
                             {(fields, { add, remove }) => (
@@ -767,7 +767,7 @@ const AlertForwardConfig: React.FC<AlertForwardConfigProps> = ({ cloudId }) => {
                           </Form.List>
                         );
                       }
-                      if (type === 'email') {
+                      if (type === 'email-receiver') {
                         return (
                           <Form.List name="emailList">
                             {(fields, { add, remove }) => (

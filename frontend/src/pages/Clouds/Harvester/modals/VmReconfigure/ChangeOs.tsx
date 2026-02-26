@@ -61,13 +61,17 @@ const ChangeOs: React.FC<Props> = ({
               showSearch
               options={(images || []).filter((x: any) => {
                  const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
-                 const disp = String(x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
+                 const annotations = x?.metadata?.annotations || x?.annotations || {};
+                 const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'] || '';
+                 const disp = String(imageName || x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
                  const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
                  return !isIso; // Always filter out ISOs
               }).map((x: any) => {
                   const name = x?.metadata?.name || x?.name;
                   const ns = x?.metadata?.namespace || x?.namespace;
-                  const disp = x?.spec?.displayName || x?.displayName || name;
+                  const annotations = x?.metadata?.annotations || x?.annotations || {};
+                  const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'];
+                  const disp = imageName || x?.spec?.displayName || x?.displayName || name;
                   return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
               })}
               placeholder="请选择镜像"
@@ -136,7 +140,7 @@ const ChangeOs: React.FC<Props> = ({
                }
              ]}
            >
-             <Input type="number" addonAfter="GiB" placeholder={minSize ? `最小 ${minSize} GiB` : '自动选择'} />
+             <Input type="number" suffix="GiB" placeholder={minSize ? `最小 ${minSize} GiB` : '自动选择'} />
            </Form.Item>
         </Col>
         <Col span={12}>
@@ -146,21 +150,21 @@ const ChangeOs: React.FC<Props> = ({
         </Col>
       </Row>
 
-      <div style={{ padding: '16px 16px 0 16px', background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8 }}>
+      <div style={{ padding: '12px', background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8 }}>
         <Row gutter={12}>
           <Col span={12}>
             {/* 设备类型 - 锁定为 DISK (Hidden field + Display Input) */}
             <Form.Item name="rootDeviceType" hidden initialValue="disk">
                 <Input />
             </Form.Item>
-            <Form.Item label="设备类型">
-                <Input readOnly value="DISK" style={{ color: '#00000040' }} />
+            <Form.Item>
+                <Input readOnly value="DISK" style={{ color: '#00000040' }} suffix="设备类型" />
             </Form.Item>
           </Col>
           <Col span={12}>
               {/* 卷类型 - 展示 Only */}
-              <Form.Item label="卷类型">
-                  <Input readOnly value="Block" style={{ color: '#00000040' }} />
+              <Form.Item>
+                  <Input readOnly value="Block" style={{ color: '#00000040' }} suffix="卷类型" />
               </Form.Item>
           </Col>
         </Row>
@@ -168,14 +172,14 @@ const ChangeOs: React.FC<Props> = ({
         <Row gutter={12}>
           <Col span={12}>
               {/* 访问模式 - 展示 Only */}
-              <Form.Item label="访问模式">
-                  <Input readOnly value="ReadWriteOnce" style={{ color: '#00000040' }} />
+              <Form.Item style={{ marginBottom: 0 }}>
+                  <Input readOnly value="ReadWriteOnce" style={{ color: '#00000040' }} suffix="访问模式" />
               </Form.Item>
           </Col>
           <Col span={12}>
               {/* 存储类 - 只读，自动回显 */}
-              <Form.Item label="存储类" name="storageClassName">
-                  <Input readOnly placeholder="自动选择" style={{ color: '#00000040' }} />
+              <Form.Item style={{ marginBottom: 0 }}>
+                  <Input readOnly placeholder="自动选择" style={{ color: '#00000040' }} suffix="存储类" />
               </Form.Item>
           </Col>
 

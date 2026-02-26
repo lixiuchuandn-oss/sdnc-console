@@ -8,6 +8,7 @@ import { Table, Tag, Button, message, Input, Modal, Select, Badge } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import { TableColumnSettings } from '../../../../components/TableColumnSettings';
 import { deleteHarvesterBackup } from '../../../../services/harvesterApi';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
@@ -30,9 +31,11 @@ interface Props {
   namespaces: any[];
   vms: any[];
   type?: 'backup' | 'snapshot';
+  vmId?: string;
+  bordered?: boolean;
 }
 
-const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup' }) => {
+const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, bordered = true }) => {
   // 关键字搜索
   const [keyword, setKeyword] = useState<string>('');
   // 状态过滤：all / ready / not_ready
@@ -44,6 +47,9 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
   // 当前选中的备份/快照，用于恢复操作
   const [currentSnapshot, setCurrentSnapshot] = useState<any>(null);
   
+  // 列设置状态
+  const [visibleColumns, setVisibleColumns] = useState<any>();
+  
   /**
    * 将原始备份列表规范化为表格可直接使用的数据结构
    * 同时按照 type 区分 Backup / Snapshot
@@ -53,7 +59,14 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       .filter((b: any) => {
         const raw = b.rawData || b;
         const itemType = raw.spec?.type || 'backup';
-        return itemType === type;
+        // Filter by type
+        if (itemType !== type) return false;
+        // Filter by vmId if provided
+        if (vmId) {
+             const target = raw.spec?.source?.name || b.targetVm;
+             if (target !== vmId) return false;
+        }
+        return true;
       })
       .map((b: any) => {
       const raw = b.rawData || b;
@@ -195,15 +208,20 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       toolbarRight={(
          <div className="toolbar-actions">
            <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建{type === 'backup' ? '备份' : '快照'}</Button>
+           <TableColumnSettings
+             columns={columns}
+             onChange={setVisibleColumns}
+             settingsKey={`harvester_${type}_list`}
+           />
            <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
          </div>
       )}
     >
       <Table
         className="std-table"
-        bordered
+        bordered={bordered}
         dataSource={filteredData}
-        columns={columns}
+        columns={visibleColumns || columns}
         rowKey="key"
         loading={loading}
         pagination={{
