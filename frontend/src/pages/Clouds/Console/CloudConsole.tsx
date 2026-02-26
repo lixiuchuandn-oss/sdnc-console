@@ -1082,6 +1082,8 @@ const CloudConsolePage: React.FC = () => {
                     onStop={handleStop}
                     onReboot={handleReboot}
                     onDelete={handleDelete}
+                    bordered={false}
+                    showOpsDetail={false}
                   />
                 ) : (
                   <Tabs

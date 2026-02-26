@@ -24,7 +24,16 @@ import { formatCron } from '../../../../utils/cronFormatter';
 interface Props {
   visible: boolean;
   onCancel: () => void;
-  onSuccess: () => void;
+  onSuccess: (created?: {
+    namespace: string;
+    alias: string;
+    vmName: string;
+    type: 'backup' | 'snapshot';
+    cron: string;
+    retain: number;
+    maxFailure: number;
+    suspend: boolean;
+  }) => void;
   cloudId: string;
 }
 
@@ -132,7 +141,16 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
       setLoading(true);
       await createHarvesterScheduleVmBackup(cloudId, values);
       message.success('创建成功');
-      onSuccess();
+      onSuccess({
+        namespace: values.namespace,
+        alias: values.name,
+        vmName: values.vmName,
+        type: values.type,
+        cron: values.cron,
+        retain: values.retain,
+        maxFailure: values.maxFailure,
+        suspend: values.suspend
+      });
     } catch (e: any) {
       let errorMsg = e.message || '创建失败';
 
@@ -148,10 +166,31 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
             const detailObj = JSON.parse(detail);
             if (detailObj.message) {
                const k8sMsg = detailObj.message;
-               if (k8sMsg.includes('same granularity') && k8sMsg.includes('offset less than')) {
+               const lower = k8sMsg.toLowerCase();
+               
+               if (lower.includes('same granularity') && lower.includes('offset less than')) {
                  errorMsg = `${summary}: 检测到备份计划时间冲突。请修改“分钟”设置，使执行时间至少偏移 10 分钟。`;
                } else {
-                 errorMsg = `${summary}: ${k8sMsg}`;
+                 // Check for schedule conflict
+                 let conflict: 'snapshot' | 'backup' | '' = '';
+                 if (lower.includes('already has snapshot schedule')) conflict = 'snapshot';
+                 else if (lower.includes('already has backup schedule')) conflict = 'backup';
+
+                 if (conflict) {
+                   const ns = form.getFieldValue('namespace');
+                   const vmName = form.getFieldValue('vmName');
+                   let alias = vmName;
+                   const vm = (vms || []).find((x: any) => {
+                     const vmNs = x?.metadata?.namespace || x?.namespace;
+                     const name = x?.metadata?.name || x?.name;
+                     return vmNs === ns && name === vmName;
+                   });
+                   if (vm) alias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || alias;
+                   const typeCn = conflict === 'snapshot' ? '快照' : '备份';
+                   errorMsg = `创建定时任务失败： 虚机 ${alias} 已经存在${typeCn}类型的定时任务`;
+                 } else {
+                   errorMsg = `${summary}: ${k8sMsg}`;
+                 }
                }
             } else {
                errorMsg = `${summary}: ${detail}`;
@@ -232,7 +271,11 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
         >
           <Select 
             placeholder="请选择虚拟机"
-            options={filteredVms.map(v => ({ label: v.name, value: v.name }))}
+            options={filteredVms.map(v => {
+              const alias = v?.metadata?.annotations?.['tower.io/alias'] || v?.alias || v?.name;
+              const name = v?.name || v?.metadata?.name;
+              return { label: alias || name, value: name };
+            })}
             disabled={!selectedNamespace}
             showSearch
           />

@@ -189,7 +189,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
    * 独立刷新 NAD 数据的函数 (传递给子组件使用)
    */
   const [nadsLoading, setNadsLoading] = useState(false);
-  const refreshNads = async (force = false) => {
+  const refreshNads = async (force = false, silent = false) => {
     if (nadsLoading) return;
     setNadsLoading(true);
     try {
@@ -197,7 +197,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       const nadsList: any[] = (nadsJson as any)?.data?.items || [];
       setHarvesterNads(Array.isArray(nadsList) ? nadsList : []);
       setRawNads(nadsJson || null);
-      message.success('NAD网络刷新成功');
+      if (!silent) message.success('NAD网络刷新成功');
     } catch (e: any) {
       message.error(`刷新NAD网络失败: ${e?.message || '未知错误'}`);
     } finally {
@@ -1223,7 +1223,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: '定时策略',
                       children: (
                         <>
-                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={() => loadTabResource('scheduleVmBackups', true)} />
+                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={() => loadTabResource('scheduleVmBackups', true)} vms={ecs} />
                           <DebugJSON data={rawScheduleVmBackups} show={showLog} />
                         </>
                       )

@@ -560,6 +560,7 @@ export const updateHarvesterVMSpec = async (
       if (spec.cpu !== undefined) {
           ensureResources();
           domain.resources.requests.cpu = String(spec.cpu);
+          domain.resources.limits.cpu = String(spec.cpu);
           ensureCpu();
           domain.cpu.sockets = 1;
           domain.cpu.cores = Number(spec.cpu);

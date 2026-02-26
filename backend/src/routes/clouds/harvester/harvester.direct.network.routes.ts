@@ -13,6 +13,38 @@ import {
   isNamespaceAllowed,
 } from './harvester.direct.helpers';
 
+// Helper: Convert IP string to number
+const ipToLong = (ip: string): number => {
+  return (
+    ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>>
+    0
+  );
+};
+
+// Helper: Convert CIDR to range [start, end]
+const cidrToRange = (cidr: string): [number, number] | null => {
+  try {
+    const [ip, mask] = cidr.split('/');
+    const maskNum = parseInt(mask, 10);
+    if (isNaN(maskNum) || maskNum < 0 || maskNum > 32) return null;
+    const ipNum = ipToLong(ip);
+    const hostBits = 32 - maskNum;
+    const start = (ipNum >>> hostBits) << hostBits;
+    const end = start + Math.pow(2, hostBits) - 1;
+    return [start >>> 0, end >>> 0];
+  } catch {
+    return null;
+  }
+};
+
+// Helper: Check if ranges overlap
+const rangesOverlap = (
+  r1: [number, number],
+  r2: [number, number],
+): boolean => {
+  return Math.max(r1[0], r2[0]) <= Math.min(r1[1], r2[1]);
+};
+
 export const registerHarvesterDirectNetworkRoutes = (
   router: Router,
   checkAdminPermission: any,
@@ -212,6 +244,12 @@ export const registerHarvesterDirectNetworkRoutes = (
           return;
         }
 
+        const nameStr = String(name).trim();
+        if (/^[0-9]/.test(nameStr) || /^[0-9]+$/.test(nameStr)) {
+          res.status(422).send('当前创建的子网名称不能以数字开头或为纯数字');
+          return;
+        }
+
         if (excludeIps && Array.isArray(excludeIps)) {
           const valid = excludeIps.every(
             (ip: any) => typeof ip === 'string' && ip.trim().length > 0,
@@ -247,6 +285,28 @@ export const registerHarvesterDirectNetworkRoutes = (
           origin = base.replace(/\/v[0-9].*$/, '');
         }
 
+        // CIDR Conflict Pre-check
+        try {
+            const existing = await getJsonOnce(`${origin}/apis/kubeovn.io/v1/subnets`, cloud.secretKey || '', insecure);
+            const items: any[] = Array.isArray(existing?.items) ? existing.items : Array.isArray(existing?.data) ? existing.data : [];
+            const reqRange = cidrToRange(String(cidrBlock || '').trim());
+            if (reqRange) {
+            for (const s of items) {
+                const c = String(s?.spec?.cidrBlock || s?.spec?.cidr || '').trim();
+                const r = cidrToRange(c);
+                if (r && rangesOverlap(reqRange, r)) {
+                const conflictName = s?.metadata?.name || s?.name;
+                if (conflictName) {
+                    res.status(422).send(`当前创建的子网和已存在的子网${conflictName}冲突`);
+                    return;
+                }
+                }
+            }
+            }
+        } catch (e) {
+            console.warn('[CreateSubnet] CIDR pre-check failed, proceeding anyway:', e);
+        }
+
         const url = `${origin}/apis/kubeovn.io/v1/subnets`;
 
         const nadName = name;
@@ -272,6 +332,7 @@ export const registerHarvesterDirectNetworkRoutes = (
           },
         };
 
+        let createdNewNad = false;
         try {
           await requestJson(
             'POST',
@@ -280,6 +341,7 @@ export const registerHarvesterDirectNetworkRoutes = (
             insecure,
             nadPayload,
           );
+          createdNewNad = true;
         } catch (nadError: any) {
           const isConflict =
             nadError?.response?.status === 409 ||
@@ -293,6 +355,7 @@ export const registerHarvesterDirectNetworkRoutes = (
               nadError.message,
             );
           }
+          if (isConflict) createdNewNad = false;
         }
 
         const payload = {
@@ -321,23 +384,40 @@ export const registerHarvesterDirectNetworkRoutes = (
           },
         };
 
-        const result = await requestJson(
-          'POST',
-          url,
-          cloud.secretKey || '',
-          insecure,
-          payload,
-        );
-        res.json({ message: '创建子网成功', data: result });
-      } catch (error: any) {
-        if (res.headersSent) return;
-        console.error('[CreateSubnet] Failed:', error);
-        res.status(500).json({
-          message: '创建子网失败',
-          error: error.message,
-          details: error.body || error.response || error.toString(),
-          debug_payload: req.body,
-        });
+        try {
+            const result = await requestJson(
+            'POST',
+            url,
+            cloud.secretKey || '',
+            insecure,
+            payload,
+            );
+            res.json({ message: '创建子网成功', data: result });
+        } catch (error: any) {
+            // Rollback NAD if subnet creation failed
+            if (createdNewNad) {
+                try {
+                    const nadDelUrl = `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNamespace}/network-attachment-definitions/${encodeURIComponent(name)}`;
+                    await requestJson('DELETE', nadDelUrl, cloud.secretKey || '', insecure);
+                } catch {}
+            }
+
+            if (res.headersSent) return;
+            console.error('[CreateSubnet] Failed:', error);
+            res.status(500).json({
+            message: '创建子网失败',
+            error: error.message,
+            details: error.body || error.response || error.toString(),
+            debug_payload: req.body,
+            });
+        }
+      } catch (err: any) {
+        if (!res.headersSent) {
+          res.status(500).json({
+            message: 'Unexpected error',
+            error: err.message,
+          });
+        }
       }
     },
   );
@@ -424,7 +504,45 @@ export const registerHarvesterDirectNetworkRoutes = (
 
         const url = `${origin}/apis/kubeovn.io/v1/subnets/${name}`;
 
+        // Check for VM usage (NAD)
+        try {
+            const ecsList = await getJsonOnce(`${origin}/v1/harvester/kubevirt.io.virtualmachines`, cloud.secretKey || '', insecure);
+            const vms: any[] = Array.isArray(ecsList?.items) ? ecsList.items : Array.isArray(ecsList?.data) ? ecsList.data : [];
+            const nadNamespace = 'default';
+            const targetRef = `${nadNamespace}/${name}`.toLowerCase();
+            
+            const usingVms = vms
+            .map((vm: any) => {
+                const networks: any[] = vm?.spec?.template?.spec?.networks || [];
+                const nets = networks.map((n: any) => n?.multus?.networkName).filter((n: any) => typeof n === 'string');
+                
+                const alias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name;
+                const matched = nets.some((n: string) => {
+                    const s = String(n || '').toLowerCase();
+                    const base = s.includes('@') ? s.split('@')[0] : s;
+                    return base === targetRef || base.endsWith(`/${name.toLowerCase()}`);
+                });
+                return matched ? alias : undefined;
+            })
+            .filter((x: any) => typeof x === 'string' && x.trim().length > 0);
+
+            if (usingVms.length > 0) {
+                res.status(409).send(`不能删除此子网，因为正在被虚拟机使用 ${usingVms.slice(0, 5).join('，')}${usingVms.length > 5 ? ' 等' : ''}`);
+                return;
+            }
+        } catch (checkError) {
+            console.warn('[DeleteSubnet] Failed to check VM usage, proceeding anyway:', checkError);
+        }
+
         await requestJson('DELETE', url, cloud.secretKey || '', insecure);
+
+        // Cascade delete NAD (best-effort)
+        try {
+            const nadNamespace = 'default';
+            const nadDelUrl = `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNamespace}/network-attachment-definitions/${encodeURIComponent(name)}`;
+            await requestJson('DELETE', nadDelUrl, cloud.secretKey || '', insecure);
+        } catch {}
+
         res.json({ message: '删除子网成功' });
       } catch (error: any) {
         if (res.headersSent) return;

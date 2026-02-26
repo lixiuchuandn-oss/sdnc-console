@@ -31,6 +31,7 @@ interface Props {
   data: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  vms?: any[]; // New prop for alias resolution
   vmId?: string;
   defaultHiddenColumns?: string[];
   bordered?: boolean;
@@ -56,7 +57,7 @@ const formatAge = (timestamp: string) => {
   return `${days} 天`;
 };
 
-const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onRefresh, vmId, defaultHiddenColumns, bordered = true }) => {
+const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onRefresh, vms, vmId, defaultHiddenColumns, bordered = true }) => {
   // 工具栏过滤与抽屉/弹窗的本地状态
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -65,14 +66,98 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<any>(null);
   
+  // Optimistic UI states
+  const [pollingTarget, setPollingTarget] = useState<{ namespace: string; alias: string } | null>(null);
+  const [optimisticItems, setOptimisticItems] = useState<any[]>([]);
+  const [removed, setRemoved] = useState<Array<{ ns: string; id?: string; alias?: string }>>([]);
+  const [suspendedOverrides, setSuspendedOverrides] = useState<Array<{ ns: string; id: string; suspended: boolean }>>([]);
+  const [suspendPollingTarget, setSuspendPollingTarget] = useState<{ ns: string; id: string; suspended: boolean } | null>(null);
+
   // 列设置状态
   const [visibleColumns, setVisibleColumns] = useState<any>();
+
+  // Polling for newly created item
+  React.useEffect(() => {
+    if (!pollingTarget) return;
+    let tries = 0;
+    const maxTries = 15;
+    const tick = () => {
+      // Check if target exists in current dataSource (excluding optimistic ones ideally, but checking 'data' prop is safer if we want to confirm backend sync)
+      // However, dataSource is derived. Let's check 'data' prop directly or just check if it appears in the processed list WITHOUT being optimistic.
+      // But here we can check dataSource and see if we can find a non-optimistic match.
+      // Actually, checking `data` is better.
+      const exists = (data || []).some((x: any) => {
+        const raw = x.rawData || x;
+        const ns = raw.metadata?.namespace || x.namespace;
+        const name = raw.metadata?.name || x.name;
+        const alias = raw.metadata?.annotations?.['tower.io/alias'];
+        return ns === pollingTarget.namespace && (name === pollingTarget.alias || alias === pollingTarget.alias);
+      });
+
+      if (exists || tries >= maxTries) {
+        setPollingTarget(null);
+        if (exists) {
+          // Remove from optimistic list once confirmed
+          setOptimisticItems(prev => prev.filter(o => !(o.namespace === pollingTarget.namespace && o.name === pollingTarget.alias)));
+        }
+        return;
+      }
+      tries++;
+      onRefresh?.(true);
+    };
+    tick();
+    const timer = setInterval(tick, 3000);
+    return () => clearInterval(timer);
+  }, [pollingTarget, data, onRefresh]);
+
+  // Polling for suspend status
+  React.useEffect(() => {
+    if (!suspendPollingTarget) return;
+    let tries = 0;
+    const maxTries = 15;
+    const tick = () => {
+      const rec = (data || []).find((x: any) => {
+         const raw = x.rawData || x;
+         const ns = raw.metadata?.namespace || x.namespace;
+         const id = raw.metadata?.name || x.name;
+         return ns === suspendPollingTarget.ns && id === suspendPollingTarget.id;
+      });
+      
+      if (rec) {
+        const raw = rec.rawData || rec;
+        const isSuspended = raw.spec?.suspend === true || rec.status === 'Suspended';
+        if (isSuspended === suspendPollingTarget.suspended) {
+             setSuspendPollingTarget(null);
+             setSuspendedOverrides(prev => prev.filter(o => !(o.ns === suspendPollingTarget.ns && o.id === suspendPollingTarget.id)));
+             return;
+        }
+      }
+
+      if (tries >= maxTries) {
+        setSuspendPollingTarget(null);
+        return;
+      }
+      tries++;
+      onRefresh?.(true);
+    };
+    tick();
+    const timer = setInterval(tick, 3000);
+    return () => clearInterval(timer);
+  }, [suspendPollingTarget, data, onRefresh]);
 
   const handleSuspend = async (record: any) => {
     try {
       const newSuspend = !record.suspended;
       await updateHarvesterScheduleVmBackup(cloudId, record.namespace, record.id, { suspend: newSuspend });
       message.success(`${newSuspend ? '停用' : '启用'}成功`);
+      
+      // Optimistic update
+      setSuspendedOverrides(prev => {
+        const rest = prev.filter(o => !(o.ns === record.namespace && o.id === record.id));
+        return rest.concat({ ns: record.namespace, id: record.id, suspended: newSuspend });
+      });
+      setSuspendPollingTarget({ ns: record.namespace, id: record.id, suspended: newSuspend });
+      
       onRefresh?.(true);
     } catch (e: any) {
       message.error(`操作失败: ${e.message}`);
@@ -90,6 +175,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         try {
           await deleteHarvesterScheduleVmBackup(cloudId, record.namespace, record.id);
           message.success('删除成功');
+          
+          // Optimistic update
+          setRemoved(prev => prev.concat({ ns: record.namespace, id: record.id, alias: record.name }));
+          setOptimisticItems(prev => prev.filter(o => !(o.namespace === record.namespace && (o.name === record.name || o.id === record.id))));
+          
           onRefresh?.(true);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
@@ -99,7 +189,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
   };
 
   const dataSource = useMemo(() => {
-    return (data || [])
+    const base = (data || [])
       .filter((b: any) => {
         const raw = b.rawData || b;
         const ns = raw.metadata?.namespace || b.namespace;
@@ -116,21 +206,37 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         retentionCount = b.retention;
       }
 
-      // Determine suspended status
-      // Priority: raw.spec.suspend -> b.status (string)
-      const isSuspended = raw.spec?.suspend === true || b.status === 'Suspended';
-
       // Resolve Name/Alias
       const id = raw.metadata?.name || b.name;
       const alias = raw.metadata?.annotations?.['tower.io/alias'];
       const displayName = alias || id;
 
+      const ns = raw.metadata?.namespace || b.namespace;
+      const vmNameRaw = raw.spec?.vmbackup?.source?.name || b.vmName || '';
+      let vmAlias = vmNameRaw || '-';
+      try {
+        const vm = (vms || []).find((x: any) => {
+          const vmNs = x?.metadata?.namespace || x?.namespace;
+          const vmName = x?.metadata?.name || x?.name;
+          return vmNs === ns && vmName === vmNameRaw;
+        });
+        if (vm) {
+          vmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || (vm?.name || vm?.metadata?.name) || vmNameRaw || '-';
+        }
+      } catch {}
+
+      // Determine suspended status
+      let isSuspended = raw.spec?.suspend === true || b.status === 'Suspended';
+      const ov = suspendedOverrides.find(o => o.ns === ns && o.id === id);
+      if (ov) isSuspended = ov.suspended;
+
       return {
         key: raw.metadata?.uid || b.id,
         name: displayName,
         id: id,
-        namespace: raw.metadata?.namespace || b.namespace,
-        vmName: raw.spec?.vmbackup?.source?.name || b.vmName || '-',
+        namespace: ns,
+        vmAlias, // Use resolved alias
+        vmName: vmNameRaw, // Keep raw name for filtering
         retention: retentionCount,
         maxFailure: raw.spec?.maxFailure || b.maxFailure || '-',
         type: raw.spec?.vmbackup?.type || 'backup',
@@ -142,7 +248,19 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         links: b.links || {},
       };
     });
-  }, [data]);
+
+    // Filter out removed items
+    const filteredBase = base.filter((x: any) => {
+      return !removed.some(r => r.ns === x.namespace && ((r.id && r.id === x.id) || (r.alias && r.alias === x.name)));
+    });
+
+    // Merge optimistic items
+    const dedupedOptimistic = optimisticItems.filter((o: any) => {
+      return !filteredBase.some((x: any) => x.namespace === o.namespace && x.name === o.name);
+    });
+    
+    return filteredBase.concat(dedupedOptimistic);
+  }, [data, vms, optimisticItems, removed, suspendedOverrides]);
 
   const filteredData = useMemo(() => {
     let d = dataSource;
@@ -161,7 +279,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
 
   const columns = [
     { 
-      title: '策略名称 (别名)', 
+      title: '策略名称', 
       dataIndex: 'name', 
       key: 'name', 
       render: (t: string, r: any) => (
@@ -188,7 +306,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       )
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
-    { title: '源虚拟机', dataIndex: 'vmName', key: 'vmName' },
+    { title: '源虚拟机', dataIndex: 'vmAlias', key: 'vmAlias' },
     { title: '策略类型', dataIndex: 'type', key: 'type' },
     { 
       title: '计划任务', 
@@ -306,10 +424,42 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         visible={createModalVisible}
         cloudId={cloudId}
         onCancel={() => setCreateModalVisible(false)}
-        onSuccess={() => {
-          setCreateModalVisible(false);
-          onRefresh?.(true);
-        }}
+        onSuccess={(created) => {
+        setCreateModalVisible(false);
+        if (created) {
+          setPollingTarget(created);
+          // Create optimistic item
+          const vm = (vms || []).find((x: any) => {
+            const vmNs = x?.metadata?.namespace || x?.namespace;
+            const vmName = x?.metadata?.name || x?.name;
+            return vmNs === created.namespace && vmName === created.vmName;
+          });
+          const vmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || (vm?.name || vm?.metadata?.name) || created.vmName || '-';
+          const now = new Date().toISOString();
+          const optimistic = {
+            key: `opt-${Date.now()}`,
+            name: created.alias,
+            id: '-', // ID unknown yet
+            namespace: created.namespace,
+            vmAlias,
+            vmName: created.vmName,
+            retention: created.retain,
+            maxFailure: created.maxFailure,
+            type: created.type,
+            cron: created.cron,
+            suspended: created.suspend,
+            creationTimestamp: now,
+            age: '0 分钟',
+            // raw is partial
+            raw: {
+               metadata: { namespace: created.namespace, name: '-', annotations: { 'tower.io/alias': created.alias } },
+               spec: { suspend: created.suspend, cron: created.cron, retain: created.retain }
+            }
+          };
+          setOptimisticItems(prev => prev.concat(optimistic));
+        }
+        onRefresh?.(true);
+      }}
       />
 
       <ScheduleVmBackupEditModal

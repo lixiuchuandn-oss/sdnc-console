@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Form, message } from 'antd';
+import { Form, message, Modal } from 'antd';
 import yaml from 'js-yaml';
 import { 
   updateHarvesterVmSpec, createHarvesterVolume, attachHarvesterVolumeToVmByName, 
@@ -492,6 +492,23 @@ export const useVmReconfigure = (props: any) => {
     }
   }, [selectedKey, open, record, form]);
 
+  const openRestartConfirm = (namespace: string, vmName: string, force: boolean = false) => {
+    Modal.confirm({
+      title: '规格变更已提交，需要重启实例生效，是否重启实例',
+      okText: '立即重启',
+      cancelText: '手动重启',
+      onOk: async () => {
+        try {
+          await rebootCloudProviderEcs(cloudId, `${namespace}/${vmName}`, force);
+          message.success('重启指令已下发');
+        } catch (e: any) {
+          message.error(e?.message || '重启失败');
+        }
+      },
+      onCancel: () => {}
+    });
+  };
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
@@ -559,7 +576,7 @@ export const useVmReconfigure = (props: any) => {
             memory: `${values.memory}Gi`,
             enableHotPlug: values.enableHotPlug
           });
-          message.success('规格变更已提交，请重启实例生效');
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'cpu_advanced': {
@@ -574,7 +591,7 @@ export const useVmReconfigure = (props: any) => {
              cpuRequest: values.cpuRequest,
              cpuLimit: values.cpuBurstUnlimited ? null : values.cpuLimit
           });
-          message.success('CPU高级配置已更新，请重启实例生效');
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'mem_advanced': {
@@ -586,7 +603,7 @@ export const useVmReconfigure = (props: any) => {
              memoryRequestGi: reqGi,
              memoryLimit: unlimited ? null : (limGi ? `${limGi}Gi` : null)
           });
-          message.success('内存高级配置已更新，请重启实例生效');
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'change_os': {
@@ -600,12 +617,7 @@ export const useVmReconfigure = (props: any) => {
              rootDeviceType: values.rootDeviceType
           });
           // message.success('重装系统请求已提交。请确保实例处于【停止】状态后，再点击【启动】（不要直接重启）。');
-          try {
-            await rebootCloudProviderEcs(cloudId, `${namespace}/${vmName}`, true);
-            message.success('重装系统请求已提交，正在强制重启虚拟机...');
-          } catch (e: any) {
-            message.warning('重装请求已提交，但自动重启失败，请手动重启: ' + (e?.message || '未知错误'));
-          }
+          openRestartConfirm(namespace, vmName, true);
           break;
         }
         case 'add_disk': {
@@ -625,7 +637,7 @@ export const useVmReconfigure = (props: any) => {
             pvcNamespace: namespace,
             bus: values.newDiskBus
           });
-          message.success('磁盘添加成功');
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'change_gpu': {
@@ -636,6 +648,7 @@ export const useVmReconfigure = (props: any) => {
               gpuResourceName: mode === 'none' ? '' : gpuName
            });
            message.success('GPU配置已更新');
+           openRestartConfirm(namespace, vmName, false);
            break;
         }
         case 'change_primary_nic': {
@@ -720,7 +733,7 @@ export const useVmReconfigure = (props: any) => {
               }
               
               await patchHarvesterVm(cloudId, namespace, vmName, payload);
-              message.success('主网卡配置已更新');
+              openRestartConfirm(namespace, vmName, false);
            }
            break;
         }
@@ -827,7 +840,7 @@ export const useVmReconfigure = (props: any) => {
            }
 
            await patchHarvesterVm(cloudId, namespace, vmName, payload);
-           message.success('辅助网卡配置已更新');
+           openRestartConfirm(namespace, vmName, false);
            break;
         }
         // ... other cases

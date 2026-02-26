@@ -1,14 +1,16 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Drawer, Tabs, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio } from 'antd';
+import { Drawer, Tabs, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox } from 'antd';
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 
   CodeOutlined, EllipsisOutlined, DesktopOutlined, DatabaseOutlined,
   CloudServerOutlined, GlobalOutlined, HddOutlined, SafetyCertificateOutlined,
-  ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined
+  ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined,
+  SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined, WarningOutlined
 } from '@ant-design/icons';
 import { cnVmStatus, isSystemNamespace } from '../../../../utils/harvesterUtils';
-import { stopHarvesterVm, startHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups } from '../../../../services/harvesterApi';
+import { stopHarvesterVm, startHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, saveHarvesterVmAsTemplate } from '../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../services/api';
+import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
 import BackupsSection from '../sections/BackupsSection';
 import ScheduleVmBackupsSection from '../sections/ScheduleVmBackupsSection';
@@ -56,6 +58,56 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 }) => {
   const [localActiveTab, setLocalActiveTab] = useState('detail');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
+  // CPU/Memory Usage State
+  const [cpuUsage, setCpuUsage] = useState<number | null>(null);
+  const [memUsage, setMemUsage] = useState<number | null>(null);
+
+  // Fetch Metrics
+  React.useEffect(() => {
+    if (!open || !cloudId || !record?.metadata?.namespace || !record?.metadata?.name) return;
+
+    const fetchMetrics = async () => {
+      const end = Math.floor(Date.now() / 1000);
+      const start = end - 300;
+      const step = 15;
+      const namespace = record.metadata.namespace;
+      const name = record.metadata.name;
+
+      const cpuQuery = `rate(container_cpu_usage_seconds_total{namespace="${namespace}", pod=~"virt-launcher-${name}-.*", container="compute"}[5m])`;
+      const memQuery = `container_memory_usage_bytes{namespace="${namespace}", pod=~"virt-launcher-${name}-.*", container="compute"}`;
+
+      try {
+        const [cpuRes, memRes] = await Promise.all([
+          fetchMetricRange(cloudId, { query: cpuQuery, start, end, step }),
+          fetchMetricRange(cloudId, { query: memQuery, start, end, step }),
+        ]);
+
+        if (cpuRes.ok && cpuRes.data?.data?.result?.[0]?.values) {
+          const values = cpuRes.data.data.result[0].values;
+          const lastValue = values[values.length - 1];
+          if (lastValue) setCpuUsage(parseFloat(lastValue[1]));
+        } else {
+          setCpuUsage(null);
+        }
+
+        if (memRes.ok && memRes.data?.data?.result?.[0]?.values) {
+          const values = memRes.data.data.result[0].values;
+          const lastValue = values[values.length - 1];
+          if (lastValue) setMemUsage(parseFloat(lastValue[1]));
+        } else {
+          setMemUsage(null);
+        }
+      } catch (e) {
+        console.error('Fetch metrics failed', e);
+      }
+    };
+
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 30000);
+    return () => clearInterval(interval);
+  }, [open, cloudId, record]);
 
   // Backups/Snapshots state
   const [backups, setBackups] = useState<any[]>([]);
@@ -70,9 +122,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // Fetch data when tab is active
   React.useEffect(() => {
     if (open) {
-      if (activeTab === 'snapshot' || activeTab === 'backup') {
+      if (activeTab === 'backup_snapshot') {
         fetchBackups();
-      } else if (activeTab === 'schedule') {
         fetchSchedules();
       }
     }
@@ -136,6 +187,16 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     if (sizeGiB < 1) return `${Math.round(sizeGiB * 1024)} MiB`;
     if (sizeGiB >= 1024) return `${(sizeGiB / 1024).toFixed(1)} TiB`;
     return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
+  };
+
+  const formatMemoryParts = (val: any): [string, string] => {
+    if (!val) return ['-', ''];
+    const str = String(val).trim();
+    const match = str.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
+    if (match) {
+        return [match[1], match[2]];
+    }
+    return [str, ''];
   };
 
   const SafeRead = useMemo(() => ({
@@ -295,6 +356,106 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     }
   };
 
+  const handleSaveAsTemplate = useCallback(async () => {
+    if (!cloudId) return;
+    const ns = SafeRead.namespace(record);
+    const vmName = SafeRead.vmId(record);
+    if (!ns || !vmName) {
+      message.error('无法解析实例命名空间或名称');
+      return;
+    }
+    try {
+      setSavingTemplate(true);
+      await saveHarvesterVmAsTemplate(cloudId, ns, vmName, {});
+      message.success('已根据当前实例配置创建模板');
+    } catch (e: any) {
+      message.error(e?.message || '保存为模板失败');
+    } finally {
+      setSavingTemplate(false);
+    }
+  }, [cloudId, record, SafeRead]);
+
+  const handleEjectCdrom = useCallback(async () => {
+    const disks = record?.spec?.template?.spec?.domain?.devices?.disks || [];
+    const cdrom = disks[0]; // Assuming first disk check for cdrom property, similar to VmSection logic but safer
+    if (!cdrom) return;
+    
+    const statusStr = String(SafeRead.status(record)).toLowerCase();
+    const isRunning = !['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
+    
+    let deletePvc = true;
+    
+    Modal.confirm({
+      title: isRunning ? '安全弹出 CD-ROM (需要重启)' : '弹出 CD-ROM',
+      width: 500,
+      content: (
+        <div>
+            <p>即将弹出设备: <b>{cdrom.name}</b></p>
+            {isRunning && (
+              <div style={{ marginBottom: 16, color: '#faad14', background: '#fffbe6', padding: '8px 12px', border: '1px solid #ffe58f', borderRadius: 4 }}>
+                <InfoCircleOutlined style={{ marginRight: 8 }} />
+                实例正在运行。系统将自动停止实例，弹出光驱，然后重新启动。
+              </div>
+            )}
+            <div style={{ marginTop: 16 }}>
+              <Checkbox defaultChecked={true} onChange={(e) => { deletePvc = e.target.checked; }}>
+                  同步删除关联卷 (PVC) <span style={{ color:'#999', fontSize:12 }}>(推荐，避免残留孤儿卷)</span>
+              </Checkbox>
+            </div>
+        </div>
+      ),
+      onOk: async () => {
+        const hide = message.loading('正在执行弹出操作...', 0);
+        try {
+          const ns = SafeRead.namespace(record);
+          const name = SafeRead.vmId(record);
+          // Construct iid properly as namespace/name
+          const iidStr = `${ns}/${name}`;
+          
+          if (!ns || !name) throw new Error('无法解析实例信息');
+
+          // 1. Stop VM if running
+          if (isRunning) {
+              await stopHarvesterVm(cloudId, ns, name, true);
+              await new Promise(resolve => setTimeout(resolve, 5000)); // Wait for stop
+          }
+
+          // 2. Detach Volume
+          await detachHarvesterVolumeFromVm(cloudId, iidStr, { name: cdrom.name });
+
+          // 3. Delete PVC if requested
+          if (deletePvc) {
+              const volumes = record?.spec?.template?.spec?.volumes || [];
+              const vol = volumes.find((v: any) => v.name === cdrom.name);
+              const pvcName = vol?.persistentVolumeClaim?.claimName;
+              
+              if (pvcName) {
+                try {
+                    await deleteHarvesterPVC(cloudId, ns, pvcName);
+                } catch (e: any) {
+                    console.warn('Delete PVC failed', e);
+                    message.warning(`PVC删除失败: ${e.message}`);
+                }
+              }
+          }
+
+          // 4. Start VM if it was running
+          if (isRunning) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              await startHarvesterVm(cloudId, ns, name);
+          }
+
+          message.success('已发送弹出指令');
+          onRefresh && onRefresh();
+        } catch(e:any) {
+          message.error(`弹出失败: ${e.message}`);
+        } finally {
+          hide();
+        }
+      }
+    });
+  }, [cloudId, record, onRefresh, SafeRead]);
+
   const status = String(SafeRead.status(record)).toLowerCase();
   const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(status);
   const isRunning = ['running'].includes(status);
@@ -303,15 +464,28 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const vmDisks = SafeRead.volumeDetails(record);
   const vmNics = SafeRead.interfaces(record);
 
+  // Check for CD-ROM
+  const rawDisks = record?.spec?.template?.spec?.domain?.devices?.disks || [];
+  const isCdromBoot = rawDisks.length > 0 && !!rawDisks[0].cdrom;
+
   // Toolbar Actions
   const actionItems: MenuProps['items'] = [
-      { key: 'force_stop', label: '强制停止', icon: <PoweroffOutlined />, danger: true, disabled: isStopped, onClick: () => handleStop(true) },
-      { type: 'divider' },
-      { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(record) },
-      { key: 'clone', label: '克隆', icon: <CopyOutlined />, onClick: () => onClone && onClone(record) },
+      // Data & Replication
       { key: 'backup', label: '备份', icon: <DatabaseOutlined />, onClick: () => onBackup && onBackup(record) },
       { key: 'snapshot', label: '快照', icon: <HistoryOutlined />, onClick: () => onSnapshot && onSnapshot(record) },
+      { key: 'clone', label: '克隆', icon: <CopyOutlined />, onClick: () => onClone && onClone(record) },
+      { key: 'save_template', label: '保存为模板', icon: <SaveOutlined />, disabled: savingTemplate, onClick: handleSaveAsTemplate },
+      
       { type: 'divider' },
+
+      // Runtime Operations
+      { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(record) },
+      ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
+
+      { type: 'divider' },
+
+      // Danger Zone
+      { key: 'force_stop', label: '强制停止', icon: <PoweroffOutlined />, danger: true, disabled: isStopped, onClick: () => handleStop(true) },
       { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => onDelete && onDelete(record) },
   ];
 
@@ -330,14 +504,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
             <div style={{ 
                 fontSize: 24, 
                 color: '#1890ff',
-                width: 48,
-                height: 48,
+                width: 38,
+                height: 38,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                border: '1px solid #e8e8e8',
-                borderRadius: 8,
-                background: '#fff'
             }}>
                 <DesktopOutlined />
             </div>
@@ -353,19 +524,19 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       {/* Toolbar */}
       <div style={{ background: '#f5f7fa', padding: '0 24px 16px', flexShrink: 0 }}>
         <div style={{ padding: 10, background: '#fff', borderRadius: 8, border: '1px solid #e8e8e8', display: 'flex', gap: 4, alignItems: 'center' }}>
-          <Button type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 12 }}>打开终端</Button>
+          <Button type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 14 }}>打开终端</Button>
           
-          <Button type="text" size="small" icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />} onClick={handleStart} disabled={!isStopped} style={{ fontSize: 12 }}>开机</Button>
+          <Button type="text" size="small" icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />} onClick={handleStart} disabled={!isStopped} style={{ fontSize: 14 }}>开机</Button>
 
-          <Button type="text" size="small" icon={<PoweroffOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={() => handleStop(false)} disabled={isStopped} style={{ fontSize: 12 }}>关机</Button>
+          <Button type="text" size="small" icon={<PoweroffOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={() => handleStop(false)} disabled={isStopped} style={{ fontSize: 14 }}>关机</Button>
 
-          <Button type="text" size="small" icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleReboot} disabled={isStopped} style={{ fontSize: 12 }}>重启</Button>
+          <Button type="text" size="small" icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleReboot} disabled={isStopped} style={{ fontSize: 14 }}>重启</Button>
 
-          <Button type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} disabled={!isRunning} style={{ fontSize: 12 }}>暂停</Button>
+          <Button type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} disabled={!isRunning} style={{ fontSize: 14 }}>暂停</Button>
 
-          <Button type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} disabled={!isPaused} style={{ fontSize: 12 }}>恢复</Button>
+          <Button type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} disabled={!isPaused} style={{ fontSize: 14 }}>恢复</Button>
 
-          <Button type="text" size="small" icon={<HddOutlined style={{ color: '#1890ff' }} />} onClick={() => onOpenReconfigure && onOpenReconfigure(record)} style={{ fontSize: 12 }}>资源变配</Button>
+          <Button type="text" size="small" icon={<HddOutlined style={{ color: '#1890ff' }} />} onClick={() => onOpenReconfigure && onOpenReconfigure(record)} style={{ fontSize: 14 }}>资源变配</Button>
 
           <div style={{ flex: 1 }} />
           
@@ -382,12 +553,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
             size='small'
             activeKey={activeTab} 
             onChange={handleTabChange}
+            tabBarStyle={{ borderBottom: '1px solid #e8e8e8'}}
             items={[
                 { key: 'detail', label: '详情' },
                 { key: 'performance', label: '性能' },
-                { key: 'snapshot', label: '快照' },
-                { key: 'backup', label: '备份' },
-                { key: 'schedule', label: '定时策略' },
+                { key: 'backup_snapshot', label: '备份/快照' },
             ]}
           />
       </div>
@@ -417,39 +587,78 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                   {/* CPU/Memory Card */}
                   <Card bordered={false} bodyStyle={{ padding: 16 }}>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 16 }}>
-                              <div style={{ 
-                                width: 48, height: 48, borderRadius: 8, background: '#e6f7ff', 
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: '#1890ff', fontSize: 24
-                            }}>
-                                <CpuIcon width={28} height={28} style={{ fill: '#1890ff' }} />
-                            </div>
-                              <div>
-                                  <div style={{ color: '#999', fontSize: 12 }}>CPU</div>
-                                  <div style={{ fontSize: 20, fontWeight: 500 }}>
-                                      {SafeRead.cpu(record)} <span style={{ fontSize: 14, color: '#999', fontWeight: 400 }}>Core</span>
+                      <div style={{ display: 'flex', gap: 24 }}>
+                          {/* CPU Section */}
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+                                  <div style={{ 
+                                    width: 48, height: 48, borderRadius: 8, background: '#ffffff', border: '1px solid #188fff80',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: '#1890ff', fontSize: 24
+                                }}>
+                                    <CpuIcon width={28} height={28} style={{ fill: '#1890ff' }} />
+                                </div>
+                                  <div>
+                                      <div style={{ color: '#999', fontSize: 12 }}>CPU</div>
+                                      <div style={{ fontSize: 20, fontWeight: 500 }}>
+                                          {SafeRead.cpu(record)} <span style={{ fontSize: 14, color: '#999', fontWeight: 400 }}>Core</span>
+                                      </div>
                                   </div>
                               </div>
+                              {SafeRead.cpu(record) > 0 && (
+                                  <div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
+                                          <span>使用率</span>
+                                          <span>{cpuUsage !== null ? `${((cpuUsage / SafeRead.cpu(record)) * 100).toFixed(1)}%` : '-'}</span>
+                                      </div>
+                                      <Progress 
+                                        percent={cpuUsage !== null ? parseFloat(((cpuUsage / SafeRead.cpu(record)) * 100).toFixed(1)) : 0} 
+                                        showInfo={false} 
+                                        strokeColor="#1890ff"
+                                        trailColor="#f0f0f0"
+                                        size="small"
+                                      />
+                                  </div>
+                              )}
                           </div>
                           
-                          <div style={{ width: 1, height: 40, background: '#f0f0f0' }} />
+                          <div style={{ width: 1, background: '#f0f0f0' }} />
 
-                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingLeft: 24, gap: 16 }}>
-                              <div style={{ 
-                                width: 48, height: 48, borderRadius: 8, background: '#e6f7ff', 
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: '#1890ff', fontSize: 24
-                            }}>
-                                <MemIcon width={28} height={28} style={{ fill: '#1890ff' }} />
-                            </div>
-                              <div>
-                                  <div style={{ color: '#999', fontSize: 12 }}>内存</div>
-                                  <div style={{ fontSize: 20, fontWeight: 500 }}>
-                                      {SafeRead.memory(record)}
+                          {/* Memory Section */}
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+                                  <div style={{ 
+                                    width: 48, height: 48, borderRadius: 8, background: '#ffffff', border: '1px solid #188fff80',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: '#1890ff', fontSize: 24
+                                }}>
+                                    <MemIcon width={28} height={28} style={{ fill: '#1890ff' }} />
+                                </div>
+                                  <div>
+                                      <div style={{ color: '#999', fontSize: 12 }}>内存</div>
+                                      <div style={{ fontSize: 20, fontWeight: 500 }}>
+                                          {(() => {
+                                              const [val, unit] = formatMemoryParts(SafeRead.memory(record));
+                                              return <>{val} <span style={{ fontSize: 14, color: '#999', fontWeight: 400 }}>{unit}</span></>;
+                                          })()}
+                                      </div>
                                   </div>
                               </div>
+                              {parseStorageSize(SafeRead.memory(record)) > 0 && (
+                                  <div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
+                                          <span>使用率</span>
+                                          <span>{memUsage !== null ? `${((memUsage / (1024 ** 3) / parseStorageSize(SafeRead.memory(record))) * 100).toFixed(1)}%` : '-'}</span>
+                                      </div>
+                                      <Progress 
+                                        percent={memUsage !== null ? parseFloat(((memUsage / (1024 ** 3) / parseStorageSize(SafeRead.memory(record))) * 100).toFixed(1)) : 0} 
+                                        showInfo={false} 
+                                        strokeColor="#1890ff"
+                                        trailColor="#f0f0f0"
+                                        size="small"
+                                      />
+                                  </div>
+                              )}
                           </div>
                       </div>
 
@@ -491,11 +700,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                     <List.Item.Meta
                                         avatar={
                                             <div style={{ 
-                                                width: 48, height: 48, borderRadius: 8, background: '#e6f7ff', 
+                                                width: 48, height: 48, borderRadius: 8, background: '#ffffff',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                 flexShrink: 0 
                                             }}>
-                                                <DiskIcon width={28} height={28} style={{ fill: '#1890ff' }} />
+                                                <DiskIcon width={38} height={38} style={{ fill: '#1890ff' }} />
                                             </div>
                                         }
                                         title={
@@ -538,11 +747,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                     <List.Item.Meta
                                         avatar={
                                             <div style={{ 
-                                                width: 48, height: 48, borderRadius: 8, background: '#e6f7ff', 
+                                                width: 48, height: 48, borderRadius: 8, background: '#ffffff',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                 flexShrink: 0 
                                             }}>
-                                                <NicIcon width={28} height={28} style={{ fill: '#1890ff' }} />
+                                                <NicIcon width={38} height={38} style={{ fill: '#1890ff' }} />
                                             </div>
                                         }
                                         title={item.name}
@@ -622,44 +831,66 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               />
           )}
 
-          {activeTab === 'snapshot' && (
-              <BackupsSection 
-                  cloudId={cloudId}
-                  backups={backups}
-                  loading={backupsLoading}
-                  onRefresh={() => fetchBackups(true)}
-                  namespaces={namespaces}
-                  vms={[record]}
-                  type="snapshot"
-                  vmId={SafeRead.vmId(record)}
-                  bordered={false}
-              />
-          )}
+          {activeTab === 'backup_snapshot' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                  {/* Backup Section */}
+                  <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ color: '#666' }}>备份</span>
+                      </div>
+                      <Card bordered={false} bodyStyle={{ padding: 16 }}>
+                          <BackupsSection 
+                              cloudId={cloudId}
+                              backups={backups}
+                              loading={backupsLoading}
+                              onRefresh={() => fetchBackups(true)}
+                              namespaces={namespaces}
+                              vms={[record]}
+                              type="backup"
+                              vmId={SafeRead.vmId(record)}
+                              bordered={false}
+                          />
+                      </Card>
+                  </div>
 
-          {activeTab === 'backup' && (
-              <BackupsSection 
-                  cloudId={cloudId}
-                  backups={backups}
-                  loading={backupsLoading}
-                  onRefresh={() => fetchBackups(true)}
-                  namespaces={namespaces}
-                  vms={[record]}
-                  type="backup"
-                  vmId={SafeRead.vmId(record)}
-                  bordered={false}
-              />
-          )}
+                  {/* Snapshot Section */}
+                  <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ color: '#666' }}>快照</span>
+                      </div>
+                      <Card bordered={false} bodyStyle={{ padding: 16 }}>
+                          <BackupsSection 
+                              cloudId={cloudId}
+                              backups={backups}
+                              loading={backupsLoading}
+                              onRefresh={() => fetchBackups(true)}
+                              namespaces={namespaces}
+                              vms={[record]}
+                              type="snapshot"
+                              vmId={SafeRead.vmId(record)}
+                              bordered={false}
+                          />
+                      </Card>
+                  </div>
 
-          {activeTab === 'schedule' && (
-              <ScheduleVmBackupsSection 
-                  cloudId={cloudId}
-                  data={schedules}
-                  loading={schedulesLoading}
-                  onRefresh={() => fetchSchedules(true)}
-                  vmId={SafeRead.vmId(record)}
-                  defaultHiddenColumns={['id', 'namespace', 'retention', 'maxFailure', 'age']}
-                  bordered={false}
-              />
+                  {/* Schedule Section */}
+                  <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ color: '#666' }}>定时策略</span>
+                      </div>
+                      <Card bordered={false} bodyStyle={{ padding: 16 }}>
+                          <ScheduleVmBackupsSection 
+                              cloudId={cloudId}
+                              data={schedules}
+                              loading={schedulesLoading}
+                              onRefresh={() => fetchSchedules(true)}
+                              vmId={SafeRead.vmId(record)}
+                              defaultHiddenColumns={['id', 'namespace', 'retention', 'maxFailure', 'age']}
+                              bordered={false}
+                          />
+                      </Card>
+                  </div>
+              </div>
           )}
       </div>
     </Drawer>

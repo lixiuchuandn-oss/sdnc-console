@@ -21,7 +21,6 @@ interface WizardSummaryProps {
   selectedNodeName: string | null;  // 当 hostModeState === 'node' 时指定的主机名
   netModeState: string;             // 网络模式：vpc/flat（作为兜底）
   kubeSubnets: any[];               // K8s 子网列表（用于显示 CIDR）
-  autoStart: boolean;               // 创建完成后是否自动开机
   memGi: number;                    // 默认内存 Gi（当表单未填写时兜底显示）
   children?: React.ReactNode;       // 预览区域下方可扩展的自定义节点（如按钮/额外说明）
 }
@@ -35,7 +34,6 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
   selectedNodeName,
   netModeState,
   kubeSubnets,
-  autoStart,
   memGi,
   children
 }) => {
@@ -174,14 +172,11 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       // 网络：模式、主网卡文本、辅助网卡数量与名称聚合（可选）
       network: { mode: nm === 'vpc' ? 'VPC网络' : '扁平网络', primary: primaryTxt, extras: netExtras.length ? `${netExtras.length} 个辅助网卡：${extraNames || '-'}` : undefined },
 
-      // 高可用：自动开机
-      ha: autoStart ? '启用' : '未启用',
-
       // 固件：默认 BIOS；EFI 展示在下方“固件”行（根据表单实时计算）
       boot: 'BIOS',
 
       // 更多：人类可读的自动开机提示
-      more: `创建完成后自动开机：${autoStart ? '是' : '否'}`,
+      more: undefined,
 
       // 附加信息：MAC、CIDR（仅当有值时显示）
       mac: macTxt || undefined,
@@ -205,7 +200,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       // 运行策略
       runStrategy,
     };
-  }, [formSnapshot, autoStart, hostModeState, selectedNodeName, kubeSubnets, netModeState, clouds, currentCloudId, cloudId, memGi]);
+  }, [formSnapshot, hostModeState, selectedNodeName, kubeSubnets, netModeState, clouds, currentCloudId, cloudId, memGi]);
 
   return (
     <div className="wizard-preview">
@@ -374,10 +369,6 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
                 return 'BIOS';
               })()}
             </span>
-          </div>
-          <div className="wizard-summary-item">
-            <span className="wizard-summary-label" title="更多">更多</span>
-            <span className="wizard-summary-value" title={summary.more}>{summary.more}</span>
           </div>
         </div>
       </div>

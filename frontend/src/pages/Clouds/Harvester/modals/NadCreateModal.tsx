@@ -92,8 +92,8 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
     setLoading(true);
     try {
       const cnName = values.clusterNetwork || 'mgmt';
-      // For 'mgmt' network, the bridge is typically 'mgmt-br'. For others, assume name matches or user knows.
-      const bridgeName = cnName === 'mgmt' ? 'mgmt-br' : cnName;
+      // For 'mgmt' network, the bridge is typically 'mgmt-br'. For others, use {cnName}-br convention
+      const bridgeName = cnName === 'mgmt' ? 'mgmt-br' : `${cnName}-br`;
 
       // Construct config object for bridge CNI
       const config: any = {
@@ -116,6 +116,10 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
         metadata: {
           name: values.name,
           namespace: values.namespace,
+          labels: {
+            // Also add label for easier filtering
+            'network.harvesterhci.io/cluster-network': cnName
+          },
           annotations: {
              // Standard Harvester annotation to link with ClusterNetwork
              'network.harvesterhci.io/route-cluster-network': cnName

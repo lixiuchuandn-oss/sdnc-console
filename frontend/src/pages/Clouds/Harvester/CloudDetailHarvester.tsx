@@ -186,7 +186,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    * 独立刷新 NAD 数据的函数 (传递给子组件使用)
    */
   const [nadsLoading, setNadsLoading] = useState(false);
-  const refreshNads = async (force = false) => {
+  const refreshNads = async (force = false, silent = false) => {
       if (nadsLoading) return;
       setNadsLoading(true);
       try {
@@ -194,7 +194,9 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
         const nadsList: any[] = (nadsJson as any)?.data?.items || [];
         setHarvesterNads(Array.isArray(nadsList) ? nadsList : []);
         setRawNads(nadsJson || null);
-        message.success('NAD网络刷新成功');
+        if (!silent) {
+          message.success('NAD网络刷新成功');
+        }
       } catch (e: any) {
         message.error(`刷新NAD网络失败: ${e?.message || '未知错误'}`);
       } finally {
@@ -1354,7 +1356,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '定时策略',
                       children: (
                         <>
-                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={() => loadTabResource('scheduleVmBackups', true)} />
+                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={() => loadTabResource('scheduleVmBackups', true)} vms={ecs} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawScheduleVmBackups, null, 2)}</pre>
@@ -1464,7 +1466,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'Subnet 子网',
                       children: (
                         <>
-                          <KubeOvnSubnetsSection subnets={kubeOvnSubnets} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} />
+                          <KubeOvnSubnetsSection subnets={kubeOvnSubnets} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} onRefreshNads={refreshNads} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>

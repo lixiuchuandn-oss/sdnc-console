@@ -499,14 +499,11 @@ const StepDisks: React.FC<StepDisksProps> = ({
                               <Form.Item label="选择 ISO" name={[name, 'image']} rules={[{ required: true, message: '请选择 ISO' }]} style={{ marginBottom: 0 }}>
                                 <Select
                                   options={(images || []).filter((x: any) => {
-                                    const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
-                                    const disp = String(x?.spec?.displayName || x?.displayName || x?.metadata?.name || x?.name || '');
-                                    const isIso = (fmt === 'iso') || /\.iso$/i.test(disp) || /\.iso$/i.test(String(x?.metadata?.name || x?.name || ''));
-                                    return isIso;
+                                    return resolveImageKind(x) === 'iso';
                                   }).map((x: any) => {
                                     const name = x?.metadata?.name || x?.name;
                                     const ns = x?.metadata?.namespace || x?.namespace;
-                                    const disp = x?.spec?.displayName || x?.displayName || name;
+                                    const disp = x?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || name;
                                     return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
                                   })}
                                   placeholder="选择 ISO"

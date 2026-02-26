@@ -122,7 +122,10 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                           const lbl = String(x?.label || '').toLowerCase();
                           return lbl.includes('sriov') || lbl.includes('macvtap');
                         }) 
-                      : [{ label: 'Management Network (Pod Network)', value: '' }, ...(nadOptions || [])]}
+                      : (function () {
+                          const filtered = (nadOptions || []).filter((x: any) => !String(x?.label || '').toLowerCase().includes('kube-ovn'));
+                          return [{ label: 'Management Network (Pod Network)', value: '' }, ...filtered];
+                        })()}
                     onOpenChange={async (open) => { if (open) reloadNads(); }}
                     onChange={(val) => {
                       try {
@@ -317,7 +320,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                   const lbl = String(x?.label || '').toLowerCase();
                                   return lbl.includes('sriov') || lbl.includes('macvtap');
                                 }) 
-                              : nadOptions}
+                              : (nadOptions || []).filter((x: any) => !String(x?.label || '').toLowerCase().includes('kube-ovn'))}
                             onOpenChange={async (open) => { if (open) reloadNads(); }}
                             onChange={(val) => {
                               try {

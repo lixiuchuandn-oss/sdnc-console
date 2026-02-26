@@ -12,6 +12,7 @@ import { ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchHarvesterNadDetail, deleteHarvesterNad } from '../../../../services/harvesterApi';
+import { fetchCloudProviderEcs } from '../../../../services/api';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import NadCreateModal from '../modals/NadCreateModal';
@@ -27,7 +28,7 @@ import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 type Props = {
   nads: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   cloudId?: string;
 };
 
@@ -61,21 +62,63 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
    * - 系统命名空间会在操作列中被禁用删除按钮
    */
   const handleDelete = async (record: any) => {
+    // Pre-check占用情况，供确认框内展示并禁用删除按钮
+    let usingVms: string[] = [];
+    try {
+      const ecsRes = await fetchCloudProviderEcs(cloudId || '', true);
+      const vms: any[] = ecsRes?.data || ecsRes || [];
+      const targetRef = `${record._namespace}/${record._name}`.toLowerCase();
+      usingVms = vms
+        .filter((vm: any) => Array.isArray(vm.networks))
+        .filter((vm: any) =>
+          vm.networks.some((n: string) => {
+            const s = String(n || '').toLowerCase();
+            const base = s.includes('@') ? s.split('@')[0] : s;
+            return base === targetRef || base.endsWith(`/${record._name.toLowerCase()}`);
+          }),
+        )
+        .map(
+          (vm: any) =>
+            vm?.metadata?.annotations?.['tower.io/alias'] ||
+            vm.InstanceName ||
+            vm.name ||
+            vm.metadata?.name,
+        )
+        .filter(Boolean);
+    } catch (e) {
+      // 忽略占用检查错误，不影响确认框展示
+    }
+
+    const blocked = usingVms.length > 0;
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除网络 ${record._name} 吗？此操作不可恢复。`,
+      content: (
+        <>
+          <div>{`确定要删除网络 ${record._name} 吗？此操作不可恢复。`}</div>
+          {blocked && (
+            <div style={{ color: '#ff4d4f', marginTop: 8 }}>
+              {`不能删除此虚拟网络，因为正在被虚拟机使用 ${usingVms
+                .slice(0, 5)
+                .join('，')}${usingVms.length > 5 ? ' 等' : ''}`}
+            </div>
+          )}
+        </>
+      ),
       okText: '删除',
       okType: 'danger',
+      okButtonProps: { disabled: blocked },
       cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteHarvesterNad(cloudId || '', record._namespace, record._name);
-          message.success('删除成功');
-          onRefresh && onRefresh(true);
-        } catch (e: any) {
-          message.error(e.message || '删除失败');
-        }
-      }
+      onOk: blocked
+        ? undefined
+        : async () => {
+            try {
+              await deleteHarvesterNad(cloudId || '', record._namespace, record._name);
+              message.success('删除成功');
+              onRefresh && onRefresh(true);
+            } catch (e: any) {
+              message.error(e.message || '删除失败');
+            }
+          },
     });
   };
 
@@ -334,14 +377,14 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
         cloudId={cloudId}
       />
 
-      <NadCreateModal
-        open={createVisible}
-        onCancel={() => setCreateVisible(false)}
+      <NadCreateModal 
+        open={createVisible} 
+        onCancel={() => setCreateVisible(false)} 
         onSuccess={() => {
           setCreateVisible(false);
-          onRefresh && onRefresh(true);
+          onRefresh && onRefresh(true, true);
         }}
-        cloudId={cloudId || ''}
+        cloudId={cloudId || ''} 
       />
     </PageDetailSection>
   );

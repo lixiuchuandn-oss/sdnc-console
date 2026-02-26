@@ -82,6 +82,9 @@ interface Props {
   onRefreshFips?: () => void;
   onRefreshSnatRules?: () => void;
   onRefreshDnatRules?: () => void;
+
+  bordered?: boolean;
+  showOpsDetail?: boolean;
 }
 
 const CloudConsoleHarvester: React.FC<Props> = ({
@@ -139,7 +142,9 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   onRefreshEips,
   onRefreshFips,
   onRefreshSnatRules,
-  onRefreshDnatRules
+  onRefreshDnatRules,
+  bordered = true,
+  showOpsDetail = true
 }) => {
   const [activeCategory, setActiveCategory] = useState('compute');
   const [activeResource, setActiveResource] = useState('vm');
@@ -231,6 +236,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onPause={onPause}
             onUnpause={onUnpause}
             onDelete={onDelete}
+            bordered={bordered}
+            showOpsDetail={showOpsDetail}
           />
         );
       case 'template':
@@ -333,6 +340,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshSchedules}
             cloudId={cloudId}
+            vms={vms}
           />
         );
 

@@ -6,8 +6,6 @@ interface StepOthersProps {
   form: any;
   usbResources: any[];
   reloadUsbResources: () => void;
-  autoStart: boolean;
-  setAutoStart: (val: boolean) => void;
   sshKeyOptions: any[];
   reloadSshKeys: () => void;
 }
@@ -16,8 +14,6 @@ const StepOthers: React.FC<StepOthersProps> = ({
   form,
   usbResources,
   reloadUsbResources,
-  autoStart,
-  setAutoStart,
   sshKeyOptions,
   reloadSshKeys,
 }) => {
@@ -46,9 +42,6 @@ const StepOthers: React.FC<StepOthersProps> = ({
           </Form.Item>
         </Col>
       </Row>
-      <Form.Item>
-        <Checkbox checked={autoStart} onChange={(e) => setAutoStart(!!e.target?.checked)}>创建后自动开机</Checkbox>
-      </Form.Item>
       <div className="wizard-group-title">固件与TPM</div>
       <Form.Item label="固件">
         <Space direction="vertical">
@@ -105,7 +98,9 @@ const StepOthers: React.FC<StepOthersProps> = ({
         {(fields, { add, remove }) => (
           <div>
             {(usbResources || []).length === 0 ? (
-              <Typography.Text type="secondary" style={{ paddingBottom: 8 }}>未检测到允许的 USB 资源，请检查 KubeVirt 的 permittedHostDevices.usb 设置</Typography.Text>
+              <div style={{ marginBottom: 10 }}>
+                <Typography.Text type="secondary">未检测到允许的 USB 资源，请检查 KubeVirt 的 permittedHostDevices.usb 设置</Typography.Text>
+              </div>
             ) : null}
             {fields.map(({ key, name }, idx) => (
               <Row key={key} gutter={12} style={{ marginBottom: 8 }}>

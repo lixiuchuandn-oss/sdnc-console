@@ -3,7 +3,7 @@
  * 负责展示当前 Harvester 云中某一类型（备份 / 快照）的 VM Backup 列表，
  * 支持按状态与关键字筛选，以及发起删除和恢复操作，并在工具栏提供创建备份/快照入口。
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -47,8 +47,68 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
   // 当前选中的备份/快照，用于恢复操作
   const [currentSnapshot, setCurrentSnapshot] = useState<any>(null);
   
+  // Polling for created item status
+  const [pendingCreated, setPendingCreated] = useState<{ namespace: string; name: string } | null>(null);
+  const pollRef = useRef<any>(null);
+  const pollCountRef = useRef(0);
+
   // 列设置状态
   const [visibleColumns, setVisibleColumns] = useState<any>();
+
+  const startPolling = (created?: { namespace: string; name: string }) => {
+    if (!onRefresh) return;
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (created) {
+      setPendingCreated(created);
+      pollCountRef.current = 0;
+      onRefresh(true);
+      pollRef.current = setInterval(() => {
+        pollCountRef.current += 1;
+        onRefresh(true);
+        if (pollCountRef.current > 20) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setPendingCreated(null);
+        }
+      }, 3000);
+    } else {
+      onRefresh(true);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pendingCreated) return;
+    const found = (backups || []).find((b: any) => {
+      const raw = b.rawData || b;
+      const itemType = raw.spec?.type || 'backup';
+      if (itemType !== type) return false;
+      const nm = raw.metadata?.name || b.name;
+      const ns = raw.metadata?.namespace || b.namespace;
+      return nm === pendingCreated.name && ns === pendingCreated.namespace;
+    });
+    if (found) {
+      const raw = found.rawData || found;
+      const ready = !!raw.status?.readyToUse;
+      if (ready) {
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+        setPendingCreated(null);
+      }
+    }
+  }, [backups, pendingCreated, type]);
   
   /**
    * 将原始备份列表规范化为表格可直接使用的数据结构
@@ -70,18 +130,32 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       })
       .map((b: any) => {
       const raw = b.rawData || b;
+      const ns = raw.metadata?.namespace || b.namespace;
+      const targetName = raw.spec?.source?.name || b.targetVm || '';
+      let targetAlias = '-';
+      try {
+        const vm = (vms || []).find((vm: any) => {
+          const vmNs = vm?.metadata?.namespace || vm?.namespace;
+          const vmName = vm?.metadata?.name || vm?.name;
+          return vmNs === ns && vmName === targetName;
+        });
+        if (vm) {
+          targetAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || (vm?.name || vm?.metadata?.name) || '-';
+        }
+      } catch {}
+
       return {
         key: raw.metadata?.uid || b.id,
         name: raw.metadata?.name || b.name,
-        namespace: raw.metadata?.namespace || b.namespace,
-        targetVm: raw.spec?.source?.name || b.targetVm || '-',
+        namespace: ns,
+        targetVmAlias: targetAlias,
         readyToUse: raw.status?.readyToUse,
         creationTimestamp: raw.metadata?.creationTimestamp || b.createdAt,
         alias: raw.metadata?.annotations?.['tower.io/alias'] || '-',
         raw,
       };
     });
-  }, [backups, type]);
+  }, [backups, type, vms]);
 
   /**
    * 客户端过滤逻辑
@@ -107,8 +181,8 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
    */
   const handleDelete = (record: any) => {
     Modal.confirm({
-      title: '确认删除备份',
-      content: `确定要删除备份 ${record.name} 吗？`,
+      title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
+      content: `确定要删除${type === 'backup' ? '备份' : '快照'} ${record.alias || record.name} 吗？`,
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',
@@ -132,10 +206,22 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
    */
   const columns = [
 
-    { title: '名称', dataIndex: 'alias', key: 'alias' },
-    { title: 'ID', dataIndex: 'name', key: 'name' },
+    { 
+       title: '名称', 
+       dataIndex: 'alias', 
+       key: 'alias',
+       render: (t: string, r: any) => (
+         <span style={{ fontWeight: 500 }}>{t !== '-' ? t : r.name}</span>
+       )
+    },
+    { 
+       title: 'ID', 
+       dataIndex: 'name', 
+       key: 'name',
+       render: (t: string) => <span style={{ color: '#888', fontSize: 12 }}>{t}</span>
+    },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
-    { title: '目标虚拟机', dataIndex: 'targetVm', key: 'targetVm' },
+    { title: '目标虚拟机', dataIndex: 'targetVmAlias', key: 'targetVmAlias' },
     { 
       title: '状态', 
       dataIndex: 'readyToUse', 
@@ -232,9 +318,9 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       <VmBackupCreateModal
         visible={createModalVisible}
         onCancel={() => setCreateModalVisible(false)}
-        onSuccess={() => {
+        onSuccess={(created) => {
           setCreateModalVisible(false);
-          onRefresh?.(true);
+          startPolling(created);
         }}
         cloudId={cloudId}
         namespaces={namespaces}

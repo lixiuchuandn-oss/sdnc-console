@@ -6,15 +6,17 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import { createKubeOvnSubnet, deleteKubeOvnSubnet, updateKubeOvnSubnet } from '../../../../services/harvesterApi';
+import { fetchCloudProviderEcs } from '../../../../services/api';
 
 type Props = {
   subnets: any[];
   vpcList?: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  onRefreshNads?: (force?: boolean, silent?: boolean) => void;
 };
 
-const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading, onRefresh }) => {
+const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading, onRefresh, onRefreshNads }) => {
   const { id: cloudId } = useParams<{ id: string }>();
   const [keyword, setKeyword] = useState<string>('');
   const [vpc, setVpc] = useState<string | undefined>(undefined);
@@ -104,11 +106,44 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       
       if (isEditMode && currentSubnet) {
         const name = currentSubnet.name || currentSubnet.metadata?.name;
+        
+        // Check for VM usage before update
+        let usingVms: string[] = [];
+        try {
+          const ecsRes = await fetchCloudProviderEcs(cloudId!, true);
+          const vms: any[] = ecsRes?.data || ecsRes || [];
+          const targetRef = `default/${name}`.toLowerCase();
+          usingVms = vms
+            .filter((vm: any) => Array.isArray(vm.networks)) // Use networks array directly from normalized object
+            .filter((vm: any) =>
+              vm.networks.some((n: string) => {
+                const s = String(n || '').toLowerCase();
+                const base = s.includes('@') ? s.split('@')[0] : s;
+                return base === targetRef || base.endsWith(`/${name.toLowerCase()}`);
+              }),
+            )
+            .map(
+              (vm: any) =>
+                vm?.metadata?.annotations?.['tower.io/alias'] ||
+                vm.InstanceName ||
+                vm.name ||
+                vm.metadata?.name,
+            )
+            .filter(Boolean);
+        } catch (e) {}
+
+        if (usingVms.length > 0) {
+            message.error(`无法编辑保存子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('，')}${usingVms.length > 5 ? ' 等' : ''}`);
+            setSubmitting(false);
+            return;
+        }
+
         await updateKubeOvnSubnet(cloudId!, name, values);
         message.success('更新子网成功');
       } else {
         await createKubeOvnSubnet(cloudId!, values);
         message.success('创建子网成功');
+        onRefreshNads?.(true, true);
       }
       
       setIsModalOpen(false);
@@ -117,7 +152,9 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       form.resetFields();
       onRefresh?.(true);
     } catch (e: any) {
-      message.error(`${isEditMode ? '更新' : '创建'}失败: ${e.message}`);
+      console.error(e);
+      const msg = e?.response?.data || e?.message || '未知错误';
+      message.error(`${isEditMode ? '更新' : '创建'}失败: ${typeof msg === 'object' ? (msg.message || JSON.stringify(msg)) : msg}`);
     } finally {
       setSubmitting(false);
     }
@@ -152,20 +189,60 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     setIsModalOpen(true);
   };
 
-  const handleDelete = (name: string) => {
+  const handleDelete = async (name: string) => {
+    let usingVms: string[] = [];
+    try {
+      const ecsRes = await fetchCloudProviderEcs(cloudId!, true);
+      const vms: any[] = ecsRes?.data || ecsRes || [];
+      const targetRef = `default/${name}`.toLowerCase();
+      usingVms = vms
+        .filter((vm: any) => Array.isArray(vm.networks))
+        .filter((vm: any) =>
+          vm.networks.some((n: string) => {
+            const s = String(n || '').toLowerCase();
+            const base = s.includes('@') ? s.split('@')[0] : s;
+            return base === targetRef || base.endsWith(`/${name.toLowerCase()}`);
+          }),
+        )
+        .map(
+          (vm: any) =>
+            vm?.metadata?.annotations?.['tower.io/alias'] ||
+            vm.InstanceName ||
+            vm.name ||
+            vm.metadata?.name,
+        )
+        .filter(Boolean);
+    } catch (e) {}
+
+    const blocked = usingVms.length > 0;
+
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除子网 ${name} 吗？此操作不可恢复。`,
+      content: (
+        <>
+          <div>{`确定要删除子网 ${name} 吗？此操作不可恢复。`}</div>
+          {blocked && (
+            <div style={{ color: '#ff4d4f', marginTop: 8 }}>
+              {`无法删除子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('，')}${usingVms.length > 5 ? ' 等' : ''}`}
+            </div>
+          )}
+        </>
+      ),
       okType: 'danger',
-      onOk: async () => {
-        try {
-          await deleteKubeOvnSubnet(cloudId!, name);
-          message.success('删除成功');
-          onRefresh?.(true);
-        } catch (e: any) {
-          message.error(`删除失败: ${e.message}`);
-        }
-      }
+      okButtonProps: { disabled: blocked },
+      onOk: blocked 
+        ? undefined 
+        : async () => {
+            try {
+              await deleteKubeOvnSubnet(cloudId!, name);
+              message.success('删除成功');
+              onRefresh?.(true);
+              onRefreshNads?.(true, true);
+            } catch (e: any) {
+              const msg = e?.response?.data || e?.message || '未知错误';
+              message.error(`删除失败: ${typeof msg === 'object' ? (msg.message || JSON.stringify(msg)) : msg}`);
+            }
+          }
     });
   };
 
@@ -315,7 +392,10 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
                     <Form.Item 
                         name="name" 
                         label="子网名称" 
-                        rules={[{ required: true, message: '请输入子网名称' }]}
+                        rules={[
+                            { required: true, message: '请输入子网名称' },
+                            { pattern: /^[a-z][a-z0-9-]*$/, message: '名称必须以小写字母开头，且只能包含小写字母、数字和中划线' }
+                        ]}
                     >
                         <Input placeholder="例如: web-subnet-01" style={{ width: '100%' }} disabled={isEditMode} />
                     </Form.Item>

@@ -28,7 +28,7 @@ import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 interface Props {
   visible: boolean;
   onCancel: () => void;
-  onSuccess: () => void;
+  onSuccess: (created?: { namespace: string; name: string }) => void;
   cloudId: string;
   namespaces: any[];
   vms: any[];
@@ -101,7 +101,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
       );
 
       message.success(`${type === 'backup' ? '备份' : '快照'}创建成功`);
-      onSuccess();
+      onSuccess({ namespace: values.namespace, name: values.name });
     } catch (e: any) {
       message.error(`创建失败: ${e.message}`);
     } finally {

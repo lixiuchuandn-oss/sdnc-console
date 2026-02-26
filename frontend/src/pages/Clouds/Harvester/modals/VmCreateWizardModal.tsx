@@ -25,7 +25,7 @@ import StepNetworks from './VmCreateWizard/StepNetworks';
 import StepOthers from './VmCreateWizard/StepOthers';
 import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
-import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, handleAutoStart, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
+import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 
 const VmCreateWizardModal: React.FC = () => {
@@ -38,7 +38,6 @@ const VmCreateWizardModal: React.FC = () => {
   const [wizardData, setWizardData] = useState<any>({});
   const [step, setStep] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
-  const [autoStart, setAutoStart] = useState<boolean>(false);
   const [currentCloudId, setCurrentCloudId] = useState<string | undefined>(cloudId !== 'all' ? cloudId : undefined);
   const [selectedDiskIdx, setSelectedDiskIdx] = useState<number | null>(null);
   const [selectedNetIdx, setSelectedNetIdx] = useState<number | null>(null);
@@ -272,9 +271,6 @@ const VmCreateWizardModal: React.FC = () => {
 
       await createHarvesterVm(cid, payload);
 
-      if (autoStart) {
-        await handleAutoStart(cid, vmId, v); // 使用 vmId 启动
-      }
       message.success('创建成功');
       navigate(-1);
     } catch (e: any) {
@@ -293,7 +289,6 @@ const VmCreateWizardModal: React.FC = () => {
       width={'70vw'}
       centered
       styles={{
-        mask: { backdropFilter: 'blur(4px)', backgroundColor: 'rgba(0,0,0,0.45)' },
         body: { height: '80vh', maxHeight: '80vh', overflow: 'hidden'}
       }}
       onCancel={() => navigate(-1)}
@@ -409,8 +404,6 @@ const VmCreateWizardModal: React.FC = () => {
                   form={form}
                   usbResources={usbResources}
                   reloadUsbResources={reloadUsbResources}
-                  autoStart={autoStart}
-                  setAutoStart={setAutoStart}
                   sshKeyOptions={sshKeyOptions}
                   reloadSshKeys={reloadSshKeys}
                 />
@@ -429,7 +422,6 @@ const VmCreateWizardModal: React.FC = () => {
             selectedNodeName={selectedNodeName}
             netModeState={netModeState}
             kubeSubnets={kubeSubnets}
-            autoStart={autoStart}
             memGi={memGi}
           >
             <div className="wizard-preview-actions">

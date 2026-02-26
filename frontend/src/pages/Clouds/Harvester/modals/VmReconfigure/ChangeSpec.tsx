@@ -167,6 +167,7 @@ const ChangeSpec: React.FC<Props> = ({ form, currentCpu, currentMemory, isHotPlu
 
   return (
     <>
+     
       <Row gutter={12} style={{ marginBottom: 0 }}>
         <Col span={6}>
            <div style={{ lineHeight: '32px' }}>vCPU分配</div>
