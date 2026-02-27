@@ -216,10 +216,13 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || 0;
     },
     memory: (r: any) => {
-      const lim = r?.spec?.template?.spec?.domain?.resources?.limits?.memory;
-      if (lim) return lim;
+      // 优先展示 Guest Memory (规格)，这是用户配置的值
       const guest = r?.spec?.template?.spec?.domain?.memory?.guest;
       if (guest) return guest;
+      
+      const lim = r?.spec?.template?.spec?.domain?.resources?.limits?.memory;
+      if (lim) return lim;
+      
       return r?.memoryGb || r?.vmi?.spec?.domain?.memory?.guest || '-';
     },
     ip: (r: any) => {
@@ -717,13 +720,58 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
                       {showAdvanced && (
                           <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
-                              <Descriptions size="small" column={2}>
-                                  <Descriptions.Item label="CPU 插槽">{record?.spec?.template?.spec?.domain?.cpu?.sockets || '-'}</Descriptions.Item>
-                                  <Descriptions.Item label="CPU 核心">{record?.spec?.template?.spec?.domain?.cpu?.cores || '-'}</Descriptions.Item>
-                                  <Descriptions.Item label="CPU 线程">{record?.spec?.template?.spec?.domain?.cpu?.threads || '-'}</Descriptions.Item>
-                                  <Descriptions.Item label="机器类型">{record?.spec?.template?.spec?.architecture || '-'} ({record?.spec?.template?.spec?.domain?.machine?.type || '-'})</Descriptions.Item>
-                                  <Descriptions.Item label="内存请求">{record?.spec?.template?.spec?.domain?.resources?.requests?.memory || '-'}</Descriptions.Item>
-                                  <Descriptions.Item label="内存限制">{record?.spec?.template?.spec?.domain?.resources?.limits?.memory || '-'}</Descriptions.Item>
+                              <Descriptions size="small" column={2} labelStyle={{ width: 150, color: '#999' }}>
+                                  <Descriptions.Item label={
+                                      <Tooltip title="CPU Topology: 插槽 (Sockets) × 核心 (Cores) × 线程 (Threads)">
+                                          <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>CPU 拓扑</span>
+                                      </Tooltip>
+                                  }>
+                                      {`${record?.spec?.template?.spec?.domain?.cpu?.sockets || '-'} 插槽 × ${record?.spec?.template?.spec?.domain?.cpu?.cores || '-'} 核心 × ${record?.spec?.template?.spec?.domain?.cpu?.threads || '-'} 线程`}
+                                  </Descriptions.Item>
+                                  <Descriptions.Item label={
+                                      <Tooltip title="Guest Memory: 虚拟机操作系统实际可见的内存大小（配置规格）">
+                                          <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>内存规格 (Guest)</span>
+                                      </Tooltip>
+                                  }>
+                                      {record?.spec?.template?.spec?.domain?.memory?.guest || '-'}
+                                  </Descriptions.Item>
+
+                                  <Descriptions.Item label={
+                                      <Tooltip title="Request CPU: Kubernetes 调度器为该虚拟机预留的 CPU 资源保障">
+                                          <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>CPU 预留 (Request)</span>
+                                      </Tooltip>
+                                  }>
+                                      {record?.spec?.template?.spec?.domain?.resources?.requests?.cpu || '-'}
+                                  </Descriptions.Item>
+                                  <Descriptions.Item label={
+                                      <Tooltip title="Request Memory: Kubernetes 调度器为该虚拟机预留的内存资源保障">
+                                          <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>内存预留 (Request)</span>
+                                      </Tooltip>
+                                  }>
+                                      {record?.spec?.template?.spec?.domain?.resources?.requests?.memory || '-'}
+                                  </Descriptions.Item>
+
+                                  <Descriptions.Item label={
+                                      <Tooltip title="Limit CPU: 虚拟机容器允许使用的最大 CPU 资源（通常与 Request 一致以保证独占）">
+                                          <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>CPU 上限 (Limit)</span>
+                                      </Tooltip>
+                                  }>
+                                      {record?.spec?.template?.spec?.domain?.resources?.limits?.cpu || '-'}
+                                  </Descriptions.Item>
+                                  <Descriptions.Item label={
+                                      <Tooltip title="Limit Memory: 虚拟机容器允许使用的最大内存资源（包含虚拟化开销）">
+                                          <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>内存上限 (Limit)</span>
+                                      </Tooltip>
+                                  }>
+                                      {record?.spec?.template?.spec?.domain?.resources?.limits?.memory || '-'}
+                                  </Descriptions.Item>
+
+                                  <Descriptions.Item label="机器架构">
+                                      {record?.spec?.template?.spec?.architecture || '-'} 
+                                  </Descriptions.Item>
+                                  <Descriptions.Item label="QEMU 机器类型">
+                                      {record?.spec?.template?.spec?.domain?.machine?.type || '-'}
+                                  </Descriptions.Item>
                               </Descriptions>
                           </div>
                       )}

@@ -1,17 +1,28 @@
 /**
  * Harvester - 云主机创建向导弹窗
+ * frontend/src/pages/Clouds/Harvester/modals/VmCreateWizardModal.tsx
  *
- * 多步骤创建云主机的核心入口，分为：
- * 1. 基本信息：选择资源池、命名空间、名称、调度模式等；
- * 2. 计算资源：CPU / 内存 / GPU；
- * 3. 虚拟磁盘：系统盘来源 (镜像 / 现有卷) + 数据盘配置；
- * 4. 虚拟网卡：Pod 网络 / VLAN / VPC 等网络配置；
- * 5. 其它选项：USB 设备、SSH 密钥、自动启动等。
+ * === 功能描述 ===
+ * 多步骤创建云主机的核心入口容器，管理整个创建流程的状态和步骤切换。
+ * 包含基本信息、计算资源、虚拟磁盘、虚拟网卡、其它选项五个步骤。
  *
- * 关键点：
- * - 使用 useHarvesterData 统一加载镜像、卷、NAD、节点等基础数据；
- * - 通过 VmWizardUtils 聚合验证逻辑与 payload 构造；
- * - 提交时先生成唯一 vmId，再创建 VM，必要时根据 autoStart 自动开机。
+ * === 核心逻辑 ===
+ * 1. [状态管理]:
+ *    - 使用 `wizardData` 累积各步骤的表单数据。
+ *    - 使用 `formSnapshot` 实时同步表单状态用于右侧摘要展示。
+ * 2. [数据加载]:
+ *    - 通过 `useHarvesterData` Hook 统一加载镜像、卷、NAD、节点等基础数据。
+ *    - 根据选择的资源池 (Cloud) 动态刷新相关资源。
+ * 3. [步骤控制]:
+ *    - `next()`: 校验当前步骤的关键字段，通过后进入下一步。
+ *    - `submit()`: 最终校验所有字段，构造 Payload 并调用 API 创建 VM。
+ * 4. [模板应用]:
+ *    - 支持从现有 VM 或模板 (Template) 初始化表单数据。
+ *
+ * === 交互依赖 ===
+ * - 上游: 路由参数 (cloudId) 或 State (fromTemplate, fromVm)。
+ * - 下游: `createHarvesterVm` API 接口。
+ * - 子组件: StepBasic, StepCompute, StepDisks, StepNetworks, StepOthers, WizardSummary。
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Form, Row, Col, Modal, message, Space } from 'antd';

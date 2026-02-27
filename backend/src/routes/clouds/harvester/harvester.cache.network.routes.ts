@@ -20,6 +20,57 @@ import {
 import { requestJson } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
+/**
+ * ==============================================================================
+ * 组件名称: Harvester 网络资源管理 (Harvester Network Management)
+ * 文件路径: backend/src/routes/clouds/harvester/harvester.cache.network.routes.ts
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 负责 Harvester 平台底层网络资源的查询与管理，包括集群网络、VPC、子网、NAD 等。
+ * 聚合了 Harvester 原生网络 (ClusterNetwork) 和 Kube-OVN 网络组件。
+ * 
+ * [核心逻辑]
+ * 1. [资源聚合]: 
+ *    - ClusterNetworks 接口会自动聚合关联的 VlanConfig 信息。
+ * 2. [租户网络隔离]: 
+ *    - VPC/Subnet 查询会根据 Kube-OVN 的 spec.namespaces 字段进行权限校验。
+ *    - 租户仅能看到授权给其 Namespace 的 VPC/Subnet，以及公共 (cloud-public) 资源。
+ * 3. [NAD 管理]:
+ *    - 提供 Network Attachment Definition (NAD) 的增删查功能。
+ *    - 创建/删除操作采用多路径重试机制，确保在不同 K8s/Rancher 环境下的兼容性。
+ * 
+ * ------------------------------------------------------------------------------
+ * [API 接口说明]
+ * ------------------------------------------------------------------------------
+ * 1. GET /:id/resources/cluster_networks
+ *    - 获取集群网络配置及 VLAN 映射。
+ * 
+ * 2. GET /:id/resources/vpcs
+ *    - 获取 VPC 列表 (支持租户过滤)。
+ * 
+ * 3. GET /:id/resources/subnets
+ *    - 获取子网列表 (支持 VPC 关联查询)。
+ * 
+ * 4. GET /:id/resources/harvester/nads
+ *    - 获取网络附件定义 (NAD) 列表。
+ * 
+ * 5. GET /:id/resources/harvester/nads/:namespace/:name
+ *    - 获取网络附件定义详情。
+ * 
+ * 6. POST /:id/resources/harvester/nads
+ *    - 创建网络附件定义 (支持多路径尝试)。
+ * 
+ * 7. DELETE /:id/resources/harvester/nads/:namespace/:name
+ *    - 删除网络附件定义 (支持多路径尝试)。
+ * 
+ * 8. GET /:id/resources/harvester/services
+ *    - 获取服务 (Service) 列表 (支持租户过滤)。
+ * 
+ * 9. GET /:id/resources/harvester/ingresses
+ *    - 获取路由 (Ingress) 列表 (支持租户过滤)。
+ * ==============================================================================
+ */
 export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermission: any) => {
   router.get(
     '/:id/resources/cluster_networks',
@@ -37,6 +88,8 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         const vlanConfigRepo = AppDataSource.getRepository(HarvesterVlanConfigInventory);
         const count = await repo.count({ where: { cloudId: id } });
 
+        // [同步策略] 缓存优先 + 按需同步
+        // 如果本地数据库为空，或者用户显式请求 force=true，则触发远程同步。
         if (count === 0 || String(force) === 'true') {
           try {
             await syncHarvesterClusterNetworks(cloud, insecure);
@@ -51,6 +104,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           vlanConfigRepo.find({ where: { cloudId: id } }),
         ]);
 
+        // [资源聚合] 将 ClusterNetwork 与 VlanConfig 进行关联
         const list = items.map((i: any) => {
           const configs = vlanConfigs.filter((c: any) => c.clusterNetwork === i.name);
           return {
@@ -92,6 +146,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         const isTenantRole = (req.user as any)?.role === 'tenant';
         const isTenant = isTenantUser || isTenantRole;
 
+        // [租户上下文] 获取租户的授权命名空间
         if (isTenant) {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const where: any = {
@@ -140,6 +195,8 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           view: i.view,
         }));
 
+        // [租户过滤] Kube-OVN 资源权限校验
+        // 检查 VPC 的 spec.namespaces 字段是否包含租户的命名空间，或是否为公共资源 (cloud-public)。
         if (isTenant) {
           const userNamespaces = tenantNamespace ? tenantNamespace.split(',').map((n) => n.trim()) : [];
           list = list.filter((vpc: any) => {
@@ -215,6 +272,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
 
         const count = await repo.count({ where: whereCondition });
 
+        // [同步策略] 缓存优先 + 按需同步
         if (count === 0 || String(force) === 'true') {
           try {
             await syncKubeOvnSubnets(cloud, insecure);
@@ -227,6 +285,8 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         const dbItems = await repo.find({ where: whereCondition });
         let list = dbItems.map((i) => i.rawData);
 
+        // [租户过滤] Kube-OVN 子网权限校验
+        // 租户只能看到授权给其 Namespace 的子网。
         if (isTenant) {
           const userNamespaces = tenantNamespace ? tenantNamespace.split(',').map((n) => n.trim()) : [];
           list = list.filter((subnet: any) => {
@@ -264,6 +324,9 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         const repo = AppDataSource.getRepository(KubevirtNadInventory);
 
         let whereCondition: any = { cloudId: id };
+        
+        // [租户过滤] NAD 可见性控制
+        // 租户仅能看到分配给自己的 Namespace 下的 NAD。
         if ((req as any).user?.role === 'tenant') {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const us = await userSpaceRepo.findOne({
@@ -277,6 +340,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
 
         const count = await repo.count({ where: whereCondition });
 
+        // [同步策略] 缓存优先 + 按需同步
         if (count === 0 || String(force) === 'true') {
           try {
             await syncHarvesterNads(cloud, insecure);
@@ -397,6 +461,8 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         let lastError: any = null;
         let success = false;
 
+        // [多路径兼容] 尝试多种 API 路径创建 NAD
+        // Harvester 版本差异可能导致 API 路径不同 (K8s 原生 vs Rancher 代理)。
         for (const url of candidates) {
           try {
             const data = await requestJson(
@@ -474,6 +540,8 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         let lastError: any = null;
         let success = false;
 
+        // [多路径兼容] 尝试多种 API 路径删除 NAD
+        // Harvester 版本差异可能导致 API 路径不同 (K8s 原生 vs Rancher 代理)。
         for (const url of candidates) {
           try {
             await requestJson('DELETE', url, cloud.secretKey || '', insecure);
@@ -514,6 +582,8 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         const repo = AppDataSource.getRepository(HarvesterServiceInventory);
         const whereCondition: any = { cloudId: id };
 
+        // [租户过滤] 检查租户权限
+        // 如果是租户用户，必须先确认其 UserSpace 是否存在且激活。
         if ((req as any).user?.role === 'tenant') {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const us = await userSpaceRepo.findOne({
@@ -524,6 +594,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
 
         const count = await repo.count({ where: whereCondition });
 
+        // [同步策略] 缓存优先 + 按需同步
         if (count === 0 || String(force) === 'true') {
           try {
             await syncHarvesterServices(cloud, insecure);
@@ -575,6 +646,9 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         const isTenant =
           (req.user as any)?.role === 'tenant' ||
           ((req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device');
+        
+        // [租户过滤] 命名空间隔离
+        // 租户仅能查看其 UserSpace 中定义命名空间下的 Ingress 资源。
         if (isTenant) {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const us = await userSpaceRepo.findOne({
@@ -585,6 +659,8 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         }
 
         const count = await repo.count({ where: whereCondition });
+        
+        // [同步策略] 缓存优先 + 按需同步
         if (count === 0 || String(force) === 'true') {
           try {
             await syncHarvesterIngresses(cloud, insecure);

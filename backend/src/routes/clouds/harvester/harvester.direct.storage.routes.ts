@@ -1,3 +1,36 @@
+/**
+ * ==============================================================================
+ * 模块名称: Harvester 存储资源直连路由 (Harvester Direct Storage Routes)
+ * 文件路径: src/routes/clouds/harvester/harvester.direct.storage.routes.ts
+ * ==============================================================================
+ * 功能描述:
+ * 本文件提供 Harvester 存储相关资源 (Volume/PVC, Snapshot, StorageClass) 的直连管理能力。
+ * 绕过中间缓存，直接与 Harvester/K8s API 交互，确保数据的实时性和操作的原子性。
+ *
+ * 核心逻辑:
+ * 1. [Direct API Access]: 直接操作 PersistentVolumeClaim (PVC) 和 VolumeSnapshot CRD。
+ * 2. [Tenant Isolation]: 通过 checkTenantAccess + isNamespaceAllowed 严格限制租户
+ *    只能操作授权命名空间下的存储资源。
+ * 3. [Advanced Operations]: 支持卷克隆 (Clone)、快照恢复 (Restore)、镜像导出 (Export Image)
+ *    等高级存储操作。
+ * 4. [Standardization]: 返回的数据格式与缓存路由保持一致，便于前端统一渲染。
+ *
+ * API 列表:
+ * - POST   /:id/resources/harvester/snapshots/:namespace/:name/restore   从快照恢复卷
+ * - GET    /:id/resources/harvester/capabilities                         查询存储能力
+ * - GET    /:id/resources/harvester/snapshot-classes                     查询快照类列表
+ * - POST   /:id/resources/harvester/volumes/:namespace/:name/export-image 导出卷为镜像
+ * - POST   /:id/resources/harvester/volumes/:namespace/:name/snapshots   创建卷快照
+ * - POST   /:id/resources/harvester/volumes/:namespace/:name/clone       克隆卷
+ * - GET    /:id/resources/harvester/volumes                              查询卷列表
+ * - GET    /:id/resources/harvester/storage-classes/:name                查询存储类详情
+ * - POST   /:id/resources/harvester/volumes                              创建卷
+ * - DELETE /:id/resources/harvester/volumes/:name                        删除卷
+ * - POST   /:id/resources/harvester/volumes/snapshot                     (Legacy) 创建快照
+ * - POST   /:id/resources/harvester/volumes/:name/resize                 扩容卷
+ * ==============================================================================
+ */
+
 import { Router, Response } from 'express';
 import {
   listHarvesterVolumesStandard,

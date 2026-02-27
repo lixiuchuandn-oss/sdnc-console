@@ -614,7 +614,7 @@ export const fetchHarvesterNamespaces = async (cloudId: string, force = false) =
   return await res.json();
 };
 
-export const createHarvesterNamespace = async (cloudId: string, payload: { name: string; labels?: Record<string,string>; annotations?: Record<string,string> }) => {
+export const createHarvesterNamespace = async (cloudId: string, payload: any) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces`, {
     method: 'POST',
@@ -631,7 +631,7 @@ export const createHarvesterNamespace = async (cloudId: string, payload: { name:
   return json;
 };
 
-export const updateHarvesterNamespace = async (cloudId: string, name: string, payload: { labels?: Record<string,string>; annotations?: Record<string,string> }) => {
+export const updateHarvesterNamespace = async (cloudId: string, name: string, payload: any) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces/${encodeURIComponent(name)}`, {
     method: 'PATCH',

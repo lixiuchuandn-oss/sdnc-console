@@ -1,3 +1,42 @@
+/**
+ * ==============================================================================
+ * 模块名称: Harvester VM 资源直连路由 (Harvester Direct VM Routes)
+ * 文件路径: src/routes/clouds/harvester/harvester.direct.vm.routes.ts
+ * ==============================================================================
+ * 功能描述:
+ * 本文件提供 Harvester 虚拟机 (VM) 相关资源的直连管理能力，绕过中间缓存，直接与 Harvester API 交互。
+ * 涵盖了 VM 的生命周期管理 (启动/停止/重启/暂停/删除)、配置变更 (Spec Update)、迁移、
+ * VNC 控制台访问、卷挂载/卸载、USB/GPU 资源查询等操作。
+ *
+ * 核心逻辑:
+ * 1. [Direct API Access]: 所有接口均直接请求 Harvester/KubeVirt 的 API，确保操作的实时性。
+ * 2. [Tenant Isolation]: 严格集成了多租户权限校验 (checkTenantAccess)，确保租户只能操作
+ *    授权命名空间下的 VM。
+ * 3. [SSE Real-time Stream]: 提供 `/ecs/stream` 接口，通过 Server-Sent Events (SSE) 推送
+ *    VM 的实时状态变更 (Watch机制)，支持多租户过滤。
+ * 4. [Operation Validation]: 在执行敏感操作 (如重启/删除) 前，进行权限和资源存在性校验。
+ *
+ * API 列表:
+ * - GET    /:id/resources/ecs/stream                       建立 VM 状态实时推送流 (SSE)
+ * - POST   /:id/resources/ecs/:instanceId/start            启动 VM
+ * - POST   /:id/resources/ecs/:instanceId/stop             停止 VM (支持强制)
+ * - POST   /:id/resources/ecs/:instanceId/reboot           重启 VM (支持强制)
+ * - POST   /:id/resources/ecs/:instanceId/softreboot       软重启 VM (ACPI)
+ * - POST   /:id/resources/ecs/:instanceId/pause            暂停 VM
+ * - POST   /:id/resources/ecs/:instanceId/unpause          恢复 VM
+ * - DELETE /:id/resources/ecs/:instanceId                  删除 VM
+ * - POST   /:id/resources/ecs                              创建 VM
+ * - PUT    /:id/resources/ecs/:instanceId                  更新 VM 配置 (Spec)
+ * - GET    /:id/resources/ecs/:instanceId/vnc              获取 VNC 控制台 URL
+ * - POST   /:id/resources/ecs/:instanceId/volumes/attach   挂载卷到 VM
+ * - POST   /:id/resources/ecs/:instanceId/volumes/detach   从 VM 卸载卷
+ * - POST   /:id/resources/ecs/:instanceId/migrate          迁移 VM
+ * - POST   /:id/resources/ecs/:instanceId/migrate/abort    取消迁移
+ * - GET    /:id/resources/harvester-gpus                   获取 GPU 资源列表
+ * - GET    /:id/resources/harvester-usbs                   获取 USB 资源列表
+ * ==============================================================================
+ */
+
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
 import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory';
@@ -32,10 +71,28 @@ import {
   isNamespaceAllowed,
 } from './harvester.direct.helpers';
 
+/**
+ * 注册 Harvester 直连 VM 路由
+ * @param router Express Router 对象
+ * @param checkAdminPermission 管理员权限校验中间件
+ */
 export const registerHarvesterDirectVmRoutes = (
   router: Router,
   checkAdminPermission: any,
 ) => {
+  /**
+   * ==================================================================================
+   * [SSE] Real-time VM Status Stream
+   * ==================================================================================
+   * 建立 Server-Sent Events (SSE) 连接，实时推送 VM 和 VMI 的状态变更。
+   *
+   * [核心逻辑]:
+   * 1. [Initial Sync]: 首次连接时，拉取全量 VM/VMI 列表并推送初始状态。
+   * 2. [Watch Mechanism]: 使用 K8s Watch API 监听资源变更 (ADDED/MODIFIED/DELETED)。
+   * 3. [Tenant Filtering]: 在推送前严格校验 namespace 权限，确保多租户隔离。
+   * 4. [State Merging]: 合并 VM (配置) 和 VMI (运行时) 对象，计算最终状态 (PrintableStatus)。
+   * 5. [Keep-Alive]: 发送 Ping 帧保持连接活跃。
+   */
   router.get(
     '/:id/resources/ecs/stream',
     checkAdminPermission,
@@ -376,6 +433,15 @@ export const registerHarvesterDirectVmRoutes = (
     },
   );
 
+  /**
+   * ==================================================================================
+   * VM Lifecycle Management
+   * ==================================================================================
+   * 包含 VM 的启动、停止、重启、暂停、恢复、删除等操作。
+   * 所有操作均需校验:
+   * 1. 租户权限 (checkTenantAccess + clouds.console:write)
+   * 2. 目标 VM 是否存在且属于该租户 (resolveTenantVmId)
+   */
   router.post(
     '/:id/resources/ecs/:instanceId/start',
     checkAdminPermission,
@@ -726,6 +792,13 @@ export const registerHarvesterDirectVmRoutes = (
     },
   );
 
+  /**
+   * ==================================================================================
+   * VM Configuration & CRUD
+   * ==================================================================================
+   * 包含 VM 的创建、更新 (PUT/PATCH)、Spec 修改等操作。
+   * 涉及多租户命名空间校验 (Namespace Filtering) 和本地缓存更新。
+   */
   router.post(
     '/:id/resources/ecs',
     checkAdminPermission,
@@ -1056,6 +1129,13 @@ export const registerHarvesterDirectVmRoutes = (
     },
   );
 
+  /**
+   * ==================================================================================
+   * Volume Operations (Hot Plug)
+   * ==================================================================================
+   * 支持 VM 在线挂载/卸载数据卷 (Hot Plug)。
+   * 需要 Harvester 版本支持且 VM 已安装 Guest Agent。
+   */
   router.post(
     [
       '/:id/resources/ecs/:instanceId/add-volume',
@@ -1153,6 +1233,12 @@ export const registerHarvesterDirectVmRoutes = (
     },
   );
 
+  /**
+   * ==================================================================================
+   * Migration Operations
+   * ==================================================================================
+   * 支持 VM 热迁移 (Live Migration) 及取消迁移。
+   */
   router.post(
     '/:id/resources/ecs/:instanceId/migrate',
     async (req: any, res: Response) => {
@@ -1240,6 +1326,12 @@ export const registerHarvesterDirectVmRoutes = (
     },
   );
 
+  /**
+   * ==================================================================================
+   * Hardware Resources (GPU/USB)
+   * ==================================================================================
+   * 查询 Harvester 集群的 PCI 设备资源 (HostDevices)。
+   */
   router.get(
     '/:id/resources/harvester/gpu',
     checkAdminPermission,
@@ -1320,6 +1412,12 @@ export const registerHarvesterDirectVmRoutes = (
     },
   );
 
+  /**
+   * ==================================================================================
+   * Events & Monitoring
+   * ==================================================================================
+   * 查询 K8s/Harvester 事件，支持租户级过滤。
+   */
   router.get(
     '/:id/resources/harvester/events',
     checkAdminPermission,

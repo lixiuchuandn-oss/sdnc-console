@@ -1,20 +1,33 @@
 /**
- * @file VolumesSection.tsx
- * @description Harvester 虚拟卷（PVC）列表视图
+ * Harvester - 虚拟卷 (Volume) 列表 Section
+ * frontend/src/pages/Clouds/Harvester/sections/VolumesSection.tsx
  *
- * 职责说明：
- * - 以统一的视图模型 VolumeView 展示 Harvester/K8s PVC 列表（名称、容量、存储类、访问模式等）
- * - 提供关键字、命名空间、状态、存储类等多维度筛选，并支持“显示系统卷”开关
- * - 自动过滤系统命名空间和系统存储类（依赖 harvesterUtils 中的 isSystemNamespace / isSystemStorageClass）
- * - 自动尝试关联卷所属的云主机（SafeRead.attachedVm），在列表中展示“挂载云主机”
- * - 支持卷的全生命周期操作：创建、挂载到云主机、从云主机卸载、导出为镜像、创建快照、编辑容量、克隆、删除
- * - 支持批量删除卷
- * - 支持打开 HarvesterResourceDrawer 查看 PVC 详情 / 事件
+ * === 功能描述 ===
+ * 负责展示 Harvester 集群中的虚拟卷 (PVC) 资源，提供全生命周期管理功能。
+ * 核心功能包括：
+ * 1. 列表展示: 统一展示 PVC 的状态、容量、存储类、挂载 VM 等信息。
+ * 2. 资源过滤: 支持按关键字、命名空间、状态、存储类筛选，并提供“显示系统卷”开关。
+ * 3. 生命周期管理: 支持创建、克隆、扩容、删除、创建快照、导出镜像等操作。
+ * 4. 挂载管理: 支持将卷挂载到虚拟机或从虚拟机卸载。
  *
- * 集成说明：
- * - 所有实际的后端调用（创建/删除/挂载/卸载/导出/快照/编辑/克隆）统一通过 services/harvesterApi 下的接口实现
- * - 组件通过 Props 接收 volumes / vms / storageClasses 列表以及 onRefresh 回调，由上层页面负责数据拉取
- * - 本组件内部不会做任何“Hack”式写法，只通过 ViewModel + SafeRead 做兼容性适配
+ * === 核心逻辑 ===
+ * 1. [视图模型 (ViewModel)]:
+ *    - 定义 `VolumeView` 接口，将后端返回的复杂 K8s PVC 对象 (Raw/Wrapped) 转换为扁平化的前端视图数据。
+ *    - 统一处理容量单位 (Bytes/GiB)、状态映射 (Phase)、挂载关系 (AttachedTo)。
+ * 2. [系统资源过滤]:
+ *    - 默认过滤掉 Harvester/Longhorn 等系统命名空间的卷 (依赖 `isSystemNamespace`)。
+ *    - 默认过滤掉系统存储类 (依赖 `isSystemStorageClass`)。
+ *    - 提供 Checkbox 开关允许用户查看系统级资源。
+ * 3. [关联查询]:
+ *    - 利用 `SafeRead.attachedVm` 和传入的 `vms` 列表，自动反查卷当前挂载的虚拟机名称。
+ *    - 在列表中生成指向 VM 详情页的链接。
+ * 4. [操作权限]:
+ *    - 根据卷的状态 (Bound/Available/In-use) 动态禁用或启用特定操作按钮 (如仅 Bound 状态可扩容)。
+ *
+ * === 交互依赖 ===
+ * - 上游: 依赖 `CloudDetailHarvester` 传入 `volumes`, `vms`, `storageClasses` 数据。
+ * - 下游: 调用 `harvesterApi` 执行实际的 CRUD 和挂载/卸载操作。
+ * - 组件: 复用 `HarvesterResourceDrawer` 展示详情，`ResourceActionsDropdown` 展示操作菜单。
  */
 
 import React, { useMemo, useState, useEffect } from 'react';

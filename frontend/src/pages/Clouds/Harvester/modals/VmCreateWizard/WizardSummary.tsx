@@ -1,28 +1,50 @@
+/**
+ * ==============================================================================
+ * 模块名称: Harvester VM 向导预览组件 (WizardSummary)
+ * 文件路径: src/pages/Clouds/Harvester/modals/VmCreateWizard/WizardSummary.tsx
+ * ==============================================================================
+ *
+ * [功能描述]
+ * 在“虚拟机创建向导”右侧预览区域，汇总用户在表单中配置的关键信息，
+ * 以只读方式展示，帮助用户在提交前快速核对。
+ *
+ * [核心逻辑]
+ * 1. [数据聚合]: 使用 useMemo 聚合表单快照 (formSnapshot) 中的分散数据。
+ * 2. [格式化展示]: 将技术参数（如 netMode=vpc）转换为人类可读的文案（如 "VPC网络"）。
+ * 3. [条件渲染]: 仅展示已配置的项（如 GPU/USB 仅在有值时显示），保持界面整洁。
+ * 4. [分类展示]: 按“位置、基础信息、计算、存储、网络、HA、固件”等维度分类展示。
+ *
+ * [交互依赖]
+ * - 依赖 formSnapshot 获取实时表单数据。
+ * - 依赖外部传入的 clouds, kubeSubnets 等列表进行 ID 到名称的映射。
+ */
 import React, { useMemo } from 'react';
 import { Divider } from 'antd';
 
 /**
- * 组件：WizardSummary
- * 用途：在“虚拟机创建向导”右侧预览区域，汇总用户在表单中配置的关键信息，
- *       以只读方式展示，帮助用户在提交前快速核对。
- *
- * 设计要点：
- * - 使用 useMemo 根据依赖项计算一次 summary，避免不必要的重复计算与渲染。
- * - 兼容不同网络模式（VPC/扁平）、磁盘来源（镜像/现有磁盘）等多种输入情况。
- * - 将信息按“位置、基础信息、计算、存储、网络、HA、固件、更多”等维度分类展示。
+ * 组件 Props 定义
  */
-
 interface WizardSummaryProps {
-  formSnapshot: any;                // 表单快照（来自各步骤的临时值集合）
-  currentCloudId: string | undefined; // 当前资源池 ID（优先使用）
-  cloudId: string;                  // 页面/上级传入的资源池 ID（当未选中“全部”时作为备选）
-  clouds: any[];                    // 可用资源池列表（用于将 ID 映射为名称）
-  hostModeState: string;            // 主机调度模式：node/label/auto
-  selectedNodeName: string | null;  // 当 hostModeState === 'node' 时指定的主机名
-  netModeState: string;             // 网络模式：vpc/flat（作为兜底）
-  kubeSubnets: any[];               // K8s 子网列表（用于显示 CIDR）
-  memGi: number;                    // 默认内存 Gi（当表单未填写时兜底显示）
-  children?: React.ReactNode;       // 预览区域下方可扩展的自定义节点（如按钮/额外说明）
+  /** 表单快照（来自各步骤的临时值集合） */
+  formSnapshot: any;
+  /** 当前资源池 ID（优先使用） */
+  currentCloudId: string | undefined;
+  /** 页面/上级传入的资源池 ID（当未选中“全部”时作为备选） */
+  cloudId: string;
+  /** 可用资源池列表（用于将 ID 映射为名称） */
+  clouds: any[];
+  /** 主机调度模式：node/label/auto */
+  hostModeState: string;
+  /** 当 hostModeState === 'node' 时指定的主机名 */
+  selectedNodeName: string | null;
+  /** 网络模式：vpc/flat（作为兜底） */
+  netModeState: string;
+  /** K8s 子网列表（用于显示 CIDR） */
+  kubeSubnets: any[];
+  /** 默认内存 Gi（当表单未填写时兜底显示） */
+  memGi: number;
+  /** 预览区域下方可扩展的自定义节点（如按钮/额外说明） */
+  children?: React.ReactNode;
 }
 
 const WizardSummary: React.FC<WizardSummaryProps> = ({
@@ -37,18 +59,19 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
   memGi,
   children
 }) => {
+  // [数据处理] 聚合计算预览数据
   const summary = useMemo(() => {
     // v：统一读取表单值，未填时使用空对象兜底，避免空指针
     const v = formSnapshot || {};
 
-    // 磁盘相关：系统盘来源类型、额外数据盘数量与总数、系统盘大小
+    // [存储] 系统盘来源类型、额外数据盘数量与总数、系统盘大小
     const rootType = String(v.rootSourceType || 'image');
     const extras: any[] = Array.isArray(v.extraDisks) ? v.extraDisks : [];
     const extraDiskCnt = extras.length;
     const diskCount = 1 + extraDiskCnt; // 1 = 系统盘
     const rootSize = v.rootSize || v.systemDisk || '40Gi';
 
-    // 网络相关：模式、主网卡对象、辅助网卡数组、主网卡显示文本、辅助网卡名称聚合、MAC、子网 CIDR
+    // [网络] 模式、主网卡对象、辅助网卡数组、主网卡显示文本、辅助网卡名称聚合、MAC、子网 CIDR
     const nm = String(v.netMode || netModeState || 'flat');
     const prim = v.primaryNic || {};
     const netExtras: any[] = Array.isArray(v.netIfaces) ? v.netIfaces : [];
@@ -67,7 +90,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       }
     })();
 
-    // 计算资源相关：热扩容、CPU 拓扑/模式/绑定/隔离、QoS（请求/上限/内存上限）
+    // [计算] 热扩容、CPU 拓扑/模式/绑定/隔离、QoS（请求/上限/内存上限）
     const hotExpand = v.hotExpandEnabled ? '启用' : '未启用';
     const cpuTopo = (function () {
       const s = Number(v.cpuSockets || 0);
@@ -89,7 +112,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       return a.length ? a.join('，') : '-';
     })();
 
-    // 系统来源：镜像/现有磁盘；安装目标（预留位，当前未使用）；Cloud-Init 状态
+    // [存储详情] 系统来源：镜像/现有磁盘；安装目标（预留位，当前未使用）；Cloud-Init 状态
     const rootSrc = String(v.rootSourceType || 'image');
     const rootDetail = (function () {
       if (rootSrc === 'image') {
@@ -106,7 +129,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       return txt ? '启用' : '未配置';
     })();
 
-    // GPU/USB 摘要：按模式/资源/数量生成可读文案；未配置时统一显示“未配置”
+    // [外设] GPU/USB 摘要：按模式/资源/数量生成可读文案；未配置时统一显示“未配置”
     const gpuSummary = (function () { 
       const mode = String(v.gpuMode || '').trim(); 
       const res = String(v.gpuResourceName || '').trim(); 
@@ -127,7 +150,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       return arr.length ? `${arr.length} 个` : '未配置';
     })();
 
-    // 运行策略（默认 RerunOnFailure）；资源池名称解析（ID -> 名称）
+    // [策略] 运行策略（默认 RerunOnFailure）；资源池名称解析（ID -> 名称）
     const runStrategy = String(v.runStrategy || 'RerunOnFailure');
     const poolId = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
     const poolName = (function () {
@@ -204,12 +227,12 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
 
   return (
     <div className="wizard-preview">
-      {/* 顶部标题区域：固定展示“配置预览” */}
+      {/* === 1. 顶部标题 === */}
       <div className="wizard-preview-header">
         <div className="wizard-preview-title">配置预览</div>
       </div>
 
-      {/* 中间可滚动区域，承载所有汇总项 */}
+      {/* === 2. 滚动内容区域 === */}
       <div className="wizard-summary-scroll">
         <div className="wizard-summary-list">
           {/* 位置相关：资源池 & 主机调度策略 */}

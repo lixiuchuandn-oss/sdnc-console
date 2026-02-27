@@ -2,16 +2,41 @@ import { HarvesterTestParams } from './types';
 import { getJsonOnce } from './utils';
 
 /**
- * 获取 Harvester GPU 资源列表
- * 通过读取 KubeVirt 配置和 PCI 设备 CRD，聚合出可分配的 GPU 资源
- * - 优先从 kubevirt 配置中的 permittedHostDevices 中抽取逻辑资源
- * - 再结合 pcidevices.harvesterhci.io 等 CRD 获取物理设备和节点信息
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
- * @returns 标准化后的 GPU 资源数组（包含 resourceName、类型、节点、PCI 地址等）
+ * ==============================================================================
+ * 模块名称: Harvester 外设资源管理服务
+ * 文件路径: backend/src/services/clouds/harvester/peripherals.ts
+ * ==============================================================================
+ *
+ * [功能描述]
+ * 提供对 Harvester 物理硬件设备（GPU、PCI 设备、USB 设备）的发现与列表查询功能。
+ * 支持通过 KubeVirt 配置和 Node 状态聚合可用的透传设备资源。
+ *
+ * [核心逻辑]
+ * 1. [GPU 发现]: 结合 KubeVirt PermittedHostDevices 配置与 PCIDevice CRD，识别 vGPU/透传 GPU。
+ * 2. [PCI 遍历]: 遍历集群内所有 PCI 设备，提取厂商、型号及绑定状态。
+ * 3. [USB 发现]: 从 KubeVirt 配置中提取允许透传的 USB 设备列表。
+ * 4. [多集群适配]: 尝试自动探测 Cluster ID 以支持 Rancher 多集群代理模式。
+ *
+ * [API 依赖]
+ * - KubeVirt API (kubevirt.io)
+ * - PCIDevices API (pcidevices.harvesterhci.io)
+ * - Rancher Cluster API (/v3/clusters)
+ * ==============================================================================
  */
 
+/**
+ * [GPU 资源列表]
+ * 获取 Harvester GPU 资源列表（含物理 GPU 和 vGPU）。
+ *
+ * [核心逻辑]
+ * 1. [配置读取]: 优先从 KubeVirt CR (kubevirt/kubevirt) 的 permittedHostDevices 中读取允许透传的设备组。
+ * 2. [设备关联]: 结合 pcidevices.harvesterhci.io CRD 获取物理设备的详细信息（节点、地址、状态）。
+ * 3. [类型分类]: 区分 PCI 透传 (passthrough) 和 vGPU/MDEV (vgpu) 类型。
+ * 4. [过滤规则]: 仅返回显式配置了 resourceName 的可用资源。
+ *
+ * @param params 连接参数
+ * @returns Promise<Array> 标准化 GPU 资源数组
+ */
 export const listHarvesterGpuResources = async ({
   endpoint,
   token,
@@ -202,12 +227,18 @@ export const listHarvesterGpuResources = async ({
 };
 
 /**
- * 获取 Harvester PCI 设备列表（原始清单）
- * 主要用于展示所有被接管的 PCI 设备（不限于 GPU），包括厂商/产品信息
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
- * @returns 原始 PCI 设备对象数组（保持与集群 CRD 结构尽量一致）
+ * [PCI 设备列表]
+ * 获取 Harvester 集群内所有 PCI 设备的原始清单。
+ *
+ * [功能描述]
+ * 主要用于展示宿主机上的物理硬件拓扑，包括显卡、网卡、加速卡等。
+ *
+ * [数据处理]
+ * 1. [多路径探测]: 兼容 v1beta1/v1 API 版本及 Rancher 代理路径。
+ * 2. [字段映射]: 统一提取 resourceName, vendorId, deviceId, address 等关键硬件标识。
+ *
+ * @param params 连接参数
+ * @returns Promise<any[]> 原始 PCI 设备对象数组
  */
 export const listHarvesterPciDevices = async ({
   endpoint,
@@ -315,12 +346,15 @@ export const listHarvesterPciDevices = async ({
 };
 
 /**
- * 获取 Harvester USB 直通设备资源列表
- * 从 KubeVirt 的 permittedHostDevices.usb 配置中提取可用 USB 资源
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
- * @returns 标准化后的 USB 资源数组（包含 resourceName / vendorId / productId）
+ * [USB 资源列表]
+ * 获取 Harvester 允许透传的 USB 设备列表。
+ *
+ * [核心逻辑]
+ * 1. [配置提取]: 从 KubeVirt 配置 (permittedHostDevices.usb) 中提取白名单设备。
+ * 2. [格式兼容]: 兼容新旧版本的配置字段 (usb vs usbHostDevices)。
+ *
+ * @param params 连接参数
+ * @returns Promise<Array> 标准化 USB 资源数组
  */
 export const listHarvesterUsbResources = async ({
   endpoint,

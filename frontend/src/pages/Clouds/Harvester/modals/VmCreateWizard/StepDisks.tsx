@@ -1,33 +1,79 @@
+/**
+ * ==============================================================================
+ * Harvester - 虚拟机创建向导 - 磁盘配置步骤 (StepDisks)
+ * frontend/src/pages/Clouds/Harvester/modals/VmCreateWizard/StepDisks.tsx
+ * ==============================================================================
+ *
+ * [功能描述]
+ * 负责配置虚拟机的存储资源，包括必须的系统盘 (Root Disk) 和可选的数据盘 (Data Disks)。
+ * 支持从镜像、ISO、或现有 PVC 启动系统，并支持挂载多个数据盘或 ISO 镜像。
+ * ------------------------------------------------------------------------------
+ *
+ * [核心逻辑]
+ * 1. [系统盘来源]:
+ *    - 镜像 (Image): 从 Harvester 镜像启动，支持 qcow2/raw。
+ *    - ISO: 从 ISO 镜像启动，此时系统盘作为 CDROM，且必须挂载一块空白数据盘用于安装系统。
+ *    - 现有卷 (Existing PVC): 使用已有的 PVC 作为系统盘。
+ * 2. [数据盘管理]:
+ *    - 支持动态添加/删除数据盘。
+ *    - 类型支持：新建空白卷 (New)、挂载现有卷 (Existing)、挂载 ISO。
+ * 3. [容量解析]:
+ *    - 自动解析镜像或 PVC 的原始大小并转换为 GiB 显示。
+ *    - 对于新建卷，提供数字输入框。
+ * 4. [校验规则]:
+ *    - 若系统盘为 CDROM 模式，强制校验必须存在至少一块非 CDROM 的数据盘。
+ * ------------------------------------------------------------------------------
+ *
+ * [API 接口]
+ * - 提交时作为 VM Spec 的一部分:
+ *   - disks (Array): 包含系统盘和数据盘配置
+ *     - name, size, bus, bootOrder
+ *     - existingVolume / containerImage (Image) / newVolume (Empty)
+ * ------------------------------------------------------------------------------
+ *
+ * [交互依赖]
+ * - 依赖 Ant Design Form List 处理动态表单项。
+ * - 依赖外部传入的 images/volumes/storageClasses 数据源。
+ */
 import React from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
 import { MinusCircleOutlined } from '@ant-design/icons';
 import { isSystemStorageClass } from '../../../../../utils/harvesterUtils';
 
 /**
- * StepDisks 组件
- * 
- * 用于在创建虚拟机的向导中配置磁盘信息。
- * 包含两部分：
- * 1. 系统盘 (Root Disk): 必须存在，来源可以是镜像或现有卷。
- * 2. 数据盘 (Data Disks): 可选，可以是新建空白卷或挂载现有卷。
+ * 组件 Props 定义
  */
-
 interface StepDisksProps {
-  form: any;                  // Antd Form 实例
-  imageOptions: any[];        // 镜像列表选项
-  imageLoading: boolean;      // 镜像加载状态
-  reloadImages: () => void;   // 重新加载镜像的方法
-  images: any[];              // 原始镜像数据
-  defaultStorageClassName: string | undefined; // 默认存储类
-  reloadStorageClasses: () => void; // 重新加载存储类
-  initialVmName: string;      // 初始虚拟机名称
-  volumeOptions: any[];       // 现有卷(PVC)选项
-  reloadVolumes: () => void;  // 重新加载卷
-  availableVolumes: any[];    // 可用卷原始数据
-  storageClasses: any[];      // 存储类列表
-  storageClassLoading: boolean; // 存储类加载状态
-  selectedDiskIdx: number | null; // 当前选中的磁盘索引（用于高亮）
-  setSelectedDiskIdx: (idx: number | null) => void; // 设置选中磁盘
+  /** Ant Design Form 实例 */
+  form: any;
+  /** 镜像下拉选项列表 */
+  imageOptions: any[];
+  /** 镜像加载状态 */
+  imageLoading: boolean;
+  /** 重新加载镜像数据的回调 */
+  reloadImages: () => void;
+  /** 原始镜像数据列表 (用于查找详细信息) */
+  images: any[];
+  /** 默认存储类名称 */
+  defaultStorageClassName: string | undefined;
+  /** 重新加载存储类的回调 */
+  reloadStorageClasses: () => void;
+  /** 初始虚拟机名称 (未直接使用，保留属性) */
+  initialVmName: string;
+  /** 现有卷 (PVC) 下拉选项 */
+  volumeOptions: any[];
+  /** 重新加载卷数据的回调 */
+  reloadVolumes: () => void;
+  /** 可用卷原始数据列表 */
+  availableVolumes: any[];
+  /** 存储类列表 */
+  storageClasses: any[];
+  /** 存储类加载状态 */
+  storageClassLoading: boolean;
+  /** 当前选中的磁盘索引 (用于 UI 高亮) */
+  selectedDiskIdx: number | null;
+  /** 设置选中磁盘索引的回调 */
+  setSelectedDiskIdx: (idx: number | null) => void;
 }
 
 const StepDisks: React.FC<StepDisksProps> = ({
@@ -47,10 +93,10 @@ const StepDisks: React.FC<StepDisksProps> = ({
   selectedDiskIdx,
   setSelectedDiskIdx,
 }) => {
-  // 辅助函数：生成随机磁盘名称后缀 (6位小写字母数字)
+  // [辅助函数] 生成随机磁盘名称后缀 (6位小写字母数字)
   const generateDiskName = () => Math.random().toString(36).substring(2, 8);
 
-  // 辅助函数：判断存储类是否支持 ReadWriteMany (RWX)
+  // [辅助函数] 判断存储类是否支持 ReadWriteMany (RWX)
   const isRwxStorageClass = (x: any) => {
     const nm = String(x?.name || '').toLowerCase();
     const p = x?.parameters || {};
@@ -58,6 +104,10 @@ const StepDisks: React.FC<StepDisksProps> = ({
     return nm.includes('rwx') || shared === 'true';
   };
 
+  /**
+   * [业务逻辑] 解析镜像类型
+   * 根据 Label 或文件扩展名判断镜像是否为 ISO 或磁盘镜像
+   */
   const resolveImageKind = (img: any): 'iso' | 'disk' | 'unknown' => {
     const labels = img?.metadata?.labels || {};
     const typeLabel = String(labels['harvesterhci.io/image-type'] || '').toLowerCase();
@@ -81,11 +131,11 @@ const StepDisks: React.FC<StepDisksProps> = ({
     <>
       <Typography.Paragraph type="secondary">配置新建云主机的系统盘和数据盘参数</Typography.Paragraph>
       
-      {/* ==================== 系统盘配置区域 ==================== */}
+      {/* === 系统盘配置区域 === */}
       <div className="wizard-group-title">系统盘</div>
       <Row gutter={12}>
         <Col span={8}>
-          {/* 系统盘来源选择 */}
+          {/* 系统盘来源选择：联动清理后续字段 */}
           <Form.Item label="来源" name="rootSourceType" rules={[{ required: true }]}> 
             <Select 
               options={[
@@ -94,10 +144,13 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 { label: '现有磁盘', value: 'existing' }
               ]} 
               onChange={(v) => { 
+                // [状态重置] 切换来源时清空关联字段
                 try {
                   form.setFieldsValue({ image: undefined, rootPvc: undefined, rootSize: undefined });
                 } catch {}
                 if (v === 'existing') { reloadVolumes(); } else { reloadImages(); } 
+                
+                // [初始化] 自动填充默认存储类
                 if (v === 'image' || v === 'iso') { 
                   try { 
                     const sc = defaultStorageClassName; 
@@ -105,6 +158,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     form.setFieldsValue({ storageClassName: sc || form.getFieldValue('storageClassName') }); 
                   } catch { } 
                 }
+                // [自动推断] 根据来源设置设备类型
                 if (v === 'iso') { try { form.setFieldsValue({ rootDeviceType: 'cdrom' }); } catch {} }
                 else if (v === 'image') { try { form.setFieldsValue({ rootDeviceType: 'disk' }); } catch {} }
               }} 
@@ -157,6 +211,8 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     const isIso = kind === 'iso';
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
                     form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: isIso ? 'cdrom' : 'disk' });
+                    
+                    // [容量解析] 自动计算镜像大小并转为 GiB
                     const raw = (it as any)?.virtualSize ?? (it as any)?.size;
                     let gi = 0;
                     if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
@@ -217,6 +273,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
                     form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: 'cdrom' });
+                    
                     const raw = (it as any)?.virtualSize ?? (it as any)?.size;
                     let gi = 0;
                     if (typeof raw === 'number') gi = Math.max(1, Math.round(Number(raw) / (1024 ** 3)));
@@ -242,7 +299,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 placeholder="选择现有卷"
                 onOpenChange={(open) => { if (open) reloadVolumes(); }}
                 onChange={(val) => {
-                  // 选中 PVC 后自动填充大小
+                  // [状态同步] 选中 PVC 后自动填充大小
                   try {
                     const it = (availableVolumes || []).find((v: any) => v?.pvcName === val);
                     const raw = it?.size;
@@ -285,6 +342,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
               dependencies={['extraDisks','rootDeviceType']}
               rules={[
                 {
+                  // [业务规则] 系统盘为 CDROM 模式时，必须添加一块数据盘用于安装操作系统
                   validator: async (_, value) => {
                     if (value === 'cdrom') {
                       const extraDisks = form.getFieldValue('extraDisks') || [];
@@ -325,7 +383,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
         </Row>
       }
 
-      {/* ==================== 数据盘配置区域 ==================== */}
+      {/* === 2. 数据盘配置区域 === */}
       <div className="wizard-group-title">数据盘</div>
       <Form.List name="extraDisks" initialValue={[]}>
         {(fields, { add, remove }) => (

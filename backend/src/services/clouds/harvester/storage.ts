@@ -2,9 +2,40 @@ import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson } from './utils';
 
 /**
- * 获取 Harvester 原始 PVC (PersistentVolumeClaim) 列表
- * @param params 连接参数
- * @returns 原始 PVC 对象数组
+ * ==============================================================================
+ * 模块名称: Harvester 存储与资源管理服务
+ * 文件路径: backend/src/services/clouds/harvester/storage.ts
+ * ==============================================================================
+ *
+ * [功能描述]
+ * 提供对 Harvester/Kubernetes 存储资源及相关核心对象（镜像、快照、备份、命名空间等）
+ * 的 CRUD 操作封装。支持标准化的资源列表获取、生命周期管理及复杂业务逻辑（如克隆、恢复）。
+ *
+ * [核心逻辑]
+ * 1. [存储卷管理]: 支持 PVC 创建/扩容/删除、Longhorn 底层卷管理及可用卷筛选。
+ * 2. [镜像管理]: 提供镜像列表的原始与标准化查询，支持从 PVC 导出镜像。
+ * 3. [快照与备份]: 封装 VM 快照/备份、卷快照 (VolumeSnapshot) 及定时备份计划 (ScheduleVMBackup) 的完整生命周期。
+ * 4. [命名空间]: 提供命名空间的创建与查询，支持多 API 路径兼容。
+ * 5. [多版本兼容]: 针对 Harvester 不同版本 (v1alpha1/v1beta1) 自动适配 API 路径。
+ *
+ * [API 依赖]
+ * - Harvester API (v1beta1/v1)
+ * - Kubernetes Core API (v1)
+ * - Snapshot Controller API (snapshot.storage.k8s.io)
+ * - Longhorn API
+ * ==============================================================================
+ */
+
+/**
+ * [PVC 原始列表]
+ * 获取 Harvester 原始 PVC (PersistentVolumeClaim) 列表。
+ *
+ * [核心逻辑]
+ * 1. 尝试通过 K8s 原生 API 和 Harvester 代理 API 获取 PVC 列表。
+ * 2. 返回原始 JSON 对象数组，不做额外字段映射。
+ *
+ * @param params 连接参数 (endpoint, token, insecure)
+ * @returns Promise<any[]> 原始 PVC 对象数组
  */
 export const listHarvesterPVCRaw = async ({
   endpoint,
@@ -19,7 +50,7 @@ export const listHarvesterPVCRaw = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  // Harvester uses standard K8s PVCs, but also exposes them via Harvester API
+  // [多路径兼容] Harvester 使用标准 K8s PVC，但也通过 Harvester API 暴露
   const candidates = [
     `${origin}/api/v1/persistentvolumeclaims`, // Cluster-wide list
     `${origin}/v1/harvester/core.v1.persistentvolumeclaims`,
@@ -30,7 +61,7 @@ export const listHarvesterPVCRaw = async ({
     try {
       json = await getJsonOnce(url, token, insecure);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        // const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
         break;
       }
     } catch (e: any) {
@@ -45,9 +76,15 @@ export const listHarvesterPVCRaw = async ({
 };
 
 /**
- * 获取 Harvester 标准化卷列表（基于 PVC），包含视图链接
+ * [PVC 标准列表]
+ * 获取 Harvester 标准化卷列表（基于 PVC），包含前端所需的视图链接。
+ *
+ * [核心逻辑]
+ * 1. 调用 listHarvesterPVCRaw 获取原始数据。
+ * 2. [数据映射] 注入 `links.view` 字段，指向 Harvester UI 的 PVC 详情页。
+ *
  * @param params 连接参数
- * @returns 标准化卷对象数组
+ * @returns Promise<any[]> 标准化卷对象数组
  */
 export const listHarvesterVolumesStandard = async (
   params: HarvesterTestParams
@@ -78,10 +115,17 @@ export const listHarvesterVolumesStandard = async (
 };
 
 /**
- * 获取 Harvester 可用卷列表（Longhorn 卷），用于挂载到虚拟机
+ * [可用卷列表]
+ * 获取 Harvester 可用卷列表（Longhorn 卷），用于挂载到虚拟机。
+ *
+ * [业务规则]
+ * 1. [数据源]: 仅列出 Longhorn 卷 (longhorn.io/volumes)。
+ * 2. [状态过滤]: 排除已挂载 (attached) 或正在使用 (inUse) 的卷。
+ * 3. [命名空间] 支持按命名空间筛选。
+ *
  * @param params 连接参数
- * @param opts 过滤选项（如命名空间）
- * @returns 可用卷对象数组
+ * @param opts 过滤选项（如 namespace）
+ * @returns Promise<any[]> 可用卷对象数组
  */
 export const listHarvesterAvailableVolumesStandard = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -106,7 +150,7 @@ export const listHarvesterAvailableVolumesStandard = async (
     try {
       json = await getJsonOnce(url, token, insecure);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        // const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
         break;
       }
     } catch (e: any) {
@@ -141,14 +185,21 @@ export const listHarvesterAvailableVolumesStandard = async (
       const pvcName = v?.status?.kubernetesStatus?.pvcName || '';
       return { name, pvcName, namespace: ns, size, state, attached };
     })
+    // [逻辑过滤] 仅保留未挂载且符合命名空间的卷
     .filter((x: any) => !x.attached)
     .filter((x: any) => !nsFilter || x.namespace === nsFilter);
 };
 
 /**
- * 获取 Harvester 存储类列表
+ * [存储类列表]
+ * 获取 Harvester 存储类 (StorageClass) 列表。
+ *
+ * [核心逻辑]
+ * 1. 尝试多条 API 路径获取 StorageClass。
+ * 2. 映射 provisioner 字段，兼容不同的驱动命名。
+ *
  * @param params 连接参数
- * @returns 存储类对象数组
+ * @returns Promise<any[]> 存储类对象数组
  */
 export const listHarvesterStorageClassesStandard = async ({
   endpoint,
@@ -174,7 +225,7 @@ export const listHarvesterStorageClassesStandard = async ({
     try {
       json = await getJsonOnce(url, token, insecure);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        // const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
         break;
       }
     } catch (e: any) {
@@ -205,9 +256,15 @@ export const listHarvesterStorageClassesStandard = async ({
 };
 
 /**
- * 获取 Harvester 镜像原始列表（支持指定命名空间）
+ * [镜像原始列表]
+ * 获取 Harvester 镜像原始列表（支持指定命名空间）。
+ *
+ * [多路径兼容]
+ * - 优先尝试 v1beta1 API，降级尝试 v1 API。
+ * - 支持全局查询或特定 Namespace 查询。
+ *
  * @param params 连接参数及命名空间
- * @returns 原始镜像对象数组
+ * @returns Promise<any[]> 原始镜像对象数组
  */
 export const listHarvesterImagesRaw = async ({
   endpoint,
@@ -266,9 +323,16 @@ export const listHarvesterImagesRaw = async ({
 };
 
 /**
- * 获取 Harvester 标准化镜像列表，包含详细元数据和链接
+ * [镜像标准列表]
+ * 获取 Harvester 标准化镜像列表，包含详细元数据和链接。
+ *
+ * [数据处理]
+ * -统, na:mspace, displayName, size, status。
+ * -链生成: 成 view/download 等操作链接。
+ * -容处理: 动处理 v1beta1/v1 差异。
+ *
  * @param params 连接参数
- * @returns 标准化镜像对象数组
+ * @returns Promise<any[]> 标准化镜像对象数组
  */
 export const listHarvesterImagesStandard = async ({
   endpoint,
@@ -290,11 +354,11 @@ export const listHarvesterImagesStandard = async ({
   ];
   let json: any = null;
   let lastErr: any = null;
-  let hitUrl: string | null = null;
+  // let hitUrl: string | null = null;
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure, true);
-      hitUrl = url;
+      // hitUrl = url;
       if (json) break;
     } catch (e: any) {
       lastErr = e;
@@ -334,11 +398,16 @@ export const listHarvesterImagesStandard = async ({
 };
 
 /**
- * 删除 Harvester Longhorn 卷（底层卷）
+ * [删除底层卷]
+ * 删除 Harvester Longhorn 卷（底层卷）。
+ *
+ * [危险操作]
+ * 直接操作 Longhorn API 删除卷，通常用于清理残留数据。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param name 卷名称
- * @returns 操作结果
+ * @returns Promise<any> 操作结果
  */
 export const deleteHarvesterLonghornVolume = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -372,10 +441,17 @@ export const deleteHarvesterLonghornVolume = async (
 };
 
 /**
- * 创建 Harvester 数据卷 (PVC)，支持设置大小、模式、存储类及注解
+ * [创建 PVC]
+ * 创建 Harvester 数据卷 (PVC)，支持设置大小、模式、存储类及注解。
+ *
+ * [核心逻辑]
+ * 1. [容量解析]: 自动处理数字或带单位字符串 (如 '10Gi') 的容量输入。
+ * 2. [默认值]: 默认大小 10Gi，默认模式 ReadWriteOnce。
+ * 3. [路径尝试]: 尝试通过标准 API 和 Harvester API 创建。
+ *
  * @param params 连接参数
  * @param payload 创建参数（包含注解 annotations）
- * @returns 创建结果
+ * @returns Promise<any> 创建结果
  */
 export const createHarvesterPVCVolume = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -450,12 +526,19 @@ export const createHarvesterPVCVolume = async (
 };
 
 /**
- * 从 PVC 导出为 Harvester 虚拟机镜像
+ * [导出镜像]
+ * 从 PVC 导出为 Harvester 虚拟机镜像。
+ *
+ * [业务规则]
+ * 1. 创建 VirtualMachineImage 资源。
+ * 2. 设置 sourceType 为 'export-from-volume'。
+ * 3. 关联源 PVC 的 namespace 和 name。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param pvcName PVC 名称
  * @param opts 导出选项（显示名称、目标存储类）
- * @returns 操作结果
+ * @returns Promise<any> 操作结果
  */
 export const exportImageFromPVC = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -505,12 +588,17 @@ export const exportImageFromPVC = async (
 };
 
 /**
- * 创建卷快照 (VolumeSnapshot)
+ * [创建卷快照]
+ * 创建 VolumeSnapshot 资源，用于备份 PVC 数据。
+ *
+ * [API 调用]
+ * 使用 snapshot.storage.k8s.io/v1 API。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param pvcName 源 PVC 名称
  * @param opts 快照选项（名称、快照类）
- * @returns 创建结果
+ * @returns Promise<any> 创建结果
  */
 export const createVolumeSnapshot = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -553,12 +641,19 @@ export const createVolumeSnapshot = async (
 };
 
 /**
- * 更新 PVC 规格，如扩容、修改注解或标签
+ * [更新 PVC 规格]
+ * 更新 PVC 规格，如扩容、修改注解或标签。
+ *
+ * [核心逻辑]
+ * 1. [获取当前状态]: 先 GET 获取现有 PVC。
+ * 2. [合并修改]: 将新的 size/annotations/labels 合并到现有对象中。
+ * 3. [提交更新]: 使用 PUT 方法提交完整对象。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param pvcName PVC 名称
  * @param payload 更新内容
- * @returns 更新结果
+ * @returns Promise<any> 更新结果
  */
 export const updatePVCSpec = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -598,6 +693,7 @@ export const updatePVCSpec = async (
     const g = Number((payload as any)?.sizeGi || 0);
     return g > 0 ? `${g}Gi` : undefined;
   })();
+
   const next = {
     apiVersion: cur?.apiVersion || 'v1',
     kind: cur?.kind || 'PersistentVolumeClaim',
@@ -628,12 +724,18 @@ export const updatePVCSpec = async (
 };
 
 /**
- * 克隆 PVC（支持从快照或现有 PVC 克隆）
+ * [克隆 PVC]
+ * 克隆 PVC（支持从快照或现有 PVC 克隆）。
+ *
+ * [核心逻辑]
+ * 1. [数据源判断]: 若指定了 fromSnapshotName，则 dataSource 指向 VolumeSnapshot；否则指向 PersistentVolumeClaim。
+ * 2. [资源配置]: 支持指定新的大小、模式和存储类。
+ *
  * @param params 连接参数
  * @param namespace 源命名空间
  * @param pvcName 源 PVC 名称
  * @param opts 克隆选项
- * @returns 创建的新 PVC 对象
+ * @returns Promise<any> 创建的新 PVC 对象
  */
 export const clonePVC = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -700,12 +802,18 @@ export const clonePVC = async (
 };
 
 /**
- * 从快照恢复卷（创建新的 PVC）
+ * [恢复快照]
+ * 从快照恢复卷（创建新的 PVC）。
+ *
+ * [核心逻辑]
+ * 1. [容量探测]: 如果未指定恢复大小，尝试获取快照的 restoreSize 字段。
+ * 2. [资源创建]: 创建一个新的 PVC，dataSource 指向快照。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param snapshotName 快照名称
  * @param opts 恢复选项（新名称、规格等）
- * @returns 创建的新 PVC 对象
+ * @returns Promise<any> 创建的新 PVC 对象
  */
 export const restoreVolumeSnapshot = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -753,7 +861,7 @@ export const restoreVolumeSnapshot = async (
   if (opts.size) {
     body.spec.resources = { requests: { storage: opts.size } };
   } else {
-    // If size is not provided, we try to fetch the snapshot to get the restoreSize
+    // [逻辑探测] 若未提供大小，尝试从快照状态中获取 restoreSize
     try {
       const snapUrl = `${origin}/apis/snapshot.storage.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/volumesnapshots/${encodeURIComponent(snapshotName)}`;
       const snap = await getJsonOnce(snapUrl, token, insecure);
@@ -772,11 +880,13 @@ export const restoreVolumeSnapshot = async (
 };
 
 /**
- * 创建新的 Harvester 命名空间
+ * [创建命名空间]
+ * 创建新的 Harvester 命名空间。
+ *
  * @param params 连接参数
  * @param name 命名空间名称
  * @param annotations 注解
- * @returns 创建结果
+ * @returns Promise<any> 创建结果
  */
 export const createHarvesterNamespace = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -811,10 +921,12 @@ export const createHarvesterNamespace = async (
 };
 
 /**
- * 获取单个 Harvester 命名空间的原始信息
+ * [获取命名空间]
+ * 获取单个 Harvester 命名空间的原始信息。
+ *
  * @param params 连接参数
  * @param name 命名空间名称
- * @returns 命名空间对象
+ * @returns Promise<any> 命名空间对象
  */
 export const getHarvesterNamespaceRaw = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -835,9 +947,14 @@ export const getHarvesterNamespaceRaw = async (
 };
 
 /**
- * 获取 Harvester 所有命名空间的原始列表
+ * [命名空间列表]
+ * 获取 Harvester 所有命名空间的原始列表。
+ *
+ * [多路径兼容]
+ * 尝试多种 API 路径以适配不同 Harvester 版本或网络环境。
+ *
  * @param params 连接参数
- * @returns 命名空间对象数组
+ * @returns Promise<any[]> 命名空间对象数组
  */
 export const listHarvesterNamespacesRaw = async ({
   endpoint,
@@ -884,11 +1001,17 @@ export const listHarvesterNamespacesRaw = async ({
 };
 
 /**
- * 创建虚拟机备份或快照
+ * [创建 VM 备份/快照]
+ * 创建虚拟机备份或快照。
+ *
+ * [核心逻辑]
+ * 1. [类型区分]: 根据 type 参数决定前缀 (id-vms- 或 id-vmb-)。
+ * 2. [别名支持]: 将 payload.name 作为别名存入 annotations['tower.io/alias']。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param payload 创建参数（包含别名）
- * @returns 创建结果
+ * @returns Promise<any> 创建结果
  */
 export const createHarvesterVirtualMachineBackup = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -937,11 +1060,16 @@ export const createHarvesterVirtualMachineBackup = async (
 };
 
 /**
- * 创建虚拟机恢复任务（从备份恢复）
+ * [创建 VM 恢复]
+ * 创建虚拟机恢复任务（从备份恢复）。
+ *
+ * [核心逻辑]
+ * 1. [版本适配]: 根据 payload.apiVersion 动态决定 API Group (默认 harvesterhci.io/v1beta1)。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param payload 恢复参数
- * @returns 创建结果
+ * @returns Promise<any> 创建结果
  */
 export const createHarvesterVirtualMachineRestore = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -969,11 +1097,13 @@ export const createHarvesterVirtualMachineRestore = async (
 };
 
 /**
- * 删除虚拟机备份
+ * [删除 VM 备份]
+ * 删除虚拟机备份。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param name 备份名称
- * @returns 操作结果
+ * @returns Promise<any> 操作结果
  */
 export const deleteHarvesterVirtualMachineBackup = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -994,11 +1124,13 @@ export const deleteHarvesterVirtualMachineBackup = async (
 };
 
 /**
- * 删除虚拟机快照
+ * [删除 VM 快照]
+ * 删除虚拟机快照。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param name 快照名称
- * @returns 操作结果
+ * @returns Promise<any> 操作结果
  */
 export const deleteHarvesterVirtualMachineSnapshot = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -1019,11 +1151,13 @@ export const deleteHarvesterVirtualMachineSnapshot = async (
 };
 
 /**
- * 删除 Harvester 数据卷 (PVC)
+ * [删除 PVC]
+ * 删除 Harvester 数据卷 (PVC)。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param name PVC 名称
- * @returns 操作结果
+ * @returns Promise<any> 操作结果
  */
 export const deleteHarvesterPVC = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -1043,9 +1177,11 @@ export const deleteHarvesterPVC = async (
 };
 
 /**
- * 获取卷快照类 (VolumeSnapshotClass) 列表
+ * [快照类列表]
+ * 获取卷快照类 (VolumeSnapshotClass) 列表。
+ *
  * @param params 连接参数
- * @returns 快照类对象数组
+ * @returns Promise<any[]> 快照类对象数组
  */
 export const listHarvesterSnapshotClassesRaw = async ({
   endpoint,
@@ -1066,9 +1202,14 @@ export const listHarvesterSnapshotClassesRaw = async ({
 };
 
 /**
- * 获取 Harvester 标准化虚拟机快照列表
+ * [VM 快照列表]
+ * 获取 Harvester 标准化虚拟机快照列表。
+ *
+ * [版本兼容]
+ * 优先尝试 v1beta1，降级尝试 v1alpha1。
+ *
  * @param params 连接参数
- * @returns 快照对象数组
+ * @returns Promise<any[]> 快照对象数组
  */
 export const listHarvesterSnapshotsStandard = async ({
   endpoint,
@@ -1084,7 +1225,7 @@ export const listHarvesterSnapshotsStandard = async ({
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   
-  // Try v1beta1 first, then fallback to v1alpha1
+  // [版本兼容] Try v1beta1 first, then fallback to v1alpha1
   const candidates = [
     `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinesnapshots`,
     `${origin}/apis/harvesterhci.io/v1alpha1/virtualmachinesnapshots`,
@@ -1110,9 +1251,11 @@ export const listHarvesterSnapshotsStandard = async ({
 };
 
 /**
- * 获取 Harvester 虚拟机备份列表
+ * [VM 备份列表]
+ * 获取 Harvester 虚拟机备份列表。
+ *
  * @param params 连接参数
- * @returns 备份对象数组
+ * @returns Promise<any[]> 备份对象数组
  */
 export const listHarvesterBackupsStandard = async ({
   endpoint,
@@ -1133,9 +1276,11 @@ export const listHarvesterBackupsStandard = async ({
 };
 
 /**
- * 获取 Harvester SSH 密钥对列表
+ * [SSH 密钥列表]
+ * 获取 Harvester SSH 密钥对列表。
+ *
  * @param params 连接参数
- * @returns 密钥对对象数组
+ * @returns Promise<any[]> 密钥对对象数组
  */
 export const listHarvesterSshKeysStandard = async ({
   endpoint,
@@ -1156,9 +1301,11 @@ export const listHarvesterSshKeysStandard = async ({
 };
 
 /**
- * 获取 Harvester CloudInit 模板列表（当前返回空）
+ * [CloudInit 模板]
+ * 获取 Harvester CloudInit 模板列表（当前返回空）。
+ *
  * @param params 连接参数
- * @returns 空数组
+ * @returns Promise<any[]> 空数组
  */
 export const listHarvesterCloudInitsStandard = async ({
   endpoint,
@@ -1170,9 +1317,11 @@ export const listHarvesterCloudInitsStandard = async ({
 };
 
 /**
- * 获取 Harvester 虚拟机模板原始列表
+ * [VM 模板原始列表]
+ * 获取 Harvester 虚拟机模板原始列表。
+ *
  * @param params 连接参数
- * @returns 原始模板对象数组
+ * @returns Promise<any[]> 原始模板对象数组
  */
 export const listHarvesterTemplatesRaw = async ({
   endpoint,
@@ -1193,14 +1342,17 @@ export const listHarvesterTemplatesRaw = async ({
 };
 
 /**
- * 获取 Harvester 虚拟机模板标准化列表（别名）
+ * [VM 模板标准列表]
+ * listHarvesterTemplatesRaw 的别名。
  */
 export const listHarvesterTemplatesStandard = listHarvesterTemplatesRaw;
 
 /**
- * 获取 Harvester 定时备份计划列表
+ * [定时备份计划列表]
+ * 获取 Harvester 定时备份计划 (ScheduleVMBackup) 列表。
+ *
  * @param params 连接参数
- * @returns 定时备份计划对象数组
+ * @returns Promise<any[]> 定时备份计划对象数组
  */
 export const listHarvesterScheduleVmBackupsStandard = async ({
   endpoint,
@@ -1221,11 +1373,17 @@ export const listHarvesterScheduleVmBackupsStandard = async ({
 };
 
 /**
- * 创建 Harvester 定时备份计划
+ * [创建定时备份]
+ * 创建 Harvester 定时备份计划。
+ *
+ * [核心逻辑]
+ * 1. [自动命名]: 自动生成资源名称 (id-svmb-...)。
+ * 2. [配置支持]: 支持 Cron 表达式、保留策略及失败重试配置。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param payload 创建参数
- * @returns 创建结果
+ * @returns Promise<any> 创建结果
  */
 export const createHarvesterScheduleVmBackup = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -1282,12 +1440,19 @@ export const createHarvesterScheduleVmBackup = async (
 };
 
 /**
- * 更新 Harvester 定时备份计划
+ * [更新定时备份]
+ * 更新 Harvester 定时备份计划。
+ *
+ * [核心逻辑]
+ * 1. [获取]: 获取现有计划对象。
+ * 2. [合并]: 仅更新变更字段 (cron, retain, suspend 等)。
+ * 3. [保存]: 提交更新后的对象。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param name 计划名称
  * @param payload 更新内容
- * @returns 更新结果
+ * @returns Promise<any> 更新结果
  */
 export const updateHarvesterScheduleVmBackup = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -1331,11 +1496,13 @@ export const updateHarvesterScheduleVmBackup = async (
 };
 
 /**
- * 删除 Harvester 定时备份计划
+ * [删除定时备份]
+ * 删除 Harvester 定时备份计划。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param name 计划名称
- * @returns 操作结果
+ * @returns Promise<any> 操作结果
  */
 export const deleteHarvesterScheduleVmBackup = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -1355,14 +1522,17 @@ export const deleteHarvesterScheduleVmBackup = async (
 };
 
 /**
- * 获取 Harvester 虚拟机快照列表（别名）
+ * [VM 快照列表别名]
+ * listHarvesterSnapshotsStandard 的别名。
  */
 export const listHarvesterVirtualMachineSnapshots = listHarvesterSnapshotsStandard;
 
 /**
- * 获取 Harvester 卷快照列表
+ * [卷快照列表]
+ * 获取 Harvester 卷快照 (VolumeSnapshot) 列表。
+ *
  * @param params 连接参数
- * @returns 卷快照对象数组
+ * @returns Promise<any[]> 卷快照对象数组
  */
 export const listHarvesterVolumeSnapshots = async ({
   endpoint,
@@ -1383,11 +1553,13 @@ export const listHarvesterVolumeSnapshots = async ({
 };
 
 /**
- * 删除 Harvester 卷快照
+ * [删除卷快照]
+ * 删除 Harvester 卷快照。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param name 快照名称
- * @returns 操作结果
+ * @returns Promise<any> 操作结果
  */
 export const deleteHarvesterVolumeSnapshot = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -1407,11 +1579,13 @@ export const deleteHarvesterVolumeSnapshot = async (
 };
 
 /**
- * 创建 Harvester Secret（加密字典）
+ * [创建 Secret]
+ * 创建 Harvester Secret（加密字典）。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param payload Secret 内容
- * @returns 创建结果
+ * @returns Promise<any> 创建结果
  */
 export const createHarvesterSecret = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -1431,11 +1605,13 @@ export const createHarvesterSecret = async (
 };
 
 /**
- * 删除 Harvester Secret
+ * [删除 Secret]
+ * 删除 Harvester Secret。
+ *
  * @param params 连接参数
  * @param namespace 命名空间
  * @param name Secret 名称
- * @returns 操作结果
+ * @returns Promise<any> 操作结果
  */
 export const deleteHarvesterSecret = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,

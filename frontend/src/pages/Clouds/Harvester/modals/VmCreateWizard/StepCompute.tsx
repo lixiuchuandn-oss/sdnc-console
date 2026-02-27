@@ -1,18 +1,66 @@
+/**
+ * ==============================================================================
+ * Harvester - 虚拟机创建向导 - 计算资源配置步骤 (StepCompute)
+ * frontend/src/pages/Clouds/Harvester/modals/VmCreateWizard/StepCompute.tsx
+ * ==============================================================================
+ *
+ * [功能描述]
+ * 负责配置虚拟机的核心计算资源，包括 CPU、内存、以及 GPU 设备。
+ * 提供预设选项（如 2核/4G）与自定义输入，支持高级 CPU 拓扑配置和 QoS 设置。
+ * ------------------------------------------------------------------------------
+ *
+ * [核心逻辑]
+ * 1. [资源预设]: 提供常用 CPU/内存 规格的快捷选择，支持切换到自定义模式。
+ * 2. [热扩容规则]:
+ *    - 启用热扩容时，强制锁定 CPU 拓扑为 `sockets=vCPU, cores=1, threads=1`。
+ *    - ARM 架构下禁用热扩容选项。
+ * 3. [GPU 选择]:
+ *    - 支持多种 GPU 模式 (Passthrough/vGPU/SR-IOV)。
+ *    - 根据选择的模式过滤可用 GPU 资源列表。
+ *    - 提供表格视图展示 GPU 所在的节点和总线信息。
+ * 4. [状态同步]: 监听表单变化，实时更新快照 (FormSnapshot) 以防数据丢失。
+ * ------------------------------------------------------------------------------
+ *
+ * [API 接口]
+ * - 提交时作为 VM Spec 的一部分:
+ *   - cpu, memory (基础规格)
+ *   - runStrategy (运行策略)
+ *   - limits/requests (QoS)
+ * ------------------------------------------------------------------------------
+ *
+ * [交互依赖]
+ * - 依赖 Ant Design Form 实例进行数据回填与校验。
+ * - 依赖外部传入的 gpuResources 列表进行渲染。
+ */
 import React from 'react';
 import { Form, Input, Select, Radio, Space, Table, Checkbox, InputNumber, Collapse, Typography, Button, message } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 
+/**
+ * 组件 Props 定义
+ */
 interface StepComputeProps {
+  /** Ant Design Form 实例 */
   form: any;
+  /** 内存预设值 (如 '4', '8', 'custom') */
   memPreset: string;
+  /** 设置内存预设值的回调 */
   setMemPreset: (val: string) => void;
+  /** 当前内存数值 (GiB) */
   memGi: number;
+  /** 设置内存数值的回调 */
   setMemGi: (val: number) => void;
+  /** 可用 GPU 资源列表 */
   gpuResources: any[];
+  /** 刷新 GPU 资源的回调 */
   reloadGpuResources: () => Promise<void>;
+  /** 当前选中的 GPU Key (用于表格高亮) */
   selectedGpuKey: string | null;
+  /** 设置选中 GPU Key 的回调 */
   setSelectedGpuKey: (key: string | null) => void;
+  /** 更新表单快照的回调 (用于步骤切换时保存状态) */
   setFormSnapshot: React.Dispatch<React.SetStateAction<any>>;
+  /** 是否为 ARM64 架构 (影响热扩容可用性) */
   isArm64?: boolean;
 }
 
@@ -29,15 +77,26 @@ const StepCompute: React.FC<StepComputeProps> = ({
   setFormSnapshot,
   isArm64,
 }) => {
+  // [状态初始化] 根据表单现有值初始化 CPU 预设状态
   const [cpuPreset, setCpuPreset] = React.useState<string>(() => {
     const v = Number(form.getFieldValue('cpu') || 0);
     if (v === 2 || v === 4 || v === 8) return String(v);
     return 'custom';
   });
+
   const [cpuValue, setCpuValue] = React.useState<number>(() => {
     const v = Number(form.getFieldValue('cpu') || 0);
     return (typeof v === 'number' && v > 0) ? v : 2;
   });
+
+  const [gpuKeyword, setGpuKeyword] = React.useState<string>('');
+  const [gpuLoading, setGpuLoading] = React.useState<boolean>(false);
+
+  // 监听表单字段变化
+  const cpu = Form.useWatch('cpu', form);
+  const hotExpandEnabled = Form.useWatch('hotExpandEnabled', form);
+
+  // [初始化] 组件加载时同步 CPU 数据并设置默认值
   React.useEffect(() => {
     const raw = form.getFieldValue('cpu');
     const v = Number(raw);
@@ -47,14 +106,12 @@ const StepCompute: React.FC<StepComputeProps> = ({
     } else {
       setCpuValue(v);
     }
+    // 同步初始状态到快照
     try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch {}
   }, []);
-  const [gpuKeyword, setGpuKeyword] = React.useState<string>('');
-  const [gpuLoading, setGpuLoading] = React.useState<boolean>(false);
 
-  const cpu = Form.useWatch('cpu', form);
-  const hotExpandEnabled = Form.useWatch('hotExpandEnabled', form);
-
+  // [业务规则] 热扩容开启时，强制锁定 CPU 拓扑
+  // Harvester 要求：热扩容必须通过增加 sockets 来实现，因此 cores/threads 必须固定为 1
   React.useEffect(() => {
     if (hotExpandEnabled && cpu) {
       form.setFieldsValue({
@@ -65,6 +122,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
     }
   }, [cpu, hotExpandEnabled, form]);
 
+  // [业务规则] ARM 架构强制禁用热扩容并清理拓扑配置
   React.useEffect(() => {
     if (isArm64) {
       const checked = form.getFieldValue('hotExpandEnabled');
@@ -82,6 +140,8 @@ const StepCompute: React.FC<StepComputeProps> = ({
   return (
     <>
       <Typography.Paragraph type="secondary">设定新建云主机的CPU和内存资源</Typography.Paragraph>
+      
+      {/* === 计算资源配置 === */}
       <div className="wizard-group-title">计算资源</div>
       <Form.Item label="vCPU 分配" required>
         <Space>
@@ -95,6 +155,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
                 const n = Number(v);
                 setCpuValue(n);
                 form.setFieldsValue({ cpu: n });
+                // 联动更新热扩容拓扑
                 if (form.getFieldValue('hotExpandEnabled')) {
                    form.setFieldsValue({ cpuSockets: n });
                 }
@@ -117,6 +178,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
               const n = Number(val || 1);
               setCpuValue(n);
               form.setFieldsValue({ cpu: n });
+              // 联动更新热扩容拓扑
               if (form.getFieldValue('hotExpandEnabled')) {
                  form.setFieldsValue({ cpuSockets: n });
               }
@@ -126,30 +188,59 @@ const StepCompute: React.FC<StepComputeProps> = ({
           />
         </Space>
       </Form.Item>
+
+      {/* 隐藏字段：用于存储实际提交的数值 */}
       <Form.Item name="cpu" hidden rules={[{ required: true, message: '请选择或输入 vCPU' }, { type: 'number', min: 1, max: 512 }]}> 
         <InputNumber />
       </Form.Item>
       <Form.Item name="machineType" hidden><Input /></Form.Item>
+
       <Form.Item label="内存分配" required>
         <Space>
-          <Radio.Group value={memPreset} buttonStyle="solid" onChange={(e) => { const v = String(e.target.value); setMemPreset(v); if (v !== 'custom') { const gi = Number(v); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); } }}>
+          <Radio.Group 
+            value={memPreset} 
+            buttonStyle="solid" 
+            onChange={(e) => { 
+              const v = String(e.target.value); 
+              setMemPreset(v); 
+              if (v !== 'custom') { 
+                const gi = Number(v); 
+                setMemGi(gi); 
+                form.setFieldsValue({ memory: `${gi}Gi` }); 
+              } 
+            }}
+          >
             <Radio.Button value="4">4 GB</Radio.Button>
             <Radio.Button value="8">8 GB</Radio.Button>
             <Radio.Button value="16">16 GB</Radio.Button>
             <Radio.Button value="custom">自定义</Radio.Button>
           </Radio.Group>
-          <InputNumber min={1} max={1024} value={memGi} suffix="GB" style={{ width: 100 }} onChange={(val) => { const gi = Number(val || 1); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); setMemPreset('custom'); }} />
+          <InputNumber 
+            min={1} 
+            max={1024} 
+            value={memGi} 
+            suffix="GB" 
+            style={{ width: 100 }} 
+            onChange={(val) => { 
+              const gi = Number(val || 1); 
+              setMemGi(gi); 
+              form.setFieldsValue({ memory: `${gi}Gi` }); 
+              setMemPreset('custom'); 
+            }} 
+          />
         </Space>
       </Form.Item>
+      
       <Form.Item name="memory" hidden rules={[{ required: true, message: '请选择或输入内存' }, { pattern: /^[0-9]+(Gi|Mi)$/i, message: '格式如 4Gi 或 8192Mi' }]}>
         <Input />
       </Form.Item>
+
       <Form.Item label="热扩容" name="hotExpandEnabled" valuePropName="checked">
         <Checkbox disabled={isArm64} onChange={(e) => {
           const checked = e.target.checked;
           form.setFieldsValue({ hotExpandEnabled: checked });
           if (checked) {
-            // 热扩容强制拓扑：sockets=vCPU, cores=1, threads=1
+            // [业务规则] 热扩容开启：强制拓扑 sockets=vCPU, cores=1, threads=1
             const currentCpu = form.getFieldValue('cpu') || 1;
             form.setFieldsValue({
               cpuSockets: currentCpu,
@@ -157,7 +248,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
               cpuThreads: 1
             });
           } else {
-            // 取消热扩容：清空拓扑值，恢复可编辑状态，让用户手动填
+            // [业务规则] 热扩容关闭：清空拓扑，允许用户手动配置
             form.setFieldsValue({
               cpuSockets: undefined,
               cpuCores: undefined,
@@ -171,6 +262,8 @@ const StepCompute: React.FC<StepComputeProps> = ({
           <Typography.Text type="secondary" style={{ marginLeft: 8 }}>支持 CPU/内存热扩容，上限为当前配额 4 倍，不支持缩容</Typography.Text>
         )}
       </Form.Item>
+
+      {/* === 高级配置区域 === */}
       <Collapse ghost defaultActiveKey={[]} className="wizard-collapse-nopad">
         <Collapse.Panel header="CPU高级配置" key="adv-cpu">
           <Form.Item label="CPU 拓扑" shouldUpdate={(prev, curr) => prev.hotExpandEnabled !== curr.hotExpandEnabled || prev.cpu !== curr.cpu}>
@@ -195,26 +288,31 @@ const StepCompute: React.FC<StepComputeProps> = ({
               );
             }}
           </Form.Item>
+          
           <Form.Item label="CPU 模式" name="cpuModel" initialValue="host-passthrough">
             <Select options={[{ label: 'Host-Passthrough', value: 'host-passthrough' }, { label: 'Host-Model', value: 'host-model' }, { label: '自定义', value: 'custom' }]} style={{ width: 220 }} />
           </Form.Item>
+          
           {(form.getFieldValue('cpuModel') || 'host-passthrough') === 'custom' && (
             <Form.Item label="自定义模型" name="cpuModelCustom" extra={<Typography.Text type="secondary">指定 CPU 型号名称，例如 Skylake-Client-IBRS</Typography.Text>}>
               <Input placeholder="如：Skylake-Client-IBRS" />
             </Form.Item>
           )}
+          
           <Form.Item label="CPU 绑定" name="dedicatedCPUPlacement" valuePropName="checked">
             <Space>
               <Checkbox>启用</Checkbox>
               <Typography.Text type="secondary">保证用固定的物理 CPU 核心，减少切换损耗</Typography.Text>
             </Space>
           </Form.Item>
+          
           <Form.Item label="CPU 隔离" name="isolateEmulatorThread" valuePropName="checked">
             <Space>
               <Checkbox>启用</Checkbox>
               <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰</Typography.Text>
             </Space>
           </Form.Item>
+          
           <Form.Item label="CPU QoS">
             <Space>
               <Typography.Text>平时至少需要</Typography.Text>
@@ -228,12 +326,15 @@ const StepCompute: React.FC<StepComputeProps> = ({
               <Typography.Text>核</Typography.Text>
             </Space>
           </Form.Item>
+          
           <Form.Item label="CPU 峰值保护" name="cpuBurstUnlimited" valuePropName="checked">
             <Space>
               <Checkbox>启用</Checkbox>
               <Typography.Text type="secondary">业务峰值时自动取消最多使用核数限制</Typography.Text>
             </Space>
           </Form.Item>
+          
+          {/* 拓扑一致性检查提示 */}
           <div style={{ marginTop: 8 }}>
             {(() => {
               const s = Number(form.getFieldValue('cpuSockets') || 1);
@@ -251,6 +352,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
           </div>
         </Collapse.Panel>
       </Collapse>
+
       <Collapse ghost defaultActiveKey={[]} className="wizard-collapse-nopad">
         <Collapse.Panel header="内存高级配置" key="adv-mem">
           <Form.Item label="内存 QoS">
@@ -274,6 +376,8 @@ const StepCompute: React.FC<StepComputeProps> = ({
           </Form.Item>
         </Collapse.Panel>
       </Collapse>
+
+      {/* === 3. GPU 配置 === */}
       <Collapse ghost defaultActiveKey={[]} className="wizard-collapse-nopad">
         <Collapse.Panel header="GPU分配" key="gpu">
           <Form.Item label="GPU模式" name="gpuMode" initialValue="none">
@@ -284,15 +388,22 @@ const StepCompute: React.FC<StepComputeProps> = ({
               <Radio.Button value="sriov">SR-IOV GPU</Radio.Button>
             </Radio.Group>
           </Form.Item>
+          
           {(form.getFieldValue('gpuMode') || 'none') === 'none' ? null : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10}}>
               <div className="wizard-section-title" style={{ margin: 0 }}>可用 GPU 资源</div>
+              
+              {/* [渲染逻辑] GPU 资源表格生成 */}
               {(function () {
                 const mode = form.getFieldValue('gpuMode') || 'none';
                 const list = Array.isArray(gpuResources) ? gpuResources : [];
+                // 过滤出符合当前模式的 GPU
                 const byMode = list.filter((x: any) => String(x?.type) === mode);
+                // 优先展示带有节点信息的记录
                 const onlyNode = byMode.filter((x: any) => !!(x?.node || x?.nodeName));
                 const src = (onlyNode.length ? onlyNode : byMode.length ? byMode : list);
+                
+                // 构造表格数据
                 let data = src.map((x: any) => ({
                   key: `${(x?.raw?.metadata?.name || x?.name || x?.resourceName) || '-'}|${x?.node || x?.nodeName}|${x?.pciAddress || x?.address || x?.pci}`,
                   node: x?.node || x?.nodeName || '-',
@@ -302,6 +413,8 @@ const StepCompute: React.FC<StepComputeProps> = ({
                   type: x?.type,
                   raw: x
                 }));
+                
+                // 客户端搜索过滤
                 const kw = String(gpuKeyword || '').trim().toLowerCase();
                 if (kw) {
                   data = data.filter((r: any) => (
@@ -311,6 +424,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
                     String(r.resourceName || '').toLowerCase().includes(kw)
                   ));
                 }
+                
                 const columns = [
                   { title: '', key: 'select', width: 52, align: 'center', className: 'wizard-node-select-col', onCell: () => ({ style: { paddingLeft: 8, paddingRight: 8 } }), render: (_: any, r: any) => (
                     <Radio style={{ margin: 0 }} checked={selectedGpuKey === r?.key} onChange={(e) => { e.stopPropagation(); const k = String(r?.key); setSelectedGpuKey(k); const rn = r?.resourceName || r?.raw?.status?.resourceName || r?.raw?.spec?.resourceName; const dn = r?.name; form.setFieldsValue({ gpuPcideviceName: dn, gpuResourceName: rn, gpuMode: r?.type || form.getFieldValue('gpuMode') }); try { setFormSnapshot((prev: any) => ({ ...prev, ...form.getFieldsValue() })); } catch { } }} />
@@ -324,6 +438,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
                     </div>
                   ) },
                 ];
+                
                 return (
                   <>
                     <Space style={{ width: '100%', margin: 0 }}>
@@ -355,6 +470,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
                   </>
                 );
               })()}
+              
               <Form.Item name="gpuResourceName" hidden rules={[{ required: true, message: '请选择GPU' }]}> 
                 <Input />
               </Form.Item>
@@ -363,7 +479,6 @@ const StepCompute: React.FC<StepComputeProps> = ({
               </Form.Item>
             </div>
           )}
-          {/* 移除数量，单卡选择 */}
         </Collapse.Panel>
       </Collapse>
     </>

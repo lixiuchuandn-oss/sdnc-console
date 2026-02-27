@@ -1,26 +1,76 @@
+/**
+ * ==============================================================================
+ * Harvester - 虚拟机创建向导 - 基础配置步骤 (StepBasic)
+ * frontend/src/pages/Clouds/Harvester/modals/VmCreateWizard/StepBasic.tsx
+ * ==============================================================================
+ *
+ * [功能描述]
+ * 负责配置虚拟机的基础信息，包括资源池、命名空间、运行位置（调度策略）以及虚拟机名称/描述。
+ * ------------------------------------------------------------------------------
+ *
+ * [核心逻辑]
+ * 1. [资源池选择]: 切换资源池时，重置并重新加载命名空间。
+ * 2. [命名空间自动修正]: 默认过滤掉系统命名空间，并自动选中第一个可用命名空间。
+ * 3. [调度策略]:
+ *    - 自动调度: 让 K8s 调度器决定。
+ *    - 指定主机: 强制调度到特定节点 (nodeName)。
+ *    - 标签选择: 使用 nodeSelector 匹配节点标签。
+ * 4. [能力检测]: 根据资源池 ID 获取 Harvester 集群能力（如架构、推荐机型）。
+ * ------------------------------------------------------------------------------
+ *
+ * [API 接口]
+ * - GET /v1/harvester/clusters/{id}/capabilities
+ *   获取集群能力配置 (fetchHarvesterCapabilities)
+ *   -> 映射到表单字段: clusterArch, machineType
+ * ------------------------------------------------------------------------------
+ *
+ * [交互依赖]
+ * - 依赖 Ant Design Form 实例进行数据回填。
+ * - 依赖外部传入的 cloudOptions, namespaceOptions, filteredNodes 进行渲染。
+ */
 import React, { useMemo, useState, useEffect } from 'react';
 import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from '../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../utils/harvesterUtils';
 
+/**
+ * 组件 Props 定义
+ */
 interface StepBasicProps {
+  /** Ant Design Form 实例 */
   form: any;
+  /** 当前选中的资源池 ID */
   cloudId: string;
+  /** 当前资源池 ID (用于内部状态) */
   currentCloudId: string | undefined;
+  /** 设置当前资源池 ID 的回调 */
   setCurrentCloudId: (id: string | undefined) => void;
+  /** 资源池选项列表 */
   cloudOptions: any[];
+  /** 命名空间选项列表 */
   namespaceOptions: any[];
+  /** 重新加载命名空间的回调 */
   reloadNamespaces: () => void;
+  /** 主机调度模式 ('auto' | 'node' | 'label') */
   hostModeState: string;
+  /** 设置主机调度模式的回调 */
   setHostModeState: (mode: string) => void;
+  /** 节点搜索关键字 */
   nodeKeyword: string;
+  /** 设置节点搜索关键字的回调 */
   setNodeKeyword: (kw: string) => void;
+  /** 节点列表加载状态 */
   nodesLoading: boolean;
+  /** 重新加载节点列表的回调 */
   reloadNodes: () => void;
+  /** 当前云提供商类型 */
   currentProvider: string | undefined;
+  /** 当前选中的节点名称 */
   selectedNodeName: string | null;
+  /** 设置选中节点名称的回调 */
   setSelectedNodeName: (name: string | null) => void;
+  /** 过滤后的节点列表 */
   filteredNodes: any[];
 }
 
@@ -46,6 +96,9 @@ const StepBasic: React.FC<StepBasicProps> = ({
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
   const [capabilities, setCapabilities] = useState<any>({});
 
+  // [数据同步] 根据 cloudId 获取集群能力（架构、推荐机型）
+  // 调用 API 获取指定资源池的能力集，并自动填充推荐值（如架构、机型）
+  // 异常处理：若获取失败，仅打印日志，不阻塞流程，字段保持默认或手动输入
   useEffect(() => {
     if (cloudId && cloudId !== 'all') {
       fetchHarvesterCapabilities(cloudId).then((res: any) => {
@@ -59,12 +112,13 @@ const StepBasic: React.FC<StepBasicProps> = ({
     }
   }, [cloudId]);
 
-  // Auto-select first valid namespace if current value is invalid or empty
+  // [业务规则] 命名空间自动选择逻辑
+  // 当当前选中的命名空间无效或为空时，自动选择第一个非系统命名空间
   useEffect(() => {
     const validOptions = namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')));
     const currentVal = form.getFieldValue('namespace');
     
-    // Check if current value is valid (exists in validOptions)
+    // 检查当前值是否有效
     const isValid = currentVal && validOptions.some(o => o.value === currentVal);
     
     if (!isValid && validOptions.length > 0) {
@@ -72,20 +126,27 @@ const StepBasic: React.FC<StepBasicProps> = ({
     }
   }, [namespaceOptions]);
 
+  // [辅助函数] 判断节点是否就绪
+  // 兼容逻辑：优先检查顶层 ready 字段，若不存在则遍历 status.conditions 查找 Type=Ready 且 Status=True
   const isNodeReady = (r: any): boolean => {
     if (typeof r?.ready === 'boolean') return r.ready;
     const conds: any[] = Array.isArray(r?.status?.conditions) ? r.status.conditions : [];
     return conds.some((c: any) => String(c?.type || '') === 'Ready' && String(c?.status || '').toLowerCase() === 'true');
   };
+
+  // [过滤逻辑] 根据状态筛选节点列表
   const displayNodes = useMemo(() => {
     let arr: any[] = Array.isArray(filteredNodes) ? filteredNodes : [];
     if (nodeReadyFilter === 'running') arr = arr.filter(isNodeReady);
     else if (nodeReadyFilter === 'notready') arr = arr.filter((n:any)=> !isNodeReady(n));
     return arr;
   }, [filteredNodes, nodeReadyFilter]);
+
   return (
     <>
       <Typography.Paragraph type="secondary">设定新建云主机的基本信息，如名称、所属资源池等</Typography.Paragraph>
+      
+      {/* === 1. 基础配置 === */}
       <div className="wizard-group-title">基础配置</div>
       <Row gutter={12}>
         <Col span={12}>
@@ -139,6 +200,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
         </Col>
       </Row>
 
+      {/* === 调度策略配置 === */}
       {hostModeState === 'label' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
           <div className="wizard-section-title">标签选择</div>
@@ -225,6 +287,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
               { title: '状态', dataIndex: 'ready', key: 'ready', render: (b: boolean) => b ? <Tag color="green">Ready</Tag> : <Tag color="red">NotReady</Tag> },
               {
                 title: 'CPU 使用率', key: 'cpu_usage', render: (_: any, r: any) => {
+                  // [演示逻辑] 基于名称生成确定性伪随机数，模拟负载展示 (25% ~ 84%)
                   const s = String(r?.name || r?.internalIP || '').trim();
                   let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) >>> 0; }
                   const pct = 25 + (h % 60);
@@ -240,6 +303,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
               },
               {
                 title: '内存使用率', key: 'mem_usage', render: (_: any, r: any) => {
+                  // [演示逻辑] 基于IP/名称生成确定性伪随机数，模拟负载展示 (20% ~ 84%)
                   const s = String(r?.internalIP || r?.name || '').trim();
                   let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 17 + s.charCodeAt(i)) >>> 0; }
                   const pct = 20 + (h % 65);
@@ -267,6 +331,8 @@ const StepBasic: React.FC<StepBasicProps> = ({
           />
         </div>
       ) : null}
+      
+      {/* === 3. 基本信息 === */}
       <div className="wizard-group-title">信息</div>
       <Form.Item 
         label="虚拟机名称" 

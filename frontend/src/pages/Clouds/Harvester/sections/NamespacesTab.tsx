@@ -258,10 +258,15 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         annotations['field.cattle.io/containerDefaultResourceLimit'] = JSON.stringify(cdLimit);
       }
 
+      // 构造符合 K8s Manifest 标准的 Payload
       const payload = {
-        name,
-        labels,
-        annotations: Object.keys(annotations).length ? annotations : undefined,
+        apiVersion: 'v1',
+        kind: 'Namespace',
+        metadata: {
+          name,
+          labels,
+          annotations: Object.keys(annotations).length ? annotations : undefined,
+        }
       };
 
       if (editingNamespace) {

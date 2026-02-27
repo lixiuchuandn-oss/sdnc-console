@@ -1,40 +1,41 @@
 /**
- * ==================================================================================
- * Harvester 虚拟机领域路由 (VM Routes)
- * ==================================================================================
- * 设计目标：
- * - 将所有 “虚拟机 / ECS” 相关路由集中到单独文件，形成清晰的领域边界
- * - 对应云资源清单中的 “ECS / 虚拟机” 视图以及 Harvester 原生 VM 详情视图
+ * ==============================================================================
+ * 模块名称: Harvester 虚拟机领域路由 (Harvester VM Routes)
+ * 文件路径: src/routes/clouds/harvester/harvester.cache.vm.routes.ts
+ * ==============================================================================
+ * 功能描述:
+ * 本文件集中管理 Harvester 虚拟机的相关路由，提供列表查询、生命周期管理、实时状态流
+ * 和模板保存等功能。实现了基于缓存的列表查询策略和直连 API 的操作策略，并集成了
+ * 多租户命名空间隔离逻辑。
  *
- * 与其它模块的关系：
- * - clouds.harvester.ts：提供带缓存的 Harvester 聚合视图，最终通过 registerHarvesterVmRoutes 挂载本文件路由
- * - clouds.harvester_direct.ts：提供直连 Harvester 的调试视图，本文件复用其中部分底层 client 能力
- * - services/clouds/harvester 下的 vm.ts / lifecycle.ts：
- *   - vm.ts 封装 VM 列表、详情、规格更新、注解同步等纯业务逻辑
- *   - lifecycle.ts 封装 VM 启停 / 重启 / 软重启 / 暂停 / 恢复 / 删除等生命周期操作
+ * 核心逻辑:
+ * 1. [Inventory Cache First]: 列表接口 (/:id/resources/ecs) 优先从本地数据库缓存
+ *    (HarvesterVmInventory/HarvesterVmiInventory) 读取数据，仅在强制刷新或缓存为空时
+ *    触发同步，避免高频调用 Harvester API。
+ * 2. [Direct API for Actions]: 所有生命周期操作 (Start/Stop/Delete 等) 直接调用 Harvester API，
+ *    确保操作的实时性和一致性，避免缓存延迟导致的状态不一致。
+ * 3. [Tenant Isolation]: 基于 UserSpace 和 Organization ID 动态构建命名空间白名单，
+ *    在所有接口层面对请求进行严格的权限过滤，确保租户只能访问授权范围内的资源。
+ * 4. [SSE Real-time Stream]: 提供 Server-Sent Events (SSE) 接口，通过 watchJsonStream
+ *    订阅 K8s 事件，实时推送 VM/VMI 的状态变更 (vm_created, vm_status, vm_deleted)。
  *
- * 核心设计点：
- * 1. Inventory Cache First（列表接口）：
- *    - ECS 列表 /:id/resources/ecs 优先从 HarvesterVmInventory / HarvesterVmiInventory 读取
- *    - 仅在 DB 为空或 ?force=true 时才主动触发同步，避免高频扫 API
- *    - 在内存中合并 VM 与 VMI 状态，生成前端友好的扁平结构（status / ips / nodeName 等）
- *
- * 2. Direct API for Actions（操作接口）：
- *    - 创建、启停、重启、删除等操作统一走直连 Harvester API，不经过本地缓存
- *    - 保证操作的实时性与结果一致性，避免 “点了启动但列表仍显示关机” 的错觉
- *
- * 3. Tenant Isolation（多租户隔离）：
- *    - 所有涉及具体 VM / 命名空间的接口，都通过 UserSpace + organizationId 做命名空间白名单过滤
- *    - 支持动态组织命名空间 ns-{orgId}，确保组织级资源与用户空间资源统一管控
- *
- * 4. SSE 实时流（/ecs/stream）：
- *    - 使用 watchJsonStream 订阅 kubevirt VM / VMI 的 Watch 流，将变更转换为 vm_created / vm_status / vm_deleted 事件
- *    - 在服务端维护 VM/VMI 缓存，按 key = namespace/name 聚合，屏蔽 K8s 事件噪音
- *    - 仅推送当前租户允许看到的命名空间，保证实时性与隔离性同时成立
- *
- * 使用约定：
- * - 保持本文件只聚焦 “VM / ECS” 领域，不引入 Volume / Network 等跨领域路由
- * - 对外暴露单个 registerHarvesterVmRoutes 注册函数，供聚合路由文件调用
+ * API 列表:
+ * - GET    /:id/resources/ecs                                      获取虚拟机列表 (带缓存)
+ * - GET    /:id/resources/ecs/stream                               获取虚拟机实时状态流 (SSE)
+ * - POST   /:id/resources/harvester/vms                            创建虚拟机
+ * - GET    /:id/resources/harvester/vms/:namespace/:name           获取 VM 原始 Manifest
+ * - POST   /:id/resources/harvester/vms/:namespace/:name/save-as-template 保存为模板
+ * - GET    /:id/resources/ecs/:instanceId/vnc                      获取 VNC Console URL
+ * - POST   /:id/resources/ecs/:instanceId/start                    启动虚拟机 (通用)
+ * - POST   /:id/resources/ecs/:instanceId/stop                     停止虚拟机 (通用)
+ * - POST   /:id/resources/ecs/:instanceId/reboot                   重启虚拟机
+ * - POST   /:id/resources/ecs/:instanceId/softreboot               软重启虚拟机
+ * - POST   /:id/resources/ecs/:instanceId/pause                    暂停虚拟机
+ * - POST   /:id/resources/ecs/:instanceId/unpause                  恢复虚拟机
+ * - DELETE /:id/resources/ecs/:instanceId                          删除虚拟机
+ * - POST   /:id/resources/harvester/vms/:namespace/:name/start     启动虚拟机 (指定 NS)
+ * - POST   /:id/resources/harvester/vms/:namespace/:name/stop      停止虚拟机 (指定 NS)
+ * ==============================================================================
  */
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';

@@ -13,7 +13,56 @@ import {
   isNamespaceAllowed,
 } from './harvester.direct.helpers';
 
-// Helper: Convert IP string to number
+/**
+ * ==============================================================================
+ * 模块名称: Harvester 网络资源直连路由 (Harvester Direct Network Routes)
+ * 文件路径: src/routes/clouds/harvester/harvester.direct.network.routes.ts
+ * ==============================================================================
+ * 功能描述:
+ * 本文件提供 Harvester 网络相关资源的直连管理能力，绕过中间缓存，直接与 Harvester API 交互。
+ * 涵盖了基础网络 (NAD/Subnet)、高级网络 (EIP/FIP/NAT)、负载均衡 (LoadBalancer/IPPool) 等
+ * 资源的增删改查操作。
+ *
+ * 核心逻辑:
+ * 1. [Direct API Access]: 所有接口均直接请求 Harvester/Kube-OVN 的 API (CRD)，确保数据的
+ *    实时性和操作的原子性。
+ * 2. [Tenant Isolation]: 严格集成了多租户权限校验 (checkTenantAccess)，确保租户只能访问
+ *    授权命名空间下的网络资源。
+ * 3. [Subnet Management]: 实现了 Subnet 与 NAD 的联动创建/删除逻辑，并包含 CIDR 冲突检测
+ *    和 IP 范围计算等辅助功能。
+ * 4. [Error Handling]: 统一捕获 Harvester API 错误并转换为标准 HTTP 响应，包含详细的错误信息。
+ *
+ * API 列表:
+ * - GET    /:id/resources/nads                                     获取 NAD 列表
+ * - GET    /:id/resources/harvester/nads/:namespace/:name          获取 NAD 详情
+ * - POST   /:id/resources/subnets                                  创建子网 (含 NAD 联动)
+ * - PUT    /:id/resources/subnets/:subnetId                        更新子网
+ * - DELETE /:id/resources/subnets/:name                            删除子网 (含关联检查)
+ * - GET    /:id/resources/harvester-loadbalancers                  获取负载均衡列表
+ * - POST   /:id/resources/harvester-loadbalancers                  创建负载均衡
+ * - GET    /:id/resources/switch-lbrules                           获取 Switch LB 规则
+ * - GET    /:id/resources/ovneips                                  获取 EIP 列表
+ * - POST   /:id/resources/ovneips                                  创建 EIP
+ * - GET    /:id/resources/ovnfips                                  获取 FIP 列表
+ * - GET    /:id/resources/ovnsnatrules                             获取 SNAT 规则
+ * - GET    /:id/resources/ovndnatrules                             获取 DNAT 规则
+ * - GET    /:id/resources/services                                 获取 Service 列表 (基于 LB)
+ * - DELETE /:id/resources/harvester/services/:namespace/:name      删除 Service
+ * - GET    /:id/resources/ippools                                  获取 IP Pool 列表
+ * - POST   /:id/resources/ippools                                  创建 IP Pool
+ * - DELETE /:id/resources/ippools/:name                            删除 IP Pool
+ * ==============================================================================
+ */
+
+/**
+ * 将 IP 字符串转换为长整型数值
+ *
+ * @description
+ * 用于 IP 地址的大小比较和范围计算。
+ *
+ * @param {string} ip 点分十进制 IP 字符串 (e.g., "192.168.1.1")
+ * @returns {number} 对应的整数值
+ */
 const ipToLong = (ip: string): number => {
   return (
     ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>>
@@ -21,7 +70,16 @@ const ipToLong = (ip: string): number => {
   );
 };
 
-// Helper: Convert CIDR to range [start, end]
+/**
+ * 将 CIDR 转换为 IP 范围 [start, end]
+ *
+ * @description
+ * 解析 CIDR 格式 (e.g., "192.168.1.0/24") 并计算其起始和结束 IP 的整数值。
+ * 用于子网冲突检测。
+ *
+ * @param {string} cidr CIDR 字符串
+ * @returns {[number, number] | null} 成功返回 [start, end] 数组，失败返回 null
+ */
 const cidrToRange = (cidr: string): [number, number] | null => {
   try {
     const [ip, mask] = cidr.split('/');
@@ -37,7 +95,16 @@ const cidrToRange = (cidr: string): [number, number] | null => {
   }
 };
 
-// Helper: Check if ranges overlap
+/**
+ * 检查两个 IP 范围是否重叠
+ *
+ * @description
+ * 判断两个闭区间 [start1, end1] 和 [start2, end2] 是否存在交集。
+ *
+ * @param {[number, number]} r1 范围 1
+ * @param {[number, number]} r2 范围 2
+ * @returns {boolean} 是否重叠
+ */
 const rangesOverlap = (
   r1: [number, number],
   r2: [number, number],
@@ -53,10 +120,13 @@ export const registerHarvesterDirectNetworkRoutes = (
    * ==================================================================================
    * NADs (Network Attachment Definitions)
    * ==================================================================================
+   * [GET] /:id/resources/nads
    * 直连查询 Harvester 中的 NetworkAttachmentDefinition 列表。
-   * - 通过 Harvester 提供的 /v1/harvester/k8s.cni.cncf.io.network-attachment-definitions 接口获取
-   * - 使用 checkTenantAccess 做租户命名空间过滤
-   * - 使用 isNamespaceAllowed 校验目标命名空间是否在允许列表中
+   *
+   * [核心逻辑]:
+   * 1. 调用 checkTenantAccess 验证租户权限并获取允许的命名空间。
+   * 2. 请求 /v1/harvester/k8s.cni.cncf.io.network-attachment-definitions 获取全量数据。
+   * 3. 根据租户命名空间 (tenantNamespace) 对结果进行过滤，确保数据隔离。
    */
   router.get(
     '/:id/resources/nads',
@@ -104,6 +174,7 @@ export const registerHarvesterDirectNetworkRoutes = (
           ? json?.items
           : [];
         let items = rawItems;
+        // [Tenant Filter] 根据租户权限过滤列表
         if (isTenant) {
           if (tenantNamespace) {
             items = items.filter((i: any) =>
@@ -131,7 +202,11 @@ export const registerHarvesterDirectNetworkRoutes = (
 
   /**
    * [GET] /:id/resources/harvester/nads/:namespace/:name
-   * 获取单个 NetworkAttachmentDefinition 详情（直连 kube-ovn CRD）
+   * 获取单个 NetworkAttachmentDefinition 详情（直连 kube-ovn CRD）。
+   *
+   * [权限控制]:
+   * - 检查用户是否有权限访问该 Resource Pool。
+   * - 检查用户是否有权限访问指定的 Namespace。
    */
   router.get(
     '/:id/resources/harvester/nads/:namespace/:name',
@@ -204,10 +279,15 @@ export const registerHarvesterDirectNetworkRoutes = (
    * ==================================================================================
    * Subnets (Kube-OVN)
    * ==================================================================================
-   * 直连 Kube-OVN Subnet CRD，实现子网的创建 / 更新 / 删除。
-   * 注意：
-   * - 创建子网前会尝试自动创建对应 NAD（k8s.cni.cncf.io/v1）
-   * - provider 字段必须满足 `<nadName>.<nadNamespace>.ovn` 格式
+   * [POST] /:id/resources/subnets
+   * 直连 Kube-OVN Subnet CRD，实现子网的创建。
+   *
+   * [业务逻辑]:
+   * 1. [Validation]: 校验必填参数 (name, cidrBlock) 及命名规范。
+   * 2. [CIDR Check]: 预检查 CIDR 是否与现有子网冲突 (Intersection Check)。
+   * 3. [NAD Creation]: 自动创建对应的 NetworkAttachmentDefinition (default namespace)。
+   * 4. [Subnet Creation]: 创建 Subnet CRD，关联上述 NAD。
+   * 5. [Rollback]: 如果 Subnet 创建失败，尝试回滚删除已创建的 NAD。
    */
   router.post(
     '/:id/resources/subnets',
@@ -237,6 +317,7 @@ export const registerHarvesterDirectNetworkRoutes = (
           disableGatewayCheck,
         } = req.body;
 
+        // [Input Validation] 参数校验
         if (!name || !cidrBlock) {
           res
             .status(400)
@@ -285,7 +366,7 @@ export const registerHarvesterDirectNetworkRoutes = (
           origin = base.replace(/\/v[0-9].*$/, '');
         }
 
-        // CIDR Conflict Pre-check
+        // [CIDR Conflict Check] 冲突检测
         try {
             const existing = await getJsonOnce(`${origin}/apis/kubeovn.io/v1/subnets`, cloud.secretKey || '', insecure);
             const items: any[] = Array.isArray(existing?.items) ? existing.items : Array.isArray(existing?.data) ? existing.data : [];
@@ -313,6 +394,7 @@ export const registerHarvesterDirectNetworkRoutes = (
         const nadNamespace = 'default';
         const fullProvider = `${nadName}.${nadNamespace}.ovn`;
 
+        // [Create NAD] 创建关联的 NAD
         const nadUrl = `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNamespace}/network-attachment-definitions`;
         const nadPayload = {
           apiVersion: 'k8s.cni.cncf.io/v1',
@@ -358,6 +440,7 @@ export const registerHarvesterDirectNetworkRoutes = (
           if (isConflict) createdNewNad = false;
         }
 
+        // [Create Subnet] 创建 Subnet CRD
         const payload = {
           apiVersion: 'kubeovn.io/v1',
           kind: 'Subnet',
@@ -394,7 +477,7 @@ export const registerHarvesterDirectNetworkRoutes = (
             );
             res.json({ message: '创建子网成功', data: result });
         } catch (error: any) {
-            // Rollback NAD if subnet creation failed
+            // [Rollback] 如果子网创建失败，尝试回滚 NAD
             if (createdNewNad) {
                 try {
                     const nadDelUrl = `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNamespace}/network-attachment-definitions/${encodeURIComponent(name)}`;
@@ -422,6 +505,13 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [PUT] /:id/resources/subnets/:subnetId
+   * 更新子网配置。
+   *
+   * [说明]:
+   * 调用 updateHarvesterSubnet 辅助函数执行更新操作。
+   */
   router.put(
     '/:id/resources/subnets/:subnetId',
     checkAdminPermission,
@@ -467,6 +557,16 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/subnets/:name
+   * 删除子网。
+   *
+   * [业务逻辑]:
+   * 1. [Usage Check]: 检查该子网是否正在被虚拟机使用 (通过 VM 的 networks 字段匹配)。
+   *    如果被使用，拒绝删除并返回 409 Conflict。
+   * 2. [Delete Subnet]: 删除 Subnet CRD。
+   * 3. [Cascade Delete]: 尝试级联删除关联的 NAD。
+   */
   router.delete(
     '/:id/resources/subnets/:name',
     checkAdminPermission,
@@ -504,7 +604,7 @@ export const registerHarvesterDirectNetworkRoutes = (
 
         const url = `${origin}/apis/kubeovn.io/v1/subnets/${name}`;
 
-        // Check for VM usage (NAD)
+        // [Usage Check] 检查 VM 占用
         try {
             const ecsList = await getJsonOnce(`${origin}/v1/harvester/kubevirt.io.virtualmachines`, cloud.secretKey || '', insecure);
             const vms: any[] = Array.isArray(ecsList?.items) ? ecsList.items : Array.isArray(ecsList?.data) ? ecsList.data : [];
@@ -536,7 +636,7 @@ export const registerHarvesterDirectNetworkRoutes = (
 
         await requestJson('DELETE', url, cloud.secretKey || '', insecure);
 
-        // Cascade delete NAD (best-effort)
+        // [Cascade Delete] 级联删除 NAD
         try {
             const nadNamespace = 'default';
             const nadDelUrl = `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNamespace}/network-attachment-definitions/${encodeURIComponent(name)}`;
@@ -558,7 +658,8 @@ export const registerHarvesterDirectNetworkRoutes = (
    * ==================================================================================
    * Harvester Load Balancers (Flat Network)
    * ==================================================================================
-   * 直连查询 / 创建 Harvester 负载均衡资源。
+   * [GET] /:id/resources/harvester-loadbalancers
+   * 直连查询 Harvester 负载均衡资源。
    */
   router.get(
     '/:id/resources/harvester-loadbalancers',
@@ -619,6 +720,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester-loadbalancers
+   * 创建 Harvester 负载均衡。
+   */
   router.post(
     '/:id/resources/harvester-loadbalancers',
     checkAdminPermission,
@@ -680,8 +785,10 @@ export const registerHarvesterDirectNetworkRoutes = (
 
   /**
    * ==================================================================================
-   * Switch LBRules（负载均衡规则）
+   * Switch LBRules (负载均衡规则)
    * ==================================================================================
+   * [GET] /:id/resources/switch-lbrules
+   * 查询 Kube-OVN SwitchLBRule 列表。
    */
   router.get(
     '/:id/resources/switch-lbrules',
@@ -758,7 +865,12 @@ export const registerHarvesterDirectNetworkRoutes = (
    * ==================================================================================
    * OvnEips / OvnFips / OvnSnatRules / OvnDnatRules
    * ==================================================================================
-   * 直连 kube-ovn.io 相关 CRD，提供 EIP / FIP / SNAT / DNAT 的查询与创建能力。
+   * 直连 kube-ovn.io 相关 CRD，提供高级网络功能 (EIP, FIP, NAT) 的管理。
+   */
+
+  /**
+   * [GET] /:id/resources/ovneips
+   * 查询 EIP 列表。
    */
   router.get(
     '/:id/resources/ovneips',
@@ -854,6 +966,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [POST] /:id/resources/ovneips
+   * 创建 EIP。
+   */
   router.post(
     '/:id/resources/ovneips',
     checkAdminPermission,
@@ -960,6 +1076,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [GET] /:id/resources/ovnfips
+   * 查询 FIP 列表。
+   */
   router.get(
     '/:id/resources/ovnfips',
     checkAdminPermission,
@@ -1054,6 +1174,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [GET] /:id/resources/ovnsnatrules
+   * 查询 SNAT 规则列表。
+   */
   router.get(
     '/:id/resources/ovnsnatrules',
     checkAdminPermission,
@@ -1148,6 +1272,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [GET] /:id/resources/ovndnatrules
+   * 查询 DNAT 规则列表。
+   */
   router.get(
     '/:id/resources/ovndnatrules',
     checkAdminPermission,
@@ -1249,6 +1377,11 @@ export const registerHarvesterDirectNetworkRoutes = (
    * - Services：基于 Harvester LoadBalancer CRD 的服务列表
    * - IPPools：负载均衡地址池管理（基于 Steve API）
    */
+
+  /**
+   * [GET] /:id/resources/services
+   * 获取 Service 列表。
+   */
   router.get(
     '/:id/resources/services',
     checkAdminPermission,
@@ -1308,6 +1441,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/harvester/services/:namespace/:name
+   * 删除 Service。
+   */
   router.delete(
     '/:id/resources/harvester/services/:namespace/:name',
     checkAdminPermission,
@@ -1374,6 +1511,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [GET] /:id/resources/ippools
+   * 查询 IP Pool 列表。
+   */
   router.get(
     '/:id/resources/ippools',
     checkAdminPermission,
@@ -1433,6 +1574,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [POST] /:id/resources/ippools
+   * 创建 IP Pool。
+   */
   router.post(
     '/:id/resources/ippools',
     checkAdminPermission,
@@ -1538,6 +1683,10 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/ippools/:name
+   * 删除 IP Pool。
+   */
   router.delete(
     '/:id/resources/ippools/:name',
     checkAdminPermission,
@@ -1604,4 +1753,3 @@ export const registerHarvesterDirectNetworkRoutes = (
     },
   );
 };
-

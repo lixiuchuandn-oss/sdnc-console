@@ -2,15 +2,28 @@ import { startCloudProviderEcs } from '../../../../../services/api';
 import { generateHarvesterEntityId } from '../../../../../utils/harvesterUtils';
 
 /**
- * @file VmWizardUtils.ts
- * @description Harvester 虚拟机创建向导的工具函数集合
- * 
+ * ==============================================================================
+ * 模块名称: Harvester VM 向导工具集 (VmWizardUtils)
+ * 文件路径: src/pages/Clouds/Harvester/modals/VmCreateWizard/VmWizardUtils.ts
+ * ==============================================================================
+ *
+ * [功能描述]
  * 此文件包含了 VM 创建过程中所需的各种辅助逻辑，按照功能模块划分为：
  * 1. 基础工具 (Utils): 通用数据处理、格式转换
  * 2. 资源校验 (Validation): 镜像大小、GPU 可用性检查
  * 3. 表单相关 (Form): 初始值、字段联动
  * 4. 核心构造 (Core): 构建 Kubernetes CRD Payload
- * 5. 后续操作 (Post-Action): 创建后的自动启动等
+ * 5. 模板应用 (Template): 将模板或现有 VM 规格应用到表单
+ *
+ * [核心逻辑]
+ * - [数据转换]: `parseSizeToGi` 统一处理各种 K8s 资源单位 (Gi, Mi, bytes) 转为 GiB。
+ * - [ID 生成]: `generateUniqueVmId` 遵循 `id-{entity}-{random}` 规范生成唯一标识。
+ * - [资源校验]: `validateAndGetGpu` 确保选择的 GPU 资源存在且满足节点亲和性。
+ * - [Payload构造]: `buildHarvesterVmPayload` 将扁平的表单数据转换为嵌套的 K8s VirtualMachine 对象。
+ *
+ * === 交互依赖 ===
+ * - 被 `VmCreateWizardModal` 及各步骤组件引用。
+ * - 依赖 `utils/harvesterUtils` 中的 ID 生成逻辑。
  */
 
 // ==========================================
@@ -266,6 +279,14 @@ export const handleRootPvcChange = (form: any, availableVolumes: any[], pvcName:
  * - 系统盘容量、名称、设备类型
  * - 数据盘列表
  * - 主网卡和辅助网卡
+ * 
+ * @param params 参数对象
+ * @param params.form - AntD Form 实例
+ * @param params.template - 选中的 VM 模板对象
+ * @param params.images - 可用镜像列表 (用于匹配 ID)
+ * @param params.availableVolumes - 可用卷列表 (用于匹配 PVC)
+ * @param params.nadOptions - NAD 选项列表
+ * @param params.kubeSubnets - 子网列表
  */
 export const applyTemplateToWizardForm = (params: {
   form: any;

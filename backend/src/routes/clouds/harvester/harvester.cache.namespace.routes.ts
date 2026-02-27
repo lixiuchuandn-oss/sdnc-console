@@ -8,6 +8,46 @@ import { syncHarvesterNamespaces } from '../../../services/clouds/harvester/inve
 import { requestJson } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
+/**
+ * ==============================================================================
+ * 组件名称: Harvester 命名空间管理 (Harvester Namespace Management)
+ * 文件路径: backend/src/routes/clouds/harvester/harvester.cache.namespace.routes.ts
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 负责 Harvester 平台命名空间 (Namespace) 的增删改查操作。
+ * 实现了本地数据库缓存读取与远程实时同步的结合，并强制执行多租户隔离策略。
+ * 
+ * [核心逻辑]
+ * 1. [查询列表]: 
+ *    - 优先读取本地数据库 (HarvesterNamespaceInventory)。
+ *    - 支持 force=true 强制触发远程同步。
+ *    - 租户视图下，自动过滤仅展示 UserSpace 授权的命名空间。
+ * 2. [租户隔离]: 
+ *    - 租户用户仅能访问 UserSpace 中定义的 namespace。
+ *    - 自动修复逻辑：确保租户的 UserSpace 包含其 Organization 对应的默认命名空间。
+ * 3. [多路径兼容]: 
+ *    - 写操作 (POST/PATCH/DELETE) 尝试多种 API 路径格式，以兼容不同版本的 Harvester/Rancher 代理环境。
+ * 
+ * ------------------------------------------------------------------------------
+ * [API 接口说明]
+ * ------------------------------------------------------------------------------
+ * 1. GET /:id/resources/harvester/namespaces
+ *    - 查询命名空间列表 (支持分页/过滤)。
+ * 
+ * 2. GET /:id/resources/harvester/namespaces/:name
+ *    - 查询单个命名空间详情。
+ * 
+ * 3. PATCH /:id/resources/harvester/namespaces/:name
+ *    - 更新命名空间 (支持 Merge Patch)。
+ * 
+ * 4. POST /:id/resources/harvester/namespaces
+ *    - 创建命名空间。
+ * 
+ * 5. DELETE /:id/resources/harvester/namespaces/:name
+ *    - 删除命名空间。
+ * ==============================================================================
+ */
 export const registerHarvesterNamespaceRoutes = (
   router: Router,
   checkAdminPermission: any,
@@ -31,6 +71,10 @@ export const registerHarvesterNamespaceRoutes = (
           (req.user as any)?.role === 'tenant' ||
           ((req.user as any)?.tenantId &&
             (req.user as any)?.role !== 'sase_device');
+        
+        // [租户隔离] 命名空间可见性过滤
+        // 1. 租户只能看到分配给自己的 Namespace (UserSpace.namespace)。
+        // 2. 包含自动修复逻辑：如果租户所属 Organization 的 Namespace 不在列表中，自动添加并更新 DB。
         if (isTenant) {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const where: any = {
@@ -74,6 +118,8 @@ export const registerHarvesterNamespaceRoutes = (
 
         const count = await repo.count({ where: whereCondition });
 
+        // [同步策略] 缓存优先 + 按需同步
+        // 如果本地数据库为空，或者用户显式请求 force=true，则触发远程同步。
         if (count === 0 || String(force) === 'true') {
           try {
             await syncHarvesterNamespaces(cloud, insecure);
@@ -162,6 +208,8 @@ export const registerHarvesterNamespaceRoutes = (
             ? req.body
             : { metadata: { labels: {} } };
 
+        // [多路径兼容] 尝试多种 API 路径
+        // Harvester 版本差异可能导致 API 路径不同 (K8s 原生 vs Rancher 代理)。
         for (const url of candidates) {
           try {
             json = await requestJson(

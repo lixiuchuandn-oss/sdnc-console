@@ -1,3 +1,58 @@
+/**
+ * d:\ComputeTower\Compute.Tower\backend\src\routes\clouds\harvester\harvester.cache.storage.routes.ts
+ *
+ * Harvester 存储资源路由模块 (Harvester Storage Routes)
+ * =============================================================================
+ * [功能描述]
+ * 本模块负责处理 Harvester 云平台的存储相关资源请求，包括卷 (Volumes)、镜像 (Images)、
+ * 快照 (Snapshots) 和备份 (Backups)。
+ * 它实现了从本地缓存读取数据、实时同步数据、以及向 Harvester API 发起增删改查操作的功能。
+ * 同时包含了严格的租户隔离逻辑，确保租户只能访问授权的命名空间资源。
+ *
+ * [核心逻辑]
+ * 1. [卷管理]      : 查询卷列表 (支持缓存/实时强制刷新)、创建/删除 PVC、挂载/卸载卷。
+ * 2. [镜像管理]    : 查询镜像列表、创建/更新/删除镜像 (VirtualMachineImage)。
+ * 3. [快照/备份]   : 管理虚拟机快照和备份，支持定时备份策略 (ScheduleVmBackup)。
+ * 4. [租户隔离]    : 针对租户角色 (tenant)，自动过滤 UserSpace 授权的命名空间。
+ * 5. [自动修复]    : 自动检测并修复 UserSpace 中缺失的组织命名空间 (ns-{orgId})。
+ * 6. [异常处理]    : 统一捕获 Harvester API 错误，转换为用户友好的提示信息 (403/404/409)。
+ *
+ * [API 接口清单]
+ * -----------------------------------------------------------------------------
+ * GET    /:id/resources/harvester/volumes                          查询卷列表
+ * DELETE /:id/resources/harvester/longhorn/volumes/:namespace/:name 删除 Longhorn 卷 (底层)
+ * GET    /:id/resources/harvester/available-volumes                查询可用卷 (未挂载)
+ * GET    /:id/resources/harvester/storage-classes                  查询存储类
+ * POST   /:id/resources/harvester/vms/:instanceId/add-volume       挂载卷到 VM (ID)
+ * POST   /:id/resources/harvester/vms/:namespace/:name/add-volume  挂载卷到 VM (Direct)
+ * POST   /:id/resources/harvester/vms/:instanceId/remove-volume    卸载卷
+ * DELETE /:id/resources/harvester/volumes/:namespace/:name         删除 PVC
+ * POST   /:id/resources/harvester/volumes/:namespace/:pvcName/export-image 导出镜像
+ * POST   /:id/resources/harvester/volumes/:namespace/:pvcName/snapshots    创建卷快照
+ * PUT    /:id/resources/harvester/volumes/:namespace/:pvcName      更新 PVC 规格
+ * POST   /:id/resources/harvester/volumes/:namespace/:pvcName/clone 克隆 PVC
+ * POST   /:id/resources/harvester/volumes                          创建 PVC
+ * GET    /:id/resources/harvester/images                           查询镜像列表
+ * GET    /:id/resources/harvester/images/:namespace/:name          查询镜像详情
+ * DELETE /:id/resources/harvester/images/:namespace/:name          删除镜像
+ * POST   /:id/resources/harvester/images                           创建镜像
+ * PUT    /:id/resources/harvester/images/:namespace/:name          更新镜像
+ * GET    /:id/resources/harvester/snapshots                        查询快照列表
+ * DELETE /:id/resources/harvester/snapshots/:namespace/:name       删除快照
+ * GET    /:id/resources/harvester/backups                          查询备份列表
+ * DELETE /:id/resources/harvester/backups/:namespace/:name         删除备份
+ * GET    /:id/resources/harvester/schedulevmbackups                查询定时备份
+ * POST   /:id/resources/harvester/schedulevmbackups                创建定时备份
+ * PATCH  /:id/resources/harvester/schedulevmbackups/:namespace/:name 更新定时备份
+ * PUT    /:id/resources/harvester/schedulevmbackups/:namespace/:name 更新定时备份 (兼容)
+ * DELETE /:id/resources/harvester/schedulevmbackups/:namespace/:name 删除定时备份
+ * POST   /:id/resources/harvester/virtualmachinebackups/:namespace 创建 VM 备份/快照
+ * DELETE /:id/resources/harvester/backups/:namespace/:name         删除 VM 备份
+ * POST   /:id/resources/harvester/virtualmachinerestores/:namespace 恢复 VM
+ * GET    /:id/resources/harvester/capabilities                     查询集群能力
+ * =============================================================================
+ */
+
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
 import { In } from 'typeorm';
@@ -41,11 +96,22 @@ import {
 import { requestJson, getJsonOnce } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
+/**
+ * 注册 Harvester 存储相关路由
+ * @param router Express 路由对象
+ * @param checkAdminPermission 权限检查中间件
+ */
 export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermission: any) => {
-  // Volumes (List)
+  // ===========================================================================
+  // [卷管理] Volumes (List / CRUD)
+  // ===========================================================================
+
   /**
    * [GET] /:id/resources/harvester/volumes
-   * 获取卷列表 (Volumes/PVCs)
+   * 查询卷列表 (Volumes/PVCs)
+   * ---------------------------------------------------------------------------
+   * 支持 force=true 强制刷新缓存。
+   * 包含租户隔离逻辑：Tenant 用户只能看到 UserSpace 授权的命名空间下的卷。
    */
   router.get(
     '/:id/resources/harvester/volumes',
@@ -54,6 +120,8 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
       try {
         const { id } = req.params;
         const { force } = req.query;
+        
+        // [校验] 检查云资源是否存在及类型
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -61,7 +129,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
 
         const repo = AppDataSource.getRepository(KubevirtVolumeInventory);
 
-        // Tenant Isolation: Filter by UserSpace Namespace
+        // [租户隔离] 过滤 UserSpace 命名空间
         let whereCondition: any = { cloudId: id };
         if ((req as any).user?.role === 'tenant') {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
@@ -70,7 +138,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           });
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
 
-          // Auto-Fix: Ensure organization namespace is included in UserSpace
+          // [自动修复] 确保组织命名空间 (ns-{orgId}) 包含在 UserSpace 中
           let allowedNamespaces: string[] = [];
           if (us.namespace) {
             allowedNamespaces = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
@@ -93,6 +161,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           whereCondition.namespace = In(allowedNamespaces);
         }
 
+        // [缓存策略] 如果数据库为空或强制刷新，则同步数据
         const count = await repo.count({ where: whereCondition });
 
         if (count === 0 || String(force) === 'true') {
@@ -106,7 +175,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
 
         const items = await repo.find({ where: whereCondition });
 
-        // Frontend Response Formatting
+        // [数据格式化] 转换为前端友好的格式
         const base = (cloud.endpoint || '').replace(/\/+$/, '');
         let origin = base;
         try {
@@ -151,6 +220,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
 
           const viewUrl = `${origin}/api/v1/namespaces/${namespace}/persistentvolumeclaims/${name}`;
 
+          // 解析挂载状态
           const workloads =
             k8s?.workloadsStatus || v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
           const rawNames: string[] = Array.isArray(workloads)
@@ -162,6 +232,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
               rawNames
                 .map((n: string) => {
                   let s = n.trim();
+                  // 移除 virt-launcher 前缀，显示真实的 VM 名称
                   if (/^virt-launcher-/.test(s)) {
                     s = s.replace(/^virt-launcher-/, '');
                   }
@@ -194,6 +265,12 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/harvester/longhorn/volumes/:namespace/:name
+   * 删除底层 Longhorn 卷
+   * ---------------------------------------------------------------------------
+   * 直接操作 Longhorn API 删除卷，通常用于 PVC 删除失败后的清理。
+   */
   router.delete(
     '/:id/resources/harvester/longhorn/volumes/:namespace/:name',
     checkAdminPermission,
@@ -201,6 +278,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
       try {
         const { id, namespace, name } = req.params;
 
+        // [权限检查] 租户只能删除自己命名空间下的卷
         if ((req as any).user?.role === 'tenant') {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const where: any = {
@@ -249,7 +327,12 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Available Volumes (For Attachment)
+  /**
+   * [GET] /:id/resources/harvester/available-volumes
+   * 查询可用卷 (未挂载)
+   * ---------------------------------------------------------------------------
+   * 筛选状态为 'bound' 且未挂载到任何 VM 的卷，用于挂载操作的选择列表。
+   */
   router.get(
     '/:id/resources/harvester/available-volumes',
     checkAdminPermission,
@@ -351,6 +434,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             };
           })
           .filter((x: any) => {
+            // [筛选规则] 只返回 Bound 且未挂载的卷
             const isBound = String(x.state).toLowerCase() === 'bound';
             return isBound && !x.attached;
           });
@@ -362,7 +446,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Storage Classes
+  /**
+   * [GET] /:id/resources/harvester/storage-classes
+   * 查询存储类 (StorageClasses)
+   */
   router.get(
     '/:id/resources/harvester/storage-classes',
     checkAdminPermission,
@@ -396,7 +483,14 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Volume Operations
+  // ===========================================================================
+  // [卷操作] Volume Operations
+  // ===========================================================================
+
+  /**
+   * [POST] /:id/resources/harvester/vms/:instanceId/add-volume
+   * 挂载卷到 VM (使用 Instance ID)
+   */
   router.post(
     '/:id/resources/harvester/vms/:instanceId/add-volume',
     checkAdminPermission,
@@ -420,6 +514,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/vms/:namespace/:name/add-volume
+   * 挂载卷到 VM (直接使用 Namespace/Name)
+   */
   router.post(
     '/:id/resources/harvester/vms/:namespace/:name/add-volume',
     checkAdminPermission,
@@ -444,6 +542,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/vms/:instanceId/remove-volume
+   * 卸载卷
+   */
   router.post(
     '/:id/resources/harvester/vms/:instanceId/remove-volume',
     checkAdminPermission,
@@ -467,6 +569,12 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/harvester/volumes/:namespace/:name
+   * 删除 PVC
+   * ---------------------------------------------------------------------------
+   * 包含详细的错误处理逻辑，将 403/404/409 等状态码转换为友好的中文提示。
+   */
   router.delete(
     '/:id/resources/harvester/volumes/:namespace/:name',
     checkAdminPermission,
@@ -484,6 +592,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
         );
         res.json({ message: '删除成功', data });
       } catch (error: any) {
+        // [错误处理] 转换错误消息
         const status = Number(error?.status || 0);
         const body = String(error?.message || '');
         let msg = '删除卷失败';
@@ -503,6 +612,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/volumes/:namespace/:pvcName/export-image
+   * 从 PVC 导出镜像
+   */
   router.post(
     '/:id/resources/harvester/volumes/:namespace/:pvcName/export-image',
     checkAdminPermission,
@@ -536,6 +649,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/volumes/:namespace/:pvcName/snapshots
+   * 创建卷快照 (VolumeSnapshot)
+   */
   router.post(
     '/:id/resources/harvester/volumes/:namespace/:pvcName/snapshots',
     checkAdminPermission,
@@ -569,6 +686,13 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [PUT] /:id/resources/harvester/volumes/:namespace/:pvcName
+   * 更新 PVC 规格 (如扩容)
+   * ---------------------------------------------------------------------------
+   * 特殊逻辑：如果是扩容操作 (size 变更)，会自动尝试更新所属 VM 的 volume size annotation，
+   * 以实现 VM 内部的感知 (需要 QEMU Guest Agent)。
+   */
   router.put(
     '/:id/resources/harvester/volumes/:namespace/:pvcName',
     checkAdminPermission,
@@ -588,6 +712,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           { sizeGi, size, accessModes, volumeMode, storageClassName, annotations, labels },
         );
 
+        // [业务逻辑] 同步 VM 卷大小标注
         if (sizeGi || size) {
           const newSize = size || (sizeGi ? `${sizeGi}Gi` : '');
           if (newSize) {
@@ -597,6 +722,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
 
             if (!owner) {
               try {
+                // 尝试重新获取 PVC 以确认 owner (某些情况下返回的 data 可能不全)
                 const base = (cloud.endpoint || '').replace(/\/+$/, '');
                 let origin = base;
                 try {
@@ -651,6 +777,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/volumes/:namespace/:pvcName/clone
+   * 克隆 PVC
+   */
   router.post(
     '/:id/resources/harvester/volumes/:namespace/:pvcName/clone',
     checkAdminPermission,
@@ -702,6 +832,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/volumes
+   * 创建 PVC
+   */
   router.post(
     '/:id/resources/harvester/volumes',
     checkAdminPermission,
@@ -738,58 +872,26 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Longhorn Volumes (Underlying Longhorn volume delete)
-  router.delete(
-    '/:id/resources/harvester/longhorn/volumes/:namespace/:name',
-    checkAdminPermission,
-    async (req: any, res: Response, next: any) => {
-      try {
-        const { id, namespace, name } = req.params;
+  /**
+   * [DELETE] /:id/resources/harvester/longhorn/volumes/:namespace/:name
+   * (重复定义，已在上方定义，此处保留以防遗漏，但逻辑上是重复的，建议移除或合并)
+   * 修正：代码中确实出现了两次 delete longhorn volumes 的路由注册。
+   * 下面这个 block 是第 742 行的副本。我们将忽略它，因为已经处理过了。
+   * 实际上，原代码 197 行和 742 行是完全一样的路由定义。
+   * 在这里我们不需要重复注册。
+   */
+  
+  // ===========================================================================
+  // [镜像管理] Images (List / CRUD)
+  // ===========================================================================
 
-        if ((req as any).user?.role === 'tenant') {
-          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
-          if ((req.user as any).organizationId) {
-            where.organizationId = (req.user as any).organizationId;
-          }
-          const userSpace = await userSpaceRepo.findOne({ where });
-          if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
-
-          const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map((s) => s.trim()) : [];
-          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
-          // if ((req.user as any).organizationId) {
-          //   validNamespaces.push(`ns-${(req.user as any).organizationId}`);
-          // }
-
-          if (!validNamespaces.includes(namespace)) {
-            return res.status(403).json({ message: '无权访问该命名空间资源' });
-          }
-        }
-
-        const cloud = await fetchCloudOr404(id, res);
-        if (!cloud) return;
-        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 操作', next)) return;
-        const insecure = !!(cloud.config as any)?.ignoreTls;
-
-        await deleteHarvesterLonghornVolume(
-          {
-            endpoint: cloud.endpoint,
-            token: cloud.secretKey,
-            insecure,
-          } as any,
-          namespace,
-          name,
-        );
-
-        res.json({ message: '删除成功' });
-      } catch (error: any) {
-        if (res.headersSent) return;
-        res.status(500).json({ message: '删除卷失败', error: error.message });
-      }
-    },
-  );
-
-  // Images (List)
+  /**
+   * [GET] /:id/resources/harvester/images
+   * 查询镜像列表
+   * ---------------------------------------------------------------------------
+   * 支持 force=true。
+   * 租户隔离：UserSpace namespace + 公共命名空间 (harvester-public, cloud-public, default)。
+   */
   router.get(
     '/:id/resources/harvester/images',
     checkAdminPermission,
@@ -824,7 +926,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           if (us.namespace) {
             const allowed = us.namespace.split(',').map(s => s.trim()).filter(Boolean);
             
-            // Auto-Fix: Ensure organization namespace is included in UserSpace
+            // [自动修复] 确保组织命名空间存在
             if ((req.user as any).organizationId) {
                const orgNs = `ns-${(req.user as any).organizationId}`;
                if (!allowed.includes(orgNs)) {
@@ -929,7 +1031,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Images (Detail / CRUD)
+  /**
+   * [GET] /:id/resources/harvester/images/:namespace/:name
+   * 查询镜像详情 (实时)
+   */
   router.get(
     '/:id/resources/harvester/images/:namespace/:name',
     checkAdminPermission,
@@ -950,6 +1055,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           origin = base.replace(/\/v[0-9].*$/, '');
         }
 
+        // 尝试 v1beta1 和 v1 两个版本的 API
         const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
           namespace,
         )}/virtualmachineimages/${encodeURIComponent(name)}`;
@@ -970,6 +1076,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/harvester/images/:namespace/:name
+   * 删除镜像
+   */
   router.delete(
     '/:id/resources/harvester/images/:namespace/:name',
     checkAdminPermission,
@@ -999,6 +1109,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/images
+   * 创建镜像
+   */
   router.post(
     '/:id/resources/harvester/images',
     checkAdminPermission,
@@ -1055,6 +1169,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [PUT] /:id/resources/harvester/images/:namespace/:name
+   * 更新镜像
+   */
   router.put(
     '/:id/resources/harvester/images/:namespace/:name',
     checkAdminPermission,
@@ -1099,7 +1217,14 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Snapshots (Inventory Cache First)
+  // ===========================================================================
+  // [快照/备份管理] Snapshots & Backups
+  // ===========================================================================
+
+  /**
+   * [GET] /:id/resources/harvester/snapshots
+   * 查询快照列表
+   */
   router.get(
     '/:id/resources/harvester/snapshots',
     checkAdminPermission,
@@ -1130,7 +1255,6 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             us.namespace.split(',').forEach((ns) => allowedNamespaces.push(ns.trim()));
           }
 
-          // Auto-Fix: Ensure organization namespace is included in UserSpace
           if ((req.user as any).organizationId) {
              const orgNs = `ns-${(req.user as any).organizationId}`;
              if (!allowedNamespaces.includes(orgNs)) {
@@ -1169,6 +1293,12 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/harvester/snapshots/:namespace/:name
+   * 删除快照
+   * ---------------------------------------------------------------------------
+   * 尝试删除 VM Snapshot，如果报 404，则尝试删除 Volume Snapshot (兼容性处理)。
+   */
   router.delete(
     '/:id/resources/harvester/snapshots/:namespace/:name',
     checkAdminPermission,
@@ -1213,7 +1343,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Backups (Inventory Cache First)
+  /**
+   * [GET] /:id/resources/harvester/backups
+   * 查询备份列表
+   */
   router.get(
     '/:id/resources/harvester/backups',
     checkAdminPermission,
@@ -1244,7 +1377,6 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             us.namespace.split(',').forEach((ns) => allowedNamespaces.push(ns.trim()));
           }
 
-          // Auto-Fix: Ensure organization namespace is included in UserSpace
           if ((req.user as any).organizationId) {
              const orgNs = `ns-${(req.user as any).organizationId}`;
              if (!allowedNamespaces.includes(orgNs)) {
@@ -1283,7 +1415,14 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Schedule VM Backups
+  // ===========================================================================
+  // [定时备份] Schedule VM Backups
+  // ===========================================================================
+
+  /**
+   * [GET] /:id/resources/harvester/schedulevmbackups
+   * 查询定时备份策略
+   */
   router.get(
     '/:id/resources/harvester/schedulevmbackups',
     checkAdminPermission,
@@ -1314,11 +1453,6 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             us.namespace.split(',').forEach((ns) => allowedNamespaces.push(ns.trim()));
           }
 
-          // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
-          // if ((req.user as any).organizationId) {
-          //   allowedNamespaces.push(`ns-${(req.user as any).organizationId}`);
-          // }
-
           if (allowedNamespaces.length > 0) {
             whereCondition = [...allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns }))];
           }
@@ -1343,6 +1477,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/schedulevmbackups
+   * 创建定时备份策略
+   */
   router.post(
     '/:id/resources/harvester/schedulevmbackups',
     checkAdminPermission,
@@ -1379,6 +1517,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [PATCH] /:id/resources/harvester/schedulevmbackups/:namespace/:name
+   * 更新定时备份策略 (PATCH)
+   */
   router.patch(
     '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
     checkAdminPermission,
@@ -1416,6 +1558,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [PUT] /:id/resources/harvester/schedulevmbackups/:namespace/:name
+   * 更新定时备份策略 (PUT)
+   */
   router.put(
     '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
     checkAdminPermission,
@@ -1453,6 +1599,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/harvester/schedulevmbackups/:namespace/:name
+   * 删除定时备份策略
+   */
   router.delete(
     '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
     checkAdminPermission,
@@ -1487,7 +1637,14 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // VM Backup/Snapshot Create/Delete
+  // ===========================================================================
+  // [通用] Backup / Snapshot Create / Restore
+  // ===========================================================================
+
+  /**
+   * [POST] /:id/resources/harvester/virtualmachinebackups/:namespace
+   * 创建 VM 备份或快照
+   */
   router.post(
     '/:id/resources/harvester/virtualmachinebackups/:namespace',
     checkAdminPermission,
@@ -1526,6 +1683,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
+  /**
+   * [DELETE] /:id/resources/harvester/backups/:namespace/:name
+   * 删除 VM 备份
+   */
   router.delete(
     '/:id/resources/harvester/backups/:namespace/:name',
     checkAdminPermission,
@@ -1556,7 +1717,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // VM Restore
+  /**
+   * [POST] /:id/resources/harvester/virtualmachinerestores/:namespace
+   * 恢复 VM (从备份或快照)
+   */
   router.post(
     '/:id/resources/harvester/virtualmachinerestores/:namespace',
     checkAdminPermission,
@@ -1581,7 +1745,14 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // Cluster capabilities related to storage (delegated here for cohesion)
+  // ===========================================================================
+  // [能力查询] Capabilities
+  // ===========================================================================
+
+  /**
+   * [GET] /:id/resources/harvester/capabilities
+   * 查询集群能力 (如版本信息、支持的特性)
+   */
   router.get(
     '/:id/resources/harvester/capabilities',
     checkAdminPermission,

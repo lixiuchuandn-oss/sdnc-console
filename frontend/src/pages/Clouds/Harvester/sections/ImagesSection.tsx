@@ -1,11 +1,29 @@
 /**
  * Harvester - 镜像 (Image) 列表 Section
- * 负责展示 Harvester 集群中的虚拟机镜像，支持：
- * - 关键字、状态过滤
- * - 批量删除
- * - 通过 URL 导入镜像
- * - 通过“Cloudmap 镜像直传工具”在内网直传镜像
- * - 打开资源详情抽屉查看更完整信息
+ * frontend/src/pages/Clouds/Harvester/sections/ImagesSection.tsx
+ *
+ * === 功能描述 ===
+ * 负责展示和管理 Harvester 集群中的虚拟机镜像资源。
+ * 核心功能包括：
+ * 1. 列表展示: 展示镜像名称、大小、状态、进度等信息。
+ * 2. 镜像导入: 支持通过 URL 下载导入镜像，或使用“Cloudmap 直传工具”上传。
+ * 3. 资源操作: 支持镜像的删除、编辑、查看详情。
+ *
+ * === 核心逻辑 ===
+ * 1. [状态映射]:
+ *    - 将后端状态 (Imported, Downloading, Failed 等) 映射为中文描述和 Antd Badge 颜色。
+ *    - 特别处理下载进度展示 (Progress)，实时反馈导入状态。
+ * 2. [创建流程]:
+ *    - 提供 URL 导入和工具上传两种模式的 Tab 切换。
+ *    - URL 导入时，需选择目标 StorageClass，并校验 URL 格式。
+ * 3. [详情抽屉]:
+ *    - 点击行支持打开 `HarvesterResourceDrawer`，展示镜像的 YAML 和 Events。
+ *    - 在打开抽屉前，自动补全 `kind: VirtualMachineImage` 以适配通用抽屉逻辑。
+ *
+ * === 交互依赖 ===
+ * - 上游: 依赖 `CloudDetailHarvester` 传入 `images` 列表。
+ * - 下游: 调用 `createHarvesterImage`, `deleteHarvesterImage` 等 API。
+ * - 外部: 依赖 `fetchHarvesterStorageClasses` 获取存储类选项。
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Descriptions, Modal, Row, Col, Tabs, Typography, Steps, Alert, Card } from 'antd';
