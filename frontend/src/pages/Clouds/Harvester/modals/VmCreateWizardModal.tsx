@@ -173,6 +173,16 @@ const VmCreateWizardModal: React.FC = () => {
   // 根据关键字过滤可选节点列表，用于“调度到指定主机”
   const filteredNodes = useMemo(() => filterNodes(nodes, nodeKeyword), [nodes, nodeKeyword]);
 
+  // 计算集群是否为 ARM64 架构
+  const isArm64 = useMemo(() => {
+    if (nodes && nodes.length > 0) {
+      const n = nodes[0];
+      const arch = n?.status?.nodeInfo?.architecture || n?.architecture || '';
+      return String(arch).toLowerCase() === 'arm64' || String(arch).toLowerCase() === 'aarch64';
+    }
+    return false;
+  }, [nodes]);
+
 
 
 
@@ -354,6 +364,7 @@ const VmCreateWizardModal: React.FC = () => {
               {step === 1 && (
                 <StepCompute
                   form={form}
+                  isArm64={isArm64}
                   memPreset={memPreset}
                   setMemPreset={setMemPreset}
                   memGi={memGi}

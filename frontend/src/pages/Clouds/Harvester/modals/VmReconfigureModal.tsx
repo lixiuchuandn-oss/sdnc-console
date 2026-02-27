@@ -12,9 +12,9 @@
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useMemo } from 'react';
-import { Modal, Form, Space, Radio, Button, Alert, Tag } from 'antd';
+import { Modal, Form, Space, Radio, Button, Tag, Tooltip } from 'antd';
 import { 
-  HddOutlined, GlobalOutlined, DashboardOutlined
+  HddOutlined, GlobalOutlined, DashboardOutlined, LoadingOutlined, QuestionCircleOutlined
 } from '@ant-design/icons';
 
 import ChangeSpec from './VmReconfigure/ChangeSpec';
@@ -82,7 +82,8 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     getCurrentSpec,
     getMemoryInGi,
     isHotPlugEnabledOnVm,
-    isRestartRequired
+    isRestartRequired,
+    isHotPlugInProgress
   } = useVmReconfigure(props);
 
   // 监听表单中的 CPU / 内存 / 热扩容开关，用于动态计算按钮文案等
@@ -99,6 +100,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   const currentCpu = Number(currentCpuRaw || 0);
   const currentMemory = getMemoryInGi(currentMemoryRaw);
   const maxMemory = maxMemoryRaw ? getMemoryInGi(maxMemoryRaw) : undefined;
+  const architecture = record?.spec?.template?.spec?.architecture || record?.spec?.architecture;
   
   // 当前 VM 是否已启用 CPU / 内存热扩容能力（基于注解/feature 判断）
   const isHotPlugEnabledOnVmVal = useMemo(() => {
@@ -152,12 +154,6 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
    */
   const renderContent = () => {
     
-    // Calculate maxCpuLimit for ChangeSpec
-    const cpuSpec = record?.spec?.template?.spec?.domain?.cpu;
-    const maxCpuLimit = cpuSpec?.maxSockets 
-      ? cpuSpec.maxSockets * (cpuSpec.cores || 1) * (cpuSpec.threads || 1)
-      : undefined;
-        
     // 过滤掉系统存储类，仅允许用户选择业务存储类
     const scOptions = (scs || [])
       .filter((x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name))
@@ -173,9 +169,10 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             currentMemory={currentMemory}
             isHotPlugEnabledOnVm={isHotPlugEnabledOnVmVal}
             isRestartRequired={isRestartRequired}
-            maxCpuLimit={maxCpuLimit}
             maxSockets={maxSockets}
             maxMemory={maxMemory}
+            architecture={architecture}
+            disabled={isHotPlugInProgress}
           />
         );
       case 'cpu_advanced':
@@ -305,16 +302,58 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   const footer = (
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <Button onClick={onClose}>取消</Button>
-        <Button type="primary" onClick={handleSubmit}>{okText}</Button>
+        <Button type="primary" onClick={handleSubmit} disabled={isHotPlugInProgress}>{okText}</Button>
       </div>
   );
 
+  const renderTopAlert = () => {
+    if (isHotPlugInProgress) {
+       return (
+         <div
+           style={{
+             marginBottom: 12,
+             background: '#fffbe6',
+             border: '1px solid #ffe58f',
+             borderRadius: 8,
+             padding: '8px 12px',
+             display: 'flex',
+             alignItems: 'center',
+             justifyContent: 'space-between',
+             gap: 12,
+           }}
+         >
+           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+             <LoadingOutlined style={{ color: '#faad14' }} />
+             <span style={{ fontWeight: 500 }}>热扩容进行中</span>
+             <span style={{ color: 'rgba(0,0,0,0.65)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+               暂不可提交新的规格变更
+             </span>
+           </div>
+           <Tooltip
+             title={
+               <div>
+                 <div>1. 当前虚拟机正在执行 CPU 或内存热扩容。</div>
+                 <div>2. 操作完成前禁止再次变配，避免后端并发失败。</div>
+                 <div>3. 可在详情页事件/状态中确认进度，必要时点击刷新。</div>
+               </div>
+             }
+           >
+             <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)', flex: 'none' }} />
+           </Tooltip>
+         </div>
+       );
+    }
+    return null;
+  };
+
   return (
     <Modal
+      zIndex={1001} // Ensure it is above the Detail Drawer (z-index 1000)
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>资源变配</span>
           {isRestartRequired && <Tag color="warning" style={{ fontWeight: 'normal', margin: 0 }}>需重启</Tag>}
+          {isHotPlugInProgress && <Tag color="processing" style={{ fontWeight: 'normal', margin: 0 }}>热扩容中</Tag>}
         </div>
       }
       open={open}
@@ -368,6 +407,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
           </Radio.Group>
         </div>
         <div style={{ border: '1px solid #f0f0f0',borderRadius: '8px', flex: 1, padding: 24, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {renderTopAlert()}
           <div style={{ flex: 1 }}>
             <Form
               form={form}

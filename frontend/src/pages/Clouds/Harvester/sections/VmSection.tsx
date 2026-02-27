@@ -1092,6 +1092,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const status = (function(){
         if (k==='running') return 'success';
         if (k==='starting') return 'processing';
+        if (k==='migrating') return 'processing';
         if (k==='stopping') return 'warning';
         if (k==='terminating') return 'warning';
         if (k==='error' || k==='errorunschedulable') return 'error';
@@ -1297,7 +1298,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             value={statusFilter || undefined}
             onChange={(v)=> setStatusFilter(v || '')}
             allowClear
-            options={[{ value: '', label: '全部' }, ...['Running','Starting','Stopping','Terminating','Stopped','Terminated','Error','Unknown'].map(k=> ({ value: k.toLowerCase(), label: cnVmStatus(k) }))]}
+            options={[{ value: '', label: '全部' }, ...['Running','Starting','Migrating','Stopping','Terminating','Stopped','Terminated','Error','Unknown'].map(k=> ({ value: k.toLowerCase(), label: cnVmStatus(k) }))]}
           />
         </>
       )}

@@ -105,6 +105,7 @@ export const cnVmStatus = (v?: string): string => {
     errorunschedulable: '调度失败',
     waitingforvolumebinding: '等待卷绑定',
     provisioning: '配置中',
+    migrating: '迁移中',
     unknown: '未知'
   };
   return m[k] || (v || '-');

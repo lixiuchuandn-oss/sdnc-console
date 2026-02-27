@@ -1,18 +1,66 @@
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson, requestOnce } from './utils';
+import { getHarvesterSettingValue } from './cluster';
 import { createHarvesterSecret, createHarvesterPVCVolume, deleteHarvesterPVC, updatePVCSpec } from './storage';
+
+/**
+ * ==============================================================================
+ * 服务名称: Harvester 虚拟机服务 (Harvester VM Service)
+ * 文件路径: backend/src/services/clouds/harvester/vm.ts
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 提供对 Harvester (KubeVirt) 虚拟机的全生命周期管理能力，包括列表查询、详情获取、
+ * 创建、变更规格 (Spec)、电源管理、VNC 访问等核心功能。
+ * 它是后端与 Harvester API 交互的主要入口。
+ * 
+ * [核心逻辑]
+ * 1. [数据获取]: 
+ *    - 支持通过 KubeVirt 原生 API 和 Harvester Steve API 双路径探测，确保兼容性。
+ *    - 提供 Raw (原始) 和 Standard (标准化) 两种数据视图。
+ * 
+ * 2. [规格变更 (Update Spec)]: 
+ *    - [智能分流]: 区分“简单变更”和“复杂变更”。
+ *    - [最小 Patch]: 对于仅修改 CPU/内存的请求，构造极简 Patch 包，避免由大 JSON 引起的 ECONNRESET。
+ *    - [完整 Patch]: 对于涉及磁盘、网络、CloudInit 的变更，采用“读-改-写”模式。
+ * 
+ * 3. [高级特性]:
+ *    - [热扩容]: 管理 maxSockets/maxGuest 以启用 KubeVirt 热插拔能力。
+ *    - [重装系统]: 自动化处理 PVC 创建、Volume 替换、Annotation 更新流程。
+ *    - [CloudInit]: 自动提取 userData/networkData 并封装为 Secret，避免内联数据过大。
+ * 
+ * ------------------------------------------------------------------------------
+ * [下游接口调用说明 (Downstream API Reference)]
+ * ------------------------------------------------------------------------------
+ * 1. 涉及后端接口 (KubeVirt/Harvester):
+ *    - GET /apis/kubevirt.io/v1/virtualmachines
+ *    - GET /apis/kubevirt.io/v1/virtualmachineinstances
+ *    - PATCH /apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines/{name}
+ * 
+ * 2. 关键依赖:
+ *    - storage.ts: 处理 PVC 和 Volume 相关的底层操作。
+ *    - utils.ts: 封装 HTTP 请求与错误处理。
+ * ==============================================================================
+ */
 
 // ==================================================================================
 // VM List (Direct API - Auto Discovery)
 // ==================================================================================
 /**
- * 获取 KubeVirt 虚拟机原始列表（VirtualMachine）
- * 直接访问 KubeVirt / Harvester API，返回未加工的原始 VM 对象数组
- * - 优先走标准 KubeVirt API
- * - 若失败则回退到 Harvester/Steve API（带有 links/actions）
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
+ * 获取 KubeVirt 虚拟机原始列表 (Raw VM List)
+ * 
+ * [功能描述]
+ * 直接访问 KubeVirt / Harvester API，返回未加工的原始 VirtualMachine 对象数组。
+ * 
+ * [核心逻辑]
+ * 1. [双路径探测]: 
+ *    - 优先尝试 KubeVirt 标准 API `/apis/kubevirt.io/v1/virtualmachines`。
+ *    - 失败则降级到 Harvester Steve API `/v1/harvester/kubevirt.io.virtualmachines`。
+ * 2. [兼容性]: 
+ *    - 自动适配不同版本的 Harvester/KubeVirt API 路径差异。
+ * 
+ * @param params Harvester 连接参数
+ * @returns 原始 VM 对象数组
  */
 export const listKubevirtVMsRaw = async ({
   endpoint,
@@ -54,12 +102,17 @@ export const listKubevirtVMsRaw = async ({
 };
 
 /**
- * 获取带元数据的 KubeVirt 虚拟机列表
- * 在原始 VM 列表基础上，补充 resourceVersion 和实际命中的 URL
- * 便于后续基于 RV 做 Watch / SSE 等增量更新
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
+ * 获取带元数据的 KubeVirt 虚拟机列表 (Raw VM List with Meta)
+ * 
+ * [功能描述]
+ * 在原始 VM 列表基础上，补充 resourceVersion 和实际命中的 API URL。
+ * 
+ * [核心逻辑]
+ * 1. [用途]: 
+ *    - 返回的 resourceVersion 用于后续建立 Watch 连接或 SSE 增量更新。
+ *    - 返回的 url 指示了当前成功的 API 路径 (KubeVirt vs Steve)。
+ * 
+ * @param params Harvester 连接参数
  * @returns 若成功返回 { items, resourceVersion, url }，否则返回 null
  */
 export const listKubevirtVMsRawWithMeta = async ({
@@ -102,11 +155,19 @@ export const listKubevirtVMsRawWithMeta = async ({
 // VMI List (Direct API - Auto Discovery)
 // ==================================================================================
 /**
- * 获取 KubeVirt 虚拟机实例列表（VirtualMachineInstance）
- * 用于获取实时运行状态（节点、网卡 IP、Phase 等）
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
+ * 获取 KubeVirt 虚拟机实例列表 (Raw VMI List)
+ * 
+ * [功能描述]
+ * 获取 VirtualMachineInstance (VMI) 列表，用于反映虚拟机的实时运行状态。
+ * 
+ * [核心逻辑]
+ * 1. [实时状态]: 
+ *    - VMI 对象包含当前所在的 Node、分配的 IP 地址、以及详细的 Phase (Running, Scheduled 等)。
+ *    - 与 VM 对象不同，VMI 仅在虚拟机运行时存在。
+ * 2. [双路径探测]:
+ *    - 同样支持 KubeVirt API 和 Harvester API 两种路径。
+ * 
+ * @param params Harvester 连接参数
  * @returns 原始 VMI 对象数组
  */
 export const listKubevirtVMIsRaw = async ({
@@ -142,11 +203,17 @@ export const listKubevirtVMIsRaw = async ({
 };
 
 /**
- * 获取带元数据的 KubeVirt 虚拟机实例列表
- * 在 VMI 列表基础上返回 resourceVersion 和命中的 URL
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
+ * 获取带元数据的 KubeVirt 虚拟机实例列表 (Raw VMI List with Meta)
+ * 
+ * [功能描述]
+ * 在原始 VMI 列表基础上，补充 resourceVersion 和实际命中的 API URL。
+ * 
+ * [核心逻辑]
+ * 1. [用途]: 
+ *    - 返回的 resourceVersion 用于后续建立 Watch 连接或 SSE 增量更新。
+ *    - 返回的 url 指示了当前成功的 API 路径 (KubeVirt vs Steve)。
+ * 
+ * @param params Harvester 连接参数
  * @returns 若成功返回 { items, resourceVersion, url }，否则返回 null
  */
 export const listKubevirtVMIsRawWithMeta = async ({
@@ -190,14 +257,21 @@ export const listKubevirtVMIsRawWithMeta = async ({
 // ==================================================================================
 
 /**
- * 获取 Harvester 标准化虚拟机列表
- * 基于 KubeVirt VM + VMI 原始列表做一次聚合和字段整理：
- * - 合并 VM 与 VMI 的网络/IP/节点等实时信息
- * - 提供兼容旧版 Cloud VM 列表的字段（InstanceId / Status 等）
- * - 补充 view 链接，便于前端跳转到 Harvester 原生详情
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
+ * 获取标准化 Harvester 虚拟机列表 (Standard VM List)
+ * 
+ * [功能描述]
+ * 在原始 VM 列表基础上，聚合 VMI (Instance) 状态，并转换为前端友好的扁平化结构。
+ * 
+ * [核心逻辑]
+ * 1. [数据聚合]: 
+ *    - 并行获取 VM (定义) 和 VMI (运行时实例) 列表。
+ *    - 通过 Namespace/Name 将 VMI 的实时状态 (IP, Node, Phase) 合并到 VM 数据中。
+ * 2. [状态计算]:
+ *    - 优先使用 `printableStatus`，降级使用 `phase`。
+ * 3. [网络解析]:
+ *    - 解析 Multus CNI 注解，提取多网卡 IP 和 MAC 地址。
+ * 
+ * @param params Harvester 连接参数
  * @returns 标准化后的 VM 列表
  */
 export const listHarvesterVMsStandard = async ({
@@ -335,16 +409,22 @@ export const listHarvesterVMsStandard = async ({
 };
 
 /**
- * 获取单个 Harvester 虚拟机详情
- * 通过多组候选 URL 自动探测：
- * - 直接访问 KubeVirt API
- * - 通过 gateway / k8s.clusters.local 代理访问
- * 任一地址命中即返回对应 VM 对象
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
+ * 获取单个 Harvester 虚拟机详情 (Get VM Detail)
+ * 
+ * [功能描述]
+ * 根据 Namespace 和 Name 获取指定虚拟机的完整定义 (Spec) 和状态 (Status)。
+ * 
+ * [核心逻辑]
+ * 1. [多地址探测]:
+ *    - 针对不同网络环境 (直接连接、代理转发)，尝试多组 API URL。
+ *    - 只要任一地址成功响应，即返回结果。
+ * 2. [错误处理]:
+ *    - 自动捕获并忽略 404 以外的网络错误，直到所有候选地址都失败。
+ * 
+ * @param params Harvester 连接参数
  * @param namespace 命名空间
  * @param name 虚拟机名称
+ * @returns 虚拟机完整对象 (VirtualMachine)
  */
 export const getHarvesterVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -383,18 +463,25 @@ export const getHarvesterVM = async (
 };
 
 /**
- * 创建 Harvester 虚拟机
- * - 直接向 KubeVirt VirtualMachine API 提交 VM 对象
- * - 若检测到内联 cloudInitNoCloud（userData/networkData），自动：
- *   1. 生成一个 CloudInit Secret（Base64 编码）
- *   2. 将 VM Volume 改为通过 secretRef 引用该 Secret
- *   3. 创建 Secret 并通过 ownerReferences 绑定到 VM
- * 这样既兼容 Harvester UI，又避免内联大字段导致的请求体过大
- * @param endpoint Harvester 接入地址
- * @param token 访问 Harvester 的 Token
- * @param insecure 是否忽略 TLS 校验
+ * 创建 Harvester 虚拟机 (Create VM)
+ * 
+ * [功能描述]
+ * 创建新的虚拟机实例，自动处理关联资源的创建与绑定。
+ * 
+ * [核心逻辑]
+ * 1. [CloudInit 自动化]:
+ *    - 自动检测 Payload 中的 CloudInit 数据 (UserData/NetworkData)。
+ *    - 剥离内联数据，创建独立的 Secret。
+ *    - 修改 VM Spec，通过 secretRef 引用该 Secret。
+ * 2. [资源绑定]:
+ *    - 为创建的 Secret 设置 OwnerReference，确保 VM 删除时自动清理 Secret。
+ * 3. [数据清洗]:
+ *    - 移除 Payload 中的临时字段，防止 K8s API 报错。
+ * 
+ * @param params Harvester 连接参数
  * @param namespace 命名空间
- * @param payload 完整 VM Spec（可能包含 cloudInit 相关字段）
+ * @param payload 完整 VM Spec (可能包含 cloudInit 相关字段)
+ * @returns 创建成功的 VM 对象
  */
 export const createHarvesterVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -504,22 +591,26 @@ export const createHarvesterVM = async (
 };
 
 /**
- * 更新 Harvester 虚拟机规格（Spec）
- * 支持两类能力：
- * 1）简单规格变更走「最小 PATCH」：
- *    - 仅修改 CPU/内存/RunStrategy/HotPlug 等基础字段
- *    - 拼装极小的 merge-patch 以避免大 Spec 导致 ECONNRESET
- * 2）复杂变更走「读当前 -> 深拷贝 -> 合并 -> PATCH」：
- *    - 支持 CloudInit Secret 更新（userData/networkData）
- *    - 支持重装系统盘（更换镜像 + 新建 PVC + 更新 volumeClaimTemplates 注解）
- *    - 支持仅扩容系统盘（Resize PVC + 同步 VM 注解）
- *    - 支持 GPU / 网络 / 接口 等高级字段修改
+ * 更新 Harvester 虚拟机规格 (Spec)
+ * 
+ * [功能描述]
+ * 处理虚拟机配置变更请求，支持简单 CPU/内存扩容和复杂的磁盘/网络/CloudInit 变更。
+ * 
+ * [核心逻辑]
+ * 1. [智能分流 (Optimization)]:
+ *    - 优先检查变更字段是否仅包含 CPU/Memory 等基础属性。
+ *    - 若是，走“最小 Patch”路径，仅构造极简 JSON 发送给 K8s，大幅降低网络开销并规避 ECONNRESET。
+ * 2. [复杂变更]:
+ *    - 涉及数组操作 (Volumes/Networks) 或深层嵌套对象时，必须先拉取当前 Spec，进行深拷贝合并，再全量 Patch。
+ * 3. [热扩容 (Hot Plug)]:
+ *    - 自动处理 maxSockets 和 maxGuest 以启用 KubeVirt 热插拔特性。
+ * 
  * @param endpoint Harvester 接入地址
  * @param token 访问 Harvester 的 Token
  * @param insecure 是否忽略 TLS 校验
  * @param namespace 命名空间
  * @param name 虚拟机名称
- * @param spec 变更请求体（由上层服务构造）
+ * @param spec 变更请求体 (包含 cpu, memory, enableHotPlug, maxSockets, maxMemory 等字段)
  */
 export const updateHarvesterVMSpec = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -538,9 +629,18 @@ export const updateHarvesterVMSpec = async (
   // Fetch current to get resourceVersion
   const current = await getHarvesterVM({ endpoint, token, insecure }, namespace, name);
 
-  // Optimization: Use Minimal Patch for simple CPU/Memory/HotPlug updates to avoid ECONNRESET issues with large payloads
-  // We check if the request ONLY contains simple spec fields and NO complex operations (arrays, disks, gpu, etc.)
-  const simpleFields = ['cpu', 'memory', 'enableHotPlug', 'cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 'cpuRequest', 'cpuLimit', 'memoryLimit', 'runStrategy'];
+  // [性能优化] 最小 Patch 策略
+  // ---------------------------------------------------------
+  // 为什么需要这个优化？
+  // KubeVirt 的 VirtualMachine 对象通常非常庞大（包含 status、详细配置等）。
+  // 如果每次微小的 CPU/内存变更都发送全量 Spec，不仅浪费带宽，
+  // 还容易因为 Payload 过大触发 Node.js HTTP 客户端的 ECONNRESET 错误。
+  // 
+  // 实现原理：
+  // 1. 检查 spec 是否仅包含白名单内的简单字段。
+  // 2. 如果是，构造一个极其精简的 JSON Patch，只包含变化的字段。
+  // ---------------------------------------------------------
+  const simpleFields = ['cpu', 'memory', 'enableHotPlug', 'cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 'cpuRequest', 'cpuLimit', 'memoryLimit', 'runStrategy', 'maxSockets', 'maxMemory'];
   const hasComplexFields = Object.keys(spec).some(k => !simpleFields.includes(k));
   
   if (!hasComplexFields) {
@@ -557,73 +657,248 @@ export const updateHarvesterVMSpec = async (
       };
 
       // 1. Simple CPU
+      // ---------------------------------------------------------
+      // [核心逻辑] CPU 规格变更与热扩容拓扑策略
+      // ---------------------------------------------------------
       if (spec.cpu !== undefined) {
-          ensureResources();
-          domain.resources.requests.cpu = String(spec.cpu);
-          domain.resources.limits.cpu = String(spec.cpu);
           ensureCpu();
-          domain.cpu.sockets = 1;
-          domain.cpu.cores = Number(spec.cpu);
-          domain.cpu.threads = 1;
+
+          // [状态检测] 判定是否处于“热扩容”模式
+          // 判定逻辑：
+          // 1. 本次请求明确启用了热扩容 (spec.enableHotPlug === true)
+          // 2. 或者，本次请求未明确禁用 (spec.enableHotPlug !== false) 且虚拟机当前已配置了 maxSockets
+          // 注意：maxSockets 是 KubeVirt 判断是否启用 CPU 热插拔的关键标志。
+          const currentCpu = current?.spec?.template?.spec?.domain?.cpu || {};
+          const currentMaxSockets = currentCpu.maxSockets;
+          const isHotPlug = (spec.enableHotPlug === true) || (spec.enableHotPlug !== false && !!currentMaxSockets);
+
+          if (isHotPlug) {
+              if (currentCpu.cores !== 1 || currentCpu.threads !== 1) {
+                  throw new Error('热扩容失败：当前 CPU 拓扑必须为 cores=1, threads=1。请先锁定拓扑（cores=1, threads=1）后再进行 CPU 热扩容。');
+              }
+              // [策略分支 A] 热扩容模式 (Hot Plug Mode)
+              // ---------------------------------------------------------
+              // [强制约束]: 必须将所有 CPU 资源映射到 Sockets 上。
+              // 拓扑公式: Sockets = Total CPU, Cores = 1, Threads = 1
+              //
+              // [关键修正]: 在热扩容模式下，禁止修改 domain.resources (requests/limits)。
+              // KubeVirt 仅通过监控 sockets 的数值变化来触发后端 Pod 的资源热更。
+              // 如果 Patch 包中包含了 resources.requests.cpu 字段，KubeVirt 会认为
+              // 用户试图修改 Pod 的 Template Spec（非热更字段），从而触发 RestartRequired。
+              //
+              // [优化技巧]: 仅当数值发生变化时才包含在 Patch 中，减少冗余。
+              // ---------------------------------------------------------
+              const targetSockets = Number(spec.cpu);
+              if (currentCpu.sockets !== targetSockets) {
+                  domain.cpu.sockets = targetSockets;
+              }
+              
+              // 强制锁定拓扑为 1 Core, 1 Thread
+              // 如果当前已经是 1，则无需在 Patch 中重复声明
+          } else {
+              // [策略分支 B] 标准模式 (Standard Mode)
+              // ---------------------------------------------------------
+              // 允许用户自定义 CPU 拓扑结构 (Sockets/Cores/Threads)。
+              // 这种变更通常需要重启虚拟机生效。
+              // ---------------------------------------------------------
+              
+              // 仅在非热扩容模式下，同步更新 K8s 资源配额
+              ensureResources();
+              domain.resources.requests.cpu = String(spec.cpu);
+              domain.resources.limits.cpu = String(spec.cpu);
+
+              if (spec.cpuSockets && spec.cpuCores && spec.cpuThreads) {
+                   // 如果前端传入了完整拓扑，则直接使用
+                   domain.cpu.sockets = Number(spec.cpuSockets);
+                   domain.cpu.cores = Number(spec.cpuCores);
+                   domain.cpu.threads = Number(spec.cpuThreads);
+              } else {
+                   // [兼容性默认值]
+                   // 如果未指定拓扑，默认采用 1 Socket * N Cores 的传统结构。
+                   domain.cpu.sockets = 1;
+                   domain.cpu.cores = Number(spec.cpu);
+                   domain.cpu.threads = 1;
+              }
+          }
       }
 
-      // 1.1 HotPlug
+      // [核心逻辑] 热扩容 (Hot Plug) 配置
+      // ---------------------------------------------------------
+      // 1. CPU 热扩容: 
+      //    - 必须设置 maxSockets 才能启用 CPU 热插拔。
+      //    - KubeVirt 要求在热扩容模式下，Spec.sockets 必须 <= maxSockets。
+      //    - [Strict Validation] 前端必须明确传入 maxSockets，禁止使用默认值。
+      // 2. 内存热扩容:
+      //    - 必须设置 maxGuest (通过 maxMemory 参数) 才能启用内存热插拔。
+      //    - maxGuest 定义了虚拟机最大可扩容到的物理内存上限。
+      //    - [Strict Validation] 前端必须明确传入 maxMemory。
+      // ---------------------------------------------------------
       if (spec.enableHotPlug !== undefined) {
           ensureCpu();
           if (spec.enableHotPlug) {
-              domain.cpu.maxSockets = 128;
+              // [Strict Validation]
+              // 必须传入 maxSockets 和 maxMemory 才能启用热扩容
+              if (!spec.maxSockets) {
+                  throw new Error('maxSockets is required when enabling hot plug');
+              }
+              try {
+                  const ratioStr = await getHarvesterSettingValue({ endpoint, token, insecure }, 'max-hotplug-ratio');
+                  const ratioNum = Number(ratioStr);
+                  if (Number.isFinite(ratioNum) && ratioNum > 0) {
+                      const currentCpuObj = current?.spec?.template?.spec?.domain?.cpu || {};
+                      const baseTotalCpu = Number((currentCpuObj.sockets || 1) * (currentCpuObj.cores || 1) * (currentCpuObj.threads || 1));
+                      const maxAllowed = Math.floor(baseTotalCpu * ratioNum);
+                      if (Number(spec.maxSockets) > maxAllowed) {
+                          throw new Error(`启用热扩容失败：目标 maxSockets=${spec.maxSockets} 超出集群设置 max-hotplug-ratio=${ratioNum} 基于当前总CPU=${baseTotalCpu} 的允许上限=${maxAllowed}。请先通过集群 Setting 提升比值或降低目标值。`);
+                      }
+                  }
+              } catch {}
+              
+              // [防止 RestartRequired]: 仅在 maxSockets 确实变更时才修改。
+              const currentMaxSockets = current?.spec?.template?.spec?.domain?.cpu?.maxSockets;
+              if (currentMaxSockets !== Number(spec.maxSockets)) {
+                  domain.cpu.maxSockets = Number(spec.maxSockets);
+              }
+
+              if (!spec.maxMemory) {
+                  throw new Error('maxMemory is required when enabling hot plug');
+              }
           } else {
-              // For merge-patch, null deletes the field
+              // 关闭热扩容时，清理相关字段
               domain.cpu.maxSockets = null;
           }
       }
 
+      if (spec.maxMemory) {
+          if (!domain.memory) domain.memory = {};
+          // [防止 RestartRequired]: 仅在 maxGuest 确实变更时才修改。
+          const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
+          if (currentMaxGuest !== spec.maxMemory) {
+              domain.memory.maxGuest = spec.maxMemory;
+          }
+      }
+
       // 2. Simple Memory
+      // ---------------------------------------------------------
+      // [核心逻辑] 内存规格变更与热扩容策略
+      // ---------------------------------------------------------
       if (spec.memory !== undefined) {
-          ensureResources();
-          domain.resources.requests.memory = spec.memory;
-          domain.resources.limits.memory = spec.memory;
+          // [状态检测] 判定是否处于“内存热扩容”模式
+          // 判定逻辑：
+          // 1. 本次请求包含 maxMemory (正在启用热扩容)
+          // 2. 或者，虚拟机当前已配置了 maxGuest (已启用热扩容)
+          const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
+          const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
+
+          if (isMemHotPlug) {
+              // [策略分支 A] 热扩容模式 (Hot Plug Mode)
+              // ---------------------------------------------------------
+              // [强制约束]: 必须通过 domain.memory.guest 字段来调整内存。
+              // 
+              // [关键修正]: 禁止修改 domain.resources.requests/limits。
+              // KubeVirt 的内存热插拔控制器会根据 guest 内存自动调整 Pod 资源。
+              // 如果手动修改 resources，会被视为非热更字段变更，导致 RestartRequired。
+              // ---------------------------------------------------------
+              if (!domain.memory) domain.memory = {};
+              
+              // [优化技巧]: 仅当内存值确实变化时才包含在 Patch 中
+              const currentGuest = current?.spec?.template?.spec?.domain?.memory?.guest;
+              if (currentGuest !== spec.memory) {
+                  domain.memory.guest = spec.memory;
+              }
+          } else {
+              // [策略分支 B] 标准模式 (Standard Mode)
+              // ---------------------------------------------------------
+              // 通过标准的 Kubernetes Resource Requests/Limits 调整内存。
+              // 这种变更通常需要重启虚拟机生效。
+              // ---------------------------------------------------------
+              ensureResources();
+              domain.resources.requests.memory = spec.memory;
+              domain.resources.limits.memory = spec.memory;
+          }
       }
 
       // 3. Advanced CPU
       if (spec.cpuSockets || spec.cpuCores || spec.cpuThreads) {
           ensureCpu();
-          if (spec.cpuSockets) domain.cpu.sockets = Number(spec.cpuSockets);
-          if (spec.cpuCores) domain.cpu.cores = Number(spec.cpuCores);
-          if (spec.cpuThreads) domain.cpu.threads = Number(spec.cpuThreads);
+          
+          // [防御性编程] 再次检查热扩容状态
+          const currentCpu = current?.spec?.template?.spec?.domain?.cpu || {};
+          const currentMaxSockets = currentCpu.maxSockets;
+          const isHotPlug = (spec.enableHotPlug === true) || (spec.enableHotPlug !== false && !!currentMaxSockets);
+
+          if (isHotPlug) {
+              // 热扩容模式下，强制锁定 Cores=1, Threads=1，仅允许修改 Sockets
+              if (spec.cpuSockets) {
+                  const targetSockets = Number(spec.cpuSockets);
+                  if (currentCpu.sockets !== targetSockets) {
+                      domain.cpu.sockets = targetSockets;
+                  }
+              }
+              
+              // [防止 RestartRequired]: 仅在 cores/threads 确实不符合热扩容拓扑要求时才修改。
+              // 如果当前已经是 1，则无需在 Patch 中重复声明，避免 KubeVirt 误判为变更。
+              if (currentCpu.cores !== 1) domain.cpu.cores = 1;
+              if (currentCpu.threads !== 1) domain.cpu.threads = 1;
+          } else {
+              if (spec.cpuSockets) domain.cpu.sockets = Number(spec.cpuSockets);
+              if (spec.cpuCores) domain.cpu.cores = Number(spec.cpuCores);
+              if (spec.cpuThreads) domain.cpu.threads = Number(spec.cpuThreads);
+          }
       }
       
       if (spec.dedicatedCPUPlacement !== undefined) {
           ensureCpu();
+          const currentDedicated = current?.spec?.template?.spec?.domain?.cpu?.dedicatedCpuPlacement;
           if (spec.dedicatedCPUPlacement) {
-              domain.cpu.dedicatedCpuPlacement = true;
+              if (currentDedicated !== true) {
+                  domain.cpu.dedicatedCpuPlacement = true;
+              }
           } else {
-              domain.cpu.dedicatedCpuPlacement = null;
+              if (currentDedicated !== null && currentDedicated !== undefined) {
+                  domain.cpu.dedicatedCpuPlacement = null;
+              }
           }
       }
       
-      if (spec.cpuRequest !== undefined) {
-          ensureResources();
-          domain.resources.requests.cpu = String(spec.cpuRequest);
-      }
-      if (spec.cpuLimit !== undefined) {
-          ensureResources();
-          domain.resources.limits.cpu = String(spec.cpuLimit);
+      // [Hot Plug Fix] 在热扩容模式下，忽略 cpuRequest/cpuLimit 的显式修改
+      // 以避免触发 RestartRequired。
+      const currentMaxSockets = current?.spec?.template?.spec?.domain?.cpu?.maxSockets;
+      const isCpuHotPlug = (spec.enableHotPlug === true) || (spec.enableHotPlug !== false && !!currentMaxSockets);
+
+      if (!isCpuHotPlug) {
+          if (spec.cpuRequest !== undefined) {
+              ensureResources();
+              domain.resources.requests.cpu = String(spec.cpuRequest);
+          }
+          if (spec.cpuLimit !== undefined) {
+              ensureResources();
+              domain.resources.limits.cpu = String(spec.cpuLimit);
+          }
       }
 
       // 4. Advanced Memory
       if (spec.memoryLimit !== undefined) {
-          ensureResources();
-          domain.resources.limits.memory = spec.memoryLimit;
+          // [Hot Plug Fix] 内存热扩容模式下，忽略 memoryLimit
+          const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
+          const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
+          
+          if (!isMemHotPlug) {
+              ensureResources();
+              domain.resources.limits.memory = spec.memoryLimit;
+          }
       }
       
       // 5. RunStrategy
       if (spec.runStrategy) {
-          patch.spec.runStrategy = spec.runStrategy;
-          if (spec.runStrategy !== 'Halted') {
-              patch.spec.running = true;
-          } else {
-              patch.spec.running = false;
+          const currentRunStrategy = current?.spec?.runStrategy;
+          if (currentRunStrategy !== spec.runStrategy) {
+              patch.spec.runStrategy = spec.runStrategy;
+          }
+          const currentRunning = current?.spec?.running;
+          const desiredRunning = spec.runStrategy !== 'Halted';
+          if (currentRunning !== desiredRunning) {
+              patch.spec.running = desiredRunning;
           }
       }
 
@@ -634,7 +909,15 @@ export const updateHarvesterVMSpec = async (
       });
   }
   
-  // Create a deep clone of the current spec to modify
+  // [复杂变更] 全量 Patch 策略
+  // ---------------------------------------------------------
+  // 当涉及复杂字段（如磁盘、网络、CloudInit）时，我们不能简单地 merge-patch。
+  // 必须采用 "Read -> Clone -> Modify -> Patch" 的模式：
+  // 1. 获取当前 VM 完整 Spec。
+  // 2. 深拷贝以避免副作用。
+  // 3. 在副本上应用复杂的业务逻辑（如 CloudInit Secret 生成）。
+  // 4. 发送全量 Spec 更新。
+  // ---------------------------------------------------------
   const newSpec = current.spec ? JSON.parse(JSON.stringify(current.spec)) : {};
   
   // Ensure structure exists
@@ -652,7 +935,15 @@ export const updateHarvesterVMSpec = async (
       if (!domain.cpu) domain.cpu = {};
   };
 
-  // --- CloudInit Secret Handling (NetworkData / UserData Update) ---
+  // --- 1. [业务逻辑] CloudInit (UserData / NetworkData) ---
+  // ---------------------------------------------------------
+  // 为了避免 VM Spec 过大，我们不建议将 CloudInit 数据内联在 Spec 中。
+  // 最佳实践：
+  // 1. [提取数据]: 将 userData 和 networkData 从 Spec 中剥离。
+  // 2. [保留旧数据]: 尝试读取旧的 Secret，防止只更新 UserData 时丢失 NetworkData (反之亦然)。
+  // 3. [创建 Secret]: 将合并后的数据封装为新的 K8s Secret。
+  // 4. [引用 Secret]: 在 VM Spec 中通过 cloudInitNoCloud.secretRef 引用该新 Secret。
+  // ---------------------------------------------------------
   // If the patch spec contains networkData or userData, we need to create/update the CloudInit Secret
   // and update the VM's volume reference.
   if (spec.networkData || spec.userData) {
@@ -772,10 +1063,19 @@ export const updateHarvesterVMSpec = async (
       delete spec.userData;
   }
 
-  // --- 0. Reinstall OS (Change Image) ---
+  // --- 0. [业务逻辑] 重装系统 (Reinstall System Disk) ---
+  // ---------------------------------------------------------
+  // 这是一个破坏性操作，流程非常严谨：
+  // 1. [创建新 PVC]: 根据新的镜像 ID 创建全新的 PVC。
+  // 2. [替换 Volume]: 修改 VM Spec 中的 Volumes 列表，将 rootdisk 指向新 PVC。
+  // 3. [更新注解]: 更新 volumeClaimTemplates，确保 Harvester UI 显示正确的镜像信息。
+  // 4. [清理旧数据]: (可选) 异步删除旧的 PVC。
+  // ---------------------------------------------------------
   if (spec.action === 'reinstall') {
-      const image = spec.image;
+      const image = spec.image || spec.imageId;
       if (!image) throw new Error('Reinstall requires target image');
+
+      console.log(`[Reinstall] Reinstalling VM ${namespace}/${name} with image ${image}`);
 
       // 1. Identify Root Disk (first disk or bootOrder 1)
       const disks = domain.devices?.disks || [];
@@ -920,7 +1220,15 @@ export const updateHarvesterVMSpec = async (
                .catch((err: any) => console.warn(`[Reinstall] Failed to delete old PVC ${oldPvcName}:`, err.message || err));
       }
   } 
-  // --- 0.1 Resize Root Disk (Without Reinstall) ---
+  // --- 0.1 [业务逻辑] 扩容系统盘 (Resize Root Disk) ---
+  // ---------------------------------------------------------
+  // 注意：Harvester 不支持直接通过修改 VM Spec 来扩容磁盘。
+  // 必须直接操作底层的 PVC (PersistentVolumeClaim)。
+  // 流程：
+  // 1. [Resize PVC]: 调用 K8s API 修改 PVC.spec.resources.requests.storage。
+  // 2. [Sync Annotation]: 更新 VM 上的 volumeClaimTemplates 注解，
+  //    确保 Harvester UI 的“配置”页签显示的磁盘大小与实际 PVC 一致。
+  // ---------------------------------------------------------
   else if (spec.rootSize && spec.action !== 'reinstall') {
       const disks = domain.devices?.disks || [];
       const volumes = newSpec.template.spec.volumes || [];
@@ -960,7 +1268,14 @@ export const updateHarvesterVMSpec = async (
       }
   }
 
-  // --- 1. Simple CPU/Memory Change ---
+  // --- 1. [基础变更] CPU / 内存调整 ---
+  // ---------------------------------------------------------
+  // 常规的规格变更逻辑：
+  // 1. [CPU]: 同时更新 requests.cpu 和 limits.cpu (如果存在)。
+  //    - 重置拓扑结构：默认 sockets=1, cores=N, threads=1 以简化管理。
+  // 2. [Memory]: 同时更新 requests.memory 和 limits.memory。
+  //    - 确保 guest 内存设置一致。
+  // ---------------------------------------------------------
   if (spec.cpu !== undefined) {
       ensureResources();
       domain.resources.requests.cpu = String(spec.cpu);
@@ -975,13 +1290,26 @@ export const updateHarvesterVMSpec = async (
   if (spec.enableHotPlug !== undefined) {
       ensureCpu();
       if (spec.enableHotPlug) {
-          // Enable HotPlug by setting maxSockets > sockets
-          // We use 128 to allow significant expansion
-          domain.cpu.maxSockets = 128;
+          // [Strict Validation]
+          // Enable HotPlug requires explicit maxSockets and maxMemory
+          if (!spec.maxSockets) {
+              throw new Error('maxSockets is required when enabling hot plug');
+          }
+          domain.cpu.maxSockets = Number(spec.maxSockets);
+
+          if (!spec.maxMemory) {
+              throw new Error('maxMemory is required when enabling hot plug');
+          }
       } else {
           // Disable HotPlug
           delete domain.cpu.maxSockets;
       }
+  }
+
+  // --- 1.2 Max Memory (HotPlug) ---
+  if (spec.maxMemory) {
+      if (!domain.memory) domain.memory = {};
+      domain.memory.maxGuest = spec.maxMemory;
   }
   
   if (spec.memory !== undefined) {
@@ -990,7 +1318,11 @@ export const updateHarvesterVMSpec = async (
       domain.resources.limits.memory = spec.memory;
   }
 
-  // --- 2. Advanced CPU ---
+  // --- 3. [高级配置] CPU 拓扑与绑定 (Topology & Pinning) ---
+  // ---------------------------------------------------------
+  // 处理 CPU 拓扑结构 (Sockets/Cores/Threads) 和专用 CPU 绑定。
+  // 注意：如果启用了热扩容，这些设置可能会受到限制或调整。
+  // ---------------------------------------------------------
   if (spec.cpuSockets || spec.cpuCores || spec.cpuThreads) {
       ensureCpu();
       if (spec.cpuSockets) domain.cpu.sockets = Number(spec.cpuSockets);
@@ -998,6 +1330,7 @@ export const updateHarvesterVMSpec = async (
       if (spec.cpuThreads) domain.cpu.threads = Number(spec.cpuThreads);
   }
   
+  // [CPU 绑定] Dedicated CPU Placement
   if (spec.dedicatedCPUPlacement !== undefined) {
       ensureCpu();
       if (spec.dedicatedCPUPlacement) {
@@ -1007,6 +1340,7 @@ export const updateHarvesterVMSpec = async (
       }
   }
   
+  // [资源限制] CPU Requests / Limits
   if (spec.cpuRequest !== undefined) {
       ensureResources();
       domain.resources.requests.cpu = String(spec.cpuRequest);
@@ -1017,13 +1351,17 @@ export const updateHarvesterVMSpec = async (
       domain.resources.limits.cpu = String(spec.cpuLimit);
   }
   
-  // --- 3. Advanced Memory ---
+  // --- 4. [高级配置] 内存限制 (Memory Limits) ---
   if (spec.memoryLimit !== undefined) {
       ensureResources();
       domain.resources.limits.memory = spec.memoryLimit;
   }
 
-  // --- 4. GPU ---
+  // --- 5. [硬件设备] GPU 配置 ---
+  // ---------------------------------------------------------
+  // Harvester 支持将物理 GPU 透传给虚拟机。
+  // 目前仅支持单个 GPU 设备的添加或移除。
+  // ---------------------------------------------------------
   if (spec.gpuResourceName !== undefined) {
       if (!domain.devices) domain.devices = {};
       // If resourceName is empty, remove GPU
@@ -1039,7 +1377,11 @@ export const updateHarvesterVMSpec = async (
       }
   }
 
-  // --- 5. Networks & Interfaces (Patch Support) ---
+  // --- 6. [网络配置] 多网卡 (Multus Networks) ---
+  // ---------------------------------------------------------
+  // 支持 Multus CNI 多网卡配置。
+  // 直接替换 networks 数组，实现网卡的添加/删除/修改。
+  // ---------------------------------------------------------
   if (spec.networks !== undefined) {
       newSpec.template.spec.networks = spec.networks;
   }
@@ -1060,7 +1402,15 @@ export const updateHarvesterVMSpec = async (
 
 /**
  * 获取 Harvester 虚拟机 VNC 访问 URL
- * 直接拼接 KubeVirt Subresource vnc 地址，供前端透传给 WebSocket 代理
+ * 
+ * [功能描述]
+ * 构造用于前端连接 VNC 控制台的 WebSocket 代理地址。
+ * 
+ * [核心逻辑]
+ * 1. [Subresource API]:
+ *    - 使用 KubeVirt 特定的 Subresource API `/vnc`。
+ *    - 该 URL 将被后端 WebSocket 代理透传，建立与 VM 的实时控制台连接。
+ * 
  * @param endpoint Harvester 接入地址
  * @param token 访问 Harvester 的 Token
  * @param insecure 是否忽略 TLS 校验
@@ -1085,20 +1435,32 @@ export const getHarvesterVmVncUrl = async (
 };
 
 /**
- * 同步 VM volumeClaimTemplates 注解中的磁盘大小
- * 用于在 PVC 已经扩容后，更新 VM 注解中的模板信息：
- * - Harvester UI 镜像列表中的 “Image Size” 实际读取的是注解里的模板规格
- * - 若只扩容 PVC 而不更新注解，重启后 UI 会显示旧容量
- * 支持两种定位方式：
- * 1）直接通过 vmName 获取目标 VM
- * 2）若 vmName 为空，则通过遍历 Namespace 下所有 VM，找到引用该 PVC 的 VM
+ * 同步 VM 磁盘规格注解 (Sync Volume Size Annotation)
+ * 
+ * [功能描述]
+ * 在 PVC 扩容成功后，同步更新 VM 注解 `volumeClaimTemplates` 中的磁盘大小。
+ * 
+ * [核心逻辑]
+ * 1. [问题背景]: 
+ *    - Harvester UI 的“配置”页签中，磁盘列表是直接读取 VM Spec 和 Annotation 的。
+ *    - 如果只扩容了底层 PVC 而不更新 VM Annotation，UI 仍然会显示旧的磁盘大小，导致用户困惑。
+ * 2. [VM 定位]:
+ *    - 优先使用 vmName。
+ *    - 若 vmName 未知，通过遍历 Namespace 下所有 VM，查找引用了指定 PVC 的 VM。
+ * 3. [模板匹配]:
+ *    - 解析 `harvesterhci.io/volumeClaimTemplates` 注解。
+ *    - 通过 Volume Name 或 PVC Name 匹配对应的模板项。
+ * 4. [Patch 更新]:
+ *    - 修改模板中的 resources.requests.storage 字段。
+ *    - 使用 JSON Patch 更新 VM Annotation。
+ * 
  * @param endpoint Harvester 接入地址
  * @param token 访问 Harvester 的 Token
  * @param insecure 是否忽略 TLS 校验
  * @param namespace 命名空间
- * @param vmName 虚拟机名称（可为空，为空时通过 PVC 反查）
+ * @param vmName 虚拟机名称 (可选，若为空则自动反查)
  * @param pvcName 已扩容的 PVC 名称
- * @param newSize 新的存储规格（例如 '40Gi'）
+ * @param newSize 新的存储规格 (e.g. '40Gi')
  */
 export const syncVmVolumeSize = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,

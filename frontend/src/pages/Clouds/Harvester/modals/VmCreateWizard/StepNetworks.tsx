@@ -112,7 +112,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             return (mode === 'flat' || mode === 'passthrough') ? (
               // --- 扁平网络模式配置 ---
               <Col span={8}>
-                <Form.Item label={mode === 'passthrough' ? '直通网络' : '选择网络'} name={["primaryNic", 'name']}>
+                <Form.Item label={mode === 'passthrough' ? '直通网络' : '选择网络'} name={["primaryNic", 'name']} rules={[{ required: true, message: '请选择网络' }]}>
                   <Select
                     placeholder={mode === 'passthrough' ? '选择直通网络（SR-IOV/macvtap NAD）' : '选择网络'}
                     options={mode === 'passthrough' 
@@ -124,7 +124,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         }) 
                       : (function () {
                           const filtered = (nadOptions || []).filter((x: any) => !String(x?.label || '').toLowerCase().includes('kube-ovn'));
-                          return [{ label: 'Management Network (Pod Network)', value: '' }, ...filtered];
+                          return filtered;
                         })()}
                     onOpenChange={async (open) => { if (open) reloadNads(); }}
                     onChange={(val) => {

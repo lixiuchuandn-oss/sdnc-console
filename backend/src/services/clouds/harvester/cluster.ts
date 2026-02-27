@@ -1,5 +1,5 @@
 import { HarvesterTestParams } from './types';
-import { requestOnce, getJsonOnce } from './utils';
+import { requestOnce, getJsonOnce, requestJson } from './utils';
 
 // 测试 Harvester 控制面是否可达以及 Token 是否有效
 // - 会尝试多个候选入口：原始 endpoint、/v1、/v3
@@ -487,4 +487,84 @@ export const listHarvesterStorageClassesStandard = async ({
       }
     };
   });
+};
+
+export const listHarvesterSettingsRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/v1/harvester/harvesterhci.io.settings`;
+  const json = await getJsonOnce(url, token, insecure, true);
+  const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
+  return items;
+};
+
+export const getHarvesterSettingRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams, name: string): Promise<any | null> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/v1/harvester/harvesterhci.io.settings/${encodeURIComponent(name)}`;
+  try {
+    const json = await getJsonOnce(url, token, insecure, true);
+    return json;
+  } catch {
+    return null;
+  }
+};
+
+export const getHarvesterSettingValue = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams, name: string): Promise<string | null> => {
+  const s = await getHarvesterSettingRaw({ endpoint, token, insecure }, name);
+  const val = (s as any)?.value ?? (s as any)?.spec?.value ?? null;
+  return typeof val === 'string' ? val : (val != null ? String(val) : null);
+};
+
+export const updateHarvesterSettingValue = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams, name: string, value: string, resourceVersion?: string): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  let rv = resourceVersion;
+  if (!rv) {
+    const current = await getHarvesterSettingRaw({ endpoint, token, insecure }, name);
+    rv = (current as any)?.metadata?.resourceVersion || (current as any)?.resourceVersion || undefined;
+  }
+  const url = `${origin}/v1/harvester/harvesterhci.io.settings/${encodeURIComponent(name)}`;
+  const body = {
+    metadata: {
+      name,
+      resourceVersion: rv,
+    },
+    value,
+  };
+  return await requestJson('PUT', url, token, insecure, body, { 'Content-Type': 'application/json' });
 };

@@ -13,6 +13,7 @@ interface StepComputeProps {
   selectedGpuKey: string | null;
   setSelectedGpuKey: (key: string | null) => void;
   setFormSnapshot: React.Dispatch<React.SetStateAction<any>>;
+  isArm64?: boolean;
 }
 
 const StepCompute: React.FC<StepComputeProps> = ({
@@ -26,6 +27,7 @@ const StepCompute: React.FC<StepComputeProps> = ({
   selectedGpuKey,
   setSelectedGpuKey,
   setFormSnapshot,
+  isArm64,
 }) => {
   const [cpuPreset, setCpuPreset] = React.useState<string>(() => {
     const v = Number(form.getFieldValue('cpu') || 0);
@@ -63,6 +65,20 @@ const StepCompute: React.FC<StepComputeProps> = ({
     }
   }, [cpu, hotExpandEnabled, form]);
 
+  React.useEffect(() => {
+    if (isArm64) {
+      const checked = form.getFieldValue('hotExpandEnabled');
+      if (checked) {
+        form.setFieldsValue({
+          hotExpandEnabled: false,
+          cpuSockets: undefined,
+          cpuCores: undefined,
+          cpuThreads: undefined
+        });
+      }
+    }
+  }, [isArm64, form]);
+
   return (
     <>
       <Typography.Paragraph type="secondary">设定新建云主机的CPU和内存资源</Typography.Paragraph>
@@ -95,8 +111,8 @@ const StepCompute: React.FC<StepComputeProps> = ({
             min={1}
             max={512}
             value={cpuValue}
-            addonAfter="核"
-            style={{ width: 160 }}
+            suffix="核"
+            style={{ width: 100 }}
             onChange={(val) => {
               const n = Number(val || 1);
               setCpuValue(n);
@@ -122,14 +138,14 @@ const StepCompute: React.FC<StepComputeProps> = ({
             <Radio.Button value="16">16 GB</Radio.Button>
             <Radio.Button value="custom">自定义</Radio.Button>
           </Radio.Group>
-          <InputNumber min={1} max={1024} value={memGi} addonAfter="GB" style={{ width: 160 }} onChange={(val) => { const gi = Number(val || 1); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); setMemPreset('custom'); }} />
+          <InputNumber min={1} max={1024} value={memGi} suffix="GB" style={{ width: 100 }} onChange={(val) => { const gi = Number(val || 1); setMemGi(gi); form.setFieldsValue({ memory: `${gi}Gi` }); setMemPreset('custom'); }} />
         </Space>
       </Form.Item>
       <Form.Item name="memory" hidden rules={[{ required: true, message: '请选择或输入内存' }, { pattern: /^[0-9]+(Gi|Mi)$/i, message: '格式如 4Gi 或 8192Mi' }]}>
         <Input />
       </Form.Item>
       <Form.Item label="热扩容" name="hotExpandEnabled" valuePropName="checked">
-        <Checkbox onChange={(e) => {
+        <Checkbox disabled={isArm64} onChange={(e) => {
           const checked = e.target.checked;
           form.setFieldsValue({ hotExpandEnabled: checked });
           if (checked) {
@@ -149,7 +165,11 @@ const StepCompute: React.FC<StepComputeProps> = ({
             });
           }
         }}>启用</Checkbox>
-        <Typography.Text type="secondary" style={{ marginLeft: 8 }}>支持 CPU/内存热扩容，上限为当前配额 4 倍，不支持缩容</Typography.Text>
+        {isArm64 ? (
+          <Typography.Text type="secondary" style={{ marginLeft: 8 }}>ARM 架构不支持热扩容</Typography.Text>
+        ) : (
+          <Typography.Text type="secondary" style={{ marginLeft: 8 }}>支持 CPU/内存热扩容，上限为当前配额 4 倍，不支持缩容</Typography.Text>
+        )}
       </Form.Item>
       <Collapse ghost defaultActiveKey={[]} className="wizard-collapse-nopad">
         <Collapse.Panel header="CPU高级配置" key="adv-cpu">

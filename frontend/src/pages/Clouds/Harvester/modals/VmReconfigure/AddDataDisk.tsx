@@ -37,7 +37,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs }) => {
         initialValue={10}
         rules={[{ required: true, message: '请输入容量' }]}
       >
-        <InputNumber min={1} addonAfter="GiB" style={{ width: '100%' }} />
+        <InputNumber min={1} suffix="GiB" style={{ width: '100%' }} />
       </Form.Item>
 
       <Form.Item

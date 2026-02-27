@@ -85,12 +85,12 @@ const ChangePrimaryNic: React.FC<Props> = ({
                   <Col span={16}>
                     <Form.Item 
                       label={mode === 'passthrough' ? '直通网络' : '选择网络'} 
-                      name={["primaryNic", 'name']}
-                      rules={[{ required: mode === 'passthrough', message: '直通网卡必须选择网络' }]}
+                      name={["primaryNic", 'name']} 
+                      rules={[{ required: true, message: '请选择网络' }]}
                     >
                       <Select
-                        placeholder={mode === 'passthrough' ? '选择直通网络（SR-IOV/macvtap NAD）' : '选择网络 (留空则使用 Pod Network)'}
-                        options={mode === 'passthrough' ? nadOptionsPassthrough : [{ label: 'Management Network (Pod Network)', value: '' }, ...(nadOptionsAll || [])]}
+                        placeholder={mode === 'passthrough' ? '选择直通网络（SR-IOV/macvtap NAD）' : '选择网络'}
+                        options={mode === 'passthrough' ? nadOptionsPassthrough : (nadOptionsAll || [])}
                         onDropdownVisibleChange={(open) => { if (open) reloadNads(); }}
                         allowClear={mode !== 'passthrough'}
                         onChange={(val) => {

@@ -548,10 +548,11 @@ export const buildHarvesterVmPayload = (params: {
   })();
 
   // --- 2. 基础计算 (CPU/Memory) ---
+  const hotExpandEnabled = isArm64 ? false : !!v.hotExpandEnabled;
   const cpu = Number(v.cpu || 1);
-  const sockets = v.hotExpandEnabled ? cpu : Number(v.cpuSockets || 1);
-  const cores = v.hotExpandEnabled ? 1 : Number(v.cpuCores || cpu);
-  const threads = v.hotExpandEnabled ? 1 : Number(v.cpuThreads || 1);
+  const sockets = hotExpandEnabled ? cpu : Number(v.cpuSockets || 1);
+  const cores = hotExpandEnabled ? 1 : Number(v.cpuCores || cpu);
+  const threads = hotExpandEnabled ? 1 : Number(v.cpuThreads || 1);
   const memory = String(v.memory || `${memGi}Gi`);
   const actualMemGi = parseSizeToGi(memory);
 
@@ -843,7 +844,7 @@ export const buildHarvesterVmPayload = (params: {
                         cores: cores,
                         sockets: sockets,
                         threads: threads,
-                        maxSockets: v.hotExpandEnabled ? sockets * 4 : undefined,
+                        maxSockets: hotExpandEnabled ? sockets * 4 : undefined,
                         dedicatedCpuPlacement: !!v.dedicatedCPUPlacement,
                         isolateEmulatorThread: !!v.isolateEmulatorThread,
                         model: (function () {
@@ -854,7 +855,7 @@ export const buildHarvesterVmPayload = (params: {
                     },
                     memory: {
                         guest: memory,
-                        maxGuest: v.hotExpandEnabled ? `${actualMemGi * 4}Gi` : undefined
+                        maxGuest: hotExpandEnabled ? `${actualMemGi * 4}Gi` : undefined
                     },
                     resources: {
                         limits: (function () {
@@ -864,7 +865,7 @@ export const buildHarvesterVmPayload = (params: {
                           if (!v.cpuBurstUnlimited) {
                             if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) {
                               obj.cpu = String(v.cpuLimit);
-                            } else if (!v.hotExpandEnabled) {
+                            } else if (!hotExpandEnabled) {
                               // 仅在未开启热扩容时，默认设置 Limit = Request
                               // 开启热扩容时，不设置 Limit，避免限制扩容能力或触发后端自动调整 Guest 内存
                               obj.cpu = String(cpu);
@@ -875,7 +876,7 @@ export const buildHarvesterVmPayload = (params: {
                           if (!v.memoryBurstUnlimited) {
                             if (typeof v.memoryLimitGi === 'number' && v.memoryLimitGi > 0) {
                               obj.memory = `${v.memoryLimitGi}Gi`;
-                            } else if (!v.hotExpandEnabled) {
+                            } else if (!hotExpandEnabled) {
                               obj.memory = memory;
                             }
                           }

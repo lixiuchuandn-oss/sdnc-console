@@ -208,11 +208,20 @@ export const useVmReconfigure = (props: any) => {
     // In this case, we cannot perform a hot plug operation.
     const conditions = activeRecord?.status?.conditions || [];
     const isRestartRequired = conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
+    const isHotPlugInProgress = conditions.some((c: any) => (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') && c.status === 'True');
 
-    if (isRestartRequired) return false;
+    // If Hot Plug is in progress, we treat it as "Hot Plug Disabled" temporarily, 
+    // which effectively disables the "Hot Plug" UI path in ChangeSpec and forces restart logic (or prevents action).
+    // Ideally, we should block the action entirely in the UI if in progress.
+    if (isRestartRequired || isHotPlugInProgress) return false;
 
     return isConfigured;
   };
+
+  const isHotPlugInProgress = useMemo(() => {
+    const conditions = activeRecord?.status?.conditions || [];
+    return conditions.some((c: any) => (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') && c.status === 'True');
+  }, [activeRecord]);
 
   const reloadNads = async () => {
     try {
@@ -287,8 +296,9 @@ export const useVmReconfigure = (props: any) => {
          break;
       }
       case 'change_spec': {
-        const { cpu, memory } = getCurrentSpec();
+        const { cpu, memory, maxSockets, maxMemory } = getCurrentSpec();
         const memGi = getMemoryInGi(memory);
+        const maxMemGi = maxMemory ? getMemoryInGi(maxMemory) : undefined;
 
         const cpuSpec = record?.spec?.template?.spec?.domain?.cpu;
         const isHotPlug = cpuSpec?.maxSockets && cpuSpec?.maxSockets > (cpuSpec?.sockets || 1);
@@ -299,7 +309,9 @@ export const useVmReconfigure = (props: any) => {
           enableHotPlug: !!isHotPlug,
           cpuSockets: cpuSpec?.sockets || cpu,
           cpuCores: cpuSpec?.cores || 1,
-          cpuThreads: cpuSpec?.threads || 1
+          cpuThreads: cpuSpec?.threads || 1,
+          maxSockets,
+          maxMemory: maxMemGi
         });
         break;
       }
@@ -568,15 +580,49 @@ export const useVmReconfigure = (props: any) => {
           break;
         }
         case 'change_spec': {
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, { 
+          const payload: any = { 
             cpu: values.cpu,
             cpuSockets: values.cpuSockets,
             cpuCores: values.cpuCores,
             cpuThreads: values.cpuThreads,
             memory: `${values.memory}Gi`,
             enableHotPlug: values.enableHotPlug
-          });
-          openRestartConfirm(namespace, vmName, false);
+          };
+
+          // [Hot Plug Fix] Include limits if Hot Plug is enabled
+          if (values.enableHotPlug) {
+             if (values.maxSockets) payload.maxSockets = values.maxSockets;
+             if (values.maxMemory) payload.maxMemory = `${values.maxMemory}Gi`;
+          }
+
+          await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
+
+          // [Hot Plug Logic] Check if we can skip restart prompt
+          const isHotPlugActive = isHotPlugEnabledOnVm(); // Checks if currently enabled & no restart required
+          const isKeepHotPlug = values.enableHotPlug;
+
+          // Get current resources from active record (source of truth)
+          const currentDomain = activeRecord?.spec?.template?.spec?.domain;
+          const currentSockets = currentDomain?.cpu?.sockets || 1;
+          const currentCores = currentDomain?.cpu?.cores || 1;
+          const currentThreads = currentDomain?.cpu?.threads || 1;
+          const currentTotalCpu = currentSockets * currentCores * currentThreads;
+
+          const currentMemRaw = currentDomain?.resources?.requests?.memory || currentDomain?.memory?.guest;
+          const currentMemGi = parseQuantity(currentMemRaw) / (1024**3);
+
+          const newCpu = values.cpu; // Total Cores
+          const newMemGi = Number(values.memory); // GiB
+
+          // If Hot Plug is active, kept enabled, and resources are NOT decreasing (Hot Add), skip restart
+          const arch = activeRecord?.spec?.template?.spec?.architecture;
+          const isArm = arch === 'arm64' || arch === 'aarch64';
+          const cpuChanged = newCpu !== currentTotalCpu;
+          if (isHotPlugActive && isKeepHotPlug && newCpu >= currentTotalCpu && newMemGi >= currentMemGi && (!isArm || !cpuChanged)) {
+             message.success('规格变更已提交（热扩容生效），无需重启实例');
+          } else {
+             openRestartConfirm(namespace, vmName, false);
+          }
           break;
         }
         case 'cpu_advanced': {
@@ -886,6 +932,7 @@ export const useVmReconfigure = (props: any) => {
     getCurrentSpec,
     getMemoryInGi,
     isHotPlugEnabledOnVm,
-    isRestartRequired
+    isRestartRequired,
+    isHotPlugInProgress
   };
 };

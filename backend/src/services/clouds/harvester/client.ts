@@ -99,6 +99,10 @@ export {
   harvesterHealthCheck,
   testHarvesterConnection,
   getHarvesterCapabilities,
+  listHarvesterSettingsRaw,
+  getHarvesterSettingRaw,
+  getHarvesterSettingValue,
+  updateHarvesterSettingValue,
 } from './cluster';
 export {
   createHarvesterNamespace,

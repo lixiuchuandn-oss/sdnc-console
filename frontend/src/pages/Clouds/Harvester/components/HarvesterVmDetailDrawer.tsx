@@ -3,7 +3,7 @@ import { Drawer, Tabs, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card,
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 
   CodeOutlined, EllipsisOutlined, DesktopOutlined, DatabaseOutlined,
-  CloudServerOutlined, GlobalOutlined, HddOutlined, SafetyCertificateOutlined,
+  CloudServerOutlined, GlobalOutlined, HddOutlined, ApartmentOutlined,
   ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined,
   SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined, WarningOutlined
 } from '@ant-design/icons';
@@ -18,6 +18,7 @@ import { ReactComponent as CpuIcon } from '../../../../assets/clouds/cpu.svg';
 import { ReactComponent as MemIcon } from '../../../../assets/clouds/mem.svg';
 import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
 import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
+import HarvesterEventsTab from './HarvesterEventsTab';
 
 interface HarvesterVmDetailDrawerProps {
   open: boolean;
@@ -279,28 +280,56 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     interfaces: (r: any) => {
         const ifaces = r?.spec?.template?.spec?.domain?.devices?.interfaces || [];
         const networks = r?.spec?.template?.spec?.networks || [];
+        
         return ifaces.map((i: any) => {
             const net = networks.find((n: any) => n.name === i.name);
-            const mac = i.macAddress; 
-            // Try to find status for IP/MAC
-            let currentIp = '';
-            let currentMac = mac;
-            try {
-                 if (r?.status?.interfaces) {
-                    const statusIface = r.status.interfaces.find((si: any) => si.name === i.name);
-                    if (statusIface) {
-                        currentMac = statusIface.mac || currentMac;
-                        currentIp = statusIface.ipAddress || (statusIface.ipAddresses || []).join(', ');
-                    }
+            let mac = i.macAddress; 
+            let ip = '';
+
+            // Helper to extract IP from interface status
+            const extractIp = (statusIface: any) => {
+                if (statusIface.ipAddress) return statusIface.ipAddress;
+                if (Array.isArray(statusIface.ipAddresses) && statusIface.ipAddresses.length > 0) {
+                    return statusIface.ipAddresses.join(', ');
+                }
+                return '';
+            };
+
+            // 1. Check VMI status (Most accurate for running VMs)
+            if (r?.vmi?.status?.interfaces) {
+                const vmiIface = r.vmi.status.interfaces.find((si: any) => si.name === i.name || (mac && si.mac === mac));
+                if (vmiIface) {
+                    mac = vmiIface.mac || mac;
+                    ip = extractIp(vmiIface);
+                }
+            }
+
+            // 2. Check VM status (Fallback)
+            if (!ip && r?.status?.interfaces) {
+                 const statusIface = r.status.interfaces.find((si: any) => si.name === i.name || (mac && si.mac === mac));
+                 if (statusIface) {
+                     mac = statusIface.mac || mac;
+                     ip = extractIp(statusIface);
                  }
-            } catch(e) {}
+            }
+            
+            // 3. Fallback: Check annotations if single interface or no IP found yet
+            if (!ip && ifaces.length === 1) {
+                try {
+                    const annot = r?.metadata?.annotations?.['network.harvesterhci.io/ips'];
+                    if (annot) {
+                        const ips = JSON.parse(annot);
+                        if (Array.isArray(ips)) ip = ips.join(', ');
+                    }
+                } catch(e) {}
+            }
 
             return {
                 name: i.name,
                 model: i.model || 'virtio',
-                networkName: net?.multus?.networkName || 'default',
-                mac: currentMac,
-                ip: currentIp
+                networkName: net?.multus?.networkName || 'Management Network',
+                mac: mac,
+                ip: ip
             };
         });
     }
@@ -460,6 +489,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(status);
   const isRunning = ['running'].includes(status);
   const isPaused = ['paused'].includes(status);
+
+
+  // Check for HotPlugCPUError
+  const conditions = record?.status?.conditions || [];
+  const hotPlugCpuError = conditions.find((c: any) => c.type === 'Failure' && c.reason === 'HotPlugCPUError' && c.status === 'True');
   
   const vmDisks = SafeRead.volumeDetails(record);
   const vmNics = SafeRead.interfaces(record);
@@ -479,6 +513,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       { type: 'divider' },
 
       // Runtime Operations
+      { key: 'reconfigure', label: '资源变配', icon: <HddOutlined />, onClick: () => onOpenReconfigure && onOpenReconfigure(record) },
       { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(record) },
       ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
 
@@ -514,9 +549,17 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
             </div>
             <div>
                 <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>{SafeRead.name(record)}</div>
-                <div style={{ fontSize: 12, color: '#999' }}>ID: {SafeRead.vmId(record)}</div>
+                <div style={{ fontSize: 12, color: '#999'}}>ID: {SafeRead.vmId(record)}</div>
             </div>
-            <Tag color={isRunning ? 'success' : 'default'} style={{ marginLeft: 8 }}>{cnVmStatus(status)}</Tag>
+            <Tag color={isRunning ? 'success' : 'default'} style={{ margin: 0}}>{cnVmStatus(status)}</Tag>
+
+            {hotPlugCpuError && (
+              <Tooltip title={`CPU 热插拔失败: ${hotPlugCpuError.message || '未知错误'}`}>
+                <Tag color="error" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <ExclamationCircleOutlined /> CPU 热插拔失败
+                </Tag>
+              </Tooltip>
+            )}
          </div>
          <Button type="text" onClick={onClose} style={{ fontSize: 16 }}>×</Button>
       </div>
@@ -535,8 +578,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           <Button type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} disabled={!isRunning} style={{ fontSize: 14 }}>暂停</Button>
 
           <Button type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} disabled={!isPaused} style={{ fontSize: 14 }}>恢复</Button>
-
-          <Button type="text" size="small" icon={<HddOutlined style={{ color: '#1890ff' }} />} onClick={() => onOpenReconfigure && onOpenReconfigure(record)} style={{ fontSize: 14 }}>资源变配</Button>
 
           <div style={{ flex: 1 }} />
           
@@ -558,6 +599,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 { key: 'detail', label: '详情' },
                 { key: 'performance', label: '性能' },
                 { key: 'backup_snapshot', label: '备份/快照' },
+                { key: 'events', label: '事件' },
             ]}
           />
       </div>
@@ -756,16 +798,21 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                         }
                                         title={item.name}
                                         description={
-                                            <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                <div style={{ background: '#e6f7ff', padding: '2px 8px', borderRadius: 4, width: 'fit-content' }}>
-                                                    <SafetyCertificateOutlined style={{ marginRight: 4 }} />
-                                                    {item.networkName}
-                                                </div>
-                                                <div style={{ color: '#999' }}>{item.mac}</div>
-                                                {item.ip && <div>{item.ip}</div>}
+                                            <div style={{ fontSize: 12 }}>
+                                                <span>{item.mac}</span>
+                                                {item.ip && (
+                                                    <>
+                                                        <span style={{ margin: '0 8px', color: '#eee' }}>|</span>
+                                                        <span>{item.ip}</span>
+                                                    </>
+                                                )}
                                             </div>
                                         }
                                     />
+                                    <div style={{ maxWidth: 300, fontSize: 12, background: '#f5f7fa', padding: '4px 8px', borderRadius: 4 }}>
+                                        <ApartmentOutlined style={{ marginRight: 4 }} />
+                                        {item.networkName}
+                                    </div>
                                 </List.Item>
                             )}
                           />
@@ -891,6 +938,17 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       </Card>
                   </div>
               </div>
+          )}
+          
+          {activeTab === 'events' && (
+              <Card bordered={false} bodyStyle={{ padding: 0, height: '100%' }} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                 <HarvesterEventsTab 
+                    cloudId={cloudId} 
+                    record={record} 
+                    active={activeTab === 'events'} 
+                    kind="VirtualMachine"
+                 />
+              </Card>
           )}
       </div>
     </Drawer>

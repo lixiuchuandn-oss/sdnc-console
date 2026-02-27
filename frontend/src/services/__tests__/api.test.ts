@@ -25,7 +25,7 @@ describe('api service', () => {
       vr_uuid: 'vr-123',
       vm_id: 'vm-123',
       tenant_id: 'tenant-1',
-      org_id: 'org-1',CSMCTL 扩展信息 (VR3)
+      org_id: 'org-1',
       display_name: 'My VR',
       vr_type: 'SASE'
     };
