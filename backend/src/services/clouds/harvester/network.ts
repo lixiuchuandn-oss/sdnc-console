@@ -453,6 +453,225 @@ export const listHarvesterLoadBalancers = async ({
 };
 
 /**
+ * 获取 Kube-OVN Provider Networks 列表
+ */
+export const listKubeOvnProviderNetworks = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const candidates = [`${origin}/apis/kubeovn.io/v1/provider-networks`];
+  let json: any = null;
+  let lastErr: any = null;
+
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    if (s !== 404 && s !== 401) throw lastErr;
+    return [];
+  }
+
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+/**
+ * 创建 Kube-OVN Provider Network
+ */
+export const createKubeOvnProviderNetwork = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  payload: any,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/kubeovn.io/v1/provider-networks`;
+  
+  const body = {
+    apiVersion: 'kubeovn.io/v1',
+    kind: 'ProviderNetwork',
+    metadata: {
+      name: payload.name,
+    },
+    spec: payload.spec || {
+      defaultInterface: payload.defaultInterface,
+      customInterfaces: payload.customInterfaces || [],
+      exchangeLinkName: payload.exchangeLinkName || false,
+    }
+  };
+
+  return await requestJson('POST', url, token, insecure, body);
+};
+
+/**
+ * 获取 Kube-OVN Vlan 列表
+ */
+export const listKubeOvnVlans = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const candidates = [`${origin}/apis/kubeovn.io/v1/vlans`];
+  let json: any = null;
+  let lastErr: any = null;
+
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e: any) {
+      lastErr = e;
+    }
+  }
+
+  if (!json && lastErr) {
+    const s = Number(lastErr?.status || 0);
+    if (s !== 404 && s !== 401) throw lastErr;
+    return [];
+  }
+
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+/**
+ * 创建 Kube-OVN Vlan
+ */
+export const createKubeOvnVlan = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  payload: any,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/kubeovn.io/v1/vlans`;
+  
+  const body = {
+    apiVersion: 'kubeovn.io/v1',
+    kind: 'Vlan',
+    metadata: {
+      name: payload.name,
+    },
+    spec: payload.spec || {
+      id: payload.id || 0,
+      provider: payload.provider,
+    }
+  };
+
+  return await requestJson('POST', url, token, insecure, body);
+};
+
+/**
+ * 创建 Kube-OVN Subnet
+ */
+export const createKubeOvnSubnet = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  payload: any,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/kubeovn.io/v1/subnets`;
+  
+  const body = {
+    apiVersion: 'kubeovn.io/v1',
+    kind: 'Subnet',
+    metadata: {
+      name: payload.name,
+    },
+    spec: payload.spec || {
+      cidrBlock: payload.cidrBlock,
+      gateway: payload.gateway,
+      excludeIps: payload.excludeIps || [],
+      provider: payload.provider || 'ovn',
+      gatewayType: payload.gatewayType || 'distributed',
+      natOutgoing: payload.natOutgoing !== undefined ? payload.natOutgoing : false,
+      vlan: payload.vlan || '',
+      protocol: payload.protocol || 'IPv4',
+      namespaces: payload.namespaces || [],
+    }
+  };
+
+  return await requestJson('POST', url, token, insecure, body);
+};
+
+/**
+ * 创建 Kube-OVN EIP
+ */
+export const createKubeOvnEip = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  payload: any,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/kubeovn.io/v1/ovn-eips`;
+  
+  const body = {
+    apiVersion: 'kubeovn.io/v1',
+    kind: 'OvnEip',
+    metadata: {
+      name: payload.name,
+    },
+    spec: payload.spec || {
+      externalSubnet: payload.externalSubnet,
+      v4Ip: payload.v4Ip,
+      v6Ip: payload.v6Ip,
+    }
+  };
+
+  return await requestJson('POST', url, token, insecure, body);
+};
+
+/**
  * 创建 Harvester 负载均衡器
  */
 export const createHarvesterLoadBalancer = async (

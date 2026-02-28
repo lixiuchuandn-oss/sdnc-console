@@ -277,8 +277,214 @@ export const registerHarvesterDirectNetworkRoutes = (
 
   /**
    * ==================================================================================
+   * Provider Networks (Kube-OVN)
+   * ==================================================================================
+   * [GET] /:id/resources/providernetworks
+   * 获取 Provider Network 列表。
+   */
+  router.get(
+    '/:id/resources/providernetworks',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed)
+          return res.status(403).json({ message: 'Access denied' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const url = `${origin}/apis/kubeovn.io/v1/provider-networks`;
+        const json = await getJsonOnce(url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
+        res.json({ message: '查询成功', data: json });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '查询 Provider Networks 失败', error: error.message });
+      }
+    }
+  );
+
+  /**
+   * [POST] /:id/resources/providernetworks
+   * 创建 Provider Network。
+   */
+  router.post(
+    '/:id/resources/providernetworks',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const { name, defaultInterface, customInterfaces, exchangeLinkName } = req.body;
+        const payload = {
+            apiVersion: 'kubeovn.io/v1',
+            kind: 'ProviderNetwork',
+            metadata: { name },
+            spec: {
+                defaultInterface,
+                customInterfaces: customInterfaces || [],
+                exchangeLinkName: exchangeLinkName || false
+            }
+        };
+
+        const url = `${origin}/apis/kubeovn.io/v1/provider-networks`;
+        const json = await requestJson('POST', url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls, payload);
+        res.json({ message: '创建成功', data: json });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '创建 Provider Network 失败', error: error.message });
+      }
+    }
+  );
+
+  /**
+   * ==================================================================================
+   * VLANs (Kube-OVN)
+   * ==================================================================================
+   * [GET] /:id/resources/vlans
+   * 获取 VLAN 列表。
+   */
+  router.get(
+    '/:id/resources/vlans',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const url = `${origin}/apis/kubeovn.io/v1/vlans`;
+        const json = await getJsonOnce(url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
+        res.json({ message: '查询成功', data: json });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '查询 VLANs 失败', error: error.message });
+      }
+    }
+  );
+
+  /**
+   * [POST] /:id/resources/vlans
+   * 创建 VLAN。
+   */
+  router.post(
+    '/:id/resources/vlans',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const { name, id: vlanId, provider } = req.body;
+        const payload = {
+            apiVersion: 'kubeovn.io/v1',
+            kind: 'Vlan',
+            metadata: { name },
+            spec: {
+                id: parseInt(vlanId, 10),
+                provider
+            }
+        };
+
+        const url = `${origin}/apis/kubeovn.io/v1/vlans`;
+        const json = await requestJson('POST', url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls, payload);
+        res.json({ message: '创建成功', data: json });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '创建 VLAN 失败', error: error.message });
+      }
+    }
+  );
+
+  /**
+   * ==================================================================================
    * Subnets (Kube-OVN)
    * ==================================================================================
+   * [GET] /:id/resources/subnets
+   * 获取 Subnet 列表。
+   */
+  router.get(
+    '/:id/resources/subnets',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const url = `${origin}/apis/kubeovn.io/v1/subnets`;
+        const json = await getJsonOnce(url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
+        res.json({ message: '查询成功', data: json });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({ message: '查询 Subnets 失败', error: error.message });
+      }
+    }
+  );
+
+  /**
    * [POST] /:id/resources/subnets
    * 直连 Kube-OVN Subnet CRD，实现子网的创建。
    *

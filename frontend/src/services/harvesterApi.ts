@@ -12,6 +12,7 @@ export const fetchHarvesterSnapshots = async (cloudId: string, force = false) =>
   return await res.json();
 };
 
+
 export const deleteHarvesterLonghornVolume = async (cloudId: string, namespace: string, name: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/longhorn/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, {
@@ -877,6 +878,52 @@ export const deleteHarvesterImage = async (cloudId: string, namespace: string, n
     credentials: 'include',
   });
   if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const fetchKubeOvnProviderNetworks = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/providernetworks`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const createKubeOvnProviderNetwork = async (cloudId: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/providernetworks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const fetchKubeOvnVlans = async (cloudId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vlans`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const createKubeOvnVlan = async (cloudId: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vlans`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
   return await res.json();
 };
 

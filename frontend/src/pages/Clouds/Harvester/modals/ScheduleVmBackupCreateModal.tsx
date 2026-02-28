@@ -35,9 +35,11 @@ interface Props {
     suspend: boolean;
   }) => void;
   cloudId: string;
+  initialNamespace?: string;
+  initialVmName?: string;
 }
 
-const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuccess, cloudId }) => {
+const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuccess, cloudId, initialNamespace, initialVmName }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [namespaces, setNamespaces] = useState<any[]>([]);
@@ -66,10 +68,12 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
         retain: 10,
         maxFailure: 5,
         suspend: false,
-        cron: `${randomMinute} 2 * * *`
+        cron: `${randomMinute} 2 * * *`,
+        ...(initialNamespace && { namespace: initialNamespace }),
+        ...(initialVmName && { targetVm: initialVmName })
       });
     }
-  }, [visible, cloudId]);
+  }, [visible, cloudId, initialNamespace, initialVmName]);
 
   // 根据 cronMode + uiCron 推导 cron 字符串并写回表单字段
   useEffect(() => {

@@ -3,6 +3,7 @@
  * 仅使用 cloudId；租户按 UserSpace 解析 namespace 过滤。设计文档：plan/设计-监控服务-概览.md、设计-监控服务-监控告警.md
  */
 import { Router, Response } from 'express';
+import yaml from 'js-yaml';
 import { AppDataSource } from '../../../config/database';
 import { Cloud } from '../../../entities/Cloud';
 import { PrometheusRulesGroup } from '../../../entities/monitoring/PrometheusRulesGroupEntity';
@@ -106,6 +107,12 @@ const PAGESIZE = 'pagesize=100000';
 const EXCLUDE = 'exclude=metadata.managedFields';
 const ALERTMANAGER_PATH =
   'api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-alertmanager:9093/proxy/api/v2/alerts';
+const PROMETHEUS_QUERY_RANGE_PATH =
+  'api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-prometheus:9090/proxy/api/v1/query_range';
+
+const DINGTALK_CONFIGMAP_NS = 'cattle-monitoring-system';
+const DINGTALK_CONFIGMAP_NAME = 'alertmanager-webhook-dingtalk';
+const DINGTALK_CONFIG_KEY = 'config.yaml';
 
 /** 是否为资源池不可达（网络/超时），此时可返回空数据避免前端反复 500 */
 function isUnreachableError(e: any): boolean {
@@ -191,6 +198,39 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     }
   });
 
+  /** Prometheus query_range 代理：用于 VM 性能图表等，需鉴权与租户 namespace 校验 */
+  router.get('/:id/monitoring/metric-range', async (req: any, res: Response) => {
+    try {
+      const cloudId = req.params.id;
+      const tenant = await requireTenantAccess(req, res, cloudId);
+      if (!tenant) return;
+      const conn = await getCloudAndConn(cloudId, res);
+      if (!conn) return;
+      const query = String(req.query?.query ?? '').trim();
+      const start = req.query?.start;
+      const end = req.query?.end;
+      const step = req.query?.step;
+      if (!query || start == null || end == null || step == null) {
+        return res.status(400).json({ message: '缺少 query/start/end/step 参数' });
+      }
+      const params = new URLSearchParams({
+        query,
+        start: String(start),
+        end: String(end),
+        step: String(step),
+      });
+      const url = `${conn.origin}/${PROMETHEUS_QUERY_RANGE_PATH}?${params.toString()}`;
+      const data = await getJsonOnce(url, conn.token, conn.insecure, true);
+      res.json(data);
+    } catch (e: any) {
+      if (isUnreachableError(e)) {
+        return res.status(200).json({ status: 'success', data: { resultType: 'matrix', result: [] } });
+      }
+      const status = (e as any).status || 500;
+      res.status(status).json({ message: e?.message || '请求指标失败' });
+    }
+  });
+
   router.get('/:id/monitoring/alerts-rules', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
@@ -247,46 +287,6 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       }
       const status = (e as any).status || 500;
       res.status(status).json({ message: e?.message || '请求告警列表失败' });
-    }
-  });
-
-  // GET /:id/monitoring/metrics/range：代理 Prometheus Range Query
-  router.get('/:id/monitoring/metrics/range', async (req: any, res: Response) => {
-    try {
-      const cloudId = req.params.id;
-      const { query, start, end, step } = req.query;
-      
-      if (!query || !start || !end || !step) {
-        return res.status(400).json({ message: '缺少必要参数 (query, start, end, step)' });
-      }
-
-      const tenant = await getTenantAccess(req, cloudId);
-      if (!tenant.allowed) {
-        return res.status(403).json({ message: '您没有该资源池的访问权限' });
-      }
-
-      const conn = await getCloudAndConn(cloudId, res);
-      if (!conn) return;
-
-      // 尝试使用标准的 Rancher Monitoring 代理路径
-      const targetPath = '/k8s/clusters/local/api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-prometheus:9090/proxy/api/v1/query_range';
-      
-      const q = new URLSearchParams();
-      q.set('query', String(query));
-      q.set('start', String(start));
-      q.set('end', String(end));
-      q.set('step', String(step));
-
-      const url = `${conn.origin}${targetPath}?${q.toString()}`;
-      
-      // console.log('[monitoring] proxy metrics:', url);
-
-      const data = await getJsonOnce(url, conn.token, conn.insecure, true);
-      res.json(data);
-
-    } catch (e: any) {
-      console.error('[monitoring] metrics query failed:', e);
-      res.status(500).json({ message: e?.message || '监控数据查询失败' });
     }
   });
 
@@ -435,9 +435,28 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     return [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER].includes(String(name || '').trim());
   }
 
+  /** 钉钉 webhook 单条配置（用于 updateDingtalkConfigMapTargets 等） */
+  interface DingtalkWebhookConfig {
+    url?: string;
+    webhookUrl?: string;
+    robotUrl?: string;
+    robotAccount?: string;
+    accessToken?: string;
+    robotAccessToken?: string;
+    sendResolved?: boolean;
+  }
+
+  /** 钉钉 receiver（含 webhookConfigs） */
+  interface DingtalkReceiver {
+    name?: string;
+    robotAccount?: string;
+    webhookConfigs?: DingtalkWebhookConfig[];
+  }
+
   const ALERTMANAGERCONFIG_BASE = 'v1/harvester/monitoring.coreos.com.alertmanagerconfigs';
   const PROMETHEUSRULE_VM = 'v1/harvester/monitoring.coreos.com.prometheusrules/cattle-monitoring-system/virtual-machine-custom-rules';
   const SECRETS_BASE = 'v1/harvester/secrets';
+  const CONFIGMAPS_BASE = 'v1/harvester/configmaps';
 
   router.get('/:id/monitoring/secrets', async (req: any, res: Response) => {
     try {
@@ -453,30 +472,14 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       const excludeQs =
         'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state';
       const filterQs = `&filter=metadata.namespace=${encodeURIComponent(namespace)}`;
-      const apiPath = `${SECRETS_BASE}?${PAGESIZE}&${excludeQs}${filterQs}`;
+      const labelQs = '&labelSelector=monitoring-receiver-secret%3Dtrue';
+      const apiPath = `${SECRETS_BASE}?${PAGESIZE}&${excludeQs}${filterQs}${labelQs}`;
       const raw = await getJsonOnce(`${conn.origin}/${apiPath}`, conn.token, conn.insecure, true);
-      let list: any[] = Array.isArray(raw?.data) ? raw.data : [];
-      if (!tenant.isAdmin && tenant.namespaces.length > 0) {
-        const allowedSet = new Set(tenant.namespaces);
-        list = list.filter((item: any) => {
-          const ns = (item?.metadata?.namespace ?? item?.namespace ?? '').toString().trim();
-          return allowedSet.has(ns);
-        });
-      }
-      // 过滤掉 Helm release 类 Secret：type 为 helm.sh/release.v1 或 name 匹配 sh.helm.release.v1.*
-      const isHelmReleaseSecret = (item: any) => {
-        const typeStr = (item?.type ?? '').toString();
-        const nameStr = (item?.metadata?.name ?? item?.name ?? '').toString().trim();
-        if (/helm\.sh\/release\.v1/.test(typeStr)) return true;
-        if (/^sh\.helm\.release\.v1\./.test(nameStr)) return true;
-        return false;
-      };
-      const secretList = list
-        .filter((item: any) => !isHelmReleaseSecret(item))
-        .map((item: any) => ({
-          name: (item?.metadata?.name ?? item?.name ?? '').toString().trim(),
-          data: item?.data && typeof item.data === 'object' ? item.data : {},
-        }));
+      const list: any[] = Array.isArray(raw?.data) ? raw.data : [];
+      const secretList = list.map((item: any) => ({
+        name: (item?.metadata?.name ?? item?.name ?? '').toString().trim(),
+        data: item?.data && typeof item.data === 'object' ? item.data : {},
+      }));
       res.json(secretList);
     } catch (e: any) {
       if (isUnreachableError(e)) return res.status(200).json([]);
@@ -484,6 +487,178 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       res.status(status).json({ message: e?.message || '请求密钥secrets列表失败' });
     }
   });
+
+  router.get('/:id/monitoring/configmaps/:namespace/:name', async (req: any, res: Response) => {
+    try {
+      const cloudId = req.params.id;
+      const namespace = (req.params.namespace ?? '').toString().trim();
+      const name = (req.params.name ?? '').toString().trim();
+      if (!namespace || !name) {
+        return res.status(400).json({ message: 'namespace 与 name 不能为空' });
+      }
+      const tenant = await requireTenantAccess(req, res, cloudId, {
+        namespaces: [namespace],
+        forbiddenMessage: '无权访问该命名空间下的 ConfigMap',
+      });
+      if (!tenant) return;
+      const conn = await getCloudAndConn(cloudId, res);
+      if (!conn) return;
+      const path = `${CONFIGMAPS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+      const excludeQs = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.annotations';
+      const url = `${conn.origin}/${path}?${excludeQs}`;
+      const data = await getJsonOnce(url, conn.token, conn.insecure, true);
+      res.json(data);
+    } catch (e: any) {
+      if (isUnreachableError(e)) return res.status(200).json({});
+      const status = (e as any).status || (e as any).statusCode || 500;
+      res.status(status).json({ message: e?.message || '请求 ConfigMap 失败' });
+    }
+  });
+
+  /** 将 dingtalk 接收方的 configMapTargetUrl 写入 ConfigMap targets[specReceiverName].url，成功后才可更新 dingtalk-receiver 的 spec。 */
+  async function updateDingtalkConfigMapTargets(
+    conn: { origin: string; token: string; insecure: boolean },
+    rawReceivers: DingtalkReceiver[]
+  ): Promise<void> {
+    const path = `${CONFIGMAPS_BASE}/${encodeURIComponent(DINGTALK_CONFIGMAP_NS)}/${encodeURIComponent(DINGTALK_CONFIGMAP_NAME)}`;
+    const getUrl = `${conn.origin}/${path}`;
+    let raw: any;
+    try {
+      raw = await getJsonOnce(getUrl, conn.token, conn.insecure, true);
+    } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      if (status === 404) {
+        const err = new Error('钉钉 Webhook ConfigMap 不存在，请先部署 alertmanager-webhook-dingtalk') as Error & { status?: number };
+        err.status = 404;
+        throw err;
+      }
+      throw e;
+    }
+    // Harvester 可能返回 { data: resource } 或直接返回 resource（metadata + data 在顶层）
+    let configmap: any = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+    if (!configmap?.metadata && (raw as any)?.metadata && typeof (raw as any).data === 'object') {
+      configmap = raw;
+    }
+    const data = configmap?.data || {};
+    let configYaml = (data[DINGTALK_CONFIG_KEY] ?? data['config.yml'] ?? '').toString();
+    let config: { targets?: Record<string, { url?: string; [k: string]: any }>; [k: string]: any };
+    try {
+      config = (yaml.load(configYaml) as Record<string, any>) || {};
+    } catch {
+      const err = new Error('钉钉 Webhook ConfigMap 的 YAML 解析失败') as Error & { status?: number };
+      err.status = 400;
+      throw err;
+    }
+    if (!config.targets || typeof config.targets !== 'object' || Array.isArray(config.targets)) {
+      config.targets = {};
+    }
+    const defaultDingtalkMessage = {
+      title: '{{ template "ding.link.title" . }}',
+      text: '{{ template "ding.link.content" . }}',
+    };
+    for (const r of rawReceivers) {
+      const webhookConfigs = Array.isArray(r.webhookConfigs) ? r.webhookConfigs : [];
+      const wc = webhookConfigs[0];
+      const robotAccount = (wc?.robotAccount ?? r?.robotAccount ?? '').toString().trim();
+      if (!robotAccount) continue;
+      const robotUrl = (wc?.robotUrl ?? wc?.webhookUrl ?? '').toString().trim();
+      const robotAccessToken = (wc?.robotAccessToken ?? wc?.accessToken ?? '').toString().trim();
+      let configMapTargetUrl: string | undefined;
+      if (robotUrl && robotAccessToken) {
+        configMapTargetUrl = robotUrl + (robotUrl.includes('?') ? '&' : '?') + 'access_token=' + encodeURIComponent(robotAccessToken);
+      } else if (robotUrl) {
+        configMapTargetUrl = robotUrl;
+      } else {
+        configMapTargetUrl = undefined;
+      }
+      const existing = config.targets[robotAccount] && typeof config.targets[robotAccount] === 'object'
+        ? config.targets[robotAccount]
+        : {};
+      config.targets[robotAccount] = {
+        ...existing,
+        url: configMapTargetUrl ?? existing.url,
+        message: defaultDingtalkMessage,
+      };
+    }
+    configYaml = yaml.dump(config, { lineWidth: -1 });
+    const meta = configmap?.metadata || {};
+    const resourceVersion = meta.resourceVersion;
+    if (!resourceVersion) {
+      const err = new Error('ConfigMap 响应缺少 metadata.resourceVersion，无法执行更新') as Error & { status?: number };
+      err.status = 500;
+      throw err;
+    }
+    const updated = {
+      ...configmap,
+      metadata: { ...meta, resourceVersion },
+      data: { ...data, [DINGTALK_CONFIG_KEY]: configYaml },
+    };
+    try {
+      await requestJson('PUT', getUrl, conn.token, conn.insecure, updated);
+    } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      const body = typeof e?.body === 'string' ? e.body : '';
+      const msg = body ? `${e?.message || '更新 ConfigMap 失败'}: ${body}` : (e?.message || '更新钉钉 Webhook ConfigMap 失败');
+      const err = new Error(msg) as Error & { status?: number };
+      err.status = typeof status === 'number' ? status : 500;
+      throw err;
+    }
+  }
+
+  /** 从钉钉 Webhook ConfigMap 的 targets 中移除指定 robotAccount 对应的条目 */
+  async function removeDingtalkConfigMapTarget(
+    conn: { origin: string; token: string; insecure: boolean },
+    robotAccount: string
+  ): Promise<void> {
+    const trimmedAccount = (robotAccount ?? '').toString().trim();
+    if (!trimmedAccount) return;
+    const path = `${CONFIGMAPS_BASE}/${encodeURIComponent(DINGTALK_CONFIGMAP_NS)}/${encodeURIComponent(DINGTALK_CONFIGMAP_NAME)}`;
+    const getUrl = `${conn.origin}/${path}`;
+    let raw: any;
+    try {
+      raw = await getJsonOnce(getUrl, conn.token, conn.insecure, true);
+    } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      if (status === 404) return; // ConfigMap 不存在则跳过
+      throw e;
+    }
+    let configmap: any = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+    if (!configmap?.metadata && (raw as any)?.metadata && typeof (raw as any).data === 'object') {
+      configmap = raw;
+    }
+    const data = configmap?.data || {};
+    let configYaml = (data[DINGTALK_CONFIG_KEY] ?? data['config.yml'] ?? '').toString();
+    let config: { targets?: Record<string, any>; [k: string]: any };
+    try {
+      config = (yaml.load(configYaml) as Record<string, any>) || {};
+    } catch {
+      return; // YAML 解析失败则跳过
+    }
+    if (!config.targets || typeof config.targets !== 'object' || Array.isArray(config.targets)) {
+      return;
+    }
+    if (!(trimmedAccount in config.targets)) return;
+    delete config.targets[trimmedAccount];
+    configYaml = yaml.dump(config, { lineWidth: -1 });
+    const meta = configmap?.metadata || {};
+    const resourceVersion = meta.resourceVersion;
+    if (!resourceVersion) return;
+    const updated = {
+      ...configmap,
+      metadata: { ...meta, resourceVersion },
+      data: { ...data, [DINGTALK_CONFIG_KEY]: configYaml },
+    };
+    try {
+      await requestJson('PUT', getUrl, conn.token, conn.insecure, updated);
+    } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      const body = typeof e?.body === 'string' ? e.body : '';
+      const msg = body ? `${e?.message || '更新 ConfigMap 失败'}: ${body}` : (e?.message || '移除钉钉 Webhook target 失败');
+      const err = new Error(msg) as Error & { status?: number };
+      err.status = typeof status === 'number' ? status : 500;
+      throw err;
+    }
+  }
 
   router.get('/:id/monitoring/prometheusrules/vm-custom-rules', async (req: any, res: Response) => {
     try {
@@ -506,7 +681,7 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       if (!tenant.allowed) return res.status(403).json({ message: '您没有该资源池的访问权限' });
       const conn = await getCloudAndConn(cloudId, res);
       if (!conn) return;
-      const url = `${conn.origin}/${ALERTMANAGERCONFIG_BASE}?pagesize=100000&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
+      const url = `${conn.origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
       const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
       let list: any[] = Array.isArray(raw?.data) ? raw.data : (Array.isArray(raw) ? raw : []);
       const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
@@ -545,7 +720,7 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
   const DEFAULT_RECEIVER_NAMES = [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER];
 
   router.get('/:id/monitoring/alertmanagerconfigs/receivers', async (req: any, res: Response) => {
-  try {
+    try {
       const cloudId = req.params.id;
       const namespaces = parseQueryArray(req.query?.namespaces);
       let receiverNames = parseQueryArray(req.query?.receiverName);
@@ -563,7 +738,8 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       if (receiverNames.length === 1) {
         filterQs += `&filter=metadata.name=${encodeURIComponent(receiverNames[0])}`;
       }
-      const apiPath = `${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&${excludeQs}${filterQs}`;
+      const labelQs = '&labelSelector=monitoring-receiver%3Dtrue';
+      const apiPath = `${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&${excludeQs}${filterQs}${labelQs}`;
       const url = `${conn.origin}/${apiPath}`;
       const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
       let list: any[] = Array.isArray((raw as any)?.data) ? (raw as any).data : [];
@@ -631,9 +807,24 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
         return res.status(404).json({ message: '未找到该通知对象名称' });
       }
       const receivers = Array.isArray(existing.spec.receivers) ? existing.spec.receivers : [];
+      const toRemove = receivers.find((r: any) => (r?.name ?? '').toString().trim() === specReceiverName);
       const nextReceivers = receivers.filter((r: any) => (r?.name ?? '').toString().trim() !== specReceiverName);
       if (nextReceivers.length === receivers.length) {
         return res.status(404).json({ message: '未找到该通知对象名称' });
+      }
+      if (name === DINGTALK_RECEIVER && toRemove) {
+        const robotAccount =
+          ((toRemove as any)?.webhookConfigs?.[0] as any)?.robotAccount ??
+          (toRemove as any)?.robotAccount ??
+          `${namespace}_${specReceiverName}`;
+        try {
+          await removeDingtalkConfigMapTarget(conn, robotAccount);
+        } catch (e: any) {
+          const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+          const msg = e?.message || '移除钉钉 Webhook ConfigMap target 失败';
+          if (status >= 500) console.error('[dingtalk-receiver] removeDingtalkConfigMapTarget:', e);
+          return res.status(status).json({ message: msg });
+        }
       }
       existing.spec.receivers = nextReceivers;
       await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, existing);
@@ -647,6 +838,130 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     }
   });
 
+  /** 邮件/站内信：receivers 原样透传，创建或更新 AlertmanagerConfig */
+  async function processEmailReceivers(
+    conn: { origin: string; token: string; insecure: boolean },
+    ns: string,
+    name: string,
+    body: any,
+    res: Response,
+    path: string,
+    getUrl: string
+  ): Promise<Response | void> {
+    const normalizeReceivers = (receivers: any[]) => (Array.isArray(receivers) ? receivers : []);
+    let existingRaw: any = null;
+    const exists = await getJsonOnce(getUrl, conn.token, conn.insecure, true)
+      .then((data) => {
+        existingRaw = data;
+        return true;
+      })
+      .catch((err: any) => (err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err)));
+    if (!exists) {
+      const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : [];
+      const createPayload = {
+        ...body,
+        spec: { ...(body?.spec || {}), receivers: normalizeReceivers(rawReceivers) },
+        metadata: {
+          ...(body?.metadata || {}),
+          namespace: ns,
+          name,
+          labels: { ...(body?.metadata?.labels || {}), 'monitoring-receiver': 'true' },
+        },
+      };
+      const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, createPayload);
+      return res.status(201).json(data);
+    }
+    const existing = (existingRaw as any)?.data != null && typeof (existingRaw as any).data === 'object' ? (existingRaw as any).data : existingRaw;
+    if (!existing?.spec) {
+      return res.status(500).json({ message: '通知对象配置异常' });
+    }
+    const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : (existing.spec.receivers || []);
+    existing.spec.receivers = normalizeReceivers(rawReceivers);
+    if (!existing.metadata) existing.metadata = {};
+    if (existing.metadata.labels?.['monitoring-receiver'] !== 'true') {
+      existing.metadata.labels = { ...(existing.metadata.labels || {}), 'monitoring-receiver': 'true' };
+    }
+    const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, existing);
+    return res.json(data);
+  }
+
+  /** 钉钉：normalize webhookConfigs + 更新 ConfigMap targets，再创建或更新 AlertmanagerConfig */
+  async function processDingtalkReceivers(
+    conn: { origin: string; token: string; insecure: boolean },
+    ns: string,
+    name: string,
+    body: any,
+    res: Response,
+    path: string,
+    getUrl: string
+  ): Promise<Response | void> {
+    const normalizeReceiversForDingtalk = (receivers: any[]): any[] => {
+      if (!Array.isArray(receivers)) return receivers;
+      return receivers.map((r: any) => {
+        const webhookConfigs = Array.isArray(r.webhookConfigs) ? r.webhookConfigs : [];
+        const normalized = webhookConfigs.map((wc: any) => ({
+          url: (r?.url ?? '').toString().trim() || undefined,
+          sendResolved: (wc as any)?.sendResolved !== false,
+        }));
+        return { ...r, webhookConfigs: normalized };
+      });
+    };
+    let existingRaw: any = null;
+    const exists = await getJsonOnce(getUrl, conn.token, conn.insecure, true)
+      .then((data) => {
+        existingRaw = data;
+        return true;
+      })
+      .catch((err: any) => (err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err)));
+    if (!exists) {
+      const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : [];
+      if (rawReceivers.length > 0) {
+        try {
+          await updateDingtalkConfigMapTargets(conn, rawReceivers);
+        } catch (e: any) {
+          const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+          const msg = e?.message || '更新钉钉Webhook配置文件失败';
+          if (status >= 500) console.error('[dingtalk-receiver] updateDingtalkWebhookConfig:', e);
+          return res.status(status).json({ message: msg });
+        }
+      }
+      const createPayload = {
+        ...body,
+        spec: { ...(body?.spec || {}), receivers: normalizeReceiversForDingtalk(rawReceivers) },
+        metadata: {
+          ...(body?.metadata || {}),
+          namespace: ns,
+          name,
+          labels: { ...(body?.metadata?.labels || {}), 'monitoring-receiver': 'true' },
+        },
+      };
+      const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, createPayload);
+      return res.status(201).json(data);
+    }
+    const existing = (existingRaw as any)?.data != null && typeof (existingRaw as any).data === 'object' ? (existingRaw as any).data : existingRaw;
+    if (!existing?.spec) {
+      return res.status(500).json({ message: '通知对象配置异常' });
+    }
+    const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : (existing.spec.receivers || []);
+    if (rawReceivers.length > 0) {
+      try {
+        await updateDingtalkConfigMapTargets(conn, rawReceivers);
+      } catch (e: any) {
+        const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+        const msg = e?.message || '更新钉钉 Webhook ConfigMap 失败';
+        if (status >= 500) console.error('[dingtalk-receiver] updateDingtalkConfigMapTargets:', e);
+        return res.status(status).json({ message: msg });
+      }
+    }
+    existing.spec.receivers = normalizeReceiversForDingtalk(rawReceivers);
+    if (!existing.metadata) existing.metadata = {};
+    if (existing.metadata.labels?.['monitoring-receiver'] !== 'true') {
+      existing.metadata.labels = { ...(existing.metadata.labels || {}), 'monitoring-receiver': 'true' };
+    }
+    const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, existing);
+    return res.json(data);
+  }
+
   router.post('/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
@@ -654,7 +969,7 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       const name = (req.params.name ?? '').toString().trim();
       if (!ns) return res.status(400).json({ message: '命名空间不能为空' });
       if (!isValidReceiverConfigName(name)) {
-        return res.status(400).json({ message: '通知方式必须是邮件、钉钉或网站之一' });
+        return res.status(400).json({ message: '通知方式必须是邮件、钉钉或站内信之一' });
       }
       const tenant = await requireTenantAccess(req, res, cloudId, {
         namespaces: [ns],
@@ -666,31 +981,27 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       const body = req.body || {};
       const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`;
       const getUrl = `${conn.origin}/${path}`;
-      let existingRaw: any = null;
-      const exists = await getJsonOnce(getUrl, conn.token, conn.insecure, true)
-        .then((data) => {
-          existingRaw = data;
-          return true;
-        })
-        .catch((err: any) => (err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err)));
-      if (!exists) {
-        const createPayload = {
-          ...body,
-          metadata: { ...(body?.metadata || {}), namespace: ns, name },
+      if (name === EMAIL_RECEIVER) {
+        return await processEmailReceivers(conn, ns, name, body, res, path, getUrl);
+      }
+      if (name === DINGTALK_RECEIVER) {
+        return await processDingtalkReceivers(conn, ns, name, body, res, path, getUrl);
+      }
+      if (name === WEBSITE_RECEIVER) {
+        const websitePayload = {
+          apiVersion: 'monitoring.coreos.com/v1alpha1',
+          kind: 'AlertmanagerConfig',
+          metadata: { name: WEBSITE_RECEIVER, namespace: ns, labels: { 'monitoring-receiver': 'true' } },
+          spec: { receivers: [{ name: WEBSITE_RECEIVER }] },
         };
-        const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, createPayload);
-        return res.status(201).json(data);
+        return await processEmailReceivers(conn, ns, name, websitePayload, res, path, getUrl);
       }
-      const existing = (existingRaw as any)?.data != null && typeof (existingRaw as any).data === 'object' ? (existingRaw as any).data : existingRaw;
-      if (!existing?.spec) {
-        return res.status(500).json({ message: '通知对象对象配置异常' });
-      }
-      existing.spec.receivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : (existing.spec.receivers || []);
-      const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, existing);
-      return res.json(data);
+      return res.status(400).json({ message: '不支持的通知方式' });
     } catch (e: any) {
-      const status = (e as any).status || (e as any).statusCode || 500;
-      res.status(status).json({ message: e?.message || '创建或更新告警通知对象失败' });
+      const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+      const msg = e?.message || '创建或更新告警通知对象失败';
+      if (status >= 500) console.error('[alertmanagerconfigs/receivers]', e);
+      res.status(status).json({ message: msg });
     }
   });
 

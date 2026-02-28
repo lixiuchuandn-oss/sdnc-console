@@ -1,15 +1,40 @@
 import { HarvesterTestParams } from './types';
 import { requestOnce, getJsonOnce, requestJson } from './utils';
 
-// 测试 Harvester 控制面是否可达以及 Token 是否有效
-// - 会尝试多个候选入口：原始 endpoint、/v1、/v3
-// - 若任一路径返回 2xx，则认为连通性正常
+// ====================================================================================================
+// 文件路径: backend/src/services/clouds/harvester/cluster.ts
+// 模块名称: Harvester Cluster & Node Service (Harvester 集群与节点服务)
+// 功能描述: 提供 Harvester 集群级别的核心操作，包括连接性测试、节点信息标准化、健康检查聚合及全局设置管理。
+// 
+// [核心逻辑]
+// 1. 连接测试: 多路径探测 (/v1, /v3) 以适应不同版本的 Harvester API 网关。
+// 2. 节点标准化: 将 K8s Node 与 Harvester Host CRD 数据合并，并集成 LinkMonitor 获取物理网卡信息。
+// 3. 健康检查: 聚合计算、存储、网络等关键组件的 API 可达性状态。
+// 4. 全局设置: 读写 Harvester Settings (如 http-proxy, overcommit-config 等)。
+// 
+// [API 引用]
+// - GET /v1/nodes (Harvester Host CR)
+// - GET /apis/network.harvesterhci.io/v1beta1/linkmonitors (物理网卡监控)
+// - GET /v1/harvester/harvesterhci.io.settings (全局设置)
+// ====================================================================================================
+
+/**
+ * 测试 Harvester 控制面是否可达以及 Token 是否有效
+ * [功能描述]
+ * 尝试访问 Harvester 的多个入口路径，验证 API 连通性和认证状态。
+ * 
+ * [核心逻辑]
+ * 1. [路径规范化] 处理用户输入的 Endpoint，移除尾部斜杠，提取 Origin。
+ * 2. [多路径探测] 依次尝试 Base URL, /v1, /v3，只要有一个返回 2xx 即视为成功。
+ * 3. [错误处理] 区分网络错误、认证错误 (401) 和其他 HTTP 错误。
+ */
 export const testHarvesterConnection = async ({
   endpoint,
   token,
   insecure = false,
 }: HarvesterTestParams): Promise<{ ok: boolean; message?: string }> => {
   try {
+    // [路径规范化]
     const base = (endpoint || '').replace(/\/+$/, '');
     let origin = base;
     try {
@@ -18,6 +43,8 @@ export const testHarvesterConnection = async ({
     } catch {
       origin = base.replace(/\/v[0-9].*$/, '');
     }
+    
+    // [多路径探测] 兼容不同版本的 API 路由策略
     const candidates: string[] = [];
     candidates.push(base);
     candidates.push(`${origin}/v1`);
@@ -41,11 +68,19 @@ export const testHarvesterConnection = async ({
   }
 };
 
-// 获取 Harvester 节点（Host）标准化列表
-// - 通过 Harvester API 读取节点信息，并补全：
-//   - 内外网 IP（networkIps 或 K8s Node.status.addresses）
-//   - 角色、架构、版本等基础信息
-//   - links.view 供前端跳转 Harvester 详情
+/**
+ * 获取 Harvester 节点（Host）标准化列表
+ * [功能描述]
+ * 获取集群节点列表，并补充物理网络、IP 地址和状态信息。
+ * 
+ * [核心逻辑]
+ * 1. [节点获取] 调用 /v1/nodes 获取 Harvester Host CR 列表。
+ * 2. [LinkMonitor聚合] 并发获取 LinkMonitor 数据，用于提取真实的物理网卡 (Physical Interface) 名称。
+ * 3. [数据标准化] 
+ *    - 优先使用 Harvester Host CR 的 networkIps。
+ *    - 回退使用 K8s Node Status addresses。
+ *    - 过滤 device 类型的物理网卡，排除 veth/ovn 等虚拟接口。
+ */
 export const listHarvesterNodesStandard = async ({
   endpoint,
   token,
@@ -59,6 +94,8 @@ export const listHarvesterNodesStandard = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
+  
+  // [集群ID获取] 尝试获取 Cluster ID (部分 API 路径需要)
   const clusterId = await (async () => {
     try {
       const url = `${origin}/v3/clusters`;
@@ -75,6 +112,8 @@ export const listHarvesterNodesStandard = async ({
       return null;
     }
   })();
+
+  // [节点列表获取]
   const url = `${origin}/v1/nodes`;
   let json: any = null;
   let lastErr: any = null;
@@ -84,6 +123,20 @@ export const listHarvesterNodesStandard = async ({
     lastErr = e;
     console.warn(`[Harvester-API] 节点获取失败: 请求地址=${url} 错误=${e.message}`);
   }
+
+  // [LinkMonitor聚合] 尝试获取 LinkMonitor 以补充物理网卡信息
+  // 这是识别节点物理网卡的关键步骤，用于 Provider Network 配置
+  let linkMonitors: any[] = [];
+  try {
+    const lmUrl = `${origin}/apis/network.harvesterhci.io/v1beta1/linkmonitors`;
+    const lmJson = await getJsonOnce(lmUrl, token, insecure);
+    linkMonitors = Array.isArray(lmJson?.items) ? lmJson.items : [];
+  } catch (e) {
+    // 忽略 LinkMonitor 获取失败，可能是权限或版本问题
+    console.warn('[Harvester-API] LinkMonitor 获取失败 (忽略):', e);
+  }
+
+  // [错误处理] 
   if (!json && lastErr) {
     const status = Number((lastErr as any)?.status || 0);
     const body = String((lastErr as any)?.body || '').toLowerCase();
@@ -96,16 +149,28 @@ export const listHarvesterNodesStandard = async ({
     }
     throw lastErr;
   }
+  
   const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
+  
+  // [数据映射] 遍历节点进行标准化处理
   return items.map((n: any) => {
     // Harvester Host object wraps the Node name in spec.nodeName or metadata.name depending on context
-    // The Host object itself is NOT the Node object, but it references it.
-    // However, usually metadata.name of the Host CR IS the node name.
     const name = n?.metadata?.name || n?.name || '';
     
-    // Harvester Host CR does NOT have status.addresses directly. 
-    // It has status.networkIps (array of strings) usually.
-    // But we need to maintain compatibility with our inventory entity.
+    // [IP地址解析] 优先使用 networkIps，回退到 K8s addresses
+    let internal = '';
+    let external = '';
+    
+    const networkIps = Array.isArray(n?.status?.networkIps) ? n?.status?.networkIps : [];
+    if (networkIps.length > 0) {
+        internal = networkIps[0]; // Assume first is internal
+    }
+    
+    if (!internal) {
+        const addresses = Array.isArray(n?.status?.addresses) ? n?.status?.addresses : [];
+        internal = addresses.find((a: any) => a?.type === 'InternalIP')?.address || '';
+        external = addresses.find((a: any) => a?.type === 'ExternalIP')?.address || '';
+    }
     
     const roles = Object.keys(n?.metadata?.labels || {}).filter((k) =>
       /node-role\.kubernetes\.io/.test(k),
@@ -114,34 +179,40 @@ export const listHarvesterNodesStandard = async ({
     const conds = Array.isArray(n?.status?.conditions) ? n?.status?.conditions : [];
     const readyCond = conds.find((c: any) => c?.type === 'Ready');
     
-    let internal = '';
-    let external = '';
-    
-    // Try to find IPs from Harvester Host structure
-    const networkIps = Array.isArray(n?.status?.networkIps) ? n?.status?.networkIps : [];
-    if (networkIps.length > 0) {
-        internal = networkIps[0]; // Assume first is internal
-    }
-    
-    // Fallback to standard K8s structure if Harvester Host structure is missing (hybrid clusters?)
-    if (!internal) {
-        const addresses = Array.isArray(n?.status?.addresses) ? n?.status?.addresses : [];
-        internal = addresses.find((a: any) => a?.type === 'InternalIP')?.address || '';
-        external = addresses.find((a: any) => a?.type === 'ExternalIP')?.address || '';
-    }
-    
     const cpu = n?.status?.capacity?.cpu || n?.status?.allocatable?.cpu || '';
     const memory = n?.status?.capacity?.memory || n?.status?.allocatable?.memory || '';
-    
-    // Host CR might not have nodeInfo directly in status.
-    const version =
-      n?.status?.nodeInfo?.kubeletVersion || n?.status?.nodeInfo?.kubeProxyVersion || '';
+    const version = n?.status?.nodeInfo?.kubeletVersion || n?.status?.nodeInfo?.kubeProxyVersion || '';
     const architecture = n?.status?.nodeInfo?.architecture || 'amd64';
     
-    // Ensure links.view exists for frontend data fetching (HarvesterResourceDrawer)
-    // Use existing view link, or fallback to self link, or construct from API URL
     const selfLink = n?.links?.self || `${url}/${name}`;
     const viewLink = n?.links?.view || selfLink;
+
+    // [物理网卡提取] 从 LinkMonitor 中匹配物理网卡信息
+    let physicalInterfaces: string[] = [];
+    const interfaceSet = new Set<string>();
+    
+    // 遍历所有 LinkMonitor (如 mgmt, nic)，查找包含当前节点信息的条目
+    // LinkMonitor Status 结构: { "node-name": [ { type: "device", name: "eth0", ... }, ... ] }
+    linkMonitors.forEach((lm: any) => {
+        if (lm?.status?.linkStatus && lm.status.linkStatus[name]) {
+            const ifaces = lm.status.linkStatus[name];
+            if (Array.isArray(ifaces)) {
+                ifaces.forEach((i: any) => {
+                    // [过滤逻辑] 仅收集物理设备 (type=device)
+                    if (i.type === 'device') {
+                        interfaceSet.add(i.name);
+                    }
+                });
+            }
+        }
+    });
+    
+    physicalInterfaces = Array.from(interfaceSet).sort();
+
+    // [回退逻辑] 如果 LinkMonitor 没有数据，回退到 NodeInfo (旧逻辑)
+    if (physicalInterfaces.length === 0 && n?.status?.nodeInfo?.networkInfo?.links) {
+      physicalInterfaces = n.status.nodeInfo.networkInfo.links.map((l: any) => l.name);
+    }
 
     return {
       ...n,
@@ -154,14 +225,22 @@ export const listHarvesterNodesStandard = async ({
       memory,
       version,
       architecture,
+      physicalInterfaces, // 新增物理网卡字段，供 Provider Network 配置使用
       links: { ...n.links, view: viewLink }
     };
   });
 };
 
-// Harvester 健康检查：聚合多条关键探针并返回结果列表
-// - 用于 UI 上的“健康检查”页签展示
-// - 每一项都包含：用途说明、访问 URL、是否通过以及错误信息
+/**
+ * Harvester 健康检查
+ * [功能描述]
+ * 聚合多条关键探针（计算、存储、网络）的状态，用于 UI 上的“健康检查”页签展示。
+ * 
+ * [核心逻辑]
+ * 1. [探针定义] 定义一组关键 API 路径 (Nodes, VMs, Images, StorageClasses, Volumes, NADs, VPCs)。
+ * 2. [集群ID适配] 如果存在 Cluster ID，追加 Rancher 代理路径的探测。
+ * 3. [状态探测] 对每个探针执行 requestOnce，记录 HTTP 状态码和错误信息。
+ */
 export const harvesterHealthCheck = async ({
   endpoint,
   token,
@@ -193,6 +272,8 @@ export const harvesterHealthCheck = async ({
       return null;
     }
   })();
+  
+  // [探针定义]
   const tests: Array<{
     key: string;
     label: string;
@@ -281,6 +362,7 @@ export const harvesterHealthCheck = async ({
       candidates: [`${origin}/apis/kubeovn.io/v1/subnets`],
     },
   ];
+
   if (clusterId) {
     tests.unshift({
       key: 'nodes',
@@ -327,6 +409,8 @@ export const harvesterHealthCheck = async ({
     group?: string;
     purpose?: string;
   }> = [];
+  
+  // [状态探测] 串行执行探测
   for (const t of tests) {
     let ok = false;
     let usedUrl = '';
@@ -359,6 +443,15 @@ export const harvesterHealthCheck = async ({
   return { items };
 };
 
+/**
+ * 获取 Harvester 集群能力与配置
+ * [功能描述]
+ * 推断集群架构（x86/ARM）并推荐合适的虚拟机机型配置。
+ * 
+ * [核心逻辑]
+ * 1. [架构检测] 通过节点列表的 architecture 字段判断 (amd64 vs arm64)。
+ * 2. [机型推荐] x86 推荐 q35, ARM 推荐 virt。
+ */
 export const getHarvesterCapabilities = async ({
   endpoint,
   token,
@@ -377,7 +470,7 @@ export const getHarvesterCapabilities = async ({
     origin = base.replace(/\/v[0-9].*$/, '');
   }
 
-  // 1. Detect Architecture from Nodes
+  // [架构检测] Detect Architecture from Nodes
   let architecture = 'amd64'; // default
   try {
     const nodes = await listHarvesterNodesStandard({ endpoint, token, insecure });
@@ -389,7 +482,7 @@ export const getHarvesterCapabilities = async ({
     console.warn('Failed to detect Harvester architecture:', e);
   }
 
-  // 2. Determine Recommended Machine Type
+  // [机型推荐] Determine Recommended Machine Type
   let recommendedMachineType = 'q35';
   if (architecture === 'arm64' || architecture === 'aarch64') {
     recommendedMachineType = 'virt';
@@ -405,6 +498,11 @@ export const getHarvesterCapabilities = async ({
   };
 };
 
+/**
+ * 获取 Harvester Service 列表
+ * [功能描述]
+ * 获取集群内的 Service 资源，优先使用 Steve API 以获得更丰富的元数据。
+ */
 export const listHarvesterServices = async ({
   endpoint,
   token,
@@ -451,6 +549,11 @@ export const listHarvesterServices = async ({
   }
 };
 
+/**
+ * 获取 Harvester StorageClass 列表
+ * [功能描述]
+ * 获取存储类列表，并手动构造前端所需的 view/self 链接。
+ */
 export const listHarvesterStorageClassesStandard = async ({
   endpoint,
   token,
@@ -489,6 +592,11 @@ export const listHarvesterStorageClassesStandard = async ({
   });
 };
 
+/**
+ * 获取所有 Harvester Settings (Raw)
+ * [功能描述]
+ * 获取 harvesterhci.io.settings CRD 的原始列表，包含所有系统设置。
+ */
 export const listHarvesterSettingsRaw = async ({
   endpoint,
   token,
@@ -508,6 +616,11 @@ export const listHarvesterSettingsRaw = async ({
   return items;
 };
 
+/**
+ * 获取单个 Harvester Setting (Raw)
+ * [功能描述]
+ * 根据名称获取特定设置的详细 CRD 对象。
+ */
 export const getHarvesterSettingRaw = async ({
   endpoint,
   token,
@@ -530,6 +643,11 @@ export const getHarvesterSettingRaw = async ({
   }
 };
 
+/**
+ * 获取单个 Harvester Setting 的值
+ * [功能描述]
+ * 获取特定设置的值（value 或 spec.value），并统一转为字符串。
+ */
 export const getHarvesterSettingValue = async ({
   endpoint,
   token,
@@ -540,6 +658,15 @@ export const getHarvesterSettingValue = async ({
   return typeof val === 'string' ? val : (val != null ? String(val) : null);
 };
 
+/**
+ * 更新 Harvester Setting 的值
+ * [功能描述]
+ * 更新系统设置。如果未提供 resourceVersion，会先获取当前版本以避免冲突。
+ * 
+ * [核心逻辑]
+ * 1. [版本并发控制] 检查 resourceVersion，若缺失则自动 fetch latest。
+ * 2. [原子更新] 发送 PUT 请求更新 settings CRD。
+ */
 export const updateHarvesterSettingValue = async ({
   endpoint,
   token,

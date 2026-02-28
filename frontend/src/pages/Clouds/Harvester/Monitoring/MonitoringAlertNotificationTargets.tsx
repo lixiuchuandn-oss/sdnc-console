@@ -8,8 +8,17 @@
   import type { ColumnsType, ColumnType } from 'antd/es/table';
   import { useAuth } from '../../../../contexts/AuthContext';
   import PageDetailSection from '../../../../components/PageDetailSection';
+  import {
+    useMonitoring,
+    ALERTMANAGERCONFIG_KIND,
+    EMAIL_RECEIVER,
+    DINGTALK_RECEIVER,
+    WEBSITE_RECEIVER,
+    MONITORING_API_VERSION,
+  } from './context/MonitoringContext';
   import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
   import {
+    deleteAlertmanagerconfig,
     deleteAlertmanagerconfigReceiver,
     fetchAllowedNamespaces,
     fetchAlertmanagerconfigs,
@@ -22,8 +31,10 @@
   } from '../../../../services/monitoringApi';
   import {
     buildReceiverSpec,
-    setReceiverTypeAnnotation,
+    fetchDingtalkWebhookConfig,
+    normalizeDingtalkReceiverSpec,
     type ReceiverName,
+    type ReceiverSpec,
   } from './utils/receivers';
 
   type ReceiverSpecItem = NotificationTargetReceiver;
@@ -43,18 +54,15 @@
     emailTo?: string;
     sendResolved?: boolean;
     /** dingtalk 展开后的字段（机器人账号与 specReceiverName 一致） */
-    webhookUrl?: string;
-    dingtalkRobotAccount?: string;
-    dingtalkRobotUrl?: string;
+    url?: string;
+    robotUrl?: string;
+    robotAccount?: string;
+    robotAccessToken?: string;
   };
 
   interface Props {
     cloudId: string;
   }
-  const EMAIL_RECEIVER = 'email-receiver';
-  const DINGTALK_RECEIVER = 'dingtalk-receiver';
-  const WEBSITE_RECEIVER = 'website-receiver';
-  const ALERTMANAGERCONFIG_API_VERSION = 'monitoring.coreos.com/v1alpha1';
   /** 通知方式列表，请求告警通知对象列表时传入 */
   const receiverNames = [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER] as const;
 
@@ -66,8 +74,9 @@
   };
   const RECEIVER_NAME_SELECT_OPTIONS = Object.entries(RECEIVER_NAME_LABELS).map(([value, label]) => ({ value, label }));
 
-const EMAIL_COLUMN_KEYS = ['receiverName', 'namespace', 'specReceiverName', 'smtpHost', 'smtpRequireTls', 'smtpAuthUsername', 'smtpAuthPassword', 'emailFrom', 'emailTo', 'sendResolved', 'action'] as const;
-const DINGTALK_COLUMN_KEYS = ['receiverName', 'namespace', 'specReceiverName', 'dingtalkRobotAccount', 'dingtalkUrl', 'sendResolved', 'action'] as const;
+const EMAIL_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'smtpHost', 'smtpRequireTls', 'smtpAuthUsername', 'smtpAuthPassword', 'emailFrom', 'emailTo', 'sendResolved', 'action'] as const;
+const DINGTALK_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'url', 'robotAccount', 'robotUrl', 'robotAccessToken', 'sendResolved', 'action'] as const;
+const WEBSITE_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'action'] as const;
 
   const COLUMN_TITLES: Record<string, string> = {
     receiverName: '通知方式',
@@ -80,8 +89,10 @@ const DINGTALK_COLUMN_KEYS = ['receiverName', 'namespace', 'specReceiverName', '
     emailFrom: '发件人',
     emailTo: '收件人',
     sendResolved: '是否发送恢复通知',
-    dingtalkRobotAccount: '钉钉机器人账号',
-    dingtalkRobotUrl: '钉钉机器人地址',
+    robotAccount: '钉钉机器人账号',
+    robotUrl: '钉钉机器人地址',
+    robotAccessToken: '钉钉机器人访问令牌',
+    url: 'webhook地址',
     action: '操作',
   };
   const getDefaultVisibleKeys = (type: string): string[] => {
@@ -93,11 +104,12 @@ const DEFAULT_ADMIN_NAMESPACE = 'cattle-monitoring-system';
 
   /** 邮件/钉钉分别使用独立 AlertmanagerConfig：metadata.name = email-receiver | dingtalk-receiver */
 const EMPTY_EMAIL_CONFIG = { emailTo: '', emailFrom: '', smarthost: '', requireTls: false, authUsername: '', authIdentity: '', authSecretKey: '', sendResolved: true };
-const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
+const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAccessToken: '', sendResolved: true };
 
   const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'super_admin' || user?.role === 'leased_lines_admin';
+    const { formNamespaceOptions, namespaceLoading, configNsFilter, setConfigNsFilter, namespaceList, tenantNamespaces } = useMonitoring();
 
     const [namespaceOptions, setNamespaceOptions] = useState<{ label: string; value: string }[]>([]);
     const [selectedNamespace, setSelectedNamespace] = useState<string>('');
@@ -106,8 +118,9 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
     const [receiverSpecs, setReceiverSpecs] = useState<ReceiverSpecItem[]>([]);
     const [loadingNs, setLoadingNs] = useState(false);
     const [visibleColumnKeysByTab, setVisibleColumnKeysByTab] = useState<Record<string, string[]>>(() => ({
-      EMAIL_RECEIVER: [...EMAIL_COLUMN_KEYS],
-      DINGTALK_RECEIVER: [...DINGTALK_COLUMN_KEYS],
+      [EMAIL_RECEIVER]: [...EMAIL_COLUMN_KEYS],
+      [DINGTALK_RECEIVER]: [...DINGTALK_COLUMN_KEYS],
+      [WEBSITE_RECEIVER]: [...WEBSITE_COLUMN_KEYS],
     }));
     const [detailRecord, setDetailRecord] = useState<ReceiverItem | null>(null);
     const [editingRecord, setEditingRecord] = useState<ReceiverItem | null>(null);
@@ -119,6 +132,9 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
     const [dingtalkConfigCount, setDingtalkConfigCount] = useState(1);
     const [addEmailForm] = Form.useForm();
     const [addDingtalkForm] = Form.useForm();
+    const [addWebsiteModalOpen, setAddWebsiteModalOpen] = useState(false);
+    const [addWebsiteFormLoading, setAddWebsiteFormLoading] = useState(false);
+    const [addWebsiteForm] = Form.useForm();
     const [emailModalSecrets, setEmailModalSecrets] = useState<OpaqueSecretItem[]>([]);
     const [loadingEmailModalSecrets, setLoadingEmailModalSecrets] = useState(false);
     const watchedEmailConfigs = Form.useWatch('emailConfigs', addEmailForm) ?? [];
@@ -166,21 +182,43 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
       }
     }, [cloudId, isAdmin]);
 
+    /** 根据 configNsFilter 决定请求的命名空间：选中具体命名空间则只请求该命名空间，选「全部」则请求当前角色下全部命名空间；钉钉项用 DingtalkWebhookConfig 补全 robotUrl/robotAccessToken */
     const loadReceivers = useCallback(async () => {
-      if (!cloudId || !selectedNamespace) return;
+      if (!cloudId) return;
+      const namespaces =
+        configNsFilter != null
+          ? [configNsFilter]
+          : (isAdmin ? namespaceList : tenantNamespaces);
+      if (namespaces.length === 0) {
+        setReceiverSpecs([]);
+        return;
+      }
       setLoading(true);
-      const { data, ok, error } = await fetchNotificationTargetsList(cloudId, {
-        namespaces: [selectedNamespace],
-        receiverName: [...receiverNames],
-      });
+      const [targetsRes, dingtalkRes] = await Promise.all([
+        fetchNotificationTargetsList(cloudId, { namespaces, receiverName: [...receiverNames] }),
+        fetchDingtalkWebhookConfig(cloudId),
+      ]);
       setLoading(false);
+      const { data, ok, error } = targetsRes;
       if (!ok) {
         message.error(error || '加载通知对象失败');
         setReceiverSpecs([]);
         return;
       }
-      setReceiverSpecs(data?.receivers && Array.isArray(data.receivers) ? data.receivers : []);
-    }, [cloudId, selectedNamespace]);
+      let receivers = data?.receivers && Array.isArray(data.receivers) ? data.receivers : [];
+      const dingtalkConfig = dingtalkRes.ok ? dingtalkRes.config : undefined;
+      receivers = receivers.map((r: NotificationTargetReceiver) => {
+        if ((r.receiverName ?? '').toString().trim() !== DINGTALK_RECEIVER) return r;
+        const ns = (r.namespace ?? '').toString().trim();
+        const specReceivers = Array.isArray((r as any).specReceivers)
+          ? (r as any).specReceivers.map((s: any) =>
+              normalizeDingtalkReceiverSpec(s as ReceiverSpec, ns, (s?.name ?? '').toString().trim(), dingtalkConfig)
+            )
+          : [];
+        return { ...r, specReceivers };
+      });
+      setReceiverSpecs(receivers);
+    }, [cloudId, configNsFilter, isAdmin, namespaceList, tenantNamespaces]);
 
     useEffect(() => {
       if (cloudId) loadNamespaceOptions();
@@ -190,11 +228,34 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
       if (isAdmin && selectedNamespace === '') setSelectedNamespace(DEFAULT_ADMIN_NAMESPACE);
     }, [isAdmin]);
 
+    /** 通知方式或命名空间变更时重新加载通知对象列表 */
     useEffect(() => {
-      if (cloudId && selectedNamespace) loadReceivers();
-    }, [cloudId, selectedNamespace, receiverNames, loadReceivers]);
+      if (cloudId) loadReceivers();
+    }, [cloudId, configNsFilter, receiverNameFilter, loadReceivers]);
 
-    // 邮件弹窗内命名空间变化时，通过 monitoring secrets 密钥接口（GET /monitoring/secrets）重新加载该命名空间下的 Secret 列表（SMTP 授权密钥）
+    /** 命名空间筛选改为具体命名空间时，同步 selectedNamespace 供「新增」使用 */
+    useEffect(() => {
+      if (configNsFilter != null) setSelectedNamespace(configNsFilter);
+    }, [configNsFilter]);
+
+    /** 按命名空间加载邮件弹窗内 SMTP 密钥列表（monitoring-receiver-secret 标签），命名空间变更时需刷新 */
+    const loadEmailModalSecrets = useCallback(
+      (namespace: string) => {
+        if (!cloudId) return;
+        const ns = (namespace ?? '').toString().trim();
+        if (!ns) {
+          setEmailModalSecrets([]);
+          return;
+        }
+        setLoadingEmailModalSecrets(true);
+        fetchSecrets(cloudId, { namespace: ns })
+          .then(({ data }) => setEmailModalSecrets(Array.isArray(data) ? data : []))
+          .finally(() => setLoadingEmailModalSecrets(false));
+      },
+      [cloudId]
+    );
+
+    // 邮件弹窗内命名空间变化时刷新该命名空间下的 Secret 列表
     useEffect(() => {
       if (!addEmailModalOpen || !cloudId) return;
       const ns = (watchedEmailFormNamespace ?? '').toString().trim();
@@ -202,19 +263,8 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
         setEmailModalSecrets([]);
         return;
       }
-      let cancelled = false;
-      setLoadingEmailModalSecrets(true);
-      fetchSecrets(cloudId, { namespace: ns })
-        .then(({ data }) => {
-          if (!cancelled) setEmailModalSecrets(Array.isArray(data) ? data : []);
-        })
-        .finally(() => {
-          if (!cancelled) setLoadingEmailModalSecrets(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }, [addEmailModalOpen, cloudId, watchedEmailFormNamespace]);
+      loadEmailModalSecrets(ns);
+    }, [addEmailModalOpen, cloudId, watchedEmailFormNamespace, loadEmailModalSecrets]);
 
     const handleOpenAddEmailModal = useCallback(async () => {
       if (!selectedNamespace) {
@@ -243,9 +293,29 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
       addDingtalkForm.setFieldsValue({
         namespace: selectedNamespace,
         specReceiverName: '',
-        dingtalkList: [{ ...EMPTY_DINGTALK_CONFIG }],
+        webhookConfigs: [{ ...EMPTY_DINGTALK_CONFIG }],
       });
     }, [selectedNamespace, addDingtalkForm]);
+
+    const handleOpenAddWebsiteModal = useCallback(async () => {
+      if (!selectedNamespace) {
+        message.warning('请先选择命名空间');
+        return;
+      }
+      setAddWebsiteModalOpen(true);
+      addWebsiteForm.resetFields();
+      addWebsiteForm.setFieldsValue({
+        namespace: selectedNamespace,
+        receiverName: WEBSITE_RECEIVER,
+        enabled: false,
+      });
+      if (cloudId) {
+        const { data, ok } = await fetchAlertmanagerconfigDetail(cloudId, selectedNamespace, WEBSITE_RECEIVER);
+        const raw = (data as any)?.data ?? (data as any);
+        const hasExisting = ok && raw && Array.isArray(raw?.spec?.receivers) && raw.spec.receivers.length > 0;
+        addWebsiteForm.setFieldsValue({ enabled: !!hasExisting });
+      }
+    }, [selectedNamespace, cloudId, addWebsiteForm]);
 
     const handleCloseAddEmailModal = useCallback(() => {
       setAddEmailModalOpen(false);
@@ -261,6 +331,52 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
       addDingtalkForm.resetFields();
     }, [addDingtalkForm]);
 
+    const handleCloseAddWebsiteModal = useCallback(() => {
+      setAddWebsiteModalOpen(false);
+      addWebsiteForm.resetFields();
+    }, [addWebsiteForm]);
+
+    const handleAddWebsiteSubmit = useCallback(async () => {
+      const values = await addWebsiteForm.validateFields(['namespace', 'receiverName', 'enabled']).catch(() => null);
+      if (!values || !cloudId) return;
+      const namespace = (values.namespace ?? selectedNamespace ?? '').toString().trim();
+      if (!namespace) {
+        message.warning('请选择命名空间');
+        return;
+      }
+      setAddWebsiteFormLoading(true);
+      try {
+        if (values.enabled) {
+          const receiverSpec = buildReceiverSpec(WEBSITE_RECEIVER, WEBSITE_RECEIVER as ReceiverName, {});
+          const payload = {
+            apiVersion: MONITORING_API_VERSION,
+            kind: ALERTMANAGERCONFIG_KIND,
+            metadata: { name: WEBSITE_RECEIVER, namespace },
+            spec: { receivers: [receiverSpec] },
+          };
+          const { ok, error } = await postAlertmanagerconfigReceivers(cloudId, namespace, WEBSITE_RECEIVER, payload);
+          if (ok) {
+            message.success('本站站内信已开通');
+            await loadReceivers();
+            handleCloseAddWebsiteModal();
+          } else {
+            message.error(error || '开通失败');
+          }
+        } else {
+          const { ok, error } = await deleteAlertmanagerconfig(cloudId, namespace, WEBSITE_RECEIVER);
+          if (ok) {
+            message.success('本站站内信已关闭');
+            await loadReceivers();
+            handleCloseAddWebsiteModal();
+          } else {
+            message.error(error || '关闭失败');
+          }
+        }
+      } finally {
+        setAddWebsiteFormLoading(false);
+      }
+    }, [addWebsiteForm, cloudId, selectedNamespace, loadReceivers, handleCloseAddWebsiteModal]);
+
     const handleAddEmailConfigRow = useCallback(() => {
       const current = Array.isArray(addEmailForm.getFieldValue('emailConfigs')) ? addEmailForm.getFieldValue('emailConfigs') : [];
       addEmailForm.setFieldValue('emailConfigs', [...current, { ...EMPTY_EMAIL_CONFIG }]);
@@ -275,15 +391,15 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
     }, [addEmailForm]);
 
     const handleAddDingtalkConfigRow = useCallback(() => {
-      const current = Array.isArray(addDingtalkForm.getFieldValue('dingtalkList')) ? addDingtalkForm.getFieldValue('dingtalkList') : [];
-      addDingtalkForm.setFieldValue('dingtalkList', [...current, { ...EMPTY_DINGTALK_CONFIG }]);
+      const current = Array.isArray(addDingtalkForm.getFieldValue('webhookConfigs')) ? addDingtalkForm.getFieldValue('webhookConfigs') : [];
+      addDingtalkForm.setFieldValue('webhookConfigs', [...current, { ...EMPTY_DINGTALK_CONFIG }]);
       setDingtalkConfigCount((prev) => prev + 1);
     }, [addDingtalkForm]);
 
     const handleRemoveDingtalkConfigRow = useCallback((index: number) => {
-      const current = Array.isArray(addDingtalkForm.getFieldValue('dingtalkList')) ? addDingtalkForm.getFieldValue('dingtalkList') : [];
+      const current = Array.isArray(addDingtalkForm.getFieldValue('webhookConfigs')) ? addDingtalkForm.getFieldValue('webhookConfigs') : [];
       if (current.length <= 1) return;
-      addDingtalkForm.setFieldValue('dingtalkList', current.filter((_: unknown, i: number) => i !== index));
+      addDingtalkForm.setFieldValue('webhookConfigs', current.filter((_: unknown, i: number) => i !== index));
       setDingtalkConfigCount((prev) => Math.max(1, prev - 1));
     }, [addDingtalkForm]);
 
@@ -293,13 +409,14 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
       formValues: any;
       setLoading: (v: boolean) => void;
       onSuccess: () => void;
-      /** 编辑时传入，表示替换该名称的 receiver 而非追加 */
+      /** 编辑时传入原 spec.receivers[].name，仅在该条上修改，不新增同名 receiver */
       editingSpecName?: string;
     }) => {
       const { namespace, receiverName, formValues, setLoading, onSuccess, editingSpecName } = args;
       setLoading(true);
       const specReceiverName = (formValues.specReceiverName ?? '').toString().trim() || receiverName;
       const receiverSpec = buildReceiverSpec(specReceiverName, receiverName as ReceiverName, formValues);
+      // 通知方式 name 一一对应 AlertmanagerConfig.metadata.name（kind: AlertmanagerConfig）
       const configName = receiverName;
       const { data: existingData, ok: fetchOk } = await fetchAlertmanagerconfigDetail(cloudId, namespace, configName);
       let payload: Record<string, unknown>;
@@ -307,14 +424,25 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
         const raw = existingData as any;
         const existing = raw?.data != null && typeof raw.data === 'object' ? raw.data : raw;
         const existingReceivers = Array.isArray(existing.spec?.receivers) ? existing.spec.receivers : [];
+        const trimName = (r: any) => (r?.name ?? '').toString().trim();
+        // 不允许 spec.receivers 中出现重复的 name
+        const nameAlreadyExists = existingReceivers.some(
+          (r: any) => trimName(r) === specReceiverName && trimName(r) !== (editingSpecName ?? '').trim()
+        );
+        if (nameAlreadyExists) {
+          setLoading(false);
+          message.warning('该通知对象名称已存在，请使用其他名称');
+          return;
+        }
+        // 编辑：只替换 editingSpecName 对应的一条；新增：追加一条
         const nextReceivers =
           editingSpecName != null && editingSpecName !== ''
-            ? existingReceivers.map((r: any) => ((r?.name ?? '').toString().trim() === editingSpecName ? receiverSpec : r))
+            ? existingReceivers.map((r: any) => (trimName(r) === editingSpecName ? receiverSpec : r))
             : [...existingReceivers, receiverSpec];
         payload = {
           ...existing,
-          apiVersion: existing.apiVersion ?? ALERTMANAGERCONFIG_API_VERSION,
-          kind: existing.kind ?? 'AlertmanagerConfig',
+          apiVersion: existing.apiVersion ?? MONITORING_API_VERSION,
+          kind: existing.kind ?? ALERTMANAGERCONFIG_KIND,
           metadata: {
             ...existing.metadata,
             name: configName,
@@ -325,8 +453,8 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
         };
       } else {
         payload = {
-          apiVersion: ALERTMANAGERCONFIG_API_VERSION,
-          kind: 'AlertmanagerConfig',
+          apiVersion: MONITORING_API_VERSION,
+          kind: ALERTMANAGERCONFIG_KIND,
           metadata: { name: configName, namespace },
           spec: { receivers: [receiverSpec] },
         };
@@ -335,8 +463,8 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
       setLoading(false);
       if (ok) {
         message.success(editingSpecName != null ? '通知对象已更新' : '通知对象已添加');
+        await loadReceivers();
         onSuccess();
-        loadReceivers();
       } else {
         message.error(error || (editingSpecName != null ? '更新通知对象失败' : '添加通知对象失败'));
       }
@@ -358,7 +486,7 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
     }, [addEmailForm, cloudId, selectedNamespace, editingRecord, upsertReceiverToAlertmanagerConfig, handleCloseAddEmailModal]);
 
     const handleAddDingtalkSubmit = useCallback(async () => {
-      const fieldsToValidate = ['namespace', 'specReceiverName', 'dingtalkList'];
+      const fieldsToValidate = ['namespace', 'specReceiverName', 'webhookConfigs'];
       const values = await addDingtalkForm.validateFields(fieldsToValidate).catch(() => null);
       const namespace = (values?.namespace ?? selectedNamespace) ?? '';
       if (!values || !cloudId || !namespace) return;
@@ -375,38 +503,27 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
     const handleDetail = useCallback((record: ReceiverItem) => setDetailRecord(record), []);
 
     const handleEdit = useCallback(
-      async (record: ReceiverItem) => {
+      (record: ReceiverItem, receiverRows: ReceiverItem[]) => {
         if (!cloudId || !record.namespace || !record.receiverName || !record.specReceiverName) {
-          message.warning('无法编辑：缺少命名空间或接收器信息');
-          return;
-        }
-        const configName = record.receiverName;
-        const { data: rawData, ok } = await fetchAlertmanagerconfigDetail(cloudId, record.namespace, configName);
-        if (!ok || !rawData) {
-          message.error('获取配置详情失败');
-          return;
-        }
-        const data = (rawData as any)?.data != null && typeof (rawData as any).data === 'object' ? (rawData as any).data : rawData;
-        const receivers = Array.isArray((data as any)?.spec?.receivers) ? (data as any).spec.receivers : [];
-        const receiverSpec = receivers.find((r: any) => (r?.name ?? '').toString().trim() === record.specReceiverName);
-        if (!receiverSpec) {
-          message.error('未找到该通知对象配置');
+          message.warning('无法编辑：缺少命名空间或通知对象信息');
           return;
         }
         setEditingRecord(record);
         if (record.receiverName === EMAIL_RECEIVER) {
-          const emailConfigs = Array.isArray(receiverSpec.emailConfigs) ? receiverSpec.emailConfigs : [];
+          const sameReceiverRows = receiverRows.filter(
+            (r) => r.namespace === record.namespace && r.receiverName === record.receiverName && r.specReceiverName === record.specReceiverName
+          );
           const formConfigs =
-            emailConfigs.length > 0
-              ? emailConfigs.map((c: any) => ({
-                  emailTo: c?.to ?? '',
-                  emailFrom: c?.from ?? '',
-                  smarthost: c?.smarthost ?? '',
-                  requireTls: c?.requireTLS !== false && c?.requireTls !== false,
-                  authUsername: c?.authUsername ?? '',
-                  authIdentity: (c?.authPassword && typeof c.authPassword === 'object' ? c.authPassword.name : '') ?? '',
-                  authSecretKey: (c?.authPassword && typeof c.authPassword === 'object' ? c.authPassword.key : '') ?? '',
-                  sendResolved: c?.sendResolved !== false,
+            sameReceiverRows.length > 0
+              ? sameReceiverRows.map((r) => ({
+                  emailTo: (r?.emailTo ?? '').toString().trim(),
+                  emailFrom: (r?.emailFrom ?? '').toString().trim(),
+                  smarthost: (r?.smtpHost ?? '').toString().trim(),
+                  requireTls: r?.smtpRequireTls === true,
+                  authUsername: (r?.smtpAuthUsername ?? '').toString().trim(),
+                  authIdentity: (r?.smtpAuthPassword?.name ?? '').toString().trim(),
+                  authSecretKey: (r?.smtpAuthPassword?.key ?? '').toString().trim(),
+                  sendResolved: r?.sendResolved !== false,
                 }))
               : [{ ...EMPTY_EMAIL_CONFIG }];
           setEmailConfigCount(formConfigs.length);
@@ -419,17 +536,19 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
           });
           setAddEmailModalOpen(true);
         } else if (record.receiverName === DINGTALK_RECEIVER) {
-          const webhookConfigs = Array.isArray(receiverSpec.webhookConfigs) ? receiverSpec.webhookConfigs : [];
-          const formList =
-            webhookConfigs.length > 0
-              ? webhookConfigs.map((c: any) => ({ webhookUrl: c?.url ?? '' }))
-              : [{ ...EMPTY_DINGTALK_CONFIG }];
-          setDingtalkConfigCount(formList.length);
+          const formList = [
+            {
+              robotUrl: (record?.robotUrl ?? '').toString().trim(),
+              robotAccessToken: (record?.robotAccessToken ?? '').toString().trim(),
+              sendResolved: record?.sendResolved !== false,
+            },
+          ];
+          setDingtalkConfigCount(1);
           addDingtalkForm.resetFields();
           addDingtalkForm.setFieldsValue({
             namespace: record.namespace,
             specReceiverName: record.specReceiverName,
-            dingtalkList: formList,
+            webhookConfigs: formList,
           });
           setAddDingtalkModalOpen(true);
         } else {
@@ -442,22 +561,21 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
     const handleDelete = useCallback(
       (record: ReceiverItem) => {
         if (!record.namespace || !record.receiverName || !record.specReceiverName) {
-          message.warning('无法删除：缺少命名空间或接收器信息');
+          message.warning('无法删除：缺少命名空间或通知对象信息');
           return;
         }
         Modal.confirm({
           title: '确定删除该通知对象？',
-          content: `将从「${record.specReceiverName}」中移除该接收器配置，告警通知策略中若引用了该对象需同步修改。`,
+          content: `将移出通知对象「${record.specReceiverName}」，告警通知策略中若引用了该对象需同步修改。`,
           okText: '确定',
           cancelText: '取消',
           okButtonProps: { danger: true },
           onOk: async () => {
-            const { ok, error } = await deleteAlertmanagerconfigReceiver(
-              cloudId!,
-              record.namespace!,
-              record.receiverName!,
-              record.specReceiverName
-            );
+            const deleteFn =
+              record.receiverName === WEBSITE_RECEIVER
+                ? () => deleteAlertmanagerconfig(cloudId!, record.namespace!, record.receiverName!)
+                : () => deleteAlertmanagerconfigReceiver(cloudId!, record.namespace!, record.receiverName!, record.specReceiverName);
+            const { ok, error } = await deleteFn();
             if (ok) {
               message.success('已删除');
               loadReceivers();
@@ -470,18 +588,102 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
       [cloudId, loadReceivers]
     );
 
+    const receiverRows: ReceiverItem[] = useMemo(() => {
+      const out: ReceiverItem[] = [];
+      for (const r of receiverSpecs) {
+        if (!r) continue;
+        const receiverName = (r.receiverName ?? '').toString().trim() || undefined;
+        const ns = (r.namespace ?? selectedNamespace) || '';
+        const list = Array.isArray((r as any)?.specReceivers) ? (r as any).specReceivers : [];
+        if (receiverName === EMAIL_RECEIVER) { // 邮件通知对象
+          for (const specReceiver of list) {
+            const specReceiverName = (specReceiver?.name ?? '').toString().trim() || '';
+            const specEmailConfigs = Array.isArray(specReceiver?.emailConfigs) ? specReceiver.emailConfigs : [];
+            specEmailConfigs.forEach((c: any, idx: number) => {
+              out.push({
+                key: `${ns}/${receiverName ?? ''}/${specReceiverName}/${idx}`,
+                namespace: ns || undefined,
+                receiverName: receiverName,
+                specReceiverName: specReceiverName,
+                emailTo: c?.to,
+                emailFrom: c?.from,
+                smtpHost: c?.smarthost,
+                smtpRequireTls: c?.requireTLS,
+                smtpAuthUsername: c?.authUsername,
+                smtpAuthPassword: {
+                  name: (c?.authPassword?.name ?? '').toString().trim(),
+                  key: (c?.authPassword?.key ?? '').toString().trim(),
+                },
+                sendResolved: c?.sendResolved,
+              });
+            });
+            if (specEmailConfigs.length === 0 && specReceiverName) {
+              out.push({
+                key: `${ns}/${receiverName ?? ''}/${specReceiverName}/0`,
+                namespace: ns || undefined,
+                receiverName: receiverName,
+                specReceiverName: specReceiverName,
+              } as ReceiverItem);
+            }
+          }
+        } else if (receiverName === DINGTALK_RECEIVER) {  // 钉钉通知对象
+          for (const specReceiver of list) {
+            const specReceiverName = (specReceiver?.name ?? '').toString().trim() || '';
+            const webhookConfigs = Array.isArray(specReceiver?.webhookConfigs) ? specReceiver.webhookConfigs : [];
+            webhookConfigs.forEach((c: any, idx: number) => {
+              out.push({
+                key: `${ns}/${receiverName ?? ''}/${specReceiverName}/${idx}`,
+                namespace: ns || undefined,
+                receiverName: receiverName,
+                specReceiverName: specReceiverName,
+                robotAccount: c?.robotAccount,
+                robotUrl: c?.robotUrl,
+                url: c?.url,
+                robotAccessToken: c?.robotAccessToken,
+                sendResolved: c?.sendResolved,
+              });
+            });
+            if (webhookConfigs.length === 0 && specReceiverName) {
+              out.push({
+                key: `${ns}/${receiverName ?? ''}/${specReceiverName}/0`,
+                namespace: ns || undefined,
+                receiverName: receiverName,
+                specReceiverName: specReceiverName,
+              } as ReceiverItem);
+            }
+          }
+        } else if (receiverName === WEBSITE_RECEIVER) {
+          for (const specReceiver of list) {
+            const specReceiverName = (specReceiver?.name ?? '').toString().trim() || WEBSITE_RECEIVER;
+            out.push({
+              key: `${ns}/${receiverName ?? ''}/${specReceiverName}`,
+              namespace: ns || undefined,
+              receiverName: receiverName,
+              specReceiverName: specReceiverName,
+            } as ReceiverItem);
+          }
+        }
+      }
+      return out;
+    }, [receiverSpecs, selectedNamespace]);
+
+    const filteredReceivers = useMemo(
+      () => receiverRows.filter((r) => r.receiverName === receiverNameFilter),
+      [receiverRows, receiverNameFilter]
+    );
+
     const renderAction = useCallback(
       (_: unknown, record: ReceiverItem) => (
         <ResourceActionsDropdown
           items={[
-            { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
+            { key: 'edit', label: '编辑', onClick: () => handleEdit(record, receiverRows) },
             { key: 'detail', label: '详情', onClick: () => handleDetail(record) },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) },
           ]}
         />
       ),
-      [handleDetail, handleEdit, handleDelete]
+      [handleDetail, handleEdit, handleDelete, receiverRows]
     );
 
     const emailColumns: ColumnsType<ReceiverItem> = useMemo(
@@ -499,6 +701,14 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
           dataIndex: 'specReceiverName',
           key: 'specReceiverName',
           width: 140,
+          ellipsis: true,
+          onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+        },
+        {
+          title: '命名空间',
+          dataIndex: 'namespace',
+          key: 'namespace',
+          width: 160,
           ellipsis: true,
           onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
         },
@@ -569,20 +779,28 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
           onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
         },
         {
+          title: '命名空间',
+          dataIndex: 'namespace',
+          key: 'namespace',
+          width: 160,
+          ellipsis: true,
+          onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+        },
+        {
           title: '钉钉机器人账号',
-          dataIndex: 'specReceiverName',
-          key: 'dingtalkRobotAccount',
+          dataIndex: 'robotAccount',
+          key: 'robotAccount',
           width: 140,
           ellipsis: true,
           onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
-          render: (v: string | undefined) => v || '-',
         },
         {
           title: '钉钉机器人地址',
-          dataIndex: 'dingtalkRobotUrl',
-          key: 'dingtalkRobotUrl',
+          dataIndex: 'robotUrl',
+          key: 'robotUrl',
           width: 260,
           ellipsis: true,
+          render: (v: string | undefined) => v?.trim() || '-',
           onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
         },
         {
@@ -598,67 +816,55 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
       [renderAction]
     );
 
-    const receiverRows: ReceiverItem[] = useMemo(() => {
-      const out: ReceiverItem[] = [];
-      for (const r of receiverSpecs) {
-        if (!r) continue;
-        const receiverName = (r.receiverName ?? '').toString().trim() || undefined;
-        const ns = (r.namespace ?? selectedNamespace) || '';
-        if (receiverName === EMAIL_RECEIVER) {
-          const specReceiver = r.specReceivers[0];
-          const specReceiverName = specReceiver?.name ?? '';
-          const specEmailConfigs = specReceiver?.emailConfigs ?? [];
-          specEmailConfigs.forEach((c: any, idx: number) => {
-            out.push({
-              key: `${ns}/${receiverName ?? ''}/${specReceiverName}/${idx}`,
-              namespace: ns || undefined,
-              receiverName: receiverName,
-              specReceiverName: specReceiverName,
-              emailTo: c.to,
-              emailFrom: c.from,
-              smtpHost: c.smarthost,
-              smtpRequireTls: c.requireTLS,
-              smtpAuthUsername: c.authUsername,
-              smtpAuthPassword: {
-                name: c.authPassword?.name ?? '',
-                key: c.authPassword?.key ?? '',
-              },
-              sendResolved: c.sendResolved,
-            });
-          });
-        } else if (receiverName === DINGTALK_RECEIVER) {
-          const specReceiver = r.specReceivers[0];
-          const specReceiverName = specReceiver?.name ?? '';
-          const webhookConfigs = specReceiver?.webhookConfigs ?? [];
-          webhookConfigs.forEach((c: any, idx: number) => {
-            out.push({
-              key: `${ns}/${receiverName ?? ''}/${specReceiverName}/${idx}`,
-              namespace: ns || undefined,
-              receiverName: receiverName,
-              specReceiverName: specReceiverName,
-              dingtalkRobotAccount: specReceiverName,
-              webhookUrl: c.url,
-              sendResolved: c.sendResolved,
-            });
-          });
-        }
-      }
-      return out;
-    }, [receiverSpecs, selectedNamespace]);
-
-    const columns = useMemo(() => {
-      const base = receiverNameFilter === DINGTALK_RECEIVER ? dingtalkColumns : emailColumns;
-      const visible = visibleColumnKeysByTab[receiverNameFilter] ?? getDefaultVisibleKeys(receiverNameFilter);
-      return base.filter((col: ColumnType<ReceiverItem>) => visible.includes((col.key ?? '') as string));
-    }, [receiverNameFilter, emailColumns, dingtalkColumns, visibleColumnKeysByTab]);
-
-    const filteredReceivers = useMemo(
-      () => receiverRows.filter((r) => r.receiverName === receiverNameFilter),
-      [receiverRows, receiverNameFilter]
+    const websiteColumns: ColumnsType<ReceiverItem> = useMemo(
+      () => [
+        {
+          title: '通知方式',
+          dataIndex: 'receiverName',
+          key: 'receiverName',
+          width: 90,
+          onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+          render: (_: unknown, r: ReceiverItem) => RECEIVER_NAME_LABELS[r.receiverName ?? ''] ?? r.receiverName ?? '-',
+        },
+        {
+          title: '通知对象名称',
+          dataIndex: 'specReceiverName',
+          key: 'specReceiverName',
+          width: 140,
+          ellipsis: true,
+          onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+        },
+        {
+          title: '命名空间',
+          dataIndex: 'namespace',
+          key: 'namespace',
+          width: 160,
+          ellipsis: true,
+          onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+        },
+        { title: '操作', key: 'action', width: 80, fixed: 'right', onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: renderAction },
+      ],
+      [renderAction]
     );
 
+    const columns = useMemo(() => {
+      const base =
+        receiverNameFilter === DINGTALK_RECEIVER
+          ? dingtalkColumns
+          : receiverNameFilter === WEBSITE_RECEIVER
+            ? websiteColumns
+            : emailColumns;
+      const visible = visibleColumnKeysByTab[receiverNameFilter] ?? getDefaultVisibleKeys(receiverNameFilter);
+      return base.filter((col: ColumnType<ReceiverItem>) => visible.includes((col.key ?? '') as string));
+    }, [receiverNameFilter, emailColumns, dingtalkColumns, websiteColumns, visibleColumnKeysByTab]);
+
     const currentTypeColumnKeys = useMemo(
-      () => (receiverNameFilter === 'dingtalk-receiver' ? [...DINGTALK_COLUMN_KEYS] : [...EMAIL_COLUMN_KEYS]),
+      () =>
+        receiverNameFilter === DINGTALK_RECEIVER
+          ? [...DINGTALK_COLUMN_KEYS]
+          : receiverNameFilter === WEBSITE_RECEIVER
+            ? [...WEBSITE_COLUMN_KEYS]
+            : [...EMAIL_COLUMN_KEYS],
       [receiverNameFilter]
     );
 
@@ -678,10 +884,11 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
               <Select
                 placeholder="命名空间"
                 allowClear
-                value={selectedNamespace || undefined}
-                onChange={(v) => setSelectedNamespace(v ?? '')}
-                options={namespaceOptions}
-                loading={!isAdmin && loadingNs}
+                value={configNsFilter}
+                onChange={setConfigNsFilter}
+                loading={namespaceLoading}
+                options={formNamespaceOptions}
+                style={{ width: 250 }}
               />
             </>
           }
@@ -690,9 +897,17 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => (receiverNameFilter === DINGTALK_RECEIVER ? handleOpenAddDingtalkModal() : handleOpenAddEmailModal())}
+                onClick={() => {
+                  if (receiverNameFilter === EMAIL_RECEIVER) handleOpenAddEmailModal();
+                  else if (receiverNameFilter === DINGTALK_RECEIVER) handleOpenAddDingtalkModal();
+                  else if (receiverNameFilter === WEBSITE_RECEIVER) handleOpenAddWebsiteModal();
+                }}
               >
-                {receiverNameFilter === DINGTALK_RECEIVER ? '新增钉钉通知对象' : '新增邮件通知对象'}
+                {receiverNameFilter === EMAIL_RECEIVER
+                  ? '新增邮件通知对象'
+                  : receiverNameFilter === DINGTALK_RECEIVER
+                    ? '新增钉钉通知对象'
+                    : '新增站内信通知对象'}
               </Button>
               <Dropdown
                 trigger={['click']}
@@ -743,7 +958,7 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
               </Descriptions.Item>
               <Descriptions.Item label="命名空间">{detailRecord.namespace ?? '-'}</Descriptions.Item>
               <Descriptions.Item label="通知对象名称">{detailRecord.specReceiverName ?? '-'}</Descriptions.Item>
-              {detailRecord.receiverName === EMAIL_RECEIVER && (
+              {detailRecord.receiverName === EMAIL_RECEIVER && ( // 邮件通知对象
                 <>
                   <Descriptions.Item label="发件人">{detailRecord.emailFrom ?? '-'}</Descriptions.Item>
                   <Descriptions.Item label="收件人">{detailRecord.emailTo ?? '-'}</Descriptions.Item>
@@ -754,12 +969,16 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
                   <Descriptions.Item label="SMTP授权账号密钥(Secret)">{detailRecord.smtpAuthPassword?.name ?? '-'}</Descriptions.Item>
                 </>
               )}
-              {detailRecord.receiverName === DINGTALK_RECEIVER && (
+              {detailRecord.receiverName === DINGTALK_RECEIVER && ( // 钉钉通知对象
                 <>
-                  <Descriptions.Item label="钉钉机器人账号">{detailRecord.specReceiverName ?? '-'}</Descriptions.Item>
-                  <Descriptions.Item label="钉钉机器人地址">{detailRecord.dingtalkRobotUrl ?? detailRecord.webhookUrl ?? '-'}</Descriptions.Item>
+                  <Descriptions.Item label="钉钉机器人账号">{detailRecord.robotAccount ?? '-'}</Descriptions.Item>
+                  <Descriptions.Item label="钉钉机器人地址">{detailRecord.robotUrl ?? '-'}</Descriptions.Item>
+                  <Descriptions.Item label="钉钉机器人访问令牌">{detailRecord.robotAccessToken ? '***' : '-'}</Descriptions.Item>
                   <Descriptions.Item label="发送恢复通知">{detailRecord.sendResolved === true ? '是' : '否'}</Descriptions.Item>
                 </>
+              )}
+              {detailRecord.receiverName === WEBSITE_RECEIVER && (
+                <Descriptions.Item label="说明">本站站内信通知对象，无额外配置</Descriptions.Item>
               )}
             </Descriptions>
           )}
@@ -770,7 +989,7 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
           open={addEmailModalOpen}
           onCancel={handleCloseAddEmailModal}
           destroyOnClose
-          width={720}
+          width={800}
           footer={[
             <Button key="cancel" onClick={handleCloseAddEmailModal}>取消</Button>,
             <Button key="submit" type="primary" loading={addEmailFormLoading} onClick={() => handleAddEmailSubmit()}>确定</Button>,
@@ -785,19 +1004,37 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
               emailConfigs: [{ ...EMPTY_EMAIL_CONFIG }],
             }}
           >
-            <Form.Item name="specReceiverName" label="通知对象名称" rules={[{ required: true, message: '请输入通知对象名称' }]}>
-              <Input placeholder="如：default、my-email 等" disabled={!!editingRecord} />
-            </Form.Item>
-            <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
-              <Select
-                placeholder="命名空间"
-                allowClear
-                options={namespaceOptions}
-                loading={!isAdmin && loadingNs}
-                style={{ minWidth: '100%' }}
-                disabled={!!editingRecord}
-              />
-            </Form.Item>
+            <Row gutter={24}>
+              <Col span={10}>
+                <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
+                  <Select
+                    placeholder="命名空间"
+                    allowClear
+                    options={formNamespaceOptions}
+                    loading={namespaceLoading}
+                    style={{ minWidth: '100%' }}
+                    disabled={!!editingRecord}
+                    onChange={(ns) => {
+                      if (ns != null && ns !== '') loadEmailModalSecrets(String(ns));
+                      else setEmailModalSecrets([]);
+                      // 命名空间变更后密钥列表变化，清空所有邮箱配置的「密钥名称」「密钥Key」
+                      const configs = addEmailForm.getFieldValue('emailConfigs') ?? [];
+                      if (Array.isArray(configs) && configs.length > 0) {
+                        addEmailForm.setFieldValue(
+                          'emailConfigs',
+                          configs.map((c: any) => ({ ...c, authIdentity: '', authSecretKey: '' }))
+                        );
+                      }
+                    }}
+                  />
+                </Form.Item>
+              </Col>
+            <Col span={14}>
+              <Form.Item name="specReceiverName" label="通知对象名称" rules={[{ required: true, message: '请输入通知对象名称' }]}>
+                <Input placeholder="如：ops-email、storage-email 等" />
+              </Form.Item>
+            </Col>
+          </Row>
             {Array.from({ length: emailConfigCount }).map((_, index) => (
               <div key={`email-${index}`} style={{ marginBottom: 16, padding: 12, background: '#fafafa', borderRadius: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -867,7 +1104,7 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
           open={addDingtalkModalOpen}
           onCancel={handleCloseAddDingtalkModal}
           destroyOnClose
-          width={560}
+          width={800}
           footer={[
             <Button key="cancel" onClick={handleCloseAddDingtalkModal}>取消</Button>,
             <Button key="submit" type="primary" loading={addDingtalkFormLoading} onClick={() => handleAddDingtalkSubmit()}>确定</Button>,
@@ -879,34 +1116,93 @@ const EMPTY_DINGTALK_CONFIG = { webhookUrl: '' };
             initialValues={{
               namespace: selectedNamespace,
               specReceiverName: '',
-              dingtalkList: [{ webhookUrl: '' }],
+              webhookConfigs: [{ url: '', robotAccount: '', robotUrl: '', robotAccessToken: '', sendResolved: true }],
             }}
           >
-            <Form.Item name="specReceiverName" label="通知对象名称/机器人账号" rules={[{ required: true, message: '请输入通知对象名称/机器人账号' }]}>
-              <Input placeholder="如：default、my-dingtalk 等" disabled={!!editingRecord} />
-            </Form.Item>
-            <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
-              <Select
-                placeholder="命名空间"
-                allowClear
-                options={namespaceOptions}
-                loading={!isAdmin && loadingNs}
-                style={{ minWidth: '100%' }}
-                disabled={!!editingRecord}
+            <Row gutter={24}>
+              <Col span={10}>
+              <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
+                <Select
+                  placeholder="命名空间"
+                  allowClear={!editingRecord}
+                  disabled={!!editingRecord}
+                  loading={namespaceLoading}
+                  options={formNamespaceOptions}
+                  style={{ minWidth: '100%' }}
               />
-            </Form.Item>
+              </Form.Item>
+              </Col>
+            <Col span={14}>
+              <Form.Item name="specReceiverName" label="通知对象名称" rules={[{ required: true, message: '请输入通知对象名称' }]}>
+                <Input placeholder="ops-dingtalk、storage-dingtalk 等" />
+              </Form.Item>
+            </Col>
+          </Row>
             {Array.from({ length: dingtalkConfigCount }).map((_, index) => (
               <div key={`dingtalk-${index}`} style={{ marginBottom: 16, padding: 12, background: '#e6f4ff', borderRadius: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>钉钉机器人地址 {index + 1}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>钉钉Webhook地址 {index + 1}</span>
                   {dingtalkConfigCount > 1 && <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => handleRemoveDingtalkConfigRow(index)}>删除</Button>}
                 </div>
-                <Form.Item name={['dingtalkList', index, 'webhookUrl']} label="Webhook 地址" rules={[{ required: true, message: '请输入 Webhook 地址' }]}>
-                  <Input placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
+                <Form.Item name={['webhookConfigs', index, 'robotUrl']} label="钉钉机器人地址" rules={[{ required: true, message: '请输入钉钉机器人地址' }]}>
+                  <Input placeholder="https://oapi.dingtalk.com/robot/send" />
+                </Form.Item>
+                <Form.Item name={['webhookConfigs', index, 'robotAccessToken']} label="钉钉机器人访问令牌" rules={[{ required: true, message: '请输入访问令牌' }]}>
+                  <Input.Password placeholder="你的钉钉机器人访问令牌" autoComplete="off" />
+                </Form.Item>
+                <Form.Item name={['webhookConfigs', index, 'sendResolved']} label="是否发送恢复通知" valuePropName="checked">
+                  <Switch checkedChildren="是" unCheckedChildren="否" />
                 </Form.Item>
               </div>
             ))}
-            <Button type="dashed" onClick={handleAddDingtalkConfigRow} block icon={<PlusOutlined />}>添加钉钉机器人地址</Button>
+            </Form>
+        </Modal>
+
+        <Modal
+          title="新增站内信通知对象"
+          open={addWebsiteModalOpen}
+          onCancel={handleCloseAddWebsiteModal}
+          destroyOnClose
+          width={520}
+          footer={[
+            <Button key="cancel" onClick={handleCloseAddWebsiteModal}>取消</Button>,
+            <Button key="submit" type="primary" loading={addWebsiteFormLoading} onClick={() => handleAddWebsiteSubmit()}>确定</Button>,
+          ]}
+        >
+          <Form
+            form={addWebsiteForm}
+            layout="vertical"
+            initialValues={{
+              namespace: selectedNamespace,
+              receiverName: WEBSITE_RECEIVER,
+              enabled: false,
+            }}
+          >
+            <Row gutter={24}>
+              <Col span={12}>
+                <Form.Item name="receiverName" label="通知方式" rules={[{ required: true }]}>
+                  <Select
+                    options={[{ value: WEBSITE_RECEIVER, label: '本站站内信' }]}
+                    disabled
+                    style={{ minWidth: '100%' }}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
+                  <Select
+                    placeholder="命名空间"
+                    allowClear
+                    options={formNamespaceOptions}
+                    loading={namespaceLoading}
+                    style={{ minWidth: '100%' }}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item name="enabled" label="启用本站站内信" valuePropName="checked">
+              <Switch checkedChildren="已开通" unCheckedChildren="未开通" />
+            </Form.Item>
           </Form>
         </Modal>
       </PageDetailSection>

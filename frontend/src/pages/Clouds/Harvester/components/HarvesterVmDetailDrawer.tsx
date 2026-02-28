@@ -12,8 +12,7 @@ import { stopHarvesterVm, startHarvesterVm, abortHarvesterMigration, detachHarve
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
-import BackupsSection from '../sections/BackupsSection';
-import ScheduleVmBackupsSection from '../sections/ScheduleVmBackupsSection';
+import HarvesterVmBackupTab from './HarvesterVmBackupTab';
 import { ReactComponent as CpuIcon } from '../../../../assets/clouds/cpu.svg';
 import { ReactComponent as MemIcon } from '../../../../assets/clouds/mem.svg';
 import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
@@ -927,65 +926,18 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           )}
 
           {activeTab === 'backup_snapshot' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                  {/* Backup Section */}
-                  <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ color: '#666' }}>备份</span>
-                      </div>
-                      <Card bordered={false} bodyStyle={{ padding: 16 }}>
-                          <BackupsSection 
-                              cloudId={cloudId}
-                              backups={backups}
-                              loading={backupsLoading}
-                              onRefresh={() => fetchBackups(true)}
-                              namespaces={namespaces}
-                              vms={[record]}
-                              type="backup"
-                              vmId={SafeRead.vmId(record)}
-                              bordered={false}
-                          />
-                      </Card>
-                  </div>
-
-                  {/* Snapshot Section */}
-                  <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ color: '#666' }}>快照</span>
-                      </div>
-                      <Card bordered={false} bodyStyle={{ padding: 16 }}>
-                          <BackupsSection 
-                              cloudId={cloudId}
-                              backups={backups}
-                              loading={backupsLoading}
-                              onRefresh={() => fetchBackups(true)}
-                              namespaces={namespaces}
-                              vms={[record]}
-                              type="snapshot"
-                              vmId={SafeRead.vmId(record)}
-                              bordered={false}
-                          />
-                      </Card>
-                  </div>
-
-                  {/* Schedule Section */}
-                  <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ color: '#666' }}>定时策略</span>
-                      </div>
-                      <Card bordered={false} bodyStyle={{ padding: 16 }}>
-                          <ScheduleVmBackupsSection 
-                              cloudId={cloudId}
-                              data={schedules}
-                              loading={schedulesLoading}
-                              onRefresh={() => fetchSchedules(true)}
-                              vmId={SafeRead.vmId(record)}
-                              defaultHiddenColumns={['id', 'namespace', 'retention', 'maxFailure', 'age']}
-                              bordered={false}
-                          />
-                      </Card>
-                  </div>
-              </div>
+            <div style={{ padding: '0 0 24px' }}>
+              <HarvesterVmBackupTab 
+                  cloudId={cloudId}
+                  record={record}
+                  backups={backups}
+                  schedules={schedules}
+                  backupsLoading={backupsLoading}
+                  schedulesLoading={schedulesLoading}
+                  onRefresh={(force) => { fetchBackups(force); fetchSchedules(force); }}
+                  namespaces={namespaces}
+              />
+            </div>
           )}
           
           {activeTab === 'events' && (

@@ -95,55 +95,44 @@ export function fetchNodeMetrics(cloudId: string, options?: { signal?: AbortSign
   return apiGet(`${base(cloudId)}/node-metrics`, options);
 }
 
+/** Prometheus query_range 响应格式 */
+export interface PrometheusQueryRangeResponse {
+  status?: string;
+  data?: {
+    resultType?: string;
+    result?: Array<{ metric?: Record<string, string>; values?: [number, string][] }>;
+  };
+}
+
+/** Prometheus 范围查询：用于 VM 性能图表等，query/start/end/step 对应 Prometheus query_range API */
 export function fetchMetricRange(
   cloudId: string,
   params: { query: string; start: number; end: number; step: number },
   options?: { signal?: AbortSignal }
-) {
+): Promise<{ data: PrometheusQueryRangeResponse | null; ok: boolean; error?: string }> {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  const q = new URLSearchParams();
-  q.set('query', params.query);
-  q.set('start', params.start.toString());
-  q.set('end', params.end.toString());
-  q.set('step', params.step.toString());
-  return apiGet<{ data: { result: any[] } }>(`${base(cloudId)}/metrics/range?${q.toString()}`, options);
-}
-
-export interface PrometheusRuleItem {
-  datasource: string;
-  groupName: string;
-  groupAliasName: string;
-  namespace?: string;
-  name: string;
-  aliasName: string;
-  expression: string;
-  interval: string;
-  severity: string;
-}
-
-export function fetchPrometheusRules(cloudId: string, options?: { signal?: AbortSignal; alertNames?: string[] }) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet<{ rules: PrometheusRuleItem[] }>(`${base(cloudId)}/prometheusrules?datasource=prometheus`, options);
-}
-
-export function fetchPrometheusRulesGroups(cloudId: string, options?: { signal?: AbortSignal }) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet<{ rulesGroupMap: Record<string, string> }>(`${base(cloudId)}/prometheusrules-groups?datasource=prometheus`, options);
+  const q = new URLSearchParams({
+    query: params.query,
+    start: String(params.start),
+    end: String(params.end),
+    step: String(params.step),
+  });
+  return apiGet<PrometheusQueryRangeResponse>(`${base(cloudId)}/metric-range?${q.toString()}`, options);
 }
 
 export function fetchAlertsRules(
   cloudId: string,
-  options?: { signal?: AbortSignal; namespace?: string; page?: number; pageSize?: number }
+  options?: { signal?: AbortSignal; datasource?: string; namespace?: string; page?: number; pageSize?: number }
 ) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  const query = new URLSearchParams();
-  if (options?.namespace) query.set('namespace', options.namespace);
-  if (options?.page) query.set('page', String(options.page));
-  if (options?.pageSize) query.set('pageSize', String(options.pageSize));
-  return apiGet<{ data: any[]; total: number } | any[]>(`${base(cloudId)}/alerts-rules?${query.toString()}`, options);
+  const params = new URLSearchParams();
+  if (options?.datasource) params.set('datasource', options.datasource);
+  if (options?.namespace) params.set('namespace', options.namespace);
+  if (options?.page != null) params.set('page', String(options.page));
+  if (options?.pageSize != null) params.set('pageSize', String(options.pageSize));
+  const q = params.toString();
+  return apiGet(`${base(cloudId)}/alerts-rules${q ? `?${q}` : ''}`, options);
 }
-
-
 
 export function fetchVirtualMachineInstances(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
@@ -177,9 +166,94 @@ export function fetchAlertmanagerconfigDetail(
   return apiGet(`${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, options);
 }
 
+/** 邮件通知对象（receiverName = email-receiver，对齐 AlertmanagerConfig spec.receivers[]） */
+export interface NotificationTargetEmailReceiver {
+  namespace?: string;
+  receiverName: 'email-receiver';
+  specReceivers: Array<{
+    name: string;
+    emailConfigs?: Array<{
+      to?: string;
+      from?: string;
+      smarthost?: string;
+      authUsername?: string;
+      authPassword?: { name: string; key: string };
+      requireTLS?: boolean;
+      tlsConfig?: Record<string, unknown>;
+      sendResolved?: boolean;
+    }>;
+  }>;
+}
+
+/** 钉钉通知对象（receiverName = dingtalk-receiver，对齐 AlertmanagerConfig spec.receivers[]，webhookConfigs 为代理 URL） */
+export interface NotificationTargetDingtalkReceiver {
+  namespace?: string;
+  receiverName: 'dingtalk-receiver';
+  specReceivers: Array<{
+    name: string;
+    webhookConfigs?: Array<{
+      url?: string;
+      robotUrl?: string;
+      robotAccount?: string;
+      robotAccessToken?: string;
+      sendResolved?: boolean;
+    }>;
+  }>;
+}
+
+/** 告警通知对象（邮件与钉钉分类型，便于 UI 区分；后端列表接口返回此联合类型） */
+export type NotificationTargetReceiver = NotificationTargetEmailReceiver | NotificationTargetDingtalkReceiver;
+
+/** 告警通知对象：按命名空间拉取 receivers 列表（后端返回新结构），receiverName 为 email-receiver / dingtalk-receiver / website-receiver */
+export function fetchNotificationTargets(
+  cloudId: string,
+  namespace: string,
+  options?: { signal?: AbortSignal; receiverName?: string }
+) {
+  if (!cloudId || !namespace) return Promise.resolve({ data: null, ok: false, error: '缺少资源ID或命名空间' });
+  const params = new URLSearchParams();
+  if (options?.receiverName) params.set('receiverName', options.receiverName);
+  const q = params.toString();
+  return apiGet<{ receivers: NotificationTargetReceiver[] }>(
+    `${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/receivers${q ? `?${q}` : ''}`,
+    options
+  );
+}
+
+/** 告警通知对象：调用 list 路由，按 namespaces/receiverName 过滤聚合（GET .../alertmanagerconfigs/receivers） */
+export function fetchNotificationTargetsList(
+  cloudId: string,
+  options?: { signal?: AbortSignal; namespaces?: string[]; receiverName?: string[] }
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const params = new URLSearchParams();
+  (options?.namespaces ?? []).forEach((ns) => params.append('namespaces', ns));
+  (options?.receiverName ?? []).forEach((r) => params.append('receiverName', r));
+  const q = params.toString();
+  return apiGet<{ receivers: NotificationTargetReceiver[] }>(
+    `${base(cloudId)}/alertmanagerconfigs/receivers${q ? `?${q}` : ''}`,
+    options
+  );
+}
+
 export function createAlertmanagerconfig(cloudId: string, body: unknown) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiPostPut(`${base(cloudId)}/alertmanagerconfigs`, 'POST', body);
+}
+
+/** 告警通知对象：新增/更新配置。URL 指定 namespace 与 name（email-receiver / dingtalk-receiver / website-receiver），不存在则创建对应 AlertmanagerConfig，存在则在其 spec.receivers 下追加/更新；body 为完整 AlertmanagerConfig。 */
+export function postAlertmanagerconfigReceivers(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  body: unknown
+) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiPostPut(
+    `${base(cloudId)}/alertmanagerconfigs/receivers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    'POST',
+    body
+  );
 }
 
 export function updateAlertmanagerconfig(cloudId: string, namespace: string, name: string, body: unknown) {
@@ -196,191 +270,88 @@ export function deleteAlertmanagerconfig(cloudId: string, namespace: string, nam
   return apiDelete(`${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 }
 
-export function fetchPrometheusRuleVmCustomRules(cloudId: string, options?: { signal?: AbortSignal }) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/prometheus-rules/vm-custom-rules`, options);
-}
-
-export function fetchPrometheusRuleDetail(
-  cloudId: string,
-  namespace: string,
-  name: string,
-  options?: { signal?: AbortSignal }
-) {
-  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiGet(`${base(cloudId)}/prometheus-rules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, options);
-}
-
-export function createPrometheusRule(cloudId: string, body: unknown) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiPostPut(`${base(cloudId)}/prometheus-rules`, 'POST', body);
-}
-
-export function updatePrometheusRule(cloudId: string, namespace: string, name: string, body: unknown) {
-  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiPostPut(
-    `${base(cloudId)}/prometheus-rules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
-    'PUT',
-    body
-  );
-}
-
-export function deletePrometheusRule(cloudId: string, namespace: string, name: string) {
-  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiDelete(`${base(cloudId)}/prometheus-rules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-}
-
-// --- 告警通知策略（Secret + AlertmanagerConfig receiver/route） ---
-
-export function fetchAlertNotifications(cloudId: string, options?: { signal?: AbortSignal }) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/notifications`, options);
-}
-
-export function saveAlertNotifications(cloudId: string, body: unknown) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiPostPut(`${base(cloudId)}/notifications`, 'POST', body);
-}
-
-// --- 日志 API ---
-
-export function fetchClusterFlows(cloudId: string, options?: { signal?: AbortSignal }) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/logging/clusterflows`, options);
-}
-
-// --- 告警通知对象 & Secret ---
-
-export interface OpaqueSecretItem {
-  name: string;
-  data: Record<string, string>;
-}
-
-export function fetchSecrets(cloudId: string, options?: { namespace?: string; signal?: AbortSignal }) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  const q = new URLSearchParams();
-  if (options?.namespace) q.set('namespace', options.namespace);
-  return apiGet<OpaqueSecretItem[]>(`${base(cloudId)}/secrets?${q.toString()}`, options);
-}
-
-export interface NotificationTargetReceiver {
-  namespace: string;
-  receiverName: string;
-  specReceivers: any[]; // 对应 AlertmanagerConfig spec.receivers
-}
-
-export function fetchNotificationTargetsList(
-  cloudId: string,
-  params?: { namespaces?: string[]; receiverName?: string[] },
-  options?: { signal?: AbortSignal }
-) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  const q = new URLSearchParams();
-  if (params?.namespaces) {
-    params.namespaces.forEach((n) => q.append('namespaces', n));
-  }
-  if (params?.receiverName) {
-    params.receiverName.forEach((n) => q.append('receiverName', n));
-  }
-  return apiGet<{ receivers: NotificationTargetReceiver[] }>(`${base(cloudId)}/alertmanagerconfigs/receivers?${q.toString()}`, options);
-}
-
+/** 告警通知对象：删除指定接收器（仅从 spec.receivers 中移除 specReceiverName，不删除整个 AlertmanagerConfig） */
 export function deleteAlertmanagerconfigReceiver(
   cloudId: string,
   namespace: string,
   name: string,
   specReceiverName: string
 ) {
-  if (!cloudId || !namespace || !name || !specReceiverName) return Promise.resolve({ ok: false, error: '缺少必要参数' });
-  const q = new URLSearchParams({ specReceiverName });
-  return apiDelete(`${base(cloudId)}/alertmanagerconfigs/receivers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?${q.toString()}`);
+  if (!cloudId || !namespace || !name || !specReceiverName) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name/specReceiverName' });
+  const q = `specReceiverName=${encodeURIComponent(specReceiverName)}`;
+  return apiDelete(`${base(cloudId)}/alertmanagerconfigs/receivers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?${q}`);
 }
 
-export function postAlertmanagerconfigReceivers(
+/** 获取指定命名空间下的 ConfigMap（GET /monitoring/configmaps/:namespace/:name） */
+export function fetchConfigMap(
   cloudId: string,
   namespace: string,
   name: string,
-  body: unknown
+  options?: { signal?: AbortSignal }
 ) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiPostPut(
-    `${base(cloudId)}/alertmanagerconfigs/receivers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
-    'POST',
-    body
+  return apiGet(
+    `${base(cloudId)}/configmaps/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    options
   );
 }
 
-export function fetchFlows(cloudId: string, options?: { signal?: AbortSignal }) {
+export function fetchPrometheusRuleVmCustomRules(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/logging/flows`, options);
+  return apiGet(`${base(cloudId)}/prometheusrules/vm-custom-rules`, options);
 }
 
-export function fetchClusterOutputs(cloudId: string, options?: { signal?: AbortSignal }) {
+/** Opaque Secret 项（后端 /monitoring/secrets 返回的数组元素） */
+export interface OpaqueSecretItem {
+  name: string;
+  type: string;
+  data: Record<string, string>;
+}
+
+/** 认证密钥列表（仅 type=Opaque），用于邮件 SMTP 密钥选择。请求 GET /monitoring/secrets，后端仅支持单参数 namespace（未传时默认 cattle-monitoring-system）。 */
+export function fetchSecrets(
+  cloudId: string,
+  options?: { signal?: AbortSignal; namespace?: string }
+) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/logging/clusteroutputs`, options);
+  const params = new URLSearchParams();
+  if (options?.namespace) params.set('namespace', options.namespace);
+  const q = params.toString();
+  return apiGet<OpaqueSecretItem[]>(`${base(cloudId)}/secrets${q ? `?${q}` : ''}`, options);
 }
 
-export function fetchOutputs(cloudId: string, options?: { signal?: AbortSignal }) {
+/** 告警规则列表（PrometheusRule 解析结果），需传 datasource=prometheus；租户可传 alertNames 只返回对应告警 */
+export function fetchPrometheusRules(
+  cloudId: string,
+  options?: { signal?: AbortSignal; alertNames?: string[] }
+) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/logging/outputs`, options);
+  const params = new URLSearchParams({ datasource: 'prometheus' });
+  if (options?.alertNames?.length) options.alertNames.forEach((a) => params.append('alertNames', a));
+  const q = params.toString();
+  return apiGet<{ rules: PrometheusRuleItem[] }>(
+    `${base(cloudId)}/prometheusrules?${q}`,
+    options
+  );
 }
 
-export function createClusterFlow(cloudId: string, body: unknown) {
+/** 告警分组映射（后端缓存的 rulesGroupMap），用于告警分组下拉，需先调过 prometheusrules 才有缓存 */
+export function fetchPrometheusRulesGroups(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiPostPut(`${base(cloudId)}/logging/clusterflows`, 'POST', body);
+  return apiGet<{ rulesGroupMap: Record<string, string> }>(
+    `${base(cloudId)}/prometheusrules-groups?datasource=prometheus`,
+    options
+  );
 }
 
-export function updateClusterFlow(cloudId: string, name: string, body: unknown) {
-  if (!cloudId || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/name' });
-  return apiPostPut(`${base(cloudId)}/logging/clusterflows/${encodeURIComponent(name)}`, 'PUT', body);
-}
-
-export function deleteClusterFlow(cloudId: string, name: string) {
-  if (!cloudId || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/name' });
-  return apiDelete(`${base(cloudId)}/logging/clusterflows/${encodeURIComponent(name)}`);
-}
-
-export function createFlow(cloudId: string, body: unknown) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiPostPut(`${base(cloudId)}/logging/flows`, 'POST', body);
-}
-
-export function updateFlow(cloudId: string, namespace: string, name: string, body: unknown) {
-  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiPostPut(`${base(cloudId)}/logging/flows/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, 'PUT', body);
-}
-
-export function deleteFlow(cloudId: string, namespace: string, name: string) {
-  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiDelete(`${base(cloudId)}/logging/flows/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-}
-
-export function createClusterOutput(cloudId: string, body: unknown) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiPostPut(`${base(cloudId)}/logging/clusteroutputs`, 'POST', body);
-}
-
-export function updateClusterOutput(cloudId: string, name: string, body: unknown) {
-  if (!cloudId || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/name' });
-  return apiPostPut(`${base(cloudId)}/logging/clusteroutputs/${encodeURIComponent(name)}`, 'PUT', body);
-}
-
-export function deleteClusterOutput(cloudId: string, name: string) {
-  if (!cloudId || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/name' });
-  return apiDelete(`${base(cloudId)}/logging/clusteroutputs/${encodeURIComponent(name)}`);
-}
-
-export function createOutput(cloudId: string, body: unknown) {
-  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiPostPut(`${base(cloudId)}/logging/outputs`, 'POST', body);
-}
-
-export function updateOutput(cloudId: string, namespace: string, name: string, body: unknown) {
-  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiPostPut(`${base(cloudId)}/logging/outputs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, 'PUT', body);
-}
-
-export function deleteOutput(cloudId: string, namespace: string, name: string) {
-  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiDelete(`${base(cloudId)}/logging/outputs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+export interface PrometheusRuleItem {
+  datasource: string;
+  groupName: string;
+  groupAliasName: string;
+  namespace?: string;
+  name: string;
+  aliasName: string;
+  expression: string;
+  interval: string;
+  severity: string;
 }

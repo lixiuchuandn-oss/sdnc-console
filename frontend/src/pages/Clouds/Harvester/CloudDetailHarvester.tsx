@@ -40,15 +40,16 @@ import FipSection from './kube-ovn/FipSection';
 import SnatSection from './kube-ovn/SnatSection';
 import DnatSection from './kube-ovn/DnatSection';
 import MonitoringOverview from './Monitoring/MonitoringOverview';
-import MonitoringAlerts from './Monitoring/MonitoringAlerts';
 import ResourceStatistics from './Monitoring/ResourceStatistics';
 import LogsConfig from './Monitoring/LogsConfig';
 import LogOutputs from './Monitoring/LogOutputs';
 import LogsFlowConfig from './Monitoring/LogsFlowConfig';
 import LogsOutputConfig from './Monitoring/LogsOutputConfig';
-import MonitoringPrometheusRules from './Monitoring/MonitoringPrometheusRules';
+import HarvesterMonitoringAlerts from './Monitoring/MonitoringAlerts';
 import MonitoringAlertNotificationPolicy from './Monitoring/MonitoringAlertNotificationPolicy';
 import MonitoringAlertNotificationTargets from './Monitoring/MonitoringAlertNotificationTargets';
+import MonitoringPrometheusRules from './Monitoring/MonitoringPrometheusRules';
+import { MonitoringProvider } from './Monitoring/context/MonitoringContext';
 
 /**
  * 云资源项接口定义
@@ -186,7 +187,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    * 独立刷新 NAD 数据的函数 (传递给子组件使用)
    */
   const [nadsLoading, setNadsLoading] = useState(false);
-  const refreshNads = async (force = false, silent = false) => {
+  const refreshNads = async (force = false) => {
       if (nadsLoading) return;
       setNadsLoading(true);
       try {
@@ -194,9 +195,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
         const nadsList: any[] = (nadsJson as any)?.data?.items || [];
         setHarvesterNads(Array.isArray(nadsList) ? nadsList : []);
         setRawNads(nadsJson || null);
-        if (!silent) {
-          message.success('NAD网络刷新成功');
-        }
+        message.success('NAD网络刷新成功');
       } catch (e: any) {
         message.error(`刷新NAD网络失败: ${e?.message || '未知错误'}`);
       } finally {
@@ -894,7 +893,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       key: 'resource-statistics',
                       label: '资源统计',
                       children: (
-                        <ResourceStatistics 
+                        <ResourceStatistics
                           vmCount={ecs.length}
                           namespaceCount={harvesterNamespaces.length}
                           imageCount={harvesterImages.length}
@@ -923,28 +922,45 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         />
                       ),
                     },
-                    {
-                      key: 'alerts',
-                      label: '告警列表',
-                      children: <MonitoringAlerts cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'alert-rules',
-                      label: '告警规则',
-                      children: <MonitoringPrometheusRules cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'notification-policy',
-                      label: '告警通知策略',
-                      children: <MonitoringAlertNotificationPolicy cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'notification-targets',
-                      label: '告警通知对象',
-                      children: <MonitoringAlertNotificationTargets cloudId={cloudId} />,
-                    },
+
                   ]}
                 />
+              )
+            },
+            {
+              key: 'monitoring-alerts',
+              label: '监控告警',
+              children: (
+                <MonitoringProvider cloudId={cloudId}>
+                  <Tabs
+                    defaultActiveKey="alerts-list"
+                    tabPosition="top"
+                    type="line"
+                    destroyInactiveTabPane
+                    items={[
+                      {
+                        key: 'alerts-list',
+                        label: '告警列表',
+                        children: <HarvesterMonitoringAlerts cloudId={cloudId} />,
+                      },
+                      {
+                        key: 'alert-rules',
+                        label: '告警规则',
+                        children: <MonitoringPrometheusRules cloudId={cloudId} />,
+                      },
+                      {
+                        key: 'notification-policy',
+                        label: '告警通知策略',
+                        children: <MonitoringAlertNotificationPolicy cloudId={cloudId} />,
+                      },
+                      {
+                        key: 'notification-targets',
+                        label: '告警通知对象',
+                        children: <MonitoringAlertNotificationTargets cloudId={cloudId} />,
+                      },
+                    ]}
+                  />
+                </MonitoringProvider>
               )
             },
             {
@@ -1356,7 +1372,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '定时策略',
                       children: (
                         <>
-                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={() => loadTabResource('scheduleVmBackups', true)} vms={ecs} />
+                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={() => loadTabResource('scheduleVmBackups', true)} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawScheduleVmBackups, null, 2)}</pre>
@@ -1448,6 +1464,20 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                   onChange={handleTabChange}
                   items={[
                     {
+                      key: 'kubeovn_public_networks',
+                      label: '公共网络',
+                      children: (
+                        <>
+                          <KubeOvnPublicNetworksSection />
+                          {showLog && (
+                            <div style={{ marginTop: 12 }}>
+                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
+                            </div>
+                          )}
+                        </>
+                      )
+                    },
+                    {
                       key: 'kubeovn_vpcs',
                       label: 'VPC 私有网络',
                       children: (
@@ -1466,7 +1496,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'Subnet 子网',
                       children: (
                         <>
-                          <KubeOvnSubnetsSection subnets={kubeOvnSubnets} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} onRefreshNads={refreshNads} />
+                          <KubeOvnSubnetsSection subnets={kubeOvnSubnets} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
@@ -1475,20 +1505,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         </>
                       )
                     },
-                    {
-                      key: 'kubeovn_public_networks',
-                      label: '公共网络',
-                      children: (
-                        <>
-                          <KubeOvnPublicNetworksSection subnets={kubeOvnSubnets} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} />
-                          {showLog && (
-                            <div style={{ marginTop: 12 }}>
-                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
-                            </div>
-                          )}
-                        </>
-                      )
-                    },
+
                     {
                       key: 'kubeovn_eips',
                       label: 'EIP 外部IP',

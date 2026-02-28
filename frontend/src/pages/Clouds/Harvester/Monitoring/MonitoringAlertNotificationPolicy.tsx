@@ -18,16 +18,16 @@ import {
   Spin,
   Switch,
   Table,
+  Tag,
   Transfer,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useAuth } from '../../../../contexts/AuthContext';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import { ALERTMANAGERCONFIG_KIND, MONITORING_API_VERSION, useMonitoring } from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import {
-  fetchAllowedNamespaces,
   fetchAlertmanagerconfigs,
   fetchAlertmanagerconfigDetail,
   createAlertmanagerconfig,
@@ -42,28 +42,12 @@ import type {
   NotificationTargetReceiver,
   PrometheusRuleItem,
 } from '../../../../services/monitoringApi';
-import { fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
 import {
   buildReceiverSpec,
-  setReceiverTypeAnnotation,
-  removeReceiverTypeAnnotation,
   RECEIVER_NAME_OPTIONS,
   type ReceiverName,
   type ReceiverSpec,
 } from './utils/receivers';
-
-const SYSTEM_NS_SET = new Set(['kube-system', 'kube-public', 'kube-node-lease', 'fleet-default']);
-const SYSTEM_NS_PREFIXES = ['c-', 'p-', 'user-', 'local-', 'cattle-'];
-
-function filterNonSystemNamespaces(names: string[]): string[] {
-  return names.filter((name) => {
-    if (!name || typeof name !== 'string') return false;
-    if (SYSTEM_NS_SET.has(name)) return false;
-    if (name.endsWith('-system')) return false;
-    if (SYSTEM_NS_PREFIXES.some((p) => name.startsWith(p))) return false;
-    return true;
-  });
-}
 
 interface TriggerRuleOption {
   value: string;
@@ -241,19 +225,23 @@ interface Props {
 }
 
 const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'leased_lines_admin';
+  const {
+    isAdmin,
+    namespaceList,
+    namespaceLoading,
+    tenantNamespaces,
+    configNsFilter,
+    setConfigNsFilter,
+    dataSourceFilter,
+    setDataSourceFilter,
+    formNamespaceOptions,
+  } = useMonitoring();
 
   const [configList, setConfigList] = useState<AlertmanagerConfigItem[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
   const [receiversList, setReceiversList] = useState<NotificationTargetReceiver[]>([]);
   const [receiversLoading, setReceiversLoading] = useState(false);
-  const [namespaceList, setNamespaceList] = useState<string[]>([]);
-  const [namespaceLoading, setNamespaceLoading] = useState(false);
-  const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
   const [keyword, setKeyword] = useState('');
-  const [configNsFilter, setConfigNsFilter] = useState<string | undefined>();
-  const [dataSourceFilter, setDataSourceFilter] = useState<string>('prometheus');
 
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<AlertmanagerConfigItem | null>(null);
@@ -278,45 +266,29 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     setConfigList(normalizeListPayload(data));
   }, [cloudId]);
 
-  /** 通知对象名称下拉数据：来自后端 GET .../alertmanagerconfigs/receivers，按 receiverName 聚合 */
-  const loadReceiversList = useCallback(async () => {
-    if (!cloudId) return;
-    setReceiversLoading(true);
-    const namespaces = isAdmin ? namespaceList : tenantNamespaces;
-    const { data, ok, error } = await fetchNotificationTargetsList(cloudId, {
-      namespaces: namespaces.length ? namespaces : undefined,
-    });
-    setReceiversLoading(false);
-    if (!ok) {
-      setReceiversList([]);
-      return;
-    }
-    setReceiversList((data?.receivers ?? []) as NotificationTargetReceiver[]);
-  }, [cloudId, isAdmin, namespaceList, tenantNamespaces]);
-
-  const loadNamespaces = useCallback(async () => {
-    if (!cloudId) return;
-    setNamespaceLoading(true);
-    try {
-      const res: any = await fetchHarvesterNamespaces(cloudId);
-      const items: any[] = Array.isArray(res?.data?.items) ? res.data.items : res?.data ?? res?.items ?? [];
-      const raw: string[] = items.map((i: any) => i?.metadata?.name ?? i?.name).filter((n: unknown): n is string => typeof n === 'string' && n.length > 0);
-      const filtered = filterNonSystemNamespaces([...new Set(raw)]);
-      const withDefault = filtered.includes('default') ? filtered : ['default', ...filtered];
-      setNamespaceList(withDefault.sort());
-    } catch {
-      setNamespaceList([]);
-    } finally {
-      setNamespaceLoading(false);
-    }
-  }, [cloudId]);
-
-  const loadTenantNamespaces = useCallback(async () => {
-    if (!cloudId || isAdmin) return;
-    const { data, ok } = await fetchAllowedNamespaces(cloudId);
-    if (ok && data?.namespaces) setTenantNamespaces(data.namespaces);
-    else setTenantNamespaces([]);
-  }, [cloudId, isAdmin]);
+  /** 通知对象名称下拉数据：来自后端 GET .../alertmanagerconfigs/receivers，按 receiverName 聚合；可指定 namespaces 覆盖（用于表单内按选中命名空间加载） */
+  const loadReceiversList = useCallback(
+    async (overrideNamespaces?: string[]) => {
+      if (!cloudId) return;
+      setReceiversLoading(true);
+      const namespaces =
+        overrideNamespaces && overrideNamespaces.length > 0
+          ? overrideNamespaces
+          : isAdmin
+            ? namespaceList
+            : tenantNamespaces;
+      const { data, ok, error } = await fetchNotificationTargetsList(cloudId, {
+        namespaces: namespaces.length ? namespaces : undefined,
+      });
+      setReceiversLoading(false);
+      if (!ok) {
+        setReceiversList([]);
+        return;
+      }
+      setReceiversList((data?.receivers ?? []) as NotificationTargetReceiver[]);
+    },
+    [cloudId, isAdmin, namespaceList, tenantNamespaces]
+  );
 
   const loadVmTriggerOptions = useCallback(async () => {
     if (!cloudId) return;
@@ -328,15 +300,8 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   }, [cloudId]);
 
   useEffect(() => {
-    if (cloudId) {
-      loadConfigList();
-      if (isAdmin) loadNamespaces();
-    }
-  }, [cloudId, isAdmin, loadConfigList, loadNamespaces]);
-
-  useEffect(() => {
-    if (cloudId && !isAdmin) loadTenantNamespaces();
-  }, [cloudId, isAdmin, loadTenantNamespaces]);
+    if (cloudId) loadConfigList();
+  }, [cloudId, loadConfigList]);
 
   /** 命名空间就绪后拉取通知对象列表（供「通知对象名称」下拉使用） */
   useEffect(() => {
@@ -378,14 +343,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     if (isAdmin) loadAlertRules();
     else if (vmTriggerOptions.length > 0) loadAlertRules();
   }, [formModalOpen, cloudId, isAdmin, vmTriggerOptions.length, loadAlertRules]);
-
-  const formNamespaceOptions = useMemo(() => {
-    if (isAdmin) {
-      const opts = namespaceList.length ? namespaceList : ['default'];
-      return opts.map((ns) => ({ label: ns, value: ns }));
-    }
-    return tenantNamespaces.map((ns) => ({ label: ns, value: ns }));
-  }, [isAdmin, namespaceList, tenantNamespaces]);
 
   const filteredConfigList = useMemo(() => {
     let list = configList;
@@ -557,7 +514,8 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         const list = Array.isArray(r.specReceivers) ? r.specReceivers : [];
         for (const s of list) {
           const name = (s?.name ?? '').toString().trim();
-          if (name && (s?.emailConfigs || s?.webhookConfigs)) byName[name] = { ...s, name } as ReceiverSpec;
+          const hasConfig = 'emailConfigs' in s ? !!s.emailConfigs : 'webhookConfigs' in s && !!s.webhookConfigs;
+          if (name && hasConfig) byName[name] = { ...s, name } as ReceiverSpec;
         }
       }
       map[t] = byName;
@@ -583,7 +541,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     const typeLabels: Record<ReceiverName, string> = {
       'email-receiver': '邮件',
       'dingtalk-receiver': '钉钉',
-      'website-receiver': '网站',
+      'website-receiver': '站内信',
     };
     for (const t of RECEIVER_NAME_OPTIONS) {
       const list = specReceiverNameOptionsByType[t.value] ?? [];
@@ -596,6 +554,17 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   }, [specReceiverNameOptionsByType]);
 
   const [cascadeSelectedValue, setCascadeSelectedValue] = useState<string[]>([]);
+
+  /** 表单内命名空间：未选择时无法按命名空间加载通知对象，需提示用户 */
+  const watchedFormNamespace = Form.useWatch('namespace', form);
+  const formNamespaceEmpty = !(watchedFormNamespace != null && String(watchedFormNamespace).trim());
+
+  /** 表单打开且用户选择了命名空间时，按该命名空间重新加载通知对象列表（确保「通知方式」下拉能获取 specReceiverName） */
+  useEffect(() => {
+    if (!formModalOpen || !cloudId) return;
+    const ns = (watchedFormNamespace ?? '').toString().trim();
+    if (ns) loadReceiversList([ns]);
+  }, [formModalOpen, cloudId, watchedFormNamespace, loadReceiversList]);
 
   const handleFormSubmit = useCallback(async () => {
     let fieldsToValidate: string[] = ['name', 'namespace', 'configReceiverName', 'matchers'];
@@ -612,6 +581,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         })();
     if (configReceiverNameEntries.length === 0) {
       message.warning('请至少选择一个通知对象');
+      return;
+    }
+    const matchersRaw = Array.isArray(form.getFieldValue('matchers')) ? form.getFieldValue('matchers') : [];
+    const matchersFiltered = (matchersRaw as string[]).filter(Boolean);
+    if (matchersFiltered.length === 0) {
+      message.warning('已选告警规则不能为空');
       return;
     }
     const parsed = configReceiverNameEntries.map((entry: string) => {
@@ -635,12 +610,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     const matchers = (Array.isArray(form.getFieldValue('matchers')) ? form.getFieldValue('matchers') : []) as string[];
     setFormLoading(true);
     const annotations: Record<string, string> = editingRecord?.metadata?.annotations ? { ...editingRecord.metadata.annotations } : {};
-    const existingRoute = editingRecord?.spec?.route as any;
-    const existingReceivers = editingRecord?.spec?.receivers ?? [];
-    const oldReceivers = collectReceiverNamesFromRoute(existingRoute, existingReceivers);
-    for (const oldReceiverName of oldReceivers) {
-      if (oldReceiverName) removeReceiverTypeAnnotation(annotations, oldReceiverName);
-    }
     if (description != null) annotations.description = String(description).trim();
     if (matchers.length) annotations.matchers = matchers.join(',');
     type RouteMatcherItem = { matchType: string; name: string; value: string; matchers?: unknown[] };
@@ -649,7 +618,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       const regexValue = matchers.map((a) => String(a).trim()).filter(Boolean).join('|');
       routeMatchers.push({ matchType: '=~', name: 'alertname', value: regexValue, matchers: [] });
     }
-    setReceiverTypeAnnotation(annotations, configReceiverNames[0], firstType);
     const receiverSpecs: ReceiverSpec[] = parsed.map(({ type, name: n }) => {
       const lookup = specReceiverNameToSpecByType[type] ?? {};
       return lookup[n] ?? buildReceiverSpec(n, type, values);
@@ -674,8 +642,8 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       routes: childRoutes,
     };
     const payload: Record<string, unknown> = {
-      apiVersion: 'monitoring.coreos.com/v1alpha1',
-      kind: 'AlertmanagerConfig',
+      apiVersion: MONITORING_API_VERSION,
+      kind: ALERTMANAGERCONFIG_KIND,
       metadata: { name, namespace, ...(Object.keys(annotations).length ? { annotations } : {}) },
       spec: { receivers: receiverSpecs, route: routePayload },
     };
@@ -746,7 +714,26 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       { title: '数据源', key: 'dataSource', width: 100, render: () => 'Prometheus' },
       { title: '通知策略名称', dataIndex: ['metadata', 'name'], key: 'name', width: 180, render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
       { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', width: 140, render: (ns: string) => ns || '-' },
-      { title: <span style={{ fontWeight: 600, color: '#000' }}>通知对象</span>, key: 'receivers', width: 120, render: (_, row) => { const receivers = row.spec?.receivers; return Array.isArray(receivers) ? (receivers as { name?: string }[]).map((r) => r.name).filter(Boolean).join(', ') || '-' : '-'; } },
+      {
+        title: <span style={{ fontWeight: 600, color: '#000' }}>通知对象</span>,
+        key: 'receivers',
+        width: 120,
+        render: (_, row) => {
+          const receivers = row.spec?.receivers;
+          if (!Array.isArray(receivers)) return '-';
+          const names = (receivers as { name?: string }[]).map((r) => r.name).filter(Boolean);
+          if (!names.length) return '-';
+          return (
+            <Space size={[8, 4]} wrap>
+              {names.map((name) => (
+                <Tag key={name} color="blue" style={{ fontSize: 'inherit', margin: 0, lineHeight: 'inherit' }}>
+                  {name}
+                </Tag>
+              ))}
+            </Space>
+          );
+        },
+      },
       {
         title: '操作',
         key: 'action',
@@ -806,7 +793,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         });
       }
     }
-    return list.sort((a, b) => (a.value === '' ? -1 : String(a.label).localeCompare(String(b.label))));
+    return list.sort((a, b) => {
+      if (a.value === '') return -1;
+      if (b.value === '') return 1;
+      return String(a.label).localeCompare(String(b.label));
+    });
   }, [isAdmin, rulesList, rulesGroupMap]);
 
   const [selectedAlertGroup, setSelectedAlertGroup] = useState<string>('');
@@ -848,7 +839,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 onChange={setConfigNsFilter}
                 loading={namespaceLoading}
                 options={[{ label: '全部', value: undefined }, ...formNamespaceOptions]}
-                style={{ width: 160 }}
+                style={{ width: 250 }}
               />
               <Input.Search
                 placeholder="关键字"
@@ -932,12 +923,21 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           </Row>
           <Row gutter={24}>
             <Col span={10}>
-              <Form.Item label="通知方式">
+              <Form.Item
+                label="通知方式"
+                extra={formNamespaceEmpty ? '请先选择命名空间以加载通知对象' : undefined}
+              >
                 <Cascader
                   allowClear
                   placeholder="选择通知方式 → 通知对象"
                   options={receiverCascadeOptions}
                   value={cascadeSelectedValue}
+                  loading={receiversLoading}
+                  onDropdownVisibleChange={(open) => {
+                    if (open && !(form.getFieldValue('namespace') != null && String(form.getFieldValue('namespace')).trim())) {
+                      message.warning('请先选择命名空间，以便加载该命名空间下的通知对象');
+                    }
+                  }}
                   onChange={(value) => {
                     const v = value as string[];
                     if (v?.length === 2) {
@@ -954,7 +954,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               </Form.Item>
             </Col>
             <Col span={14}>
-              <Form.Item name="configReceiverName" label="通知对象" rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个通知对象' }]}>
+              <Form.Item
+                name="configReceiverName"
+                label="通知对象"
+                rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个通知对象' }]}
+                extra={formNamespaceEmpty ? '请先选择命名空间以加载通知对象' : undefined}
+              >
                 <Select
                   mode="multiple"
                   allowClear
@@ -963,6 +968,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   showSearch
                   optionFilterProp="label"
                   placeholder="请选择通知对象（可多选，至少选择一个）"
+                  onDropdownVisibleChange={(open) => {
+                    if (open && !(form.getFieldValue('namespace') != null && String(form.getFieldValue('namespace')).trim())) {
+                      message.warning('请先选择命名空间，以便加载该命名空间下的通知对象');
+                    }
+                  }}
                 />
               </Form.Item>
             </Col>
@@ -972,7 +982,16 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               <Form.Item
                 name="matchers"
                 label="告警规则"
-                rules={[{ required: true, message: '请选择告警规则' }]}
+                rules={[
+                  { required: true, message: '请选择告警规则' },
+                  {
+                    validator: (_, value) => {
+                      const arr = Array.isArray(value) ? value.filter(Boolean) : [];
+                      if (arr.length === 0) return Promise.reject(new Error('已选告警规则不能为空'));
+                      return Promise.resolve();
+                    },
+                  },
+                ]}
                 style={{ width: '100%' }}
               >
                 <>
@@ -982,7 +1001,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                         <Select
                           placeholder="选择分组筛选左侧告警规则"
                           allowClear
-                          value={selectedAlertGroup || undefined}
+                          value={selectedAlertGroup}
                           onChange={(v) => setSelectedAlertGroup(v ?? '')}
                           options={alertGroupOptions}
                           style={{ width: '100%', maxWidth: 320 }}
