@@ -1200,6 +1200,30 @@ export const stopHarvesterVm = async (cloudId: string, namespace: string, name: 
   return await res.json();
 };
 
+export const pauseHarvesterVm = async (cloudId: string, namespace: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const instanceId = `${namespace}/${name}`;
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/pause`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
+export const unpauseHarvesterVm = async (cloudId: string, namespace: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const instanceId = `${namespace}/${name}`;
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/unpause`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+};
+
 export const startHarvesterVm = async (cloudId: string, namespace: string, name: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/start`, {

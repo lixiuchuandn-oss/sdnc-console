@@ -905,12 +905,12 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
                 endpoint: cloud.endpoint,
                 token: cloud.secretKey || '',
                 insecure,
-              } as any).catch(() => null),
+              } as any),
               listKubevirtVMIsRawWithMeta({
                 endpoint: cloud.endpoint,
                 token: cloud.secretKey || '',
                 insecure,
-              } as any).catch(() => null),
+              } as any),
             ]);
 
             const initialItems: any[] = [];
@@ -994,6 +994,9 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
                 },
                 (err) => {
                   console.error('VM Watch Error:', err);
+                  // Notify client and close connection to force reconnect
+                  send('error', { message: 'Watch stream error', cause: err?.message });
+                  try { res.end(); } catch {}
                 },
               );
               watchers.push(w1);
@@ -1025,13 +1028,17 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
                 },
                 (err) => {
                   console.error('VMI Watch Error:', err);
+                  // Notify client and close connection to force reconnect
+                  send('error', { message: 'Watch stream error', cause: err?.message });
+                  try { res.end(); } catch {}
                 },
               );
               watchers.push(w2);
             }
           } catch (e: any) {
             console.error('[SSE] Init Error:', e);
-            send('error', { message: 'Initialization failed' });
+            send('error', { message: 'Initialization failed', cause: e?.message });
+            try { res.end(); } catch {}
           }
         };
 

@@ -1,6 +1,7 @@
 import https from 'https';
 import http from 'http';
 import { URL } from 'url';
+import { StringDecoder } from 'string_decoder';
 import axios from 'axios';
 
 /**
@@ -185,9 +186,11 @@ export const watchJsonStream = (
       }
 
       let buffer = '';
+      const decoder = new StringDecoder('utf8');
+
       res.on('data', (chunk) => {
         // console.log(`[Watch] Data received: ${chunk.length} bytes`);
-        buffer += chunk.toString('utf-8');
+        buffer += decoder.write(chunk);
         const lines = buffer.split('\n');
         // [粘包处理] 保留最后一行不完整的数据在 buffer 中，等待下一次 chunk 拼接
         buffer = lines.pop() || '';

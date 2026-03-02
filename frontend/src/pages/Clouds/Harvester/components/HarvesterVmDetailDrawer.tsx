@@ -1,3 +1,39 @@
+/**
+ * ==============================================================================
+ * 模块名称: Harvester 虚拟机详情抽屉 (Harvester VM Detail Drawer)
+ * 文件路径: src/pages/Clouds/Harvester/components/HarvesterVmDetailDrawer.tsx
+ * ==============================================================================
+ *
+ * [功能描述]
+ * 以 Drawer 形式展示 Harvester 虚拟机的详情信息，并提供常用运维操作入口（开关机/重启/暂停/控制台/备份等）。
+ * 该组件会在打开时拉取“聚合详情数据”，并通过 SSE 接收实时状态更新，确保抽屉内状态与列表/集群保持一致。
+ *
+ * [核心逻辑]
+ * 1. [状态同步]:
+ *    - 将外部 record 同步到内部 vmData，作为统一渲染与操作的数据源。
+ * 2. [数据聚合]:
+ *    - 调用 fetchHarvesterVMAggregated 拉取 VM 及关联资源（NAD/VPC/Subnet/镜像）并落地到本地状态。
+ *    - 为网卡网络名称映射（VPC/Flat/VLAN）提供必要的上下文数据。
+ * 3. [实时更新]:
+ *    - 通过 /resources/ecs/stream SSE 订阅 vm_status/vm_deleted 事件，增量合并状态/节点/IP 变化。
+ * 4. [性能指标]:
+ *    - 使用 Prometheus range query 拉取 virt-launcher 容器 CPU/内存，并计算使用率用于 UI 展示。
+ * 5. [操作入口]:
+ *    - 封装开关机/重启/暂停/恢复/弹出 CD-ROM/保存为模板等动作，并在必要时提示与刷新。
+ *
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明 (Dependencies & Interactions)]
+ * ------------------------------------------------------------------------------
+ * 1. 数据流向:
+ *    上游页面(传入 record/volumes/namespaces) -> HarvesterVmDetailDrawer -> harvesterApi/monitoringApi/SSE -> UI 渲染
+ *
+ * 2. 关键依赖/接口:
+ *    - GET  /api/clouds/:id/resources/ecs/stream (SSE: vm_status/vm_deleted)
+ *    - harvesterApi: fetchHarvesterVMAggregated / startHarvesterVm / stopHarvesterVm / pauseHarvesterVm / unpauseHarvesterVm
+ *    - harvesterApi: detachHarvesterVolumeFromVm / deleteHarvesterPVC / fetchHarvesterBackups / fetchHarvesterScheduleVmBackups
+ *    - monitoringApi: fetchMetricRange (Prometheus range query)
+ * ==============================================================================
+ */
 import React, { useState, useMemo, useCallback } from 'react';
 import { Drawer, Tabs, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox } from 'antd';
 import { 
@@ -5,11 +41,12 @@ import {
   CodeOutlined, EllipsisOutlined, DesktopOutlined, DatabaseOutlined,
   CloudServerOutlined, GlobalOutlined, HddOutlined, ApartmentOutlined,
   ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined,
-  SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined, WarningOutlined
+  SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined, WarningOutlined,
+  CloseOutlined, SyncOutlined
 } from '@ant-design/icons';
 import { cnVmStatus, isSystemNamespace } from '../../../../utils/harvesterUtils';
-import { stopHarvesterVm, startHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, saveHarvesterVmAsTemplate, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
-import { rebootCloudProviderEcs } from '../../../../services/api';
+import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, saveHarvesterVmAsTemplate, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
+import { rebootCloudProviderEcs, API_BASE_URL } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
 import HarvesterVmBackupTab from './HarvesterVmBackupTab';
@@ -19,6 +56,25 @@ import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
 import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
 import HarvesterEventsTab from './HarvesterEventsTab';
 
+/**
+ * HarvesterVmDetailDrawer 组件入参定义
+ * @property open - 抽屉是否打开
+ * @property onClose - 关闭抽屉回调
+ * @property record - 当前 VM 记录（上游列表传入，结构可能为原始或聚合后的 VM 对象）
+ * @property cloudId - 当前云资源 ID，用于后端 API 路由拼装
+ * @property namespaces - Harvester 命名空间列表（用于展示/过滤等场景）
+ * @property volumes - PVC/卷列表（用于磁盘容量等信息补全）
+ * @property images - 镜像列表（用于关联信息补全）
+ * @property activeTab - 外部受控 Tab Key（可选）
+ * @property onTabChange - Tab 切换回调（可选）
+ * @property onRefresh - 上游刷新回调（用于触发列表/外部数据重新加载）
+ * @property onOpenReconfigure - 打开“资源变配”弹窗（可选）
+ * @property onBackup - 触发备份动作（可选）
+ * @property onSnapshot - 触发快照动作（可选）
+ * @property onClone - 触发克隆动作（可选）
+ * @property onMigrate - 触发热迁移动作（可选）
+ * @property onDelete - 触发删除动作（可选）
+ */
 interface HarvesterVmDetailDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -56,56 +112,196 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   onMigrate,
   onDelete,
 }) => {
+  // ==============================================================================
+  // 1. 基础状态 (Base State)
+  // ==============================================================================
   const [localActiveTab, setLocalActiveTab] = useState('detail');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // VM Data State (Aggregated)
+  // [状态同步] 抽屉内部统一使用 vmData 作为渲染/动作的数据源
+  // 详细解释：
+  // 1. 为什么需要：上游 record 的结构可能随着聚合接口返回变化；内部统一口径可降低渲染与动作逻辑的分支复杂度
+  // 2. 如何工作：默认以 record 初始化，打开后再用聚合接口结果增量覆盖
+  // 3. 边界处理：record 变化时同步更新，避免切换不同 VM 时显示旧数据
   const [vmData, setVmData] = useState<any>(record);
   
-  // Sync record prop to vmData
+  // [状态同步] 外部 record 变化时同步到本地，避免抽屉展示与上游选中项不一致
   React.useEffect(() => {
       setVmData(record);
   }, [record]);
 
-  // CPU/Memory Usage State
+  // ==============================================================================
+  // 2. 性能指标 (CPU/Memory Usage)
+  // ==============================================================================
   const [cpuUsage, setCpuUsage] = useState<number | null>(null);
   const [memUsage, setMemUsage] = useState<number | null>(null);
 
-  // VPC/Subnet State for Network Mapping
+  // ==============================================================================
+  // 3. 网络映射上下文 (VPC/Subnet/NAD)
+  // ==============================================================================
   const [vpcs, setVpcs] = useState<any[]>([]);
   const [subnets, setSubnets] = useState<any[]>([]);
   const [nads, setNads] = useState<any[]>([]);
   const [vmImages, setVmImages] = useState<any[]>(images);
 
-  // Fetch Aggregated Data (VM + Networks + etc)
-  React.useEffect(() => {
+  // ==============================================================================
+  // 4. 数据聚合拉取 (Aggregated Fetch)
+  // ==============================================================================
+  // [数据聚合] 拉取 VM 本体 + 关联资源（网络/镜像等）
+  // 详细解释：
+  // 1. 为什么需要：详情页需要将网卡的 networkName 映射为 VPC/Flat/VLAN 等可读信息，单靠 VM 本体无法完成
+  // 2. 如何工作：调用 fetchHarvesterVMAggregated 后拆分 vm 与 related，并分别写入 vmData/vpcs/subnets/nads/vmImages
+  // 3. 边界处理：兼容 res.data.vm 结构与扁平结构；手动刷新提供 loading 与提示
+  const fetchAggregated = useCallback(async (manual = false) => {
     if (!open || !cloudId || !record?.metadata?.namespace || !record?.metadata?.name) return;
 
-    const fetchAggregated = async () => {
-        try {
-            const namespace = record.metadata.namespace;
-            const name = record.metadata.name;
-            const res = await fetchHarvesterVMAggregated(cloudId, namespace, name);
+    if (manual) setRefreshing(true);
+    try {
+        const namespace = record.metadata.namespace;
+        const name = record.metadata.name;
+        const res = await fetchHarvesterVMAggregated(cloudId, namespace, name);
+        
+        if (res) {
+            // [兼容返回结构] 支持 { data: { vm, related } } 与 { vm, related } 两种形态
+            const data = res.data && res.data.vm ? res.data : res;
             
-            if (res) {
-                if (res.vm) setVmData(res.vm);
-                if (res.related) {
-                    setNads(res.related.nads || []);
-                    setVpcs(res.related.vpcs || []);
-                    setSubnets(res.related.subnets || []);
-                    setVmImages(res.related.images || []);
-                }
-                console.log('[VmDetail] Aggregated Data Loaded:', res);
+            if (data.vm) setVmData(data.vm);
+            if (data.related) {
+                setNads(data.related.nads || []);
+                setVpcs(data.related.vpcs || []);
+                setSubnets(data.related.subnets || []);
+                setVmImages(data.related.images || []);
             }
-        } catch (e) {
-            console.error('Failed to fetch aggregated VM data', e);
+            console.log('[VmDetail] Aggregated Data Loaded:', data);
+            if (manual) message.success('刷新成功');
         }
-    };
-    fetchAggregated();
+    } catch (e) {
+        console.error('Failed to fetch aggregated VM data', e);
+        if (manual) message.error('刷新失败');
+    } finally {
+        if (manual) setRefreshing(false);
+    }
   }, [open, cloudId, record?.metadata?.namespace, record?.metadata?.name]);
 
-  // Fetch Metrics
+  React.useEffect(() => {
+    fetchAggregated();
+  }, [fetchAggregated]);
+
+  // ==============================================================================
+  // 5. 实时状态 (SSE)
+  // ==============================================================================
+  // [实时更新] 订阅后端 SSE 的 vm_status/vm_deleted 事件并合并到 vmData
+  // 详细解释：
+  // 1. 为什么需要：VM 状态、节点归属、IP 可能随迁移/重启/网络变化而快速变化，轮询会造成延迟与额外负载
+  // 2. 如何工作：EventSource 连接 /resources/ecs/stream，收到事件后按 VM uid/name 过滤，仅更新当前抽屉对象
+  // 3. 边界处理：EventSource 无法自定义 Header，因此使用 query token；网络断开由浏览器自动重连
+  React.useEffect(() => {
+    if (!open || !cloudId || !record?.metadata?.uid) return;
+
+    let eventSource: EventSource | null = null;
+    const connectSSE = () => {
+        const token = localStorage.getItem('token') || '';
+        const sseUrl = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+        
+        eventSource = new EventSource(sseUrl);
+        
+        eventSource.addEventListener('vm_status', (event: any) => {
+            try {
+                const data = JSON.parse(event.data);
+                
+                const currentUid = record.metadata?.uid || record.id;
+                const currentName = record.metadata?.name || record.name;
+                const incomingIid = String(data?.iid || data?.id || '');
+                
+                if (!incomingIid) return;
+                if (incomingIid !== currentUid && incomingIid !== currentName) {
+                    return;
+                }
+
+                setVmData((prev: any) => {
+                    const statusStr = String(data.status || '');
+                    const nodeName = String(data.nodeName || '');
+                    const ips = Array.isArray(data.ips) ? data.ips : [];
+                    
+                    // [增量合并] 避免无意义的 state 更新导致 UI 频繁重渲染
+                    const prevStatusStr = typeof prev.status === 'string' 
+                        ? prev.status 
+                        : (prev.status?.printableStatus || prev.status?.phase || '');
+                    
+                    const currentNode = prev.nodeName;
+                    const currentIps = prev.ips || [];
+                    
+                    if (prevStatusStr === statusStr && currentNode === nodeName && JSON.stringify(currentIps) === JSON.stringify(ips)) {
+                        return prev;
+                    }
+
+                    // [兼容结构] status 可能为 string 或 object，合并时保留已有字段，确保 SafeRead 可用
+                    let newStatus: any;
+                    if (typeof prev.status === 'object' && prev.status !== null) {
+                        newStatus = { ...prev.status, printableStatus: statusStr };
+                        if (prev.status.phase) newStatus.phase = statusStr;
+                    } else {
+                        // [兼容结构] prev.status 为 string 或 null 时，重建对象以匹配 SafeRead 的读取口径
+                        newStatus = { printableStatus: statusStr, phase: statusStr };
+                    }
+
+                    console.log(`[VmDetail] SSE Update: ${prevStatusStr} -> ${statusStr}`);
+                    return {
+                        ...prev,
+                        status: newStatus,
+                        nodeName: nodeName,
+                        ips: ips,
+                        Extra: { ...(prev.Extra || {}), NodeName: nodeName }
+                    };
+                });
+            } catch (e) {
+                console.error('[VmDetail] SSE Parse Error', e);
+            }
+        });
+
+        eventSource.addEventListener('vm_deleted', (event: any) => {
+             try {
+                const data = JSON.parse(event.data);
+                const incomingIid = String(data?.iid || data?.id || '');
+                if (incomingIid && incomingIid === record.metadata.uid) {
+                    message.warning('当前虚拟机已被删除');
+                    onClose();
+                }
+             } catch(e) {}
+        });
+        
+        // [服务端错误] 仅记录告警，连接错误由浏览器自动重连机制处理
+        eventSource.addEventListener('error', (ev: MessageEvent) => {
+            try {
+              const json = JSON.parse(String(ev.data || '{}'));
+              console.warn('[VmDetail] SSE Server Error:', json);
+            } catch {}
+        });
+
+        eventSource.onerror = (err) => {
+            // [重连策略] 不主动 close，交由浏览器内建的 EventSource 自动重连机制处理
+        };
+    };
+
+    connectSSE();
+
+    return () => {
+        if (eventSource) {
+            eventSource.close();
+        }
+    };
+  }, [open, cloudId, record?.metadata?.uid, record?.metadata?.name, record?.id, record?.name, onClose]);
+
+  // ==============================================================================
+  // 6. 性能指标拉取 (Prometheus Metrics)
+  // ==============================================================================
+  // [性能指标] 拉取 VM 对应 virt-launcher Pod 的 CPU/内存指标，用于顶部卡片展示
+  // 详细解释：
+  // 1. 为什么需要：Harvester VM 实际运行在 KubeVirt 的 virt-launcher Pod 中，指标应以该容器为口径
+  // 2. 如何工作：PromQL 使用 pod=~virt-launcher-${vmName}-.* 匹配 Pod，container="compute" 选择计算容器
+  // 3. 边界处理：指标缺失或查询失败时设置为 null，UI 使用 '-' 兜底
   React.useEffect(() => {
     if (!open || !cloudId || !record?.metadata?.namespace || !record?.metadata?.name) return;
 
@@ -150,17 +346,18 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     return () => clearInterval(interval);
   }, [open, cloudId, record]);
 
-  // Backups/Snapshots state
+  // ==============================================================================
+  // 7. 备份/快照数据 (Backup & Schedule)
+  // ==============================================================================
   const [backups, setBackups] = useState<any[]>([]);
   const [backupsLoading, setBackupsLoading] = useState(false);
 
-  // Schedules state
   const [schedules, setSchedules] = useState<any[]>([]);
   const [schedulesLoading, setSchedulesLoading] = useState(false);
 
   const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
 
-  // Fetch data when tab is active
+  // [按需加载] 仅在切换到“备份/快照”Tab 时拉取数据，避免抽屉打开瞬间触发过多请求
   React.useEffect(() => {
     if (open) {
       if (activeTab === 'backup_snapshot') {
@@ -206,7 +403,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     }
   }, [propOnTabChange]);
 
-  // Helper functions (copied/adapted from VmSection)
+  // ==============================================================================
+  // 8. 展示辅助函数 (Format Helpers)
+  // ==============================================================================
+  // [单位换算] 统一处理 K8s 资源量字符串（Ki/Mi/Gi/Ti 与 KB/MB/GB 等）并转换为 GiB 口径显示
   const parseStorageSize = (sizeStr: string): number => {
     if (!sizeStr) return 0;
     const str = String(sizeStr).trim();
@@ -240,6 +440,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     return [str, ''];
   };
 
+  // ==============================================================================
+  // 9. 安全读取器 (SafeRead)
+  // ==============================================================================
+  // [数据适配] 统一处理不同来源/不同结构的 VM 对象字段读取
+  // 详细解释：
+  // 1. 为什么需要：列表 record、聚合接口 vm、SSE 增量合并后的 vmData 字段形态可能不一致
+  // 2. 如何工作：将读取逻辑集中在一处，渲染与动作代码只依赖 SafeRead 的稳定返回值
+  // 3. 边界处理：缺失字段统一返回空串或 '-'，避免 UI 报错
   const SafeRead = useMemo(() => ({
     name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.InstanceName || r?.name || r?.metadata?.name || '',
     vmId: (r: any) => r?.metadata?.name || '',
@@ -256,7 +464,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || 0;
     },
     memory: (r: any) => {
-      // 优先展示 Guest Memory (规格)，这是用户配置的值
+      // [展示口径] 优先展示 Guest Memory（规格），这是用户在 VM 配置中显式设置的值
       const guest = r?.spec?.template?.spec?.domain?.memory?.guest;
       if (guest) return guest;
       
@@ -285,7 +493,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         const vmNs = r?.metadata?.namespace || r?.namespace || (r?.id || '').split('/')[0] || '';
         const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
         
-        // Map disk info to volumes
+        // [磁盘映射] 将 domain.devices.disks 的设备信息（如 bootOrder/bus/cdrom）合并到 volumes 上，用于列表展示
         return vols.map((v: any) => {
              const claimName = v?.persistentVolumeClaim?.claimName;
              const diskInfo = disks.find((d: any) => d.name === v.name);
@@ -304,9 +512,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                      if (capStr) capacityBytes = parseStorageSize(capStr);
                  }
              } else if (v.cloudInitNoCloud || v.cloudInitConfigDrive) {
-                 // CloudInit disk
+                 // CloudInit 虚拟盘：容量不参与计算，仅用于展示类型
              } else if (v.containerDisk) {
-                 // Container disk
+                 // ContainerDisk：通常为镜像盘，容量不参与计算，仅用于展示类型
              }
              
              return { 
@@ -321,6 +529,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         }).sort((a: any, b: any) => (a.bootOrder || 999) - (b.bootOrder || 999));
     },
     interfaces: (r: any) => {
+        // [网络信息提取] 组合“设备接口 + networks”并补齐 MAC/IP/网络归属展示
+        // 详细解释：
+        // 1. IP 提取优先级：VMI.status.interfaces（运行态最准确）> VM.status.interfaces（回退）> 注解 ips（单网卡兜底）
+        // 2. 网络映射：将 multus.networkName 映射为 VPC/Flat/VLAN 文案；若无法解析则按 Flat 兜底显示
         const ifaces = r?.spec?.template?.spec?.domain?.devices?.interfaces || [];
         const networks = r?.spec?.template?.spec?.networks || [];
         
@@ -329,7 +541,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
             let mac = i.macAddress; 
             let ip = '';
 
-            // Helper to extract IP from interface status
+            // [辅助函数] 从接口状态对象中提取 IP 字段（兼容单 IP 与多 IP 结构）
             const extractIp = (statusIface: any) => {
                 if (statusIface.ipAddress) return statusIface.ipAddress;
                 if (Array.isArray(statusIface.ipAddresses) && statusIface.ipAddresses.length > 0) {
@@ -338,7 +550,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 return '';
             };
 
-            // 1. Check VMI status (Most accurate for running VMs)
+            // [优先级 1] VMI 运行态：KubeVirt 提供的实时接口信息最可靠
             if (r?.vmi?.status?.interfaces) {
                 const vmiIface = r.vmi.status.interfaces.find((si: any) => si.name === i.name || (mac && si.mac === mac));
                 if (vmiIface) {
@@ -347,7 +559,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 }
             }
 
-            // 2. Check VM status (Fallback)
+            // [优先级 2] VM 状态：在部分状态下 VMI 不存在时作为回退来源
             if (!ip && r?.status?.interfaces) {
                  const statusIface = r.status.interfaces.find((si: any) => si.name === i.name || (mac && si.mac === mac));
                  if (statusIface) {
@@ -356,7 +568,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                  }
             }
             
-            // 3. Fallback: Check annotations if single interface or no IP found yet
+            // [优先级 3] 注解兜底：仅在单网卡且前两级未取到 IP 时尝试解析注解
             if (!ip && ifaces.length === 1) {
                 try {
                     const annot = r?.metadata?.annotations?.['network.harvesterhci.io/ips'];
@@ -367,32 +579,43 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 } catch(e) {}
             }
 
-            // Map networkName to VPC/Subnet or Flat/VLAN
+            // [网络映射] 将 networkName 映射为 VPC/Subnet 或 Flat/VLAN 的可读文案
             let displayName = net?.multus?.networkName || 'Management Network';
             
             if (displayName !== 'Management Network') {
                 try {
-                    // networkName format: namespace/name
+                    // networkName 格式：namespace/name（若无 namespace 则默认使用 VM 所在命名空间）
                     const parts = displayName.split('/');
                     const targetNs = parts.length > 1 ? parts[0] : (r?.metadata?.namespace || 'default');
                     const targetName = parts.length > 1 ? parts[1] : parts[0];
                     
-                    // 1. Find NAD first
-                    const nad = nads.find((n: any) => n.metadata?.name === targetName && n.metadata?.namespace === targetNs);
+                    // [解析步骤 1] 先在 related.nads 中按“命名空间+名称”精确匹配 NAD
+                    let nad = nads.find((n: any) => n.metadata?.name === targetName && n.metadata?.namespace === targetNs);
+                    
+                    // [解析步骤 2] 若未找到且非 default，尝试在 default 命名空间寻找同名 NAD
+                    if (!nad && targetNs !== 'default') {
+                        nad = nads.find((n: any) => n.metadata?.name === targetName && n.metadata?.namespace === 'default');
+                    }
+
+                    // [解析步骤 3] 最后仅按名称匹配（related.nads 理论上已包含相关 NAD）
+                    if (!nad) {
+                        nad = nads.find((n: any) => n.metadata?.name === targetName);
+                    }
                     
                     if (nad) {
                         let config: any = {};
                         try {
-                            config = JSON.parse(nad.spec?.config || '{}');
+                            const rawConfig = nad.spec?.config || '{}';
+                            config = typeof rawConfig === 'object' ? rawConfig : JSON.parse(rawConfig);
                         } catch (e) {}
                         
-                        // Support both plugins list and direct object structure
+                        // 兼容 NAD config 的两种形态：plugins 列表或单对象
                         const plugins = config.plugins || [config];
                         const kubeOvnConfig = plugins.find((p: any) => p?.type === 'kube-ovn');
                         const bridgeConfig = plugins.find((p: any) => p?.type === 'bridge');
 
                         if (kubeOvnConfig) {
-                            // VPC Network Logic
+                            // [VPC 网络] kube-ovn：用 subnet.spec.vpc 找到 VPC，并展示别名/名称
                             const subnet = subnets.find((s: any) => s.metadata?.name === targetName);
                             if (subnet) {
                                 const vpcName = subnet.spec?.vpc || subnet.vpc || 'Unknown VPC';
@@ -400,25 +623,25 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                 const vpcDisplay = vpc?.metadata?.annotations?.['tower.io/alias'] || vpcName;
                                 displayName = `VPC / ${vpcDisplay} / ${subnet.metadata.name}`;
                             } else {
-                                // Fallback if subnet object missing but type is VPC
+                                // subnet 资源缺失时兜底展示
                                 displayName = `VPC / ${targetName}`;
                             }
                         } else if (bridgeConfig) {
-                            // Flat Network Logic (Bridge)
+                            // [Flat 网络] bridge：按 VLAN 与 NAD 名称展示
                             const vlanId = bridgeConfig.vlan;
                             displayName = `Flat / ${vlanId ? `VLAN ${vlanId} / ` : ''}${nad.metadata.name}`;
                         } else {
-                            // Other (Unknown type or custom CNI) -> Show actual type
+                            // [其它网络] 自定义 CNI：展示 type 与 NAD 名称便于排查
                             const type = config.type || 'Unknown';
                             displayName = `${type} / ${nad.metadata.name}`;
                         }
                     } else {
-                        // Fallback: If NAD not found, default to Flat as requested
+                        // NAD 未找到时兜底按 Flat 展示，避免 UI 出现空值
                         displayName = `Flat / ${targetName}`;
                     }
                 } catch (e) {
                     console.warn('[VmDetail] Error mapping network:', e);
-                    // Final fallback
+                    // 最终兜底：仅展示名称，避免异常阻断渲染
                     const parts = displayName.split('/');
                     const targetName = parts.length > 1 ? parts[1] : parts[0];
                     displayName = `Flat / ${targetName}`;
@@ -436,7 +659,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     }
   }), [namespaces, volumes, images, vpcs, subnets, nads]);
 
-  // Actions
+  // ==============================================================================
+  // 10. 操作封装 (Actions)
+  // ==============================================================================
+  // [动作封装] 将按钮/菜单的操作集中封装，统一处理消息提示与上游刷新回调
   const handleStart = async () => {
      try {
          const ns = SafeRead.namespace(vmData);
@@ -465,7 +691,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       try {
           const ns = SafeRead.namespace(vmData);
           const name = SafeRead.vmId(vmData);
-          // For Harvester, instanceId is namespace/name
+          // [实例标识] Harvester 侧的 instanceId 约定为 namespace/name
           const instanceId = `${ns}/${name}`;
           await rebootCloudProviderEcs(cloudId, instanceId);
           message.success('重启指令已发送');
@@ -473,6 +699,30 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       } catch(e: any) {
           message.error(e.message || '重启失败');
       }
+  };
+
+  const handlePause = async () => {
+    try {
+        const ns = SafeRead.namespace(vmData);
+        const name = SafeRead.vmId(vmData);
+        await pauseHarvesterVm(cloudId, ns, name);
+        message.success('暂停指令已发送');
+        onRefresh && onRefresh();
+    } catch(e: any) {
+        message.error(e.message || '暂停失败');
+    }
+  };
+
+  const handleUnpause = async () => {
+    try {
+        const ns = SafeRead.namespace(vmData);
+        const name = SafeRead.vmId(vmData);
+        await unpauseHarvesterVm(cloudId, ns, name);
+        message.success('恢复指令已发送');
+        onRefresh && onRefresh();
+    } catch(e: any) {
+        message.error(e.message || '恢复失败');
+    }
   };
 
   const handleConsole = async () => {
@@ -507,7 +757,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
   const handleEjectCdrom = useCallback(async () => {
     const disks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
-    const cdrom = disks[0]; // Assuming first disk check for cdrom property, similar to VmSection logic but safer
+    // [设备选择] 以第一块盘作为“启动盘/引导盘”候选，并在下方按 isCdromBoot 控制入口是否展示
+    const cdrom = disks[0];
     if (!cdrom) return;
     
     const statusStr = String(SafeRead.status(vmData)).toLowerCase();
@@ -539,21 +790,27 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         try {
           const ns = SafeRead.namespace(vmData);
           const name = SafeRead.vmId(vmData);
-          // Construct iid properly as namespace/name
+          // [实例标识] 后端部分接口使用 iid=namespace/name
           const iidStr = `${ns}/${name}`;
           
           if (!ns || !name) throw new Error('无法解析实例信息');
 
-          // 1. Stop VM if running
+          // ---------------------------------------------------------
+          // 第一步：运行中先停止（避免在线卸载导致状态不一致）
+          // ---------------------------------------------------------
           if (isRunning) {
               await stopHarvesterVm(cloudId, ns, name, true);
-              await new Promise(resolve => setTimeout(resolve, 5000)); // Wait for stop
+              await new Promise(resolve => setTimeout(resolve, 5000));
           }
 
-          // 2. Detach Volume
+          // ---------------------------------------------------------
+          // 第二步：从 VM 上卸载对应卷
+          // ---------------------------------------------------------
           await detachHarvesterVolumeFromVm(cloudId, iidStr, { name: cdrom.name });
 
-          // 3. Delete PVC if requested
+          // ---------------------------------------------------------
+          // 第三步：按用户勾选决定是否删除 PVC（避免残留孤儿卷）
+          // ---------------------------------------------------------
           if (deletePvc) {
               const volumes = vmData?.spec?.template?.spec?.volumes || [];
               const vol = volumes.find((v: any) => v.name === cdrom.name);
@@ -569,7 +826,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               }
           }
 
-          // 4. Start VM if it was running
+          // ---------------------------------------------------------
+          // 第四步：若之前处于运行态，则恢复启动
+          // ---------------------------------------------------------
           if (isRunning) {
               await new Promise(resolve => setTimeout(resolve, 2000));
               await startHarvesterVm(cloudId, ns, name);
@@ -592,20 +851,23 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const isPaused = ['paused'].includes(status);
 
 
-  // Check for HotPlugCPUError
+  // ==============================================================================
+  // 11. 派生状态 (Derived Flags)
+  // ==============================================================================
+  // [故障提示] HotPlugCPUError 通常表示热插拔 CPU 变配失败，需要在 UI 上显式提示
   const conditions = vmData?.status?.conditions || [];
   const hotPlugCpuError = conditions.find((c: any) => c.type === 'Failure' && c.reason === 'HotPlugCPUError' && c.status === 'True');
   
   const vmDisks = SafeRead.volumeDetails(vmData);
   const vmNics = SafeRead.interfaces(vmData);
 
-  // Check for CD-ROM
+  // [动作开关] 若第一块磁盘为 cdrom，则暴露“弹出 CD-ROM”动作
   const rawDisks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
   const isCdromBoot = rawDisks.length > 0 && !!rawDisks[0].cdrom;
 
-  // Toolbar Actions
+  // [下拉菜单] 更多动作入口（按业务域分组：数据/运行态/危险操作）
   const actionItems: MenuProps['items'] = [
-      // Data & Replication
+      // 数据与副本（备份/快照/克隆/模板）
       { key: 'backup', label: '备份', icon: <DatabaseOutlined />, onClick: () => onBackup && onBackup(vmData) },
       { key: 'snapshot', label: '快照', icon: <HistoryOutlined />, onClick: () => onSnapshot && onSnapshot(vmData) },
       { key: 'clone', label: '克隆', icon: <CopyOutlined />, onClick: () => onClone && onClone(vmData) },
@@ -613,14 +875,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       
       { type: 'divider' },
 
-      // Runtime Operations
+      // 运行态操作（变配/迁移/介质卸载）
       { key: 'reconfigure', label: '资源变配', icon: <HddOutlined />, onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) },
       { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(vmData) },
       ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
 
       { type: 'divider' },
 
-      // Danger Zone
+      // 危险操作（强制停止/删除）
       { key: 'force_stop', label: '强制停止', icon: <PoweroffOutlined />, danger: true, disabled: isStopped, onClick: () => handleStop(true) },
       { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => onDelete && onDelete(vmData) },
   ];
@@ -634,7 +896,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       closable={false}
       styles={{ body: { padding: 0, background: '#f5f7fa', display: 'flex', flexDirection: 'column' } }}
     >
-      {/* Custom Header */}
+      {/*
+        ========================================
+        1. 标题区域
+        ========================================
+        展示 VM 名称/ID/状态，以及刷新与关闭入口。
+      */}
       <div style={{ background: '#f5f7fa', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ 
@@ -662,10 +929,54 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               </Tooltip>
             )}
          </div>
-         <Button type="text" onClick={onClose} style={{ fontSize: 16 }}>×</Button>
+         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Tooltip title="刷新状态">
+                <Button 
+                    type="text" 
+                    icon={<SyncOutlined spin={refreshing} />} 
+                    onClick={() => fetchAggregated(true)}
+                    style={{ 
+                        width: 32, 
+                        height: 32, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        background: '#ffffff', 
+                        border: '1px solid #e5e5e5', 
+                        borderRadius: 4,
+                        padding: 0,
+                        color: '#666'
+                    }}
+                />
+            </Tooltip>
+            <Button 
+                type="text" 
+                onClick={onClose} 
+                style={{ 
+                    width: 32, 
+                    height: 32, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    background: '#ffffff', 
+                    border: '1px solid #e5e5e5', 
+                    borderRadius: 4,
+                    fontSize: 16,
+                    padding: 0,
+                    color: '#666'
+                }}
+            >
+                <CloseOutlined />
+            </Button>
+         </div>
       </div>
 
-      {/* Toolbar */}
+      {/*
+        ========================================
+        2. 工具栏区域
+        ========================================
+        常用运维动作入口；右侧“更多”下拉承载低频/危险操作。
+      */}
       <div style={{ background: '#f5f7fa', padding: '0 24px 16px', flexShrink: 0 }}>
         <div style={{ padding: 8, background: '#fff', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
           <Button className="vm-toolbar-btn" type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 14 }}>打开终端</Button>
@@ -676,9 +987,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
           <Button className="vm-toolbar-btn" type="text" size="small" icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleReboot} disabled={isStopped} style={{ fontSize: 14 }}>重启</Button>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} disabled={!isRunning} style={{ fontSize: 14 }}>暂停</Button>
+          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} onClick={handlePause} disabled={!isRunning} style={{ fontSize: 14 }}>暂停</Button>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} disabled={!isPaused} style={{ fontSize: 14 }}>恢复</Button>
+          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} onClick={handleUnpause} disabled={!isPaused} style={{ fontSize: 14 }}>恢复</Button>
 
           <div style={{ flex: 1 }} />
           
@@ -688,7 +999,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         </div>
       </div>
 
-      {/* Tabs */}
+      {/*
+        ========================================
+        3. Tab 导航
+        ========================================
+        detail: 规格/磁盘/网卡/配置等；performance: 性能趋势；backup_snapshot: 备份与定时策略；events: 事件流。
+      */}
       <div style={{ background: '#f5f7fa', padding: '0 24px', flexShrink: 0 }}>
           <Tabs 
             type="card"
@@ -705,7 +1021,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           />
       </div>
 
-      {/* Content */}
+      {/*
+        ========================================
+        4. 内容区域
+        ========================================
+        根据 activeTab 渲染对应内容；detail Tab 为主信息聚合展示。
+      */}
       <style>{`
           .vm-toolbar-btn {
                background: #f5f7fa;
@@ -740,10 +1061,15 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       <div className="minimal-scroll" style={{ padding: '0 24px 24px', flex: 1, overflowY: 'auto' }}>
           {activeTab === 'detail' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                  {/* CPU/Memory Card */}
+                  {/*
+                    ========================================
+                    4.1 规格与使用率
+                    ========================================
+                    上半部分展示 CPU/内存规格与当前使用率（来自 Prometheus 指标）。
+                  */}
                   <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                       <div style={{ display: 'flex', gap: 24 }}>
-                          {/* CPU Section */}
+                          {/* CPU 区域 */}
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
                                   <div style={{ 
@@ -779,7 +1105,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                           
                           <div style={{ width: 1, background: '#f0f0f0' }} />
 
-                          {/* Memory Section */}
+                          {/* 内存区域 */}
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
                                   <div style={{ 
@@ -887,7 +1213,13 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       )}
                   </Card>
 
-                  {/* Disks */}
+                  {/*
+                    ========================================
+                    4.2 虚拟磁盘
+                    ========================================
+                    由 VM volumes 与 domain.devices.disks 合并得到：
+                    - 展示引导顺序、总线类型、容量（PVC 口径）、以及 CD-ROM 标识。
+                  */}
                   <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                           <span style={{ color: '#666' }}>虚拟磁盘</span>
@@ -934,7 +1266,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       </Card>
                   </div>
 
-                  {/* NICs */}
+                  {/*
+                    ========================================
+                    4.3 虚拟网卡
+                    ========================================
+                    结合接口/VMI status/注解提取 MAC/IP，并将 multus.networkName 映射为 VPC/Flat/VLAN 文案。
+                  */}
                   <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                           <span style={{ color: '#666' }}>虚拟网卡</span>
@@ -977,7 +1314,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       </Card>
                   </div>
 
-                  {/* 其它选项 */}
+                  {/*
+                    ========================================
+                    4.4 其他选项
+                    ========================================
+                    展示 Guest Agent、Cloud-Init、SSH Keys、运行策略、固件/TPM 等配置项，便于排查实例行为差异。
+                  */}
                   <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                           <span style={{ color: '#666' }}>其他选项</span>

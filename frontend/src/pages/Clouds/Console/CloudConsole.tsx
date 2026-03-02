@@ -201,10 +201,18 @@ const CloudConsolePage: React.FC = () => {
         } catch {}
       });
 
+      // Server-side Reported Error
+      eventSource.addEventListener('error', (ev: MessageEvent) => {
+        try {
+          const json = JSON.parse(String(ev.data || '{}'));
+          console.warn('[SSE] Server Error:', json);
+        } catch {}
+      });
+
       eventSource.onerror = (err) => {
-        // console.error('[SSE] Error', err);
-        eventSource?.close();
-        // Retry logic could be added here, but EventSource usually retries automatically
+        // console.error('[SSE] Connection Error', err);
+        // Do NOT close explicitly; allow browser to auto-reconnect
+        // eventSource?.close(); 
       };
     };
 
@@ -876,6 +884,8 @@ const CloudConsolePage: React.FC = () => {
     switch (harvesterResource) {
       case 'vm':
         // VM 和 Namespace 已在上方处理
+        // [修复] VM 列表依赖 PVC 数据 (用于显示扩容状态、CloudMap 启动检查等)，必须加载
+        if (pvcs.length === 0) loadPvcs(currentCloudId);
         break;
       case 'image':
         loadImages(currentCloudId);

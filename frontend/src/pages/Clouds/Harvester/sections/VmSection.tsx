@@ -610,6 +610,12 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     });
   }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead]);
 
+  const drawerRecord = useMemo(() => {
+    if (!currentMetadata) return null;
+    const currentId = getIid(currentMetadata);
+    return vms.find((v) => getIid(v) === currentId) || currentMetadata;
+  }, [vms, currentMetadata]);
+
   // ==========================================
   // [事件处理] 5. 单个操作事件 (Single Actions)
   // ==========================================
@@ -1359,7 +1365,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         onClose={() => setMetadataModalVisible(false)}
         resourceType="VirtualMachine"
         forceOpsMode={metadataOpsMode}
-        record={currentMetadata}
+        record={drawerRecord}
         activeTab={metadataActiveTab}
         onTabChange={setMetadataActiveTab}
         cloudId={cloudId}

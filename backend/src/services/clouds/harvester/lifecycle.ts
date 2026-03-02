@@ -102,8 +102,9 @@ export const harvesterPauseVM = async (
   }
   const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
   if (!path) throw new Error('无法解析实例标识');
-  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachineinstances/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=pause`;
-  return await requestJson('POST', url, token, insecure, {});
+  // Use KubeVirt native subresource API instead of Harvester action
+  const url = `${origin}/apis/subresources.kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachineinstances/${encodeURIComponent(path.name)}/pause`;
+  return await requestJson('PUT', url, token, insecure, {}, { Accept: '*/*' });
 };
 
 // 取消暂停虚拟机实例（VMI 级别）
@@ -121,8 +122,9 @@ export const harvesterUnpauseVM = async (
   }
   const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
   if (!path) throw new Error('无法解析实例标识');
-  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachineinstances/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=unpause`;
-  return await requestJson('POST', url, token, insecure, {});
+  // Use KubeVirt native subresource API instead of Harvester action
+  const url = `${origin}/apis/subresources.kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachineinstances/${encodeURIComponent(path.name)}/unpause`;
+  return await requestJson('PUT', url, token, insecure, {}, { Accept: '*/*' });
 };
 
 // 触发虚拟机热迁移（创建 VirtualMachineInstanceMigration 对象）
