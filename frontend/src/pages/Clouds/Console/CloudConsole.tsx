@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { Button, Form, Input, Tabs, Alert, Tree, App, Space, Modal } from 'antd';
+import { Button, Form, Input, Tabs, Alert, Tree, App, Space, Modal, Spin } from 'antd';
 import { ReloadOutlined, CloudServerOutlined, CloudOutlined, BranchesOutlined, ApartmentOutlined, LoadingOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -40,6 +40,7 @@ const CloudConsolePage: React.FC = () => {
   
   // 资源池列表
   const [clouds, setClouds] = useState<CloudItem[]>([]);
+  const [cloudsLoading, setCloudsLoading] = useState(true);
   // 当前选中的资源池 ID
   const [currentCloudId, setCurrentCloudId] = useState<string | undefined>();
   
@@ -201,14 +202,6 @@ const CloudConsolePage: React.FC = () => {
         } catch {}
       });
 
-      // Server-side Reported Error
-      eventSource.addEventListener('error', (ev: MessageEvent) => {
-        try {
-          const json = JSON.parse(String(ev.data || '{}'));
-          console.warn('[SSE] Server Error:', json);
-        } catch {}
-      });
-
       eventSource.onerror = (err) => {
         // console.error('[SSE] Connection Error', err);
         // Do NOT close explicitly; allow browser to auto-reconnect
@@ -354,6 +347,7 @@ const CloudConsolePage: React.FC = () => {
 
   // 加载资源池列表
   const loadClouds = async () => {
+    setCloudsLoading(true);
     try {
       const list: any[] = await fetchClouds();
       const arr = Array.isArray(list) ? list : [];
@@ -383,6 +377,8 @@ const CloudConsolePage: React.FC = () => {
       }
     } catch (e) {
       // ignore
+    } finally {
+      setCloudsLoading(false);
     }
   };
 
@@ -886,6 +882,8 @@ const CloudConsolePage: React.FC = () => {
         // VM 和 Namespace 已在上方处理
         // [修复] VM 列表依赖 PVC 数据 (用于显示扩容状态、CloudMap 启动检查等)，必须加载
         if (pvcs.length === 0) loadPvcs(currentCloudId);
+        // [修复] VM 列表依赖镜像数据 (用于显示镜像名称)，必须加载
+        if (images.length === 0) loadImages(currentCloudId);
         break;
       case 'image':
         loadImages(currentCloudId);
@@ -1166,7 +1164,8 @@ const CloudConsolePage: React.FC = () => {
                     onReboot={handleReboot}
                     onDelete={handleDelete}
                     bordered={false}
-                    showOpsDetail={false}
+                    showYaml={false}
+                    showSys={false}
                   />
                 ) : isHarvester ? (
                   <CloudConsoleHarvester
@@ -1238,8 +1237,14 @@ const CloudConsolePage: React.FC = () => {
                     onReboot={handleReboot}
                     onDelete={handleDelete}
                     bordered={false}
-                    showOpsDetail={false}
+                    showYaml={false}
+                    showSys={false}
                   />
+                ) : cloudsLoading ? (
+                  <div style={{ padding: 100, textAlign: 'center' }}>
+                    <Spin size="large" />
+                    <div style={{ marginTop: 8 }}>加载资源池...</div>
+                  </div>
                 ) : (
                   <div style={{ padding: 24, textAlign: 'center' }}>
                     <Alert

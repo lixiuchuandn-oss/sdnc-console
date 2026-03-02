@@ -7,8 +7,8 @@
  * - 查看、修改、启用/停用以及删除策略
  * - 打开资源详情抽屉查看原始对象
  */
-import React, { useMemo, useState } from 'react';
-import { Table, Button, Input, Badge, Tooltip, Dropdown, Menu, message, Modal, Select } from 'antd';
+import React, { useMemo, useState, useCallback } from 'react';
+import { Table, Button, Input, Badge, Tooltip, Dropdown, message, Modal, Select } from 'antd';
 import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
 import { formatCron } from '../../../../utils/cronFormatter';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
@@ -145,7 +145,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
     return () => clearInterval(timer);
   }, [suspendPollingTarget, data, onRefresh]);
 
-  const handleSuspend = async (record: any) => {
+  const handleSuspend = useCallback(async (record: any) => {
     try {
       const newSuspend = !record.suspended;
       await updateHarvesterScheduleVmBackup(cloudId, record.namespace, record.id, { suspend: newSuspend });
@@ -162,9 +162,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
     } catch (e: any) {
       message.error(`操作失败: ${e.message}`);
     }
-  };
+  }, [cloudId, onRefresh]);
 
-  const handleDelete = (record: any) => {
+  const handleDelete = useCallback((record: any) => {
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除定时备份策略 ${record.name} (${record.id}) 吗？此操作不可恢复。`,
@@ -186,7 +186,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         }
       }
     });
-  };
+  }, [cloudId, onRefresh]);
 
   const dataSource = useMemo(() => {
     const base = (data || [])
@@ -231,7 +231,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       if (ov) isSuspended = ov.suspended;
 
       return {
-        key: raw.metadata?.uid || b.id,
+        key: raw.metadata?.uid || b.id || `${ns}-${id}`,
         name: displayName,
         id: id,
         namespace: ns,
@@ -277,7 +277,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
     return d;
   }, [dataSource, keyword, typeFilter, vmId]);
 
-  const columns = [
+  const columns = useMemo(() => [
     { 
       title: '策略名称', 
       dataIndex: 'name', 
@@ -336,30 +336,41 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       fixed: 'right' as const,
       render: (_: any, r: any) => (
          <Dropdown 
-           overlay={
-             <Menu>
-               <Menu.Item key="view" onClick={() => { setCurrentRecord(r.raw); setDrawerVisible(true); }}>
-                 查看详情
-               </Menu.Item>
-               <Menu.Item key="edit" onClick={() => { setCurrentRecord(r); setEditModalVisible(true); }}>
-                 策略修改
-               </Menu.Item>
-               <Menu.Item key="suspend" onClick={() => handleSuspend(r)}>
-                 {r.suspended ? '启用' : '停用'}
-               </Menu.Item>
-               <Menu.Divider />
-               <Menu.Item key="delete" danger onClick={() => handleDelete(r)}>
-                 删除
-               </Menu.Item>
-             </Menu>
-           } 
+           menu={{
+             items: [
+               {
+                 key: 'view',
+                 label: '查看详情',
+                 onClick: () => { setCurrentRecord(r.raw); setDrawerVisible(true); }
+               },
+               {
+                 key: 'edit',
+                 label: '策略修改',
+                 onClick: () => { setCurrentRecord(r); setEditModalVisible(true); }
+               },
+               {
+                 key: 'suspend',
+                 label: r.suspended ? '启用' : '停用',
+                 onClick: () => handleSuspend(r)
+               },
+               {
+                 type: 'divider',
+               },
+               {
+                 key: 'delete',
+                 label: '删除',
+                 danger: true,
+                 onClick: () => handleDelete(r)
+               }
+             ]
+           }} 
            trigger={['click']}
          >
            <Button icon={<EllipsisOutlined />} className="row-actions-trigger" type="text" />
          </Dropdown>
       )
     }
-  ];
+  ], [handleDelete, handleSuspend]);
 
   return (
     <>
@@ -368,6 +379,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         toolbarLeft={(
           <>
             <Input
+              key="schedule-search"
               className="toolbar-search"
               placeholder="搜索名称或命名空间"
               value={keyword}
@@ -375,6 +387,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
               allowClear
             />
             <Select
+              key="schedule-type-filter"
               className="toolbar-filter"
               value={typeFilter}
               onChange={setTypeFilter}
@@ -404,6 +417,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
           bordered={bordered}
           dataSource={filteredData}
           columns={visibleColumns || columns}
+          rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
           loading={loading}
           pagination={{
             size: 'small',

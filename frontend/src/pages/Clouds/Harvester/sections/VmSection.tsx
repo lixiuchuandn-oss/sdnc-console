@@ -1,25 +1,47 @@
 /**
- * @file VmSection.tsx
- * @type [页面组件]
- * @description Harvester 虚拟机列表主视图
- *
- * 职责说明：
- * - 展示 Harvester 集群中的虚拟机列表（仅业务 Namespace，自动过滤系统 Namespace）
- * - 提供搜索 / 命名空间 / 节点 / 状态等多种组合筛选能力
- * - 汇总展示计算、存储、网络、操作系统等关键信息（通过 SafeRead 统一兼容不同数据结构）
- * - 支持单机操作：查看详情、资源变配、WebVNC、热迁移 / 取消迁移、电源控制、删除等
- * - 支持批量操作：批量停止、批量重启、批量删除（可选同步删除关联 PVC）
- * - 内联展示磁盘扩容状态，并提供“扩容指南”弹窗，指导用户在 Guest OS 内完成文件系统扩容
- *
- * 集成说明：
- * - 该组件只关注前端展示与交互，通过 Props 将实际 API 调用 / 状态刷新委托给上层页面
- * - 使用 utils/harvesterUtils 中的 isSystemNamespace、cnVmStatus 等工具函数
+ * ==============================================================================
+ * 模块名称: Harvester 虚拟机列表视图 (VmSection)
+ * 文件路径: src/pages/Clouds/Harvester/sections/VmSection.tsx
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 该组件是 Harvester 云平台详情页的核心部分，负责展示和管理虚拟机列表。
+ * 它不仅仅是一个简单的表格，还集成了大量的运维操作入口和状态监控逻辑。
+ * 
+ * [核心逻辑]
+ * 1. [数据标准化 (SafeRead)]: 
+ *    - Harvester (基于 KubeVirt) 的资源对象结构非常深且复杂 (如 spec.template.spec...)。
+ *    - 为了防止 "undefined" 报错并兼容不同版本的 API 结构，我们使用 SafeRead 对象统一封装所有字段的读取逻辑。
+ * 
+ * 2. [多维过滤]: 
+ *    - 自动过滤系统级命名空间 (如 harvester-public)，只展示用户业务虚拟机。
+ *    - 支持按关键字、状态、节点等多维度组合筛选。
+ * 
+ * 3. [复杂状态计算]:
+ *    - 虚拟机的状态不仅仅是 "Running"，还包含 "Migrating", "Stopping" 等中间态。
+ *    - 需要额外检查关联 PVC 的扩容状态 (Resizing/FileSystemResizePending) 并提示用户。
+ * 
+ * 4. [运维操作]:
+ *    - 集成了 20+ 种操作，包括电源管理、快照备份、热迁移、磁盘扩容指南等。
+ *    - 实现了复杂的批量操作逻辑 (批量停止/重启/删除)。
+ * 
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明]
+ * ------------------------------------------------------------------------------
+ * 1. 上游数据:
+ *    - 依赖父组件传入 `vms` (虚拟机列表), `volumes` (存储卷), `nodesOptions` 等原始数据。
+ *    - 本组件不直接发起列表查询 API，而是通过 Props 接收数据，专注展示和交互。
+ * 
+ * 2. 关键服务:
+ *    - harvesterApi.ts: 提供 start/stop/delete 等底层 API 调用。
+ *    - harvesterUtils.ts: 提供状态文案转换等工具函数。
+ * ==============================================================================
  */
 
 import React, { useMemo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox, Tag, Tabs, Tooltip, Alert } from 'antd';
+import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Tag, Tabs, Tooltip, Alert } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, DesktopOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -31,28 +53,18 @@ import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import { isSystemNamespace, cnVmStatus } from '../../../../utils/harvesterUtils';
 
 /**
- * [类型定义] Props 接口定义
- * @property vms - 虚拟机列表数据
- * @property loading - 加载状态
- * @property namespacesOptions - 命名空间选项列表
- * @property nodesOptions - 节点选项列表
- * @property cloudId - 云平台 ID
- * @property nsValue - 当前选中的命名空间筛选值
- * @property nodeValue - 当前选中的节点筛选值
- * @property onNsChange - 命名空间筛选变化回调
- * @property onNodeChange - 节点筛选变化回调
- * @property onRefresh - 刷新列表回调
- * @property onOpenReconfigure - 打开变配窗口回调
- * @property onStart - 启动虚拟机回调
- * @property onStop - 停止虚拟机回调
- * @property onReboot - 重启虚拟机回调
- * @property onSoftReboot - 软重启虚拟机回调
- * @property onPause - 暂停虚拟机回调
- * @property onUnpause - 恢复虚拟机回调
- * @property onDelete - 删除虚拟机回调
- * @property images - 镜像列表 (用于解析镜像名称)
- * @property namespaces - 命名空间列表 (用于解析租户/组织信息)
- * @property volumes - 存储卷列表 (用于状态检查和容量显示)
+ * [类型定义] 组件 Props 接口
+ * 定义了父组件传递给 VmSection 的所有属性。
+ * 
+ * @property vms - [数据源] 虚拟机对象数组，包含所有 VM 的原始 JSON 数据
+ * @property loading - [UI状态] 表格是否处于加载中状态
+ * @property namespacesOptions - [筛选] 可用的命名空间列表
+ * @property nodesOptions - [筛选] 可用的节点名称列表
+ * @property cloudId - [上下文] 当前云平台的 ID
+ * @property nsValue - [受控状态] 当前选中的命名空间（用于受控组件模式）
+ * @property nodeValue - [受控状态] 当前选中的节点
+ * @property onRefresh - [回调] 请求父组件刷新数据列表
+ * @property volumes - [关联数据] 存储卷列表，用于判断磁盘扩容状态
  */
 type Props = {
   vms: any[];
@@ -65,7 +77,6 @@ type Props = {
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
   onRefresh: (force?: boolean) => void;
-  // onOpenDetail 已移除
   onOpenReconfigure: (vm: any) => void;
   onStart: (iid: string) => void;
   onStop: (iid: string) => void;
@@ -78,56 +89,60 @@ type Props = {
   namespaces?: any[];
   volumes?: any[]; // 从父组件传入，用于状态检查
   bordered?: boolean;
-  showOpsDetail?: boolean;
+  showYaml?: boolean;
 };
 
 /**
- * [组件定义] VmSection 虚拟机列表组件
- * 用于展示和管理 Harvester 虚拟机列表
+ * [组件定义] VmSection
+ * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], bordered = true, showOpsDetail = true }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], bordered = true, showYaml = true }) => {
+  // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
+  const { modal, message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   
   // ==========================================
-  // [状态管理] 1. 本地状态 (Local State)
+  // [状态管理] 1. 本地 UI 状态 (Local State)
   // ==========================================
   
-  // 搜索与筛选状态
+  // [搜索/筛选] 本地关键字和状态筛选
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   
-  // 表格状态
+  // [表格交互] 选中行和列配置
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [tableColumns, setTableColumns] = useState<any[]>([]);
   
-  // 详情抽屉 (Metadata Modal) 状态
+  // [弹窗控制] 详情抽屉状态
   const [metadataModalVisible, setMetadataModalVisible] = useState(false);
-  const [metadataOpsMode, setMetadataOpsMode] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+  const [metadataOpsMode, setMetadataOpsMode] = useState(false); // 是否开启 YAML/运维模式
+  const [currentMetadata, setCurrentMetadata] = useState<any>(null); // 当前查看的 VM 对象
   const [metadataActiveTab, setMetadataActiveTab] = useState('detail');
 
-  // 扩容指南弹窗状态
+  // [弹窗控制] 扩容指南
   const [resizeGuideVisible, setResizeGuideVisible] = useState(false);
 
-  // 迁移弹窗状态
+  // [弹窗控制] 热迁移
   const [migrateModalVisible, setMigrateModalVisible] = useState(false);
   const [currentMigrateVm, setCurrentMigrateVm] = useState<any>(null);
 
+  // [加载状态] 模板保存中
   const [savingTemplate, setSavingTemplate] = useState(false);
 
-  // 备份/快照弹窗状态
+  // [弹窗控制] 备份与快照
   const [vmBackupModalVisible, setVmBackupModalVisible] = useState(false);
   const [vmBackupModalType, setVmBackupModalType] = useState<'backup' | 'snapshot'>('backup');
   const [vmBackupModalVm, setVmBackupModalVm] = useState<any>(null);
 
-
-
   // ==========================================
-  // [辅助函数] 3. 内部工具函数 (Helpers)
+  // [辅助函数] 2. 基础工具 (Basic Helpers)
   // ==========================================
 
-  // [函数] 获取实例唯一标识 (Namespace/Name)
+  /**
+   * [函数] 获取实例唯一标识
+   * 优先构建 "namespace/name" 格式的唯一 ID，如果缺失则回退到 id 字段。
+   */
   const getIid = (r: any): string => {
     if (r?.metadata?.name && r?.metadata?.namespace) {
       return `${r.metadata.namespace}/${r.metadata.name}`;
@@ -137,8 +152,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
   /**
    * [函数] 解析存储大小字符串
-   * 辅助函数：解析存储大小字符串为 GiB 数值
-   * 支持纯数字(Bytes)以及带有单位(Ki, Mi, Gi, Ti)的字符串
+   * 将 "10Gi", "500Mi", "1024" 等不同格式的存储字符串统一转换为 GiB 数值。
    */
   const parseStorageSize = (sizeStr: string): number => {
     if (!sizeStr) return 0;
@@ -150,7 +164,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return bytes / (1024 ** 3); // 转换为 GiB
     }
 
-    // 支持二进制单位 (Ki, Mi, Gi, Ti) 和十进制单位 (k, K, KB, MB, GB, TB)
+    // 支持二进制单位 (Ki, Mi, Gi, Ti) 和十进制单位 (k, KB, ...)
     const units: Record<string, number> = {
       ki: 1024, mi: 1024 ** 2, gi: 1024 ** 3, ti: 1024 ** 4,
       k: 1000, kb: 1000, m: 1000 ** 2, mb: 1000 ** 2, g: 1000 ** 3, gb: 1000 ** 3, t: 1000 ** 4, tb: 1000 ** 4,
@@ -168,8 +182,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
   /**
    * [函数] 格式化存储大小
-   * 辅助函数：格式化存储大小为可读字符串
-   * 自动选择合适的单位 (MiB, GiB, TiB)
+   * 将 GiB 数值格式化为人类可读的字符串 (MiB, GiB, TiB)。
    */
   const formatStorageSize = (sizeGiB: number): string => {
     if (sizeGiB === 0) return '-';
@@ -178,31 +191,35 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
   };
 
+  // ==========================================
+  // [核心逻辑] 3. 数据读取器 (SafeRead)
+  // ==========================================
   /**
-   * [核心对象] 安全读取帮助对象 (SafeRead)
-   * 用于处理 Harvester 资源对象结构的复杂性和不确定性
-   * 包含一系列读取器方法，支持从不同字段路径 (Annotation, Status, Spec) 获取数据
+   * [逻辑说明] SafeRead 对象
+   * 这是一个核心的数据访问层。由于 Kubernetes/Harvester 对象的嵌套层级极深（例如 r.spec.template.spec.domain.cpu.cores），
+   * 直接访问极易出现 "Cannot read property of undefined" 错误。
+   * SafeRead 封装了所有的空值检查和 Fallback 逻辑，确保 UI 渲染层始终能拿到有效数据。
+   * 使用 useMemo 缓存该对象，仅当依赖数据变化时才重建。
    */
   const SafeRead = useMemo(() => ({
-    // ==========================================
-    // [字段组] 3.1 基本标识 (Identity)
-    // ==========================================
+    // ------------------------------------------
+    // 3.1 基础标识 (Identity)
+    // ------------------------------------------
     
-    // [字段] 获取显示名称：优先使用别名 (Annotation)，其次使用 Name
+    // [字段] 显示名称：优先使用 alias 注解（用户自定义别名），其次是 metadata.name
     name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.InstanceName || r?.name || r?.metadata?.name || '', 
     
-    // [字段] 获取真实资源 ID
+    // [字段] 真实资源 ID (Kubernetes Name)
     vmId: (r: any) => r?.metadata?.name || '', 
     
-    // [字段] 获取 UID
+    // [字段] 全局唯一 ID (UID)
     uid: (r: any) => r?.metadata?.uid || r?.InstanceId || r?.id || '',
     
-    // [字段] 获取命名空间
+    // [字段] 命名空间
     namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
     
-    // [字段] 获取租户信息 (优先从 Namespace Annotation 获取)
+    // [字段] 租户信息 (从 Namespace 的 Annotation 中解析)
     tenant: (r: any) => {
-      // 优先从 Namespace Annotations 获取 (tower.io/tenant)
       const nsName = r?.metadata?.namespace || r?.namespace || '';
       const nsObj = namespaces.find((n: any) => n?.metadata?.name === nsName);
       if (nsObj?.metadata?.annotations?.['tower.io/tenant']) {
@@ -211,9 +228,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     
-    // [字段] 获取组织信息 (优先从 Namespace Annotation 获取)
+    // [字段] 组织信息
     organization: (r: any) => {
-      // 优先从 Namespace Annotations 获取 (tower.io/organization)
       const nsName = r?.metadata?.namespace || r?.namespace || '';
       const nsObj = namespaces.find((n: any) => n?.metadata?.name === nsName);
       if (nsObj?.metadata?.annotations?.['tower.io/organization']) {
@@ -222,35 +238,36 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     
-    // [字段] 获取创建时间
+    // [字段] 创建时间
     creationTimestamp: (r: any) => r?.createdAt || r?.metadata?.creationTimestamp,
 
-    // ==========================================
-    // [字段组] 3.2 状态与生命周期 (Status & Lifecycle)
-    // ==========================================
+    // ------------------------------------------
+    // 3.2 状态与生命周期 (Status & Lifecycle)
+    // ------------------------------------------
     
-    // [字段] 获取状态字符串
+    // [字段] 状态字符串 (Running, Stopped 等)
     status: (r: any) => {
       if (typeof r?.status === 'string') return r.status;
+      // Harvester 的状态字段可能在 printableStatus, phase 或 Status 中
       return r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown';
     },
     
-    // [字段] 获取运行节点
+    // [字段] 运行节点
     node: (r: any) => r?.nodeName || r?.vmi?.status?.nodeName || r?.status?.nodeName || '',
     
-    // [字段] 运行策略
+    // [字段] 运行策略 (Always, RerunOnFailure 等)
     runStrategy: (r: any) => r?.spec?.runStrategy || '',
     
     // [字段] 驱逐策略
     evictionStrategy: (r: any) => r?.spec?.evictionStrategy || r?.spec?.template?.spec?.evictionStrategy || '',
 
-    // ==========================================
-    // [字段组] 3.3 计算资源 (Compute)
-    // ==========================================
+    // ------------------------------------------
+    // 3.3 计算资源 (Compute)
+    // ------------------------------------------
     
-    // [字段] 获取 CPU 核心数 (优先计算完整拓扑)
+    // [字段] CPU 核心数
+    // 逻辑：Harvester CPU = Sockets * Cores * Threads
     cpu: (r: any) => {
-      // 优先计算完整拓扑 (cores * sockets * threads)
       const cpu = r?.spec?.template?.spec?.domain?.cpu;
       if (cpu?.cores && cpu?.sockets && cpu?.threads) {
         return Number(cpu.cores) * Number(cpu.sockets) * Number(cpu.threads);
@@ -258,14 +275,14 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores;
     },
     
-    // [字段] 获取 CPU 规格描述
+    // [字段] CPU 拓扑描述
     cpuSpec: (r: any) => {
       const cpu = r?.spec?.template?.spec?.domain?.cpu;
       if (cpu) return `${cpu.cores} Cores, ${cpu.sockets} Sockets, ${cpu.threads} Threads`;
       return '';
     },
     
-    // [字段] 获取内存大小 (优先使用 limits)
+    // [字段] 内存大小 (优先读取 limits，其次是 guest 内存)
     memory: (r: any) => {
       const lim = r?.spec?.template?.spec?.domain?.resources?.limits?.memory;
       if (lim) return lim;
@@ -274,27 +291,29 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return r?.memoryGb || r?.vmi?.spec?.domain?.memory?.guest;
     },
 
-    // [字段] 获取内存规格描述
+    // [字段] 内存规格描述 (Request / Limit)
     memSpec: (r: any) => {
         const req = r?.spec?.template?.spec?.domain?.resources?.requests;
         const lim = r?.spec?.template?.spec?.domain?.resources?.limits;
         return `Request: ${req?.memory || '-'} / Limit: ${lim?.memory || '-'}`;
     },
 
-    // ==========================================
-    // [字段组] 3.4 存储与镜像 (Storage & Image)
-    // ==========================================
+    // ------------------------------------------
+    // 3.4 存储与镜像 (Storage & Image)
+    // ------------------------------------------
     
-    // [字段] 获取镜像 ID (优先从 Annotation 获取)
+    // [字段] 基础镜像 ID
+    // 逻辑：尝试从多个 Annotation 位置查找关联的 Image ID
     image: (r: any) => {
-      // 1. 尝试从 spec.template annotations 获取 (VM 实时来源)
+      // 1. 优先：spec.template annotations (最准确，代表当前配置)
       const specImg = r?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId'];
       if (specImg) return specImg;
 
-      // 2. 尝试从 metadata annotations 获取
+      // 2. 次选：metadata annotations
       const metaImg = r?.metadata?.annotations?.['harvesterhci.io/imageId'];
       if (metaImg) return metaImg;
 
+      // 3. 兜底：从 volumeClaimTemplates 中解析
       try {
         const annot = r?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
         if (annot) {
@@ -308,13 +327,12 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     
-    // [字段] 获取镜像显示名称 (关联 Images 列表查找)
+    // [字段] 镜像显示名称
+    // 逻辑：拿到 Image ID 后，去 images 列表里查找对应的 displayName
     imageDisplayName: (r: any) => {
       const imgId = SafeRead.image(r);
       if (!imgId) return '';
-      // 尝试在 images 属性中查找
-      // imgId 通常是 'namespace/name' 或仅仅是 'name'
-      // Harvester 镜像 ID 典型格式为 'namespace/name'
+      
       const found = images.find((i: any) => {
          const id = i?.metadata?.name;
          const ns = i?.metadata?.namespace;
@@ -324,6 +342,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       if (found) {
         const labels = found.metadata?.labels || {};
         const ann = found.metadata?.annotations || {};
+        // 尝试多个字段获取名称
         const labelName = labels['harvesterhci.io/imageDisplayName'];
         if (labelName) return labelName;
         const imageName = ann['harvesterhci.io/image-name'];
@@ -336,7 +355,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     
-    // [字段] 获取镜像大小 (从 volumeClaimTemplates 解析)
+    // [字段] 镜像大小 (从 volumeClaimTemplates 获取)
     imageSize: (r: any) => {
       try {
         const annot = r?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
@@ -353,20 +372,21 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
 
-    // [字段] 获取卷详情 (包含容量、状态、扩容信息)
+    // [字段] 卷详情 (Volume Details)
+    // 逻辑：合并 VM 的 Volumes 定义和系统中 PVC 的实时状态
     volumeDetails: (r: any) => {
         const vols = r?.spec?.template?.spec?.volumes || [];
         
-        // 健壮的 Namespace 解析逻辑
+        // 解析 VM 所在的 Namespace
         let vmNs = r?.metadata?.namespace || r?.namespace;
         if (!vmNs) {
-            // 尝试从 ID 解析 (ns/name)
             const iid = r?.id || r?.metadata?.uid || '';
             if (iid && iid.includes('/')) {
                 vmNs = iid.split('/')[0];
             }
         }
         
+        // 确定启动盘 (Boot Volume)
         const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
         let bootVolumeName = '';
         let minOrder = Number.POSITIVE_INFINITY;
@@ -379,14 +399,14 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         return vols.map((v: any) => {
              const claimName = v?.persistentVolumeClaim?.claimName;
              let capacity = '';
-             let capacityBytes = 0; // 其实存储的是 GiB 数值
+             let capacityBytes = 0;
              let status = '';
              let isResizing = false;
              let isFsPending = false;
              let message = '';
              let phase = '';
              
-             // 关联 PVC 列表查找详细状态
+             // 在全局 volumes 列表中查找对应的 PVC
              if (claimName && volumes && volumes.length > 0) {
                  const pvc = volumes.find((p: any) => {
                     const pName = p?.metadata?.name || p?.name;
@@ -406,9 +426,12 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                          capacity = capStr; 
                      }
                      phase = actualPvc?.status?.phase || pvc?.state || 'Bound';
+                     
+                     // 检查扩容相关的 Conditions
                      const conditions = actualPvc?.status?.conditions || [];
                      const fsPendingCond = conditions.find((c: any) => c.type === 'FileSystemResizePending' && c.status === 'True');
                      const resizingCond = conditions.find((c: any) => c.type === 'Resizing' && c.status === 'True');
+                     
                      if (fsPendingCond) {
                          status = 'FileSystemResizePending';
                          isFsPending = true;
@@ -423,24 +446,27 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                  }
              }
             const isCloudInit = v?.cloudInitNoCloud || v?.cloudInitConfigDrive;
+            // 区分系统盘、数据盘、CloudInit盘
             const kind = isCloudInit ? 'cloudinit' : (claimName ? (v?.name === bootVolumeName ? 'system' : 'data') : 'data');
             return { name: v.name, claimName, capacity, capacityBytes, status, phase, isResizing, isFsPending, message, kind };
         });
     },
 
-    // ==========================================
-    // [字段组] 3.5 网络 (Network)
-    // ==========================================
+    // ------------------------------------------
+    // 3.5 网络 (Network)
+    // ------------------------------------------
     
-    // [字段] 获取 IP 地址
+    // [字段] IP 地址
     ip: (r: any) => {
       if (Array.isArray(r?.ips) && r.ips.length > 0) return r.ips.join(', ');
       try {
+        // 尝试从 Annotation 获取 (Harvester Agent 上报)
         const annot = r?.metadata?.annotations?.['network.harvesterhci.io/ips'];
         if (annot) {
           const arr = JSON.parse(annot);
           if (Array.isArray(arr) && arr.length > 0) return arr.join(', ');
         }
+        // 尝试从 status.interfaces 获取 (KubeVirt 状态)
         if (r?.vmi?.status?.interfaces) {
           const ips = r.vmi.status.interfaces.flatMap((i:any) => i.ipAddress || i.ipAddresses || []).filter(Boolean);
           if (ips.length > 0) return ips.join(', ');
@@ -449,7 +475,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     
-    // [字段] 获取 MAC 地址
+    // [字段] MAC 地址
     macAddress: (r: any) => {
       if (Array.isArray(r?.macAddresses) && r.macAddresses.length > 0) return r.macAddresses.join(', ');
       try {
@@ -466,7 +492,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     
-    // [字段] 获取网络列表
+    // [字段] 网络名称列表
     networks: (r: any) => {
       if (Array.isArray(r?.networks) && r.networks.length > 0 && typeof r.networks[0] === 'string') return r.networks;
       const nets = r?.spec?.template?.spec?.networks || r?.vmi?.spec?.networks || [];
@@ -475,23 +501,23 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return [];
     },
 
-    // [字段] 获取网卡列表
+    // [字段] 网卡接口列表
     interfaces: (r: any) => {
         const ifaces = r?.spec?.template?.spec?.domain?.devices?.interfaces || [];
         return ifaces.map((i: any) => `${i.name} (${i.model || '-'})`).join(', ');
     },
 
-    // ==========================================
-    // [字段组] 3.6 硬件设备 (Hardware Devices)
-    // ==========================================
+    // ------------------------------------------
+    // 3.6 硬件设备 (Hardware)
+    // ------------------------------------------
 
-    // [字段] 获取 GPU 列表
+    // [字段] GPU 列表
     gpus: (r: any) => {
         const gpus = r?.spec?.template?.spec?.domain?.devices?.gpus || [];
         return gpus.map((g: any) => g.name).join(', ');
     },
     
-    // [字段] 获取 USB 设备列表
+    // [字段] USB 设备
     usb: (r: any) => {
         const hostDevices = r?.spec?.template?.spec?.domain?.devices?.hostDevices || [];
         const usb = hostDevices.filter((d: any) => {
@@ -502,11 +528,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         return usb.map((u: any) => u.name).join(', ');
     },
 
-    // ==========================================
-    // [字段组] 3.7 操作系统 (Guest OS)
-    // ==========================================
+    // ------------------------------------------
+    // 3.7 操作系统 (Guest OS)
+    // ------------------------------------------
 
-    // [字段] 获取操作系统信息
+    // [字段] OS 名称 (通过 Guest Agent 上报)
     os: (r: any) => r?.vmi?.status?.guestOSInfo?.name || r?.vmi?.status?.guestOSInfo?.prettyName || '',
     kernel: (r: any) => r?.vmi?.status?.guestOSInfo?.kernelRelease || '',
     arch: (r: any) => r?.vmi?.status?.guestOSInfo?.architecture || r?.spec?.template?.spec?.architecture || '',
@@ -515,16 +541,20 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
   /**
    * [辅助函数] 检查卷扩容状态 (checkResizeStatus)
-   * 辅助函数：检查卷扩容状态
-   * 遍历 VM 关联的所有 PVC，检查是否存在 Resizing 或 FileSystemResizePending 状态
-   * @returns {Object} 包含是否正在扩容、是否等待文件系统扩容、涉及的 PVC 名称及状态消息
+   * 
+   * [业务背景]
+   * 磁盘扩容是一个异步过程，包含两个阶段：
+   * 1. Resizing: 后端存储（如 Longhorn）正在调整块设备大小。
+   * 2. FileSystemResizePending: 块设备已扩容，但 VM 内的文件系统（如 ext4/xfs）需要 OS 介入才能识别新空间。
+   * 
+   * 此函数遍历 VM 的所有 PVC，检测并返回当前的扩容阶段，以便 UI 给出准确提示。
    */
   const checkResizeStatus = useCallback((r: any) => {
     if (!volumes || volumes.length === 0) return { isResizing: false, isFsPending: false, pvcName: '', message: '' };
     
     const vmVolumes = r?.spec?.template?.spec?.volumes || [];
     
-    // 健壮的 Namespace 解析逻辑 (与 SafeRead.volumeDetails 保持一致)
+    // 解析 VM Namespace
     let vmNs = r?.metadata?.namespace || r?.namespace;
     if (!vmNs) {
         const iid = r?.id || r?.metadata?.uid || '';
@@ -537,6 +567,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         const claimName = v?.persistentVolumeClaim?.claimName;
         if (!claimName) continue;
         
+        // 查找对应的 PVC 对象
         const pvc = volumes.find((p: any) => {
              // 策略 1: 标准 Metadata 匹配
              const pName = p?.metadata?.name || p?.name;
@@ -557,7 +588,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         const actualPvc = pvc?.rawData || pvc;
         const conditions = actualPvc?.status?.conditions || [];
         
-        // 检查 FileSystemResizePending 状态 (后端扩容完成，等待操作系统扩容)
+        // 阶段 2: 等待文件系统扩容
         const fsPendingCond = conditions.find((c: any) => c.type === 'FileSystemResizePending' && c.status === 'True');
         if (fsPendingCond) {
             return { 
@@ -568,7 +599,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             };
         }
 
-        // 检查 Resizing 状态 (后端存储扩容进行中)
+        // 阶段 1: 正在扩容物理卷
         const resizingCond = conditions.find((c: any) => c.type === 'Resizing' && c.status === 'True');
         if (resizingCond) {
             return { 
@@ -583,11 +614,14 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   }, [volumes]);
 
   // ==========================================
-  // [逻辑处理] 4. 数据过滤与处理 (Data Processing)
+  // [逻辑处理] 4. 数据过滤 (Filtering)
   // ==========================================
 
-  // [计算属性] 过滤后的虚拟机列表
-  // 客户端过滤逻辑 (关键字、状态、命名空间、节点)
+  /**
+   * [计算属性] filtered
+   * 根据用户输入的关键字、状态、命名空间、节点对原始 vms 列表进行过滤。
+   * 同时，默认过滤掉系统级命名空间（如 cattle-system）。
+   */
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
@@ -599,9 +633,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const node = String(SafeRead.node(r));
       const sKey = String(SafeRead.status(r)).toLowerCase();
       
-      // 强制过滤系统 Namespace (harvester-public, cattle-system 等)
+      // [业务规则] 强制过滤系统 Namespace，避免用户误操作底层组件
       if (isSystemNamespace(ns)) return false;
 
+      // 应用筛选条件
       if (nsValue && ns !== nsValue) return false;
       if (nodeValue && node !== nodeValue) return false;
       if (kw && !(iid.toLowerCase().includes(kw) || name.includes(kw))) return false;
@@ -610,9 +645,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     });
   }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead]);
 
+  // 计算当前抽屉需要显示的记录
   const drawerRecord = useMemo(() => {
     if (!currentMetadata) return null;
     const currentId = getIid(currentMetadata);
+    // 优先从最新的 vms 列表中查找，保证数据实时性
     return vms.find((v) => getIid(v) === currentId) || currentMetadata;
   }, [vms, currentMetadata]);
 
@@ -628,7 +665,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     setMetadataModalVisible(true);
   }, []);
 
-  // [事件] 处理打开 WebVNC
+  // [事件] 打开 WebVNC
   const handleWebVnc = useCallback(async (r: any) => {
     const iid = getIid(r);
     try {
@@ -640,17 +677,17 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           name = SafeRead.vmId(r);
       }
       
+      // 优先尝试构造标准 URL 直接打开
       if (ns && name) {
         const url = `/clouds/${cloudId}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`;
-        // 在新标签页打开，而非弹窗
         window.open(url, '_blank');
         return;
       }
       
+      // 兜底：通过 API 获取 VNC URL
       const j = await fetchHarvesterVncUrl(cloudId, iid);
       const url = j?.data?.VncUrl || j?.data?.vncUrl || j?.data?.url;
       if (url) {
-        // 在新标签页打开，而非弹窗
         window.open(url, '_blank');
         return;
       }
@@ -662,6 +699,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     }
   }, [cloudId, SafeRead]);
 
+  // [事件] 保存为模板
   const handleSaveAsTemplate = useCallback(async (r: any) => {
     if (!cloudId) return;
     const ns = SafeRead.namespace(r);
@@ -695,12 +733,13 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     setVmBackupModalVisible(true);
   }, []);
 
-  // [事件] 触发克隆操作 (跳转)
+  // [事件] 触发克隆操作 (跳转到创建页)
   const handleClone = useCallback((r: any) => {
     navigate(`/clouds/${cloudId}/instances/create`, { state: { fromVm: r, backgroundLocation: location } });
   }, [cloudId, location, navigate]);
 
-  // [事件] 处理删除确认 (支持同步删除关联 PVC)
+  // [事件] 删除确认
+  // 包含“同步删除关联卷”的选项
   const handleDeleteConfirm = useCallback((r: any) => {
     const iid = getIid(r);
     const status = String(SafeRead.status(r)).toLowerCase();
@@ -708,8 +747,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     const volumes = (r?.spec?.template?.spec?.volumes || []).filter((v: any) => v.persistentVolumeClaim);
     const volumeNames = volumes.map((v: any) => v.persistentVolumeClaim.claimName).join(', ');
     
-    let deleteVolumes = false;
-    Modal.confirm({
+    let deleteVolumes = false; // 默认不删除数据卷
+    modal.confirm({
       title: '确认删除该实例？',
       icon: <ExclamationCircleOutlined />,
       width: 500,
@@ -742,7 +781,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     });
   }, [onDelete, SafeRead]);
 
-  // [事件] 处理弹出 CD-ROM (支持同步删除 PVC 以避免孤儿卷)
+  // [事件] 安全弹出 CD-ROM
+  // 逻辑复杂：如果 VM 运行中，需要 停止 -> 卸载 -> 删除PVC -> 启动
   const handleEjectCdrom = useCallback(async (r: any) => {
     const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
     const cdrom = disks[0];
@@ -753,7 +793,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     
     let deletePvc = true;
     
-    Modal.confirm({
+    modal.confirm({
       title: isRunning ? '安全弹出 CD-ROM (需要重启)' : '弹出 CD-ROM',
       width: 500,
       content: (
@@ -786,16 +826,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           
           if (!ns || !name) throw new Error('无法解析实例信息');
 
-          // 1. 如果正在运行，则停止 VM
+          // Step 1: 如果正在运行，先停止
           if (isRunning) {
               await stopHarvesterVm(cloudId, ns, name, true);
-              await new Promise(resolve => setTimeout(resolve, 5000)); // 等待停止
+              await new Promise(resolve => setTimeout(resolve, 5000)); // 简单的等待策略
           }
 
-          // 2. 卸载卷
+          // Step 2: 卸载 CD-ROM 设备
           await detachHarvesterVolumeFromVm(cloudId, iidStr, { name: cdrom.name });
 
-          // 3. 如果需要，删除 PVC
+          // Step 3: 删除关联 PVC (防止垃圾残留)
           if (deletePvc) {
               const volumes = r?.spec?.template?.spec?.volumes || [];
               const vol = volumes.find((v: any) => v.name === cdrom.name);
@@ -811,7 +851,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
               }
           }
 
-          // 4. 如果之前是运行状态，则启动 VM
+          // Step 4: 如果之前是运行的，重新启动
           if (isRunning) {
               await new Promise(resolve => setTimeout(resolve, 2000));
               await startHarvesterVm(cloudId, ns, name);
@@ -820,6 +860,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           message.success('已发送弹出指令');
           onRefresh();
         } catch(e:any) {
+          // [错误处理] 统一捕获
           message.error(`弹出失败: ${e.message}`);
         } finally {
           hide();
@@ -828,9 +869,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     });
   }, [cloudId, onRefresh, SafeRead]);
 
-  // [事件] 处理迁移操作
+  // [事件] 热迁移 (Live Migration)
+  // 包含严格的前置条件检查
   const handleMigrate = useCallback(async (r: any) => {
-    // 0. 基础状态检查
+    // Check 0: 必须是 Running 状态
     const statusStr = String(r?.status?.printableStatus || r?.status?.phase || '').toLowerCase();
     if (statusStr !== 'running') {
        message.warning('只有运行中的实例才能进行热迁移');
@@ -841,8 +883,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     const nodeSelector = spec?.nodeSelector || {};
     const affinity = spec?.affinity?.nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution || null;
     
-    // 1. 检查是否绑定特定节点 (Hostname Pinned)
-    // 如果 VM 通过 nodeSelector 或 Affinity 强制绑定到特定 Hostname，则无法迁移
+    // Check 1: 检查是否绑定特定节点 (Hostname Pinned)
+    // 如果 VM 被强制绑定到某台宿主机，迁移将无法调度到其他节点
     const hostnamePinned =
       !!nodeSelector?.['kubernetes.io/hostname'] ||
       (affinity &&
@@ -856,8 +898,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return;
     }
 
-    // 2. 检查节点标签约束是否导致只有一个可用节点 (Single Label Node)
-    // 如果 nodeSelector 导致集群中只有一个匹配节点，则无法迁移
+    // Check 2: 检查节点标签约束是否导致只有一个可用节点 (Single Label Node)
+    // 即使没有绑定 Hostname，如果 Label 选择器只匹配到当前这台机器，迁移也会 Pending
     let singleLabelNode = false;
     const selectorKeys = Object.keys(nodeSelector || {});
     if (selectorKeys.length > 0) {
@@ -876,8 +918,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return;
     }
 
-    // 3. 检查网络接口限制 (Network Blocked)
-    // SRIOV 或 Macvtap 类型的网络接口通常不支持热迁移
+    // Check 3: 检查网络接口限制 (Network Blocked)
+    // SRIOV 或 Macvtap 等高性能网络接口通常绑定物理网卡，不支持热迁移
     let networkBlocked = false;
     const interfaces = spec?.domain?.devices?.interfaces || [];
     if (interfaces.some((i: any) => i?.sriov || i?.macvtap)) {
@@ -898,10 +940,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
               const cfg = JSON.parse(x?.spec?.config || '{}');
               type = String(cfg?.type || '').toLowerCase();
             } catch {}
-            // 构建 key，支持全名和短名
             if (ns && name) {
               typeMap[`${ns}/${name}`] = type;
-              // 如果 VM 在同一个 namespace，可能只用 name 引用
               if (ns === (r?.metadata?.namespace || r?.namespace)) {
                 typeMap[name] = type;
               }
@@ -923,9 +963,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     setMigrateModalVisible(true);
   }, [cloudId]);
 
-  // [事件] 处理取消迁移
+  // [事件] 取消迁移
   const handleAbortMigration = useCallback((r: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认取消迁移？',
       icon: <ExclamationCircleOutlined />,
       content: `确定要取消虚拟机 ${SafeRead.name(r)} 的迁移任务吗？`,
@@ -973,6 +1013,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
              }
              return { ok:true, iid }; 
           } catch(e:any){ 
+             // [错误处理] 捕获单个失败，防止阻塞整体
              return { ok:false, iid, err:e?.message||String(e) }; 
           } 
       }));
@@ -999,7 +1040,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                  name = SafeRead.vmId(r);
              }
              if (ns && name) {
-                 // 目前使用 onReboot 回调 (通常调用 Harvester API)
                  await onReboot(iid);
              } else {
                  await onReboot(iid); 
@@ -1023,7 +1063,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     // 创建局部变量以在 Modal 闭包中捕获 Checkbox 状态
     let batchDeleteVolumes = false;
 
-    Modal.confirm({
+    modal.confirm({
       title: '确认批量删除所选实例？',
       width: 500,
       content: (
@@ -1048,9 +1088,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           const results = await Promise.all(targets.map(async (r: any)=> { 
             const iid = getIid(r);
             try { 
-              // 使用新的删除逻辑 (支持 PVC 删除)，或回退到通用删除
-              // 目前 onDelete (来自 props) 处理通用删除，但我们需要确保它支持 PVC 删除
-              // Harvester CloudDetail 中的 'onDelete' 签名是: (id, deleteVolumes?)
               await onDelete(iid, batchDeleteVolumes); 
               return { ok:true, iid }; 
             } catch(e:any){ 
@@ -1078,10 +1115,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   };
 
   // ==========================================
-  // [配置] 7. 表格列定义与配置 (Table Configuration)
+  // [配置] 7. 表格列定义 (Table Configuration)
   // ==========================================
 
-  // [UI配置] 表格列定义 (Columns)
   const allColumns = useMemo(() => [
         { title: '实例名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
       const text = SafeRead.name(r) || '-';
@@ -1210,21 +1246,26 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const { isResizing, pvcName } = checkResizeStatus(r);
 
       const items: any[] = [
-        // 1. 资源详情 (加粗引导)
+        // ----------------------------------------------------------------
+        // 1. 基础信息与访问
+        // ----------------------------------------------------------------
         { key: 'detail', label:'实例详情', onClick: () => handleShowMetadata(r, 'detail') },
         
-      // 4. 资源运维信息
-        ...(showOpsDetail ? [
+        // 运维模式下的 YAML 查看
+        ...(showYaml ? [
             { key: 'detail_ops', label: '查看YAML', onClick: () => handleShowMetadata(r, 'detail', true) }
         ] : []),
 
-        // 2. VNC (浏览器)
+        // VNC 控制台
         { key: 'webvnc', label: '访问VNC', disabled: isStopped, onClick: () => handleWebVnc(r) },
 
         { type: 'divider' },
         
-        // 3. 电源操作 - 根据状态动态显示
-        // [状态] 已停止：仅显示启动
+        // ----------------------------------------------------------------
+        // 2. 生命周期管理 (Power Operations)
+        // ----------------------------------------------------------------
+        
+        // [启动]
         ...(isStopped ? [{ 
           key: 'start', 
           label: '启动', 
@@ -1233,59 +1274,59 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           onClick: () => !isResizing && onStart(iid) 
         }] : []),
 
-        // [状态] 非停止状态 (运行中、暂停中、中间状态)：显示停止
+        // [停止]
         ...(!isStopped ? [
            { key: 'stop', label: '停止', onClick: () => onStop(iid) },
         ] : []),
 
-        // [状态] 运行中：额外显示重启(软)、暂停
+        // [重启/暂停]
         ...(isRunning ? [
            { key: 'softreboot', label: '重启', onClick: () => onSoftReboot && onSoftReboot(iid) },
            { key: 'pause', label: '暂停', onClick: () => onPause && onPause(iid) }
         ] : []),
 
-        // [状态] 暂停中：额外显示恢复
+        // [恢复]
         ...(isPaused ? [
            { key: 'unpause', label: '恢复', onClick: () => onUnpause && onUnpause(iid) }
         ] : []),
 
-  
-       
-        // 5. 风险操作 (平铺显示)
+        // ----------------------------------------------------------------
+        // 3. 风险操作 (Danger Zone)
+        // ----------------------------------------------------------------
         { type: 'divider' },
         
-        // [状态] 非停止状态：强制停止
         ...(!isStopped ? [
            { key: 'force_stop', label: '强制停止', danger: true, onClick: () => onStop && onStop(`${iid}::force`) }
         ] : []),
 
-        // [状态] 运行中：强制重启
         ...(isRunning ? [
            { key: 'reboot', label: '强制重启', danger: true, onClick: () => onReboot(iid) },
         ] : []),
 
-        // 删除 - 始终显示
         { key: 'delete', label: '删除', danger: true, onClick: () => handleDeleteConfirm(r) },
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
     } },
-  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, showOpsDetail]);
+  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, showYaml]);
 
   // ==========================================
   // [UI渲染] 8. 组件结构返回 (Render)
   // ==========================================
 
-  // [UI] 主渲染逻辑
   return (
-    <PageDetailSection
-      asCard={false}
-      // 左侧工具栏：搜索与筛选
-      toolbarLeft={(
-        <>
-          {/* 关键字搜索框 */}
-          <Input allowClear placeholder="关键字" className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
-          {/* 命名空间筛选 */}
+    <PageDetailSection asCard={false}>
+      {/* 
+        ========================================
+        1. 工具栏区域 (Toolbar)
+        包含：关键字搜索、下拉筛选、操作按钮
+        ========================================
+      */}
+      <div key="toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+        {/* 左侧：筛选器 */}
+        <div key="toolbar-left" style={{ display: 'flex', gap: 8 }}>
+          <Input key="keyword" allowClear placeholder="关键字" className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
           <Select
+            key="ns-filter"
             className="toolbar-filter"
             placeholder="命名空间"
             value={nsValue || undefined}
@@ -1293,8 +1334,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             allowClear
             options={namespacesOptions.map(ns=> ({ value: ns, label: ns }))}
           />
-          {/* 节点筛选 */}
           <Select
+            key="node-filter"
             className="toolbar-filter-sm"
             placeholder="节点"
             value={nodeValue || undefined}
@@ -1302,8 +1343,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             allowClear
             options={nodesOptions.map(n=> ({ value: n, label: n }))}
           />
-          {/* 状态筛选 */}
           <Select
+            key="status-filter"
             className="toolbar-filter-sm"
             placeholder="云主机状态"
             value={statusFilter || undefined}
@@ -1311,15 +1352,13 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             allowClear
             options={[{ value: '', label: '全部' }, ...['Running','Starting','Migrating','Stopping','Terminating','Stopped','Terminated','Error','Unknown'].map(k=> ({ value: k.toLowerCase(), label: cnVmStatus(k) }))]}
           />
-        </>
-      )}
-      // 右侧工具栏：操作按钮
-      toolbarRight={(
-        <>
-          {/* 创建按钮 */}
-          <Button type="primary" onClick={() => navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location } })}>创建实例</Button>
-          {/* 批量操作下拉菜单 */}
+        </div>
+        
+        {/* 右侧：操作按钮 */}
+        <div key="toolbar-right" className="toolbar-actions">
+          <Button key="create-btn" type="primary" onClick={() => navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location } })}>创建实例</Button>
           <Dropdown
+            key="batch-actions"
             menu={{
               items: [
                 { key:'batchStop', label:'批量停止', disabled: selectedKeys.length===0 },
@@ -1332,19 +1371,23 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           >
             <Button icon={<EllipsisOutlined />}></Button>
           </Dropdown>
-          {/* 表格列设置 */}
           <TableColumnSettings 
+            key="col-settings"
             columns={allColumns} 
             onChange={setTableColumns}
             settingsKey="harvester_vm_table_v3"
           />
-          {/* 刷新按钮 */}
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} />
-        </>
-      )}
-    >
-      {/* 虚拟机列表表格 */}
+          <Button key="refresh-btn" icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} />
+        </div>
+      </div>
+
+      {/* 
+        ========================================
+        2. 数据表格区域 (Table)
+        ========================================
+      */}
       <Table
+        key="vm-table"
         className="std-table"
         bordered={bordered}
         rowKey={(r:any)=> getIid(r)}
@@ -1359,7 +1402,13 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         }}
       />
       
-      {/* 资源详情抽屉 (Metadata) */}
+      {/* 
+        ========================================
+        3. 弹窗与抽屉 (Modals & Drawers)
+        ========================================
+      */}
+      
+      {/* 资源详情抽屉 */}
       <HarvesterResourceDrawer
         open={metadataModalVisible}
         onClose={() => setMetadataModalVisible(false)}
@@ -1381,7 +1430,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         onDelete={handleDeleteConfirm}
       />
       
-      {/* 备份/快照弹窗 */}
+      {/* 备份/快照创建弹窗 */}
       <VmBackupCreateModal
         visible={vmBackupModalVisible}
         onCancel={() => setVmBackupModalVisible(false)}
@@ -1396,7 +1445,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         initialVm={vmBackupModalVm}
       />
 
-      {/* 迁移弹窗 */}
+      {/* 热迁移弹窗 */}
       <HarvesterMigrateModal
         open={migrateModalVisible}
         onClose={() => setMigrateModalVisible(false)}
@@ -1408,7 +1457,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         nodes={nodesOptions.map(n => ({ metadata: { name: n } }))}
       />
 
-      {/* 扩容指南弹窗 */}
+      {/* 扩容指南说明弹窗 */}
       <Modal
         title="文件系统扩容指南"
         open={resizeGuideVisible}

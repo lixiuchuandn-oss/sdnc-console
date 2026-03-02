@@ -1,11 +1,36 @@
 /**
- * Harvester - 卷快照 (VolumeSnapshot) 列表 Section
- * 展示存储卷快照资源，支持：
- * - 关键字搜索（名称 / 命名空间 / 别名）
- * - 按 Ready / NotReady 过滤
- * - 单个/批量删除快照
- * - 通过 VolumeSnapshotRestoreModal 发起基于快照的数据卷恢复
- * - 打开 HarvesterResourceDrawer 查看快照详情及事件
+ * ==============================================================================
+ * 模块名称: Harvester 卷快照列表 (Harvester Volume Snapshot List)
+ * 文件路径: src/pages/Clouds/Harvester/sections/SnapshotsSection.tsx
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 展示 Harvester 存储卷快照资源列表。
+ * 提供快照的生命周期管理功能（删除、恢复数据卷）。
+ * 支持灵活的 UI 配置（bordered, showYaml）以适应不同角色的视图需求（如租户侧隐藏 YAML）。
+ * 
+ * [核心逻辑]
+ * 1. [数据标准化]: 
+ *    - 将后端返回的 Kubernetes 原始 Manifest 解析为扁平化的表格数据。
+ *    - 优先展示别名 (Annotation)，回退展示 Name。
+ * 2. [前端过滤]: 
+ *    - 支持按名称/命名空间/别名进行关键字搜索。
+ *    - 支持按 Ready/NotReady 状态筛选。
+ * 3. [视图控制]: 
+ *    - 通过 `showYaml` 属性控制是否允许用户查看底层 YAML 和 Events（通常用于区分管理员/租户视角）。
+ * 
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明]
+ * ------------------------------------------------------------------------------
+ * 1. 数据流向:
+ *    [Parent] --(snapshots)--> [SnapshotsSection] --(dataSource)--> [Table]
+ * 
+ * 2. 关键交互:
+ *    - [恢复]: 唤起 VolumeSnapshotRestoreModal。
+ *    - [详情]: 唤起 HarvesterResourceDrawer (仅当 showYaml=true)。
+ *    - [删除]: 调用 deleteHarvesterSnapshot API。
+ * 
+ * ==============================================================================
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Badge, Button, Modal, Input, message, Dropdown, Select } from 'antd';
@@ -17,20 +42,35 @@ import VolumeSnapshotRestoreModal from '../modals/VolumeSnapshotRestoreModal';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
 /**
- * 组件入参说明
- * - cloudId: 当前云 ID，用于调用快照删除与恢复相关 API
- * - snapshots: 后端返回的快照列表（可能带 rawData 包装）
- * - loading: 外层加载状态
- * - onRefresh: 刷新回调，支持 force=true
+ * 组件 Props 定义
+ * @property cloudId - 当前云环境 ID，用于 API 调用
+ * @property snapshots - 快照数据列表 (支持 rawData 嵌套结构或扁平结构)
+ * @property loading - 表格加载状态
+ * @property onRefresh - 刷新回调，force=true 表示强制从后端同步
+ * @property bordered - 是否显示表格边框 (默认: true)。租户侧可能需要无边框样式。
+ * @property showYaml - 是否显示 YAML/详情入口 (默认: true)。租户侧通常隐藏底层细节。
  */
 interface Props {
   cloudId: string;
   snapshots: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  bordered?: boolean;
+  showYaml?: boolean;
 }
 
-const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefresh }) => {
+const SnapshotsSection: React.FC<Props> = ({ 
+  cloudId, 
+  snapshots, 
+  loading, 
+  onRefresh,
+  bordered = true,
+  showYaml = true
+}) => {
+  // ==============================================================================
+  // 1. 状态定义 (State Definitions)
+  // ==============================================================================
+  
   // 工具栏过滤与选择状态
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -45,10 +85,15 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
-  /**
-   * 将快照列表转换为表格可用结构
-   * - 统一解析名称、命名空间、源 PVC、快照类、状态、别名等字段
-   */
+  // ==============================================================================
+  // 2. 数据处理与过滤 (Data Processing)
+  // ==============================================================================
+
+  // [数据标准化] 将原始 K8s 对象转换为表格行数据
+  // 1. 兼容 rawData 包装结构。
+  // 2. 解析 metadata 中的 uid, name, namespace, creationTimestamp。
+  // 3. 解析 spec 中的 source PVC 和 snapshotClassName。
+  // 4. 解析 status 中的 readyToUse 状态。
   const dataSource = useMemo(() => {
     return (snapshots || []).map((s: any) => {
       const raw = s.rawData || s;
@@ -67,11 +112,10 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     });
   }, [snapshots]);
 
-  /**
-   * 前端过滤逻辑
-   * - 关键字：匹配名称 / 命名空间 / 别名
-   * - 状态：Ready / NotReady
-   */
+  // [前端过滤] 多维度数据筛选
+  // 这里的逻辑是为了支持客户端即时搜索，无需频繁请求后端。
+  // 1. 关键字匹配：同时搜索 Name, Namespace 和 Alias。
+  // 2. 状态匹配：根据 Ready/NotReady 进行精确筛选。
   const filteredData = useMemo(() => {
     let d = dataSource;
     if (keyword) {
@@ -92,18 +136,20 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     return d;
   }, [dataSource, keyword, statusFilter]);
 
-  /**
-   * 打开恢复弹窗
-   */
+  // ==============================================================================
+  // 3. 交互处理 (Action Handlers)
+  // ==============================================================================
+
+  // [恢复] 打开数据卷恢复弹窗
+  // 将当前选中的快照记录传递给 Modal，用于后续的 PVC 恢复操作。
   const handleRestore = (record: any) => {
     setRestoreRecord(record);
     setRestoreVisible(true);
   };
 
-  /**
-   * 打开 HarvesterResourceDrawer 展示快照详情
-   * - 注入 kind 与 view 链接以支持事件页签
-   */
+  // [详情] 打开资源详情抽屉 (HarvesterResourceDrawer)
+  // 1. 注入 Kind: 确保 EventsTab 能正确查询 VolumeSnapshot 的事件。
+  // 2. 注入 View Link: 构造 K8s API 路径，用于“实时数据”页签展示 Raw YAML。
   const handleOpenDrawer = (record: any, tab: string = 'detail') => {
     const raw = record.raw || record;
     // Inject kind for EventsTab
@@ -124,9 +170,9 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     setDetailVisible(true);
   };
 
-  /**
-   * 删除单个快照
-   */
+  // [删除] 删除单个快照
+  // 这是一个破坏性操作，必须弹出确认框。
+  // 成功后触发 onRefresh(true) 强制刷新列表。
   const handleDelete = (record: any) => {
     Modal.confirm({
       title: '确认删除',
@@ -145,10 +191,10 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     });
   };
 
-  /**
-   * 批量删除选中的快照
-   * - 逐个调用后端删除接口，并统计成功/失败数量
-   */
+  // [批量删除] 处理多选删除逻辑
+  // 1. 过滤出选中的数据对象。
+  // 2. 使用 Promise.allSettled 并发执行删除请求，而不是串行阻塞。
+  // 3. 汇总成功/失败结果并提示用户。
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter(s => selectedRowKeys.includes(s.key));
@@ -177,27 +223,33 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     });
   };
 
-  /**
-   * 表格列定义
-   * - 名称列使用 alias 优先展示，回退到 name
-   * - 状态列使用 Badge 区分 Ready / NotReady
-   * - 操作列提供恢复与删除操作
-   */
+  // ==============================================================================
+  // 4. 表格列定义 (Columns)
+  // ==============================================================================
+
+  // [UI 渲染] 动态列配置
+  // 根据 showYaml 属性决定：
+  // 1. 名称列是否可点击查看详情。
+  // 2. 操作列菜单中是否包含“查看 YAML”选项。
   const columns = [
     { 
-      title: '名称', 
+      title: '快照名称', 
       dataIndex: 'alias', 
       key: 'alias', 
       width: 200,
       render: (_: any, r: any) => (
-        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
-          {r.alias !== '-' ? r.alias : r.name}
-        </span>
+        showYaml ? (
+          <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+            {r.alias !== '-' ? r.alias : r.name}
+          </span>
+        ) : (
+          <span>{r.alias !== '-' ? r.alias : r.name}</span>
+        )
       )
     },
-    { title: 'ID', dataIndex: 'name', key: 'name', width: 200 },
+    { title: '快照ID', dataIndex: 'name', key: 'name', width: 200 },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
-    { title: '源资源', dataIndex: 'sourcePvc', key: 'sourcePvc', width: 200 },
+    { title: '源PVC', dataIndex: 'sourcePvc', key: 'sourcePvc', width: 200 },
     { title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName', width: 150 },
     { 
       title: '状态', 
@@ -221,19 +273,28 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
       key: 'action',
       width: 80,
       fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown 
-          items={[
-            { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(record, 'detail') },
-            { type: 'divider' as const },
-            { key: 'restore', label: '恢复', onClick: () => handleRestore(record), disabled: !record.readyToUse },
-            { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) }
-          ]}
-          buttonProps={{ className: 'row-actions-trigger' }}
-        />
-      ),
+      render: (_: any, record: any) => {
+        const items: any[] = [];
+        if (showYaml) {
+          items.push({ key: 'detail', label: '查看YAML', onClick: () => handleOpenDrawer(record, 'detail') });
+          items.push({ type: 'divider' as const });
+        }
+        items.push({ key: 'restore', label: '恢复', onClick: () => handleRestore(record), disabled: !record.readyToUse });
+        items.push({ key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) });
+        
+        return (
+          <ResourceActionsDropdown 
+            items={items}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
+      },
     },
   ];
+
+  // ==============================================================================
+  // 5. 渲染视图 (Render)
+  // ==============================================================================
 
   return (
     <PageDetailSection
@@ -278,7 +339,7 @@ const SnapshotsSection: React.FC<Props> = ({ cloudId, snapshots, loading, onRefr
     >
       <Table
         className="std-table"
-        bordered
+        bordered={bordered}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"

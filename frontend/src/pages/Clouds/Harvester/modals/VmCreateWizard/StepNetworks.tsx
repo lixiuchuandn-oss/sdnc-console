@@ -117,6 +117,42 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
   selectedNetIdx,
   setSelectedNetIdx,
 }) => {
+  // [修复] 初始加载时，如果主网卡名称为空字符串，需重置为 undefined 以便显示 Placeholder
+  React.useEffect(() => {
+    const pNic = form.getFieldValue('primaryNic') || {};
+    if (pNic.name === '') {
+      form.setFieldsValue({ primaryNic: { ...pNic, name: undefined } });
+    }
+  }, []);
+
+  const handleNetModeChange = (v: string) => {
+    // [状态重置] 切换网络模式时，重置主网卡配置并初始化类型
+    setNetModeState(v);
+    const initialType = v === 'vpc' ? 'bridge' : (v === 'passthrough' ? 'sriov' : 'bridge');
+    
+    // Only reset if actually changing mode to avoid data loss on remount
+    if (v !== form.getFieldValue('netMode')) {
+       try {
+         form.setFieldsValue({
+           netMode: v,
+           primaryNic: {
+             type: initialType,
+             model: 'virtio',
+             name: undefined,
+             vpc: undefined,
+             subnet: undefined,
+             macAddress: undefined,
+             ipAddress: undefined,
+             gateway: undefined,
+             dns: undefined
+           }
+         });
+       } catch { }
+    }
+    
+    if (v === 'vpc') { reloadKubeVpcs(); reloadKubeSubnets(); reloadNads(); }
+  };
+
   return (
     <>
       <Typography.Paragraph type="secondary">设定新建云主机的网络接口配置</Typography.Paragraph>
@@ -126,32 +162,11 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
       <Row gutter={12}>
         {/* 1. 网络类型选择 (扁平网络 / VPC网络 / 直通网卡) */}
         <Col span={8}>
-          <Form.Item label="网络类型" name="netMode" initialValue={netModeState || 'flat'} rules={[{ required: true, message: '请选择网络类型' }]}>
+          <Form.Item label="网络类型" name="netMode" rules={[{ required: true, message: '请选择网络类型' }]}>
             <Select
               options={[{ label: '扁平网络', value: 'flat' }, { label: 'VPC网络', value: 'vpc' }, { label: '直通网卡', value: 'passthrough' }]}
               placeholder="选择网络类型"
-              onChange={(v) => { 
-                // [状态重置] 切换网络模式时，重置主网卡配置并初始化类型
-                setNetModeState(v); 
-                const initialType = v === 'vpc' ? 'bridge' : (v === 'passthrough' ? 'sriov' : 'bridge');
-                try { 
-                  form.setFieldsValue({ 
-                    netMode: v, 
-                    primaryNic: { 
-                      type: initialType, 
-                      model: 'virtio', 
-                      name: undefined, 
-                      vpc: undefined, 
-                      subnet: undefined, 
-                      macAddress: undefined, 
-                      ipAddress: undefined, 
-                      gateway: undefined, 
-                      dns: undefined 
-                    } 
-                  }); 
-                } catch { } 
-                if (v === 'vpc') { reloadKubeVpcs(); reloadKubeSubnets(); reloadNads(); } 
-              }}
+              onChange={handleNetModeChange}
             />
           </Form.Item>
         </Col>
@@ -160,53 +175,88 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
         <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netMode !== curr.netMode}>
           {({ getFieldValue }) => {
             const mode = getFieldValue('netMode') || 'flat';
-            return (mode === 'flat' || mode === 'passthrough') ? (
-              // --- 扁平网络 / 直通网络 模式配置 ---
-              <Col span={8}>
-                <Form.Item label={mode === 'passthrough' ? '直通网络' : '选择网络'} name={["primaryNic", 'name']} rules={[{ required: true, message: '请选择网络' }]}>
-                  <Select
-                    placeholder={mode === 'passthrough' ? '选择直通网络（SR-IOV/macvtap NAD）' : '选择网络'}
-                    options={mode === 'passthrough' 
-                      ? (nadOptions || []).filter((x: any) => {
+            if (mode === 'flat') {
+              // --- 扁平网络 (Flat) ---
+              return (
+                <Col span={8}>
+                  <Form.Item
+                    label="选择网络"
+                    name={["primaryNic", 'name']}
+                    rules={[{ required: true, message: '请选择网络' }]}
+                    key="primary-nic-flat"
+                  >
+                    <Select
+                      placeholder="选择网络"
+                      options={(function () {
+                          // [业务规则] 扁平网络模式下排除 Kube-OVN 类型的 NAD，因其属于 VPC 网络范畴
+                          const filtered = (nadOptions || []).filter((x: any) => !String(x?.label || '').toLowerCase().includes('kube-ovn'));
+                          return filtered;
+                        })()}
+                      onOpenChange={async (open) => { if (open) reloadNads(); }}
+                      onChange={(val) => {
+                        // [业务规则] 默认 Pod 网络需使用 masquerade 模式以支持 SNAT，指定 NAD 时使用 bridge
+                        try {
+                          const curr = form.getFieldValue('primaryNic') || {};
+                          // 扁平网络下，如果选了值就是 bridge，如果清空（不支持清空了）就是 masquerade
+                          // 但因为 required: true 且不允许清空，这里其实 val 必定有值
+                          // 除非将来允许清空，逻辑保留
+                          const isPod = !val; 
+                          const nextType = isPod ? 'masquerade' : 'bridge';
+                          // [修复] 仅更新关联字段 type，避免覆盖 name 字段本身导致的校验失效
+                          form.setFieldsValue({ primaryNic: { ...curr, type: nextType } });
+                        } catch {}
+                      }}
+                      // 扁平网络强制要求选择，不允许清空回退到 Pod 网络
+                      allowClear={false}
+                    />
+                  </Form.Item>
+                </Col>
+              );
+            }
+
+            if (mode === 'passthrough') {
+              // --- 直通网络 (Passthrough) ---
+              return (
+                <Col span={8}>
+                  <Form.Item
+                    label="直通网络"
+                    name={["primaryNic", 'name']}
+                    rules={[{ required: true, message: '请选择直通网络' }]}
+                    key="primary-nic-passthrough"
+                  >
+                    <Select
+                      placeholder="选择直通网络（SR-IOV/macvtap NAD）"
+                      options={(nadOptions || []).filter((x: any) => {
                           // [过滤逻辑] 直通模式仅显示 SR-IOV 或 Macvtap 类型的 NAD
                           const t = String((x as any)?._type || '').toLowerCase();
                           if (t) return t === 'sriov' || t === 'macvtap';
                           const lbl = String(x?.label || '').toLowerCase();
                           return lbl.includes('sriov') || lbl.includes('macvtap');
-                        }) 
-                      : (function () {
-                          // [业务规则] 扁平网络模式下排除 Kube-OVN 类型的 NAD，因其属于 VPC 网络范畴
-                          const filtered = (nadOptions || []).filter((x: any) => !String(x?.label || '').toLowerCase().includes('kube-ovn'));
-                          return filtered;
-                        })()}
-                    onDropdownVisibleChange={async (open) => { if (open) reloadNads(); }}
-                    onChange={(val) => {
-                      // [业务规则] 默认 Pod 网络需使用 masquerade 模式以支持 SNAT，指定 NAD 时使用 bridge
-                      try {
-                        const curr = form.getFieldValue('primaryNic') || {};
-                        const m = form.getFieldValue('netMode') || 'flat';
-                        if (m === 'flat') {
-                          const isPod = !val; // 空值为默认 Pod 网络
-                          const nextType = isPod ? 'masquerade' : 'bridge';
-                          form.setFieldsValue({ primaryNic: { ...curr, name: val, type: nextType } });
-                        } else {
-                          form.setFieldsValue({ primaryNic: { ...curr, name: val } });
-                        }
-                      } catch {}
-                    }}
-                    allowClear={mode !== 'passthrough'}
-                  />
-                </Form.Item>
-              </Col>
-            ) : (
-              // --- VPC 网络模式配置 ---
+                        })}
+                      onOpenChange={async (open) => { if (open) reloadNads(); }}
+                      onChange={(val) => {
+                         try {
+                           const curr = form.getFieldValue('primaryNic') || {};
+                           // [修复] 仅更新关联对象（虽然直通没联动字段，但保留结构一致性），不覆盖 name
+                           form.setFieldsValue({ primaryNic: { ...curr } });
+                         } catch {}
+                      }}
+                      allowClear={false}
+                    />
+                  </Form.Item>
+                </Col>
+              );
+            }
+            
+            // --- VPC 网络模式配置 ---
+            return (
               <>
                 <Col span={8}>
                   <Form.Item label="VPC" name={["primaryNic", 'vpc']} rules={[{ required: true }]}>
                     <Select
                       placeholder="选择 VPC"
                       options={kubeVpcOptions}
-                      onDropdownVisibleChange={(open) => { if (open) reloadKubeVpcs(); }}
+                      onOpenChange={(open) => { if (open) reloadKubeVpcs(); }}
                       onChange={(val) => { 
                         // [状态同步] 切换 VPC 时，重置子网和网络名称
                         // 使用合并更新，避免读取过期状态
@@ -226,7 +276,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : []; 
                         return filtered.map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })); 
                       })()}
-                      onDropdownVisibleChange={(open) => { if (open) reloadKubeSubnets(); }}
+                      onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
                       onChange={(val) => { 
                         // [状态同步] 选择子网时，自动将其名称作为网络名称
                         // [修复] Kube-OVN 子网生成的 NAD 通常与子网资源本身位于同一 Namespace
@@ -312,17 +362,15 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                 ? [{ label: 'bridge', value: 'bridge' }]
                 : (isPod ? [{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }] : [{ label: 'bridge', value: 'bridge' }]));
             
-            const initialType = mode === 'passthrough' ? 'sriov' : (mode === 'vpc' ? 'bridge' : (isPod ? 'masquerade' : 'bridge'));
-            
             return (
               <>
                 <Col span={8}>
-                  <Form.Item label="类型" name={["primaryNic", 'type']} initialValue={initialType}>
+                  <Form.Item label="类型" name={["primaryNic", 'type']}>
                     <Select options={typeOptions} />
                   </Form.Item>
                 </Col>
                 <Col span={8}>
-                  <Form.Item label="模型" name={["primaryNic", 'model']} initialValue="virtio">
+                  <Form.Item label="模型" name={["primaryNic", 'model']}>
                     <Select disabled={t === 'sriov'} options={NIC_MODELS} />
                   </Form.Item>
                 </Col>
@@ -359,14 +407,13 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
         ========================================
       */}
       <div className="wizard-group-title">辅助网卡</div>
-      <Form.List name="netIfaces" initialValue={[]}>
+      <Form.List name="netIfaces">
         {(fields, { add, remove }) => (
           <div>
             {/* 遍历渲染所有辅助网卡 */}
             {fields.map(({ key, name }, idx) => {
               const nm = form.getFieldValue(['netIfaces', name, 'name']) || '(未选择)';
               const tp = form.getFieldValue(['netIfaces', name, 'type']) || 'masquerade';
-              const mode = form.getFieldValue(['netIfaces', name, 'mode']) || 'flat';
               
               // 卡片标题：包含序号、网络名称和类型
               const title = (
@@ -403,47 +450,85 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                 >
                   <Row gutter={12}>
                     {/* 根据辅助网卡的模式 (flat/vpc) 渲染不同的配置表单 */}
-                    {(['flat', 'passthrough'].includes(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat')) ? (
-                      // --- 辅助网卡：扁平网络 / 直通网络 模式 ---
-                      <Col span={8}>
-                        <Form.Item label={(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') === 'passthrough' ? '直通网络' : '扁平网络'} name={[name, 'name']} rules={[{ required: true }]}>
-                          <Select
-                            placeholder="选择网络"
-                            options={(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') === 'passthrough' 
-                              ? (nadOptions || []).filter((x: any) => {
-                                  // [业务规则] 直通模式仅显示 SR-IOV 或 Macvtap 类型的 NAD
-                                  const t = String((x as any)?._type || '').toLowerCase();
-                                  if (t) return t === 'sriov' || t === 'macvtap';
-                                  const lbl = String(x?.label || '').toLowerCase();
-                                  return lbl.includes('sriov') || lbl.includes('macvtap');
-                                }) 
-                              : (nadOptions || []).filter((x: any) => {
-                                  // [业务规则] 扁平网络模式下排除 Kube-OVN 类型的 NAD
-                                  return !String(x?.label || '').toLowerCase().includes('kube-ovn');
-                                })}
-                            onDropdownVisibleChange={async (open) => { if (open) reloadNads(); }}
-                            onChange={(val) => {
-                              try {
-                                const curr = form.getFieldValue('netIfaces') || [];
-                                const next = [...curr];
-                                const m = form.getFieldValue(['netIfaces', name, 'mode']) || 'flat';
-                                // [业务规则] 扁平辅助网卡选择 NAD 时，类型强制为 bridge (不支持 masquerade)
-                                next[name] = { ...next[name], name: val, ...(m === 'flat' ? { type: 'bridge' } : {}) };
-                                form.setFieldsValue({ netIfaces: next });
-                              } catch {}
-                            }}
-                          />
-                        </Form.Item>
-                      </Col>
-                    ) : (
+                    {(function () {
+                      const mode = form.getFieldValue(['netIfaces', name, 'mode']) || 'flat';
+                      if (mode === 'flat') {
+                         // --- 辅助网卡：扁平网络 ---
+                         return (
+                           <Col span={8}>
+                              <Form.Item
+                                 label="扁平网络"
+                                 name={[name, 'name']}
+                                 rules={[{ required: true, message: '请选择网络' }]}
+                                 key={`secondary-nic-flat-${name}`}
+                               >
+                                 <Select
+                                   placeholder="选择网络"
+                                   options={(nadOptions || []).filter((x: any) => {
+                                       // [业务规则] 扁平网络模式下排除 Kube-OVN 类型的 NAD
+                                       return !String(x?.label || '').toLowerCase().includes('kube-ovn');
+                                     })}
+                                   onOpenChange={async (open) => { if (open) reloadNads(); }}
+                                   onChange={(val) => {
+                                     try {
+                                       const curr = form.getFieldValue('netIfaces') || [];
+                                       const next = [...curr];
+                                       // [业务规则] 扁平辅助网卡选择 NAD 时，类型强制为 bridge
+                                       // [修复] 仅更新 type，不覆盖 name 字段本身
+                                       next[name] = { ...next[name], type: 'bridge' };
+                                       form.setFieldsValue({ netIfaces: next });
+                                     } catch {}
+                                   }}
+                                 />
+                               </Form.Item>
+                            </Col>
+                          );
+                       }
+                       
+                       if (mode === 'passthrough') {
+                          // --- 辅助网卡：直通网络 ---
+                          return (
+                            <Col span={8}>
+                              <Form.Item
+                                 label="直通网络"
+                                 name={[name, 'name']}
+                                 rules={[{ required: true, message: '请选择直通网络' }]}
+                                 key={`secondary-nic-passthrough-${name}`}
+                               >
+                                 <Select
+                                   placeholder="选择直通网络"
+                                   options={(nadOptions || []).filter((x: any) => {
+                                       // [业务规则] 直通模式仅显示 SR-IOV 或 Macvtap 类型的 NAD
+                                       const t = String((x as any)?._type || '').toLowerCase();
+                                       if (t) return t === 'sriov' || t === 'macvtap';
+                                       const lbl = String(x?.label || '').toLowerCase();
+                                       return lbl.includes('sriov') || lbl.includes('macvtap');
+                                     })}
+                                   onOpenChange={async (open) => { if (open) reloadNads(); }}
+                                   onChange={(val) => {
+                                     try {
+                                       const curr = form.getFieldValue('netIfaces') || [];
+                                       const next = [...curr];
+                                       // [修复] 不覆盖 name
+                                       next[name] = { ...next[name] };
+                                       form.setFieldsValue({ netIfaces: next });
+                                     } catch {}
+                                   }}
+                                 />
+                               </Form.Item>
+                            </Col>
+                          );
+                       }
+
                       // --- 辅助网卡：VPC 网络模式 ---
+                      return (
                       <>
                         <Col span={8}>
                           <Form.Item label="VPC" name={[name, 'vpc']} rules={[{ required: true }]}>
                             <Select
                               placeholder="选择 VPC"
                               options={kubeVpcOptions}
-                              onDropdownVisibleChange={(open) => { if (open) reloadKubeVpcs(); }}
+                              onOpenChange={(open) => { if (open) reloadKubeVpcs(); }}
                               onChange={(val) => { 
                                 try { 
                                   const curr = form.getFieldValue('netIfaces') || []; 
@@ -467,7 +552,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                 const filtered = vpc ? list.filter((x: any) => x?.vpc === vpc) : []; 
                                 return filtered.map((x: any) => ({ label: `${x?.name || '-'} (${x?.vpc || '-'})`, value: x?.name })); 
                               })()}
-                              onDropdownVisibleChange={(open) => { if (open) reloadKubeSubnets(); }}
+                              onOpenChange={(open) => { if (open) reloadKubeSubnets(); }}
                               onChange={(val) => { 
                                 try { 
                                   const curr = form.getFieldValue('netIfaces') || []; 
@@ -496,7 +581,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                           </Form.Item>
                         </Col>
                       </>
-                    )}
+                    ); })()}
 
                     {/* --- 通用物理属性 (类型/模型/MAC/IP/Gateway/DNS) --- */}
                     <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode || prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type}>
@@ -506,10 +591,9 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         const opts = mode2 === 'passthrough'
                           ? [{ label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]
                           : (mode2 === 'vpc' ? [{ label: 'bridge', value: 'bridge' }] : [{ label: 'bridge', value: 'bridge' }]);
-                        const initType2 = mode2 === 'passthrough' ? 'sriov' : (mode2 === 'vpc' ? 'bridge' : 'bridge');
                         return (
                           <Col span={8}>
-                            <Form.Item label="类型" name={[name, 'type']} initialValue={initType2}>
+                            <Form.Item label="类型" name={[name, 'type']}>
                               <Select options={opts} />
                             </Form.Item>
                           </Col>
@@ -521,7 +605,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         const typ = getFieldValue(['netIfaces', name, 'type']);
                         return (
                           <Col span={8}>
-                            <Form.Item label="模型" name={[name, 'model']} initialValue="virtio">
+                            <Form.Item label="模型" name={[name, 'model']}>
                               <Select disabled={typ === 'sriov'} options={NIC_MODELS} />
                             </Form.Item>
                           </Col>
@@ -551,7 +635,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   </Row>
                   <Row gutter={12}>
                     <Col span={24}>
-                      <Form.Item label="网络模式" name={[name, 'mode']} initialValue="flat" hidden>
+                      <Form.Item label="网络模式" name={[name, 'mode']} hidden>
                         <Input />
                       </Form.Item>
                     </Col>

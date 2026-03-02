@@ -22,9 +22,23 @@ interface Props {
   cloudInits: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  /**
+   * 视图控制属性
+   * - bordered: 控制表格边框 (默认 true)
+   * - showYaml: 控制是否显示详情/YAML入口 (默认 true)
+   */
+  bordered?: boolean;
+  showYaml?: boolean;
 }
 
-const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRefresh }) => {
+const CloudInitsSection: React.FC<Props> = ({ 
+  cloudId, 
+  cloudInits, 
+  loading, 
+  onRefresh,
+  bordered = true,
+  showYaml = true
+}) => {
   // 搜索关键字，仅在前端做简单的名称/命名空间模糊匹配
   const [keyword, setKeyword] = useState<string>('');
 
@@ -61,11 +75,23 @@ const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRe
 
   /**
    * 表格列定义
-   * - 名称列使用 cell-link 样式，后续可扩展点击查看详情
-   * - 操作列当前仅提供“删除”占位操作，实际删除能力暂未开放
+   * - 名称列根据 showYaml 决定是否显示链接样式
+   * - 操作列根据 showYaml 决定是否显示详情入口
    */
-  const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name', className: 'cell-link' },
+  const columns = useMemo(() => [
+    { 
+      title: '名称', 
+      dataIndex: 'name', 
+      key: 'name', 
+      className: showYaml ? 'cell-link' : undefined,
+      render: (text: string) => (
+        showYaml ? (
+          <span className="cell-link" onClick={() => message.info('详情功能开发中')}>{text}</span>
+        ) : (
+          <span>{text}</span>
+        )
+      )
+    },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180, className: 'std-time' },
@@ -74,16 +100,35 @@ const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRe
       key: 'action',
       width: 80,
       fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown 
-          buttonProps={{ className: 'row-actions-trigger' }}
-          items={[
-            { key: 'delete', label: '删除', danger: true, onClick: () => message.info('暂不支持删除') }
-          ]}
-        />
-      ),
+      render: (_: any, record: any) => {
+        const items: any[] = [];
+
+        // 仅在 showYaml 为 true 时添加详情入口
+        if (showYaml) {
+          items.push({ 
+            key: 'detail', 
+            label: '查看YAML', 
+            onClick: () => message.info('详情功能开发中') 
+          });
+          items.push({ type: 'divider' as const });
+        }
+
+        items.push({ 
+          key: 'delete', 
+          label: '删除', 
+          danger: true, 
+          onClick: () => message.info('暂不支持删除') 
+        });
+
+        return (
+          <ResourceActionsDropdown 
+            buttonProps={{ className: 'row-actions-trigger' }}
+            items={items}
+          />
+        );
+      },
     },
-  ];
+  ], [showYaml]);
 
   const [tableColumns, setTableColumns] = useState<any[]>(columns);
 
@@ -113,7 +158,7 @@ const CloudInitsSection: React.FC<Props> = ({ cloudId, cloudInits, loading, onRe
     >
       <Table
         className="std-table"
-        bordered
+        bordered={bordered}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"

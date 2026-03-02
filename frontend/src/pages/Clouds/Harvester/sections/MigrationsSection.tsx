@@ -181,7 +181,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
    * - 状态列根据 Phase 渲染不同颜色的 Badge
    * - 操作列在任务运行中且用户有写权限时提供“取消”按钮
    */
-  const allColumns: ColumnsType<any> = [
+  const allColumns: ColumnsType<any> = useMemo(() => [
     {
       title: '任务ID',
       key: 'taskId',
@@ -250,7 +250,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
         return <Space size="small">{actions}</Space>;
       }
     }
-  ];
+  ], [user]);
   const [tableColumns, setTableColumns] = useState<ColumnsType<any>>(allColumns);
 
   return (

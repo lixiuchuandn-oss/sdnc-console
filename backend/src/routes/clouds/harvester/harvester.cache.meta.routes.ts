@@ -128,10 +128,10 @@ export const registerHarvesterMetaRoutes = (
 
   /**
    * [API] 查询 Harvester Cloud Init 模板
-   * GET /:id/resources/harvester/cloud-inits
+   * GET /:id/resources/harvester/cloudinits
    */
   router.get(
-    '/:id/resources/harvester/cloud-inits',
+    '/:id/resources/harvester/cloudinits',
     checkAdminPermission,
     async (req: any, res: Response) => {
       try {

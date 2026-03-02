@@ -219,7 +219,8 @@ export const validateImageSize = (v: any, images: any[]) => {
  * @param initialVmName 默认 VM 名称
  * @returns 初始表单对象
  */
-export const initialWizardValues = (memGi: number, initialVmName: string) => ({
+export const initialWizardValues = (memGi: number, initialVmName: string, cloudId?: string) => ({
+  cloudId: cloudId !== 'all' ? cloudId : undefined,
   name: initialVmName,
   cpu: 2,
   cpuModel: 'host-passthrough',
@@ -233,6 +234,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string) => ({
   rootBus: 'virtio',
   rootDeviceType: 'disk',
   extraDisks: [],
+  nodeSelectorPairs: [],
   hostMode: 'auto',
   netMode: 'flat',
   gpuMode: 'none',
@@ -246,8 +248,12 @@ export const initialWizardValues = (memGi: number, initialVmName: string) => ({
   installGuestAgent: false,
   useUsbTablet: true,
   runStrategy: 'RerunOnFailure',
+  evictionStrategy: 'LiveMigrateIfPossible',
+  loginMethod: 'later',
+  loginAccount: 'root',
   primaryNic: { name: '', type: 'bridge', model: 'virtio' },
-  netIfaces: []
+  netIfaces: [],
+  usbDevices: []
 });
 
 /**

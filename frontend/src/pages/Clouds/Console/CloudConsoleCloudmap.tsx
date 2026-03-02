@@ -113,7 +113,8 @@ interface Props {
   onRefreshDnatRules?: () => void;
 
   bordered?: boolean;
-  showOpsDetail?: boolean;
+  showYaml?: boolean;
+  showSys?: boolean;
 }
 
 const CloudConsoleCloudmap: React.FC<Props> = ({
@@ -180,7 +181,8 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
   onRefreshSnatRules,
   onRefreshDnatRules,
   bordered = true,
-  showOpsDetail = true
+  showYaml = true,
+  showSys = true
 }) => {
   const { message } = App.useApp();
 
@@ -337,7 +339,7 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             onUnpause={onUnpause}
             onDelete={onDelete}
             bordered={bordered}
-            showOpsDetail={showOpsDetail}
+            showYaml={showYaml}
           />
         );
       case 'template':
@@ -356,6 +358,8 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             sshKeys={sshKeys}
             loading={loading}
             onRefresh={onRefreshSshKeys}
+            bordered={bordered}
+            showYaml={showYaml}
           />
         );
       case 'cloudinit':
@@ -365,6 +369,8 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             cloudInits={cloudInits}
             loading={loading}
             onRefresh={onRefreshCloudInits}
+            bordered={bordered}
+            showYaml={showYaml}
           />
         );
       case 'gpu':
@@ -388,6 +394,9 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             vms={vms}
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
+            bordered={bordered}
+            showYaml={showYaml}
+            showSys={showSys}
           />
         );
       case 'volume-snapshot':
@@ -406,6 +415,8 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshImages}
             cloudId={cloudId}
+            bordered={bordered}
+            showYaml={showYaml}
           />
         );
 
@@ -483,8 +494,8 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
                  namespaces={namespaces}
                  loading={loading}
                  onRefresh={onRefreshVpcs}
-                 bordered={false}
-                 showYaml={false}
+                 bordered={bordered}
+                 showYaml={showYaml}
              />
          );
 

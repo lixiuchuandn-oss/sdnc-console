@@ -25,21 +25,27 @@
  * - 子组件: StepBasic, StepCompute, StepDisks, StepNetworks, StepOthers, WizardSummary。
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Row, Col, Modal, message, Space } from 'antd';
-import { CheckOutlined, ProfileOutlined, DesktopOutlined, HddOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons';
+import { Button, Form, Row, Col, Modal, App, Space } from 'antd';
+import { CheckOutlined, ProfileOutlined, DesktopOutlined, HddOutlined, GlobalOutlined, SettingOutlined, KeyOutlined } from '@ant-design/icons';
 import './VmCreateWizard/InstanceWizard.css';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import StepBasic from './VmCreateWizard/StepBasic';
 import StepCompute from './VmCreateWizard/StepCompute';
 import StepDisks from './VmCreateWizard/StepDisks';
 import StepNetworks from './VmCreateWizard/StepNetworks';
+import StepLoginSettings from './VmCreateWizard/StepLoginSettings';
 import StepOthers from './VmCreateWizard/StepOthers';
 import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 
-const VmCreateWizardModal: React.FC = () => {
+type Props = {
+  isTenant?: boolean;
+};
+
+const VmCreateWizardModal: React.FC<Props> = ({ isTenant = false }) => {
+  const { message, modal, notification } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
@@ -141,27 +147,30 @@ const VmCreateWizardModal: React.FC = () => {
   useEffect(() => {
     const load = async () => {
       if (!currentCloudId && cloudId === 'all') return;
-      try {
-        const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
-        if (cid) {
+      const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
+      try { reloadImages(); } catch {}
+      try { reloadNamespaces(); } catch {}
+      try { reloadNads(); } catch {}
+      try { reloadNodes(); } catch {}
+      if (cid) {
+        try {
           const caps = await fetchHarvesterCapabilities(cid);
           setCapabilities(caps?.data || null);
           const rec = String(caps?.data?.recommendedMachineType || '').trim();
           if (rec) { try { form.setFieldsValue({ machineType: rec }); } catch {} }
-        }
-      } catch {}
-      reloadImages();
-      reloadNamespaces();
-      reloadNads();
-      reloadNodes();
+        } catch {}
+      }
     };
     load();
   }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes, form]);
 
-  // 进入“其它选项”步骤时，懒加载 USB 资源和 SSH 密钥
+  // 进入“登录设置/其它选项”步骤时，懒加载 SSH 密钥 / USB 资源
   useEffect(() => {
-    if (step === 4) { 
-      try { reloadUsbResources(); } catch {} 
+    if (step === 4) {
+      try { reloadSshKeys(); } catch {}
+    }
+    if (step === 5) {
+      try { reloadUsbResources(); } catch {}
       try { reloadSshKeys(); } catch {}
     }
   }, [step, reloadUsbResources, reloadSshKeys]);
@@ -202,48 +211,134 @@ const VmCreateWizardModal: React.FC = () => {
 
 
   // 向导步骤标签
-  const steps = ['基本信息','计算资源','虚拟磁盘','虚拟网卡','其它选项'];
+  const steps = ['基本信息','计算与规格','存储与磁盘','网络与连接','登录与凭据','高级设置'];
   const getStepIcon = (i: number): React.ReactNode => {
-    const icons = [<ProfileOutlined />, <DesktopOutlined />, <HddOutlined />, <GlobalOutlined />, <SettingOutlined />];
+    const icons = [<ProfileOutlined />, <DesktopOutlined />, <HddOutlined />, <GlobalOutlined />, <KeyOutlined />, <SettingOutlined />];
     return icons[i] || <ProfileOutlined />;
   };
 
+  const [stepValid, setStepValid] = useState<boolean[]>(()=> Array(steps.length).fill(false));
+
   /**
    * 进入下一步：
-   * - 按步骤只校验当前关键字段；
+   * - 离开当前步骤前进行验证；
    * - 合并当前表单值到 wizardData，并更新快照；
    * - 步骤索引不会超过最后一步。
    */
   const next = async () => {
-    try {
-      if (step === 0) {
-        await form.validateFields(['namespace','name']);
-      }
-      if (step === 1) {
-        await form.validateFields(['cpu','memory']);
-      }
-      if (step === 2) {
-        await form.validateFields();
-      }
-      const curr = form.getFieldsValue();
-      setWizardData((prev:any)=> ({ ...prev, ...curr }));
-      try { setFormSnapshot((prev:any)=> ({ ...prev, ...curr })); } catch {}
-      setStep(Math.min(steps.length - 1, step + 1));
-    } catch (e:any) {
+    // 离开当前步骤前进行验证
+    const isValid = await handleStepValidation(step);
+    if (!isValid) {
       message.error('请完整填写必填项');
+      return;
+    }
+
+    // 更新快照
+    const curr = form.getFieldsValue();
+    setWizardData((prev:any)=> ({ ...prev, ...curr }));
+    try { setFormSnapshot((prev:any)=> ({ ...prev, ...curr })); } catch {}
+    
+    setStep(Math.min(steps.length - 1, step + 1));
+  };
+
+  const prev = async () => {
+    // 离开当前步骤前进行验证并保存数据
+    const isValid = await handleStepValidation(step);
+    if (isValid) {
+        const curr = form.getFieldsValue();
+        setWizardData((prev:any)=> ({ ...prev, ...curr }));
+        try { setFormSnapshot((prev:any)=> ({ ...prev, ...curr })); } catch {}
+    }
+    setStep(Math.max(0, step - 1));
+  };
+  
+  // [辅助函数] 获取当前步骤需要校验的字段列表
+  const getStepFields = (stepIdx: number): any[] => {
+    switch (stepIdx) {
+      case 0: // Basic
+        return ['cloudId', 'namespace', 'name', 'hostMode', 'clusterArch', 'machineType', 'nodeSelectorPairs', 'description', 'group'];
+      case 1: // Compute
+        return ['cpu', 'memory', 'hotExpandEnabled', 'cpuSockets', 'cpuCores', 'cpuThreads', 'cpuModel', 'cpuModelCustom', 'gpuMode', 'gpuList'];
+      case 2: // Disks
+        return ['rootSourceType', 'image', 'rootPvc', 'rootSize', 'rootName', 'rootDeviceType', 'rootBus', 'storageClassName', 'extraDisks'];
+      case 3: // Networks
+        return [
+          'netMode', 
+          ['primaryNic', 'name'], 
+          ['primaryNic', 'vpc'], 
+          ['primaryNic', 'subnet'], 
+          ['primaryNic', 'type'], 
+          ['primaryNic', 'model'], 
+          ['primaryNic', 'macAddress'], 
+          ['primaryNic', 'ipAddress'], 
+          ['primaryNic', 'gateway'], 
+          ['primaryNic', 'dns'],
+          'netIfaces'
+        ];
+      case 4: // Login
+        return ['loginMethod', 'loginAccount', 'loginPassword', 'sshNames', 'userData'];
+      case 5: // Others
+        return [
+          'runStrategy', 
+          'evictionStrategy', 
+          'bootUseEfi', 
+          'efiPersistent', 
+          'efiSecureBoot', 
+          'tpmEnabled', 
+          'tpmPersistent', 
+          'useUsbTablet', 
+          'installGuestAgent', 
+          'sshNames', 
+          'userData', 
+          'usbDevices'
+        ];
+      default:
+        return [];
     }
   };
+
+  /**
+   * 验证指定步骤（默认为当前步骤），并更新步骤状态 stepValid
+   * @param targetStep 若不传则验证当前 step
+   * @returns Promise<boolean> 验证是否通过
+   */
+  const handleStepValidation = async (targetStep: number = step): Promise<boolean> => {
+    const fields = getStepFields(targetStep);
+    try {
+      await form.validateFields(fields);
+      
+      // Step 0 额外校验：若选择指定主机模式，必须选中主机
+      if (targetStep === 0 && hostModeState === 'node' && !selectedNodeName) {
+        throw new Error('Node not selected');
+      }
+
+      setStepValid((prev) => { const a = [...prev]; a[targetStep] = true; return a; });
+      return true;
+    } catch (error) {
+      setStepValid((prev) => { const a = [...prev]; a[targetStep] = false; return a; });
+      return false;
+    }
+  };
+
+
 
   
 
   /**
    * 最终提交创建云主机：
    * - 汇总 wizardData + 当前表单值；
-   * - 校验镜像大小与磁盘容量是否匹配；
-   * - 构造 VM payload（含宿主调度/GPU/网络/磁盘等）；
    * - 创建 VM，并在需要时执行自动开机。
    */
   const submit = async () => {
+    // 校验前置步骤是否已通过
+    // 找到第一个未校验通过的步骤（不包括当前步骤，当前步骤由 validateFields 校验）
+    const firstInvalidStep = stepValid.findIndex((valid, idx) => !valid && idx < steps.length - 1);
+    if (firstInvalidStep !== -1) {
+      message.error(`请先完善第 ${firstInvalidStep + 1} 步的信息`);
+      setStep(firstInvalidStep);
+      return;
+    }
+
     try {
       await form.validateFields();
       const v = { ...wizardData, ...form.getFieldsValue() } as any;
@@ -321,11 +416,20 @@ const VmCreateWizardModal: React.FC = () => {
                 {steps.map((t, idx)=> (
                   <div
                     key={t}
-                    className={`wizard-step ${step===idx?'active':''} ${idx < step ? 'completed' : ''}`}
-                    onClick={()=> setStep(idx)}
+                    className={`wizard-step ${step===idx?'active':''} ${stepValid[idx] ? 'completed' : ''}`}
+                    onClick={async ()=> {
+                      // 离开当前步骤前进行验证并保存数据
+                      const isValid = await handleStepValidation(step);
+                      if (isValid) {
+                          const curr = form.getFieldsValue();
+                          setWizardData((prev:any)=> ({ ...prev, ...curr }));
+                          try { setFormSnapshot((prev:any)=> ({ ...prev, ...curr })); } catch {}
+                      }
+                      setStep(idx);
+                    }}
                   >
                     <div className="wizard-step-icon">
-                      {idx < step ? (<CheckOutlined />) : (getStepIcon(idx))}
+                      {stepValid[idx] ? (<CheckOutlined />) : (getStepIcon(idx))}
                     </div>
                     <span className="wizard-step-text">{t}</span>
                   </div>
@@ -335,7 +439,7 @@ const VmCreateWizardModal: React.FC = () => {
           </Col>
           <Col span={12} style={{ height: '100%' }}>
             <div className="wizard-section">
-              <Form form={form} layout="vertical" initialValues={initialWizardValues(memGi, initialVmName)} onValuesChange={(changed:any)=> { 
+              <Form form={form} layout="vertical" initialValues={initialWizardValues(memGi, initialVmName, cloudId)} onValuesChange={(changed:any)=> { 
                 if (Object.prototype.hasOwnProperty.call(changed, 'hostMode')) { setHostModeState(changed.hostMode); }
                 if (Object.prototype.hasOwnProperty.call(changed, 'netMode')) { setNetModeState(changed.netMode); }
                 if (Object.prototype.hasOwnProperty.call(changed, 'rootSourceType')) {
@@ -370,6 +474,7 @@ const VmCreateWizardModal: React.FC = () => {
                   selectedNodeName={selectedNodeName}
                   setSelectedNodeName={setSelectedNodeName}
                   filteredNodes={filteredNodes}
+                  isTenant={isTenant}
                 />
               )}
               {step === 1 && (
@@ -422,6 +527,13 @@ const VmCreateWizardModal: React.FC = () => {
                 />
               )}
               {step === 4 && (
+                <StepLoginSettings
+                  form={form}
+                  sshKeyOptions={sshKeyOptions}
+                  reloadSshKeys={reloadSshKeys}
+                />
+              )}
+              {step === 5 && (
                 <StepOthers
                   form={form}
                   usbResources={usbResources}
@@ -449,7 +561,10 @@ const VmCreateWizardModal: React.FC = () => {
             <div className="wizard-preview-actions">
               <Space>
                 <Button onClick={()=> navigate(-1)}>取消</Button>
-                <Button type="primary" loading={submitting} onClick={()=> { if (step < steps.length - 1) { next(); } else { submit(); } }}>下一步</Button>
+                <Button disabled={step===0} onClick={prev}>上一步</Button>
+                <Button type="primary" loading={submitting} onClick={()=> { if (step < steps.length - 1) { next(); } else { submit(); } }}>
+                  {step < steps.length - 1 ? '下一步' : '创建'}
+                </Button>
               </Space>
             </div>
           </WizardSummary>

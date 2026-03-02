@@ -26,9 +26,23 @@ interface Props {
   sshKeys: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  /**
+   * 视图控制属性
+   * - bordered: 控制表格边框 (默认 true)
+   * - showYaml: 控制是否显示详情/YAML入口 (默认 true)
+   */
+  bordered?: boolean;
+  showYaml?: boolean;
 }
 
-const SshKeysSection: React.FC<Props> = ({ cloudId, sshKeys, loading, onRefresh }) => {
+const SshKeysSection: React.FC<Props> = ({ 
+  cloudId, 
+  sshKeys, 
+  loading, 
+  onRefresh,
+  bordered = true,
+  showYaml = true
+}) => {
   // 关键字搜索，仅用于前端过滤名称/命名空间
   const [keyword, setKeyword] = useState<string>('');
   
@@ -66,11 +80,23 @@ const SshKeysSection: React.FC<Props> = ({ cloudId, sshKeys, loading, onRefresh 
 
   /**
    * 表格列定义
-   * - 名称列使用 cell-link 样式，后续可扩展点击查看详情
-   * - 操作列暂时仅提供删除占位提示
+   * - 名称列根据 showYaml 决定是否显示链接样式
+   * - 操作列根据 showYaml 决定是否显示详情入口
    */
-  const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name', className: 'cell-link' },
+  const columns = useMemo(() => [
+    { 
+      title: '名称', 
+      dataIndex: 'name', 
+      key: 'name', 
+      className: showYaml ? 'cell-link' : undefined,
+      render: (text: string) => (
+        showYaml ? (
+          <span className="cell-link" onClick={() => message.info('详情功能开发中')}>{text}</span>
+        ) : (
+          <span>{text}</span>
+        )
+      )
+    },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
     { title: '指纹 (Fingerprint)', dataIndex: 'fingerprint', key: 'fingerprint', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180, className: 'std-time' },
@@ -79,16 +105,35 @@ const SshKeysSection: React.FC<Props> = ({ cloudId, sshKeys, loading, onRefresh 
       key: 'action',
       width: 80,
       fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown 
-          items={[
-            { key: 'delete', label: '删除', danger: true, onClick: () => message.info('暂不支持删除') }
-          ]}
-          buttonProps={{ className: 'row-actions-trigger' }}
-        />
-      ),
+      render: (_: any, record: any) => {
+        const items: any[] = [];
+
+        // 仅在 showYaml 为 true 时添加详情入口
+        if (showYaml) {
+          items.push({ 
+            key: 'detail', 
+            label: '查看YAML', 
+            onClick: () => message.info('详情功能开发中') 
+          });
+          items.push({ type: 'divider' as const });
+        }
+
+        items.push({ 
+          key: 'delete', 
+          label: '删除', 
+          danger: true, 
+          onClick: () => message.info('暂不支持删除') 
+        });
+
+        return (
+          <ResourceActionsDropdown 
+            items={items}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
+      },
     },
-  ];
+  ], [showYaml]);
 
   const [tableColumns, setTableColumns] = useState<any[]>(columns);
 
@@ -118,7 +163,7 @@ const SshKeysSection: React.FC<Props> = ({ cloudId, sshKeys, loading, onRefresh 
     >
       <Table
         className="std-table"
-        bordered
+        bordered={bordered}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"

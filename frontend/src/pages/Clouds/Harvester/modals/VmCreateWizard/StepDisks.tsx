@@ -190,7 +190,8 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 onOpenChange={(open) => { if (open) reloadImages(); }}
                 onChange={(val) => {
                   try {
-                    if (!defaultStorageClassName) { reloadStorageClasses(); }
+                    // Only reload storage classes if default is missing, avoiding unnecessary calls
+                    if (!defaultStorageClassName && !form.getFieldValue('storageClassName')) { reloadStorageClasses(); }
                     const it = (images || []).find((x: any) => {
                       const name = x?.metadata?.name || x?.name;
                       const ns = x?.metadata?.namespace || x?.namespace;
@@ -210,6 +211,10 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     const kind = resolveImageKind(it);
                     const isIso = kind === 'iso';
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
+                    // Avoid overwriting storageClassName if user has already set it manually
+                    // But here we set it based on image recommendation if not set or if we want to follow image default
+                    // Let's set it only if current value is empty to be safe, or just update it as this is a "Select Image" action which usually implies reset.
+                    // For safety in wizard flow, we update it.
                     form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: isIso ? 'cdrom' : 'disk' });
                     
                     // [容量解析] 自动计算镜像大小并转为 GiB
@@ -254,7 +259,8 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 onOpenChange={(open) => { if (open) reloadImages(); }}
                 onChange={(val) => {
                   try {
-                    if (!defaultStorageClassName) { reloadStorageClasses(); }
+                    // Only reload storage classes if default is missing, avoiding unnecessary calls
+                    if (!defaultStorageClassName && !form.getFieldValue('storageClassName')) { reloadStorageClasses(); }
                     const it = (images || []).find((x: any) => {
                       const name = x?.metadata?.name || x?.name;
                       const ns = x?.metadata?.namespace || x?.namespace;
@@ -272,6 +278,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     );
                     const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
+                    // Avoid overwriting storageClassName if user has already set it manually
                     form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: 'cdrom' });
                     
                     const raw = (it as any)?.virtualSize ?? (it as any)?.size;
@@ -319,18 +326,18 @@ const StepDisks: React.FC<StepDisksProps> = ({
       {
         <Row gutter={12}>
           <Col span={8}>
-            <Form.Item label="名称" name="rootName" initialValue={`disk-${generateDiskName()}`}>
+            <Form.Item label="名称" name="rootName">
               <Input placeholder="自动生成" />
             </Form.Item>
           </Col>
           <Col span={8}>
             {/* 容量输入框：只允许输入数字，单位固定为 GiB */}
             <Form.Item label="容量" name="rootSize" rules={[{ required: true, message: '请输入容量' }, { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' }]}> 
-              <Input type="number" placeholder="如：40" addonAfter="GiB" />
+              <Input type="number" placeholder="如：40" suffix="GiB" />
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="总线" name="rootBus" initialValue="virtio"> 
+            <Form.Item label="总线" name="rootBus"> 
               <Select options={[{ label: 'VIRTIO', value: 'virtio' }, { label: 'SATA', value: 'sata' }, { label: 'SCSI', value: 'scsi' }]} />
             </Form.Item>
           </Col>
@@ -338,7 +345,6 @@ const StepDisks: React.FC<StepDisksProps> = ({
             <Form.Item 
               label="设备类型" 
               name="rootDeviceType" 
-              initialValue="disk"
               dependencies={['extraDisks','rootDeviceType']}
               rules={[
                 {
@@ -375,7 +381,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     return { label: nm, value: nm };
                   })}
                   loading={storageClassLoading}
-                  onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
+                  onOpenChange={(open) => { if (open) reloadStorageClasses(); }}
                 />
               </Form.Item>
             </Col>
@@ -385,7 +391,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
 
       {/* === 2. 数据盘配置区域 === */}
       <div className="wizard-group-title">数据盘</div>
-      <Form.List name="extraDisks" initialValue={[]}>
+      <Form.List name="extraDisks">
         {(fields, { add, remove }) => (
           <div>
             {fields.map(({ key, name }, idx) => {
@@ -497,13 +503,13 @@ const StepDisks: React.FC<StepDisksProps> = ({
                         // 新建卷：数字输入
                         return (
                           <Form.Item label="容量" name={[name, 'size']} rules={[{ required: true, message: '请输入容量' }, { pattern: /^[0-9]+$/, message: '请输入数字，单位 GiB' }]}> 
-                            <Input type="number" placeholder="如：100" addonAfter="GiB" />
+                            <Input type="number" placeholder="如：100" suffix="GiB" />
                           </Form.Item>
                         );
                       })()}
                     </Col>
                     <Col span={8}>
-                      <Form.Item label="总线" name={[name, 'bus']} initialValue="virtio" rules={[{ required: true }]}> 
+                      <Form.Item label="总线" name={[name, 'bus']} rules={[{ required: true }]}> 
                         <Select options={[{ label: 'VIRTIO', value: 'virtio' }, { label: 'SATA', value: 'sata' }, { label: 'IDE', value: 'ide' }, { label: 'NVMe', value: 'nvme' }]} />
                       </Form.Item>
                     </Col>
@@ -524,7 +530,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                                   <Select
                                     placeholder="选择现有卷（PVC）"
                                     options={volumeOptions}
-                                    onDropdownVisibleChange={(open) => { if (open) reloadVolumes(); }}
+                                    onOpenChange={(open) => { if (open) reloadVolumes(); }}
                                     onChange={(val) => { 
                                       // 选中 PVC 后，自动回填名称、大小、模式等信息到 form 中
                                       try { 
@@ -566,7 +572,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                                   })}
                                   placeholder="选择 ISO"
                                   loading={imageLoading}
-                                  onDropdownVisibleChange={(open) => { if (open) reloadImages(); }}
+                                  onOpenChange={(open) => { if (open) reloadImages(); }}
                                 />
                               </Form.Item>
                             </Col>
@@ -586,7 +592,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                                     return { label: nm, value: nm };
                                   })}
                                   loading={storageClassLoading}
-                                  onDropdownVisibleChange={(open) => { if (open) reloadStorageClasses(); }}
+                                  onOpenChange={(open) => { if (open) reloadStorageClasses(); }}
                                 />
                               </Form.Item>
                             </Col>

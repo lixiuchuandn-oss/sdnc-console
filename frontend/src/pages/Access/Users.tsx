@@ -45,7 +45,7 @@ const AccessUsersPage: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [visibleColumns, setVisibleColumns] = useState<ColumnsType<SysUser>>([]);
 
-  const defaultColumns: ColumnsType<SysUser> = [
+  const defaultColumns: ColumnsType<SysUser> = useMemo(() => [
     { title:'姓名', dataIndex:'fullName' },
     { title:'用户名', dataIndex:'username' },
     { title:'邮箱', dataIndex:'email' },
@@ -71,7 +71,7 @@ const AccessUsersPage: React.FC = () => {
       
       return <ResourceActionsDropdown items={items as any} />;
     } }
-  ];
+  ], [rolesByUser]);
 
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;

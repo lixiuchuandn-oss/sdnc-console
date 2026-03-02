@@ -1302,18 +1302,35 @@ export const listHarvesterSshKeysStandard = async ({
 
 /**
  * [CloudInit 模板]
- * 获取 Harvester CloudInit 模板列表（当前返回空）。
+ * 获取 Harvester CloudInit 模板列表。
  *
  * @param params 连接参数
- * @returns Promise<any[]> 空数组
+ * @returns Promise<any[]> 模板对象数组
  */
 export const listHarvesterCloudInitsStandard = async ({
   endpoint,
   token,
   insecure = false,
 }: HarvesterTestParams): Promise<any[]> => {
-  // Placeholder: Return empty for now as CloudInit discovery strategy is complex
-  return [];
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  // 尝试 Harvester CloudInitTemplates CRD
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/cloudinittemplates`;
+  
+  try {
+    const json = await getJsonOnce(url, token, insecure);
+    return Array.isArray(json?.items) ? json.items : [];
+  } catch (e: any) {
+    console.warn(`[Harvester] 获取 CloudInitTemplates 失败: ${e.message}`);
+    return [];
+  }
 };
 
 /**

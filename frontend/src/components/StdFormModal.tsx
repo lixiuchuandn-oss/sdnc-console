@@ -40,7 +40,12 @@ const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = 'ä¿å
     >
       <style>{`.stdform-modal .ant-form-item { margin-bottom: 16px; }`}</style>
       <Form form={form} layout="vertical" onFinish={onFinish} initialValues={initialValues}>
-        {children}
+        {React.Children.map(children, (child, index) => {
+           if (React.isValidElement(child)) {
+             return React.cloneElement(child, { key: child.key || index } as any);
+           }
+           return child;
+        })}
       </Form>
     </Modal>
   );

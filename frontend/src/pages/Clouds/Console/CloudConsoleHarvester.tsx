@@ -127,7 +127,8 @@ interface Props {
   onRefreshDnatRules?: () => void;
 
   bordered?: boolean;
-  showOpsDetail?: boolean;
+  showYaml?: boolean;
+  showSys?: boolean;
 }
 
 const CloudConsoleHarvester: React.FC<Props> = ({
@@ -194,7 +195,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   onRefreshSnatRules,
   onRefreshDnatRules,
   bordered = true,
-  showOpsDetail = true
+  showYaml = true,
+  showSys = true
 }) => {
   // [二级导航] 当前类目与资源：由 Props 驱动 (Controlled Component)
   // const [activeCategory, setActiveCategory] = useState('compute');
@@ -290,7 +292,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onUnpause={onUnpause}
             onDelete={onDelete}
             bordered={bordered}
-            showOpsDetail={showOpsDetail}
+            showYaml={showYaml}
           />
         );
       case 'template':
@@ -309,6 +311,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             sshKeys={sshKeys}
             loading={loading}
             onRefresh={onRefreshSshKeys}
+            bordered={bordered}
+            showYaml={showYaml}
           />
         );
       case 'cloudinit':
@@ -318,6 +322,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudInits={cloudInits}
             loading={loading}
             onRefresh={onRefreshCloudInits}
+            bordered={bordered}
+            showYaml={showYaml}
           />
         );
       case 'gpu':
@@ -341,6 +347,9 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             vms={vms}
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
+            bordered={bordered}
+            showYaml={showYaml}
+            showSys={showSys}
           />
         );
       case 'volume-snapshot':
@@ -350,6 +359,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshSnapshots}
             cloudId={cloudId}
+            bordered={bordered}
+            showYaml={showYaml}
           />
         );
       case 'image':
@@ -359,6 +370,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshImages}
             cloudId={cloudId}
+            bordered={bordered}
+            showYaml={showYaml}
           />
         );
 
@@ -436,8 +449,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
                  namespaces={namespaces}
                  loading={loading}
                  onRefresh={onRefreshVpcs}
-                 bordered={false}
-                 showYaml={false}
+                 bordered={bordered}
+                 showYaml={showYaml}
              />
          );
 

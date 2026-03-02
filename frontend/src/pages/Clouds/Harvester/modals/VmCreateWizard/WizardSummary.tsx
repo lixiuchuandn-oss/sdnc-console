@@ -15,7 +15,7 @@
  * 4. [分类展示]: 按“位置、基础信息、计算、存储、网络、HA、固件”等维度分类展示。
  *
  * [交互依赖]
- * - 依赖 formSnapshot 获取实时表单数据。
+ * - 依赖 formSnapshot 获取实时表单数据。  
  * - 依赖外部传入的 clouds, kubeSubnets 等列表进行 ID 到名称的映射。
  */
 import React, { useMemo } from 'react';

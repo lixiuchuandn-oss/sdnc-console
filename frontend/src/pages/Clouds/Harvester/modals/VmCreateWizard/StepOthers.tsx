@@ -72,7 +72,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
       <Row gutter={16}>
         <Col span={12}>
           {/* [业务规则] 运行策略决定了 VM 在宿主机重启或故障时的行为 */}
-          <Form.Item label="运行策略" name="runStrategy" initialValue="RerunOnFailure">
+          <Form.Item label="运行策略" name="runStrategy">
             <Select options={[
               { label: '始终运行（Always）', value: 'Always' },
               { label: '故障重试（RerunOnFailure）', value: 'RerunOnFailure' },
@@ -83,7 +83,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
         </Col>
         <Col span={12}>
           {/* [业务规则] 驱逐策略控制节点维护时的迁移行为 */}
-          <Form.Item label="驱逐策略" name="evictionStrategy" initialValue="LiveMigrateIfPossible" tooltip="节点维护时的迁移策略">
+          <Form.Item label="驱逐策略" name="evictionStrategy" tooltip="节点维护时的迁移策略">
             <Select options={[
               { label: '尽可能热迁移（LiveMigrateIfPossible）', value: 'LiveMigrateIfPossible' },
               { label: '强制热迁移（LiveMigrate）', value: 'LiveMigrate' },
@@ -127,17 +127,21 @@ const StepOthers: React.FC<StepOthersProps> = ({
           </Form.Item>
         </Space>
       </Form.Item>
-      <Form.Item label="输入设备" name="useUsbTablet" valuePropName="checked">
+      <Form.Item label="输入设备">
         <Space>
-          <Checkbox>USB Tablet</Checkbox>
+          <Form.Item name="useUsbTablet" valuePropName="checked" noStyle>
+            <Checkbox>USB Tablet</Checkbox>
+          </Form.Item>
         </Space>
       </Form.Item>
 
       {/* ============================== 管理配置 ============================== */}
       <div className="wizard-group-title">管理配置</div>
-      <Form.Item label="Guest Agent" name="installGuestAgent" valuePropName="checked">
+      <Form.Item label="Guest Agent">
         <Space>
-          <Checkbox>安装 QEMU Guest Agent（无 Cloud-Init 时自动生成）</Checkbox>
+          <Form.Item name="installGuestAgent" valuePropName="checked" noStyle>
+            <Checkbox>安装 QEMU Guest Agent（无 Cloud-Init 时自动生成）</Checkbox>
+          </Form.Item>
         </Space>
       </Form.Item>
       <Form.Item label="SSH 公钥标识" name="sshNames">
@@ -145,7 +149,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
           mode="tags" 
           placeholder="输入或选择SSH key名称" 
           options={sshKeyOptions || []} 
-          onDropdownVisibleChange={(open) => { if (open) reloadSshKeys(); }}
+          onOpenChange={(open) => { if (open) reloadSshKeys(); }}
         />
       </Form.Item>
       <Form.Item label="Cloud-Init" name="userData">
@@ -154,7 +158,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
       
       {/* ============================== USB 设备 ============================== */}
       <div className="wizard-group-title">USB设备</div>
-      <Form.List name="usbDevices" initialValue={[]}>
+      <Form.List name="usbDevices">
         {(fields, { add, remove }) => (
           <div>
             {/* [状态反馈] 如果后端未配置 permittedHostDevices，提示用户 */}

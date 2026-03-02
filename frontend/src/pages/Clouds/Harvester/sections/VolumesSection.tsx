@@ -30,8 +30,8 @@
  * - 组件: 复用 `HarvesterResourceDrawer` 展示详情，`ResourceActionsDropdown` 展示操作菜单。
  */
 
-import React, { useMemo, useState, useEffect } from 'react';
-import { Table, Input, Select, Button, Dropdown, Modal, Form, message, InputNumber, Checkbox, Tabs, Badge } from 'antd';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge } from 'antd';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
@@ -63,6 +63,9 @@ type Props = {
   storageClasses?: any[];
   namespacesOptions?: string[];
   onRefresh?: (force?: boolean) => void;
+  bordered?: boolean; // 表格边框控制
+  showYaml?: boolean; // 控制是否显示资源详情抽屉入口 (租户侧可能不需要看底层YAML/详情)
+  showSys?: boolean;  // 控制是否显示"显示系统卷"复选框
 };
 
 // ----------------------------------------------------------------------
@@ -226,7 +229,18 @@ const statusBadge = (phase: string) => {
  * - 提供卷生命周期相关操作（创建、挂载/卸载、导出、快照、编辑、克隆、删除）
  * - 打开 HarvesterResourceDrawer 查看 PVC 详情
  */
-const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, storageClasses: propStorageClasses, namespacesOptions, onRefresh }) => {
+const VolumesSection: React.FC<Props> = ({ 
+  cloudId, 
+  volumes, 
+  loading, 
+  vms, 
+  storageClasses: propStorageClasses, 
+  namespacesOptions, 
+  onRefresh, 
+  bordered = true, 
+  showYaml = true, 
+  showSys = true 
+}) => {
   // 过滤条件状态：关键字 / 状态 / 命名空间 / 存储类 / 是否展示系统卷
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -250,6 +264,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
+  const { message, modal } = App.useApp();
+
   // 表单实例：分别对应创建 / 挂载 / 导出 / 快照 / 编辑 / 克隆
   const [createForm] = Form.useForm();
   const [attachForm] = Form.useForm();
@@ -270,19 +286,21 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   }, [propStorageClasses]);
 
   // 在“创建卷”表单中自动选择一个推荐的存储类（优先 longhorn）
-  useEffect(() => {
-    try {
-      const cur = createForm.getFieldValue('storageClassName');
-      if (!cur && storageClasses.length > 0) {
-        const names = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
-        let prefer = names.find(n => n.toLowerCase() === 'longhorn');
-        if (!prefer) {
-          prefer = names.find(n => n.toLowerCase().includes('longhorn')) || names[0];
-        }
-        if (prefer) createForm.setFieldsValue({ storageClassName: prefer });
-      }
-    } catch {}
-  }, [storageClasses, createForm]);
+  // 注意：此逻辑已移至打开弹窗的 onClick 事件中处理，避免 Form 未挂载时的警告。
+  // useEffect(() => {
+  //   if (!createForm || !storageClasses.length) return;
+  //   try {
+  //     const cur = createForm.getFieldValue?.('storageClassName');
+  //     if (!cur && storageClasses.length > 0) {
+  //       const names = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
+  //       let prefer = names.find(n => n.toLowerCase() === 'longhorn');
+  //       if (!prefer) {
+  //         prefer = names.find(n => n.toLowerCase().includes('longhorn')) || names[0];
+  //       }
+  //       if (prefer) createForm.setFieldsValue({ storageClassName: prefer });
+  //     }
+  //   } catch {}
+  // }, [storageClasses, createForm]);
 
   // ----------------------------------------------------------------
   // SafeRead Helper (Robust Data Access)
@@ -294,7 +312,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
    * - 屏蔽后端数据结构差异（原生 PVC / 包装对象 / 扁平字段）
    * - 对外提供一组统一的读取接口（id / name / namespace / phase 等）
    */
-  const SafeRead = {
+  const SafeRead = useMemo(() => ({
     // 真实 PVC 名称（逻辑 ID）：优先使用 r.name，其次 metadata.name
     id: (r: any) => r?.name || r?.metadata?.name || '',
     // 展示名称：优先别名，其次 name
@@ -321,8 +339,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     // 查找该卷挂载到的 VM 对象
     attachedVm: (r: any) => {
       const list = Array.isArray(vms) ? vms : [];
-      const pvcName = SafeRead.id(r); // PVC Name (metadata.name)
-      const pvcNs = SafeRead.namespace(r);
+      const pvcName = r?.name || r?.metadata?.name || ''; // Use inline SafeRead logic to avoid circular dependency if needed, but here r is passed in
+      const pvcNs = r?.namespace || r?.metadata?.namespace || '';
 
       // Strictly use PVC Name to match VM's volumeClaims
       // This is the most reliable way as Harvester/K8s maps PVCs to VMs via spec.volumes.persistentVolumeClaim.claimName
@@ -346,7 +364,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         return false;
       });
     }
-  };
+  }), [vms]);
 
   // ----------------------------------------------------------------
   // Core Data Normalization (The "Rewrite" Logic)
@@ -512,7 +530,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
    * - 确保传给 Drawer 的 record 至少包含 kind / metadata 基础信息
    * - activeTab 控制默认打开的二级 Tab（detail / events 等）
    */
-  const handleOpenDrawer = async (record: VolumeView, tab: string = 'detail') => {
+  const handleOpenDrawer = useCallback(async (record: VolumeView, tab: string = 'detail') => {
     // Inject kind: 'PersistentVolumeClaim' for events fetching
     const raw = record.raw || {};
     // Ensure raw data has kind
@@ -530,7 +548,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     setDetailRecord(raw);
     setDetailActiveTab(tab);
     setDetailVisible(true);
-  };
+  }, []);
 
   /**
    * handleBatchDelete：批量删除选中卷
@@ -545,7 +563,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter(v => selectedRowKeys.includes(v.key));
     
-    Modal.confirm({
+    modal.confirm({
       title: '批量删除确认',
       content: `即将删除 ${targets.length} 个卷：${targets.map(t => t.name).join(', ')}`,
       okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
@@ -573,7 +591,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
    * - 通过 SafeRead.attachedVm 找到当前卷已挂载的 VM（如果有）
    * - 预填表单：instanceId / diskName / bus
    */
-  const handleAttach = (r: VolumeView) => {
+  const handleAttach = useCallback((r: VolumeView) => {
     // Proactively refresh if vms are missing (common issue on fresh load)
     if (!vms || vms.length === 0) {
       onRefresh?.(true);
@@ -588,7 +606,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       bus: 'virtio' 
     });
     setAttachOpen(true);
-  };
+  }, [vms, onRefresh, SafeRead, attachForm]);
 
   /**
    * handleDetach：从云主机卸载卷
@@ -600,7 +618,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
    * 4. 若仍无法确定磁盘名称，建议用户先在 VM 内卸载，并可选择重启 VM
    * 5. 调用 detachHarvesterVolumeFromVm 进行卸载，必要时退化为使用短 ID
    */
-  const handleDetach = async (r: VolumeView) => {
+  const handleDetach = useCallback(async (r: VolumeView) => {
     // Proactively refresh if vms are missing
     if (!vms || vms.length === 0) {
       onRefresh?.();
@@ -626,7 +644,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
 
     if (!diskName) {
       const iid = String(vm.InstanceId || '');
-      Modal.confirm({
+      modal.confirm({
         title: '无法确定挂载的磁盘名称',
         content: '请先在虚机内卸载该卷（umount/移除磁盘），以避免数据损坏。是否重启虚拟机以完成卸载？',
         okText: '重启虚拟机',
@@ -653,7 +671,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
     const iidNameOnly = (iid && iid.includes('/')) ? iid.split('/').pop() : iid || name;
     const resolvedId = iid ? iid : (ns && name ? `${ns}/${name}` : iidNameOnly);
 
-    Modal.confirm({
+    modal.confirm({
       title: '确认卸载',
       content: `将从云主机 ${vm.InstanceName || vm.InstanceId} 卸载卷 ${r.name}`,
       onOk: async () => {
@@ -675,7 +693,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         }
       }
     });
-  };
+  }, [vms, onRefresh, SafeRead, cloudId, message, modal]);
 
   // ----------------------------------------------------------------
   // Columns（表格列定义）
@@ -683,12 +701,15 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
   /**
    * allColumns：卷列表表头配置
    *
-   * 包含：
-   * - PVC名称 / PVC ID / PV 名称 / 状态 / 命名空间 / 存储类 / 访问模式 / 卷类型 / 挂载云主机 / 大小 / 操作
-   *
-   * 说明：
-   * - “挂载云主机”优先显示已解析的 VM 别名，否则回退到 InstanceName/InstanceId
-   * - “操作”列集中各类动作（编辑、挂载/卸载、导出、快照、克隆、删除）
+   * 列定义包含：
+   * 1. 基础信息：PVC名称、PVC ID、PV名称、状态、命名空间、存储类、卷类型
+   * 2. 规格参数：访问模式、容量大小
+   * 3. 关联关系：挂载云主机 (自动解析 VM 别名)
+   * 4. 操作列：
+   *    - [编辑配置]: 修改卷容量
+   *    - [挂载/卸载]: 关联或移除云主机 (根据挂载状态动态显示)
+   *    - [数据操作]: 导出镜像、创建快照、克隆卷
+   *    - [风险操作]: 删除卷
    */
   const allColumns = useMemo(() => [
     { 
@@ -696,9 +717,13 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       dataIndex: 'name',
       key: 'name', 
       render: (_: string, r: VolumeView) => (
-        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
-          {r.alias || r.name}
-        </span> 
+        showYaml ? (
+          <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+            {r.alias || r.name}
+          </span> 
+        ) : (
+          <span>{r.alias || r.name}</span>
+        )
       )
     },
     { 
@@ -795,8 +820,10 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         const vm = SafeRead.attachedVm(r);
         
         const items: any[] = [
-          { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
-          { type: 'divider' as const },
+          // 1. 资源详情
+          ...(showYaml ? [{ key: 'detail', label: '查看YAML', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
+          
+          // 2. 基础管理
           { 
             key: 'edit', 
             label: '编辑配置', 
@@ -815,14 +842,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             disabled: !!vm, 
             onClick: () => handleAttach(r) 
           },
-          ...(vm ? [{ 
-            key: 'detach', 
-            label: '从云主机卸载', 
-            danger: true, 
-            onClick: () => handleDetach(r) 
-          }] : []),
-          // Metadata/SourceData actions removed as per request
-
+          
+          // 3. 数据操作
           { 
             key: 'export', 
             label: '导出为镜像', 
@@ -847,7 +868,6 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
               setSnapshotOpen(true); 
             } 
           },
-
           { 
             key: 'clone', 
             label: '克隆虚拟卷', 
@@ -861,13 +881,21 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
               setCloneOpen(true); 
             } 
           },
+
+          // 4. 风险操作
           { type: 'divider' as const },
+          ...(vm ? [{ 
+            key: 'detach', 
+            label: '从云主机卸载', 
+            danger: true, 
+            onClick: () => handleDetach(r) 
+          }] : []),
           { 
             key: 'delete', 
             label: '删除', 
             danger: true, 
             onClick: () => {
-              Modal.confirm({ 
+              modal.confirm({ 
                 title: `确认删除卷 ${r.name}？`, 
                 content: '删除后无法恢复。', 
                 okText: '确认', cancelText: '取消', okButtonProps: { danger: true },
@@ -887,7 +915,7 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm]);
+  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, showYaml]);
 
   // ----------------------------------------------------------------
   // Render（渲染）
@@ -914,12 +942,14 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
             className="toolbar-filter" 
             options={[{ value: '', label: '全部' }, ...dataSource.map(v => v.storageClass).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map(s => ({ value: s, label: s }))]}
           />
-          <Checkbox 
-            checked={showSystemVolumes} 
-            onChange={(e: any) => setShowSystemVolumes(e.target.checked)}
-          >
-            显示系统卷
-          </Checkbox>
+          {showSys && (
+            <Checkbox 
+              checked={showSystemVolumes} 
+              onChange={(e: any) => setShowSystemVolumes(e.target.checked)}
+            >
+              显示系统卷
+            </Checkbox>
+          )}
         </>
       )}
       toolbarRight={(
@@ -964,8 +994,8 @@ const VolumesSection: React.FC<Props> = ({ cloudId, volumes, loading, vms, stora
       )}
     >
       <Table
-        className="std-table"
-        bordered
+        className={bordered ? "std-table" : "std-table no-border"}
+        bordered={bordered}
         rowKey="key"
         rowSelection={{
           selectedRowKeys,

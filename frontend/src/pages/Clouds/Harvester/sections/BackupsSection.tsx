@@ -3,11 +3,10 @@
  * 负责展示当前 Harvester 云中某一类型（备份 / 快照）的 VM Backup 列表，
  * 支持按状态与关键字筛选，以及发起删除和恢复操作，并在工具栏提供创建备份/快照入口。
  */
-import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Table, Tag, Button, message, Input, Modal, Select, Badge } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { Table, Tag, Button, message, Input, Modal, Select, Badge, Dropdown } from 'antd';
+import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { TableColumnSettings } from '../../../../components/TableColumnSettings';
 import { deleteHarvesterBackup } from '../../../../services/harvesterApi';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
@@ -145,7 +144,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       } catch {}
 
       return {
-        key: raw.metadata?.uid || b.id,
+        key: raw.metadata?.uid || b.id || `${ns}-${raw.metadata?.name || b.name}`,
         name: raw.metadata?.name || b.name,
         namespace: ns,
         targetVmAlias: targetAlias,
@@ -179,7 +178,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
    * 删除单个备份 / 快照
    * 弹出确认框后调用后端删除接口，成功后触发刷新
    */
-  const handleDelete = (record: any) => {
+  const handleDelete = useCallback((record: any) => {
     Modal.confirm({
       title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
       content: `确定要删除${type === 'backup' ? '备份' : '快照'} ${record.alias || record.name} 吗？`,
@@ -196,7 +195,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         }
       },
     });
-  };
+  }, [type, cloudId, onRefresh]);
 
   /**
    * 表格列定义
@@ -204,7 +203,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
    * - 状态列使用 Badge 显示 Ready / NotReady
    * - 操作列支持恢复与删除
    */
-  const columns = [
+  const columns = useMemo(() => [
 
     { 
        title: '名称', 
@@ -252,26 +251,28 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
               setRestoreModalVisible(true);
             }
           },
+          {
+            type: 'divider',
+          },
           { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) }
         ];
         
         return (
-          <ResourceActionsDropdown 
-            buttonProps={{ className: 'row-actions-trigger' }}
-            items={items}
-          />
+          <Dropdown menu={{ items }} trigger={['click']}>
+            <Button icon={<EllipsisOutlined />} className="row-actions-trigger" type="text" />
+          </Dropdown>
         );
       },
     },
-  ];
+  ], [handleDelete]);
 
   return (
-    <PageDetailSection
-      asCard={false}
-      toolbarLeft={(
-        <>
+    <PageDetailSection asCard={false}>
+      <div key="toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div key="toolbar-left" style={{ display: 'flex', gap: 8 }}>
           {/* 关键字搜索：按名称 / 命名空间模糊匹配 */}
           <Input
+            key="keyword-search"
             className="toolbar-search"
             placeholder="搜索名称或命名空间"
             value={keyword}
@@ -280,6 +281,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
           />
           {/* 状态过滤：全部 / Ready / NotReady */}
           <Select
+            key="status-filter"
             className="toolbar-filter"
             value={statusFilter}
             onChange={setStatusFilter}
@@ -289,26 +291,25 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
               { label: 'NotReady', value: 'not_ready' },
             ]}
           />
-        </>
-      )}
-      toolbarRight={(
-         <div className="toolbar-actions">
-           <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建{type === 'backup' ? '备份' : '快照'}</Button>
+        </div>
+        <div key="toolbar-right" className="toolbar-actions">
+           <Button key="create-btn" type="primary" onClick={() => setCreateModalVisible(true)}>创建{type === 'backup' ? '备份' : '快照'}</Button>
            <TableColumnSettings
+             key="col-settings"
              columns={columns}
              onChange={setVisibleColumns}
              settingsKey={`harvester_${type}_list`}
            />
-           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
+           <Button key="refresh-btn" icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
          </div>
-      )}
-    >
+      </div>
       <Table
+        key="table"
         className="std-table"
         bordered={bordered}
         dataSource={filteredData}
         columns={visibleColumns || columns}
-        rowKey="key"
+        rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
         loading={loading}
         pagination={{
           size: 'small',
@@ -316,6 +317,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         }}
       />
       <VmBackupCreateModal
+        key="create-modal"
         visible={createModalVisible}
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={(created) => {
@@ -328,6 +330,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         initialType={type}
       />
       <VmRestoreModal
+        key="restore-modal"
         visible={restoreModalVisible}
         onCancel={() => setRestoreModalVisible(false)}
         onSuccess={() => {

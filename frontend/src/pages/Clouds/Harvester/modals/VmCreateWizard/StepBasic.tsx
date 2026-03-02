@@ -72,6 +72,8 @@ interface StepBasicProps {
   setSelectedNodeName: (name: string | null) => void;
   /** 过滤后的节点列表 */
   filteredNodes: any[];
+  /** 是否为租户 */
+  isTenant?: boolean;
 }
 
 const StepBasic: React.FC<StepBasicProps> = ({
@@ -92,6 +94,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
   selectedNodeName,
   setSelectedNodeName,
   filteredNodes,
+  isTenant,
 }) => {
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
   const [capabilities, setCapabilities] = useState<any>({});
@@ -113,18 +116,22 @@ const StepBasic: React.FC<StepBasicProps> = ({
   }, [cloudId]);
 
   // [业务规则] 命名空间自动选择逻辑
-  // 当当前选中的命名空间无效或为空时，自动选择第一个非系统命名空间
+  // 若为租户，强制过滤系统命名空间；否则允许选择所有（但默认选中第一个非系统）
   useEffect(() => {
-    const validOptions = namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')));
+    // 如果已有值且合法，则跳过自动选择，防止切换步骤时重置用户选择
     const currentVal = form.getFieldValue('namespace');
-    
-    // 检查当前值是否有效
+    let validOptions = namespaceOptions;
+    if (isTenant) {
+      validOptions = namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')));
+    }
     const isValid = currentVal && validOptions.some(o => o.value === currentVal);
     
     if (!isValid && validOptions.length > 0) {
-      form.setFieldsValue({ namespace: validOptions[0].value });
+      // 优先选中非系统命名空间作为默认值
+      const firstNonSystem = validOptions.find(n => !isSystemNamespace(String(n.value || '')));
+      form.setFieldsValue({ namespace: firstNonSystem?.value || validOptions[0].value });
     }
-  }, [namespaceOptions]);
+  }, [namespaceOptions, form, isTenant]);
 
   // [辅助函数] 判断节点是否就绪
   // 兼容逻辑：优先检查顶层 ready 字段，若不存在则遍历 status.conditions 查找 Type=Ready 且 Status=True
@@ -150,7 +157,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
       <div className="wizard-group-title">基础配置</div>
       <Row gutter={12}>
         <Col span={12}>
-          <Form.Item label="资源池" name="cloudId" initialValue={cloudId !== 'all' ? cloudId : undefined} rules={[{ required: true, message: '请选择资源池' }]}> 
+          <Form.Item label="资源池" name="cloudId" rules={[{ required: true, message: '请选择资源池' }]}> 
             <Select 
               placeholder="选择资源池"
               onChange={(v) => { setCurrentCloudId(v); try { reloadNamespaces(); form.resetFields(['namespace']); } catch {} }}
@@ -164,7 +171,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
         <Col span={12}>
           <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}> 
             <Select 
-              options={namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')))}
+              options={isTenant ? namespaceOptions.filter(n => !isSystemNamespace(String(n.value || ''))) : namespaceOptions}
               placeholder="选择命名空间"
               showSearch
               onOpenChange={(open) => { if (open) reloadNamespaces(); }}
@@ -204,7 +211,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
       {hostModeState === 'label' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
           <div className="wizard-section-title">标签选择</div>
-          <Form.List name="nodeSelectorPairs" initialValue={[]}>
+          <Form.List name="nodeSelectorPairs">
             {(fields, { add, remove }) => (
               <div style={{ border: '1px dashed #d9d9d9', padding: 8, borderRadius: 4 }}>
                 {fields.map(({ key, name }) => (

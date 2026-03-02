@@ -8,7 +8,7 @@
 .wizard-step { display: flex; align-items: center; padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 6px; border-left: 0; background: #fafafa; }
 .wizard-step.active { background: #e6f4ff; }
 .wizard-step.completed { color: #1677ff; }
-.wizard-step-icon { width: 24px; height: 24px; border-radius: 4px; background: #f0f0f0; color: #000; display: flex; align-items: center; justify-content: center; margin-right: 8px; font-size: 14px; }
+.wizard-step-icon { width: 24px; height: 24px; border-radius: 4px; background: transparent; color: #000; display: flex; align-items: center; justify-content: center; margin-right: 8px; font-size: 14px; }
 .wizard-step.active .wizard-step-icon { background: #1677ff; color: #fff; }
 .wizard-step.completed .wizard-step-icon { background: #e6f4ff; color: #1677ff; }
 .wizard-step-text { font-size: 14px; color: #000; }

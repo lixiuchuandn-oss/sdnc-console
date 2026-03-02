@@ -48,9 +48,11 @@ type Props = {
   images: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  bordered?: boolean;
+  showYaml?: boolean;
 };
 
-const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh }) => {
+const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, bordered = true, showYaml = true }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -114,7 +116,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
     const color = (function(){
       if (k === 'ready') return 'green';
       if (k === 'failed') return 'red';
-      if (k === 'downloading' || k === 'imported') return 'blue';
+      if (k === 'imported') return 'success';
+      if (k === 'downloading') return 'blue';
       if (k === 'pending') return 'gold';
       return undefined;
     })();
@@ -157,6 +160,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
       const key = String((typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status)) || '').toLowerCase();
       if (st && key !== st) return false;
       const kind = resolveImageKind(r);
+      if (kind === 'unknown') return false; // Filter out unknown images
       if (typeFilter && kind !== typeFilter) return false;
       return true;
     });
@@ -230,16 +234,20 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
         );
     } },
     { title: '资源名称', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
+    { title: '命名空间', key: 'namespace', render: (_:any, r:any)=> getNs(r) },
     { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) },
     { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
         const kind = resolveImageKind(r);
-        const text = kind === 'iso' ? 'ISO' : kind === 'disk' ? '云盘镜像' : '未知';
-        const color = kind === 'iso' ? 'blue' : kind === 'disk' ? 'purple' : undefined;
+        const text = kind === 'iso' ? 'ISO' : kind === 'disk' ? 'Qcow2' : '未知';
+        const color = kind === 'iso' ? 'pink' : kind === 'disk' ? 'blue' : undefined;
         return <Tag color={color}>{text}</Tag>;
     } },
     { title: '虚拟大小', key: 'vsize', render: (_:any, r:any)=> gbText(r?.virtualSize ?? r?.status?.virtualSize) },
-    { title: '文件大小', key: 'size', render: (_:any, r:any)=> gbText(r?.size ?? r?.status?.size ?? r?.spec?.size ?? r?.status?.downloadedBytes) },
     { title: '存储类', key: 'sc', render: (_:any, r:any)=> r?.storageClassName || r?.spec?.storageClassName || r?.status?.storageClassName || '-' },
+    { title: '创建时间', key: 'created_at', render: (_:any, r:any)=> {
+        const t = r?.metadata?.creationTimestamp || r?.createdAt;
+        return t ? new Date(t).toLocaleString() : '-';
+    } },
     { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_:any, r:any)=> {
       const name = r?.name || r?.metadata?.name || '';
       const ns = getNs(r);
@@ -263,8 +271,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
         <ResourceActionsDropdown 
           buttonProps={{ className: 'row-actions-trigger' }}
           items={[
-            { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
-            { type: 'divider' },
+            ...(showYaml ? [{ key: 'detail_yaml', label: '查看YAML', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, onClick: () => Modal.confirm({ title: `删除 ${name}?`, onOk: handleDelete }) },
@@ -272,7 +279,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
         />
       );
     } },
-  ], [cloudId, onRefresh]);
+  ], [cloudId, onRefresh, showYaml]);
 
   const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
 
@@ -324,8 +331,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
             options={[
               { value: '', label: '全部' },
               { value: 'iso', label: 'ISO' },
-              { value: 'disk', label: '云盘镜像' },
-              { value: 'unknown', label: '未知' },
+              { value: 'disk', label: 'Qcow2' },
             ]}
           />
         </>
@@ -485,20 +491,18 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh })
       </StdFormModal>
       <Table
         className="std-table"
-        bordered
-        rowKey={(r:any)=> r?.name || r?.metadata?.name}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: (keys)=> setSelectedKeys(keys),
-          getCheckboxProps: (r:any)=> ({ disabled: !getId(r) })
-        }}
+        bordered={bordered}
+        rowKey={(r:any)=> getId(r)}
+        rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
         pagination={{
           size: 'small',
           showQuickJumper: false,
+          showSizeChanger: true,
         }}
+        scroll={{ x: 'max-content' }}
       />
       <HarvesterResourceDrawer
         open={drawerOpen}
