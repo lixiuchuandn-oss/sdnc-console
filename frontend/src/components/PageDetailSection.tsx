@@ -243,11 +243,15 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
       nextProps.className = classes;
     }
     
-    // 递归处理子节点
-    if (props.children) {
-      const origArr = React.Children.toArray(props.children);
-      const newArr = origArr.map((child) => normalizeNode(child));
-      nextProps.children = (origArr.length === 1) ? (newArr[0] as any) : newArr;
+    if (props.children !== undefined) {
+      const c = props.children as any;
+      if (typeof c === 'function') {
+        nextProps.children = c;
+      } else if (Array.isArray(c)) {
+        nextProps.children = c.map((child: any) => normalizeNode(child));
+      } else {
+        nextProps.children = normalizeNode(c);
+      }
     }
     return React.cloneElement(node as any, nextProps);
   };

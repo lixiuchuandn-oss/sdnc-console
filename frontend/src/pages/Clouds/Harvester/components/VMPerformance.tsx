@@ -203,16 +203,17 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
         itemStyle: { color: s.color || color },
         data: (s.data || []).map(scaleData),
       })),
-      graphic: isEmpty ? [{
+      graphic: [{
+          id: 'no-data-text',
           type: 'text',
           left: 'center',
           top: 'center',
           style: {
-              text: '暂无数据',
+              text: isEmpty ? '暂无数据' : '',
               fill: '#ccc',
               fontSize: 14
           }
-      }] : []
+      }]
     };
   };
 
@@ -283,16 +284,17 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
           return [ts < 1e12 ? ts * 1000 : ts, d[1]] as [number, number];
         })
     })),
-    graphic: isEmpty ? [{
+    graphic: [{
+          id: 'no-data-text',
           type: 'text',
           left: 'center',
           top: 'center',
           style: {
-              text: '暂无数据',
+              text: isEmpty ? '暂无数据' : '',
               fill: '#ccc',
               fontSize: 14
           }
-      }] : []
+      }]
   };
   };
 
@@ -311,7 +313,7 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
 
       <Row gutter={[16, 16]}>
         <Col span={12}>
-          <Card bordered={false} bodyStyle={{ padding: 16 }}>
+          <Card variant="borderless" styles={{ body: { padding: 16 } }}>
             <Spin spinning={loading}>
               <ReactECharts 
                   option={getOption(
@@ -327,7 +329,7 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
           </Card>
         </Col>
         <Col span={12}>
-          <Card bordered={false} bodyStyle={{ padding: 16 }}>
+          <Card variant="borderless" styles={{ body: { padding: 16 } }}>
             <Spin spinning={loading}>
               <ReactECharts 
                   option={getOption('内存使用率', '%', [{ 
@@ -342,7 +344,7 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
         <Col span={24}>
           <Row gutter={[16, 16]}>
             <Col span={12}>
-              <Card bordered={false} bodyStyle={{ padding: 16 }}>
+              <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                 <Spin spinning={loading}>
                   <ReactECharts 
                       option={getByteRateOption('网络吞吐量', [
@@ -355,7 +357,7 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
               </Card>
             </Col>
             <Col span={12}>
-              <Card bordered={false} bodyStyle={{ padding: 16 }}>
+              <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                 <Spin spinning={loading}>
                   <ReactECharts 
                       option={getOption('网络包速率', 'pps', [
@@ -373,7 +375,7 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
         <Col span={24}>
           <Row gutter={[16, 16]}>
             <Col span={12}>
-              <Card bordered={false} bodyStyle={{ padding: 16 }}>
+              <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                 <Spin spinning={loading}>
                   <ReactECharts 
                       option={getByteRateOption('磁盘IO吞吐量', [
@@ -386,7 +388,7 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
               </Card>
             </Col>
             <Col span={12}>
-              <Card bordered={false} bodyStyle={{ padding: 16 }}>
+              <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                 <Spin spinning={loading}>
                   <ReactECharts 
                       option={getOption('磁盘 IOPS', 'IOPS', [

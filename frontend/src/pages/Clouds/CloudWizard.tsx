@@ -1,3 +1,35 @@
+/**
+ * ==============================================================================
+ * 模块名称: 云资源接入向导 (Cloud Resource Access Wizard)
+ * 文件路径: src/pages/Clouds/CloudWizard.tsx
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 提供统一的向导界面，引导用户接入不同类型的云资源（公有云、私有云、边缘计算、虚拟化平台等）。
+ * 支持分步配置：选择平台 -> 配置认证信息 -> 连接测试 -> 完成接入。
+ * 
+ * [核心逻辑]
+ * 1. [动态表单渲染]: 
+ *    - 基于 `cloudProviders` 配置数组，动态生成不同云厂商所需的输入字段（fields）。
+ *    - 支持 input, password, select, textarea 等多种字段类型。
+ * 2. [连接测试]: 
+ *    - 在提交前强制进行连通性测试 (handleTestConnection)，确保凭证有效。
+ *    - 根据不同 Provider 类型构造测试 Payload。
+ * 3. [数据规范化]: 
+ *    - 将前端友好的配置数据转换为后端统一的 Resource Model (type, endpoint, accessKey, secretKey)。
+ * 
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明 (Dependencies & Interactions)]
+ * ------------------------------------------------------------------------------
+ * 1. 涉及接口:
+ *    - POST /api/clouds/test-connection (连接测试)
+ *    - POST /api/clouds (创建资源)
+ * 
+ * 2. 关键依赖:
+ *    - Ant Design (Modal, Form, Steps)
+ *    - Icons (@ant-design/icons)
+ * ==============================================================================
+ */
 import React, { useMemo, useState } from 'react';
 import { 
   Modal, Card, Row, Col, Button, Form, Input, Select, 
@@ -6,31 +38,15 @@ import {
 import { 
   CloudOutlined, CloudUploadOutlined, CheckCircleOutlined, SettingOutlined,
   EyeOutlined, EyeInvisibleOutlined,
-  AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, ClusterOutlined, AppstoreOutlined, CodeSandboxOutlined, HddOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined
+  AmazonOutlined, WindowsOutlined, GoogleOutlined, AlibabaOutlined, AppleOutlined, DropboxOutlined, GithubOutlined, DatabaseOutlined, ClusterOutlined, AppstoreOutlined, CodeSandboxOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, AliyunOutlined, ContainerOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined
 } from '@ant-design/icons';
 import './Harvester/modals/VmCreateWizard/InstanceWizard.css';
+import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from './providers';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 
-interface CloudProvider {
-  id: string;
-  name: string;
-  logo: React.ReactNode;
-  category: 'public' | 'private' | 'storage';
-  description: string;
-  fields: CloudProviderField[];
-}
 
-interface CloudProviderField {
-  key: string;
-  label: string;
-  type: 'input' | 'password' | 'select' | 'textarea';
-  required: boolean;
-  placeholder?: string;
-  options?: { value: string; label: string }[];
-  help?: string;
-}
 
 interface CloudWizardProps {
   visible: boolean;
@@ -47,361 +63,14 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [formData, setFormData] = useState<any>(null);
 
+  // [权限/功能开关] 开放平台检查
+  // 仅允许列表中定义的云平台进行接入操作
+  // 未在列表中的平台将在界面上显示为禁用状态
   const isOpenProvider = (id: string) => {
-    return ['aliyun', 'huaweicloud', 'tencentcloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'].includes(id);
+    return ['aliyun', 'huaweicloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'].includes(id);
   };
 
-  // 云平台配置
-  const cloudProviders: CloudProvider[] = [
-    // 公有云
-    {
-      id: 'aliyun',
-      name: '阿里云',
-      logo: <AliyunOutlined />,
-      category: 'public',
-      description: '添加阿里公有云资源',
-      fields: [
-        { key: 'name', label: '资源名称', type: 'input', required: true, placeholder: '请输入资源名称' },
-        { key: 'accessKeyId', label: 'AccessKeyId', type: 'input', required: true, placeholder: '请输入 AccessKeyId' },
-        { key: 'accessKeySecret', label: 'AccessKeySecret', type: 'password', required: true, placeholder: '请输入 AccessKeySecret' },
-        { key: 'region', label: 'RegionId', type: 'select', required: true, options: [
-          { value: 'cn-hangzhou', label: 'cn-hangzhou（华东1 杭州）' },
-          { value: 'cn-shanghai', label: 'cn-shanghai（华东2 上海）' },
-          { value: 'cn-beijing', label: 'cn-beijing（华北2 北京）' },
-          { value: 'cn-shenzhen', label: 'cn-shenzhen（华南1 深圳）' }
-        ]}
-      ]
-    },
-    {
-      id: 'cloudmap.edge',
-      name: 'Cloudmap融合边缘云',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: '添加 Cloudmap 融合边缘云',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap-edge.example.com' },
-        { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入 Harvester API 令牌' }
-      ]
-    },
-    {
-      id: 'cloudmap.private',
-      name: 'Cloudmap私有云',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: '添加 Cloudmap 私有云',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap-private.example.com' },
-        { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入 Harvester API 令牌' }
-      ]
-    },
-    {
-      id: 'cloudmap.csm',
-      name: 'CSM',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: '添加 CSM',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap.example.com' },
-        { key: 'accessKey', label: 'AccessKey', type: 'input', required: true, placeholder: '请输入 AccessKey' },
-        { key: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '请输入 SecretKey' }
-      ]
-    },
-    {
-      id: 'aws',
-      name: 'AWS',
-      logo: <AmazonOutlined />,
-      category: 'public',
-      description: 'Amazon Web Services',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'description', label: '描述', type: 'input', required: false, placeholder: '请输入描述' },
-        { key: 'region', label: '地域', type: 'select', required: true, options: [
-          { value: 'us-east-1', label: '美国东部（弗吉尼亚北部）' },
-          { value: 'us-west-2', label: '美国西部（俄勒冈）' },
-          { value: 'ap-northeast-1', label: '亚太地区（东京）' },
-          { value: 'ap-southeast-1', label: '亚太地区（新加坡）' }
-        ]},
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://ec2.us-east-1.amazonaws.com' },
-        { key: 'accessKeyId', label: 'Access Key ID', type: 'input', required: true, placeholder: '请输入Access Key ID' },
-        { key: 'secretAccessKey', label: 'Secret Access Key', type: 'password', required: true, placeholder: '请输入Secret Access Key' }
-      ]
-    },
-    {
-      id: 'azure',
-      name: 'Azure',
-      logo: <WindowsOutlined />,
-      category: 'public',
-      description: 'Microsoft Azure',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'subscriptionId', label: '订阅ID', type: 'input', required: true, placeholder: '请输入订阅ID' },
-        { key: 'tenantId', label: '租户ID', type: 'input', required: true, placeholder: '请输入租户ID' },
-        { key: 'clientId', label: '客户端ID', type: 'input', required: true, placeholder: '请输入客户端ID' },
-        { key: 'clientSecret', label: '客户端密钥', type: 'password', required: true, placeholder: '请输入客户端密钥' }
-      ]
-    },
-    {
-      id: 'huaweicloud',
-      name: '华为云',
-      logo: <CloudOutlined />,
-      category: 'public',
-      description: '添加华为公有云资源',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'region', label: '地域', type: 'select', required: true, options: [
-          { value: 'cn-east-3', label: '华东-上海一' },
-          { value: 'cn-north-1', label: '华北-北京一' },
-          { value: 'cn-north-4', label: '华北-北京四' },
-          { value: 'cn-east-2', label: '华东-上海二' },
-          { value: 'cn-south-1', label: '华南-广州' }
-        ]},
-        { key: 'projectId', label: '项目ID', type: 'input', required: true, placeholder: '请输入项目ID' },
-        { key: 'accessKey', label: 'Access Key Id', type: 'input', required: true, placeholder: 'Enter Access Key Id' },
-        { key: 'secretKey', label: 'Secret Access Key', type: 'password', required: true, placeholder: 'Enter Secret Access Key' }
-      ]
-    },
-    {
-      id: 'tencentcloud',
-      name: '腾讯云',
-      logo: <CloudOutlined />,
-      category: 'public',
-      description: '添加腾讯公有云资源',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'region', label: '地域', type: 'select', required: true, options: [
-          { value: 'ap-beijing', label: '北京' },
-          { value: 'ap-shanghai', label: '上海' },
-          { value: 'ap-guangzhou', label: '广州' },
-          { value: 'ap-chengdu', label: '成都' }
-        ]},
-        { key: 'secretId', label: '密钥ID', type: 'input', required: true, placeholder: '请输入SecretId' },
-        { key: 'secretKey', label: '密钥', type: 'password', required: true, placeholder: '请输入SecretKey' }
-      ]
-    },
-    {
-      id: 'ucloud',
-      name: 'UCloud',
-      logo: <CloudOutlined />,
-      category: 'public',
-      description: 'UCloud云服务器',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'region', label: '地域', type: 'input', required: true, placeholder: '请输入地域' },
-        { key: 'publicKey', label: '公钥', type: 'input', required: true, placeholder: '请输入公钥' },
-        { key: 'privateKey', label: '私钥', type: 'password', required: true, placeholder: '请输入私钥' }
-      ]
-    },
-    {
-      id: 'google',
-      name: 'Google',
-      logo: <GoogleOutlined />,
-      category: 'public',
-      description: 'Google Cloud Platform',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'projectId', label: '项目ID', type: 'input', required: true, placeholder: '请输入项目ID' },
-        { key: 'region', label: '地域', type: 'input', required: true, placeholder: '请输入地域' },
-        { key: 'serviceAccount', label: '服务账号JSON', type: 'textarea', required: true, placeholder: '请粘贴服务账号JSON内容' }
-      ]
-    },
-    {
-      id: 'tianyi',
-      name: '天翼云',
-      logo: <CloudOutlined />,
-      category: 'public',
-      description: '中国电信天翼云',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'region', label: '地域', type: 'input', required: true, placeholder: '请输入地域' },
-        { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
-        { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
-      ]
-    },
-    {
-      id: 'yidong',
-      name: '移动云',
-      logo: <CloudOutlined />,
-      category: 'public',
-      description: '中国移动云',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'region', label: '地域', type: 'input', required: true, placeholder: '请输入地域' },
-        { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
-        { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
-      ]
-    },
-    // 私有云 & 虚拟化平台
-    {
-      id: 'builtinprivate',
-      name: '内置私有云',
-      logo: <CloudServerOutlined />, 
-      category: 'private',
-      description: '平台内置私有云环境',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'description', label: '描述', type: 'input', required: false, placeholder: '请输入描述' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入API端点' },
-        { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
-        { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
-      ]
-    },
-    {
-      id: 'vmware',
-      name: 'VMware',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: 'VMware vSphere',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'vcenterHost', label: 'vCenter主机', type: 'input', required: true, placeholder: '请输入vCenter主机地址' },
-        { key: 'username', label: '用户名', type: 'input', required: true, placeholder: '请输入用户名' },
-        { key: 'password', label: '密码', type: 'password', required: true, placeholder: '请输入密码' },
-        { key: 'datacenter', label: '数据中心', type: 'input', required: false, placeholder: '可选，数据中心名称' }
-      ]
-    },
-    {
-      id: 'openstack',
-      name: 'OpenStack',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: 'OpenStack云平台',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'authUrl', label: '认证URL', type: 'input', required: true, placeholder: '请输入认证URL' },
-        { key: 'username', label: '用户名', type: 'input', required: true, placeholder: '请输入用户名' },
-        { key: 'password', label: '密码', type: 'password', required: true, placeholder: '请输入密码' },
-        { key: 'tenantName', label: '租户名称', type: 'input', required: true, placeholder: '请输入租户名称' },
-        { key: 'region', label: '地域', type: 'input', required: false, placeholder: '可选，地域名称' }
-      ]
-    },
-    {
-      id: 'dstack',
-      name: 'DStack',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: 'DStack容器平台',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入API端点' },
-        { key: 'token', label: '访问令牌', type: 'password', required: true, placeholder: '请输入访问令牌' }
-      ]
-    },
-    {
-      id: 'zstack',
-      name: 'ZStack',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: 'ZStack云平台',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入API端点' },
-        { key: 'username', label: '用户名', type: 'input', required: true, placeholder: '请输入用户名' },
-        { key: 'password', label: '密码', type: 'password', required: true, placeholder: '请输入密码' }
-      ]
-    },
-    {
-      id: 'kvm',
-      name: 'KVM',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: 'KVM虚拟化平台',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'host', label: '主机地址', type: 'input', required: true, placeholder: '请输入KVM主机地址' },
-        { key: 'username', label: '用户名', type: 'input', required: true, placeholder: '请输入用户名' },
-        { key: 'password', label: '密码', type: 'password', required: true, placeholder: '请输入密码' },
-        { key: 'port', label: '端口', type: 'input', required: false, placeholder: '可选，默认22' }
-      ]
-    },
-    {
-      id: 'rancher',
-      name: 'Rancher',
-      logo: <ContainerOutlined />,
-      category: 'private',
-      description: 'Rancher容器管理平台',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'rancherUrl', label: 'Rancher地址', type: 'input', required: true, placeholder: 'https://rancher.example.com' },
-        { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入Rancher API令牌' },
-        { key: 'clusterId', label: '集群ID', type: 'input', required: false, placeholder: '可选，集群标识' },
-        { key: 'projectId', label: '项目ID', type: 'input', required: false, placeholder: '可选，项目标识' }
-      ]
-    },
-    {
-      id: 'harvester',
-      name: 'Harvester',
-      logo: <CloudServerOutlined />,
-      category: 'private',
-      description: 'Harvester HCI',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://harvester.example.com' },
-        { key: 'apiToken', label: 'API令牌', type: 'password', required: true, placeholder: '请输入Harvester API令牌' },
-        { key: 'harvesterVersion', label: 'Harvester版本', type: 'select', required: false, placeholder: '自动识别', options: [
-          { label: '自动', value: 'auto' },
-          { label: '1.5', value: '1.5' },
-          { label: '1.6', value: '1.6' }
-        ]}
-      ]
-    },
-    {
-      id: 'feitiancloud',
-      name: '飞天',
-      logo: <AliyunOutlined />,
-      category: 'private',
-      description: '飞天云平台',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入API端点' },
-        { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
-        { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
-      ]
-    },
-    // 对象存储
-    {
-      id: 's3',
-      name: 'S3',
-      logo: <DatabaseOutlined />,
-      category: 'storage',
-      description: 'S3兼容对象存储',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入S3端点' },
-        { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
-        { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' },
-        { key: 'region', label: '地域', type: 'input', required: false, placeholder: '可选，存储区域' }
-      ]
-    },
-    {
-      id: 'ceph',
-      name: 'Ceph',
-      logo: <DatabaseOutlined />,
-      category: 'storage',
-      description: 'Ceph对象存储',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入Ceph端点' },
-        { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
-        { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
-      ]
-    },
-    {
-      id: 'sky',
-      name: 'SKY',
-      logo: <DatabaseOutlined />,
-      category: 'storage',
-      description: 'SKY对象存储',
-      fields: [
-        { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-        { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入SKY端点' },
-        { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
-        { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
-      ]
-    }
-  ];
+
 
   const steps = ['选择云平台','配置云账号','连接测试'];
   const getStepIcon = (i: number): React.ReactNode => {
@@ -431,6 +100,10 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         setCurrentStep(2);
         // 自动进行连接测试
         handleTestConnection();
+      }).catch((errorInfo) => {
+        console.log('Validation Failed:', errorInfo);
+        // 校验失败时，Ant Design Form 会自动在表单项上显示错误提示
+        // 这里捕获错误防止 Promise Rejection 导致的崩溃
       });
     }
     // 步骤2没有下一步按钮，所以不需要处理
@@ -443,10 +116,19 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     }
   };
 
+  // [核心逻辑] 连接测试
+  // 在正式提交前验证云平台凭证的有效性
+  // 1. 收集表单数据 (formData 或 当前表单值)
+  // 2. 根据 Provider 类型构造标准化的测试 Payload (endpoint, accessKey, secretKey)
+  // 3. 调用后端 API (/api/clouds/test-connection) 进行验证
   const handleTestConnection = async () => {
     setLoading(true);
     try {
       const values = formData || form.getFieldsValue();
+      
+      // [数据标准化] 构造 Endpoint
+      // - 阿里云/华为云: 根据 Region 自动构造
+      // - 私有云/Harvester: 使用用户输入的 Endpoint
       const endpoint =
         selectedProvider?.id === 'aliyun'
           ? 'https://ecs.aliyuncs.com'
@@ -455,10 +137,16 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             : (selectedProvider?.id === 'harvester' || selectedProvider?.id === 'cloudmap.edge' || selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.csm')
               ? (values.endpoint || '')
               : (values.endpoint || values.authUrl || values.vcenterHost || '');
+      
+      // [配置合并]
       const cfgBase: any = { provider: selectedProvider?.id, ...values };
+      
+      // [特殊处理] Cloudmap 版本兼容
       if (selectedProvider?.id === 'cloudmap.private' || selectedProvider?.id === 'cloudmap.edge') {
         cfgBase.harvesterVersion = '1.6';
       }
+
+      // [Payload构造] 映射不同平台的字段到统一的 accessKey/secretKey
       const payload = {
         provider: selectedProvider?.id,
         region: values.region || 'default',
@@ -468,6 +156,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                    values.privateKey || values.clientSecret || values.password || values.apiToken || '',
         config: cfgBase
       };
+
       const token = localStorage.getItem('token');
       const resp = await fetch('/api/clouds/test-connection', {
         method: 'POST',
@@ -475,7 +164,16 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         body: JSON.stringify(payload)
       });
       const json = await resp.json();
-      setTestResult({ success: !!json?.ok, message: json?.message || (json?.ok ? '连接成功' : '连接失败') });
+      let msg = json?.message || (json?.ok ? '连接成功' : '连接失败');
+      
+      // [智能提示] 针对 SSL 证书错误提供操作建议
+      if (!json?.ok && (msg.includes('self-signed certificate') || msg.includes('certificate') || msg.includes('SSL'))) {
+         msg += ' （提示：如使用自签名证书，请在“高级选项”中开启“忽略TLS证书校验”）';
+         // 自动展开高级选项以便用户修改
+         // (Optional: implement logic to expand collapse if possible, but message is good enough for now)
+      }
+
+      setTestResult({ success: !!json?.ok, message: msg });
     } catch (error) {
       setTestResult({
         success: false,
@@ -486,36 +184,43 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     }
   };
 
+  // [核心逻辑] 提交创建
+  // 1. 确保连接测试已通过
+  // 2. 将前端表单数据转换为后端 Resource Model
+  // 3. 提交创建请求并处理响应
   const handleFinish = async () => {
+    // [前置检查] 必须先通过连接测试
     if (!selectedProvider || !testResult?.success) {
       return;
     }
 
     setLoading(true);
     try {
-      // 使用保存的表单数据
+      // 使用保存的表单数据 (formData) 或 实时获取 (兜底)
       const values = formData || form.getFieldsValue();
       console.log('使用的表单数据:', values);
       
-      // 规范化资源类型到后端支持的集合
-      const rawType: string = String(values.type || '').toLowerCase();
-      const normalizedType: string = ['central','edge','hybrid','security_pool'].includes(rawType)
-        ? rawType
-        : ((selectedProvider?.category === 'private') ? 'edge' : 'central');
+      // [数据标准化] 资源类型
+      // 后端已更新 CloudType 枚举，直接使用前端选择的类型
+      const normalizedType = String(values.type || '').toLowerCase();
 
-      // 构建提交数据
+      // [Payload构造] 组装最终提交给 API 的数据结构
       const cfg: any = {
         provider: selectedProvider.id,
         ...values
       };
+      
+      // [特殊处理] Cloudmap 强制指定版本
       if (selectedProvider.id === 'cloudmap.private' || selectedProvider.id === 'cloudmap.edge') {
         cfg.harvesterVersion = '1.6';
       }
+
       const cloudData = {
         name: values.name,
         description: values.description || `${selectedProvider.name}云资源`,
         type: normalizedType,
         region: values.region || 'default',
+        // [Endpoint构造] 根据 Provider 类型决定 Endpoint 来源
         endpoint: selectedProvider.id === 'aliyun'
           ? 'https://ecs.aliyuncs.com'
           : selectedProvider.id === 'huaweicloud'
@@ -523,6 +228,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
           : (selectedProvider.id === 'harvester' || selectedProvider.id === 'cloudmap' || selectedProvider.id === 'cloudmap.private')
             ? (values.endpoint || 'https://harvester.example.com')
             : (values.endpoint || values.authUrl || values.vcenterHost || 'https://api.example.com'),
+        // [凭证映射] 统一 AccessKey/SecretKey
         accessKey: values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '',
         secretKey: values.secretKey || values.accessKeySecret || values.secretAccessKey || 
                    values.privateKey || values.clientSecret || values.password || values.apiToken || '',
@@ -532,7 +238,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       console.log('表单原始数据:', values);
       console.log('构建的云资源数据:', cloudData);
 
-      // 验证必填字段
+      // [最终校验] 确保关键字段不为空
       if (!cloudData.name || !cloudData.type || !cloudData.region || !cloudData.endpoint) {
         console.log('验证失败的数据:', cloudData);
         message.error(`请填写完整的配置信息。缺少字段: ${[
@@ -590,8 +296,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     });
     return (
       <div style={{ marginBottom: 24 }}>
-        <div className="wizard-group-title">{title}</div>
-        {category === 'public' && (
+        <div className="modal-group-title">{title}</div>
+        {category === 'central' && (
           <Alert
             message="已开放阿里云与华为云资源接入，其他云平台暂未开放。"
             type="info"
@@ -606,8 +312,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 hoverable={isOpenProvider(provider.id)}
                 style={{ 
                   textAlign: 'center',
-                  border: selectedProvider?.id === provider.id ? '2px solid #1677ff' : '1px solid #d9d9d9',
-                  height: 110,
+                  backgroundColor: selectedProvider?.id === provider.id ? '#1677ff' : '#fff',
+                  color: selectedProvider?.id === provider.id ? '#fff' : 'rgba(0, 0, 0, 0.88)',
+                  height: 100,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
@@ -618,11 +325,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 }}
                 onClick={isOpenProvider(provider.id) ? () => handleProviderSelect(provider) : undefined}
               >
-                <div style={{ fontSize: 32, marginBottom: 4, color: '#1677ff' }}>{getProviderLogo(provider)}</div>
+                <div style={{ fontSize: 32, marginBottom: 4, color: selectedProvider?.id === provider.id ? '#fff' : '#595959' }}>{getProviderLogo(provider.id, provider.category)}</div>
                 <div>{provider.name}</div>
-                {!isOpenProvider(provider.id) && (
-                  <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>未开放</div>
-                )}
               </Card>
             </Col>
           ))}
@@ -631,9 +335,13 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     );
   };
 
+  // [结构] 渲染步骤内容
   const renderStepContent = () => {
     switch (currentStep) {
       case 0:
+        // ==============================================================================
+        // 步骤 0: 选择云平台 (Provider Selection)
+        // ==============================================================================
         return (
           <div>
             <div style={{ marginBottom: 12 }}>
@@ -641,7 +349,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             </div>
             
             <div style={{ marginBottom: 16 }}>
-              <div className="wizard-group-title">选择类型</div>
+              <div className="modal-group-title">选择类型</div>
               <Row gutter={[12, 12]}>
                 {[
                   { key: 'central', label: '公有云' },
@@ -649,16 +357,16 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                   { key: 'edge', label: '边缘计算' },
                   { key: 'virtualization', label: '虚拟化平台' },
                   { key: 'object_storage', label: '对象存储' },
-                  { key: 'security_pool', label: '安全资源池' },
-                  { key: 'sase_gateway', label: 'SASE网关' }
+                  { key: 'security_pool', label: '安全资源池' }
                 ].map(t => (
                   <Col xs={12} sm={8} md={6} lg={6} key={t.key}>
                     <Card
                       hoverable
                       style={{ 
                         textAlign: 'center',
-                        border: poolType === t.key ? '2px solid #1677ff' : '1px solid #d9d9d9',
-                        height: 110,
+                        backgroundColor: poolType === t.key ? '#1677ff' : '#fff',
+                        color: poolType === t.key ? '#fff' : 'rgba(0, 0, 0, 0.88)',
+                        height: 100,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -666,14 +374,13 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                       }}
                       onClick={() => setPoolType(t.key)}
                     >
-                      <div style={{ fontSize: 32, marginBottom: 4, color: '#1677ff' }}>
+                      <div style={{ fontSize: 32, marginBottom: 4, color: poolType === t.key ? '#fff' : '#595959' }}>
                         {t.key === 'central' && <CloudUploadOutlined />}
                         {t.key === 'private' && <CloudServerOutlined />}
-                        {t.key === 'edge' && <CloudServerOutlined />}
-                        {t.key === 'virtualization' && <HddOutlined />}
+                        {t.key === 'edge' && <DeploymentUnitOutlined />}
+                        {t.key === 'virtualization' && <DesktopOutlined />}
                         {t.key === 'object_storage' && <DatabaseOutlined />}
-                        {t.key === 'security_pool' && <CloudServerOutlined />}
-                        {t.key === 'sase_gateway' && <ClusterOutlined />}
+                        {t.key === 'security_pool' && <SafetyCertificateOutlined />}
                       </div>
                       <div>{t.label}</div>
                     </Card>
@@ -681,25 +388,25 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 ))}
               </Row>
             </div>
-            {poolType === 'central' && renderProviderGrid('public', '公有云', cloudProviders.filter(p => p.category === 'public' && !['google','ucloud'].includes(p.id)))}
-            {poolType === 'private' && renderProviderGrid('private', '私有云', cloudProviders.filter(p => p.category === 'private' && !['builtinprivate','vmware','harvester','rancher','kvm','cloudmap.edge','cloudmap.csm'].includes(p.id)))}
-            {poolType === 'virtualization' && renderProviderGrid('virtualization', '虚拟化平台', cloudProviders.filter(p => p.category === 'private' && ['vmware','kvm','harvester'].includes(p.id)))}
-            {poolType === 'object_storage' && renderProviderGrid('storage', '对象存储', cloudProviders.filter(p => p.category === 'storage'))}
-            {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter(p => ['cloudmap.edge','rancher'].includes(p.id)))}
-            {poolType === 'security_pool' && renderProviderGrid('private', '安全资源池', cloudProviders.filter(p => ['cloudmap.csm'].includes(p.id)))}
-            {poolType === 'sase_gateway' && (
-              <Alert style={{ marginTop: 12 }} type="warning" showIcon message="该资源池类型暂未开放接入" />
-            )}
+            {poolType === 'central' && renderProviderGrid('central', '公有云', cloudProviders.filter(p => p.category === 'central'))}
+            {poolType === 'private' && renderProviderGrid('private', '私有云', cloudProviders.filter(p => p.category === 'private'))}
+            {poolType === 'virtualization' && renderProviderGrid('virtualization', '虚拟化平台', cloudProviders.filter(p => p.category === 'virtualization'))}
+            {poolType === 'object_storage' && renderProviderGrid('object_storage', '对象存储', cloudProviders.filter(p => p.category === 'object_storage'))}
+            {poolType === 'edge' && renderProviderGrid('edge', '边缘计算', cloudProviders.filter(p => p.category === 'edge'))}
+            {poolType === 'security_pool' && renderProviderGrid('security_pool', '安全资源池', cloudProviders.filter(p => p.category === 'security_pool'))}
           </div>
         );
 
       case 1:
         if (!selectedProvider) return null;
         
+        // ==============================================================================
+        // 步骤 1: 配置云账号 (Configuration)
+        // ==============================================================================
         return (
           <div>
             <div style={{ marginBottom: 12 }}>
-              <div className="wizard-group-title">配置云账号</div>
+              <div className="modal-group-title">配置云账号</div>
               <div style={{ color: '#8c8c8c', marginTop: 6 }}>
                 {(poolType === 'security_pool' && selectedProvider.id === 'cloudmap.csm')
                   ? '添加 CSM'
@@ -722,10 +429,10 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                   <Option value="virtualization">虚拟化</Option>
                   <Option value="object_storage">对象存储</Option>
                   <Option value="security_pool">安全资源池</Option>
-                  <Option value="sase_gateway">SASE网关</Option>
                 </Select>
               </Form.Item>
 
+              {/* 动态渲染 Provider 定义的字段 */}
               {(() => {
                 const fieldsToRender = selectedProvider.fields;
                 return fieldsToRender.map(field => (
@@ -759,11 +466,10 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               })()}
 
               <Collapse
-                className="wizard-collapse-nopad"
+                className="std-collapse-minimal"
                 bordered={false}
                 expandIconPosition="end"
                 defaultActiveKey={[]}
-                ghost
                 items={[
                   {
                     key: 'advanced',
@@ -815,7 +521,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         return (
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ marginBottom: 32 }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>{getProviderLogo(selectedProvider)}</div>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>{getProviderLogo(selectedProvider?.id, selectedProvider?.category)}</div>
               <Title level={3} style={{ marginBottom: 8 }}>连接测试</Title>
               <Text type="secondary">正在测试与{selectedProvider?.name}的连接...</Text>
             </div>
@@ -918,7 +624,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       footer={null}
       width={'70vw'}
       centered
-      styles={{ body: { height: '80vh', maxHeight: '80vh', overflow: 'hidden', paddingTop: 12 } }}
+      styles={{ body: { height: '80vh', maxHeight: '80vh', overflow: 'hidden'} }}
       destroyOnHidden
     >
       <Row gutter={[0, 0]} style={{ height: '100%' }}>
@@ -929,9 +635,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 <div
                   key={t}
                   className={`wizard-step ${currentStep===idx?'active':''} ${idx < currentStep ? 'completed' : ''}`}
-                  onClick={()=> setCurrentStep(idx)}
+                  style={{ cursor: 'default' }}
                 >
-                  <div className="wizard-step-icon">
+                  <div className="wizard-step-icon" style={idx > currentStep ? { background: 'transparent' } : undefined}>
                     {idx < currentStep ? (<CheckCircleOutlined />) : (getStepIcon(idx))}
                   </div>
                   <span className="wizard-step-text">{t}</span>
@@ -994,12 +700,6 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   );
 };
 
-// 定义一个安全获取icon的函数
-const getProviderLogo = (provider: CloudProvider | null) => {
-  if (provider && provider.logo && React.isValidElement(provider.logo)) {
-    return provider.logo;
-  }
-  return <AliyunOutlined />;
-};
+
 
 export default CloudWizard;

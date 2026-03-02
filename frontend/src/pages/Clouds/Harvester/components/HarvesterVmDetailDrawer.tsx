@@ -8,7 +8,7 @@ import {
   SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined, WarningOutlined
 } from '@ant-design/icons';
 import { cnVmStatus, isSystemNamespace } from '../../../../utils/harvesterUtils';
-import { stopHarvesterVm, startHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, saveHarvesterVmAsTemplate } from '../../../../services/harvesterApi';
+import { stopHarvesterVm, startHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, saveHarvesterVmAsTemplate, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
@@ -60,9 +60,50 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
 
+  // VM Data State (Aggregated)
+  const [vmData, setVmData] = useState<any>(record);
+  
+  // Sync record prop to vmData
+  React.useEffect(() => {
+      setVmData(record);
+  }, [record]);
+
   // CPU/Memory Usage State
   const [cpuUsage, setCpuUsage] = useState<number | null>(null);
   const [memUsage, setMemUsage] = useState<number | null>(null);
+
+  // VPC/Subnet State for Network Mapping
+  const [vpcs, setVpcs] = useState<any[]>([]);
+  const [subnets, setSubnets] = useState<any[]>([]);
+  const [nads, setNads] = useState<any[]>([]);
+  const [vmImages, setVmImages] = useState<any[]>(images);
+
+  // Fetch Aggregated Data (VM + Networks + etc)
+  React.useEffect(() => {
+    if (!open || !cloudId || !record?.metadata?.namespace || !record?.metadata?.name) return;
+
+    const fetchAggregated = async () => {
+        try {
+            const namespace = record.metadata.namespace;
+            const name = record.metadata.name;
+            const res = await fetchHarvesterVMAggregated(cloudId, namespace, name);
+            
+            if (res) {
+                if (res.vm) setVmData(res.vm);
+                if (res.related) {
+                    setNads(res.related.nads || []);
+                    setVpcs(res.related.vpcs || []);
+                    setSubnets(res.related.subnets || []);
+                    setVmImages(res.related.images || []);
+                }
+                console.log('[VmDetail] Aggregated Data Loaded:', res);
+            }
+        } catch (e) {
+            console.error('Failed to fetch aggregated VM data', e);
+        }
+    };
+    fetchAggregated();
+  }, [open, cloudId, record?.metadata?.namespace, record?.metadata?.name]);
 
   // Fetch Metrics
   React.useEffect(() => {
@@ -326,22 +367,80 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 } catch(e) {}
             }
 
+            // Map networkName to VPC/Subnet or Flat/VLAN
+            let displayName = net?.multus?.networkName || 'Management Network';
+            
+            if (displayName !== 'Management Network') {
+                try {
+                    // networkName format: namespace/name
+                    const parts = displayName.split('/');
+                    const targetNs = parts.length > 1 ? parts[0] : (r?.metadata?.namespace || 'default');
+                    const targetName = parts.length > 1 ? parts[1] : parts[0];
+                    
+                    // 1. Find NAD first
+                    const nad = nads.find((n: any) => n.metadata?.name === targetName && n.metadata?.namespace === targetNs);
+                    
+                    if (nad) {
+                        let config: any = {};
+                        try {
+                            config = JSON.parse(nad.spec?.config || '{}');
+                        } catch (e) {}
+                        
+                        // Support both plugins list and direct object structure
+                        const plugins = config.plugins || [config];
+                        const kubeOvnConfig = plugins.find((p: any) => p?.type === 'kube-ovn');
+                        const bridgeConfig = plugins.find((p: any) => p?.type === 'bridge');
+
+                        if (kubeOvnConfig) {
+                            // VPC Network Logic
+                            const subnet = subnets.find((s: any) => s.metadata?.name === targetName);
+                            if (subnet) {
+                                const vpcName = subnet.spec?.vpc || subnet.vpc || 'Unknown VPC';
+                                const vpc = vpcs.find((v: any) => v.metadata?.name === vpcName);
+                                const vpcDisplay = vpc?.metadata?.annotations?.['tower.io/alias'] || vpcName;
+                                displayName = `VPC / ${vpcDisplay} / ${subnet.metadata.name}`;
+                            } else {
+                                // Fallback if subnet object missing but type is VPC
+                                displayName = `VPC / ${targetName}`;
+                            }
+                        } else if (bridgeConfig) {
+                            // Flat Network Logic (Bridge)
+                            const vlanId = bridgeConfig.vlan;
+                            displayName = `Flat / ${vlanId ? `VLAN ${vlanId} / ` : ''}${nad.metadata.name}`;
+                        } else {
+                            // Other (Unknown type or custom CNI) -> Show actual type
+                            const type = config.type || 'Unknown';
+                            displayName = `${type} / ${nad.metadata.name}`;
+                        }
+                    } else {
+                        // Fallback: If NAD not found, default to Flat as requested
+                        displayName = `Flat / ${targetName}`;
+                    }
+                } catch (e) {
+                    console.warn('[VmDetail] Error mapping network:', e);
+                    // Final fallback
+                    const parts = displayName.split('/');
+                    const targetName = parts.length > 1 ? parts[1] : parts[0];
+                    displayName = `Flat / ${targetName}`;
+                }
+            }
+
             return {
                 name: i.name,
                 model: i.model || 'virtio',
-                networkName: net?.multus?.networkName || 'Management Network',
+                networkName: displayName,
                 mac: mac,
                 ip: ip
             };
         });
     }
-  }), [namespaces, volumes, images]);
+  }), [namespaces, volumes, images, vpcs, subnets, nads]);
 
   // Actions
   const handleStart = async () => {
      try {
-         const ns = SafeRead.namespace(record);
-         const name = SafeRead.vmId(record);
+         const ns = SafeRead.namespace(vmData);
+         const name = SafeRead.vmId(vmData);
          await startHarvesterVm(cloudId, ns, name);
          message.success('启动指令已发送');
          onRefresh && onRefresh();
@@ -352,8 +451,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
   const handleStop = async (force = false) => {
      try {
-         const ns = SafeRead.namespace(record);
-         const name = SafeRead.vmId(record);
+         const ns = SafeRead.namespace(vmData);
+         const name = SafeRead.vmId(vmData);
          await stopHarvesterVm(cloudId, ns, name, force);
          message.success('停止指令已发送');
          onRefresh && onRefresh();
@@ -364,8 +463,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
   const handleReboot = async () => {
       try {
-          const ns = SafeRead.namespace(record);
-          const name = SafeRead.vmId(record);
+          const ns = SafeRead.namespace(vmData);
+          const name = SafeRead.vmId(vmData);
           // For Harvester, instanceId is namespace/name
           const instanceId = `${ns}/${name}`;
           await rebootCloudProviderEcs(cloudId, instanceId);
@@ -377,8 +476,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleConsole = async () => {
-    const ns = SafeRead.namespace(record);
-    const name = SafeRead.vmId(record);
+    const ns = SafeRead.namespace(vmData);
+    const name = SafeRead.vmId(vmData);
     if (ns && name) {
         const url = `/clouds/${encodeURIComponent(cloudId)}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`;
         window.open(url, '_blank');
@@ -389,8 +488,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
   const handleSaveAsTemplate = useCallback(async () => {
     if (!cloudId) return;
-    const ns = SafeRead.namespace(record);
-    const vmName = SafeRead.vmId(record);
+    const ns = SafeRead.namespace(vmData);
+    const vmName = SafeRead.vmId(vmData);
     if (!ns || !vmName) {
       message.error('无法解析实例命名空间或名称');
       return;
@@ -404,14 +503,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     } finally {
       setSavingTemplate(false);
     }
-  }, [cloudId, record, SafeRead]);
+  }, [cloudId, vmData, SafeRead]);
 
   const handleEjectCdrom = useCallback(async () => {
-    const disks = record?.spec?.template?.spec?.domain?.devices?.disks || [];
+    const disks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
     const cdrom = disks[0]; // Assuming first disk check for cdrom property, similar to VmSection logic but safer
     if (!cdrom) return;
     
-    const statusStr = String(SafeRead.status(record)).toLowerCase();
+    const statusStr = String(SafeRead.status(vmData)).toLowerCase();
     const isRunning = !['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
     
     let deletePvc = true;
@@ -438,8 +537,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       onOk: async () => {
         const hide = message.loading('正在执行弹出操作...', 0);
         try {
-          const ns = SafeRead.namespace(record);
-          const name = SafeRead.vmId(record);
+          const ns = SafeRead.namespace(vmData);
+          const name = SafeRead.vmId(vmData);
           // Construct iid properly as namespace/name
           const iidStr = `${ns}/${name}`;
           
@@ -456,7 +555,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
           // 3. Delete PVC if requested
           if (deletePvc) {
-              const volumes = record?.spec?.template?.spec?.volumes || [];
+              const volumes = vmData?.spec?.template?.spec?.volumes || [];
               const vol = volumes.find((v: any) => v.name === cdrom.name);
               const pvcName = vol?.persistentVolumeClaim?.claimName;
               
@@ -485,45 +584,45 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         }
       }
     });
-  }, [cloudId, record, onRefresh, SafeRead]);
+  }, [cloudId, vmData, onRefresh, SafeRead]);
 
-  const status = String(SafeRead.status(record)).toLowerCase();
+  const status = String(SafeRead.status(vmData)).toLowerCase();
   const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(status);
   const isRunning = ['running'].includes(status);
   const isPaused = ['paused'].includes(status);
 
 
   // Check for HotPlugCPUError
-  const conditions = record?.status?.conditions || [];
+  const conditions = vmData?.status?.conditions || [];
   const hotPlugCpuError = conditions.find((c: any) => c.type === 'Failure' && c.reason === 'HotPlugCPUError' && c.status === 'True');
   
-  const vmDisks = SafeRead.volumeDetails(record);
-  const vmNics = SafeRead.interfaces(record);
+  const vmDisks = SafeRead.volumeDetails(vmData);
+  const vmNics = SafeRead.interfaces(vmData);
 
   // Check for CD-ROM
-  const rawDisks = record?.spec?.template?.spec?.domain?.devices?.disks || [];
+  const rawDisks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
   const isCdromBoot = rawDisks.length > 0 && !!rawDisks[0].cdrom;
 
   // Toolbar Actions
   const actionItems: MenuProps['items'] = [
       // Data & Replication
-      { key: 'backup', label: '备份', icon: <DatabaseOutlined />, onClick: () => onBackup && onBackup(record) },
-      { key: 'snapshot', label: '快照', icon: <HistoryOutlined />, onClick: () => onSnapshot && onSnapshot(record) },
-      { key: 'clone', label: '克隆', icon: <CopyOutlined />, onClick: () => onClone && onClone(record) },
+      { key: 'backup', label: '备份', icon: <DatabaseOutlined />, onClick: () => onBackup && onBackup(vmData) },
+      { key: 'snapshot', label: '快照', icon: <HistoryOutlined />, onClick: () => onSnapshot && onSnapshot(vmData) },
+      { key: 'clone', label: '克隆', icon: <CopyOutlined />, onClick: () => onClone && onClone(vmData) },
       { key: 'save_template', label: '保存为模板', icon: <SaveOutlined />, disabled: savingTemplate, onClick: handleSaveAsTemplate },
       
       { type: 'divider' },
 
       // Runtime Operations
-      { key: 'reconfigure', label: '资源变配', icon: <HddOutlined />, onClick: () => onOpenReconfigure && onOpenReconfigure(record) },
-      { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(record) },
+      { key: 'reconfigure', label: '资源变配', icon: <HddOutlined />, onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) },
+      { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(vmData) },
       ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
 
       { type: 'divider' },
 
       // Danger Zone
       { key: 'force_stop', label: '强制停止', icon: <PoweroffOutlined />, danger: true, disabled: isStopped, onClick: () => handleStop(true) },
-      { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => onDelete && onDelete(record) },
+      { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => onDelete && onDelete(vmData) },
   ];
 
   return (
@@ -550,8 +649,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 <DesktopOutlined />
             </div>
             <div>
-                <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>{SafeRead.name(record)}</div>
-                <div style={{ fontSize: 12, color: '#999'}}>ID: {SafeRead.vmId(record)}</div>
+                <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>{SafeRead.name(vmData)}</div>
+                <div style={{ fontSize: 12, color: '#999'}}>ID: {SafeRead.vmId(vmData)}</div>
             </div>
             <Tag color={isRunning ? 'success' : 'default'} style={{ margin: 0}}>{cnVmStatus(status)}</Tag>
 
@@ -568,23 +667,23 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
       {/* Toolbar */}
       <div style={{ background: '#f5f7fa', padding: '0 24px 16px', flexShrink: 0 }}>
-        <div style={{ padding: 10, background: '#fff', borderRadius: 8, border: '1px solid #e8e8e8', display: 'flex', gap: 4, alignItems: 'center' }}>
-          <Button type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 14 }}>打开终端</Button>
+        <div style={{ padding: 8, background: '#fff', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Button className="vm-toolbar-btn" type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 14 }}>打开终端</Button>
           
-          <Button type="text" size="small" icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />} onClick={handleStart} disabled={!isStopped} style={{ fontSize: 14 }}>开机</Button>
+          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />} onClick={handleStart} disabled={!isStopped} style={{ fontSize: 14 }}>开机</Button>
 
-          <Button type="text" size="small" icon={<PoweroffOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={() => handleStop(false)} disabled={isStopped} style={{ fontSize: 14 }}>关机</Button>
+          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PoweroffOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={() => handleStop(false)} disabled={isStopped} style={{ fontSize: 14 }}>关机</Button>
 
-          <Button type="text" size="small" icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleReboot} disabled={isStopped} style={{ fontSize: 14 }}>重启</Button>
+          <Button className="vm-toolbar-btn" type="text" size="small" icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleReboot} disabled={isStopped} style={{ fontSize: 14 }}>重启</Button>
 
-          <Button type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} disabled={!isRunning} style={{ fontSize: 14 }}>暂停</Button>
+          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} disabled={!isRunning} style={{ fontSize: 14 }}>暂停</Button>
 
-          <Button type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} disabled={!isPaused} style={{ fontSize: 14 }}>恢复</Button>
+          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} disabled={!isPaused} style={{ fontSize: 14 }}>恢复</Button>
 
           <div style={{ flex: 1 }} />
           
           <Dropdown menu={{ items: actionItems }} trigger={['click']}>
-              <Button type="text" size="small" icon={<EllipsisOutlined style={{ color: '#1890ff' }} />} />
+              <Button className="vm-toolbar-btn" type="text" size="small" icon={<EllipsisOutlined style={{ color: '#1890ff' }} />} />
           </Dropdown>
         </div>
       </div>
@@ -608,6 +707,18 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
       {/* Content */}
       <style>{`
+          .vm-toolbar-btn {
+               background: #f5f7fa;
+               border: none !important;
+               color: #666;
+           }
+           .vm-toolbar-btn:hover:not(:disabled) {
+               background: #e6f7ff !important;
+               color: #1890ff !important;
+           }
+           .vm-toolbar-btn:hover:not(:disabled) .anticon {
+               color: #1890ff !important;
+           }
           .minimal-scroll::-webkit-scrollbar {
               width: 6px;
               height: 6px;
@@ -630,7 +741,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           {activeTab === 'detail' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                   {/* CPU/Memory Card */}
-                  <Card bordered={false} bodyStyle={{ padding: 16 }}>
+                  <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                       <div style={{ display: 'flex', gap: 24 }}>
                           {/* CPU Section */}
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -645,18 +756,18 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                   <div>
                                       <div style={{ color: '#999', fontSize: 12 }}>CPU</div>
                                       <div style={{ fontSize: 20, fontWeight: 500 }}>
-                                          {SafeRead.cpu(record)} <span style={{ fontSize: 14, color: '#999', fontWeight: 400 }}>Core</span>
+                                          {SafeRead.cpu(vmData)} <span style={{ fontSize: 14, color: '#999', fontWeight: 400 }}>Core</span>
                                       </div>
                                   </div>
                               </div>
-                              {SafeRead.cpu(record) > 0 && (
+                              {SafeRead.cpu(vmData) > 0 && (
                                   <div>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
                                           <span>使用率</span>
-                                          <span>{cpuUsage !== null ? `${((cpuUsage / SafeRead.cpu(record)) * 100).toFixed(1)}%` : '-'}</span>
+                                          <span>{cpuUsage !== null ? `${((cpuUsage / SafeRead.cpu(vmData)) * 100).toFixed(1)}%` : '-'}</span>
                                       </div>
                                       <Progress 
-                                        percent={cpuUsage !== null ? parseFloat(((cpuUsage / SafeRead.cpu(record)) * 100).toFixed(1)) : 0} 
+                                        percent={cpuUsage !== null ? parseFloat(((cpuUsage / SafeRead.cpu(vmData)) * 100).toFixed(1)) : 0} 
                                         showInfo={false} 
                                         strokeColor="#1890ff"
                                         trailColor="#f0f0f0"
@@ -682,20 +793,20 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                       <div style={{ color: '#999', fontSize: 12 }}>内存</div>
                                       <div style={{ fontSize: 20, fontWeight: 500 }}>
                                           {(() => {
-                                              const [val, unit] = formatMemoryParts(SafeRead.memory(record));
+                                              const [val, unit] = formatMemoryParts(SafeRead.memory(vmData));
                                               return <>{val} <span style={{ fontSize: 14, color: '#999', fontWeight: 400 }}>{unit}</span></>;
                                           })()}
                                       </div>
                                   </div>
                               </div>
-                              {parseStorageSize(SafeRead.memory(record)) > 0 && (
+                              {parseStorageSize(SafeRead.memory(vmData)) > 0 && (
                                   <div>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
                                           <span>使用率</span>
-                                          <span>{memUsage !== null ? `${((memUsage / (1024 ** 3) / parseStorageSize(SafeRead.memory(record))) * 100).toFixed(1)}%` : '-'}</span>
+                                          <span>{memUsage !== null ? `${((memUsage / (1024 ** 3) / parseStorageSize(SafeRead.memory(vmData))) * 100).toFixed(1)}%` : '-'}</span>
                                       </div>
                                       <Progress 
-                                        percent={memUsage !== null ? parseFloat(((memUsage / (1024 ** 3) / parseStorageSize(SafeRead.memory(record))) * 100).toFixed(1)) : 0} 
+                                        percent={memUsage !== null ? parseFloat(((memUsage / (1024 ** 3) / parseStorageSize(SafeRead.memory(vmData))) * 100).toFixed(1)) : 0} 
                                         showInfo={false} 
                                         strokeColor="#1890ff"
                                         trailColor="#f0f0f0"
@@ -719,20 +830,20 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
                       {showAdvanced && (
                           <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
-                              <Descriptions size="small" column={2} labelStyle={{ width: 150, color: '#999' }}>
+                              <Descriptions size="small" column={2} styles={{ label: { width: 150, color: '#999' } }}>
                                   <Descriptions.Item label={
                                       <Tooltip title="CPU Topology: 插槽 (Sockets) × 核心 (Cores) × 线程 (Threads)">
                                           <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>CPU 拓扑</span>
                                       </Tooltip>
                                   }>
-                                      {`${record?.spec?.template?.spec?.domain?.cpu?.sockets || '-'} 插槽 × ${record?.spec?.template?.spec?.domain?.cpu?.cores || '-'} 核心 × ${record?.spec?.template?.spec?.domain?.cpu?.threads || '-'} 线程`}
+                                      {`${vmData?.spec?.template?.spec?.domain?.cpu?.sockets || '-'} 插槽 × ${vmData?.spec?.template?.spec?.domain?.cpu?.cores || '-'} 核心 × ${vmData?.spec?.template?.spec?.domain?.cpu?.threads || '-'} 线程`}
                                   </Descriptions.Item>
                                   <Descriptions.Item label={
                                       <Tooltip title="Guest Memory: 虚拟机操作系统实际可见的内存大小（配置规格）">
                                           <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>内存规格 (Guest)</span>
                                       </Tooltip>
                                   }>
-                                      {record?.spec?.template?.spec?.domain?.memory?.guest || '-'}
+                                      {vmData?.spec?.template?.spec?.domain?.memory?.guest || '-'}
                                   </Descriptions.Item>
 
                                   <Descriptions.Item label={
@@ -740,14 +851,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                           <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>CPU 预留 (Request)</span>
                                       </Tooltip>
                                   }>
-                                      {record?.spec?.template?.spec?.domain?.resources?.requests?.cpu || '-'}
+                                      {vmData?.spec?.template?.spec?.domain?.resources?.requests?.cpu || '-'}
                                   </Descriptions.Item>
                                   <Descriptions.Item label={
                                       <Tooltip title="Request Memory: Kubernetes 调度器为该虚拟机预留的内存资源保障">
                                           <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>内存预留 (Request)</span>
                                       </Tooltip>
                                   }>
-                                      {record?.spec?.template?.spec?.domain?.resources?.requests?.memory || '-'}
+                                      {vmData?.spec?.template?.spec?.domain?.resources?.requests?.memory || '-'}
                                   </Descriptions.Item>
 
                                   <Descriptions.Item label={
@@ -755,21 +866,21 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                           <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>CPU 上限 (Limit)</span>
                                       </Tooltip>
                                   }>
-                                      {record?.spec?.template?.spec?.domain?.resources?.limits?.cpu || '-'}
+                                      {vmData?.spec?.template?.spec?.domain?.resources?.limits?.cpu || '-'}
                                   </Descriptions.Item>
                                   <Descriptions.Item label={
                                       <Tooltip title="Limit Memory: 虚拟机容器允许使用的最大内存资源（包含虚拟化开销）">
                                           <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>内存上限 (Limit)</span>
                                       </Tooltip>
                                   }>
-                                      {record?.spec?.template?.spec?.domain?.resources?.limits?.memory || '-'}
+                                      {vmData?.spec?.template?.spec?.domain?.resources?.limits?.memory || '-'}
                                   </Descriptions.Item>
 
                                   <Descriptions.Item label="机器架构">
-                                      {record?.spec?.template?.spec?.architecture || '-'} 
+                                      {vmData?.spec?.template?.spec?.architecture || '-'} 
                                   </Descriptions.Item>
                                   <Descriptions.Item label="QEMU 机器类型">
-                                      {record?.spec?.template?.spec?.domain?.machine?.type || '-'}
+                                      {vmData?.spec?.template?.spec?.domain?.machine?.type || '-'}
                                   </Descriptions.Item>
                               </Descriptions>
                           </div>
@@ -781,7 +892,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                           <span style={{ color: '#666' }}>虚拟磁盘</span>
                       </div>
-                      <Card bordered={false} bodyStyle={{ padding: 0 }}>
+                      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
                           <List
                             dataSource={vmDisks}
                             renderItem={(item: any, index: number) => (
@@ -828,7 +939,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                           <span style={{ color: '#666' }}>虚拟网卡</span>
                       </div>
-                      <Card bordered={false} bodyStyle={{ padding: 0 }}>
+                      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
                           <List
                             dataSource={vmNics}
                             renderItem={(item: any) => (
@@ -871,16 +982,16 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                           <span style={{ color: '#666' }}>其他选项</span>
                       </div>
-                      <Card bordered={false} bodyStyle={{ padding: '16px 24px' }}>
-                          <Descriptions column={1} size="small" labelStyle={{ width: 120, color: '#999' }}>
+                      <Card variant="borderless" styles={{ body: { padding: '16px 24px' } }}>
+                          <Descriptions column={1} size="small" styles={{ label: { width: 120, color: '#999' } }}>
                               <Descriptions.Item label="Guest Agent">
-                                  {record?.spec?.template?.spec?.domain?.devices?.inputs?.some((i: any) => i.type === 'tablet' && i.bus === 'usb') ? '已启用 (USB Tablet)' : '未启用'}
+                                  {vmData?.spec?.template?.spec?.domain?.devices?.inputs?.some((i: any) => i.type === 'tablet' && i.bus === 'usb') ? '已启用 (USB Tablet)' : '未启用'}
                               </Descriptions.Item>
                               <Descriptions.Item label="Cloud-Init">
                                   <div className="minimal-scroll" style={{ maxHeight: 200, overflow: 'auto', background: '#f5f5f5', padding: 8, borderRadius: 4, width: '100%' }}>
                                       <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                                          {record?.spec?.template?.spec?.volumes?.find((v: any) => v.cloudInitNoCloud || v.cloudInitConfigDrive)?.cloudInitNoCloud?.userData || 
-                                           record?.spec?.template?.spec?.volumes?.find((v: any) => v.cloudInitNoCloud || v.cloudInitConfigDrive)?.cloudInitConfigDrive?.userData || 
+                                          {vmData?.spec?.template?.spec?.volumes?.find((v: any) => v.cloudInitNoCloud || v.cloudInitConfigDrive)?.cloudInitNoCloud?.userData || 
+                                           vmData?.spec?.template?.spec?.volumes?.find((v: any) => v.cloudInitNoCloud || v.cloudInitConfigDrive)?.cloudInitConfigDrive?.userData || 
                                            '未配置'}
                                       </pre>
                                   </div>
@@ -888,7 +999,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                               <Descriptions.Item label="SSH Keys">
                                   {(() => {
                                       try {
-                                          const sshNames = JSON.parse(record?.spec?.template?.metadata?.annotations?.['harvesterhci.io/sshNames'] || '[]');
+                                          const sshNames = JSON.parse(vmData?.spec?.template?.metadata?.annotations?.['harvesterhci.io/sshNames'] || '[]');
                                           return sshNames.length > 0 ? (
                                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                                   {sshNames.map((name: string) => (
@@ -902,13 +1013,13 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                   })()}
                               </Descriptions.Item>
                               <Descriptions.Item label="运行策略">
-                                  {record?.spec?.runStrategy || 'RerunOnFailure'}
+                                  {vmData?.spec?.runStrategy || 'RerunOnFailure'}
                               </Descriptions.Item>
                               <Descriptions.Item label="固件/TPM">
                                   <Space direction="vertical" size={0}>
-                                      <div>EFI: {record?.spec?.template?.spec?.domain?.firmware?.bootloader?.efi ? '启用' : '未启用'}</div>
-                                      <div>Secure Boot: {record?.spec?.template?.spec?.domain?.firmware?.bootloader?.efi?.secureBoot ? '启用' : '未启用'}</div>
-                                      <div>TPM: {record?.spec?.template?.spec?.domain?.devices?.tpm ? '启用' : '未启用'}</div>
+                                      <div>EFI: {vmData?.spec?.template?.spec?.domain?.firmware?.bootloader?.efi ? '启用' : '未启用'}</div>
+                                      <div>Secure Boot: {vmData?.spec?.template?.spec?.domain?.firmware?.bootloader?.efi?.secureBoot ? '启用' : '未启用'}</div>
+                                      <div>TPM: {vmData?.spec?.template?.spec?.domain?.devices?.tpm ? '启用' : '未启用'}</div>
                                   </Space>
                               </Descriptions.Item>
                           </Descriptions>
@@ -920,8 +1031,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           {activeTab === 'performance' && (
               <VMPerformance 
                   cloudId={cloudId} 
-                  namespace={SafeRead.namespace(record)} 
-                  name={SafeRead.vmId(record)} 
+                  namespace={SafeRead.namespace(vmData)} 
+                  name={SafeRead.vmId(vmData)} 
               />
           )}
 
@@ -929,7 +1040,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
             <div style={{ padding: '0 0 24px' }}>
               <HarvesterVmBackupTab 
                   cloudId={cloudId}
-                  record={record}
+                  record={vmData}
                   backups={backups}
                   schedules={schedules}
                   backupsLoading={backupsLoading}
@@ -941,10 +1052,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           )}
           
           {activeTab === 'events' && (
-              <Card bordered={false} bodyStyle={{ padding: 0, height: '100%' }} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Card variant="borderless" styles={{ body: { padding: 0, height: '100%' } }} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                  <HarvesterEventsTab 
                     cloudId={cloudId} 
-                    record={record} 
+                    record={vmData} 
                     active={activeTab === 'events'} 
                     kind="VirtualMachine"
                  />

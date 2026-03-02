@@ -476,6 +476,38 @@ export const registerHarvesterDirectNetworkRoutes = (
 
         const url = `${origin}/apis/kubeovn.io/v1/subnets`;
         const json = await getJsonOnce(url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
+        
+        // [Data Enrichment] 注入 NAD 的 Namespace 信息
+        // Kube-OVN Subnet 是 Cluster 级别资源，不包含 Namespace 信息。
+        // 但其实际对应的 NAD (NetworkAttachmentDefinition) 是 Namespaced 资源。
+        // 为了前端能正确拼接网络名称 (<namespace>/<name>)，我们需要找到每个 Subnet 对应的 NAD。
+        try {
+            const nadUrl = `${origin}/apis/k8s.cni.cncf.io/v1/network-attachment-definitions`;
+            const nads = await getJsonOnce(nadUrl, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
+            const nadItems = Array.isArray(nads?.items) ? nads.items : [];
+            
+            // 构建 NAD 索引: name -> namespace
+            const nadMap = new Map<string, string>();
+            nadItems.forEach((nad: any) => {
+                if (nad?.metadata?.name && nad?.metadata?.namespace) {
+                    nadMap.set(nad.metadata.name, nad.metadata.namespace);
+                }
+            });
+
+            const items = Array.isArray(json?.items) ? json.items : [];
+            items.forEach((subnet: any) => {
+                const name = subnet?.metadata?.name;
+                if (name && nadMap.has(name)) {
+                    // 将 NAD 的 Namespace 注入到 Subnet 的 metadata.namespace 字段
+                    // 或者使用专用字段 _nadNamespace，这里直接复用 metadata.namespace (因为 Subnet 本身为空)
+                    if (!subnet.metadata) subnet.metadata = {};
+                    subnet.metadata.namespace = nadMap.get(name);
+                }
+            });
+        } catch (e) {
+            console.warn('[Subnets] Failed to enrich NAD namespace info:', e);
+        }
+
         res.json({ message: '查询成功', data: json });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -518,9 +550,11 @@ export const registerHarvesterDirectNetworkRoutes = (
           vlan,
           gatewayType,
           namespaces,
+          namespace, // 明确解构 namespace
           nat,
           allowDhcp,
           disableGatewayCheck,
+          annotations,
         } = req.body;
 
         // [Input Validation] 参数校验
@@ -578,13 +612,18 @@ export const registerHarvesterDirectNetworkRoutes = (
             const items: any[] = Array.isArray(existing?.items) ? existing.items : Array.isArray(existing?.data) ? existing.data : [];
             const reqRange = cidrToRange(String(cidrBlock || '').trim());
             if (reqRange) {
+            const targetVpc = vpc || 'ovn-cluster';
             for (const s of items) {
+                // [VPC Isolation] Different VPCs can have overlapping CIDRs
+                const currentVpc = s?.spec?.vpc || 'ovn-cluster';
+                if (currentVpc !== targetVpc) continue;
+
                 const c = String(s?.spec?.cidrBlock || s?.spec?.cidr || '').trim();
                 const r = cidrToRange(c);
                 if (r && rangesOverlap(reqRange, r)) {
                 const conflictName = s?.metadata?.name || s?.name;
                 if (conflictName) {
-                    res.status(422).send(`当前创建的子网和已存在的子网${conflictName}冲突`);
+                    res.status(422).send(`当前创建的子网和已存在的子网 ${conflictName} (VPC: ${currentVpc}) 冲突`);
                     return;
                 }
                 }
@@ -597,7 +636,8 @@ export const registerHarvesterDirectNetworkRoutes = (
         const url = `${origin}/apis/kubeovn.io/v1/subnets`;
 
         const nadName = name;
-        const nadNamespace = 'default';
+        // 如果未指定 namespace，则使用 default，但应该从前端传入或从 VPC 推断
+        const nadNamespace = namespace || 'default';
         const fullProvider = `${nadName}.${nadNamespace}.ovn`;
 
         // [Create NAD] 创建关联的 NAD
@@ -652,6 +692,7 @@ export const registerHarvesterDirectNetworkRoutes = (
           kind: 'Subnet',
           metadata: {
             name,
+            ...(annotations ? { annotations } : {}),
           },
           spec: {
             vpc,

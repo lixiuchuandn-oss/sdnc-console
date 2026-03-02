@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import { createKubeOvnSubnet, deleteKubeOvnSubnet, updateKubeOvnSubnet } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
 
@@ -14,9 +15,10 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   onRefreshNads?: (force?: boolean, silent?: boolean) => void;
+  showYaml?: boolean;
 };
 
-const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading, onRefresh, onRefreshNads }) => {
+const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading, onRefresh, onRefreshNads, showYaml = true }) => {
   const { id: cloudId } = useParams<{ id: string }>();
   const [keyword, setKeyword] = useState<string>('');
   const [vpc, setVpc] = useState<string | undefined>(undefined);
@@ -32,9 +34,10 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   
-  // Metadata View Modal
-  const [metadataModalVisible, setMetadataModalVisible] = useState(false);
-  const [currentMetadata, setCurrentMetadata] = useState<any>(null);
+  // Drawer State
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [currentDrawerResource, setCurrentDrawerResource] = useState<any>(null);
+  const [drawerTab, setDrawerTab] = useState('detail');
 
   // Fetch VPCs logic removed - now using props
 
@@ -42,8 +45,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const vpcOptions = useMemo(() => {
     const set = new Set<string>();
     for (const s of subnets || []) {
-      const v = String(s?.vpc || s?.spec?.vpc || '').trim();
-      // Only exclude if it's strictly empty. ovn-cluster is now allowed for ovn-default subnet.
+      const v = String(s?.vpc || s?.spec?.vpc || 'ovn-cluster').trim();
       if (v) set.add(v);
     }
     return Array.from(set).map((x) => ({ label: x, value: x }));
@@ -52,7 +54,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const protocolOptions = useMemo(() => {
     const set = new Set<string>();
     for (const s of subnets || []) {
-      const p = String(s?.protocol || '').trim();
+      const p = String(s?.protocol || s?.spec?.protocol || '').trim();
       if (p) set.add(p);
     }
     return Array.from(set).map((x) => ({ label: x, value: x }));
@@ -61,8 +63,9 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const filtered = useMemo(() => {
     const kw = String(keyword || '').toLowerCase().trim();
     return (subnets || []).filter((r: any) => {
-      const vpcVal = String(r?.vpc || r?.spec?.vpc || '');
+      const vpcVal = String(r?.vpc || r?.spec?.vpc || 'ovn-cluster');
       const name = String(r?.name || r?.metadata?.name || '').toLowerCase();
+      const cidr = String(r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '').toLowerCase();
       
       // Exclude public networks (those with a provider, unless it's the default 'ovn' overlay or ends with .ovn)
       // We rely solely on the provider configuration, ignoring name patterns
@@ -74,20 +77,22 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       // 'join' subnet is system reserved
       // if (name === 'join') return false;
 
-      if (kw && !name.includes(kw)) return false;
+      if (kw && !name.includes(kw) && !cidr.includes(kw) && !vpcVal.toLowerCase().includes(kw)) return false;
       if (vpc) {
         if (vpcVal !== vpc) return false;
       }
       if (protocol) {
-        const p = String(r?.protocol || '');
+        const p = String(r?.protocol || r?.spec?.protocol || '');
         if (p !== protocol) return false;
       }
       if (nat) {
-        const val = r?.nat ? 'on' : 'off';
+        const isNat = r?.nat ?? r?.spec?.natOutgoing ?? false;
+        const val = isNat ? 'on' : 'off';
         if (val !== nat) return false;
       }
       if (dhcp) {
-        const val = r?.allowDhcp ? 'on' : 'off';
+        const isDhcp = r?.allowDhcp ?? r?.spec?.enableDhcp ?? true;
+        const val = isDhcp ? 'on' : 'off';
         if (val !== dhcp) return false;
       }
       return true;
@@ -133,7 +138,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         } catch (e) {}
 
         if (usingVms.length > 0) {
-            message.error(`无法编辑保存子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('，')}${usingVms.length > 5 ? ' 等' : ''}`);
+            message.error(`当前子网 ${name} 正在被 ${usingVms.slice(0, 5).join('、')}${usingVms.length > 5 ? ' 等 VM 使用，无法更新' : ''}`);
             setSubmitting(false);
             return;
         }
@@ -166,14 +171,14 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     
     const name = record.name || record.metadata?.name;
     const vpcVal = record.vpc || record.spec?.vpc;
-    const cidr = record.cidrBlock || record.spec?.cidrBlock;
+    const cidr = record.cidr || record.cidrBlock || record.spec?.cidrBlock || record.spec?.cidr;
     const gateway = record.gateway || record.spec?.gateway;
     const protocol = record.protocol || record.spec?.protocol || 'IPv4';
     const excludeIps = record.excludeIps || record.spec?.excludeIps || [];
     
     // Check various locations for nat/dhcp as they might be flat or in spec
     const nat = record.nat ?? record.spec?.natOutgoing ?? true;
-    const allowDhcp = record.allowDhcp ?? true;
+    const allowDhcp = record.allowDhcp ?? record.spec?.enableDhcp ?? true;
 
     form.setFieldsValue({
       name,
@@ -183,7 +188,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       protocol,
       nat,
       allowDhcp,
-      excludeIps: Array.isArray(excludeIps) ? excludeIps.join(',') : excludeIps
+      excludeIps: Array.isArray(excludeIps) ? excludeIps.join('\n') : excludeIps
     });
     
     setIsModalOpen(true);
@@ -223,7 +228,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
           <div>{`确定要删除子网 ${name} 吗？此操作不可恢复。`}</div>
           {blocked && (
             <div style={{ color: '#ff4d4f', marginTop: 8 }}>
-              {`无法删除子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('，')}${usingVms.length > 5 ? ' 等' : ''}`}
+              {`无法删除子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('、')}${usingVms.length > 5 ? ' 等' : ''}`}
             </div>
           )}
         </>
@@ -246,55 +251,73 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     });
   };
 
-  const handleShowMetadata = (record: any) => {
-    setCurrentMetadata(record);
-    setMetadataModalVisible(true);
+  const handleShowYaml = (record: any) => {
+    setCurrentDrawerResource(record);
+    // Switch to view_link tab for YAML viewing, fallback to detail
+    setDrawerTab(record?.links?.view ? 'view_link' : 'detail');
+    setDrawerVisible(true);
   };
 
   const allColumns = useMemo(() => [
     { 
       title: '子网名称', 
       key: 'name', 
-      render: (_: any, r: any) => <b>{r?.name || r?.metadata?.name}</b> 
+      render: (_: any, r: any) => (
+        <span className="cell-link" onClick={() => handleEdit(r)}>
+          {r?.name || r?.metadata?.name}
+        </span>
+      )
     },
     { 
       title: 'CIDR', 
       key: 'cidr', 
-      render: (_: any, r: any) => <Tag color="blue">{r?.cidrBlock || '-'}</Tag> 
+      render: (_: any, r: any) => <span className="std-time">{r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '-'}</span> 
     },
     { 
       title: 'VPC', 
       key: 'vpc', 
-      render: (_: any, r: any) => r?.vpc || r?.spec?.vpc || '-' 
+      render: (_: any, r: any) => r?.vpc || r?.spec?.vpc || 'ovn-cluster' 
     },
     { 
       title: '网关', 
       key: 'gateway', 
-      render: (_: any, r: any) => r?.gateway || '-' 
+      render: (_: any, r: any) => <span className="std-time">{r?.gateway || r?.spec?.gateway || '-'}</span> 
     },
     { 
       title: '协议', 
       key: 'protocol', 
-      render: (_: any, r: any) => r?.protocol || 'IPv4' 
+      render: (_: any, r: any) => r?.protocol || r?.spec?.protocol || 'IPv4' 
     },
     { 
       title: 'NAT', 
       key: 'nat', 
-      render: (_: any, r: any) => r?.nat ? <Tag color="green">开启</Tag> : <Tag>关闭</Tag> 
+      render: (_: any, r: any) => {
+        const isOpen = r?.nat ?? r?.spec?.natOutgoing ?? false;
+        return isOpen 
+          ? <span className="std-badge std-badge-success">开启</span> 
+          : <span className="std-badge std-badge-default">关闭</span>;
+      }
     },
     { 
       title: 'DHCP', 
       key: 'dhcp', 
-      render: (_: any, r: any) => r?.allowDhcp ? <Tag color="green">开启</Tag> : <Tag>关闭</Tag> 
+      render: (_: any, r: any) => {
+        const isOpen = r?.allowDhcp ?? r?.spec?.enableDhcp ?? true;
+        return isOpen 
+          ? <span className="std-badge std-badge-success">开启</span> 
+          : <span className="std-badge std-badge-default">关闭</span>;
+      }
     },
     { 
       title: '操作', 
-      key: 'actions', 
+      key: 'actions',
+      fixed: 'right' as const,
+      width: 80,
       render: (_: any, r: any) => {
         const name = r?.name || r?.metadata?.name;
         return (
           <ResourceActionsDropdown items={[
-            { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
+            ...(showYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r) }] : []),
             { 
               key: 'edit', 
               label: '编辑', 
@@ -311,11 +334,11 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         );
       } 
     }
-  ], []);
+  ], [showYaml]);
 
   return (
     <PageDetailSection
-      asCard={false}
+      
       toolbarLeft={(
         <>
           <Input allowClear placeholder="搜索名称" value={keyword} onChange={(e)=> setKeyword(e.target.value)} className="toolbar-search" />
@@ -344,31 +367,25 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
-        pagination={{size: 'small'}}
+        scroll={{ x: 'max-content' }}
+        pagination={{
+          size: 'small',
+          showSizeChanger: true,
+          pageSize: 10,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showQuickJumper: false
+        }}
       />
 
-      <Modal
-        title="元数据查看"
-        open={metadataModalVisible}
-        onCancel={() => setMetadataModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <Tabs items={[
-            {
-                key: 'json',
-                label: 'Raw JSON',
-                children: (
-                    <Input.TextArea 
-                        readOnly 
-                        value={currentMetadata ? JSON.stringify(currentMetadata, null, 2) : ''} 
-                        autoSize={{ minRows: 10, maxRows: 20 }}
-                        className="metadata-viewer"
-                    />
-                )
-            }
-        ]} />
-      </Modal>
+      <HarvesterResourceDrawer
+        resourceType="Subnet"
+        record={currentDrawerResource}
+        open={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+        activeTab={drawerTab}
+        onTabChange={setDrawerTab}
+        cloudId={cloudId}
+      />
 
       <Modal
         title={isEditMode ? "编辑业务私有子网" : "新建业务私有子网 (VPC Subnet)"}
@@ -377,7 +394,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         onOk={handleSubmit}
         confirmLoading={submitting}
         width={600}
-        destroyOnClose
+        destroyOnHidden
       >
         {!isEditMode && <Alert 
             type="info" 

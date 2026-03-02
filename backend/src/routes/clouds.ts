@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import axios from 'axios';
 import https from 'https';
+import bcrypt from 'bcryptjs';
 import { AppDataSource } from '../config/database';
 import { Cloud, CloudType, CloudStatus } from '../entities/Cloud';
 import { CloudInstanceInventory } from '../entities/CloudInstanceInventory';
@@ -9,7 +10,7 @@ import { HarvesterVmiInventory } from '../entities/harvester/HarvesterVmiInvento
 import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
 import { UserSpace } from '../entities/UserSpace';
 import { AuthRequest } from '../middleware/auth';
-import { UserRole } from '../entities/User';
+import { User, UserRole } from '../entities/User';
 import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
 
 // 多云接入与资源池路由：
@@ -1800,6 +1801,62 @@ router.get(
       res.json({ message: '查询成功', data: [...dataInv, ...dataKv] });
     } catch (error: any) {
       res.status(500).json({ message: '库存查询失败', error: error.message });
+    }
+  },
+);
+
+router.post(
+  '/:id/reveal',
+  checkAdminPermission,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { password } = req.body;
+
+      if (!password) {
+        return res.status(400).json({ message: '请输入管理员密码' });
+      }
+
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: '未登录' });
+      }
+
+      let userPasswordHash = user.password;
+      if (!userPasswordHash) {
+        const userRepo = AppDataSource.getRepository(User);
+        const fullUser = await userRepo.findOne({
+          where: { id: user.id },
+          select: ['password'],
+        });
+        if (fullUser) {
+          userPasswordHash = fullUser.password;
+        }
+      }
+
+      if (!userPasswordHash) {
+        return res.status(500).json({ message: '无法获取用户信息' });
+      }
+
+      const isMatch = await bcrypt.compare(password, userPasswordHash);
+      if (!isMatch) {
+        return res.status(403).json({ message: '密码错误' });
+      }
+
+      const cloudRepo = AppDataSource.getRepository(Cloud);
+      const cloud = await cloudRepo.findOne({ where: { id } });
+
+      if (!cloud) {
+        return res.status(404).json({ message: '云资源不存在' });
+      }
+
+      res.json({
+        accessKey: cloud.accessKey,
+        secretKey: cloud.secretKey,
+      });
+    } catch (error: any) {
+      console.error('Reveal credentials error:', error);
+      res.status(500).json({ message: '获取凭证失败', error: error.message });
     }
   },
 );

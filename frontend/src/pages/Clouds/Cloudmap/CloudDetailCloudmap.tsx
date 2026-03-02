@@ -45,6 +45,7 @@ import LogsOutputConfig from '../Harvester/Monitoring/LogsOutputConfig';
 import MonitoringPrometheusRules from '../Harvester/Monitoring/MonitoringPrometheusRules';
 import MonitoringAlertNotificationPolicy from '../Harvester/Monitoring/MonitoringAlertNotificationPolicy';
 import MonitoringAlertNotificationTargets from '../Harvester/Monitoring/MonitoringAlertNotificationTargets';
+import { MonitoringProvider } from '../Harvester/Monitoring/context/MonitoringContext';
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
 
@@ -896,28 +897,44 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                         />
                       ),
                     },
-                    {
-                      key: 'alerts',
-                      label: '告警列表',
-                      children: <MonitoringAlerts cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'alert-rules',
-                      label: '告警规则',
-                      children: <MonitoringPrometheusRules cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'notification-policy',
-                      label: '告警通知策略',
-                      children: <MonitoringAlertNotificationPolicy cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'notification-targets',
-                      label: '告警通知对象',
-                      children: <MonitoringAlertNotificationTargets cloudId={cloudId} />,
-                    },
                   ]}
                 />
+              )
+            },
+            {
+              key: 'monitoring-alerts',
+              label: '监控告警',
+              children: (
+                <MonitoringProvider cloudId={cloudId}>
+                  <Tabs
+                    defaultActiveKey="alerts-list"
+                    tabPosition="top"
+                    type="line"
+                    destroyInactiveTabPane
+                    items={[
+                      {
+                        key: 'alerts-list',
+                        label: '告警列表',
+                        children: <MonitoringAlerts cloudId={cloudId} />,
+                      },
+                      {
+                        key: 'alert-rules',
+                        label: '告警规则',
+                        children: <MonitoringPrometheusRules cloudId={cloudId} />,
+                      },
+                      {
+                        key: 'notification-policy',
+                        label: '告警通知策略',
+                        children: <MonitoringAlertNotificationPolicy cloudId={cloudId} />,
+                      },
+                      {
+                        key: 'notification-targets',
+                        label: '告警通知对象',
+                        children: <MonitoringAlertNotificationTargets cloudId={cloudId} />,
+                      },
+                    ]}
+                  />
+                </MonitoringProvider>
               )
             },
             {
@@ -1029,15 +1046,58 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                             onOpenReconfigure={(r:any)=> { setVmReconfTarget(r); setVmReconfOpen(true); }}
                             onStart={async (iid:string)=>{ 
                               try { 
+                                // Pre-flight check for resizing volumes to avoid 500 error
+                                const vm = ecs.find((v: any) => {
+                                  const vId = v?.metadata?.name && v?.metadata?.namespace ? `${v.metadata.namespace}/${v.metadata.name}` : (v?.InstanceId || v?.id);
+                                  return vId === iid;
+                                });
+                                
+                                if (vm && harvesterVolumes.length > 0) {
+                                  const vmVolumes = vm?.spec?.template?.spec?.volumes || [];
+                                  const pvcNames = vmVolumes.map((vol: any) => vol?.persistentVolumeClaim?.claimName).filter(Boolean);
+                                  
+                                  if (pvcNames.length > 0) {
+                                    const vmNamespace = vm?.metadata?.namespace || vm?.namespace;
+                                    const resizingPvc = harvesterVolumes.find((pvc: any) => {
+                                      const pvcName = pvc?.metadata?.name;
+                                      const pvcNs = pvc?.metadata?.namespace;
+                                      if (pvcNs !== vmNamespace || !pvcNames.includes(pvcName)) return false;
+                                      
+                                      const conditions = pvc?.status?.conditions || [];
+                                      // Only block if 'Resizing' is true (Backend operation). 
+                                      // 'FileSystemResizePending' is safe to start (User needs to resize FS manually).
+                                      return conditions.some((c: any) => c.type === 'Resizing' && c.status === 'True');
+                                    });
+                                    
+                                    if (resizingPvc) {
+                                       message.error(`无法启动: 关联的磁盘 ${resizingPvc.metadata.name} 正在进行扩容操作 (Resizing)。请等待扩容完成。`);
+                                       return;
+                                    }
+                                  }
+                                }
+
                                 await startCloudProviderEcs(cloudId, iid); 
                                 message.success('启动成功'); 
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
-                              } catch(e:any){ message.error(e?.message||'启动失败'); } 
+                              } catch(e:any){ 
+                                const errMsg = e?.message || String(e);
+                                if (errMsg.includes('resizing volume') || errMsg.includes('Resizing')) {
+                                  message.warning('启动被拒绝: 关联磁盘正在进行扩容操作，请等待扩容完成后再试。');
+                                } else {
+                                  message.error(errMsg || '启动失败'); 
+                                }
+                              } 
                             }}
                             onStop={async (iid:string)=>{ 
                               try { 
-                                await stopCloudProviderEcs(cloudId, iid, false); 
-                                message.success('停止成功'); 
+                                let force = false;
+                                let realId = iid;
+                                if (iid.endsWith('::force')) {
+                                  force = true;
+                                  realId = iid.replace(/::force$/, '');
+                                }
+                                await stopCloudProviderEcs(cloudId, realId, force); 
+                                message.success(force ? '强制停止指令已下发' : '停止成功'); 
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
                               } catch(e:any){ message.error(e?.message||'停止失败'); } 
                             }}

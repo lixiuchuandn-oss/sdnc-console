@@ -17,6 +17,11 @@ import {
   syncHarvesterServices,
   syncHarvesterIngresses,
 } from '../../../services/clouds/harvester/inventory';
+import {
+  createKubeOvnVpc,
+  deleteKubeOvnVpc,
+  updateKubeOvnVpc,
+} from '../../../services/clouds/harvester/client';
 import { requestJson } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
@@ -216,6 +221,76 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         res.status(500).json({ message: '查询VPC失败', error: error.message });
       }
     },
+  );
+
+  router.post(
+    '/:id/resources/vpcs',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源创建', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const data = await createKubeOvnVpc(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          req.body
+        );
+
+        res.json({ message: '创建成功', data });
+      } catch (error: any) {
+        res.status(500).json({ message: '创建 VPC 失败', error: error.message });
+      }
+    }
+  );
+
+  router.delete(
+    '/:id/resources/vpcs/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const data = await deleteKubeOvnVpc(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          name
+        );
+
+        res.json({ message: '删除成功', data });
+      } catch (error: any) {
+        res.status(500).json({ message: '删除 VPC 失败', error: error.message });
+      }
+    }
+  );
+
+  router.put(
+    '/:id/resources/vpcs/:name',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源更新', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const data = await updateKubeOvnVpc(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          name,
+          req.body
+        );
+
+        res.json({ message: '更新成功', data });
+      } catch (error: any) {
+        res.status(500).json({ message: '更新 VPC 失败', error: error.message });
+      }
+    }
   );
 
   router.get(

@@ -122,7 +122,7 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
       onOk={handleOk}
       confirmLoading={loading}
       width={600}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical">
         <Form.Item

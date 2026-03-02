@@ -10,12 +10,47 @@ import {
 } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import { API_BASE_URL } from '../../../services/api';
-import { fetchHarvesterVmDetail } from '../../../services/harvesterApi';
+import { fetchHarvesterVmDetail, fetchHarvesterVMAggregated, fetchHarvesterResourceByLink } from '../../../services/harvesterApi';
+import { fetchMetricRange } from '../../../services/monitoringApi';
 // Try to use the newer library if available, otherwise fall back to what was working or common
 // Kubevirt uses @novnc/novnc
 import RFB from '@novnc/novnc/lib/rfb'; 
 
+/**
+ * ==============================================================================
+ * 模块名称: Harvester 虚拟机 VNC 控制台 (Harvester VM VNC Console)
+ * 文件路径: src/pages/Clouds/Harvester/HarvesterVNC.tsx
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 提供基于 Web 的 VNC 客户端，允许用户通过 WebSocket 连接并控制 Harvester 虚拟机。
+ * 集成了 noVNC 库，实现了 RFB (Remote Frame Buffer) 协议的客户端功能。
+ * 
+ * [核心逻辑]
+ * 1. [VNC 连接]: 
+ *    - 使用 @novnc/novnc 库通过 WebSocket 建立连接。
+ *    - 处理 RFB 握手、鉴权、画面渲染和输入事件。
+ * 2. [交互控制]: 
+ *    - 提供发送特殊组合键 (Ctrl+Alt+Del) 和功能键 (F1-F12) 的能力。
+ *    - 支持全屏切换和连接状态管理。
+ * 3. [状态监控]: 
+ *    - 实时显示 VM 的 CPU/内存使用率（目前为演示数据）和 IP 地址。
+ * 
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明]
+ * ------------------------------------------------------------------------------
+ * 1. 数据流向:
+ *    [用户操作] -> [noVNC Client] -> [WebSocket Proxy] -> [KubeVirt VNC Server] -> [QEMU]
+ * 
+ * 2. 关键依赖:
+ *    - @novnc/novnc (RFB 协议实现)
+ *    - API: /ws/kv-vnc (WebSocket 代理接口)
+ * 
+ * ==============================================================================
+ */
+
 // Key codes for special keys
+// 定义 VNC 协议中使用的特殊按键编码 (X11 keysyms)
 const KEY_CODES = {
   Delete: 0xFF9F,
   Enter: 0xFF0D,
@@ -39,6 +74,9 @@ const KEY_CODES = {
   F12: 0xFFC9,
 };
 
+// [辅助函数] 构建 KubeVirt VNC WebSocket URL
+// 构造带有鉴权 Token 和目标 VM 坐标的 WebSocket 连接地址。
+// 参数包含 cloudId, namespace, name 用于后端路由定位目标虚拟机。
 function kvWsUrlFromBase(baseHttp: string, cloudId: string, namespace: string, name: string, token: string): string {
   const base = baseHttp.replace(/^http/, 'ws');
   const sep = base.endsWith('/') ? '' : '/';
@@ -59,23 +97,83 @@ const HarvesterVNCPage: React.FC = () => {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vmDetail, setVmDetail] = useState<any>(null);
-  const [demoStats, setDemoStats] = useState({ cpu: 0, mem: 0 });
+  const [vmiDetail, setVmiDetail] = useState<any>(null);
+  const [stats, setStats] = useState({ cpu: 0, mem: 0 });
 
   useEffect(() => {
-    const updateStats = () => {
-      // Random between 32 and 66
-      const cpu = Math.floor(Math.random() * (66 - 32 + 1)) + 32;
-      const mem = Math.floor(Math.random() * (66 - 32 + 1)) + 32;
-      setDemoStats({ cpu, mem });
+    let timer: any;
+    
+    const fetchStats = async () => {
+        if (!cloudId || !namespace || !name) return;
+        
+        // Use VMPerformance.tsx query logic exactly
+        // Query last 5 minutes data to ensure we have points
+        const end = Math.floor(Date.now() / 1000);
+        const start = end - 5 * 60; 
+        const step = 60; 
+
+        // CPU Usage: Based on VMPerformance.tsx
+        // sum(avg(rate(kubevirt_vmi_vcpu_seconds_total{namespace="${namespace}", name="${name}"}[5m])) by (domain, name)) / 1000
+        const cpuQuery = `sum(avg(rate(kubevirt_vmi_vcpu_seconds_total{namespace="${namespace}", name="${name}"}[5m])) by (domain, name)) / 1000`;
+        
+        // Memory Usage: Based on VMPerformance.tsx
+        // sum((kubevirt_vmi_memory_available_bytes - kubevirt_vmi_memory_unused_bytes) / kubevirt_vmi_memory_available_bytes)
+        const memQuery = `sum((kubevirt_vmi_memory_available_bytes{namespace="${namespace}", name="${name}"} - kubevirt_vmi_memory_unused_bytes{namespace="${namespace}", name="${name}"}) / kubevirt_vmi_memory_available_bytes{namespace="${namespace}", name="${name}"})`;
+
+        try {
+            // console.log('Fetching VNC metrics (Strict VMPerformance)...', { cpuQuery, memQuery });
+            
+            const [cpuRes, memRes] = await Promise.all([
+                fetchMetricRange(cloudId, { query: cpuQuery, start, end, step }),
+                fetchMetricRange(cloudId, { query: memQuery, start, end, step })
+            ]);
+            
+            // console.log('VNC metrics response:', { cpuRes, memRes });
+
+            // Extract the latest value from result
+            // result structure: data.data.result[0].values[[timestamp, "value"], ...]
+            const getVal = (res: any) => {
+                const values = res?.data?.data?.result?.[0]?.values;
+                if (values && values.length > 0) {
+                    const last = values[values.length - 1];
+                    const val = parseFloat(last[1]);
+                    return isNaN(val) ? 0 : val;
+                }
+                return 0;
+            };
+
+            const cpuVal = getVal(cpuRes);
+            const memVal = getVal(memRes);
+            
+            // VMPerformance.tsx logic: result is 0-1 (or similar), multiply by 100 for display
+            setStats({ 
+                cpu: Math.round(Math.max(0, Math.min(100, cpuVal * 100))), 
+                mem: Math.round(Math.max(0, Math.min(100, memVal * 100))) 
+            });
+        } catch (e) {
+            console.warn('Failed to fetch metrics', e);
+        }
     };
-    updateStats();
-    const timer = setInterval(updateStats, 3000);
-    return () => clearInterval(timer);
-  }, []);
+
+    if (cloudId && namespace && name) {
+        fetchStats();
+        timer = setInterval(fetchStats, 15000); // Refresh every 15s
+    }
+
+    return () => {
+        if (timer) clearInterval(timer);
+    };
+  }, [cloudId, namespace, name]);
 
   const vmInfo = React.useMemo(() => {
-    if (!vmDetail) return null;
-    const spec = vmDetail?.spec?.template?.spec;
+    if (!vmDetail && !vmiDetail) return null;
+    
+    // vmDetail may be { vm, vmi, related } or just VM object
+    const vm = vmDetail?.vm || vmDetail;
+    // Prefer explicitly fetched VMI, fallback to aggregated VMI if available
+    const vmi = vmiDetail || vmDetail?.vmi;
+
+    const spec = vm?.spec?.template?.spec;
     const domain = spec?.domain;
     
     const cpu = domain?.cpu?.cores;
@@ -87,22 +185,76 @@ const HarvesterVNCPage: React.FC = () => {
     const image = imageVol?.containerDisk?.image || '-';
     
     // IP: Try to find in status.interfaces (Note: often requires VMI, but checking VM status just in case)
-    const ip = vmDetail?.status?.interfaces?.[0]?.ipAddress || '-'; 
+    // Support both ipAddress (string) and ipAddresses (array)
+    // Collect all IPs from all interfaces
+    const allIps: string[] = [];
     
-    return { cpu, memory, image, ip };
-  }, [vmDetail]);
+    // 1. Try VMI status (Most reliable for running VMs)
+    if (vmi?.status?.interfaces) {
+        vmi.status.interfaces.forEach((i: any) => {
+            if (i.ipAddress) allIps.push(i.ipAddress);
+            if (Array.isArray(i.ipAddresses)) allIps.push(...i.ipAddresses);
+        });
+    }
+
+    // 2. Fallback to VM status (sometimes populated)
+    if (allIps.length === 0 && vm?.status?.interfaces) {
+        vm.status.interfaces.forEach((i: any) => {
+            if (i.ipAddress) allIps.push(i.ipAddress);
+            if (Array.isArray(i.ipAddresses)) allIps.push(...i.ipAddresses);
+        });
+    }
+    
+    // Fallback: Check annotations
+    if (allIps.length === 0) {
+      try {
+         const annot = vm?.metadata?.annotations?.['network.harvesterhci.io/ips'];
+         if (annot) {
+             const ips = JSON.parse(annot);
+             if (Array.isArray(ips)) allIps.push(...ips);
+         }
+      } catch (e) {}
+    }
+    
+    // Deduplicate and join
+    const uniqueIps = Array.from(new Set(allIps));
+    const ip = uniqueIps.length > 0 ? uniqueIps.join(', ') : '-';
+    
+    // Alias from annotation
+    const alias = vm?.metadata?.annotations?.['tower.io/alias'] || '';
+
+    return { cpu, memory, image, ip, alias };
+  }, [vmDetail, vmiDetail]);
   
   const screenRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<any>(null);
 
   useEffect(() => {
     if (cloudId && namespace && name) {
-      fetchHarvesterVmDetail(cloudId, namespace, name)
+      // 1. Fetch VM Aggregated (includes VM spec, related resources)
+      fetchHarvesterVMAggregated(cloudId, namespace, name)
         .then((res: any) => {
            const data = res?.data || res;
            setVmDetail(data);
         })
-        .catch((e: any) => console.error('Failed to fetch VM detail', e));
+        .catch((e: any) => {
+             console.error('Failed to fetch VM detail', e);
+             // Fallback to basic fetch if aggregated fails
+             fetchHarvesterVmDetail(cloudId, namespace, name)
+                .then((res: any) => setVmDetail(res?.data || res))
+                .catch(() => {});
+        });
+
+      // 2. Fetch VMI (VirtualMachineInstance) specifically for runtime status (IP, Node, etc.)
+      // Path: /apis/kubevirt.io/v1/namespaces/{namespace}/virtualmachineinstances/{name}
+      const vmiPath = `/apis/kubevirt.io/v1/namespaces/${namespace}/virtualmachineinstances/${name}`;
+      fetchHarvesterResourceByLink(cloudId, vmiPath)
+        .then((res: any) => {
+            setVmiDetail(res);
+        })
+        .catch((e: any) => {
+            console.warn('Failed to fetch VMI detail', e);
+        });
     }
   }, [cloudId, namespace, name]);
 
@@ -127,6 +279,11 @@ const HarvesterVNCPage: React.FC = () => {
     setConnecting(false);
   };
 
+  // [核心逻辑] 建立 VNC 连接
+  // 1. 校验必要参数 (cloudId, namespace, name) 和 Token。
+  // 2. 清理旧的 Canvas 元素，确保 DOM 干净。
+  // 3. 初始化 RFB 实例，配置 WebSocket 协议和显示参数。
+  // 4. 绑定连接状态事件 (connect, disconnect, securityfailure)。
   const connect = () => {
     disconnect();
     setError(null);
@@ -213,6 +370,9 @@ const HarvesterVNCPage: React.FC = () => {
     }
   };
 
+  // [交互逻辑] 发送按键序列
+  // 模拟按键按下 (down=1) 和释放 (up=0) 的过程。
+  // 对于组合键，先顺序按下，再逆序释放，确保虚拟机正确识别。
   const sendKey = (keys: number[]) => {
     if (!rfbRef.current || !connected) return;
     try {
@@ -246,7 +406,11 @@ const HarvesterVNCPage: React.FC = () => {
       style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%'}}>
-        {/* Toolbar */}
+        {/* 
+          ========================================
+          1. 顶部工具栏 (Header Toolbar)
+          ========================================
+        */}
         <div style={{ 
           height: 48, 
           background: '#2d2d2d', 
@@ -262,8 +426,14 @@ const HarvesterVNCPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', marginRight: 16 , borderRight: '1px solid #444' }}>
               <div style={{ fontWeight: 600, marginRight: 16, display: 'flex', alignItems: 'baseline' }}>
-                 <span>{name}</span> 
-                 <span style={{ opacity: 0.5, fontSize: 12, marginLeft: 4, fontWeight: 400 }}>({namespace})</span>
+                 {vmInfo?.alias ? (
+                    <>
+                       <span>{vmInfo.alias}</span>
+                       <span style={{ fontSize: 12, color: '#aaa', marginLeft: 8, fontWeight: 400 }}>{name}</span>
+                    </>
+                 ) : (
+                    <span>{name}</span>
+                 )}
               </div>
             </div>
 
@@ -306,8 +476,8 @@ const HarvesterVNCPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center' }}>
             {vmInfo && (
               <div style={{ display: 'flex', alignItems: 'baseline', fontSize: 12, color: '#aaa', gap: 12, borderRight: '1px solid #444', paddingRight: 16, marginRight: 16 }}>
-                 <span>CPU: <span style={{ color: '#ccc' }}>{vmInfo.cpu || '-'} <span style={{color: '#87d068'}}>({demoStats.cpu}%)</span></span></span>
-                 <span>Mem: <span style={{ color: '#ccc' }}>{vmInfo.memory || '-'} <span style={{color: '#87d068'}}>({demoStats.mem}%)</span></span></span>
+                 <span>CPU: <span style={{ color: '#ccc' }}>{vmInfo.cpu || '-'} <span style={{color: '#87d068'}}>({stats.cpu}%)</span></span></span>
+                 <span>Mem: <span style={{ color: '#ccc' }}>{vmInfo.memory || '-'} <span style={{color: '#87d068'}}>({stats.mem}%)</span></span></span>
                  <span>IP: <span style={{ color: '#ccc' }}>{vmInfo.ip}</span></span>
               </div>
             )}
@@ -328,7 +498,11 @@ const HarvesterVNCPage: React.FC = () => {
           </div>
         </div>
 
-        {/* VNC Canvas Area */}
+        {/* 
+          ========================================
+          2. VNC 画面显示区域 (VNC Canvas Area)
+          ========================================
+        */}
         <div 
           style={{ 
             flex: 1, 

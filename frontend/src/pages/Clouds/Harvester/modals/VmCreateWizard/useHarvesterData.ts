@@ -225,6 +225,7 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
       const normalized = items.map((x: any) => ({
         ...x,
         name: x?.metadata?.name || x?.name,
+        namespace: x?.metadata?.namespace || 'default', // [修复] 提取 Subnet 所属 Namespace，若缺失则默认为 default
         vpc: x?.spec?.vpc || x?.vpc,
         cidr: x?.spec?.cidrBlock || x?.cidr
       }));

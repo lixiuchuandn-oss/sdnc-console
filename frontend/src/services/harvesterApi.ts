@@ -1,5 +1,84 @@
 import { API_BASE_URL, apiRequest } from './api';
 
+export const createHarvesterVpc = async (cloudId: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    try {
+      const j = JSON.parse(t);
+      const msg = j?.message || '请求失败';
+      const detail = j?.error ? (typeof j.error === 'string' ? j.error : JSON.stringify(j.error)) : '';
+      throw new Error(detail ? `${msg} | ${detail}` : msg);
+    } catch (e: any) {
+      if (e.message && e.message.includes('|')) throw e;
+      throw new Error(t);
+    }
+  }
+  return await res.json();
+};
+
+export const fetchHarvesterVMAggregated = async (cloudId: string, namespace: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/aggregated`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const deleteHarvesterVpc = async (cloudId: string, name: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    try {
+      const j = JSON.parse(t);
+      const msg = j?.message || '删除失败';
+      const detail = j?.error ? (typeof j.error === 'string' ? j.error : JSON.stringify(j.error)) : '';
+      throw new Error(detail ? `${msg} | ${detail}` : msg);
+    } catch (e: any) {
+      if (e.message && e.message.includes('|')) throw e;
+      throw new Error(t);
+    }
+  }
+  return await res.json();
+};
+
+export const updateHarvesterVpc = async (cloudId: string, name: string, payload: any) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    try {
+      const j = JSON.parse(t);
+      const msg = j?.message || '更新失败';
+      const detail = j?.error ? (typeof j.error === 'string' ? j.error : JSON.stringify(j.error)) : '';
+      throw new Error(detail ? `${msg} | ${detail}` : msg);
+    } catch (e: any) {
+      if (e.message && e.message.includes('|')) throw e;
+      throw new Error(t);
+    }
+  }
+  return await res.json();
+};
+
 export const fetchHarvesterSnapshots = async (cloudId: string, force = false) => {
   const token = localStorage.getItem('token');
   const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/snapshots${force ? '?force=true' : ''}`;

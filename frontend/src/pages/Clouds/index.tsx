@@ -1,28 +1,63 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * ==============================================================================
+ * 模块名称: 云资源列表 (Cloud Resource List)
+ * 文件路径: src/pages/Clouds/index.tsx
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 展示系统中已接入的所有云资源（公有云、私有云、虚拟化平台等）。
+ * 提供资源概览统计（VM数量、VPC数量）、列表展示、搜索过滤以及接入向导入口。
+ * 
+ * [核心逻辑]
+ * 1. [资源加载]: 
+ *    - 初始化加载所有云资源列表。
+ *    - 并行加载每个云平台的 VPC 统计信息。
+ * 2. [数据统计]: 
+ *    - 计算全局 VM 在线/离线状态。
+ *    - 计算全局 VPC 在线/离线状态 (区分 Harvester 和标准 Cloud Provider)。
+ * 3. [交互操作]: 
+ *    - 支持按关键字、状态、类型、厂商进行多维过滤。
+ *    - 提供连接测试功能。
+ * 
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明 (Dependencies & Interactions)]
+ * ------------------------------------------------------------------------------
+ * 1. 涉及接口:
+ *    - GET /api/clouds (资源列表)
+ *    - GET /api/harvester/clusters/:id/vpcs (Harvester VPC)
+ *    - GET /api/clouds/:id/vpcs (通用 VPC)
+ *    - POST /api/clouds/:id/test (连接测试)
+ * 
+ * 2. 关键组件:
+ *    - CloudWizard (资源接入向导)
+ *    - MetricCard (统计卡片)
+ * ==============================================================================
+ */
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  Card, Row, Col, Button, Tag, Modal, Form, Input, Select, Switch,
-  message, Space, Tooltip, Typography, Dropdown, Badge
+  Card, Row, Col, Button, Tag, Modal, Form, Input, Select,
+  message, Space, Typography, Dropdown, Badge, Table, MenuProps
 } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { 
-  UnorderedListOutlined,
   EllipsisOutlined,
-  CloudUploadOutlined,
-  CloudServerOutlined,
-  ClusterOutlined,
-  HddOutlined,
-  DatabaseOutlined,
-  CodepenOutlined,
-  SafetyCertificateOutlined
+  ReloadOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
-import { fetchAllInstances, fetchCloudProviderVpcs, fetchInventoryInstancesByCloud, fetchCloudmapVirtualElements, fetchClouds as fetchCloudsApi } from '../../services/api';
+import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi } from '../../services/api';
 import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
+import { 
+  getProviderLogo, getProviderName, cloudProviders,
+  CLOUD_TYPE_MAP, CLOUD_STATUS_MAP, getCredentialLabels,
+  Cloud, ComputeResource
+} from './providers';
 import PageContainer from '../../components/PageContainer';
-import SharedToolbar from '../../components/SharedToolbar';
- 
+import { TableColumnSettings } from '../../components/TableColumnSettings';
+
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import CloudWizard from './CloudWizard';
+import CloudEditModal from './Harvester/modals/CloudEditModal';
  
 
 const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;midLabel:string;midValue:number;mainColor:string;usedLabel?:string}> = ({title,total,unit='',used,midLabel,midValue,mainColor,usedLabel})=>{
@@ -58,47 +93,6 @@ const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;mi
 
 const { Text } = Typography;
 
-interface Cloud {
-  id: string;
-  name: string;
-  description: string;
-  type: 'central' | 'private' | 'edge' | 'virtualization' | 'object_storage' | 'security_pool' | 'sase_gateway' | 'hybrid';
-  status: 'online' | 'offline' | 'maintenance';
-  region: string;
-  endpoint: string;
-  accessKey?: string;
-  secretKey?: string;
-  config?: any;
-  totalCpu: number;
-  usedCpu: number;
-  totalMemory: number;
-  usedMemory: number;
-  totalStorage: number;
-  usedStorage: number;
-  createdBy?: string;
-  lastTestAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  computeResources?: ComputeResource[];
-}
-
-interface ComputeResource {
-  id: string;
-  name: string;
-  description?: string;
-  type: 'virtual_machine' | 'container' | 'bare_metal' | 'file_storage' | 'parallel_file_storage' | 'object_storage';
-  status: 'running' | 'stopped' | 'starting' | 'stopping' | 'error';
-  cloudId: string;
-  cpu: number;
-  memory: number;
-  storage: number;
-  config?: any;
-  metadata?: any;
-  ipAddress?: string;
-  publicIp?: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 const Clouds: React.FC = () => {
   const navigate = useNavigate();
@@ -119,7 +113,6 @@ const Clouds: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   
   
-  const [form] = Form.useForm();
   const { user } = useAuth();
 
   const hasAdminPermission = user?.role === 'super_admin';
@@ -131,7 +124,11 @@ const Clouds: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // 使用后端缓存的统计数据，不再前端逐个拉取
+    // [数据统计] VM 状态汇总
+    // 基于后端返回的 cached 字段 (vmCount, runningVmCount) 进行前端聚合。
+    // 1. 遍历所有云资源，累加 total 和 online 数量。
+    // 2. 计算 offline = total - online。
+    // 注意：避免前端逐个请求详情接口，以提高性能。
     const loadVmStats = () => {
       let total = 0;
       let online = 0;
@@ -145,6 +142,12 @@ const Clouds: React.FC = () => {
   }, [clouds]);
 
   useEffect(() => {
+    // [数据统计] VPC 状态异步加载
+    // 由于后端列表接口未返回 VPC 详情，需要根据 Provider 类型并行请求。
+    // 1. 区分 Harvester (Kube-OVN) 和常规 Cloud Provider (VPC API)。
+    // 2. 统一标准化状态字段 (Status/status -> normalized)。
+    // 3. 聚合计算总数和在线数。
+    // 注意：Promise.allSettled 模式处理部分请求失败的情况 (代码中使用 try-catch 模拟)。
     const loadVpcStats = async () => {
       try {
         const ids = (clouds || []).map(c => c.id);
@@ -165,8 +168,14 @@ const Clouds: React.FC = () => {
         }));
         const flat = results.flat();
         const total = flat.length;
-        const norm = (s: any) => String(s || '').toLowerCase();
-        const online = flat.filter(r => ['available','active','ok','running','enabled'].includes(norm(r?.Status || r?.status))).length;
+        const online = flat.filter(r => {
+          const s = r?.Status || r?.status;
+          // [Fix] Kube-OVN VPC status is an object (e.g. { router: '...', subnets: [...] })
+          // If it has a status object with content, we consider it Ready/Online.
+          if (s && typeof s === 'object') return true;
+          const str = String(s || '').toLowerCase();
+          return ['available','active','ok','running','enabled','ready'].includes(str);
+        }).length;
         setVpcStats({ total, online, offline: Math.max(0, total - online) });
       } catch {
         setVpcStats({ total: 0, online: 0, offline: 0 });
@@ -175,24 +184,25 @@ const Clouds: React.FC = () => {
     if (clouds.length > 0) loadVpcStats();
   }, [clouds]);
 
-  const fetchClouds = async () => {
+  // [核心逻辑] 资源列表加载
+  // 1. 调用后端 API 获取所有云资源。
+  // 2. 处理 loading 状态。
+  // 3. 异常处理：显示错误提示。
+  const fetchClouds = useCallback(async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/clouds', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setClouds(response.data);
+      const response = await fetchCloudsApi();
+      setClouds(Array.isArray(response) ? response : (response?.data || []));
     } catch (error: any) {
       message.error('获取云资源列表失败：' + (error.response?.data?.message || error.message));
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // 已移除算力配额相关方法
 
-  const testConnection = async (cloudId: string) => {
+  const testConnection = useCallback(async (cloudId: string) => {
     setTestingConnection(cloudId);
     try {
       const token = localStorage.getItem('token');
@@ -206,147 +216,33 @@ const Clouds: React.FC = () => {
     } finally {
       setTestingConnection(null);
     }
-  };
+  }, [fetchClouds]);
 
   
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'online': return '在线';
-      case 'offline': return '离线';
-      case 'maintenance': return '维护中';
-      default: return '未知';
-    }
-  };
+  const getStatusText = (status: string) => CLOUD_STATUS_MAP[status] || '未知';
 
-  const getTypeText = (type: string) => {
-    switch (type) {
-      case 'central': return '公有云';
-      case 'private': return '私有云';
-      case 'edge': return '边缘计算';
-      case 'virtualization': return '虚拟化';
-      case 'object_storage': return '对象存储';
-      case 'security_pool': return '云安全资源池';
-      case 'sase_gateway': return 'SASE网关';
-      case 'hybrid': return '混合云';
-      default: return '未知';
-    }
-  };
-
-  const getTypeIcon = (type?: string): React.ReactNode => {
-    const t = String(type || '').toLowerCase();
-    switch (t) {
-      case 'central':
-        return <CloudUploadOutlined />;
-      case 'private':
-        return <CloudServerOutlined />;
-      case 'edge':
-        return <CloudServerOutlined />;
-      case 'virtualization':
-        return <HddOutlined />;
-      case 'object_storage':
-        return <DatabaseOutlined />;
-      case 'security_pool':
-        return <CloudServerOutlined />;
-      case 'sase_gateway':
-        return <ClusterOutlined />;
-      case 'hybrid':
-        return <CloudUploadOutlined />;
-      default:
-        return <CloudUploadOutlined />;
-    }
-  };
-
-  
-
-  const getProviderInfo = (config: any) => {
-    if (!config?.provider) return { name: '未知', logo: <CodepenOutlined /> };
-    
-    const providerMap: Record<string, { name: string; logo: React.ReactNode }> = {
-      aliyun: { name: '阿里云', logo: <CodepenOutlined /> },
-      aws: { name: 'AWS', logo: <CodepenOutlined /> },
-      azure: { name: 'Azure', logo: <CodepenOutlined /> },
-      huaweicloud: { name: '华为云', logo: <CodepenOutlined /> },
-      tencentcloud: { name: '腾讯云', logo: <CodepenOutlined /> },
-      ucloud: { name: 'UCloud', logo: <CodepenOutlined /> },
-      google: { name: 'Google Cloud', logo: <CodepenOutlined /> },
-      tianyi: { name: '天翼云', logo: <CodepenOutlined /> },
-      yidong: { name: '移动云', logo: <CodepenOutlined /> },
-      vmware: { name: 'VMware', logo: <CodepenOutlined /> },
-      openstack: { name: 'OpenStack', logo: <CodepenOutlined /> },
-      dstack: { name: 'DStack', logo: <CodepenOutlined /> },
-      zstack: { name: 'ZStack', logo: <CodepenOutlined /> },
-      feitiancloud: { name: '飞天', logo: <CodepenOutlined /> },
-      s3: { name: 'S3', logo: <CodepenOutlined /> },
-      ceph: { name: 'Ceph', logo: <CodepenOutlined /> },
-      sky: { name: 'SKY', logo: <CodepenOutlined /> },
-      builtinprivate: { name: '内置私有云', logo: <CodepenOutlined /> },
-      kvm: { name: 'KVM', logo: <CodepenOutlined /> },
-      rancher: { name: 'Rancher', logo: <CodepenOutlined /> },
-      harvester: { name: 'Harvester', logo: <CodepenOutlined /> },
-      'cloudmap.edge': { name: 'Cloudmap融合边缘云', logo: <CloudServerOutlined /> },
-      'cloudmap.private': { name: 'Cloudmap私有云', logo: <CloudServerOutlined /> },
-      'cloudmap.csm': { name: 'Cloudmap CSM', logo: <SafetyCertificateOutlined /> },
-      parallel_file_storage: { name: '高速并行文件存储', logo: <CodepenOutlined /> },
-    };
-
-    return providerMap[config.provider] || { name: '未知', logo: <CodepenOutlined /> };
-  };
-
-  // 根据云厂商返回认证字段标签
-  const getCredentialLabels = (provider?: string) => {
-    switch (provider) {
-      case 'aliyun':
-        return { akLabel: 'AccessKeyId', skLabel: 'AccessKeySecret', akPlaceholder: '请输入 AccessKeyId', skPlaceholder: '请输入 AccessKeySecret' };
-      case 'huaweicloud':
-        return { akLabel: '访问密钥（Access Key）', skLabel: '私有密钥（Secret Key）', akPlaceholder: '请输入访问密钥（Access Key）', skPlaceholder: '请输入私有密钥（Secret Key）' };
-      case 'tencentcloud':
-        return { akLabel: '密钥ID（SecretId）', skLabel: '私有密钥（SecretKey）', akPlaceholder: '请输入密钥ID（SecretId）', skPlaceholder: '请输入私有密钥（SecretKey）' };
-      case 'harvester':
-      case 'cloudmap':
-        return { akLabel: '访问密钥（可选）', skLabel: 'API令牌（Token）', akPlaceholder: 'Harvester通常无需 Access Key', skPlaceholder: '请输入 API 令牌（Bearer Token）' };
-      default:
-        return { akLabel: '访问密钥 (Access Key)', skLabel: '私有密钥 (Secret Key)', akPlaceholder: '请输入访问密钥', skPlaceholder: '请输入私有密钥' };
-    }
-  };
+  const getTypeText = (type: string) => CLOUD_TYPE_MAP[type] || '未知';
 
   // 编辑模态框样式：分组标题与表单标签/输入字号
-  const groupTitleStyle: React.CSSProperties = {
-    fontSize: 13,
-    fontWeight: 400,
-    color: '#1677ff',
-    margin: '8px 0',
-    paddingBottom: 6,
-    borderBottom: '1px solid #e5e7eb'
-  };
-  const titleLabelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 400 };
-  const inputStyle: React.CSSProperties = { fontSize: 13 };
+  // 样式已迁移至 global-new.css
 
-  const handleEdit = (cloud: Cloud) => {
+
+  const handleEdit = useCallback((cloud: Cloud) => {
     if (!hasAdminPermission) {
       message.error('权限不足，只有超级管理员可以编辑云资源');
       return;
     }
     setEditingCloud(cloud);
-    form.setFieldsValue({
-      name: cloud.name,
-      description: cloud.description,
-      region: cloud.region,
-      endpoint: cloud.endpoint,
-      accessKey: '', // 不预填敏感信息
-      secretKey: '',
-      // 高级参数（从 config 预填）
-      autoSync: !!cloud?.config?.autoSync,
-      enableSSO: !!cloud?.config?.enableSSO,
-      ignoreTls: !!cloud?.config?.ignoreTls,
-      proxyType: cloud?.config?.proxyType || 'direct',
-      resourceProject: cloud?.config?.resourceProject || 'system',
-      harvesterVersion: cloud?.config?.harvesterVersion || 'auto'
-    });
     setEditModalVisible(true);
-  };
+  }, [hasAdminPermission]);
 
-  const handleDelete = (cloudId: string) => {
+  // [核心逻辑] 资源删除
+
+  // 1. 权限校验 (isAdmin)。
+  // 2. 二次确认 (Confirm Modal)。
+  // 3. 执行删除并刷新列表。
+  const handleDelete = useCallback((cloudId: string) => {
     if (!hasAdminPermission) {
       message.error('权限不足，只有超级管理员可以删除云资源');
       return;
@@ -370,86 +266,34 @@ const Clouds: React.FC = () => {
         }
       },
     });
-  };
+  }, [hasAdminPermission, fetchClouds]);
 
-  const handleEditSubmit = async (values: any) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      // 过滤掉空的accessKey和secretKey
-      const submitData: any = {
-        name: values.name,
-        description: values.description,
-        region: values.region,
-        endpoint: values.endpoint,
-      };
-      if (values.accessKey) submitData.accessKey = values.accessKey;
-      if (values.secretKey) submitData.secretKey = values.secretKey;
-      // 合并更新 config（保持 provider 不变）
-      const prevCfg = (editingCloud as any)?.config || {};
-      submitData.config = {
-        ...prevCfg,
-        autoSync: !!values.autoSync,
-        enableSSO: !!values.enableSSO,
-        ignoreTls: !!values.ignoreTls,
-        proxyType: values.proxyType || prevCfg.proxyType || 'direct',
-        resourceProject: values.resourceProject || prevCfg.resourceProject || 'system',
-        harvesterVersion: values.harvesterVersion || prevCfg.harvesterVersion || 'auto',
-        provider: prevCfg.provider
-      };
-      
-      await axios.put(`/api/clouds/${editingCloud?.id}`, submitData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      message.success('云资源更新成功');
-      setEditModalVisible(false);
-      setEditingCloud(null);
-      form.resetFields();
-      fetchClouds();
-    } catch (error: any) {
-      message.error('更新失败：' + (error.response?.data?.message || error.message));
-    }
-  };
-
-  
-
-  const formatLastTestTime = (lastTestAt?: string) => {
-    if (!lastTestAt) return '未测试';
-    const date = new Date(lastTestAt);
-    return date.toLocaleString('zh-CN');
-  };
-
-  const tableColumns = [
+  const tableColumns: ColumnsType<Cloud> = useMemo(() => [
     {
       title: '云平台',
-      dataIndex: 'config',
-      key: 'provider',
+      dataIndex: 'name',
+      key: 'name',
       width: 220,
       fixed:'left' as 'left',
-      render: (config: any, record: Cloud) => {
-        const provider = getProviderInfo(config);
-        return (
-          <Tooltip title={record.name}>
-            <div style={{ whiteSpace:'nowrap' }}>
-              <span style={{ display:'inline-flex', alignItems:'center', lineHeight:1 }}>
-                <span style={{ fontSize: 16, marginRight: 6, display:'inline-flex', alignItems:'center', color:'#1677ff' }}>{getTypeIcon(record.type)}</span>
-                <Button type="link" style={{ padding:0, height:'auto', lineHeight:1, fontSize: 13 }} onClick={()=>navigate(`/admin/clouds/${record.id}`)}>{record.name}</Button>
-              </span><br/>
-              <Text type="secondary" style={{ fontSize: 13 }}>{provider.name}</Text>
-            </div>
-          </Tooltip>
-        );
-      }
+      render: (text: string, record: Cloud) => (
+        <Button 
+          type="link" 
+          onClick={() => navigate(`/admin/clouds/${record.id}`)}
+          style={{ padding: 0, height: 'auto' }}
+        >
+          {record.name}
+        </Button>
+      )
     },
+
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => (
         <Badge
-          status={status==='online' ? 'processing' : status==='offline' ? 'error' : 'warning'}
-          text={<span style={{ fontSize: 13 }}>{getStatusText(status)}</span>}
+          status={status==='online' ? 'success' : status==='offline' ? 'error' : 'warning'}
+          text={getStatusText(status)}
         />
       )
     },
@@ -457,36 +301,49 @@ const Clouds: React.FC = () => {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      render: (type: string) => <Tag color="blue" style={{ fontSize: 13 }}>{getTypeText(type)}</Tag>
+      render: (type: string) => <Tag color="blue">{getTypeText(type)}</Tag>
+    },
+    {
+      title: '厂商',
+      dataIndex: 'config',
+      key: 'provider',
+      render: (config: any, record: Cloud) => {
+        const providerName = getProviderName(config?.provider);
+        const logo = getProviderLogo(config?.provider, record.type);
+        return (
+          <Space>
+            <span style={{ fontSize: 16, display: 'flex', alignItems: 'center' }}>{logo}</span>
+            <Text>{providerName}</Text>
+          </Space>
+        );
+      }
     },
     {
       title: '地域',
       dataIndex: 'region',
       key: 'region',
-      width: 400,
-      render: (_: any, record: Cloud) => (
-        <div style={{ fontSize: 13 }}>
-          <div>地域信息：{record?.region || '-'}</div>
-          <div>端点信息：{record?.endpoint || '-'}</div>
-        </div>
-      )
+      render: (region: string) => <Text>{region || '-'}</Text>
+    },
+    {
+      title: '端点',
+      dataIndex: 'endpoint',
+      key: 'endpoint',
+      render: (endpoint: string) => <Text type="secondary">{endpoint || '-'}</Text>
     },
     
+
     {
-      title: '最后测试',
-      dataIndex: 'lastTestAt',
-      key: 'lastTestAt',
-      render: (lastTestAt: string) => <Text style={{ fontSize: 13 }}>{formatLastTestTime(lastTestAt)}</Text>
-    },
-  {
       title: '操作',
       key: 'actions',
-      width: 60,
+      width: 80,
+      fixed: 'right' as 'right',
+      align: 'center' as 'center',
       render: (record: Cloud) => {
         const items = [
-          { key: 'test', label: '连接测试', disabled: !hasAdminPermission || testingConnection===record.id },
           { key: 'detail', label: '资源详情' },
-          { key: 'edit', label: '编辑', disabled: !hasAdminPermission },
+          { key: 'edit', label: '编辑信息', disabled: !hasAdminPermission },
+          { key: 'test', label: '连接测试', disabled: !hasAdminPermission || testingConnection===record.id },
+          { type: 'divider' as const },
           { key: 'del', label: '删除', danger: true, disabled: !hasAdminPermission },
         ];
         const onMenuClick = ({ key }: { key: string }) => {
@@ -497,15 +354,17 @@ const Clouds: React.FC = () => {
         };
         return (
           <Dropdown menu={{ items, onClick: onMenuClick }} trigger={["click"]}>
-            <Button type="link" icon={<EllipsisOutlined />} />
+            <Button type="text" icon={<EllipsisOutlined />} className="row-actions-trigger" />
           </Dropdown>
         );
       }
     }
-  ];
+  ], [navigate, hasAdminPermission, testingConnection, testConnection, handleEdit, handleDelete]);
+
+  const [activeColumns, setActiveColumns] = useState<ColumnsType<Cloud>>(tableColumns);
 
   // 过滤后的云资源池
-  const filteredClouds = clouds.filter(c=>{
+  const filteredClouds = (clouds || []).filter(c=>{
     if(keyword && !c.name.toLowerCase().includes(keyword.toLowerCase())) return false;
     if(statusFilter && statusFilter.length && !statusFilter.includes(c.status)) return false;
     if(typeFilter && typeFilter.length && !typeFilter.includes(c.type)) return false;
@@ -536,22 +395,43 @@ const Clouds: React.FC = () => {
   const handleFilterChange = (_: any, all: any) => {
     setKeyword(all.keyword || '');
     setStatusFilter(all.status ? [all.status] : undefined);
-    // 类型映射到内部 type
-    const cat = all.category as string | undefined;
-    if (cat && cat !== '') {
-      const mapped =
-        cat === 'public' ? 'central' :
-        cat === 'private' ? 'private' :
-        cat === 'edge' ? 'edge' :
-        cat === 'virtualization' ? 'virtualization' :
-        cat === 'storage' ? 'object_storage' :
-        cat === 'security' ? 'security_pool' :
-        cat === 'sase' ? 'sase_gateway' : undefined;
-      setTypeFilter(mapped ? [mapped] : undefined);
-    } else {
-      setTypeFilter(undefined);
-    }
+    setTypeFilter(all.category ? [all.category] : undefined);
     setVendorFilter(all.vendor ? all.vendor : undefined);
+  };
+
+  const handleBulkDelete = useCallback(async () => {
+    if (!hasAdminPermission) { message.error('权限不足，只有超级管理员可以删除云资源'); return; }
+    Modal.confirm({
+      title: '确认批量删除',
+      content: `将删除选中的 ${selectedRowKeys.length} 个资源池，操作不可恢复。`,
+      okText: '删除',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const token = localStorage.getItem('token');
+          let ok = 0, fail = 0;
+          for (const id of selectedRowKeys) {
+            try {
+              await axios.delete(`/api/clouds/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+              ok++;
+            } catch {
+              fail++;
+            }
+          }
+          message.success(`删除成功 ${ok} 个，失败 ${fail} 个`);
+          setSelectedRowKeys([]);
+          fetchClouds();
+        } catch (e: any) {
+          message.error('批量删除失败');
+        }
+      }
+    });
+  }, [hasAdminPermission, selectedRowKeys, fetchClouds]);
+
+  const bulkActionsMenu: MenuProps = {
+    items: [
+      { key: 'bulkDelete', label: '批量删除', danger: true, disabled: !hasAdminPermission || selectedRowKeys.length === 0, onClick: handleBulkDelete }
+    ]
   };
 
   return (
@@ -562,7 +442,7 @@ const Clouds: React.FC = () => {
           <Col xs={24} sm={12} md={6}><MetricCard title="资源池数量" total={totalCnt} unit="个" used={onlineCnt} midLabel="离线" midValue={offlineCnt} usedLabel="在线" mainColor="#1677ff" /></Col>
           <Col xs={24} sm={12} md={6}><MetricCard title="云主机数量" total={vmCounts.total} unit="个" used={vmCounts.online} midLabel="离线" midValue={vmCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
           <Col xs={24} sm={12} md={6}><MetricCard title="容器集群数量" total={containerCounts.total} unit="个" used={containerCounts.online} midLabel="离线" midValue={containerCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
-          <Col xs={24} sm={12} md={6}><MetricCard title="VPC 网络数量" total={vpcCounts.total} unit="个" used={vpcCounts.online} midLabel="离线" midValue={vpcCounts.offline} usedLabel="在线" mainColor="#1677ff" /></Col>
+          <Col xs={24} sm={12} md={6}><MetricCard title="VPC 网络数量" total={vpcCounts.total} unit="个" used={vpcCounts.online} midLabel="未就绪" midValue={vpcCounts.offline} usedLabel="就绪" mainColor="#1677ff" /></Col>
         </Row>
       )}
       asCard={false}
@@ -573,98 +453,69 @@ const Clouds: React.FC = () => {
           layout="vertical"
           style={{ rowGap:12, columnGap:12, display:'flex', alignItems:'flex-end' }}
           onValuesChange={handleFilterChange}
-          initialValues={{ vendor: '', status: '', category: '' }}
         >
-          <Form.Item name="keyword" label="资源池名称">
-            <Input allowClear placeholder="支持模糊查询" style={{ width:200 }} />
+          <Form.Item name="keyword">
+            <Input className="toolbar-search" allowClear placeholder="关键字" onChange={(e) => setKeyword(e.target.value)} />
           </Form.Item>
-          <Form.Item name="vendor" label="供应商">
-            <Select allowClear placeholder="选择供应商" style={{ width:200 }}>
-              <Select.Option value="">全部</Select.Option>
-              <Select.Option value="aliyun">阿里云</Select.Option>
-              <Select.Option value="aws">AWS</Select.Option>
-              <Select.Option value="azure">Azure</Select.Option>
-              <Select.Option value="huaweicloud">华为云</Select.Option>
-              <Select.Option value="tencentcloud">腾讯云</Select.Option>
-              <Select.Option value="ucloud">UCloud</Select.Option>
-              <Select.Option value="google">Google Cloud</Select.Option>
-              <Select.Option value="ctyun">天翼云</Select.Option>
-              <Select.Option value="cmcccloud">移动云</Select.Option>
+          <Form.Item name="vendor">
+            <Select className="toolbar-filter-sm" allowClear placeholder="供应商">
+              {cloudProviders.map(p => (
+                <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
+              ))}
             </Select>
           </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select allowClear placeholder="选择状态" style={{ width:200 }}>
-              <Select.Option value="">全部</Select.Option>
-              <Select.Option value="online">在线</Select.Option>
-              <Select.Option value="offline">离线</Select.Option>
-              <Select.Option value="maintenance">维护中</Select.Option>
+          <Form.Item name="status">
+            <Select className="toolbar-filter-sm" allowClear placeholder="状态">
+              {Object.entries(CLOUD_STATUS_MAP).map(([key, label]) => (
+                <Select.Option key={key} value={key}>{label}</Select.Option>
+              ))}
             </Select>
           </Form.Item>
-          <Form.Item name="category" label="类型">
-            <Select allowClear placeholder="选择类型" style={{ width:200 }}>
-              <Select.Option value="">全部</Select.Option>
-              <Select.Option value="public">公有云</Select.Option>
-              <Select.Option value="private">私有云</Select.Option>
-              <Select.Option value="edge">边缘计算</Select.Option>
-              <Select.Option value="virtualization">虚拟化</Select.Option>
-              <Select.Option value="object_storage">对象存储</Select.Option>
-              <Select.Option value="security">云安全资源池</Select.Option>
-              <Select.Option value="sase">SASE网关</Select.Option>
+          <Form.Item name="category">
+            <Select className="toolbar-filter-sm" allowClear placeholder="类型">
+              {Object.entries(CLOUD_TYPE_MAP).map(([key, label]) => (
+                <Select.Option key={key} value={key}>{label}</Select.Option>
+              ))}
             </Select>
           </Form.Item>
           <Form.Item>
-            <Button type="link" style={{ padding:0 }} onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined);}}>重置</Button>
+            <a className="toolbar-reset-btn" onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined);}}>重置</a>
           </Form.Item>
         </Form>
       )}
-      primaryAction={{ text: '新增资源池', onClick: ()=>setWizardVisible(true) }}
-      moreMenuItems={[
-        { key: 'refresh', label: '全局刷新', onClick: () => fetchClouds() },
-        { key: 'bulkDelete', label: '批量删除', danger: true, disabled: !hasAdminPermission || selectedRowKeys.length === 0, onClick: async () => {
-          if (!hasAdminPermission) { message.error('权限不足，只有超级管理员可以删除云资源'); return; }
-          Modal.confirm({
-            title: '确认批量删除',
-            content: `将删除选中的 ${selectedRowKeys.length} 个资源池，操作不可恢复。`,
-            okText: '删除',
-            cancelText: '取消',
-            onOk: async () => {
-              try {
-                const token = localStorage.getItem('token');
-                let ok = 0, fail = 0;
-                for (const id of selectedRowKeys) {
-                  try {
-                    await axios.delete(`/api/clouds/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-                    ok++;
-                  } catch {
-                    fail++;
-                  }
-                }
-                message.success(`删除成功 ${ok} 个，失败 ${fail} 个`);
-                setSelectedRowKeys([]);
-                fetchClouds();
-              } catch (e: any) {
-                message.error('批量删除失败');
-              }
-            }
-          });
-        } },
-      ]}
+      toolbarRight={(
+        <div className="toolbar-actions">
+          <Button type="primary" onClick={() => setWizardVisible(true)}>新增资源池</Button>
+          <Dropdown menu={bulkActionsMenu}>
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
+          <TableColumnSettings columns={tableColumns} onChange={setActiveColumns} settingsKey="clouds-list" />
+          <Button icon={<ReloadOutlined />} onClick={fetchClouds} />
+        </div>
+      )}
       actionsSize="middle"
-      tableProps={{
-        columns: tableColumns,
-        dataSource: filteredClouds,
-        rowKey: "id",
-        style: { fontSize: 13 },
-        rowSelection: {
+    >
+      <Table
+        className="std-table"
+        bordered
+        columns={activeColumns}
+        dataSource={filteredClouds}
+        rowKey="id"
+        rowSelection={{
           selectedRowKeys,
           onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
-        },
-        pagination: { pageSize: 10 },
-        scroll: { x: 'max-content' },
-        tableLayout: "auto",
-        expandable: undefined,
-      }}
-    >
+        }}
+        pagination={{
+          size: 'small',
+          showSizeChanger: true,
+          pageSize: 10,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showQuickJumper: false
+        }}
+        scroll={{ x: 'max-content' }}
+        tableLayout="auto"
+      />
+
       {/* 多云接入向导 */}
       <CloudWizard
         visible={wizardVisible}
@@ -673,166 +524,19 @@ const Clouds: React.FC = () => {
       />
 
       {/* 编辑云资源模态框（随云厂商动态） */}
-      <Modal
-              title={(() => {
-                const name = editingCloud ? getProviderInfo(editingCloud?.config || {}).name : '';
-                const typeText = editingCloud ? getTypeText(editingCloud.type) : '';
-                return editingCloud ? `编辑云资源 [${typeText}-${name}]` : '编辑云资源';
-              })()}
-        open={editModalVisible}
+      <CloudEditModal
+        visible={editModalVisible}
         onCancel={() => {
           setEditModalVisible(false);
           setEditingCloud(null);
-          form.resetFields();
         }}
-        footer={null}
-        width={600}
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleEditSubmit}
-        >
-          {/* 分组：基础信息（无外卡片，仅标题 + 一列表单） */}
-            <div style={{...groupTitleStyle, marginTop: 16}}>基础信息</div>
-            <Form.Item
-              name="name"
-              label={<span style={titleLabelStyle}>云资源名称</span>}
-              rules={[{ required: true, message: '请输入云资源名称' }]}
-            >
-              <Input prefix={<CodepenOutlined />} placeholder="请输入云资源名称" style={inputStyle} />
-            </Form.Item>
-
-            <Form.Item
-              name="description"
-              label={<span style={titleLabelStyle}>描述</span>}
-              rules={[{ required: true, message: '请输入描述' }]}
-            >
-              <Input.TextArea placeholder="请输入描述" rows={3} style={inputStyle} />
-            </Form.Item>
-
-            <Form.Item label={<span style={titleLabelStyle}>资源类型</span>}>
-              <Tag color="blue">{getTypeText(String(editingCloud?.type || ''))}</Tag>
-            </Form.Item>
-
-
-          {/* 分组：连接信息（无外卡片） */}
-          <div style={groupTitleStyle}>连接信息</div>
-            <Form.Item
-              name="region"
-              label={<span style={titleLabelStyle}>地域</span>}
-              rules={[{ required: true, message: '请输入地域' }]}
-            >
-              <Input placeholder="请输入地域" style={inputStyle} />
-            </Form.Item>
-
-            <Form.Item
-              name="endpoint"
-              label={<span style={titleLabelStyle}>端点</span>}
-              rules={[{ required: true, message: '请输入端点' }]}
-            >
-              <Input placeholder="https://api.example.com" style={inputStyle} />
-            </Form.Item>
-
-
-          {/* 分组：认证配置（动态标签，无外卡片） */}
-          {(() => {
-            const provider = editingCloud?.config?.provider as string | undefined;
-            const { akLabel, skLabel, akPlaceholder, skPlaceholder } = getCredentialLabels(provider);
-            return (
-              <>
-                <div style={groupTitleStyle}>认证配置</div>
-                {!(provider === 'harvester' || provider === 'cloudmap') && (
-                  <Form.Item
-                    name="accessKey"
-                    label={<span style={titleLabelStyle}>{akLabel}</span>}
-                    extra="留空表示不修改"
-                  >
-                    <Input.Password placeholder={akPlaceholder} style={inputStyle} />
-                  </Form.Item>
-                )}
-
-                <Form.Item
-                  name="secretKey"
-                  label={<span style={titleLabelStyle}>{skLabel}</span>}
-                  extra="留空表示不修改"
-                >
-                  <Input.Password placeholder={skPlaceholder} style={inputStyle} />
-                </Form.Item>
-              </>
-            );
-          })()}
-
-          {/* 分组：高级选项（与创建向导一致） */}
-          <div style={groupTitleStyle}>高级选项</div>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="autoSync" label="自动同步" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="enableSSO" label="开启免密登录" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item name="proxyType" label="代理">
-            <Select placeholder="DIRECT（直连）" defaultValue="direct" style={{ width: 240 }}>
-              <Select.Option value="direct">DIRECT（直连）</Select.Option>
-              <Select.Option value="http">HTTP代理</Select.Option>
-              <Select.Option value="socks">SOCKS代理</Select.Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item name="resourceProject" label="资源归属项目">
-            <Select placeholder="system" defaultValue="system" style={{ width: 240 }}>
-              <Select.Option value="system">system</Select.Option>
-              <Select.Option value="default">default</Select.Option>
-            </Select>
-          </Form.Item>
-
-          {(() => {
-            const provider = editingCloud?.config?.provider as string | undefined;
-            if (provider === 'harvester' || provider === 'cloudmap') {
-              return (
-                <Form.Item name="harvesterVersion" label="Harvester版本">
-                  <Select placeholder="自动识别" defaultValue="auto" style={{ width: 240 }}>
-                    <Select.Option value="auto">自动</Select.Option>
-                    <Select.Option value="1.5">1.5</Select.Option>
-                    <Select.Option value="1.6">1.6</Select.Option>
-                  </Select>
-                </Form.Item>
-              );
-            }
-            return null;
-          })()}
-
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit">
-                更新
-              </Button>
-              <Button onClick={() => {
-                setEditModalVisible(false);
-                setEditingCloud(null);
-                form.resetFields();
-              }}>
-                取消
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
+        onSuccess={() => {
+          setEditModalVisible(false);
+          setEditingCloud(null);
+          fetchClouds();
+        }}
+        cloud={editingCloud}
+      />
 
 
       

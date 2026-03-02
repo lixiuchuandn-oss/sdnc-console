@@ -1431,7 +1431,7 @@ const CenDetailPage: React.FC = () => {
         style={{ top: '5vh' }}
         bodyStyle={{ height: '85vh', padding: 0, overflow: 'hidden' }}
         title={null}
-        destroyOnClose
+        destroyOnHidden
       >
         {renderTopologyContent(true)}
       </Modal>
@@ -1441,7 +1441,7 @@ const CenDetailPage: React.FC = () => {
         title="AI 威胁分析报告"
         width={800}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ maxHeight: '60vh', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
           {currentReport}

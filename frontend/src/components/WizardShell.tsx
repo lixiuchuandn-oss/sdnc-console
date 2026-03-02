@@ -19,7 +19,7 @@ export const WizardModal: React.FC<{
       open={open}
       title={title}
       onCancel={onCancel}
-      destroyOnClose
+      destroyOnHidden
       footer={footer}
       width={width}
       centered={centered}

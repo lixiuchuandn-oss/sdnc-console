@@ -1473,7 +1473,7 @@ const VRPage: React.FC = () => {
         onFinish={submitEditVR}
         onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
         confirmLoading={loading}
-        destroyOnClose
+        destroyOnHidden
         width={720}
       >
         <div style={{ overflowX: 'hidden' }}>
@@ -1668,7 +1668,7 @@ const VRPage: React.FC = () => {
         onOk={submitBind}
         onCancel={() => { setBindModalOpen(false); bindForm.resetFields(); }}
         confirmLoading={loading}
-        destroyOnClose
+        destroyOnHidden
         width={480}
       >
         <Form form={bindForm} layout="vertical">
@@ -1802,7 +1802,7 @@ const VRPage: React.FC = () => {
            }
         }}
         okText="下一步"
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ padding: '24px 0' }}>
           <Radio.Group 

@@ -61,6 +61,9 @@ const UserManagement: React.FC = () => {
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   
+  const [modal, contextHolder] = Modal.useModal();
+  const [messageApi, messageContextHolder] = message.useMessage();
+
   // Batch Operations State
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
@@ -98,7 +101,7 @@ const UserManagement: React.FC = () => {
       setFilteredUsers(response.data);
       setSelectedRowKeys([]); // Reset selection on refresh
     } catch (error: any) {
-      message.error(error.response?.data?.message || '获取用户列表失败');
+      messageApi.error(error.response?.data?.message || '获取用户列表失败');
     } finally {
       setLoading(false);
     }
@@ -195,37 +198,37 @@ const UserManagement: React.FC = () => {
   const handleCreateUser = async (values: CreateUserFormValues) => {
     try {
       if (!values.tenantId || !values.organizationId) {
-        message.error('请选择租户和组织');
+        messageApi.error('请选择租户和组织');
         return;
       }
       await apiCall('post', `/api/tenants/${values.tenantId}/organizations/${values.organizationId}/users`, values);
-      message.success('创建用户成功');
+      messageApi.success('创建用户成功');
       setCreateModalOpen(false);
       createForm.resetFields();
       fetchTenantUsers();
     } catch (error: any) {
-      message.error(error.response?.data?.message || '创建用户失败');
+      messageApi.error(error.response?.data?.message || '创建用户失败');
     }
   };
 
   // Delete User
   const handleDeleteUser = async (user: TenantUser) => {
     if (!user.tenant || !user.organization) {
-      message.error('用户数据缺失租户或组织信息，无法删除');
+      messageApi.error('用户数据缺失租户或组织信息，无法删除');
       return;
     }
     try {
       await apiCall('delete', `/api/tenants/${user.tenant.id}/organizations/${user.organization.id}/users/${user.id}`);
-      message.success('删除用户成功');
+      messageApi.success('删除用户成功');
       fetchTenantUsers();
     } catch (error: any) {
-      message.error(error.response?.data?.message || '删除用户失败');
+      messageApi.error(error.response?.data?.message || '删除用户失败');
     }
   };
 
   // Batch Delete
   const handleBatchDelete = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认批量删除用户',
       content: `确定要删除选中的 ${selectedRowKeys.length} 个用户吗？删除后无法恢复。`,
       okText: '删除',
@@ -241,10 +244,10 @@ const UserManagement: React.FC = () => {
             return Promise.resolve();
           });
           await Promise.all(deletePromises);
-          message.success('批量删除成功');
+          messageApi.success('批量删除成功');
           fetchTenantUsers();
         } catch (error: any) {
-          message.error('批量删除过程中发生错误');
+          messageApi.error('批量删除过程中发生错误');
         }
       }
     });
@@ -267,7 +270,7 @@ const UserManagement: React.FC = () => {
       setRoleAssignExisting(list);
       setRoleAssignSelected(list.map(it => it.roleId));
     } catch (error) {
-      message.error('获取用户角色失败');
+      messageApi.error('获取用户角色失败');
     }
   };
 
@@ -289,11 +292,11 @@ const UserManagement: React.FC = () => {
       for (const it of needRemove) {
         await apiCall('delete', `/api/system/rbac/assignments/${encodeURIComponent(it.id)}`);
       }
-      message.success('角色赋权已保存');
+      messageApi.success('角色赋权已保存');
       setAssignRoleModalOpen(false);
       setCurrentAssignUser(null);
     } catch (error) {
-      message.error('保存角色赋权失败');
+      messageApi.error('保存角色赋权失败');
     }
   };
 
@@ -349,7 +352,7 @@ const UserManagement: React.FC = () => {
           onClick={({ key }) => {
             if (key === 'assign') openAssignRoleModal(record);
             if (key === 'delete') {
-              Modal.confirm({
+              modal.confirm({
                 title: '确认删除用户',
                 content: `确定要删除用户 "${record.username}" 吗？此操作无法撤销。`,
                 okText: '删除',
@@ -372,6 +375,8 @@ const UserManagement: React.FC = () => {
       subtitle="管理租户用户，并支持按租户、角色与状态筛选"
       asCard={false}
     >
+      {contextHolder}
+      {messageContextHolder}
       <div className="page-toolbar">
         <Form
           className="toolbar-container"

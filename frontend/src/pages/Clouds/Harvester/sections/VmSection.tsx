@@ -20,7 +20,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Table, Select, Button, Dropdown, Modal, Input, Badge, message, Checkbox, Tag, Tabs, Tooltip, Alert } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, DesktopOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, saveHarvesterVmAsTemplate, fetchHarvesterNodes, fetchHarvesterNads } from '../../../../services/harvesterApi';
@@ -1079,7 +1079,12 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const allColumns = useMemo(() => [
         { title: '实例名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
       const text = SafeRead.name(r) || '-';
-      return <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>{text}</span>;
+      return (
+        <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>
+          <DesktopOutlined style={{ marginRight: 8 }} />
+          {text}
+        </span>
+      );
     } },
     { title: '实例ID', key: 'vmId', ellipsis: true, render: (_: any, r: any) => {
       const id = SafeRead.vmId(r);

@@ -253,7 +253,7 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
       onCancel={onClose}
       confirmLoading={loading}
       width={700}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

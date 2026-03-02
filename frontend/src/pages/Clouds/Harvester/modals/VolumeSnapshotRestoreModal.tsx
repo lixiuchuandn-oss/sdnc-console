@@ -119,7 +119,7 @@ const VolumeSnapshotRestoreModal: React.FC<Props> = ({
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

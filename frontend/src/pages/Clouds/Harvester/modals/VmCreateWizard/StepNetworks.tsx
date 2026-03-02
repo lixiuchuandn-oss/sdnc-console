@@ -150,7 +150,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     } 
                   }); 
                 } catch { } 
-                if (v === 'vpc') { reloadKubeVpcs(); reloadKubeSubnets(); } 
+                if (v === 'vpc') { reloadKubeVpcs(); reloadKubeSubnets(); reloadNads(); } 
               }}
             />
           </Form.Item>
@@ -208,12 +208,9 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       options={kubeVpcOptions}
                       onDropdownVisibleChange={(open) => { if (open) reloadKubeVpcs(); }}
                       onChange={(val) => { 
-                        try { 
-                          const curr = form.getFieldValue('primaryNic') || {}; 
-                          // [状态同步] 切换 VPC 时，重置子网和网络名称
-                          const next = { ...curr, vpc: val, subnet: undefined, name: undefined }; 
-                          form.setFieldsValue({ primaryNic: next }); 
-                        } catch { } 
+                        // [状态同步] 切换 VPC 时，重置子网和网络名称
+                        // 使用合并更新，避免读取过期状态
+                        form.setFieldsValue({ primaryNic: { vpc: val, subnet: undefined, name: undefined } }); 
                       }}
                     />
                   </Form.Item>
@@ -231,14 +228,51 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       })()}
                       onDropdownVisibleChange={(open) => { if (open) reloadKubeSubnets(); }}
                       onChange={(val) => { 
-                        try { 
-                          const curr = form.getFieldValue('primaryNic') || {}; 
-                          // [状态同步] 选择子网时，自动将其名称作为网络名称
-                          const next = { ...curr, name: val }; 
-                          form.setFieldsValue({ primaryNic: next }); 
-                        } catch { } 
+                        // [状态同步] 选择子网时，自动将其名称作为网络名称
+                        // [修复] Kube-OVN 子网生成的 NAD 通常与子网资源本身位于同一 Namespace
+                        // 优先从 kubeSubnets 中获取子网对象，提取其 Namespace 并拼装为 <ns>/<name> 格式
+                        // 若未找到子网对象，则回退到 nadOptions 查找逻辑
+                        let netName = val;
+                        
+                        // 1. 尝试从子网列表查找 (最准确，直接反映子网归属)
+                        const subnet = (kubeSubnets || []).find((x: any) => x.name === val);
+                        
+                        // [修复] 从 Subnet 对象中获取正确的 Namespace
+                        // 后端 /subnets 接口已增强，会自动将关联 NAD 的 Namespace 注入到 metadata.namespace 字段
+                        // 优先使用该字段，如果不存在则回退到 Provider 解析逻辑
+                        let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                        if (!subnetNs) {
+                            const provider = subnet?.provider || subnet?.spec?.provider;
+                            if (provider) {
+                                const parts = provider.split('.');
+                                // 倒数第二个部分通常是 Namespace
+                                if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                            }
+                        }
+
+                        if (subnetNs) {
+                           netName = `${subnetNs}/${val}`;
+                        } else {
+                           // 2. 回退：尝试从 nadOptions 中查找匹配的 NAD
+                           try {
+                             const found = (nadOptions || []).find((x: any) => {
+                               const v = String(x?.value || '');
+                               const parts = v.split('/');
+                               const name = parts.length > 1 ? parts[1] : parts[0];
+                               return name === val;
+                             });
+                             if (found) netName = found.value;
+                           } catch {}
+                        }
+
+                        // 使用合并更新，确保不覆盖 subnet 字段自身的更新
+                        form.setFieldsValue({ primaryNic: { name: netName } }); 
                       }}
                     />
+                  </Form.Item>
+                  {/* [修复] 在 VPC 模式下必须注册 name 字段，否则 getFieldsValue 无法获取到该值，导致 payload 中丢失网络名称进而回退到 Management Network */}
+                  <Form.Item name={["primaryNic", 'name']} hidden>
+                    <Input />
                   </Form.Item>
                 </Col>
                 {/* 仅用于显示选中子网的 CIDR 信息，不可编辑 */}

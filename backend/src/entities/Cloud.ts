@@ -11,6 +11,9 @@ export enum CloudType {
   EDGE = 'edge',
   HYBRID = 'hybrid',
   SECURITY_POOL = 'security_pool',
+  PRIVATE = 'private',
+  VIRTUALIZATION = 'virtualization',
+  OBJECT_STORAGE = 'object_storage',
 }
 
 export enum CloudStatus {

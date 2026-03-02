@@ -60,6 +60,7 @@ import {
   harvesterAbortMigration,
   listHarvesterGpuResources,
   listHarvesterUsbResources,
+  getHarvesterVMAggregated,
 } from '../../../services/clouds/harvester/client';
 import { getJsonOnce, watchJsonStream } from '../../../services/clouds/harvester/utils';
 import {
@@ -1598,5 +1599,40 @@ export const registerHarvesterDirectVmRoutes = (
         });
       }
     },
+  );
+
+  router.get(
+    '/:id/resources/ecs/:namespace/:name/aggregated',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+        
+        if (!allowed)
+          return res.status(403).json({ message: 'Access denied to this resource pool' });
+        
+        if (isTenant && tenantNamespace && !isNamespaceAllowed(tenantNamespace, namespace)) {
+          return res.status(403).json({ message: 'Access denied to this namespace' });
+        }
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        const data = await getHarvesterVMAggregated(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          namespace,
+          name
+        );
+        res.json({ data });
+      } catch (error: any) {
+        res.status(500).json({
+          message: error.message || 'Failed to fetch aggregated VM details',
+          error: error.body || error.message
+        });
+      }
+    }
   );
 };

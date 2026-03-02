@@ -433,7 +433,7 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
       okText="开始迁移"
       confirmLoading={loading}
       width={600}
-      destroyOnClose
+      destroyOnHidden
       centered
     >
       <Form.Item label="当前节点">

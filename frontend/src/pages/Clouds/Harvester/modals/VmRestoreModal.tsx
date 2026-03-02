@@ -178,7 +178,7 @@ const VmRestoreModal: React.FC<Props> = ({
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}
-      destroyOnClose
+      destroyOnHidden
     >
       <Alert
         message={isTargetVmRunning ? "目标虚拟机正在运行中" : (!isTargetVmExists ? "目标虚拟机不存在" : "注意")}

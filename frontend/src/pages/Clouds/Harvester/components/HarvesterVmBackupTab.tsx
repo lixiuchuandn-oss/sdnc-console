@@ -330,7 +330,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
                   </Tooltip>
               </Space>
           </div>
-          <Card bordered={false} bodyStyle={{ padding: 0 }}>
+          <Card variant="borderless" styles={{ body: { padding: 0 } }}>
             <List
               loading={backupsLoading}
               dataSource={snapshotList}
@@ -354,7 +354,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
                   </Tooltip>
               </Space>
           </div>
-          <Card bordered={false} bodyStyle={{ padding: 0 }}>
+          <Card variant="borderless" styles={{ body: { padding: 0 } }}>
             <List
               loading={backupsLoading}
               dataSource={backupList}
@@ -378,7 +378,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
                   </Tooltip>
               </Space>
           </div>
-          <Card bordered={false} bodyStyle={{ padding: 0 }}>
+          <Card variant="borderless" styles={{ body: { padding: 0 } }}>
             <List
               loading={schedulesLoading}
               dataSource={scheduleList}

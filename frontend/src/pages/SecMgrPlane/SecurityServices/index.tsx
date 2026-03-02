@@ -526,7 +526,7 @@ const SecurityServices: React.FC = () => {
           setSelectedDomainId(undefined);
         }}
         confirmLoading={assignSubmitting}
-        destroyOnClose
+        destroyOnHidden
         width={1000}
       >
         <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, background: '#fafafa', border: '1px solid #f0f0f0' }}>
@@ -573,7 +573,7 @@ const SecurityServices: React.FC = () => {
         }}
         footer={null}
         width={1000}
-        destroyOnClose
+        destroyOnHidden
       >
         <Table
           bordered

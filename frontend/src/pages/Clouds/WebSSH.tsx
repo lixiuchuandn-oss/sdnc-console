@@ -8,6 +8,43 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 
+/**
+ * ==============================================================================
+ * 模块名称: WebSSH 终端页面 (WebSSH Terminal Page)
+ * 文件路径: src/pages/Clouds/WebSSH.tsx
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 提供一个基于 Web 的 SSH 终端客户端，允许用户通过 WebSocket 连接到远程主机或虚拟机。
+ * 集成了 xterm.js 用于终端渲染，支持密码和私钥认证。
+ * 
+ * [核心逻辑]
+ * 1. [终端初始化]: 
+ *    - 使用 xterm.js 创建终端实例，配置字体、主题和自适应插件 (FitAddon)。
+ * 2. [连接管理]: 
+ *    - 支持自动探测多个 WebSocket 服务端点 (Base URLs)。
+ *    - 处理 WebSocket 的生命周期 (Open, Message, Close, Error)。
+ * 3. [交互处理]: 
+ *    - 实时双向数据传输 (终端输入 -> WS -> 远程, 远程 -> WS -> 终端显示)。
+ *    - 支持终端尺寸自动调整 (Resize) 和全屏模式。
+ *    - 心跳检测 (Ping/Pong) 用于监控连接延迟。
+ * 
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明]
+ * ------------------------------------------------------------------------------
+ * 1. 数据流向:
+ *    [用户输入] -> [xterm.js] -> [WebSocket] -> [后端 SSH Proxy] -> [目标主机]
+ * 
+ * 2. 关键依赖:
+ *    - xterm (终端渲染)
+ *    - xterm-addon-fit (尺寸自适应)
+ *    - WebSocket (通信协议)
+ * 
+ * ==============================================================================
+ */
+
+// [辅助函数] 构建 WebSocket URL
+// 将 HTTP/HTTPS 基础路径转换为 WS/WSS 协议，并附加认证 Token。
 function wsUrlFromBase(baseHttp: string): string {
   const token = localStorage.getItem('token') || '';
   const base = baseHttp.replace(/^http/, 'ws');
@@ -42,6 +79,10 @@ const WebSSHPage: React.FC = () => {
     form.setFieldsValue({ host, username: user, port });
   }, [location.search]);
 
+  // [初始化] 终端实例配置
+  // 1. 创建 xterm 终端，配置光标、回滚缓冲区、字体等。
+  // 2. 加载 FitAddon 以支持容器自适应。
+  // 3. 处理 Edge 浏览器的特定兼容性配置。
   useEffect(() => {
     if (!termRef.current) {
       const isEdge = /Edg\//.test(navigator.userAgent);
@@ -116,6 +157,12 @@ const WebSSHPage: React.FC = () => {
     return () => { window.removeEventListener('resize', onResize); window.removeEventListener('keydown', onAnyKey as any); };
   }, []);
 
+  // [核心逻辑] 建立 SSH 连接
+  // 这是一个多阶段的连接过程：
+  // 1. 参数校验：获取并验证主机、端口、认证信息。
+  // 2. 端点探测：尝试连接多个可能的后端 WebSocket 地址 (本地开发环境 vs 生产环境)。
+  // 3. 握手与认证：连接成功后发送 'connect' 指令携带认证数据。
+  // 4. 事件循环：监听 'ready', 'data', 'error' 等消息并处理终端 I/O。
   const handleConnect = async () => {
     setError(null);
     const values = await form.validateFields();
@@ -147,6 +194,12 @@ const WebSSHPage: React.FC = () => {
         let msg: any = null;
         try { msg = JSON.parse(String(ev.data)); } catch { msg = null; }
         if (!msg) return;
+        
+        // [消息处理] 路由 WebSocket 消息
+        // 根据 msg.type 分发处理逻辑：
+        // - ready: 连接建立，激活终端交互，启动心跳。
+        // - data: 接收远程终端输出并写入 xterm。
+        // - pong: 计算往返延迟 (Latency)。
         switch (msg.type) {
           case 'ready':
             setConnected(true);
@@ -240,6 +293,11 @@ const WebSSHPage: React.FC = () => {
   return (
     <PageContainer title={''} asCard={false} contentPadding={0} pagePadding={0}>
       <div style={{ background: '#1e1e1e', height: 'calc(100vh - 64px)', borderRadius: 0 }}>
+        {/* 
+          ========================================
+          1. 顶部工具栏 (Header Toolbar)
+          ========================================
+        */}
         <div style={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', background: '#252526', borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
           <Space>
             <Tag color="#2b7489" style={{ marginRight: 0 }}>{String(form.getFieldValue('username') || 'root')}@{String(form.getFieldValue('host') || '')}</Tag>
@@ -255,6 +313,11 @@ const WebSSHPage: React.FC = () => {
         </div>
 
         <Row gutter={0} style={{ padding: 0, margin: 0 }}>
+          {/* 
+            ========================================
+            2. 连接配置侧边栏 (Connection Sidebar)
+            ========================================
+          */}
           <Col flex={siderCollapsed || fullscreen ? '0px' : '320px'} style={{ display: siderCollapsed || fullscreen ? 'none' : 'block' }}>
             <div style={{ height: 'calc(100vh - 64px - 40px - 28px)', minHeight: 520, background: '#252526', padding: 12 }}>
               <div style={{ color: '#d4d4d4', marginBottom: 8 }}>连接参数</div>
@@ -299,6 +362,11 @@ const WebSSHPage: React.FC = () => {
             </div>
           </Col>
 
+          {/* 
+            ========================================
+            3. 终端显示区域 (Terminal Area)
+            ========================================
+          */}
           <Col flex="auto">
             <div style={{ height: 'calc(100vh - 64px - 40px - 28px)', minHeight: 520, display: 'flex', flexDirection: 'column', background: '#1e1e1e', overflow: 'hidden' }}>
               <div style={{ flex: 1, overflow: 'auto' }} ref={termContainerRef} tabIndex={0} onMouseDown={()=>{ try { termRef.current?.focus(); } catch {} }} />

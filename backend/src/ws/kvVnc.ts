@@ -42,7 +42,7 @@ export function createKvVncWss() {
       if (!token) throw new Error('缺少 token');
       const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
       if (!decoded || !decoded.role) throw new Error('无效令牌');
-      if (!(decoded.role === UserRole.SUPER_ADMIN || decoded.role === 'admin')) {
+      if (!(decoded.role === UserRole.SUPER_ADMIN || decoded.role === 'admin' || decoded.role === UserRole.TENANT)) {
         throw new Error('权限不足');
       }
     } catch (err: any) {

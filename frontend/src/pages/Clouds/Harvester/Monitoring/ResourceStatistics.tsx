@@ -106,8 +106,10 @@ const ResourceStatistics: React.FC<ResourceStatisticsProps> = ({
       title={title} 
       size="small"
       style={{ marginBottom: 12 }} 
-      headStyle={{ fontWeight: 'normal', fontSize: 14 }}
-      bodyStyle={{ padding: 0 }}
+      styles={{ 
+        header: { fontWeight: 'normal', fontSize: 14 },
+        body: { padding: 0 }
+      }}
     >
       <Row gutter={0}>
         {items}

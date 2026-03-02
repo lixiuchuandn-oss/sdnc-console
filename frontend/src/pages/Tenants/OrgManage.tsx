@@ -30,6 +30,8 @@ const OrgManagePage: React.FC = () => {
   // 路由 & 上下文
   const navigate = useNavigate();
   const { tenantId } = useParams();
+  const [modal, contextHolder] = Modal.useModal();
+  const [messageApi, messageContextHolder] = message.useMessage();
   // 顶部概览 & 左侧组织树相关状态
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -208,10 +210,10 @@ const OrgManagePage: React.FC = () => {
       setRenameOrgId(null);
       setRenameName('');
       if (tenantId) fetchOrganizations(tenantId);
-      message.success('重命名成功');
+      messageApi.success('重命名成功');
     } catch (e: any) {
       const msg = e?.response?.data?.message || '重命名失败';
-      message.error(msg);
+      messageApi.error(msg);
     }
   };
 
@@ -226,10 +228,10 @@ const OrgManagePage: React.FC = () => {
       setAddingForParentId(null);
       setNewChildName('');
       fetchOrganizations(tenantId);
-      message.success('创建组织成功');
+      messageApi.success('创建组织成功');
     } catch (e: any) {
       const msg = e?.response?.data?.message || '创建组织失败';
-      message.error(msg);
+      messageApi.error(msg);
     }
   };
 
@@ -242,10 +244,10 @@ const OrgManagePage: React.FC = () => {
       setUserDrawerOpen(false);
       userForm.resetFields();
       fetchUsers(tenantId, selectedOrg.id);
-      message.success('创建用户成功');
+      messageApi.success('创建用户成功');
     } catch (e: any) {
       const msg = e?.response?.data?.message || '创建用户失败';
-      message.error(msg);
+      messageApi.error(msg);
     }
   };
 
@@ -328,7 +330,7 @@ const OrgManagePage: React.FC = () => {
       for (const it of needRemove) {
         await axios.delete(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`, { headers: { Authorization: `Bearer ${token}` } });
       }
-      Modal.success({ title: '角色赋权已保存' });
+      modal.success({ title: '角色赋权已保存' });
       setRoleAssignOpen(false);
       setRoleAssignUser(null);
       setRoleAssignExisting([]);
@@ -338,7 +340,7 @@ const OrgManagePage: React.FC = () => {
       }
     } catch (e: any) {
       const msg = e?.response?.data?.message || '保存角色赋权时发生错误';
-      Modal.error({ title: '保存失败', content: msg });
+      modal.error({ title: '保存失败', content: msg });
     }
   };
 
@@ -348,10 +350,10 @@ const OrgManagePage: React.FC = () => {
       const token = localStorage.getItem('token');
       await axios.delete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
       fetchUsers(tenantId, selectedOrg.id);
-      message.success('删除用户成功');
+      messageApi.success('删除用户成功');
     } catch (e: any) {
       const msg = e?.response?.data?.message || '删除用户失败';
-      message.error(msg);
+      messageApi.error(msg);
     }
   };
   // 删除用户：
@@ -379,10 +381,10 @@ const OrgManagePage: React.FC = () => {
       setResourcePoolDrawerOpen(false);
       resourcePoolForm.resetFields();
       fetchAssignments(selectedOrg.id);
-      message.success('分配资源池成功');
+      messageApi.success('分配资源池成功');
     } catch (e: any) {
       const msg = e?.response?.data?.message || '分配资源池失败';
-      message.error(msg);
+      messageApi.error(msg);
     }
   };
 
@@ -597,7 +599,7 @@ const OrgManagePage: React.FC = () => {
                   icon={<CloseOutlined />}
                   onClick={(e) => {
                     e.stopPropagation();
-                    Modal.confirm({
+                    modal.confirm({
                       title: '确认删除组织',
                       content: '将删除该组织及其所有下级组织、关联用户与资源池分配。',
                       okText: '删除',
@@ -666,7 +668,7 @@ const OrgManagePage: React.FC = () => {
               if (key === 'assign') {
                 openRoleAssign(record);
               } else if (key === 'delete') {
-                Modal.confirm({
+                modal.confirm({
                   title: '确认删除用户',
                   content: '删除后将无法恢复，该用户将无法继续访问系统。',
                   okText: '删除',
@@ -727,7 +729,7 @@ const OrgManagePage: React.FC = () => {
             items: [{ key: 'remove', label: '移除', danger: true }],
             onClick: ({ key }) => {
               if (key === 'remove') {
-                Modal.confirm({
+                modal.confirm({
                   title: '确认移除资源池分配',
                   content: '移除后，组织将不再拥有该资源池的关联权限。',
                   okText: '移除',
@@ -769,6 +771,8 @@ const OrgManagePage: React.FC = () => {
       onBack={() => navigate('/admin/tenants')}
       asCard={false}
     >
+      {contextHolder}
+      {messageContextHolder}
       {organizations.length > 0 ? (
         <Row gutter={[16,16]}>
           <Col span={8}>
@@ -843,7 +847,7 @@ const OrgManagePage: React.FC = () => {
                             ],
                             onClick: ({ key }) => {
                               if (key === 'batchDelete') {
-                                Modal.confirm({
+                                modal.confirm({
                                   title: '确认批量删除用户',
                                   content: '删除后将无法恢复，这些用户将无法继续访问系统。',
                                   okText: '删除',
@@ -855,11 +859,11 @@ const OrgManagePage: React.FC = () => {
                                       await Promise.all(selectedUserRowKeys.map(id => 
                                         axios.delete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${id}`, { headers: { Authorization: `Bearer ${token}` } })
                                       ));
-                                      message.success('批量删除成功');
+                                      messageApi.success('批量删除成功');
                                       setSelectedUserRowKeys([]);
                                       fetchUsers(tenantId, selectedOrg.id);
                                     } catch (e: any) {
-                                      message.error(e?.response?.data?.message || '批量删除失败');
+                                      messageApi.error(e?.response?.data?.message || '批量删除失败');
                                     }
                                   },
                                 });
@@ -1156,17 +1160,17 @@ const OrgManagePage: React.FC = () => {
                               width: 100,
                               render: (_: any, r: any) => (
                                 <Button type="link" danger size="small" onClick={() => {
-                                  Modal.confirm({
+                                  modal.confirm({
                                     title: '确认删除',
                                     content: '确定要删除该VR绑定记录吗？',
                                     onOk: async () => {
                                       try {
                                         const token = localStorage.getItem('token');
                                         await axios.delete(`/api/vr-config/${r.uuid}`, { headers: { Authorization: `Bearer ${token}` } });
-                                        message.success('删除成功');
+                                        messageApi.success('删除成功');
                                         fetchSdnVrs();
                                       } catch (e) {
-                                        message.error('删除失败');
+                                        messageApi.error('删除失败');
                                       }
                                     }
                                   });

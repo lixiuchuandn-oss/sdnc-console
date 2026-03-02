@@ -288,7 +288,7 @@ const AccessRolesPage: React.FC = () => {
       />
 
       {/* 新建角色模态框 */}
-      <StdFormModal title="新建授权角色" open={createOpen} onCancel={()=> setCreateOpen(false)} okText="创建" destroyOnClose width={600} form={createForm} onFinish={handleCreate}>
+      <StdFormModal title="新建授权角色" open={createOpen} onCancel={()=> setCreateOpen(false)} okText="创建" destroyOnHidden width={600} form={createForm} onFinish={handleCreate}>
         <Form.Item name="name" label="角色名称" rules={[{ required: true, message: '请输入角色名称' }]}>
           <Input placeholder="例如：安全管理员" />
         </Form.Item>

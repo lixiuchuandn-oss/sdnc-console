@@ -11,6 +11,7 @@ import CloudDetailHarvester from './Harvester/CloudDetailHarvester';
 import CloudDetailAliyun from './Aliyun/CloudDetailAliyun';
 import CloudDetailCsm from './Csm/CloudDetailCsm';
 import CloudDetailCloudmap from './Cloudmap/CloudDetailCloudmap';
+import { getProviderName } from './providers';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSubnetsByVpc, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl } from '../../services/api';
 import { fetchHarvesterNads, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNodes, fetchHarvesterSystemPods, fetchHarvesterVmDetail, fetchHarvesterHealth, fetchKubeOvnVpcs, fetchKubeOvnSubnets } from '../../services/harvesterApi';
 import { fetchCloudProviderVSwitches, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries, createCloudProviderVpc, createCloudProviderVSwitch, deleteCloudProviderVpc, updateCloudProviderVpc, deleteCloudProviderVSwitch, fetchCloudProviderEnis, createCloudProviderEni, updateCloudProviderEni, deleteCloudProviderEni, fetchCloudProviderNetworkAcls, createCloudProviderNetworkAcl, updateCloudProviderNetworkAcl, deleteCloudProviderNetworkAcl, createCloudProviderSecurityGroup, updateCloudProviderSecurityGroup, deleteCloudProviderSecurityGroup, startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs } from '../../services/aliyunApi';
@@ -109,13 +110,7 @@ const CloudDetail: React.FC = () => {
   const [caps, setCaps] = useState<any>({});
   const providerRaw = useMemo(() => String(cloud?.config?.provider || cloud?.type || ''), [cloud]);
   const provider = useMemo(() => providerRaw.toLowerCase().trim(), [providerRaw]);
-  const providerName = useMemo(() => (
-    (provider === 'aliyun' && '阿里云') ||
-    (provider === 'huaweicloud' && '华为云') ||
-    (provider === 'harvester' && 'Harvester') ||
-    (provider === 'cloudmap' && 'Cloudmap') ||
-    provider || '-'
-  ), [provider]);
+  const providerName = useMemo(() => getProviderName(provider), [provider]);
 
   const [harvesterHealthItems, setHarvesterHealthItems] = useState<any[]>([]);
   const [healthLoading, setHealthLoading] = useState(false);
@@ -682,7 +677,7 @@ const CloudDetail: React.FC = () => {
       <div style={{ marginBottom: 16 }}>
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源供应商">{(cloud?.config?.provider === 'aliyun' && '阿里云') || (cloud?.config?.provider === 'huaweicloud' && '华为云') || (cloud?.config?.provider === 'tencentcloud' && '腾讯云') || (cloud?.config?.provider === 'harvester' && 'Harvester') || (cloud?.config?.provider || '-')}</Descriptions.Item>
+          <Descriptions.Item label="资源供应商">{getProviderName(cloud?.config?.provider)}</Descriptions.Item>
           <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
           <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
           <Descriptions.Item label="资源状态">

@@ -288,6 +288,28 @@
   padding: 4px 15px !important; /* 调整为更标准的按钮内边距 */
 }
 
+/* 
+ * Minimal Collapse Style (No Border, No Padding)
+ * Used for advanced settings sections to reduce visual noise
+ */
+.std-collapse-minimal {
+  background-color: transparent;
+  border: none !important;
+}
+.std-collapse-minimal > .ant-collapse-item {
+  border-bottom: none !important;
+}
+.std-collapse-minimal .ant-collapse-content {
+  border-top: 1px solid #eaeaea !important;
+  background-color: transparent;
+}
+.std-collapse-minimal .ant-collapse-content > .ant-collapse-content-box {
+  padding: 16px 0 0 0 !important;
+}
+.std-collapse-minimal .ant-collapse-header {
+  padding: 12px 0 !important;
+}
+
 /* 图标按钮特殊处理 (如刷新、更多) */
 .toolbar-actions .ant-btn.ant-btn-icon-only {
   padding: 0 !important; /* 移除内边距，确保内容居中 */
@@ -314,6 +336,9 @@
   cursor: pointer;
   transition: all 0.2s;
   margin: 0 auto; /* 居中 */
+  padding: 0 !important;
+  border: none !important;
+  background: transparent;
 }
 
 .row-actions-trigger:hover {
@@ -379,3 +404,20 @@
   background-color: transparent;
   color: #1f2329;
 }
+
+/* 
+ * 模态框分组标题样式 (Modal Group Title)
+ * 用于模态框内的表单分组标题
+ * 样式：蓝色文字，底部边框
+ */
+.modal-group-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1677ff;
+  margin: 8px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+
+

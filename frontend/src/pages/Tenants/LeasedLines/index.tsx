@@ -19,7 +19,7 @@ const TenantLeasedLinesPage: React.FC = () => {
   return (
     <PageContainer
       titleLevel={3}
-      asCard={false}
+      
       tabList={[
         { key: 'list', tab: '租户专线列表' },
         { key: 'tasks', tab: '安全报告任务' },

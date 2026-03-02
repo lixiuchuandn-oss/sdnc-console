@@ -15,6 +15,8 @@
 // 上层路由优先采用 “Inventory Cache First + Sync Fallback”，
 // 仅在需要实时诊断时直接使用本文件聚合导出的 Direct API 能力。
 export { HarvesterTestParams } from './types';
+import { getHarvesterVMAggregated } from './vm_aggregated';
+export { getHarvesterVMAggregated };
 export {
   listHarvesterVMsStandard,
   // 移除 buildHarvesterVMManifest,
@@ -45,6 +47,9 @@ export {
 export {
   listHarvesterNADsStandard,
   listKubeOvnVpcs,
+  createKubeOvnVpc,
+  deleteKubeOvnVpc,
+  updateKubeOvnVpc,
   listKubeOvnSubnets,
   updateHarvesterSubnet,
   listHarvesterLoadBalancers,

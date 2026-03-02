@@ -27,12 +27,21 @@ export const updateHarvesterSubnet = async (
   }
 
   // 2. 合并 Payload
-  // 支持更新 spec 字段，如 namespaces, excludeIps 等
+  // 支持更新 spec 字段，以及 metadata.annotations
+  const { annotations, ...specPayload } = payload;
+
   const updated = {
     ...current,
+    metadata: {
+      ...current.metadata,
+      annotations: {
+        ...(current.metadata?.annotations || {}),
+        ...(annotations || {}),
+      }
+    },
     spec: {
       ...current.spec,
-      ...payload,
+      ...specPayload,
     },
   };
 
@@ -620,6 +629,7 @@ export const createKubeOvnSubnet = async (
     kind: 'Subnet',
     metadata: {
       name: payload.name,
+      annotations: payload.annotations,
     },
     spec: payload.spec || {
       cidrBlock: payload.cidrBlock,
@@ -669,6 +679,108 @@ export const createKubeOvnEip = async (
   };
 
   return await requestJson('POST', url, token, insecure, body);
+};
+
+/**
+ * 创建 Kube-OVN VPC
+ */
+export const createKubeOvnVpc = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  payload: any,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/kubeovn.io/v1/vpcs`;
+  
+  const body = {
+    apiVersion: 'kubeovn.io/v1',
+    kind: 'Vpc',
+    metadata: {
+      name: payload.name,
+      annotations: payload.annotations,
+    },
+    spec: {
+      namespaces: payload.namespaces || [],
+      staticRoutes: payload.staticRoutes || [],
+    }
+  };
+
+  return await requestJson('POST', url, token, insecure, body);
+};
+
+/**
+ * 删除 Kube-OVN VPC
+ */
+export const deleteKubeOvnVpc = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(name)}`;
+  return await requestJson('DELETE', url, token, insecure);
+};
+
+/**
+ * 更新 Kube-OVN VPC
+ * 采用 "Get -> Merge -> Update" 模式
+ */
+export const updateKubeOvnVpc = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  name: string,
+  payload: any,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  // 1. Get current VPC
+  const getUrl = `${origin}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(name)}`;
+  const current = await getJsonOnce(getUrl, token, insecure);
+  if (!current) {
+    throw new Error(`VPC ${name} not found`);
+  }
+
+  // 2. Merge Payload
+  const { annotations, ...specPayload } = payload;
+  
+  const updated = {
+    ...current,
+    metadata: {
+      ...current.metadata,
+      annotations: {
+        ...(current.metadata?.annotations || {}),
+        ...(annotations || {}),
+      }
+    },
+    spec: {
+      ...current.spec,
+      ...specPayload,
+    }
+  };
+
+  // 3. Execute Update (PUT)
+  const putUrl = `${origin}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(name)}`;
+  return await requestJson('PUT', putUrl, token, insecure, updated);
 };
 
 /**

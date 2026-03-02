@@ -67,7 +67,7 @@ const InstanceDetailModal: React.FC = () => {
     <Modal
       title="云主机详情"
       open
-      destroyOnClose
+      destroyOnHidden
       footer={null}
       width={'75vw'}
       centered={false}
@@ -213,7 +213,7 @@ const AdminIndex: React.FC = () => {
       }}
     >
       <AuthProvider>
-        <Router>
+        <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
           <AppRoutes />
         </Router>
       </AuthProvider>

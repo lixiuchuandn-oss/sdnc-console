@@ -1,3 +1,31 @@
+/**
+ * ==============================================================================
+ * 模块名称: Harvester 云控制台 (Harvester Cloud Console)
+ * 文件路径: src/pages/Clouds/Console/CloudConsoleHarvester.tsx
+ * ==============================================================================
+ *
+ * [功能描述]
+ * 租户侧 Harvester 云控制台主容器：通过“类目 + 资源”二级导航组织各资源页面，
+ * 统一承载列表展示与刷新入口，并将必要的上下文数据（如 namespaces）透传到子模块。
+ *
+ * [核心逻辑]
+ * 1. [二级导航]:
+ *    - activeCategory / activeResource 驱动 Tabs 与资源下拉选择。
+ * 2. [数据适配]:
+ *    - 将 namespacesOptions 转换为对象数组，以复用 BackupsSection 的入参结构。
+ * 3. [内容渲染]:
+ *    - renderContent 根据 activeResource 渲染对应 Section，并透传 refresh handler。
+ *
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明 (Dependencies & Interactions)]
+ * ------------------------------------------------------------------------------
+ * 1. 数据流向:
+ *    上游容器(拉取 Harvester 资源) -> CloudConsoleHarvester -> 各 Section(渲染/操作)
+ *
+ * 2. 关键依赖/接口:
+ *    - 各 Section 内部通过 services/harvesterApi 发起资源操作/刷新
+ * ==============================================================================
+ */
 import React, { useState, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { DownOutlined } from '@ant-design/icons';
@@ -22,6 +50,15 @@ import VpcsSection from '../Harvester/kube-ovn/VpcsSection';
 
 
 
+/**
+ * CloudConsoleHarvester Props 定义
+ * @property cloudId - 云平台 ID
+ * @property loading - 是否处于加载状态
+ * @property namespacesOptions - 命名空间名称列表（字符串）
+ * @property namespaces - 命名空间对象列表（供子模块复用）
+ * @property onRefreshVms - 刷新实例列表
+ * @property onRefreshVpcs - 刷新 VPC/子网列表
+ */
 interface Props {
   cloudId: string;
   vms: any[];
@@ -46,6 +83,12 @@ interface Props {
   storageClasses?: any[]; // 添加存储类属性
   loading: boolean;
   
+  // Controlled Navigation State
+  activeCategory: string;
+  setActiveCategory: (category: string) => void;
+  activeResource: string;
+  setActiveResource: (resource: string) => void;
+
   // VmSection specific props
   namespacesOptions: string[];
   namespaces?: any[];
@@ -110,6 +153,13 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   dnatRules = [],
   storageClasses = [], // 添加存储类解构
   loading,
+  
+  // Controlled Navigation Props
+  activeCategory,
+  setActiveCategory,
+  activeResource,
+  setActiveResource,
+
   namespacesOptions,
   namespaces,
   nodesOptions,
@@ -146,14 +196,16 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   bordered = true,
   showOpsDetail = true
 }) => {
-  const [activeCategory, setActiveCategory] = useState('compute');
-  const [activeResource, setActiveResource] = useState('vm');
+  // [二级导航] 当前类目与资源：由 Props 驱动 (Controlled Component)
+  // const [activeCategory, setActiveCategory] = useState('compute');
+  // const [activeResource, setActiveResource] = useState('vm');
 
-  // Convert namespacesOptions (string[]) to object array for BackupsSection
+  // [数据适配] BackupsSection 需要 { metadata: { name } } 结构的 namespaces
   const namespaceObjects = useMemo(() => {
     return namespacesOptions.map(ns => ({ metadata: { name: ns } }));
   }, [namespacesOptions]);
 
+  // [结构配置] 类目与资源的二级导航配置
   const tabConfig = useMemo(() => [
     {
       key: 'compute',
@@ -210,6 +262,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   };
 
   const renderContent = () => {
+    // [内容渲染] 根据 activeResource 映射到具体 Section，并透传资源数据与刷新函数
     switch (activeResource) {
       // Compute
       case 'vm':
@@ -377,10 +430,14 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       case 'vpc-subnet':
          return (
              <VpcsSection
+                 cloudId={cloudId}
                  vpcs={vpcs}
                  subnets={subnets}
+                 namespaces={namespaces}
                  loading={loading}
                  onRefresh={onRefreshVpcs}
+                 bordered={false}
+                 showYaml={false}
              />
          );
 
@@ -434,9 +491,10 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   };
 
   const tabItems = useMemo(() => {
+    // [二级导航] 非激活 Tab 仅显示标题；激活 Tab 渲染对应 Section 以降低无效渲染
     return tabConfig.map(cat => {
       const isActive = cat.key === activeCategory;
-      // Inactive tabs show default resource label. Active tab shows current resource label.
+      // [展示规则] 未选中时展示默认资源标签；选中时展示当前 activeResource 标签
       const currentResKey = isActive ? activeResource : cat.resources[0].key;
       const currentResLabel = cat.resources.find(r => r.key === currentResKey)?.label || cat.resources[0].label;
 
@@ -462,7 +520,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             >
               <span 
                 onClick={(e) => e.stopPropagation()} 
-                style={{ cursor: 'pointer', padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }}
+                style={{ cursor: 'pointer', padding: '4px 0px', display: 'inline-flex', alignItems: 'center' }}
               >
                 <DownOutlined style={{ fontSize: 12 }} />
               </span>
@@ -476,7 +534,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         )
       };
     });
-  }, [tabConfig, activeCategory, activeResource, vms, templates, sshKeys, volumes, images, snapshots, backups, schedules, cloudInits, gpus, ippools, nads, lbs, vpcs, subnets, eips, fips, snatRules, dnatRules, loading, namespacesOptions, namespaces, nodesOptions, nsValue, nodeValue]);
+  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, vms, templates, sshKeys, volumes, images, snapshots, backups, schedules, cloudInits, gpus, ippools, nads, lbs, vpcs, subnets, eips, fips, snatRules, dnatRules, loading, namespacesOptions, namespaces, nodesOptions, nsValue, nodeValue]);
 
   return (
     <div style={{ height: '100%', background: '#fff'}}>

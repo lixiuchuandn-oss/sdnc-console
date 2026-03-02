@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Button, Form, Input, Tabs, Alert, Tree, App, Space, Modal } from 'antd';
-import { ReloadOutlined, CloudServerOutlined, CloudOutlined, BranchesOutlined, ApartmentOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CloudServerOutlined, CloudOutlined, BranchesOutlined, ApartmentOutlined, LoadingOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -13,9 +13,9 @@ import {
 } from '../../../services/api';
 import './CloudConsole.css';
 import CloudConsoleHarvester from './CloudConsoleHarvester';
+import CloudConsoleCloudmap from './CloudConsoleCloudmap';
 import VmSection from '../Harvester/sections/VmSection';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
-import CloudConsoleNetwork from './CloudConsoleNetwork';
 import CloudConsoleVpcDetail from './CloudConsoleVpcDetail';
 
 type CloudItem = { id: string; name: string; region?: string; type?: string; config?: any; status?: string };
@@ -77,6 +77,10 @@ const CloudConsolePage: React.FC = () => {
   const [selectedVpc, setSelectedVpc] = useState<string | null>(null); // 当前选中的 VPC (用于 VPC 详情视图)
   const [caps, setCaps] = useState<any>({}); // 当前云平台的能力集 (capabilities)，用于判断是否为 Harvester 等
   
+  // Harvester Specific Navigation State (Lifted Up)
+  const [harvesterCategory, setHarvesterCategory] = useState<string>('compute');
+  const [harvesterResource, setHarvesterResource] = useState<string>('vm');
+
   // VmSection specific state
   const [nsValue, setNsValue] = useState<string | undefined>(undefined);
   const [nodeValue, setNodeValue] = useState<string | undefined>(undefined);
@@ -280,17 +284,30 @@ const CloudConsolePage: React.FC = () => {
       const children: any[] = [];
       
       // 如果是当前选中的资源池，则将 VPC 列表作为子节点展示
-      if (isCurrent && vpcs.length > 0) {
-        children.push(...vpcs.map(v => {
-          const vpcName = v.name || v.metadata?.name || v.id || 'Unknown';
-          const vpcKey = v.metadata?.name || v.id || v.name || 'unknown';
-          return {
-            title: vpcName,
-            key: `vpc-${vpcKey}`, // VPC 节点的 key 前缀
-            icon: <ApartmentOutlined />,
-            isLeaf: true
-          };
-        }));
+      if (isCurrent) {
+        if (vpcs.length > 0) {
+          children.push(...vpcs.map(v => {
+            const vpcAlias = v.metadata?.annotations?.['tower.io/alias'];
+            const vpcName = vpcAlias || v.alias || v.name || v.metadata?.name || v.id || 'Unknown';
+            const vpcKey = v.metadata?.name || v.id || v.name || 'unknown';
+            return {
+              title: vpcName,
+              key: `vpc-${vpcKey}`, // VPC 节点的 key 前缀
+              icon: <ApartmentOutlined />,
+              isLeaf: true
+            };
+          }));
+        } else if (vpcLoading) {
+          // 加载中占位节点，防止展开按钮消失
+          children.push({
+            title: '加载中...',
+            key: `loading-${c.id}`,
+            icon: <LoadingOutlined spin />,
+            isLeaf: true,
+            selectable: false,
+            disabled: true
+          });
+        }
       }
 
       return {
@@ -308,7 +325,7 @@ const CloudConsolePage: React.FC = () => {
       result.push({
         title: 'Cloudmap',
         key: 'group-cloudmap',
-        selectable: false,
+        selectable: true,
         children: cloudmapClouds.map(mapCloudToNode)
       });
     }
@@ -317,13 +334,13 @@ const CloudConsolePage: React.FC = () => {
       result.push({
         title: 'Harvester',
         key: 'group-harvester',
-        selectable: false,
+        selectable: true,
         children: harvesterClouds.map(mapCloudToNode)
       });
     }
 
     return result;
-  }, [clouds, currentCloudId, vpcs]);
+  }, [clouds, currentCloudId, vpcs, vpcLoading]);
 
   // ==================== Data Loading Functions (数据加载函数) ====================
 
@@ -671,14 +688,15 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载 VPC 和 子网
-  const loadVpcsAndSubnets = async (cloudId?: string) => {
+  const loadVpcsAndSubnets = async (cloudId?: string, force: boolean = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setVpcLoading(true);
     try {
+      const query = force ? '?force=true' : '';
       const [vpcsRes, subnetsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/vpcs`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/subnets`, { headers: getAuthHeaders() })
+        fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/vpcs${query}`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/subnets${query}`, { headers: getAuthHeaders() })
       ]);
       const vpcsJson = await vpcsRes.json();
       const subnetsJson = await subnetsRes.json();
@@ -787,6 +805,33 @@ const CloudConsolePage: React.FC = () => {
   // 2. 展开左侧树的对应节点
   useEffect(() => {
     if (currentCloudId) {
+      // 立即重置旧数据，避免 UI 渲染旧状态或发起错误请求
+      setEcs([]);
+      setNamespaces([]);
+      setPvcs([]);
+      setImages([]);
+      setTemplates([]);
+      setSshKeys([]);
+      setSnapshots([]);
+      setBackups([]);
+      setSchedules([]);
+      setCloudInits([]);
+      setGpus([]);
+      setIPPools([]);
+      setEips([]);
+      setFips([]);
+      setSnatRules([]);
+      setDnatRules([]);
+      setNads([]);
+      setLbrules([]);
+      setStorageClasses([]);
+      setVpcs([]);
+      setSubnets([]);
+      
+      // 重置 Harvester 导航状态
+      setHarvesterCategory('compute');
+      setHarvesterResource('vm');
+
       loadVpcsAndSubnets(currentCloudId);
       // Ensure the current cloud node is expanded to show VPCs
       setExpandedKeys(prev => {
@@ -797,36 +842,101 @@ const CloudConsolePage: React.FC = () => {
         if (provider.startsWith('cloudmap')) newKeys.add('group-cloudmap');
         if (provider.startsWith('harvester')) newKeys.add('group-harvester');
         
-        newKeys.add(currentCloudId);
+        // newKeys.add(currentCloudId);
         return Array.from(newKeys);
       });
     }
   }, [currentCloudId, clouds]);
 
-  // 当识别为 Harvester 环境时，预加载所有相关资源以显示 Tab 统计计数
-  useEffect(() => {
-    if (currentCloudId && caps?.isHarvester) {
-      loadNamespaces(currentCloudId);
-      loadPvcs(currentCloudId);
-      loadImages(currentCloudId);
-      loadTemplates(currentCloudId);
-      loadSshKeys(currentCloudId);
-      loadNads(currentCloudId);
-      loadLbrules(currentCloudId);
-      loadSnapshots(currentCloudId);
-      loadBackups(currentCloudId);
-      loadSchedules(currentCloudId);
-      loadEips(currentCloudId);
-      loadFips(currentCloudId);
-      loadSnatRules(currentCloudId);
-      loadDnatRules(currentCloudId);
-      loadStorageClasses(currentCloudId); // 添加存储类加载
-    }
-  }, [currentCloudId, caps?.isHarvester]);
+  // 计算当前资源池是否为 Harvester (Derived State)
+  const isHarvester = useMemo(() => {
+    if (!currentCloudId) return false;
+    const cloud = clouds.find(c => c.id === currentCloudId);
+    const provider = String(cloud?.config?.provider || '').toLowerCase();
+    return provider.startsWith('harvester');
+  }, [currentCloudId, clouds]);
 
-  // 当 Tab 页签切换或资源池变化时，加载对应 Tab 的数据
+  const isCloudmap = useMemo(() => {
+    if (!currentCloudId) return false;
+    const cloud = clouds.find(c => c.id === currentCloudId);
+    const provider = String(cloud?.config?.provider || '').toLowerCase();
+    return provider.startsWith('cloudmap');
+  }, [currentCloudId, clouds]);
+
+  // Harvester/Cloudmap 资源按需加载逻辑
+  // 监听 harvesterResource 和 currentCloudId 的变化，仅加载当前视图所需的数据
   useEffect(() => {
-    if (!currentCloudId) return;
+    if (!currentCloudId || (!isHarvester && !isCloudmap)) return;
+
+    // 无论哪个 Tab，VM 列表和 Namespace 都是基础数据 (VM 列表可能在其他 Tab 也需要引用，如 Volume 挂载)
+    // 且 VM 列表通常是首页，所以始终检查加载
+    if (ecs.length === 0 && !loading) loadEcs(currentCloudId);
+    if (namespaces.length === 0) loadNamespaces(currentCloudId);
+
+    switch (harvesterResource) {
+      case 'vm':
+        // VM 和 Namespace 已在上方处理
+        break;
+      case 'image':
+        loadImages(currentCloudId);
+        break;
+      case 'ssh':
+        loadSshKeys(currentCloudId);
+        break;
+      case 'cloudinit':
+        loadCloudInits(currentCloudId);
+        break;
+      case 'gpu':
+        loadGpus(currentCloudId);
+        break;
+      case 'volume':
+        loadPvcs(currentCloudId);
+        loadStorageClasses(currentCloudId);
+        break;
+      case 'volume-snapshot':
+        loadSnapshots(currentCloudId);
+        break;
+      case 'snapshot':
+      case 'backup':
+        loadBackups(currentCloudId);
+        break;
+      case 'schedule':
+        loadSchedules(currentCloudId);
+        break;
+      case 'nad':
+        loadNads(currentCloudId);
+        break;
+      case 'lb':
+        loadLbrules(currentCloudId);
+        break;
+      case 'ippool':
+        loadIPPools(currentCloudId);
+        break;
+      case 'vpc-subnet':
+        // VPC 数据通常已加载，但可强制刷新
+        loadVpcsAndSubnets(currentCloudId);
+        break;
+      case 'eip':
+        loadEips(currentCloudId);
+        break;
+      case 'fip':
+        loadFips(currentCloudId);
+        break;
+      case 'snat':
+        loadSnatRules(currentCloudId);
+        break;
+      case 'dnat':
+        loadDnatRules(currentCloudId);
+        break;
+      case 'template':
+        loadTemplates(currentCloudId);
+        break;
+    }
+  }, [currentCloudId, isHarvester, isCloudmap, harvesterResource]);
+
+  // 当 Tab 页签切换或资源池变化时，加载对应 Tab 的数据 (非 Harvester/Cloudmap 场景)
+  useEffect(() => {
+    if (!currentCloudId || isHarvester || isCloudmap) return; // Harvester/Cloudmap 走上面的按需加载逻辑
     switch (activeTab) {
       case 'ecs':
         loadEcs(currentCloudId);
@@ -854,7 +964,7 @@ const CloudConsolePage: React.FC = () => {
         if (caps?.isHarvester) loadNads(currentCloudId);
         break;
     }
-  }, [currentCloudId, activeTab, caps?.isHarvester]);
+  }, [currentCloudId, activeTab, caps?.isHarvester, isHarvester, isCloudmap]);
 
 
 
@@ -873,76 +983,6 @@ const CloudConsolePage: React.FC = () => {
     return Array.from(new Set(ecs.map(r => r?.vmi?.status?.nodeName || r?.status?.nodeName || r?.nodeName || r?.Extra?.NodeName).filter(Boolean))) as string[];
   }, [ecs]);
 
-  // 根据 Capabilities 动态生成 Tabs 配置 (仅用于非 Harvester 场景)
-  const tabItems = useMemo(() => {
-    // 如果是 Harvester，直接返回空，因为外层会单独渲染 CloudConsoleHarvester
-    if (caps?.isHarvester) return [];
-
-    const items = [
-      {
-        label: `云主机${ecs.length > 0 ? ` (${ecs.length})` : ''}`,
-        key: 'ecs',
-        children: (
-          <>
-            <VmSection
-              cloudId={currentCloudId || ''}
-              vms={ecs}
-              loading={loading}
-              namespacesOptions={namespacesOptions}
-              nodesOptions={nodesOptions}
-              nsValue={nsValue}
-              nodeValue={nodeValue}
-              onNsChange={setNsValue}
-              onNodeChange={setNodeValue}
-              onRefresh={() => loadEcs(currentCloudId, true)}
-              onOpenReconfigure={(vm) => {
-                setReconfVm(vm);
-                setReconfVisible(true);
-              }}
-              onStart={handleStart}
-              onStop={handleStop}
-              onReboot={handleReboot}
-              onDelete={handleDelete}
-            />
-            {reconfVisible && (
-              <VmReconfigureModal
-                open={reconfVisible}
-                onClose={() => setReconfVisible(false)}
-                record={reconfVm}
-                cloudId={currentCloudId || ''}
-                onOk={() => {
-                  setReconfVisible(false);
-                  loadEcs(currentCloudId, true);
-                }}
-              />
-            )}
-          </>
-        )
-      }
-    ];
-
-    // 通用 Tab: 虚拟专有云 (VPC)
-    items.push({
-      label: `虚拟专有云VPC${vpcs.length > 0 ? ` (${vpcs.length})` : ''}`,
-      key: 'vpc',
-      children: (
-        <CloudConsoleNetwork 
-          cloudId={currentCloudId || ''}
-          vpcs={vpcs}
-          subnets={subnets}
-          vpcLoading={vpcLoading}
-          onRefreshVpc={() => loadVpcsAndSubnets(currentCloudId)}
-        />
-      )
-    });
-
-    return items;
-  }, [
-    caps, ecs, loading, pagination, canReadEcs, keyword, pvcs, 
-    images, templates, nads, vpcs, subnets, lbrules, currentCloudId,
-    sshKeys, nsValue, nodeValue, reconfVisible, reconfVm
-  ]);
-
   // 页面布局:
   // - PageContainer: 统一的页面容器，提供标题和面包屑
   // - cloud-console-root: Flex 布局容器
@@ -958,7 +998,7 @@ const CloudConsolePage: React.FC = () => {
     >
       <div className="cloud-console-root">
         {/* ==================== Sidebar (左侧导航: 资源池/VPC) ==================== */}
-        <div className="cloud-console-sidebar" style={{ padding: '12px 12px 0 12px' }}>
+        <div className="cloud-console-sidebar" style={{ padding: '12px' ,backgroundColor:'#fff'}}>
           <div>
             <Input.Search placeholder="搜索资源池" allowClear />
           </div>
@@ -979,12 +1019,39 @@ const CloudConsolePage: React.FC = () => {
                 if (key.startsWith('vpc-')) {
                    // 选中 VPC 时，右侧显示 VPC 详情，不再通过 Tab 切换
                    setSelectedVpc(key.replace(/^vpc-/, ''));
-                } else if (key === 'group-cloudmap') {
-                   // 点击根节点不做操作
+                } else if (key === 'group-cloudmap' || key === 'group-harvester') {
+                   // 点击一级目录节点: 切换展开/收起状态
+                   setExpandedKeys((prev) => {
+                     if (prev.includes(key)) {
+                       return prev.filter((k) => k !== key);
+                     }
+                     return [...prev, key];
+                   });
+                } else if (key.startsWith('loading-')) {
+                  // 加载中节点，忽略点击
                 } else {
-                  // 点击资源池节点: 重置选中的 VPC，显示资源池级别的 Tabs
-                  setCurrentCloudId(key);
-                  setSelectedVpc(null);
+                  // 点击资源池节点 (二级目录)
+                  
+                  // 1. 如果点击的是当前已选中的资源池，则切换折叠状态
+                  if (key === currentCloudId) {
+                    setExpandedKeys((prev) => {
+                       if (prev.includes(key)) {
+                         return prev.filter(k => k !== key);
+                       }
+                       return [...prev, key];
+                    });
+                  } else {
+                    // 2. 如果点击的是新资源池
+                    setCurrentCloudId(key);
+                    setSelectedVpc(null);
+                    // 自动展开新选中的资源池
+                    setExpandedKeys((prev) => {
+                        if (!prev.includes(key)) {
+                            return [...prev, key];
+                        }
+                        return prev;
+                    });
+                  }
                 }
               }
             }}
@@ -1019,7 +1086,79 @@ const CloudConsolePage: React.FC = () => {
                 />
             ) : (
                 // 场景 B: 选中了资源池
-                caps?.isHarvester ? (
+                isCloudmap ? (
+                  <CloudConsoleCloudmap
+                    cloudId={currentCloudId || ''}
+                    vms={ecs}
+                    namespaces={namespaces}
+                    templates={templates}
+                    sshKeys={sshKeys}
+                    volumes={pvcs}
+                    images={images}
+                    snapshots={snapshots}
+                    backups={backups}
+                    schedules={schedules}
+                    cloudInits={cloudInits}
+                    gpus={gpus}
+                    ippools={ippools}
+                    nads={nads}
+                    lbs={lbrules}
+                    vpcs={vpcs}
+                    subnets={subnets}
+                    eips={eips}
+                    fips={fips}
+                    snatRules={snatRules}
+                    dnatRules={dnatRules}
+                    storageClasses={storageClasses}
+                    loading={loading}
+                    
+                    namespacesOptions={namespacesOptions}
+                    nodesOptions={nodesOptions}
+                    nsValue={nsValue}
+                    nodeValue={nodeValue}
+                    onNsChange={setNsValue}
+                    onNodeChange={setNodeValue}
+                    
+                    // Controlled Navigation State
+                    activeCategory={harvesterCategory}
+                    setActiveCategory={setHarvesterCategory}
+                    activeResource={harvesterResource}
+                    setActiveResource={setHarvesterResource}
+                    
+                    onRefreshVms={() => {
+                      loadEcs(currentCloudId, true);
+                      loadPvcs(currentCloudId);
+                    }}
+                    onRefreshTemplates={() => loadTemplates(currentCloudId)}
+                    onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
+                    onRefreshVolumes={() => loadPvcs(currentCloudId)}
+                    onRefreshImages={() => loadImages(currentCloudId)}
+                    onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
+                    onRefreshBackups={() => loadBackups(currentCloudId)}
+                    onRefreshSchedules={() => loadSchedules(currentCloudId)}
+                    onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
+                    onRefreshGpus={() => loadGpus(currentCloudId)}
+                    onRefreshIPPools={() => loadIPPools(currentCloudId)}
+                    onRefreshNads={() => loadNads(currentCloudId)}
+                    onRefreshLbs={() => loadLbrules(currentCloudId)}
+                    onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
+                    onRefreshEips={() => loadEips(currentCloudId)}
+                    onRefreshFips={() => loadFips(currentCloudId)}
+                    onRefreshSnatRules={() => loadSnatRules(currentCloudId)}
+                    onRefreshDnatRules={() => loadDnatRules(currentCloudId)}
+                    
+                    onOpenReconfigure={(vm) => {
+                      setReconfVm(vm);
+                      setReconfVisible(true);
+                    }}
+                    onStart={handleStart}
+                    onStop={handleStop}
+                    onReboot={handleReboot}
+                    onDelete={handleDelete}
+                    bordered={false}
+                    showOpsDetail={false}
+                  />
+                ) : isHarvester ? (
                   <CloudConsoleHarvester
                     cloudId={currentCloudId || ''}
                     vms={ecs}
@@ -1052,6 +1191,12 @@ const CloudConsolePage: React.FC = () => {
                     onNsChange={setNsValue}
                     onNodeChange={setNodeValue}
                     
+                    // Controlled Navigation State
+                    activeCategory={harvesterCategory}
+                    setActiveCategory={setHarvesterCategory}
+                    activeResource={harvesterResource}
+                    setActiveResource={setHarvesterResource}
+                    
                     onRefreshVms={() => {
                       loadEcs(currentCloudId, true);
                       loadPvcs(currentCloudId);
@@ -1068,7 +1213,7 @@ const CloudConsolePage: React.FC = () => {
                     onRefreshIPPools={() => loadIPPools(currentCloudId)}
                     onRefreshNads={() => loadNads(currentCloudId)}
                     onRefreshLbs={() => loadLbrules(currentCloudId)}
-                    onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId)}
+                    onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
                     onRefreshEips={() => loadEips(currentCloudId)}
                     onRefreshFips={() => loadFips(currentCloudId)}
                     onRefreshSnatRules={() => loadSnatRules(currentCloudId)}
@@ -1086,12 +1231,15 @@ const CloudConsolePage: React.FC = () => {
                     showOpsDetail={false}
                   />
                 ) : (
-                  <Tabs
-                    type="card"
-                    activeKey={activeTab}
-                    onChange={(k: any) => setActiveTab(k)}
-                    items={tabItems}
-                  />
+                  <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Alert
+                      message="暂不支持的云平台类型"
+                      description={`当前资源池类型 (${clouds.find(c => c.id === currentCloudId)?.config?.provider || 'Unknown'}) 暂不支持控制台视图。`}
+                      type="info"
+                      showIcon
+                      style={{ maxWidth: 600, margin: '0 auto' }}
+                    />
+                  </div>
                 )
             )}
             

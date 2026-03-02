@@ -1482,7 +1482,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'VPC 私有网络',
                       children: (
                         <>
-                          <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={() => { loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, true), (json) => setKubeOvnVpcs(json?.data?.items || []), true); }} />
+                          <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={() => { 
+                            loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, true), (json) => setKubeOvnVpcs(json?.data?.items || []), true); 
+                            loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true);
+                          }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVpcs, null, 2)}</pre>
