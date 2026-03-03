@@ -563,6 +563,85 @@ export function registerLoggingRoutes(
     }
   });
 
+  // ---------- Harvester VM virt-launcher Pod (for log stream) ----------
+  router.get('/:id/logging/harvester/vm-pod', async (req: any, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { namespace, vmName } = req.query;
+      const ns = typeof namespace === 'string' ? namespace : '';
+      const vm = typeof vmName === 'string' ? vmName : '';
+
+      const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+      if (!allowed) return res.status(403).json({ message: '无权访问' });
+      if (isTenant || tenantNamespace) {
+        if (!ns || !isNamespaceAllowed(tenantNamespace, ns)) {
+          return res.status(403).json({ message: '无权访问该命名空间' });
+        }
+      }
+
+      if (!ns || !vm) {
+        return res.status(400).json({ message: '缺少 namespace 或 vmName' });
+      }
+
+      const conn = await getCloudAndConn(id, res);
+      if (!conn) return;
+
+      // virt-launcher pod name: virt-launcher-{vmName}-{random}
+      // 多种方式查找：labelSelector、全量列表按前缀过滤、VMI 关联、Harvester Steve API
+      const labelSelector = `kubevirt.io%2Fdomain%3D${encodeURIComponent(vm)}`;
+      const candidates: string[] = [
+        `${conn.origin}/api/v1/namespaces/${encodeURIComponent(ns)}/pods?labelSelector=${labelSelector}&limit=100`,
+        `${conn.origin}/k8s/clusters/local/api/v1/namespaces/${encodeURIComponent(ns)}/pods?labelSelector=${labelSelector}&limit=100`,
+        `${conn.origin}/api/v1/namespaces/${encodeURIComponent(ns)}/pods?limit=500`,
+        `${conn.origin}/k8s/clusters/local/api/v1/namespaces/${encodeURIComponent(ns)}/pods?limit=500`,
+        `${conn.origin}/v1/harvester/core.pods?limit=500`,
+        `${conn.origin}/v1/harvester/core.v1.pods?limit=500`,
+      ];
+
+      const getPodMeta = (p: any) => {
+        const data = p?.data || p;
+        const m = p?.metadata || data?.metadata || p;
+        return m;
+      };
+      const matchVirtLauncher = (p: any): boolean => {
+        const m = getPodMeta(p);
+        const name = (m?.name ?? '').toString().trim();
+        const pns = (m?.namespace ?? '').toString().trim();
+        const phase = (p?.status?.phase ?? p?.data?.status?.phase ?? '').toString();
+        const labels = m?.labels || {};
+        const matchDomain = labels['kubevirt.io/domain'] === vm;
+        const matchPrefix = name.startsWith(`virt-launcher-${vm}-`);
+        const phaseOk = !phase || phase === 'Running';
+        return (matchPrefix || matchDomain) && (!pns || pns === ns) && phaseOk;
+      };
+      const extractPodName = (p: any): string =>
+        (getPodMeta(p)?.name ?? '').toString().trim();
+
+      let podName: string | null = null;
+      for (const url of candidates) {
+        try {
+          const json = await getJsonOnce(url, conn.token, conn.insecure, true);
+          const items = json?.items || json?.data || [];
+          const arr = Array.isArray(items) ? items : [];
+          const virtLauncher = arr.find(matchVirtLauncher);
+          if (virtLauncher) {
+            podName = extractPodName(virtLauncher);
+            if (podName) break;
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      if (!podName) {
+        return res.status(404).json({ message: '未找到运行中的 virt-launcher Pod，请确认 VM 已启动且命名空间/名称正确' });
+      }
+      res.json({ podName });
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || '查询失败' });
+    }
+  });
+
   // ---------- Harvester Events ----------
   // 多路径尝试：Harvester Steve API、K8s API（不同 base path）
   router.get('/:id/logging/harvester/events', async (req: any, res: Response) => {

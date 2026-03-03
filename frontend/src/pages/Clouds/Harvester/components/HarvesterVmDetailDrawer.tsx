@@ -55,6 +55,7 @@ import { ReactComponent as MemIcon } from '../../../../assets/clouds/mem.svg';
 import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
 import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
 import HarvesterEventsTab from './HarvesterEventsTab';
+import HarvesterVmLogsTab from './HarvesterVmLogsTab';
 
 /**
  * HarvesterVmDetailDrawer 组件入参定义
@@ -1017,6 +1018,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 { key: 'performance', label: '性能' },
                 { key: 'backup_snapshot', label: '备份/快照' },
                 { key: 'events', label: '事件' },
+                { key: 'logs', label: '实时日志' },
             ]}
           />
       </div>
@@ -1400,6 +1402,19 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                     record={vmData} 
                     active={activeTab === 'events'} 
                     kind="VirtualMachine"
+                 />
+              </Card>
+          )}
+          {activeTab === 'logs' && (
+              <Card 
+                bordered={false} 
+                bodyStyle={{ padding: 0, height: '100%', display: 'flex', flexDirection: 'column' }} 
+                style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+              >
+                 <HarvesterVmLogsTab 
+                    cloudId={cloudId} 
+                    record={record} 
+                    active={activeTab === 'logs'} 
                  />
               </Card>
           )}

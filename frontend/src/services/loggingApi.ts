@@ -240,6 +240,28 @@ export function deleteFlow(cloudId: string, namespace: string, name: string) {
   );
 }
 
+// ---------- Harvester VM virt-launcher Pod (for log stream) ----------
+
+/**
+ * 获取 VM 对应的 virt-launcher Pod 名称，用于日志流
+ */
+export async function fetchHarvesterVmPod(
+  cloudId: string,
+  namespace: string,
+  vmName: string,
+  options?: { signal?: AbortSignal }
+): Promise<{ podName: string }> {
+  const params = new URLSearchParams({ namespace, vmName });
+  const result = await apiGet<{ podName: string }>(
+    `${base(cloudId)}/harvester/vm-pod?${params}`,
+    options
+  );
+  if (!result.ok || !result.data?.podName) {
+    throw new Error(result.error || '未找到 virt-launcher Pod');
+  }
+  return result.data;
+}
+
 // ---------- Harvester Events ----------
 
 /**

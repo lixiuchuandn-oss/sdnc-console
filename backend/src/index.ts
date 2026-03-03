@@ -303,13 +303,31 @@ AppDataSource.initialize()
     } catch (e: any) {
       console.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
     }
+    
+    // 初始化 Pod 日志 WebSocket 服务
+    let kvPodLogWss: any = null;
+    try {
+      const { createKvPodLogWss } = await import('./ws/kvPodLog');
+      kvPodLogWss = createKvPodLogWss();
+      console.log('KubeVirt Pod Log 服务已创建 (Headless)');
+    } catch (e: any) {
+      console.warn('创建 KubeVirt Pod Log 服务失败:', e?.message || e);
+    }
 
     // 统一处理 HTTP Upgrade 请求
     server.on('upgrade', (req, socket, head) => {
       const pathname = req.url || '';
       // console.log(`[HTTP-Upgrade] Url: ${pathname}`);
       
-      if (pathname.startsWith('/ws/kv-vnc')) {
+      if (pathname.startsWith('/ws/kv-pod-log')) {
+        if (kvPodLogWss) {
+          kvPodLogWss.handleUpgrade(req, socket, head, (ws: any) => {
+            kvPodLogWss.emit('connection', ws, req);
+          });
+        } else {
+          socket.destroy();
+        }
+      } else if (pathname.startsWith('/ws/kv-vnc')) {
         if (kvVncWss) {
           kvVncWss.handleUpgrade(req, socket, head, (ws: any) => {
             kvVncWss.emit('connection', ws, req);
