@@ -9,6 +9,33 @@ interface VMPerformanceProps {
   name: string;
 }
 
+const ChartWithEmpty: React.FC<{ isEmpty: boolean; children: React.ReactNode }> = ({ isEmpty, children }) => {
+  return (
+    <div style={{ position: 'relative' }}>
+      {children}
+      {isEmpty && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(255, 255, 255, 0.6)',
+            zIndex: 10,
+            pointerEvents: 'none',
+          }}
+        >
+          <span style={{ fontSize: 14, color: '#ccc' }}>暂无数据</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 每 5 分钟抓取一次
 
 /** 性能考虑：支持 5/10/15 分钟，动态调整步长控制点数 */
@@ -148,8 +175,6 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
       return [ts < 1e12 ? ts * 1000 : ts, (Number(d[1]) || 0) / scale.div] as [number, number];
     };
 
-    const isEmpty = series.every(s => !s.data || s.data.length === 0);
-
     return {
       title: { text: title, textStyle: { fontSize: 14, fontWeight: 500 }, left: 0 },
       tooltip: {
@@ -203,17 +228,6 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
         itemStyle: { color: s.color || color },
         data: (s.data || []).map(scaleData),
       })),
-      graphic: [{
-          id: 'no-data-text',
-          type: 'text',
-          left: 'center',
-          top: 'center',
-          style: {
-              text: isEmpty ? '暂无数据' : '',
-              fill: '#ccc',
-              fontSize: 14
-          }
-      }]
     };
   };
 
@@ -226,7 +240,6 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
   ) => {
     const displayUnit = opts?.unitOnYAxis ?? unit;
     const titleText = opts?.unitOnYAxis ? title : `${title} (${unit})`;
-    const isEmpty = series.every(s => !s.data || s.data.length === 0);
 
     return {
     title: { text: titleText, textStyle: { fontSize: 14, fontWeight: 500 }, left: 0 },
@@ -284,17 +297,6 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
           return [ts < 1e12 ? ts * 1000 : ts, d[1]] as [number, number];
         })
     })),
-    graphic: [{
-          id: 'no-data-text',
-          type: 'text',
-          left: 'center',
-          top: 'center',
-          style: {
-              text: isEmpty ? '暂无数据' : '',
-              fill: '#ccc',
-              fontSize: 14
-          }
-      }]
   };
   };
 
@@ -315,29 +317,33 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
         <Col span={12}>
           <Card variant="borderless" styles={{ body: { padding: 16 } }}>
             <Spin spinning={loading}>
-              <ReactECharts 
-                  option={getOption(
-                    'CPU使用率',
-                    '%',
-                    [{ name: 'Usage', data: cpuData.map((d) => [d[0], (Number(d[1]) || 0) * 100]) }],
-                    '#1890ff',
-                    { unitOnYAxis: '%' }
-                  )} 
-                  style={{ height: 300 }} 
-              />
+              <ChartWithEmpty isEmpty={!cpuData?.length}>
+                <ReactECharts 
+                    option={getOption(
+                      'CPU使用率',
+                      '%',
+                      [{ name: 'Usage', data: cpuData.map((d) => [d[0], (Number(d[1]) || 0) * 100]) }],
+                      '#1890ff',
+                      { unitOnYAxis: '%' }
+                    )} 
+                    style={{ height: 300 }} 
+                />
+              </ChartWithEmpty>
             </Spin>
           </Card>
         </Col>
         <Col span={12}>
           <Card variant="borderless" styles={{ body: { padding: 16 } }}>
             <Spin spinning={loading}>
-              <ReactECharts 
-                  option={getOption('内存使用率', '%', [{ 
-                      name: 'Usage', 
-                      data: memData.map((d) => [d[0], (Number(d[1]) || 0) * 100]) 
-                  }], '#52c41a', { unitOnYAxis: '%' })} 
-                  style={{ height: 300 }} 
-              />
+              <ChartWithEmpty isEmpty={!memData?.length}>
+                <ReactECharts 
+                    option={getOption('内存使用率', '%', [{ 
+                        name: 'Usage', 
+                        data: memData.map((d) => [d[0], (Number(d[1]) || 0) * 100]) 
+                    }], '#52c41a', { unitOnYAxis: '%' })} 
+                    style={{ height: 300 }} 
+                />
+              </ChartWithEmpty>
             </Spin>
           </Card>
         </Col>
@@ -346,26 +352,30 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
             <Col span={12}>
               <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                 <Spin spinning={loading}>
-                  <ReactECharts 
-                      option={getByteRateOption('网络吞吐量', [
-                          { name: 'Receive', data: netData.rx.map((d) => [d[0], (Number(d[1]) || 0) / 8]), color: '#faad14' },
-                          { name: 'Transmit', data: netData.tx.map((d) => [d[0], (Number(d[1]) || 0) / 8]), color: '#13c2c2' }
-                      ], '#1890ff')} 
-                      style={{ height: 300 }} 
-                  />
+                  <ChartWithEmpty isEmpty={!netData.rx?.length && !netData.tx?.length}>
+                    <ReactECharts 
+                        option={getByteRateOption('网络吞吐量', [
+                            { name: 'Receive', data: netData.rx.map((d) => [d[0], (Number(d[1]) || 0) / 8]), color: '#faad14' },
+                            { name: 'Transmit', data: netData.tx.map((d) => [d[0], (Number(d[1]) || 0) / 8]), color: '#13c2c2' }
+                        ], '#1890ff')} 
+                        style={{ height: 300 }} 
+                    />
+                  </ChartWithEmpty>
                 </Spin>
               </Card>
             </Col>
             <Col span={12}>
               <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                 <Spin spinning={loading}>
-                  <ReactECharts 
-                      option={getOption('网络包速率', 'pps', [
-                          { name: 'Receive', data: netPpsData.rx, color: '#faad14' },
-                          { name: 'Transmit', data: netPpsData.tx, color: '#13c2c2' }
-                      ], '#1890ff', { unitOnYAxis: 'pps' })} 
-                      style={{ height: 300 }} 
-                  />
+                  <ChartWithEmpty isEmpty={!netPpsData.rx?.length && !netPpsData.tx?.length}>
+                    <ReactECharts 
+                        option={getOption('网络包速率', 'pps', [
+                            { name: 'Receive', data: netPpsData.rx, color: '#faad14' },
+                            { name: 'Transmit', data: netPpsData.tx, color: '#13c2c2' }
+                        ], '#1890ff', { unitOnYAxis: 'pps' })} 
+                        style={{ height: 300 }} 
+                    />
+                  </ChartWithEmpty>
                 </Spin>
               </Card>
             </Col>
@@ -377,26 +387,30 @@ export const VMPerformance: React.FC<VMPerformanceProps> = ({ cloudId, namespace
             <Col span={12}>
               <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                 <Spin spinning={loading}>
-                  <ReactECharts 
-                      option={getByteRateOption('磁盘IO吞吐量', [
-                          { name: 'Read', data: diskData.read, color: '#722ed1' },
-                          { name: 'Write', data: diskData.write, color: '#eb2f96' }
-                      ], '#1890ff')} 
-                      style={{ height: 300 }} 
-                  />
+                  <ChartWithEmpty isEmpty={!diskData.read?.length && !diskData.write?.length}>
+                    <ReactECharts 
+                        option={getByteRateOption('磁盘IO吞吐量', [
+                            { name: 'Read', data: diskData.read, color: '#722ed1' },
+                            { name: 'Write', data: diskData.write, color: '#eb2f96' }
+                        ], '#1890ff')} 
+                        style={{ height: 300 }} 
+                    />
+                  </ChartWithEmpty>
                 </Spin>
               </Card>
             </Col>
             <Col span={12}>
               <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                 <Spin spinning={loading}>
-                  <ReactECharts 
-                      option={getOption('磁盘 IOPS', 'IOPS', [
-                          { name: 'Read', data: diskIopsData.read, color: '#722ed1' },
-                          { name: 'Write', data: diskIopsData.write, color: '#eb2f96' }
-                      ], '#1890ff', { unitOnYAxis: 'io/s' })} 
-                      style={{ height: 300 }} 
-                  />
+                  <ChartWithEmpty isEmpty={!diskIopsData.read?.length && !diskIopsData.write?.length}>
+                    <ReactECharts 
+                        option={getOption('磁盘 IOPS', 'IOPS', [
+                            { name: 'Read', data: diskIopsData.read, color: '#722ed1' },
+                            { name: 'Write', data: diskIopsData.write, color: '#eb2f96' }
+                        ], '#1890ff', { unitOnYAxis: 'io/s' })} 
+                        style={{ height: 300 }} 
+                    />
+                  </ChartWithEmpty>
                 </Spin>
               </Card>
             </Col>

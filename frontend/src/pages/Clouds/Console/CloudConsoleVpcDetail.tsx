@@ -212,6 +212,7 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
                         onStop={onStop}
                         onReboot={onReboot}
                         onDelete={onDelete}
+                        isTenant={true}
                     />
                 )
             },

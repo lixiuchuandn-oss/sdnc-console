@@ -239,3 +239,30 @@ export function deleteFlow(cloudId: string, namespace: string, name: string) {
     `${base(cloudId)}/flows/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`
   );
 }
+
+// ---------- Harvester Events ----------
+
+/**
+ * 查询 Harvester/K8s 事件，支持按 namespace、name、kind 过滤
+ */
+export async function fetchHarvesterEvents(
+  cloudId: string,
+  namespace: string,
+  name?: string,
+  kind?: string,
+  options?: { signal?: AbortSignal }
+): Promise<{ data: any[] }> {
+  const params = new URLSearchParams();
+  if (namespace) params.set('namespace', namespace);
+  if (name) params.set('name', name);
+  if (kind) params.set('kind', kind);
+  const q = params.toString();
+  const result = await apiGet<{ data: any[] }>(
+    `${base(cloudId)}/harvester/events${q ? `?${q}` : ''}`,
+    options
+  );
+  if (!result.ok || !result.data) {
+    throw new Error(result.error || '查询事件失败');
+  }
+  return result.data as { data: any[] };
+}

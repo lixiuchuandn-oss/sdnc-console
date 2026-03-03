@@ -1301,6 +1301,48 @@ export const listHarvesterSshKeysStandard = async ({
 };
 
 /**
+ * [创建 SSH 密钥]
+ * 创建 Harvester SSH 密钥对 (KeyPair)。
+ *
+ * @param params 连接参数
+ * @param namespace 命名空间
+ * @param payload 创建参数 (name, publicKey)
+ * @returns Promise<any> 创建结果
+ */
+export const createHarvesterSshKey = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  payload: {
+    name: string;
+    publicKey: string;
+  }
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/keypairs`;
+
+  const body = {
+    apiVersion: 'harvesterhci.io/v1beta1',
+    kind: 'KeyPair',
+    metadata: {
+      name: payload.name,
+      namespace: namespace,
+    },
+    spec: {
+      publicKey: payload.publicKey,
+    }
+  };
+
+  return requestJson('POST', url, token, insecure, body);
+};
+
+/**
  * [CloudInit 模板]
  * 获取 Harvester CloudInit 模板列表。
  *

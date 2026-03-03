@@ -46,6 +46,7 @@ import {
   fetchKubeOvnVpcs
 } from '../../../../../services/harvesterApi';
 
+import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
 import { parseSizeToGi } from './VmWizardUtils';
 
 /**
@@ -54,9 +55,10 @@ import { parseSizeToGi } from './VmWizardUtils';
  * @param cloudId - 当前选中的云资源池 ID (或 'all')
  * @param currentCloudId - (可选) 覆盖用的云资源池 ID，优先级高于 cloudId
  * @param form - Ant Design Form 实例，用于获取表单当前值 (如 namespace) 以进行级联查询
+ * @param isTenant - 是否为租户模式 (用于过滤系统命名空间)
  * @returns 包含所有资源数据、加载状态、刷新方法和格式化后的选项列表
  */
-export const useHarvesterData = (cloudId: string, currentCloudId: string | undefined, form: any) => {
+export const useHarvesterData = (cloudId: string, currentCloudId: string | undefined, form: any, isTenant?: boolean) => {
   // [状态定义] 资源数据
   const [images, setImages] = useState<any[]>([]);
   const [imageLoading, setImageLoading] = useState<boolean>(false);
@@ -304,7 +306,17 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     }), [availableVolumes]);
 
   // [数据处理] 命名空间选项
-  const namespaceOptions = useMemo(() => (namespaces || []).map((x: any) => ({ label: x?.metadata?.name || x?.name || '-', value: x?.metadata?.name || x?.name })), [namespaces]);
+  const namespaceOptions = useMemo(() => {
+    let list = (namespaces || []);
+    if (isTenant) {
+      // 租户模式下，创建 VM 时不能选择系统命名空间和公共命名空间
+      list = list.filter((n: any) => {
+        const name = n?.metadata?.name || n?.name;
+        return !isSystemNamespace(name) && !isPublicNamespace(name);
+      });
+    }
+    return list.map((x: any) => ({ label: x?.metadata?.name || x?.name || '-', value: x?.metadata?.name || x?.name }));
+  }, [namespaces, isTenant]);
 
   // [数据处理] 网络 (NAD) 选项
   // [业务规则] 格式化显示 VLAN ID 和网络类型

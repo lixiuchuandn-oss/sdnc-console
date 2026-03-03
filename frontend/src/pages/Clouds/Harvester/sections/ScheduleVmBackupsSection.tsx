@@ -1,11 +1,30 @@
 /**
- * Harvester - 定时备份/快照策略列表 Section
- * 展示 Harvester 中的 ScheduleVmBackup 资源，
- * 支持：
- * - 过滤系统命名空间，只展示业务命名空间策略
- * - 按关键字、类型过滤（备份 / 快照）
- * - 查看、修改、启用/停用以及删除策略
- * - 打开资源详情抽屉查看原始对象
+ * ==============================================================================
+ * 模块名称: Harvester 定时备份策略列表 (ScheduleVmBackupsSection)
+ * 文件路径: src/pages/Clouds/Harvester/sections/ScheduleVmBackupsSection.tsx
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 这个组件是“定时备份/快照”功能的列表展示页面。
+ * 它就像一个“日程表”，列出了所有给虚拟机设定的自动备份计划。
+ * 
+ * [核心功能]
+ * 1. 列表展示: 显示所有定时策略，包括名字、针对哪台虚拟机、备份频率(Cron表达式)等。
+ * 2. 过滤搜索: 可以只看“备份”或“快照”，也可以搜索名字。
+ * 3. 增删改查: 
+ *    - 创建: 弹出一个对话框新建策略。
+ *    - 修改: 修改备份频率或保留数量。
+ *    - 停用/启用: 就像闹钟开关一样，暂时关闭策略但不删除。
+ *    - 删除: 彻底移除策略。
+ * 4. 租户适配:
+ *    - 通过 showYaml 属性控制，如果是租户看，就隐藏复杂的 YAML/详情入口。
+ * 
+ * [关键逻辑 - 乐观更新 (Optimistic UI)]
+ * Harvester 的 API 有时候反应比较慢（异步），比如点了“删除”，后端可能要过几秒才真正删掉。
+ * 为了让用户感觉“秒删”，我们在界面上会先“假装”它已经删了（从列表中移除），
+ * 然后在后台悄悄轮询后端，直到后端真的删掉了，或者出错了再滚回。
+ * 
+ * ==============================================================================
  */
 import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Button, Input, Badge, Tooltip, Dropdown, message, Modal, Select } from 'antd';
@@ -20,26 +39,54 @@ import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
 
 /**
- * 组件入参说明
- * - cloudId: 当前云 ID，用于调用定时备份相关 API
- * - data: 后端返回的定时策略列表（可能带 rawData 包装）
- * - loading: 外层加载状态
- * - onRefresh: 刷新回调，支持 force=true
+ * [组件参数定义]
+ * 定义了组件需要从外部接收哪些数据。
  */
 interface Props {
+  /** 当前云平台的唯一标识 ID，发请求时需要用到 */
   cloudId: string;
+  
+  /** 
+   * 后端返回的原始策略列表数据 
+   * 注意：这个数据可能不是最新的，因为后端可能有缓存
+   */
   data: any[];
+  
+  /** 表格是否正在加载（显示转圈圈） */
   loading: boolean;
+  
+  /** 
+   * 刷新数据的回调函数
+   * @param force - 如果为 true，强制后端从 Harvester 重新拉取最新数据，不走缓存
+   */
   onRefresh?: (force?: boolean) => void;
-  vms?: any[]; // New prop for alias resolution
+  
+  /** 
+   * 虚拟机列表
+   * 用途：策略里只存了虚拟机的名字（如 vm-123），我们需要这个列表来查出它的“别名”（如 Web服务器-01）
+   */
+  vms?: any[];
+  
+  /** 如果传了这个 ID，说明是在“虚拟机详情页”里用，只显示该虚拟机的策略 */
   vmId?: string;
+  
+  /** 默认隐藏哪些列 */
   defaultHiddenColumns?: string[];
+  
+  /** 是否显示表格边框（租户侧通常不需要边框） */
   bordered?: boolean;
+  
+  /** 
+   * 是否显示 YAML/详情入口
+   * - true (默认): 管理员视图，可以看底层详情。
+   * - false: 租户视图，隐藏复杂的技术细节。
+   */
+  showYaml?: boolean;
 }
 
 /**
- * 将创建时间转换为“存活时间”人类可读文案
- * 如：5 分钟 / 3 小时 / 2 天
+ * [辅助函数] 计算“存活时间”
+ * 把枯燥的时间戳（2023-10-01...）转换成“5 分钟前”、“3 天前”这种人话。
  */
 const formatAge = (timestamp: string) => {
   if (!timestamp) return '-';
@@ -57,35 +104,73 @@ const formatAge = (timestamp: string) => {
   return `${days} 天`;
 };
 
-const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onRefresh, vms, vmId, defaultHiddenColumns, bordered = true }) => {
-  // 工具栏过滤与抽屉/弹窗的本地状态
+const ScheduleVmBackupsSection: React.FC<Props> = ({ 
+  cloudId, 
+  data, 
+  loading, 
+  onRefresh, 
+  vms, 
+  vmId, 
+  defaultHiddenColumns, 
+  bordered = true, 
+  showYaml = true 
+}) => {
+  // ==============================================================================
+  // 1. 本地状态管理 (Local State)
+  // ==============================================================================
+  
+  // 搜索框里的文字
   const [keyword, setKeyword] = useState<string>('');
+  // 下拉框选中的类型（全部 / 备份 / 快照）
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [drawerVisible, setDrawerVisible] = useState(false);
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
+  
+  // 控制各种弹窗的显示/隐藏
+  const [drawerVisible, setDrawerVisible] = useState(false); // 侧边详情抽屉
+  const [createModalVisible, setCreateModalVisible] = useState(false); // 创建弹窗
+  const [editModalVisible, setEditModalVisible] = useState(false); // 编辑弹窗
+  
+  // 当前正在操作的那一行数据（比如点击了某行的编辑，这里就存那一行的数据）
   const [currentRecord, setCurrentRecord] = useState<any>(null);
   
-  // Optimistic UI states
+  // ==============================================================================
+  // 2. 乐观更新状态 (Optimistic UI State)
+  // 这里的状态是为了让界面“反应更快”，不等后端返回就先变。
+  // ==============================================================================
+  
+  // [创建轮询]: 刚创建完策略，后端列表里可能还没刷出来，这个变量记下“我要找谁”
   const [pollingTarget, setPollingTarget] = useState<{ namespace: string; alias: string } | null>(null);
+  // [临时列表]: 刚创建还没刷出来的项，先临时存在这，手动拼到表格里显示
   const [optimisticItems, setOptimisticItems] = useState<any[]>([]);
+  
+  // [删除列表]: 用户点了删除，后端还没删掉时，先把它记在这，表格渲染时过滤掉这些 ID
   const [removed, setRemoved] = useState<Array<{ ns: string; id?: string; alias?: string }>>([]);
+  
+  // [状态覆盖]: 用户点了停用/启用，后端还没变时，先用这个状态覆盖掉原来的状态
   const [suspendedOverrides, setSuspendedOverrides] = useState<Array<{ ns: string; id: string; suspended: boolean }>>([]);
+  // [状态轮询]: 记下“我在等谁的状态变化”，轮询到了就停止
   const [suspendPollingTarget, setSuspendPollingTarget] = useState<{ ns: string; id: string; suspended: boolean } | null>(null);
 
-  // 列设置状态
+  // 用户自定义的列显示设置
   const [visibleColumns, setVisibleColumns] = useState<any>();
 
-  // Polling for newly created item
+  // ==============================================================================
+  // 3. 副作用与轮询逻辑 (Effects)
+  // ==============================================================================
+
+  /**
+   * [轮询逻辑 1] 检查新创建的项是否出现了
+   * 场景：用户刚创建了一个策略，后端还没同步过来。
+   * 逻辑：
+   * 1. 每 3 秒刷新一次列表 (onRefresh(true))。
+   * 2. 检查列表里有没有我们需要找的那个名字 (pollingTarget)。
+   * 3. 如果找到了，或者试了 15 次还没找到，就停止轮询。
+   */
   React.useEffect(() => {
     if (!pollingTarget) return;
     let tries = 0;
     const maxTries = 15;
     const tick = () => {
-      // Check if target exists in current dataSource (excluding optimistic ones ideally, but checking 'data' prop is safer if we want to confirm backend sync)
-      // However, dataSource is derived. Let's check 'data' prop directly or just check if it appears in the processed list WITHOUT being optimistic.
-      // But here we can check dataSource and see if we can find a non-optimistic match.
-      // Actually, checking `data` is better.
+      // 在当前数据里找，看有没有我们要找的目标
       const exists = (data || []).some((x: any) => {
         const raw = x.rawData || x;
         const ns = raw.metadata?.namespace || x.namespace;
@@ -95,22 +180,25 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       });
 
       if (exists || tries >= maxTries) {
-        setPollingTarget(null);
+        setPollingTarget(null); // 停止寻找
         if (exists) {
-          // Remove from optimistic list once confirmed
+          // 如果真数据里已经有了，就把“临时伪造的数据”删掉，避免重复显示
           setOptimisticItems(prev => prev.filter(o => !(o.namespace === pollingTarget.namespace && o.name === pollingTarget.alias)));
         }
         return;
       }
       tries++;
-      onRefresh?.(true);
+      onRefresh?.(true); // 强制刷新
     };
     tick();
     const timer = setInterval(tick, 3000);
     return () => clearInterval(timer);
   }, [pollingTarget, data, onRefresh]);
 
-  // Polling for suspend status
+  /**
+   * [轮询逻辑 2] 检查停用/启用状态是否生效
+   * 逻辑同上，只是检查的是 suspend 字段是否变成了我们预期的值。
+   */
   React.useEffect(() => {
     if (!suspendPollingTarget) return;
     let tries = 0;
@@ -126,8 +214,10 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       if (rec) {
         const raw = rec.rawData || rec;
         const isSuspended = raw.spec?.suspend === true || rec.status === 'Suspended';
+        // 如果状态已经变过来了
         if (isSuspended === suspendPollingTarget.suspended) {
              setSuspendPollingTarget(null);
+             // 移除本地的临时覆盖，改用后端真实数据
              setSuspendedOverrides(prev => prev.filter(o => !(o.ns === suspendPollingTarget.ns && o.id === suspendPollingTarget.id)));
              return;
         }
@@ -145,17 +235,24 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
     return () => clearInterval(timer);
   }, [suspendPollingTarget, data, onRefresh]);
 
+  // ==============================================================================
+  // 4. 交互处理函数 (Handlers)
+  // ==============================================================================
+
+  // 处理“停用/启用”点击
   const handleSuspend = useCallback(async (record: any) => {
     try {
       const newSuspend = !record.suspended;
+      // 发请求给后端
       await updateHarvesterScheduleVmBackup(cloudId, record.namespace, record.id, { suspend: newSuspend });
       message.success(`${newSuspend ? '停用' : '启用'}成功`);
       
-      // Optimistic update
+      // [乐观更新]: 马上修改界面显示，不用等刷新
       setSuspendedOverrides(prev => {
         const rest = prev.filter(o => !(o.ns === record.namespace && o.id === record.id));
         return rest.concat({ ns: record.namespace, id: record.id, suspended: newSuspend });
       });
+      // 开启轮询，等待后端确认
       setSuspendPollingTarget({ ns: record.namespace, id: record.id, suspended: newSuspend });
       
       onRefresh?.(true);
@@ -164,6 +261,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
     }
   }, [cloudId, onRefresh]);
 
+  // 处理“删除”点击
   const handleDelete = useCallback((record: any) => {
     Modal.confirm({
       title: '确认删除',
@@ -176,8 +274,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
           await deleteHarvesterScheduleVmBackup(cloudId, record.namespace, record.id);
           message.success('删除成功');
           
-          // Optimistic update
+          // [乐观更新]: 马上把它加入“已删除名单”，表格渲染时会把它过滤掉
           setRemoved(prev => prev.concat({ ns: record.namespace, id: record.id, alias: record.name }));
+          // 如果它是刚才乐观创建的临时项，也删掉
           setOptimisticItems(prev => prev.filter(o => !(o.namespace === record.namespace && (o.name === record.name || o.id === record.id))));
           
           onRefresh?.(true);
@@ -188,17 +287,30 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
     });
   }, [cloudId, onRefresh]);
 
+  // ==============================================================================
+  // 5. 数据处理与渲染准备 (Data Processing)
+  // ==============================================================================
+
+  /**
+   * [数据源构造]
+   * 这里做了三件事：
+   * 1. 过滤掉系统自带的命名空间（我们只关心用户业务的）。
+   * 2. 数据格式化：把后端复杂的嵌套对象，转成表格好读的扁平对象。
+   * 3. 别名解析：把 vm-abc 这种 ID 换成 "Web服务器" 这种人名。
+   * 4. 合并“真数据”和“乐观新增的数据”，并剔除“乐观删除的数据”。
+   */
   const dataSource = useMemo(() => {
     const base = (data || [])
       .filter((b: any) => {
         const raw = b.rawData || b;
         const ns = raw.metadata?.namespace || b.namespace;
+        // 过滤系统命名空间
         return !isSystemNamespace(ns);
       })
       .map((b: any) => {
       const raw = b.rawData || b;
       
-      // Parse retention count
+      // 解析保留数量 (Retention)
       let retentionCount = '-';
       if (raw.spec?.retain !== undefined) {
         retentionCount = raw.spec.retain;
@@ -206,13 +318,15 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         retentionCount = b.retention;
       }
 
-      // Resolve Name/Alias
+      // 解析名称和别名
       const id = raw.metadata?.name || b.name;
       const alias = raw.metadata?.annotations?.['tower.io/alias'];
       const displayName = alias || id;
 
       const ns = raw.metadata?.namespace || b.namespace;
       const vmNameRaw = raw.spec?.vmbackup?.source?.name || b.vmName || '';
+      
+      // [别名查找逻辑] 拿着 VM 的 ID 去 vms 列表里查它的中文名
       let vmAlias = vmNameRaw || '-';
       try {
         const vm = (vms || []).find((x: any) => {
@@ -225,7 +339,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         }
       } catch {}
 
-      // Determine suspended status
+      // 判断是否停用：优先看我们的“乐观覆盖状态”，没有覆盖再看真实状态
       let isSuspended = raw.spec?.suspend === true || b.status === 'Suspended';
       const ov = suspendedOverrides.find(o => o.ns === ns && o.id === id);
       if (ov) isSuspended = ov.suspended;
@@ -235,11 +349,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         name: displayName,
         id: id,
         namespace: ns,
-        vmAlias, // Use resolved alias
-        vmName: vmNameRaw, // Keep raw name for filtering
+        vmAlias, // 显示给用户的 VM 名字
+        vmName: vmNameRaw, // 原始 VM ID，用于过滤
         retention: retentionCount,
         maxFailure: raw.spec?.maxFailure || b.maxFailure || '-',
-        type: raw.spec?.vmbackup?.type || 'backup',
+        type: raw.spec?.vmbackup?.type || 'backup', // backup 或 snapshot
         cron: raw.spec?.cron || b.cron || '-',
         suspended: isSuspended,
         creationTimestamp: raw.metadata?.creationTimestamp || b.createdAt,
@@ -249,12 +363,12 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       };
     });
 
-    // Filter out removed items
+    // 过滤掉被标记为“已删除”的项
     const filteredBase = base.filter((x: any) => {
       return !removed.some(r => r.ns === x.namespace && ((r.id && r.id === x.id) || (r.alias && r.alias === x.name)));
     });
 
-    // Merge optimistic items
+    // 合并“乐观新增”的项（如果真实数据里已经有了，就不重复加）
     const dedupedOptimistic = optimisticItems.filter((o: any) => {
       return !filteredBase.some((x: any) => x.namespace === o.namespace && x.name === o.name);
     });
@@ -262,33 +376,48 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
     return filteredBase.concat(dedupedOptimistic);
   }, [data, vms, optimisticItems, removed, suspendedOverrides]);
 
+  /**
+   * [前端过滤]
+   * 根据用户在工具栏输入的关键字、选择的类型，对表格数据进行二次筛选。
+   */
   const filteredData = useMemo(() => {
     let d = dataSource;
+    // 类型过滤 (备份 vs 快照)
     if (typeFilter && typeFilter !== 'all') {
       d = d.filter((x: any) => x.type === typeFilter);
     }
+    // 关键字过滤 (名称 或 命名空间)
     if (keyword) {
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
     }
+    // 如果指定了 vmId，只看这个 VM 的
     if (vmId) {
       d = d.filter((x: any) => x.vmName === vmId);
     }
     return d;
   }, [dataSource, keyword, typeFilter, vmId]);
 
+  /**
+   * [表格列定义]
+   * 定义表格每一列怎么显示。
+   */
   const columns = useMemo(() => [
     { 
       title: '策略名称', 
       dataIndex: 'name', 
       key: 'name', 
-      render: (t: string, r: any) => (
+      render: (t: string, r: any) => showYaml ? (
+        // [管理员视图] 可以点击名字看详情
         <span
           className="cell-link"
           onClick={() => { setCurrentRecord(r.raw); setDrawerVisible(true); }}
         >
           {t}
         </span>
+      ) : (
+        // [租户视图] 只是纯文本，不能点
+        <span>{t}</span>
       )
     },
     {
@@ -315,6 +444,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       render: (cron: string) => {
         if (!cron || cron === '-') return '-';
         try {
+          // 把 "0 2 * * *" 翻译成 "每天凌晨 2:00"
           const human = formatCron(cron);
           return (
             <Tooltip title={cron}>
@@ -334,48 +464,57 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       key: 'action', 
       width: 80,
       fixed: 'right' as const,
-      render: (_: any, r: any) => (
+      render: (_: any, r: any) => {
+         const items: any[] = [];
+         
+         // [租户适配] 只有管理员才显示“查看详情”
+         if (showYaml) {
+           items.push({
+             key: 'view',
+             label: '查看详情',
+             onClick: () => { setCurrentRecord(r.raw); setDrawerVisible(true); }
+           });
+         }
+         
+         // 通用操作
+         items.push({
+           key: 'edit',
+           label: '策略修改',
+           onClick: () => { setCurrentRecord(r); setEditModalVisible(true); }
+         });
+         items.push({
+           key: 'suspend',
+           label: r.suspended ? '启用' : '停用',
+           onClick: () => handleSuspend(r)
+         });
+         items.push({
+           type: 'divider',
+           key: 'divider-1',
+         });
+         items.push({
+           key: 'delete',
+           label: '删除',
+           danger: true,
+           onClick: () => handleDelete(r)
+         });
+
+         return (
          <Dropdown 
-           menu={{
-             items: [
-               {
-                 key: 'view',
-                 label: '查看详情',
-                 onClick: () => { setCurrentRecord(r.raw); setDrawerVisible(true); }
-               },
-               {
-                 key: 'edit',
-                 label: '策略修改',
-                 onClick: () => { setCurrentRecord(r); setEditModalVisible(true); }
-               },
-               {
-                 key: 'suspend',
-                 label: r.suspended ? '启用' : '停用',
-                 onClick: () => handleSuspend(r)
-               },
-               {
-                 type: 'divider',
-               },
-               {
-                 key: 'delete',
-                 label: '删除',
-                 danger: true,
-                 onClick: () => handleDelete(r)
-               }
-             ]
-           }} 
+           menu={{ items }} 
            trigger={['click']}
          >
            <Button icon={<EllipsisOutlined />} className="row-actions-trigger" type="text" />
          </Dropdown>
-      )
+      );
+      }
     }
-  ], [handleDelete, handleSuspend]);
+  ], [handleDelete, handleSuspend, showYaml]);
 
   return (
     <>
       <PageDetailSection
         asCard={false}
+        // 左侧工具栏：搜索框 + 类型筛选
         toolbarLeft={(
           <>
             <Input
@@ -399,16 +538,18 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
             />
           </>
         )}
+        // 右侧工具栏：创建按钮 + 列设置 + 刷新
         toolbarRight={(
            <div className="toolbar-actions">
-             <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建定时策略</Button>
+             <Button key="create-btn" type="primary" onClick={() => setCreateModalVisible(true)}>创建定时策略</Button>
              <TableColumnSettings
+               key="col-settings"
                columns={columns}
                onChange={setVisibleColumns}
                settingsKey="harvester_schedule_backups_list"
                defaultHiddenColumns={defaultHiddenColumns}
              />
-             <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
+             <Button key="refresh-btn" icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
            </div>
         )}
       >
@@ -426,6 +567,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         />
       </PageDetailSection>
 
+      {/* 侧边详情抽屉 (只在 showYaml=true 时才能触发) */}
       <HarvesterResourceDrawer
         open={drawerVisible}
         onClose={() => setDrawerVisible(false)}
@@ -434,6 +576,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         cloudId={cloudId}
       />
 
+      {/* 创建弹窗 */}
       <ScheduleVmBackupCreateModal
         visible={createModalVisible}
         cloudId={cloudId}
@@ -441,8 +584,10 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
         onSuccess={(created) => {
         setCreateModalVisible(false);
         if (created) {
+          // 设置轮询目标，等待后端创建完成
           setPollingTarget(created);
-          // Create optimistic item
+          
+          // [乐观创建] 立即在列表里造一个假数据，让用户觉得“秒创建”
           const vm = (vms || []).find((x: any) => {
             const vmNs = x?.metadata?.namespace || x?.namespace;
             const vmName = x?.metadata?.name || x?.name;
@@ -453,7 +598,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
           const optimistic = {
             key: `opt-${Date.now()}`,
             name: created.alias,
-            id: '-', // ID unknown yet
+            id: '-', // ID 还不知道，先填个横杠
             namespace: created.namespace,
             vmAlias,
             vmName: created.vmName,
@@ -464,7 +609,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
             suspended: created.suspend,
             creationTimestamp: now,
             age: '0 分钟',
-            // raw is partial
+            // raw 是部分数据，凑合用
             raw: {
                metadata: { namespace: created.namespace, name: '-', annotations: { 'tower.io/alias': created.alias } },
                spec: { suspend: created.suspend, cron: created.cron, retain: created.retain }
@@ -476,6 +621,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({ cloudId, data, loading, onR
       }}
       />
 
+      {/* 编辑弹窗 */}
       <ScheduleVmBackupEditModal
         visible={editModalVisible}
         cloudId={cloudId}

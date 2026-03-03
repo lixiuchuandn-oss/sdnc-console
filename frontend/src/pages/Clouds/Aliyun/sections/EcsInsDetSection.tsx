@@ -23,9 +23,9 @@ const EcsInsDetSection: React.FC<EcsInsDetSectionProps> = ({ cloudId, instance, 
   const rMb = parseFloat(String(instance?.Memory ?? instance?.memory ?? instance?.flavor?.ram ?? 0)) || 0;
   const memGb = rMb ? `${Math.round(rMb / 1024)}GB` : '';
   const specText = [flavorName, v ? `${v}vCPU` : '', memGb].filter(Boolean).join(' / ');
-  const osRaw = String(instance?.OSName || instance?.OSType || instance?.Platform || '').toLowerCase();
+  const osRaw = String(instance?.OSName || instance?.OSNameEn || instance?.OSType || instance?.Platform || instance?.os_name || instance?.os_type || '').toLowerCase();
   const isWin = osRaw.includes('win');
-  const icon = isWin ? <WindowsOutlined style={{ color: '#1677ff', marginRight: 6 }} /> : <CodeOutlined style={{ color: '#1677ff', marginRight: 6 }} />;
+  const icon = isWin ? <WindowsOutlined style={{ color: '#1890ff', marginRight: 6 }} /> : <CodeOutlined style={{ color: '#1890ff', marginRight: 6 }} />;
   const { fixed, floating } = collectIpv4FromAddresses(instance?.addresses);
   const vpcId = instance?.VpcAttributes?.VpcId || instance?.VpcId || '';
   const zoneId = instance?.ZoneId || instance?.zoneId || instance?.zone || '-';

@@ -28,13 +28,14 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Descriptions, Modal, Row, Col, Tabs, Typography, Steps, Alert, Card } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import { API_BASE_URL } from '../../../../services/api';
 import { deleteHarvesterImage, createHarvesterImage, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
+import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
 
 /**
  * 组件入参说明
@@ -56,6 +57,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
+  const [osFilter, setOsFilter] = useState<string>('');
   // 创建镜像弹窗状态
   const [creating, setCreating] = useState<boolean>(false);
   // 批量选择的行 key
@@ -147,10 +149,17 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
     if (/\.(qcow2|img|raw)$/.test(disp)) return 'disk';
     return 'unknown';
   };
+  const KEYWORD_GROUPS = getOsKeywordGroups();
+  const expandOsKeywords = (val: string) => {
+    const v = (val || '').toLowerCase();
+    const g = KEYWORD_GROUPS.find((gr: string[]) => gr.includes(v));
+    return g ? g : (v ? [v] : []);
+  };
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
+    const osKey = osFilter.trim().toLowerCase();
     return (Array.isArray(images) ? images : []).filter((r:any) => {
       const name = String(
         r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || ''
@@ -162,10 +171,36 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
       const kind = resolveImageKind(r);
       if (kind === 'unknown') return false; // Filter out unknown images
       if (typeFilter && kind !== typeFilter) return false;
+      if (osKey) {
+        const osLabel = String(r?.metadata?.labels?.['harvesterhci.io/os'] || '').toLowerCase();
+        const iconName = String(r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || r?.metadata?.name || r?.name || '').toLowerCase();
+        const keys = expandOsKeywords(osKey);
+        if (!keys.some(k => osLabel.includes(k) || iconName.includes(k))) return false;
+      }
       return true;
     });
-  }, [images, keyword, statusFilter, typeFilter]);
+  }, [images, keyword, statusFilter, typeFilter, osFilter]);
   const statusOptions = ['imported','pending','downloading','ready','failed','unknown'];
+  const osOptions = [
+    { value: '', label: '全部' },
+    { value: 'windows', label: 'Windows' },
+    { value: 'ubuntu', label: 'Ubuntu' },
+    { value: 'centos', label: 'CentOS' },
+    { value: 'debian', label: 'Debian' },
+    { value: 'redhat', label: 'RedHat/RHEL' },
+    { value: 'rhel', label: 'RedHat/RHEL' },
+    { value: 'fedora', label: 'Fedora' },
+    { value: 'suse', label: 'SUSE/openSUSE/SLES' },
+    { value: 'opensuse', label: 'SUSE/openSUSE/SLES' },
+    { value: 'sles', label: 'SUSE/openSUSE/SLES' },
+    { value: 'android', label: 'Android' },
+    { value: 'freebsd', label: 'FreeBSD' },
+    { value: 'kylin', label: '麒麟' },
+    { value: 'neokylin', label: '中标麒麟' },
+    { value: 'uos', label: 'UOS' },
+    { value: 'openeuler', label: 'openEuler' },
+    { value: 'anolis', label: 'Anolis' },
+  ];
   
   /**
    * 安全读取镜像属性的工具方法
@@ -222,18 +257,18 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
    * - 操作列包含：详情、下载、删除三种操作
    */
   const allColumns = useMemo(() => [
-    { title: '显示名称', key: 'display_name', render: (_:any, r:any)=> {
-        const disp = r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || '-';
+    { title: '镜像名称', key: 'display_name', render: (_:any, r:any)=> {
+        const labelDisp = r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'];
+        const disp = labelDisp || '-';
+        const nameForIcon = labelDisp || r?.name || r?.metadata?.name || '';
         return (
-          <span
-            className="cell-link"
-            onClick={() => handleOpenDrawer(r)}
-          >
+          <span>
+            <OsIcon osName={nameForIcon} style={{ marginRight: 8 }} />
             {disp}
           </span>
         );
     } },
-    { title: '资源名称', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
+    { title: '镜像ID', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
     { title: '命名空间', key: 'namespace', render: (_:any, r:any)=> getNs(r) },
     { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) },
     { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
@@ -313,13 +348,13 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
       asCard={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
+          <Input allowClear placeholder="关键字" suffix={<SearchOutlined />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
           <Select
             allowClear
             placeholder="镜像状态"
             value={statusFilter || undefined}
             onChange={(v)=> setStatusFilter(v || '')}
-            className="toolbar-filter"
+            className="toolbar-filter-sm"
             options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
           />
           <Select
@@ -327,12 +362,20 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
             placeholder="镜像类型"
             value={typeFilter || undefined}
             onChange={(v)=> setTypeFilter(v || '')}
-            className="toolbar-filter"
+            className="toolbar-filter-sm"
             options={[
               { value: '', label: '全部' },
               { value: 'iso', label: 'ISO' },
               { value: 'disk', label: 'Qcow2' },
             ]}
+          />
+          <Select
+            allowClear
+            placeholder="操作系统类型"
+            value={osFilter || undefined}
+            onChange={(v)=> setOsFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={osOptions}
           />
         </>
       )}
@@ -393,7 +436,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
                       </Form.Item>
                     </Col>
                   </Row>
-                  <Form.Item label="显示名称" name="displayName" rules={[{ required: true }]}> 
+                  <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}> 
                     <Input placeholder="如：ubuntu_20.04_200G.qcow2" />
                   </Form.Item>
                   <Form.Item label="资源名称" name="name" tooltip="可选，不填自动生成 image-*"> 
@@ -462,7 +505,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
                       },
                       {
                         title: '填写信息',
-                        description: '运行工具后，选择目标命名空间，填写镜像显示名称（如 ubuntu-20.04）。'
+                        description: '运行工具后，选择目标命名空间，填写镜像名称（如 ubuntu-20.04）。'
                       },
                       {
                         title: '连接集群',

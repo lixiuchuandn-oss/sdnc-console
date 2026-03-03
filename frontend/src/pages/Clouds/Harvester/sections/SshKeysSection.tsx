@@ -9,10 +9,11 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined,SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
+import SshKeyCreateModal from '../modals/SshKeyCreateModal';
 
 /**
  * 组件入参说明
@@ -33,6 +34,7 @@ interface Props {
    */
   bordered?: boolean;
   showYaml?: boolean;
+  isTenant?: boolean;
 }
 
 const SshKeysSection: React.FC<Props> = ({ 
@@ -41,10 +43,12 @@ const SshKeysSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   bordered = true,
-  showYaml = true
+  showYaml = true,
+  isTenant
 }) => {
   // 关键字搜索，仅用于前端过滤名称/命名空间
   const [keyword, setKeyword] = useState<string>('');
+  const [createModalVisible, setCreateModalVisible] = useState(false);
   
   /**
    * 将后端返回的 SSH Key 数据统一转换为表格可用结构
@@ -144,7 +148,8 @@ const SshKeysSection: React.FC<Props> = ({
       toolbarLeft={(
         <Input 
           allowClear 
-          placeholder="关键字" 
+          placeholder="关键字"  
+          suffix={<SearchOutlined />}
           className="toolbar-search" 
           value={keyword} 
           onChange={(e)=> setKeyword(e.target.value)} 
@@ -152,6 +157,7 @@ const SshKeysSection: React.FC<Props> = ({
       )}
       toolbarRight={(
         <>
+          <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建</Button>
           <TableColumnSettings 
             columns={columns} 
             onChange={setTableColumns}
@@ -172,6 +178,16 @@ const SshKeysSection: React.FC<Props> = ({
           size: 'small',
           showQuickJumper: false,
         }}
+      />
+      <SshKeyCreateModal 
+        visible={createModalVisible}
+        cloudId={cloudId}
+        onCancel={() => setCreateModalVisible(false)}
+        onSuccess={() => {
+          setCreateModalVisible(false);
+          onRefresh?.(true);
+        }}
+        isTenant={isTenant}
       />
     </PageDetailSection>
   );

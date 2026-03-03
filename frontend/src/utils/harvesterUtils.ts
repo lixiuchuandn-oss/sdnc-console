@@ -22,18 +22,12 @@
  * 用途：
  * - Harvester 命名空间列表过滤：隐藏或标记系统命名空间
  * - Volumes / Resources 等页面中，用于区分业务命名空间和系统命名空间
- *
- * 规则：
- * - 精确匹配：cloud-public / default / ingress-nginx
- * - 前缀匹配：cattle / fleet / longhorn / kube / harvester / cluster-fleet / cluster / local / user
  */
+
+  
+  // system namespace
 export const isSystemNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
-  
-  // Exact matches
-  if (['cloud-public','default', 'ingress-nginx'].includes(n)) return true;
-
-  // Prefix matches
   const prefixes = [
     'cattle',
     'fleet',
@@ -43,10 +37,20 @@ export const isSystemNamespace = (name: string): boolean => {
     'cluster-fleet',
     'cluster',
     'local',
-    'user'
+    'user',
+    'ingress'
   ];
   
   return prefixes.some(p => n.startsWith(p));
+};
+
+/**
+ * 判断是否为公共命名空间 (Public Namespace)
+ * 公共命名空间对租户可见（只读），对管理员可见（读写）
+ */
+export const isPublicNamespace = (name: string): boolean => {
+  const n = String(name || '').toLowerCase();
+  return ['cloud-public', 'default'].includes(n);
 };
 
 /**
@@ -86,6 +90,47 @@ export const isSystemStorageClass = (name: string): boolean => {
  * - terminating        -> 删除中
  * - stopped            -> 已停止
  * - terminated         -> 已删除
+ * - pausing            -> 暂停中
+ * - paused             -> 已暂停
+ * - error              -> 错误
+ * - errorUnschedulable -> 调度失败
+ * - waitingForVolumeBinding -> 等待卷绑定
+ * - provisioning       -> 配置中
+ * - unknown            -> 未知
+ */
+export const VM_STATUS_MAP: Record<string, string> = {
+  running: '运行中',
+  starting: '启动中',
+  stopping: '停止中',
+  terminating: '删除中',
+  stopped: '已停止',
+  terminated: '已删除',
+  pausing: '暂停中',
+  paused: '已暂停',
+  error: '错误',
+  errorunschedulable: '调度失败',
+  waitingforvolumebinding: '等待卷绑定',
+  provisioning: '配置中',
+  migrating: '迁移中',
+  unknown: '未知'
+};
+
+/**
+ * 将 VM 状态字符串转换为中文说明
+ *
+ * 用途：
+ * - VM 列表 / 详情页面中，将后端状态码转换为终端用户可读的中文状态
+ * - 同时保留未知状态的回退策略：未匹配到时返回原始状态字符串
+ *
+ * 支持的状态映射：
+ * - running            -> 运行中
+ * - starting           -> 启动中
+ * - stopping           -> 停止中
+ * - terminating        -> 删除中
+ * - stopped            -> 已停止
+ * - terminated         -> 已删除
+ * - pausing            -> 暂停中
+ * - paused             -> 已暂停
  * - error              -> 错误
  * - errorUnschedulable -> 调度失败
  * - waitingForVolumeBinding -> 等待卷绑定
@@ -94,21 +139,7 @@ export const isSystemStorageClass = (name: string): boolean => {
  */
 export const cnVmStatus = (v?: string): string => {
   const k = String(v || '').toLowerCase();
-  const m: Record<string, string> = {
-    running: '运行中',
-    starting: '启动中',
-    stopping: '停止中',
-    terminating: '删除中',
-    stopped: '已停止',
-    terminated: '已删除',
-    error: '错误',
-    errorunschedulable: '调度失败',
-    waitingforvolumebinding: '等待卷绑定',
-    provisioning: '配置中',
-    migrating: '迁移中',
-    unknown: '未知'
-  };
-  return m[k] || (v || '-');
+  return VM_STATUS_MAP[k] || (v || '-');
 };
 
 /**

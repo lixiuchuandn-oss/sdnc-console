@@ -39,6 +39,7 @@ import React from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
 import { MinusCircleOutlined } from '@ant-design/icons';
 import { isSystemStorageClass } from '../../../../../utils/harvesterUtils';
+import { OsIcon } from '../../../../../components/OsIcon';
 
 /**
  * 组件 Props 定义
@@ -183,8 +184,19 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
                     x?.displayName ||
                     name;
-                  return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
+                  return { 
+                    label: (
+                      <Space>
+                        <OsIcon osName={disp || name} />
+                        {disp || '-'}
+                      </Space>
+                    ),
+                    value: ns && name ? `${ns}/${name}` : name,
+                    // 将原始文本也放入，便于搜索
+                    labelString: disp || name
+                  };
                 })}
+                optionFilterProp="labelString"
                 placeholder="选择镜像"
                 loading={imageLoading}
                 onOpenChange={(open) => { if (open) reloadImages(); }}
@@ -208,6 +220,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                       ''
                     );
                     const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
+                    const isWindows = /windows|win/.test(dispName.toLowerCase());
                     const kind = resolveImageKind(it);
                     const isIso = kind === 'iso';
                     const sc = it?.storageClassName || defaultStorageClassName || form.getFieldValue('storageClassName');
@@ -215,7 +228,12 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     // But here we set it based on image recommendation if not set or if we want to follow image default
                     // Let's set it only if current value is empty to be safe, or just update it as this is a "Select Image" action which usually implies reset.
                     // For safety in wizard flow, we update it.
-                    form.setFieldsValue({ storageClassName: sc, bootUseEfi: needEfi, rootDeviceType: isIso ? 'cdrom' : 'disk' });
+                    form.setFieldsValue({ 
+                      storageClassName: sc, 
+                      bootUseEfi: needEfi, 
+                      rootDeviceType: isIso ? 'cdrom' : 'disk',
+                      rootBus: isWindows ? 'sata' : 'virtio'
+                    });
                     
                     // [容量解析] 自动计算镜像大小并转为 GiB
                     const raw = (it as any)?.virtualSize ?? (it as any)?.size;
@@ -252,8 +270,18 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     x?.metadata?.annotations?.['field.cattle.io/displayName'] ||
                     x?.displayName ||
                     name;
-                  return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
+                  return { 
+                    label: (
+                      <Space>
+                        <OsIcon osName={disp || name} />
+                        {disp || '-'}
+                      </Space>
+                    ),
+                    value: ns && name ? `${ns}/${name}` : name,
+                    labelString: disp || name
+                  };
                 })}
+                optionFilterProp="labelString"
                 placeholder="选择 ISO 镜像"
                 loading={imageLoading}
                 onOpenChange={(open) => { if (open) reloadImages(); }}
@@ -314,6 +342,11 @@ const StepDisks: React.FC<StepDisksProps> = ({
                     if (typeof raw === 'number') { gi = Math.round(raw / (1024 * 1024 * 1024)); }
                     else { const ss = String(raw || '').toUpperCase(); const num = Number(String(ss).replace(/[^0-9]/g, '')) || 0; if (/GI$/.test(ss)) { gi = num; } else if (/MI$/.test(ss)) { gi = Math.ceil(num / 1024); } else { gi = Math.round(num / (1024 * 1024 * 1024)); } }
                     if (gi) form.setFieldsValue({ rootSize: `${gi}` });
+                    
+                    // [自动推断] 根据 PVC 名称判断是否为 Windows
+                    const pvcName = String(val || '').toLowerCase();
+                    const isWindows = /windows|win/.test(pvcName);
+                    form.setFieldsValue({ rootBus: isWindows ? 'sata' : 'virtio' });
                   } catch { }
                 }}
               />
@@ -537,12 +570,19 @@ const StepDisks: React.FC<StepDisksProps> = ({
                                         const curr: any[] = form.getFieldValue('extraDisks') || []; 
                                         const it = (availableVolumes || []).find((v: any) => v?.pvcName === val); 
                                         const next = [...curr]; 
+                                        
+                                        // [自动推断] 根据 PVC 名称判断总线类型
+                                        const pvcName = String(val || '').toLowerCase();
+                                        const isWindows = /windows|win/.test(pvcName);
+                                        const defaultBus = isWindows ? 'sata' : 'virtio';
+
                                         next[name] = { 
                                           ...(next[name] || {}), 
                                           pvc: val, 
                                           // name: it?.name || val, // 移除：不再覆盖自动生成的 ID
                                           size: it?.size || (next[name]?.size || undefined), 
-                                          volumeMode: (it?.volumeMode || it?.VolumeMode || '') 
+                                          volumeMode: (it?.volumeMode || it?.VolumeMode || ''),
+                                          bus: defaultBus
                                         }; 
                                         form.setFieldsValue({ extraDisks: next }); 
                                       } catch { } 
@@ -568,8 +608,18 @@ const StepDisks: React.FC<StepDisksProps> = ({
                                     const name = x?.metadata?.name || x?.name;
                                     const ns = x?.metadata?.namespace || x?.namespace;
                                     const disp = x?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || name;
-                                    return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
+                                    return { 
+                                      label: (
+                                        <Space>
+                                          <OsIcon osName={disp || name} />
+                                          {disp || '-'}
+                                        </Space>
+                                      ),
+                                      value: ns && name ? `${ns}/${name}` : name,
+                                      labelString: disp || name
+                                    };
                                   })}
+                                  optionFilterProp="labelString"
                                   placeholder="选择 ISO"
                                   loading={imageLoading}
                                   onOpenChange={(open) => { if (open) reloadImages(); }}

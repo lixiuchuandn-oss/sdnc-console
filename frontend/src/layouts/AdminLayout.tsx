@@ -6,7 +6,7 @@ import {
   ClusterOutlined, TeamOutlined, CodepenOutlined, DesktopOutlined, HddOutlined, GatewayOutlined,
   AppstoreAddOutlined, ApiOutlined, DatabaseOutlined, BellOutlined, RobotOutlined, EditOutlined, PlayCircleOutlined,
   BulbOutlined, CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled, SearchOutlined, PoweroffOutlined, ReloadOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, BarChartOutlined,
-  FundProjectionScreenOutlined, RadarChartOutlined, FileTextOutlined, SafetyCertificateOutlined
+  FundProjectionScreenOutlined, RadarChartOutlined, FileTextOutlined, SafetyCertificateOutlined, ApartmentOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../utils/accessMapping';
@@ -244,26 +244,63 @@ const AdminLayout: React.FC = () => {
       </div>
 
       <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
-        <BellOutlined style={{color:'#555555',fontSize:14}} onClick={()=>navigate('/admin/alarms')} />
-        {user && (<>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
-            <UserOutlined style={{color:'#555555',fontSize:14}} />
-            {(() => {
-              const full = String(user.fullName || '').trim();
-              const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
-              const display = shouldUseUsername ? (user.username || '') : full;
+        <Tooltip title="告警中心">
+          <Badge size="small" offset={[-2, 2]}>
+             <BellOutlined style={{color:'#555555',fontSize:16, cursor:'pointer'}} onClick={()=>navigate('/admin/alarms')} />
+          </Badge>
+        </Tooltip>
+        
+        {user && (
+          <div style={{ display:'flex', alignItems:'center', gap: 12 }}>
+            <div style={{ display:'flex', alignItems:'center', gap: 8, flexWrap:'nowrap', whiteSpace:'nowrap' }}>
+              <UserOutlined style={{  fontSize: 16 }} />
+              <span
+                style={{
+                  fontSize: 14,
+                  maxWidth: 160,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {(() => {
+                  const full = String(user.fullName || '').trim();
+                  const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
+                  return shouldUseUsername ? (user.username || '') : full;
+                })()}
+              </span>
 
-              const tenantInfo = user.tenantName ? ` [租户: ${user.tenantName}]` : '';
-              const orgInfo = user.organizationName ? ` [组织: ${user.organizationName}]` : '';
+              {user.tenantName && (
+                <Tooltip title={`当前租户: ${user.tenantName}`}>
+                  <Tag bordered={false} color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '24px', padding: '0 6px', display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}>
+                    
+                    <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.tenantName}</span>
+                  </Tag>
+                </Tooltip>
+              )}
 
-              return <span style={{color:'#555555'}}>{display}{tenantInfo}{orgInfo}</span>;
-            })()}
+              {user.organizationName && (
+                <Tooltip title={`当前组织: ${user.organizationName}`}>
+                  <Tag bordered={false} color="pink" style={{ margin: 0, fontSize: 10, lineHeight: '24px', padding: '0 6px', display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}>
+                    
+                    <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.organizationName}</span>
+                  </Tag>
+                </Tooltip>
+              )}
+            </div>
+
+            <Divider type="vertical" style={{ height: 24, margin: 0, borderColor: '#e8e8e8' }} />
+
+            <Tooltip title="退出登录">
+              <Button 
+                type="text" 
+                icon={<LogoutOutlined style={{ color: '#595959', fontSize: 16 }} />} 
+                onClick={handleLogout} 
+                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              />
+            </Tooltip>
           </div>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
-          <LogoutOutlined style={{color:'#1062fe',fontSize:14}} />
-          <Typography.Link onClick={handleLogout} style={{ color:'#1062fe' }}>logout</Typography.Link>
-          </div>
-        </>)}
+        )}
       </div>
     </Header>
   );

@@ -20,11 +20,18 @@ import axios from 'axios';
  * 2. [统一鉴权]: 自动注入 Bearer Token 和标准 Headers。
  * 3. [错误封装]: 将 axios/http 错误转换为统一的结构化异常 { status, body, message }。
  * 4. [流式处理]: 封装 watch 机制，支持 JSON Stream 解析与断线回调。
+ * 5. [连接优化]: 使用全局 Keep-Alive Agent 复用连接，减少握手开销。
+ * 6. [重试机制]: 针对网络抖动 (ECONNRESET, ETIMEDOUT) 自动重试。
  *
  * [API 依赖]
  * - Harvester/Kubernetes API (REST & Watch)
  * ==============================================================================
  */
+
+// [连接池优化] 定义全局 Keep-Alive Agent
+const globalHttpAgent = new http.Agent({ keepAlive: true });
+const globalSecureAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: true });
+const globalInsecureAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: false });
 
 /**
  * [协议适配]
@@ -45,22 +52,56 @@ const getRequestModule = (target: string) => {
 };
 
 /**
+ * [Agent 获取]
+ * 根据协议和安全设置获取对应的全局 Agent
+ */
+const getAgent = (target: string, insecure: boolean) => {
+  try {
+    const u = new URL(target);
+    if (u.protocol === 'http:') return globalHttpAgent;
+  } catch {}
+  return insecure ? globalInsecureAgent : globalSecureAgent;
+};
+
+/**
+ * [错误翻译]
+ * 将常见的网络/系统错误代码转换为中文描述。
+ */
+const translateErrorMessage = (error: any): string => {
+  const code = error?.code || error?.message;
+  const status = error?.status;
+
+  if (status === 401) return '认证失败：Token 已过期或无效';
+  if (status === 403) return '权限不足：当前账号无权执行此操作';
+  if (status === 404) return '资源未找到：请求的 API 路径不存在';
+  if (status === 500) return '服务器内部错误：Harvester 集群响应异常';
+  if (status === 502 || status === 503 || status === 504) return '网关错误：无法连接到 Harvester 控制平面';
+
+  switch (code) {
+    case 'ECONNRESET':
+      return '连接被重置：与 Harvester 的连接意外中断';
+    case 'ETIMEDOUT':
+    case 'timeout':
+      return '请求超时：Harvester 响应过慢，请稍后重试';
+    case 'ECONNREFUSED':
+      return '连接被拒绝：无法访问 Harvester API 地址';
+    case 'ENOTFOUND':
+      return '域名解析失败：无法找到 Harvester 地址';
+    case 'EPIPE':
+      return '管道损坏：数据传输中断';
+    default:
+      return error?.message || '未知网络错误';
+  }
+};
+
+/**
  * [探针请求]
  * 仅做一次 GET 请求，用于健康检查或连通性探测，不关心响应体。
- *
- * [业务规则]
- * - 成功：ok=true，并带回 status
- * - 失败：ok=false，并尽量返回错误码 / 错误信息
- * - 超时：默认 15s 超时销毁请求
- *
- * @param target 探测目标 URL
- * @param token 鉴权 Token
- * @param insecure 是否忽略 SSL 证书验证
- * @returns Promise<{ ok: boolean; status?: number; code?: string; error?: string }>
  */
 export const requestOnce = (target: string, token: string, insecure: boolean = false) => {
   return new Promise<{ ok: boolean; status?: number; code?: string; error?: string }>((resolve) => {
     const mod = getRequestModule(target);
+    const agent = getAgent(target, insecure);
     const req = mod.request(
       target,
       {
@@ -69,6 +110,7 @@ export const requestOnce = (target: string, token: string, insecure: boolean = f
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
+        agent,
         rejectUnauthorized: !insecure,
       },
       (res) => {
@@ -83,7 +125,7 @@ export const requestOnce = (target: string, token: string, insecure: boolean = f
         req.destroy(new Error('timeout'));
       } catch {}
     });
-    req.on('error', (err: any) => resolve({ ok: false, error: err?.message, code: err?.code }));
+    req.on('error', (err: any) => resolve({ ok: false, error: translateErrorMessage(err), code: err?.code }));
     req.end();
   });
 };
@@ -91,31 +133,31 @@ export const requestOnce = (target: string, token: string, insecure: boolean = f
 /**
  * [通用 GET 请求]
  * 执行一次 JSON GET 请求，自动解析响应体并在常见错误场景下抛出结构化错误。
- *
- * [错误处理]
- * - silent=true 时仅返回错误，不打印 console.error，适合探测型调用。
- * - 对 Harvester 返回的非 2xx 响应统一封装为 { status, body, message }。
- * - 处理 ECONNABORTED 等网络层错误。
- *
- * @param target 请求 URL
- * @param token 鉴权 Token
- * @param insecure 是否忽略 SSL 证书验证
- * @param silent 是否静默模式（不打印错误日志）
- * @returns Promise<any> 解析后的 JSON 数据
  */
-export const getJsonOnce = async (target: string, token: string, insecure: boolean = false, silent: boolean = false) => {
+export const getJsonOnce = async (target: string, token: string, insecure: boolean = false, silent: boolean = false, retryCount = 3): Promise<any> => {
   try {
+    const agent = getAgent(target, insecure);
+    const isHttp = target.startsWith('http:');
+    
     const res = await axios.get(target, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
       },
-      httpsAgent: new https.Agent({ rejectUnauthorized: !insecure }),
+      httpAgent: isHttp ? agent : undefined,
+      httpsAgent: !isHttp ? agent : undefined,
       timeout: 15000,
       maxRedirects: 5,
     });
     return res.data;
   } catch (error: any) {
+    const isNetworkError = error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'EPIPE';
+    if (isNetworkError && retryCount > 0) {
+        if (!silent) console.warn(`[Harvester] Network error ${error.code} for ${target}, retrying (${retryCount} left)...`);
+        await new Promise(r => setTimeout(r, 500));
+        return getJsonOnce(target, token, insecure, silent, retryCount - 1);
+    }
+
     if (axios.isAxiosError(error)) {
         if (error.response) {
             if (!silent) {
@@ -124,13 +166,13 @@ export const getJsonOnce = async (target: string, token: string, insecure: boole
             throw {
                 status: error.response.status,
                 body: typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data),
-                message: `HTTP ${error.response.status}`
+                message: translateErrorMessage({ status: error.response.status, message: error.message })
             };
-        } else if (error.code === 'ECONNABORTED') {
-             throw { message: 'timeout' };
+        } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+             throw { message: translateErrorMessage({ code: 'ETIMEDOUT' }) };
         }
     }
-    throw error;
+    throw { ...error, message: translateErrorMessage(error) };
   }
 };
 
@@ -164,6 +206,7 @@ export const watchJsonStream = (
   onError?: (err: any) => void,
 ) => {
   const mod = getRequestModule(target);
+  const agent = getAgent(target, insecure);
   console.log(`[Watch] Initiating request to ${target}`);
   const req = mod.request(
     target,
@@ -173,6 +216,7 @@ export const watchJsonStream = (
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
       },
+      agent,
       rejectUnauthorized: !insecure,
     },
     (res) => {
@@ -264,6 +308,7 @@ export const requestJson = (
   return new Promise<any>((resolve, reject) => {
     const data = body ? Buffer.from(JSON.stringify(body)) : undefined;
     const mod = getRequestModule(target);
+    const agent = getAgent(target, insecure);
     const req = mod.request(
       target,
       {
@@ -276,6 +321,7 @@ export const requestJson = (
             : {}),
           ...(customHeaders || {}),
         },
+        agent,
         rejectUnauthorized: !insecure,
       },
       (res) => {
@@ -291,16 +337,16 @@ export const requestJson = (
               resolve(text);
             }
           } else {
-            reject({ status, body: text, message: `HTTP ${status}` });
+            reject({ status, body: text, message: translateErrorMessage({ status, message: `HTTP ${status}` }) });
           }
         });
       },
     );
     req.setTimeout(15000, () => {
       req.destroy(new Error('timeout'));
-      reject({ message: 'timeout' });
+      reject({ message: translateErrorMessage({ code: 'ETIMEDOUT' }) });
     });
-    req.on('error', (err) => reject(err));
+    req.on('error', (err) => reject({ ...err, message: translateErrorMessage(err) }));
     if (data) req.write(data);
     req.end();
   });

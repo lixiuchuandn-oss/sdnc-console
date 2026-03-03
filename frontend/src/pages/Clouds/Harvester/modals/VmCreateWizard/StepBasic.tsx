@@ -32,7 +32,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from '../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../utils/harvesterUtils';
+import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
 
 /**
  * 组件 Props 定义
@@ -116,19 +116,19 @@ const StepBasic: React.FC<StepBasicProps> = ({
   }, [cloudId]);
 
   // [业务规则] 命名空间自动选择逻辑
-  // 若为租户，强制过滤系统命名空间；否则允许选择所有（但默认选中第一个非系统）
+  // 若为租户，强制过滤系统命名空间和公共命名空间；否则允许选择所有（但默认选中第一个非系统）
   useEffect(() => {
     // 如果已有值且合法，则跳过自动选择，防止切换步骤时重置用户选择
     const currentVal = form.getFieldValue('namespace');
     let validOptions = namespaceOptions;
     if (isTenant) {
-      validOptions = namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')));
+      validOptions = namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
     }
     const isValid = currentVal && validOptions.some(o => o.value === currentVal);
     
     if (!isValid && validOptions.length > 0) {
       // 优先选中非系统命名空间作为默认值
-      const firstNonSystem = validOptions.find(n => !isSystemNamespace(String(n.value || '')));
+      const firstNonSystem = validOptions.find(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
       form.setFieldsValue({ namespace: firstNonSystem?.value || validOptions[0].value });
     }
   }, [namespaceOptions, form, isTenant]);
@@ -171,10 +171,11 @@ const StepBasic: React.FC<StepBasicProps> = ({
         <Col span={12}>
           <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}> 
             <Select 
-              options={isTenant ? namespaceOptions.filter(n => !isSystemNamespace(String(n.value || ''))) : namespaceOptions}
+              options={isTenant ? namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || ''))) : namespaceOptions}
               placeholder="选择命名空间"
               showSearch
               onOpenChange={(open) => { if (open) reloadNamespaces(); }}
+              filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
             />
           </Form.Item>
         </Col>

@@ -224,6 +224,12 @@ export const registerHarvesterNamespaceRoutes = (
             break;
           } catch (e: any) {
             lastErr = e;
+            const status = Number(e?.status || 0);
+            // 如果遇到明确的业务错误（非路径错误），则认为是找到了正确的 API Endpoint，只是操作被拒绝
+            // 404/405 通常意味着路径不对
+            if (status !== 404 && status !== 405 && status !== 0) {
+              break;
+            }
           }
         }
 
@@ -294,6 +300,12 @@ export const registerHarvesterNamespaceRoutes = (
             break;
           } catch (e: any) {
             lastErr = e;
+            const status = Number(e?.status || 0);
+            // 如果遇到明确的业务错误（非路径错误），则认为是找到了正确的 API Endpoint，只是操作被拒绝
+            // 404/405 通常意味着路径不对
+            if (status !== 404 && status !== 405 && status !== 0) {
+              break;
+            }
           }
         }
 
@@ -359,8 +371,13 @@ export const registerHarvesterNamespaceRoutes = (
             break;
           } catch (e: any) {
             lastErr = e;
-            if (Number(e?.status) === 404) {
+            const status = Number(e?.status || 0);
+            if (status === 404) {
               success = true;
+              break;
+            }
+            // 遇到非 404/405 的明确错误，停止尝试
+            if (status !== 405 && status !== 0) {
               break;
             }
           }

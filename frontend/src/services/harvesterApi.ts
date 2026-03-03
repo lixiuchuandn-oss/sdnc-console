@@ -706,7 +706,7 @@ export const createHarvesterNamespace = async (cloudId: string, payload: any) =>
   let json: any = text;
   try { json = JSON.parse(text); } catch {}
   if (!res.ok) {
-    throw new Error(typeof json === 'string' ? json : (json?.error || json?.message || '请求失败'));
+    throw new Error(typeof json === 'string' ? json : (json?.message || json?.error || '请求失败'));
   }
   return json;
 };
@@ -723,7 +723,7 @@ export const updateHarvesterNamespace = async (cloudId: string, name: string, pa
   let json: any = text;
   try { json = JSON.parse(text); } catch {}
   if (!res.ok) {
-    throw new Error(typeof json === 'string' ? json : (json?.error || json?.message || '请求失败'));
+    throw new Error(typeof json === 'string' ? json : (json?.message || json?.error || '请求失败'));
   }
   return json;
 };
@@ -1256,6 +1256,18 @@ export const deleteHarvesterSnapshot = async (cloudId: string, namespace: string
     credentials: 'include',
   });
   if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+export const createHarvesterSshKey = async (cloudId: string, namespace: string, name: string, publicKey: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/sshkeys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+    body: JSON.stringify({ namespace, name, publicKey })
+  });
+  if (!res.ok) throw new Error(await res.text());
   return await res.json();
 };
 

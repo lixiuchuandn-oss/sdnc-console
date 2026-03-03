@@ -293,6 +293,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onDelete={onDelete}
             bordered={bordered}
             showYaml={showYaml}
+            isTenant={true}
           />
         );
       case 'template':
@@ -386,6 +387,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             namespaces={namespaceObjects}
             vms={vms}
             type="snapshot"
+            bordered={false}
+            showYaml={false}
           />
         );
       case 'backup':
@@ -397,6 +400,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudId={cloudId}
             namespaces={namespaceObjects}
             vms={vms}
+            bordered={false}
+            showYaml={false}
           />
         );
       case 'schedule':
@@ -407,6 +412,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onRefresh={onRefreshSchedules}
             cloudId={cloudId}
             vms={vms}
+            bordered={false}
+            showYaml={false}
           />
         );
 

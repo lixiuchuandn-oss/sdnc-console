@@ -3,16 +3,15 @@ import { AppDataSource } from '../../../config/database';
 import { Cloud } from '../../../entities/Cloud';
 import { UserSpace } from '../../../entities/UserSpace';
 import { getJsonOnce, requestJson } from '../../../services/clouds/harvester/utils';
+import { checkTenantAccess, isNamespaceAllowed } from './harvester.direct.helpers';
 
-function normalizeOrigin(endpoint: string): string {
-  try {
-    const u = new URL(endpoint);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return String(endpoint || '')
-      .replace(/\/+$/, '')
-      .replace(/\/v[0-9].*$/, '');
+/** 获取 API 基地址，保留 /k8s/clusters/xxx 路径，仅去除 /v1/harvester 等版本后缀 */
+function getEndpointBase(endpoint: string): string {
+  let base = String(endpoint || '').replace(/\/+$/, '');
+  if (!base.includes('/k8s/clusters/')) {
+    base = base.replace(/\/v[0-9]+(\/harvester)?$/, '');
   }
+  return base || '';
 }
 
 async function getCloudAndConn(
@@ -43,7 +42,7 @@ async function getCloudAndConn(
       .json({ message: '仅支持 Harvester/Cloudmap 资源池的日志配置' });
     return null;
   }
-  const origin = normalizeOrigin(cloud.endpoint || '');
+  const origin = getEndpointBase(cloud.endpoint || '');
   const token =
     cloud.secretKey ||
     (cloud as any).config?.token ||
@@ -563,5 +562,72 @@ export function registerLoggingRoutes(
       res.status(500).json({ message: e?.message || '删除失败' });
     }
   });
-}
 
+  // ---------- Harvester Events ----------
+  // 多路径尝试：Harvester Steve API、K8s API（不同 base path）
+  router.get('/:id/logging/harvester/events', async (req: any, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { namespace, name, kind } = req.query;
+      const ns = typeof namespace === 'string' ? namespace : '';
+      const n = typeof name === 'string' ? name : '';
+      const k = typeof kind === 'string' ? kind : '';
+
+      const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+      if (!allowed) return res.status(403).json({ message: '无权访问' });
+
+      if (isTenant || tenantNamespace) {
+        if (!ns) {
+          return res.status(400).json({ message: '缺少命名空间' });
+        }
+        if (!isNamespaceAllowed(tenantNamespace, ns)) {
+          return res.status(403).json({ message: '无权访问该命名空间' });
+        }
+      }
+
+      const conn = await getCloudAndConn(id, res);
+      if (!conn) return;
+
+      // 构建 fieldSelector：involvedObject.kind,involvedObject.namespace,involvedObject.name
+      let fieldSelector = '';
+      if (k && ns && n) {
+        fieldSelector = `involvedObject.kind=${k},involvedObject.namespace=${ns},involvedObject.name=${n}`;
+      } else if (k && ns) {
+        fieldSelector = `involvedObject.kind=${k},involvedObject.namespace=${ns}`;
+      } else if (k && n) {
+        fieldSelector = `involvedObject.kind=${k},involvedObject.name=${n}`;
+      } else if (k) {
+        fieldSelector = `involvedObject.kind=${k}`;
+      }
+
+      const fs = fieldSelector ? `&fieldSelector=${fieldSelector}` : '';
+      const baseParams = 'pagesize=100000&exclude=metadata.managedFields';
+      const url = `${conn.origin}/v1/harvester/events?${baseParams}${fs}`;
+      let items: any[] = [];
+      try {
+        const json = await getJsonOnce(url, conn.token, conn.insecure);
+        console.log('event items:', json);
+        let extracted = json?.data || json?.items || [];
+        if (!Array.isArray(extracted)) extracted = [];
+        items = extracted.map((it: any) => {
+          const ev = it?.data && typeof it.data === 'object' ? it.data : it;
+          if (ev && ev._type != null && ev.type == null) {
+            ev.type = ev._type;
+          }
+          return ev;
+        });
+      } catch (e: any) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[HarvesterEvents] URL failed: ${url}`, e?.message || e);
+        }
+      }
+
+      res.json({ data: items });
+    } catch (error: any) {
+      res.status(500).json({
+        message: '查询事件失败',
+        error: error?.body || error?.message,
+      });
+    }
+  });
+}

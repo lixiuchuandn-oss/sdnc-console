@@ -41,8 +41,8 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Tag, Tabs, Tooltip, Alert } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, DesktopOutlined } from '@ant-design/icons';
+import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Tag, Tabs, Tooltip, Alert, Cascader } from 'antd';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, saveHarvesterVmAsTemplate, fetchHarvesterNodes, fetchHarvesterNads } from '../../../../services/harvesterApi';
@@ -50,7 +50,8 @@ import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
-import { isSystemNamespace, cnVmStatus } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, isPublicNamespace, cnVmStatus, VM_STATUS_MAP } from '../../../../utils/harvesterUtils';
+import { OsIcon } from '../../../../components/OsIcon';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -90,13 +91,14 @@ type Props = {
   volumes?: any[]; // 从父组件传入，用于状态检查
   bordered?: boolean;
   showYaml?: boolean;
+  isTenant?: boolean;
 };
 
 /**
  * [组件定义] VmSection
  * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], bordered = true, showYaml = true }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], bordered = true, showYaml = true, isTenant = false }) => {
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
   const navigate = useNavigate();
@@ -134,6 +136,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const [vmBackupModalVisible, setVmBackupModalVisible] = useState(false);
   const [vmBackupModalType, setVmBackupModalType] = useState<'backup' | 'snapshot'>('backup');
   const [vmBackupModalVm, setVmBackupModalVm] = useState<any>(null);
+
+  // [筛选] 租户/组织
+  const [tenantOrgPath, setTenantOrgPath] = useState<string[]>([]);
 
   // ==========================================
   // [辅助函数] 2. 基础工具 (Basic Helpers)
@@ -617,6 +622,31 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // [逻辑处理] 4. 数据过滤 (Filtering)
   // ==========================================
 
+  // [计算属性] 租户/组织筛选选项
+  const tenantOrgOptions = useMemo(() => {
+    const orgMap = new Map<string, Set<string>>();
+    (namespaces || []).forEach((ns: any) => {
+      const annotations = ns?.metadata?.annotations || {};
+      const org = annotations['tower.io/organization'];
+      const tenant = annotations['tower.io/tenant'];
+      if (org) {
+        if (!orgMap.has(org)) orgMap.set(org, new Set());
+        if (tenant) orgMap.get(org)!.add(tenant);
+      }
+    });
+
+    const options: any[] = [];
+    orgMap.forEach((tenants, org) => {
+      const children = Array.from(tenants).map(t => ({ value: t, label: t }));
+      options.push({
+        value: org,
+        label: org,
+        children: children.length > 0 ? children : undefined,
+      });
+    });
+    return options;
+  }, [namespaces]);
+
   /**
    * [计算属性] filtered
    * 根据用户输入的关键字、状态、命名空间、节点对原始 vms 列表进行过滤。
@@ -632,9 +662,23 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const ns = SafeRead.namespace(r) || (iid.includes('/') ? iid.split('/')[0] : '');
       const node = String(SafeRead.node(r));
       const sKey = String(SafeRead.status(r)).toLowerCase();
-      
-      // [业务规则] 强制过滤系统 Namespace，避免用户误操作底层组件
-      if (isSystemNamespace(ns)) return false;
+
+      // [筛选] 租户/组织
+      // 租户侧自动过滤系统命名空间和公共命名空间
+      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+      // 管理员侧仅过滤系统命名空间 (如果没有显式选中某个系统ns)
+      if (!isTenant && isSystemNamespace(ns) && (!nsValue || nsValue !== ns)) return false;
+
+      if (tenantOrgPath && tenantOrgPath.length > 0) {
+        const currentNsObj = (namespaces || []).find((n: any) => n?.metadata?.name === ns);
+        const org = currentNsObj?.metadata?.annotations?.['tower.io/organization'];
+        const tenant = currentNsObj?.metadata?.annotations?.['tower.io/tenant'];
+
+        // Level 1: Organization
+        if (tenantOrgPath[0] && org !== tenantOrgPath[0]) return false;
+        // Level 2: Tenant
+        if (tenantOrgPath[1] && tenant !== tenantOrgPath[1]) return false;
+      }
 
       // 应用筛选条件
       if (nsValue && ns !== nsValue) return false;
@@ -643,7 +687,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       if (st && sKey !== st) return false;
       return true;
     });
-  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead]);
+  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant]);
 
   // 计算当前抽屉需要显示的记录
   const drawerRecord = useMemo(() => {
@@ -1121,9 +1165,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const allColumns = useMemo(() => [
         { title: '实例名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
       const text = SafeRead.name(r) || '-';
+      const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
       return (
         <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>
-          <DesktopOutlined style={{ marginRight: 8 }} />
+          <OsIcon osName={osName} style={{ marginRight: 8 }} />
           {text}
         </span>
       );
@@ -1324,23 +1369,39 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       <div key="toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         {/* 左侧：筛选器 */}
         <div key="toolbar-left" style={{ display: 'flex', gap: 8 }}>
-          <Input key="keyword" allowClear placeholder="关键字" className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
-          <Select
-            key="ns-filter"
-            className="toolbar-filter"
-            placeholder="命名空间"
-            value={nsValue || undefined}
-            onChange={(v)=> onNsChange(v || undefined)}
-            allowClear
-            options={namespacesOptions.map(ns=> ({ value: ns, label: ns }))}
-          />
+          <Input key="keyword" allowClear placeholder="关键字" suffix={<SearchOutlined />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+          {!isTenant && (
+            <Cascader
+              key="tenant-org-filter"
+              className="toolbar-filter"
+              placeholder="组织/租户"
+              options={tenantOrgOptions}
+              value={tenantOrgPath}
+              onChange={(value) => setTenantOrgPath(value as string[])}
+              changeOnSelect
+              allowClear
+            />
+          )}
+          {!isTenant && (
+            <Select
+              key="ns-filter"
+              className="toolbar-filter"
+              placeholder="命名空间"
+              value={nsValue || undefined}
+              onChange={(v)=> onNsChange(v || undefined)}
+              allowClear
+              showSearch
+              options={namespacesOptions.map(ns=> ({ value: ns, label: ns }))}
+            />
+          )}
           <Select
             key="node-filter"
             className="toolbar-filter-sm"
-            placeholder="节点"
+            placeholder="选择节点"
             value={nodeValue || undefined}
             onChange={(v)=> onNodeChange(v || undefined)}
             allowClear
+            showSearch
             options={nodesOptions.map(n=> ({ value: n, label: n }))}
           />
           <Select
@@ -1350,13 +1411,13 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             value={statusFilter || undefined}
             onChange={(v)=> setStatusFilter(v || '')}
             allowClear
-            options={[{ value: '', label: '全部' }, ...['Running','Starting','Migrating','Stopping','Terminating','Stopped','Terminated','Error','Unknown'].map(k=> ({ value: k.toLowerCase(), label: cnVmStatus(k) }))]}
+            options={[{ value: '', label: '全部' }, ...Object.keys(VM_STATUS_MAP).map(k=> ({ value: k, label: VM_STATUS_MAP[k] }))]}
           />
         </div>
         
         {/* 右侧：操作按钮 */}
         <div key="toolbar-right" className="toolbar-actions">
-          <Button key="create-btn" type="primary" onClick={() => navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location } })}>创建实例</Button>
+          <Button key="create-btn" type="primary" onClick={() => navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location, isTenant } })}>创建实例</Button>
           <Dropdown
             key="batch-actions"
             menu={{

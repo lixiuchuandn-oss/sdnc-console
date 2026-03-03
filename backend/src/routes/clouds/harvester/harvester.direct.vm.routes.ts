@@ -1415,84 +1415,9 @@ export const registerHarvesterDirectVmRoutes = (
 
   /**
    * ==================================================================================
-   * Events & Monitoring
+   * Migration Operations (Direct)
    * ==================================================================================
-   * 查询 K8s/Harvester 事件，支持租户级过滤。
    */
-  router.get(
-    '/:id/resources/harvester/events',
-    checkAdminPermission,
-    async (req: any, res: Response) => {
-      try {
-        const { id } = req.params;
-        const { namespace, uid, name, kind } = req.query;
-
-        const { allowed, namespace: tenantNamespace, isTenant } =
-          await checkTenantAccess(req, id);
-        if (!allowed) return res.status(403).json({ message: 'Access denied' });
-
-        if (isTenant || tenantNamespace) {
-          if (!namespace) {
-            return res
-              .status(400)
-              .json({ message: 'Namespace is required for tenant users' });
-          }
-          if (!isNamespaceAllowed(tenantNamespace, String(namespace))) {
-            return res
-              .status(403)
-              .json({ message: 'Access denied to this namespace' });
-          }
-        }
-
-        const cloud = await fetchCloudOr404(id, res);
-        if (!cloud) return;
-
-        const insecure = !!(cloud.config as any)?.ignoreTls;
-        const base = (cloud.endpoint || '').replace(/\/+$/, '');
-        let origin = base;
-        try {
-          const u = new URL(base);
-          origin = `${u.protocol}//${u.host}`;
-        } catch {
-          origin = base.replace(/\/v[0-9].*$/, '');
-        }
-
-        let fieldSelector = '';
-        if (uid) {
-          fieldSelector = `involvedObject.uid=${uid}`;
-        } else if (name && kind) {
-          fieldSelector = `involvedObject.name=${name},involvedObject.kind=${kind}`;
-        }
-
-        let url = '';
-        if (namespace) {
-          url = `${origin}/api/v1/namespaces/${namespace}/events${
-            fieldSelector
-              ? `?fieldSelector=${encodeURIComponent(fieldSelector)}`
-              : ''
-          }`;
-        } else {
-          url = `${origin}/api/v1/events${
-            fieldSelector
-              ? `?fieldSelector=${encodeURIComponent(fieldSelector)}`
-              : ''
-          }`;
-        }
-
-        const json = await getJsonOnce(url, cloud.secretKey || '', insecure);
-
-        const items = json?.items || [];
-
-        res.json({ data: items });
-      } catch (error: any) {
-        res.status(500).json({
-          message: '查询事件失败',
-          error: error.body || error.message,
-        });
-      }
-    },
-  );
-
   router.get(
     '/:id/resources/harvester/migrations-direct',
     checkAdminPermission,

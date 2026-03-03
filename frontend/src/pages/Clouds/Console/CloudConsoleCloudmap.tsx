@@ -340,6 +340,7 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             onDelete={onDelete}
             bordered={bordered}
             showYaml={showYaml}
+            isTenant={true}
           />
         );
       case 'template':
@@ -360,6 +361,7 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             onRefresh={onRefreshSshKeys}
             bordered={bordered}
             showYaml={showYaml}
+            isTenant={true}
           />
         );
       case 'cloudinit':
@@ -397,6 +399,7 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             bordered={bordered}
             showYaml={showYaml}
             showSys={showSys}
+            isTenant={true}
           />
         );
       case 'volume-snapshot':

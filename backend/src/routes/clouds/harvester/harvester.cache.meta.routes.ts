@@ -46,6 +46,9 @@ import {
   syncHarvesterCloudInits,
   syncHarvesterTemplates,
 } from '../../../services/clouds/harvester/inventory';
+import {
+  createHarvesterSshKey,
+} from '../../../services/clouds/harvester/storage';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
 export const registerHarvesterMetaRoutes = (
@@ -124,6 +127,43 @@ export const registerHarvesterMetaRoutes = (
           .json({ message: '查询SSH密钥失败', error: error.message });
       }
     },
+  );
+
+  /**
+   * [API] 创建 Harvester SSH 密钥
+   * POST /:id/resources/harvester/sshkeys
+   */
+  router.post(
+    '/:id/resources/harvester/sshkeys',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { namespace, name, publicKey } = req.body;
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        const result = await createHarvesterSshKey({
+            endpoint: cloud.endpoint || '',
+            token: cloud.secretKey || '',
+            insecure
+        }, namespace, { name, publicKey });
+        
+        // 创建成功后触发一次异步同步，更新缓存
+        syncHarvesterSshKeys(cloud, insecure).catch(e => 
+          console.warn(`[Harvester] SSH Key created but sync failed: ${e.message}`)
+        );
+        
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        console.error('[Harvester] Create SSH Key Error:', error);
+        res.status(500).json({ message: '创建SSH密钥失败', error: error.message || String(error) });
+      }
+    }
   );
 
   /**

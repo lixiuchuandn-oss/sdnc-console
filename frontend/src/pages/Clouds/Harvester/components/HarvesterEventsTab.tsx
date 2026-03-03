@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { List, Tag, Typography, Space, Tooltip, Empty, Button } from 'antd';
 import { InfoCircleOutlined, WarningOutlined, ClockCircleOutlined, AppstoreOutlined, ReloadOutlined } from '@ant-design/icons';
-import { fetchHarvesterEvents } from '../../../../services/harvesterApi';
+import { fetchHarvesterEvents } from '../../../../services/loggingApi';
 
 const { Text, Paragraph } = Typography;
 
@@ -12,7 +12,7 @@ interface HarvesterEventsTabProps {
   kind?: string;
 }
 
-const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record, active, kind: propKind }) => {
+const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record, active }) => {
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -29,19 +29,17 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
           // Support both flat record and nested metadata
           const ns = record.metadata?.namespace || record.namespace;
           const name = record.metadata?.name || record.name;
-          const uid = record.metadata?.uid || record.uid;
-          const kind = record.kind || propKind || 'VirtualMachine'; 
 
-          if (ns || kind === 'Node' || kind === 'Namespace') {
-             const res = await fetchHarvesterEvents(cloudId!, ns, uid, name, kind);
+          if (ns && name) {
+             const res = await fetchHarvesterEvents(cloudId!, ns, name, 'VirtualMachineInstance');
              // Sort by lastTimestamp desc
              const sorted = (res?.data || []).sort((a: any, b: any) => {
                  return new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime();
              });
              setEvents(sorted);
           }
-      } catch (e) {
-          console.error(e);
+      } catch (e: any) {
+          console.error(e?.message || e);
       } finally {
           setLoading(false);
       }

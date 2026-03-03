@@ -736,12 +736,13 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
 
   // 命名空间选项列表
   const namespacesOptions = useMemo(() => {
-    const s = new Set<string>();
-    (harvesterNamespaces || []).forEach((n:any)=>{ 
-        const ns = n?.metadata?.name || n?.name || '';
-        if (ns && !isSystemNamespace(ns)) s.add(ns); 
-    });
-    return Array.from(s).sort();
+    // 简单直接：仅基于 harvesterNamespaces 生成列表
+    // 列表的完整性由 loadEssentials 保证 (管理员加载所有，租户只加载可见的)
+    const list = (harvesterNamespaces || [])
+      .map((n: any) => n?.metadata?.name || n?.name || '')
+      .filter(Boolean);
+    
+    return Array.from(new Set(list)).sort();
   }, [harvesterNamespaces]);
 
   // 客户端过滤后的 VM 列表

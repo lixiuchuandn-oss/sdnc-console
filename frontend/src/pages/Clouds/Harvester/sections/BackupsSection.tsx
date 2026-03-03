@@ -11,6 +11,7 @@ import { TableColumnSettings } from '../../../../components/TableColumnSettings'
 import { deleteHarvesterBackup } from '../../../../services/harvesterApi';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 
 /**
  * 组件入参
@@ -32,9 +33,10 @@ interface Props {
   type?: 'backup' | 'snapshot';
   vmId?: string;
   bordered?: boolean;
+  showYaml?: boolean;
 }
 
-const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, bordered = true }) => {
+const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, bordered = true, showYaml = true }) => {
   // 关键字搜索
   const [keyword, setKeyword] = useState<string>('');
   // 状态过滤：all / ready / not_ready
@@ -45,6 +47,9 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
   // 当前选中的备份/快照，用于恢复操作
   const [currentSnapshot, setCurrentSnapshot] = useState<any>(null);
+  // 详情抽屉
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [drawerRecord, setDrawerRecord] = useState<any>(null);
   
   // Polling for created item status
   const [pendingCreated, setPendingCreated] = useState<{ namespace: string; name: string } | null>(null);
@@ -210,7 +215,16 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
        dataIndex: 'alias', 
        key: 'alias',
        render: (t: string, r: any) => (
-         <span style={{ fontWeight: 500 }}>{t !== '-' ? t : r.name}</span>
+        showYaml ? (
+          <span 
+            className="cell-link" 
+            onClick={() => { setDrawerRecord(r.raw); setDrawerVisible(true); }}
+          >
+            {t !== '-' ? t : r.name}
+          </span>
+        ) : (
+          <span style={{ fontWeight: 500 }}>{t !== '-' ? t : r.name}</span>
+        )
        )
     },
     { 
@@ -241,21 +255,28 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       width: 80,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
-        const items: any[] = [
-          {
-            key: 'restore',
-            label: '恢复',
-            disabled: !record.readyToUse,
-            onClick: () => {
-              setCurrentSnapshot(record);
-              setRestoreModalVisible(true);
-            }
-          },
-          {
-            type: 'divider',
-          },
-          { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) }
-        ];
+        const items: any[] = [];
+        
+        if (showYaml) {
+          items.push({
+            key: 'view',
+            label: '查看详情',
+            onClick: () => { setDrawerRecord(record.raw); setDrawerVisible(true); }
+          });
+          items.push({ type: 'divider' });
+        }
+        
+        items.push({
+          key: 'restore',
+          label: '恢复',
+          disabled: !record.readyToUse,
+          onClick: () => {
+            setCurrentSnapshot(record);
+            setRestoreModalVisible(true);
+          }
+        });
+        items.push({ type: 'divider' });
+        items.push({ key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) });
         
         return (
           <Dropdown menu={{ items }} trigger={['click']}>
@@ -264,7 +285,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         );
       },
     },
-  ], [handleDelete]);
+  ], [handleDelete, showYaml]);
 
   return (
     <PageDetailSection asCard={false}>
@@ -315,6 +336,13 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
           size: 'small',
           showQuickJumper: false,
         }}
+      />
+      <HarvesterResourceDrawer
+        open={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+        resourceType={type === 'backup' ? 'VmBackup' : 'VmSnapshot'}
+        record={drawerRecord}
+        cloudId={cloudId}
       />
       <VmBackupCreateModal
         key="create-modal"

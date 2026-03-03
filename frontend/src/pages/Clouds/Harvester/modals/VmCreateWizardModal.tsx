@@ -44,12 +44,17 @@ type Props = {
   isTenant?: boolean;
 };
 
-const VmCreateWizardModal: React.FC<Props> = ({ isTenant = false }) => {
+const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }) => {
   const { message, modal, notification } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
   const cloudId = id as string;
+
+  // [Fix] isTenant priority: 1. props 2. location.state 3. default false
+  const stateIsTenant = (location.state as any)?.isTenant;
+  const isTenant = propIsTenant || stateIsTenant || false;
+
   const [form] = Form.useForm();
   // 向导全局状态：跨步骤累积的表单数据、当前步骤索引、提交状态等
   const [wizardData, setWizardData] = useState<any>({});
@@ -82,7 +87,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant = false }) => {
     usbResources, reloadUsbResources,
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
     sshKeyOptions, reloadSshKeys
-  } = useHarvesterData(cloudId, currentCloudId, form);
+  } = useHarvesterData(cloudId, currentCloudId, form, isTenant);
 
   const fromTemplateState = (location.state as any)?.fromTemplate;
   const fromVmState = (location.state as any)?.fromVm;
