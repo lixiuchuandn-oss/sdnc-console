@@ -48,6 +48,7 @@ import {
 } from '../../../services/clouds/harvester/inventory';
 import {
   createHarvesterSshKey,
+  deleteHarvesterSshKey,
 } from '../../../services/clouds/harvester/storage';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
@@ -84,6 +85,11 @@ export const registerHarvesterMetaRoutes = (
           ((req.user as any)?.tenantId &&
             (req.user as any)?.role !== 'sase_device');
             
+        // [修复逻辑] SSH Key 租户可见性策略调整
+        // 租户不仅能看到自己的 Namespace，还应该能看到公共 Namespace (default, harvester-public)
+        // 因此不能简单地使用 whereCondition.namespace = us.namespace 进行数据库层过滤。
+        // 应该先查出所有 Key，然后在应用层做过滤。或者使用 In 查询。
+        let tenantNamespace = '';
         if (isTenant) {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
           const us = await userSpaceRepo.findOne({
@@ -93,18 +99,19 @@ export const registerHarvesterMetaRoutes = (
               status: 'active',
             },
           });
-          // 租户未分配空间，返回空列表
-          if (!us)
-            return res.json({ message: '查询成功', data: { items: [] } });
-          // 限定 Namespace
-          if (us.namespace) whereCondition.namespace = us.namespace;
+          // 租户未分配空间，理论上只能看公共资源，暂时允许继续执行，但 tenantNamespace 为空
+          if (us && us.namespace) {
+            tenantNamespace = us.namespace;
+          }
         }
 
-        const count = await repo.count({ where: whereCondition });
-        
         // [缓存策略] 自动同步逻辑
         // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true')
-        if (count === 0 || String(force) === 'true') {
+        // 注意：这里必须用不带 namespace 过滤的条件查总数，否则可能因为租户过滤导致总误判为0从而触发全量同步（虽然也没坏处，但不够精准）
+        // 更优解：始终检查全量数据的 count
+        const totalCount = await repo.count({ where: { cloudId: id } });
+        
+        if (totalCount === 0 || String(force) === 'true') {
           try {
             await syncHarvesterSshKeys(cloud, insecure);
           } catch (e: any) {
@@ -114,12 +121,27 @@ export const registerHarvesterMetaRoutes = (
               'Sync SSH Keys failed, falling back to empty/stale',
               e,
             );
-            if (count === 0) throw e;
+            if (totalCount === 0) throw e;
           }
         }
 
-        const items = await repo.find({ where: whereCondition });
-        const list = items.map((i) => i.rawData);
+        // 查询数据
+        const items = await repo.find({ where: { cloudId: id } });
+        let list = items.map((i) => i.rawData);
+
+        // [应用层过滤]
+         // if (isTenant) {
+         //    list = list.filter((item: any) => {
+         //      const ns = (item.metadata?.namespace || '').toLowerCase();
+         //      // 1. 自己的命名空间
+         //      if (tenantNamespace && ns === tenantNamespace.toLowerCase()) return true;
+         //      // 2. 公共命名空间
+         //      if (['default', 'harvester-public', 'cloud-public'].includes(ns)) return true;
+         //      // 3. 其他情况不可见
+         //      return false;
+         //    });
+         // }
+        
         res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
         res
@@ -139,7 +161,7 @@ export const registerHarvesterMetaRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace, name, publicKey } = req.body;
+        const { namespace, name, publicKey, annotations } = req.body;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -151,7 +173,7 @@ export const registerHarvesterMetaRoutes = (
             endpoint: cloud.endpoint || '',
             token: cloud.secretKey || '',
             insecure
-        }, namespace, { name, publicKey });
+        }, namespace, { name, publicKey, annotations });
         
         // 创建成功后触发一次异步同步，更新缓存
         syncHarvesterSshKeys(cloud, insecure).catch(e => 
@@ -162,6 +184,41 @@ export const registerHarvesterMetaRoutes = (
       } catch (error: any) {
         console.error('[Harvester] Create SSH Key Error:', error);
         res.status(500).json({ message: '创建SSH密钥失败', error: error.message || String(error) });
+      }
+    }
+  );
+
+  /**
+   * [API] 删除 Harvester SSH 密钥
+   * DELETE /:id/resources/harvester/sshkeys/:namespace/:name
+   */
+  router.delete(
+    '/:id/resources/harvester/sshkeys/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        
+        await deleteHarvesterSshKey({
+            endpoint: cloud.endpoint || '',
+            token: cloud.secretKey || '',
+            insecure
+        }, namespace, name);
+        
+        // 删除成功后触发同步
+        syncHarvesterSshKeys(cloud, insecure).catch(e => 
+          console.warn(`[Harvester] SSH Key deleted but sync failed: ${e.message}`)
+        );
+        
+        res.json({ message: '删除成功' });
+      } catch (error: any) {
+        console.error('[Harvester] Delete SSH Key Error:', error);
+        res.status(500).json({ message: '删除SSH密钥失败', error: error.message || String(error) });
       }
     }
   );

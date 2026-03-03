@@ -879,6 +879,8 @@ export const restoreVolumeSnapshot = async (
   return json;
 };
 
+
+
 /**
  * [创建命名空间]
  * 创建新的 Harvester 命名空间。
@@ -1315,6 +1317,7 @@ export const createHarvesterSshKey = async (
   payload: {
     name: string;
     publicKey: string;
+    annotations?: Record<string, string>;
   }
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
@@ -1333,6 +1336,7 @@ export const createHarvesterSshKey = async (
     metadata: {
       name: payload.name,
       namespace: namespace,
+      annotations: payload.annotations,
     },
     spec: {
       publicKey: payload.publicKey,
@@ -1340,6 +1344,24 @@ export const createHarvesterSshKey = async (
   };
 
   return requestJson('POST', url, token, insecure, body);
+};
+
+export const deleteHarvesterSshKey = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/keypairs/${encodeURIComponent(name)}`;
+  return await requestJson('DELETE', url, token, insecure);
 };
 
 /**

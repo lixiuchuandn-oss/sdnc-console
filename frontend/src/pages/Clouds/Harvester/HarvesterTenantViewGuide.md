@@ -6,12 +6,15 @@
 
 *   **Border Control (`bordered`)**: 租户侧通常需要更简洁的无边框表格样式。
 *   **Detail Access (`showYaml`)**: 租户侧通常不需要查看底层的 YAML 配置或复杂的 K8s 事件详情，因此需要隐藏这些入口。
+*   **System Resources Visibility (`showSys` / `isTenant`)**: 
+    *   **租户模式 (`isTenant=true`)**: 强制隐藏系统级资源（如 `harvester-system`, `longhorn-system` 等命名空间下的资源），且不提供查看选项。
+    *   **管理员模式**: 默认隐藏系统级资源，但提供复选框允许管理员手动查看。
 
 ## 2. 代码适配步骤
 
 ### Step 1: 扩展 Props 接口定义
 
-在组件的 `Props` 接口中添加 `bordered` 和 `showYaml` 属性。
+在组件的 `Props` 接口中添加 `bordered`, `showYaml`, `showSys`, `isTenant` 属性。
 
 ```typescript
 interface Props {
@@ -23,12 +26,14 @@ interface Props {
   // [新增] 视图控制属性
   bordered?: boolean; // 控制表格边框 (默认 true)
   showYaml?: boolean; // 控制是否显示详情/YAML入口 (默认 true)
+  showSys?: boolean;  // [已废弃，逻辑合并入 isTenant] 是否允许显示系统资源开关 (默认 true)
+  isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷，且隐藏开关)
 }
 ```
 
-### Step 2: 设置默认值
+### Step 2: 设置默认值与状态
 
-在组件解构时为这两个属性设置默认值 `true`，以保持现有的管理端行为不变。
+在组件解构时设置默认值，并初始化控制系统资源显示的状态。
 
 ```typescript
 const SomeSection: React.FC<Props> = ({ 
@@ -36,31 +41,90 @@ const SomeSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   // ... 其他属性
-  bordered = true,  // [新增] 默认有边框
-  showYaml = true   // [新增] 默认显示详情
+  bordered = true,
+  showYaml = true,
+  isTenant = false,
+  showSys = true
 }) => {
+  // [状态] 控制系统资源显示的开关 (默认关闭)
+  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
+  
   // ...
 ```
 
-### Step 3: 适配表格列渲染逻辑
+### Step 3: 实现数据过滤逻辑
+
+在 `filtered` 或 `dataSource` 的计算逻辑中，加入对系统资源的过滤。
+
+```typescript
+  const filtered = useMemo(() => {
+    return (data || []).filter((r: any) => {
+      const ns = r.namespace; // 获取命名空间
+      
+      // [关键逻辑] 系统资源过滤
+      // 1. 租户模式: 强制过滤系统命名空间和公共命名空间
+      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+      
+      // 2. 管理员模式: 仅在未勾选"显示系统资源"时过滤系统命名空间
+      if (!isTenant && !showSystemResources && isSystemNamespace(ns)) return false;
+
+      // ... 其他过滤逻辑 (关键字, 状态等)
+      return true;
+    });
+  }, [data, isTenant, showSystemResources, /* ... */]);
+```
+
+### Step 4: 实现命名空间下拉选项过滤
+
+确保命名空间筛选器的选项列表也遵循相同的过滤规则。
+
+```typescript
+// 下拉框 options 逻辑
+options={namespacesOptions.filter(ns => {
+  // 租户模式: 过滤系统和公共命名空间
+  if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+  // 管理员模式: 根据开关决定是否显示系统命名空间
+  if (!isTenant && !showSystemResources && isSystemNamespace(ns)) return false;
+  return true;
+}).map(ns => ({ value: ns, label: ns }))}
+```
+
+### Step 5: 添加工具栏控制开关
+
+在工具栏（通常是左侧筛选区）添加控制复选框。
+
+```typescript
+// Toolbar 渲染部分
+<div className="toolbar-left">
+  {/* 其他筛选器 ... */}
+  
+  {/* [关键逻辑] 仅在非租户模式下显示控制开关 */}
+  {!isTenant && (
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      <Checkbox 
+        checked={showSystemResources} 
+        onChange={(e: any) => setShowSystemResources(e.target.checked)}
+      >
+        显示系统资源
+      </Checkbox>
+    </div>
+  )}
+</div>
+```
+
+### Step 6: 适配表格列渲染逻辑 (同前)
 
 **A. 名称列 (Name Column)**
-
-修改名称列的 `render` 方法，根据 `showYaml` 决定是否渲染可点击链接。
 
 ```typescript
     { 
       title: '名称', 
-      dataIndex: 'name', 
-      key: 'name', 
       render: (_: any, r: any) => (
         showYaml ? (
-          // 管理端：显示链接，点击打开详情抽屉
           <span className="cell-link" onClick={() => handleOpenDrawer(r)}>
             {r.name}
           </span>
         ) : (
-          // 租户侧：仅显示纯文本
           <span>{r.name}</span>
         )
       )
@@ -69,66 +133,37 @@ const SomeSection: React.FC<Props> = ({
 
 **B. 操作列 (Actions Column)**
 
-将操作菜单项 (`items`) 改为动态生成，根据 `showYaml` 隐藏“资源详情”或“查看 YAML”选项。（label名称改为“查看YAML”）
-
 ```typescript
     {
       title: '操作',
-      key: 'action',
-      fixed: 'right' as const,
-      width: 80,
       render: (_: any, record: any) => {
         const items: any[] = [];
-        
-        // [关键逻辑] 仅在 showYaml 为 true 时添加详情入口
         if (showYaml) {
           items.push({ key: 'detail', label: '查看YAML', onClick: () => handleOpenDrawer(record) });
           items.push({ type: 'divider' as const });
         }
-        
-        // 其他通用操作 (如删除、编辑、恢复等)
-        items.push({ key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) });
-        
-        return (
-          <ResourceActionsDropdown 
-            items={items}
-            buttonProps={{ className: 'row-actions-trigger' }}
-          />
-        );
+        // ... 其他操作
+        return <ResourceActionsDropdown items={items} />;
       },
     },
 ```
 
-### Step 4: 绑定表格属性
-
-将 `bordered` 属性传递给 Ant Design 的 `<Table>` 组件。
-
-```typescript
-      <Table
-        className="std-table"
-        bordered={bordered} // [关键逻辑] 绑定边框控制属性
-        dataSource={dataSource}
-        columns={columns}
-        // ...
-      />
-```
-
 ## 3. 调用示例 (CloudConsoleHarvester.tsx)
 
-在租户侧容器组件中调用列表组件时，显式传入 `false`。
-
 ```typescript
-// src/pages/Clouds/Console/CloudConsoleHarvester.tsx
-
-<SnapshotsSection
-  snapshots={snapshots}
-  loading={loading}
-  onRefresh={onRefreshSnapshots}
-  cloudId={cloudId}
-  bordered={bordered} // 通常透传自 CloudConsoleHarvester 的 props
-  showYaml={showYaml} // 通常透传自 CloudConsoleHarvester 的 props
+<SomeSection
+  // ...
+  bordered={false}
+  showYaml={false}
+  isTenant={true} // 标记为租户视图
 />
 ```
 
----
-*Created by Trae AI Assistant*
+## 4. 特殊组件注意事项
+
+### SSH Keys (SshKeysSection)
+
+*   **严格禁止查看详情/YAML**: SSH 密钥包含敏感元数据，租户侧**必须**屏蔽所有查看详情的入口。
+*   **交互限制**: 在 `SshKeysSection` 中，**必须**移除“名称”列的点击事件（`onClick`）和链接样式（`.cell-link`），防止租户误入详情页查看原始 YAML 数据。
+*   **指纹列**: 如果数据为空，直接移除该列，避免展示无意义的空白。
+*   **字体规范**: 密钥 ID 等技术字段应使用 `.std-code` 样式以区分普通文本。

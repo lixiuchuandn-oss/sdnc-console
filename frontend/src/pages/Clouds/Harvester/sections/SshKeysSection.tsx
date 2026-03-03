@@ -8,12 +8,15 @@
  * 当前仅提供删除占位操作（实际删除能力尚未开放）。
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Button, message, Input } from 'antd';
-import { ReloadOutlined,SearchOutlined } from '@ant-design/icons';
+import { Table, Button, message, Input, Select, Checkbox, Modal, Dropdown } from 'antd';
+import { ReloadOutlined, SearchOutlined, EllipsisOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import SshKeyCreateModal from '../modals/SshKeyCreateModal';
+import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { deleteHarvesterSshKey } from '../../../../services/harvesterApi';
 
 /**
  * 组件入参说明
@@ -48,7 +51,15 @@ const SshKeysSection: React.FC<Props> = ({
 }) => {
   // 关键字搜索，仅用于前端过滤名称/命名空间
   const [keyword, setKeyword] = useState<string>('');
+  const [namespaceFilter, setNamespaceFilter] = useState<string>();
+  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
+  // 详情抽屉状态
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<any>(null);
+  const [detailActiveTab, setDetailActiveTab] = useState('detail');
   
   /**
    * 将后端返回的 SSH Key 数据统一转换为表格可用结构
@@ -61,8 +72,10 @@ const SshKeysSection: React.FC<Props> = ({
       return {
         key: raw.metadata?.uid || k.id,
         name: raw.metadata?.name || k.name,
+        alias: raw.metadata?.annotations?.['tower.io/alias'],
         namespace: raw.metadata?.namespace || k.namespace,
-        fingerprint: raw.status?.fingerprint || k.fingerprint || '-',
+        // 优先读取 spec.fingerprint，其次是 status.fingerprint，最后是外层字段
+        fingerprint: raw.spec?.fingerprint || raw.status?.fingerprint || k.fingerprint || '-',
         creationTimestamp: raw.metadata?.creationTimestamp || k.createdAt,
         raw,
       };
@@ -70,17 +83,100 @@ const SshKeysSection: React.FC<Props> = ({
   }, [sshKeys]);
 
   /**
+   * 基础数据过滤（租户可见性）
+   */
+  const baseData = useMemo(() => {
+    let d = dataSource;
+    return d.filter((x: any) => {
+      const ns = (x.namespace || '').toLowerCase();
+      
+      // 1. 租户模式: 严格隔离，禁止查看公共命名空间和系统命名空间
+      if (isTenant) {
+        return !isSystemNamespace(ns) && !isPublicNamespace(ns);
+      }
+
+      // 2. 管理员模式: 根据开关决定是否显示系统命名空间
+      if (!showSystemResources && isSystemNamespace(ns)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [dataSource, isTenant, showSystemResources]);
+
+  /**
+   * 提取所有可用的命名空间选项
+   */
+  const namespaceOptions = useMemo(() => {
+    const nsSet = new Set<string>();
+    baseData.forEach((item: any) => item.namespace && nsSet.add(item.namespace));
+    return Array.from(nsSet).sort().map(ns => ({ label: ns, value: ns }));
+  }, [baseData]);
+
+  /**
    * 前端过滤逻辑
-   * - 关键字：匹配名称/命名空间
+   * - 命名空间：精确匹配
+   * - 关键字：匹配名称/命名空间/别名
    */
   const filteredData = useMemo(() => {
-    let d = dataSource;
+    let d = baseData;
+
+    if (namespaceFilter) {
+      d = d.filter((x: any) => x.namespace === namespaceFilter);
+    }
+
     if (keyword) {
       const k = keyword.toLowerCase();
-      d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
+      d = d.filter((x: any) => 
+        x.name.toLowerCase().includes(k) || 
+        x.namespace.toLowerCase().includes(k) ||
+        (x.alias && x.alias.toLowerCase().includes(k))
+      );
     }
     return d;
-  }, [dataSource, keyword]);
+  }, [baseData, keyword, namespaceFilter]);
+
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) return;
+    
+    Modal.confirm({
+      title: '批量删除确认',
+      content: `即将删除 ${selectedRowKeys.length} 个 SSH 密钥，是否确认？`,
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const targets = dataSource.filter((item: any) => selectedRowKeys.includes(item.key));
+          const results = await Promise.allSettled(
+            targets.map((t: any) => deleteHarvesterSshKey(cloudId, t.namespace, t.name))
+          );
+          
+          const successCount = results.filter(r => r.status === 'fulfilled').length;
+          const failCount = results.length - successCount;
+          
+          if (successCount > 0) message.success(`成功删除 ${successCount} 个密钥`);
+          if (failCount > 0) message.error(`${failCount} 个密钥删除失败`);
+          
+          setSelectedRowKeys([]);
+          onRefresh?.(true);
+        } catch (e: any) {
+          message.error(e.message || '批量删除失败');
+        }
+      }
+    });
+  };
+
+  const handleOpenDrawer = (record: any, tab: string = 'detail') => {
+    // 构造符合 HarvesterResourceDrawer 要求的 record 对象
+    const raw = record.raw || record;
+    // 确保有 kind 字段，以便抽屉组件正确处理
+    const r = { ...raw, kind: raw.kind || 'KeyPair' };
+    
+    setDetailRecord(r);
+    setDetailActiveTab(tab);
+    setDetailVisible(true);
+  };
 
   /**
    * 表格列定义
@@ -90,34 +186,37 @@ const SshKeysSection: React.FC<Props> = ({
   const columns = useMemo(() => [
     { 
       title: '名称', 
-      dataIndex: 'name', 
-      key: 'name', 
-      className: showYaml ? 'cell-link' : undefined,
-      render: (text: string) => (
-        showYaml ? (
-          <span className="cell-link" onClick={() => message.info('详情功能开发中')}>{text}</span>
-        ) : (
-          <span>{text}</span>
-        )
-      )
+      dataIndex: 'alias', 
+      key: 'alias',
+      render: (text: string, record: any) => {
+        // 如果有别名，显示别名，否则显示名称（name）
+        const content = text || record.name;
+        // [Security] 租户侧严禁查看 YAML 详情，此处移除所有点击链接
+        return <span>{content}</span>;
+      }
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
-    { title: '指纹 (Fingerprint)', dataIndex: 'fingerprint', key: 'fingerprint', ellipsis: true },
-    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180, className: 'std-time' },
+    { 
+      title: '密钥 ID', 
+      dataIndex: 'name', 
+      key: 'name',
+      copyable: true,
+      render: (text: string) => <span className="std-code">{text}</span>
+    },
+    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', className: 'std-time' },
     {
       title: '操作',
       key: 'action',
       width: 80,
-      fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
 
-        // 仅在 showYaml 为 true 时添加详情入口
-        if (showYaml) {
+        // 仅在 showYaml 为 true 且非租户模式下添加详情入口
+        if (showYaml && !isTenant) {
           items.push({ 
             key: 'detail', 
             label: '查看YAML', 
-            onClick: () => message.info('详情功能开发中') 
+            onClick: () => handleOpenDrawer(record, 'yaml')
           });
           items.push({ type: 'divider' as const });
         }
@@ -126,7 +225,24 @@ const SshKeysSection: React.FC<Props> = ({
           key: 'delete', 
           label: '删除', 
           danger: true, 
-          onClick: () => message.info('暂不支持删除') 
+          onClick: () => {
+            Modal.confirm({
+              title: `确认删除密钥 ${record.name}?`,
+              content: '此操作不可恢复。',
+              okText: '删除',
+              cancelText: '取消',
+              okButtonProps: { danger: true },
+              onOk: async () => {
+                try {
+                  await deleteHarvesterSshKey(cloudId, record.namespace, record.name);
+                  message.success('删除成功');
+                  onRefresh?.(true);
+                } catch (e: any) {
+                  message.error(e.message || '删除失败');
+                }
+              }
+            });
+          }
         });
 
         return (
@@ -141,30 +257,70 @@ const SshKeysSection: React.FC<Props> = ({
 
   const [tableColumns, setTableColumns] = useState<any[]>(columns);
 
+  // 当列定义发生变化时（如指纹列显示/隐藏），同步更新 tableColumns
+  React.useEffect(() => {
+    setTableColumns(columns);
+  }, [columns]);
+
   return (
     <PageDetailSection
       title="SSH 密钥 (SSH Keys)"
       asCard={false}
       toolbarLeft={(
-        <Input 
-          allowClear 
-          placeholder="关键字"  
-          suffix={<SearchOutlined />}
-          className="toolbar-search" 
-          value={keyword} 
-          onChange={(e)=> setKeyword(e.target.value)} 
-        />
+        <>
+          <Input 
+            allowClear 
+            placeholder="关键字"  
+            suffix={<SearchOutlined />}
+            className="toolbar-search" 
+            value={keyword} 
+            onChange={(e)=> setKeyword(e.target.value)} 
+          />
+          <Select
+            placeholder="命名空间"
+            className="toolbar-filter" 
+            allowClear
+            showSearch
+            options={namespaceOptions}
+            value={namespaceFilter}
+            onChange={setNamespaceFilter}
+          />
+          {!isTenant && (
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Checkbox 
+                checked={showSystemResources} 
+                onChange={(e: any) => setShowSystemResources(e.target.checked)}
+              >
+                显示系统资源
+              </Checkbox>
+            </div>
+          )}
+        </>
       )}
       toolbarRight={(
-        <>
+        <div className="toolbar-actions">
           <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建</Button>
+          <Dropdown 
+            menu={{ 
+              items: [{ 
+                key: 'delete', 
+                label: '批量删除', 
+                danger: true, 
+                disabled: selectedRowKeys.length === 0,
+                onClick: handleBatchDelete
+              }] 
+            }} 
+            trigger={['click']}
+          >
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
           <TableColumnSettings 
             columns={columns} 
             onChange={setTableColumns}
             settingsKey="harvester_ssh_keys_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
-        </>
+        </div>
       )}
     >
       <Table
@@ -173,9 +329,16 @@ const SshKeysSection: React.FC<Props> = ({
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"
+        rowSelection={{
+          selectedRowKeys,
+          onChange: setSelectedRowKeys,
+        }}
         loading={loading}
         pagination={{
           size: 'small',
+          showSizeChanger: true,
+          pageSize: 10,
+          pageSizeOptions: ['10', '20', '50', '100'],
           showQuickJumper: false,
         }}
       />
@@ -188,6 +351,17 @@ const SshKeysSection: React.FC<Props> = ({
           onRefresh?.(true);
         }}
         isTenant={isTenant}
+      />
+      
+      {/* 资源详情抽屉 */}
+      <HarvesterResourceDrawer
+        open={detailVisible}
+        onClose={() => setDetailVisible(false)}
+        resourceType="KeyPair"
+        record={detailRecord}
+        cloudId={cloudId}
+        activeTab={detailActiveTab}
+        onTabChange={setDetailActiveTab}
       />
     </PageDetailSection>
   );

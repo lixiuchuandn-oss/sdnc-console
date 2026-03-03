@@ -35,6 +35,7 @@ import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
 import { API_BASE_URL } from '../../../../services/api';
 import { deleteHarvesterImage, createHarvesterImage, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
+import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
 
 /**
@@ -51,13 +52,15 @@ type Props = {
   onRefresh?: (force?: boolean) => void;
   bordered?: boolean;
   showYaml?: boolean;
+  isTenant?: boolean;
 };
 
-const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, bordered = true, showYaml = true }) => {
+const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, bordered = true, showYaml = true, isTenant = false }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [osFilter, setOsFilter] = useState<string>('');
+  const [scopeFilter, setScopeFilter] = useState<string>(''); // all | public | private
   // 创建镜像弹窗状态
   const [creating, setCreating] = useState<boolean>(false);
   // 批量选择的行 key
@@ -156,6 +159,9 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
     return g ? g : (v ? [v] : []);
   };
 
+  const getId = (r: any): string => String(r?.name || r?.metadata?.name || '');
+  const getNs = (r: any): string => String(r?.namespace || r?.metadata?.namespace || 'default');
+
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
@@ -165,6 +171,19 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
         r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || ''
       ).toLowerCase();
       const id = String(r?.name || r?.metadata?.name || '').toLowerCase();
+      const ns = getNs(r);
+      
+      // [系统资源过滤]
+      // 租户模式: 严格隔离，禁止查看公共命名空间和系统命名空间
+      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+
+      // Scope Filter
+      if (scopeFilter === 'public' && !isPublicNamespace(ns)) return false;
+      // Private = !System && !Public
+      // Note: isSystemNamespace includes 'harvester-public', so !isSystemNamespace excludes it.
+      // However, to be safe and explicit based on user rule:
+      if (scopeFilter === 'private' && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+
       if (kw && !(name.includes(kw) || id.includes(kw))) return false;
       const key = String((typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status)) || '').toLowerCase();
       if (st && key !== st) return false;
@@ -179,7 +198,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
       }
       return true;
     });
-  }, [images, keyword, statusFilter, typeFilter, osFilter]);
+  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter]);
+
   const statusOptions = ['imported','pending','downloading','ready','failed','unknown'];
   const osOptions = [
     { value: '', label: '全部' },
@@ -214,9 +234,6 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
     kernel: (r: any) => '', 
     arch: (r: any) => r?.metadata?.labels?.['harvesterhci.io/architecture'] || '',
   };
-
-  const getId = (r: any): string => String(r?.name || r?.metadata?.name || '');
-  const getNs = (r: any): string => String(r?.namespace || r?.metadata?.namespace || 'default');
 
   /**
    * 批量删除已选镜像
@@ -270,6 +287,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
     } },
     { title: '镜像ID', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
     { title: '命名空间', key: 'namespace', render: (_:any, r:any)=> getNs(r) },
+    { title: '作用域', key: 'scope', render: (_:any, r:any)=> isPublicNamespace(getNs(r)) ? '公共镜像' : '私有镜像' },
     { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) },
     { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
         const kind = resolveImageKind(r);
@@ -306,7 +324,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
         <ResourceActionsDropdown 
           buttonProps={{ className: 'row-actions-trigger' }}
           items={[
-            ...(showYaml ? [{ key: 'detail_yaml', label: '查看YAML', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
+            ...(showYaml && !isTenant ? [{ key: 'detail_yaml', label: '查看YAML', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, onClick: () => Modal.confirm({ title: `删除 ${name}?`, onOk: handleDelete }) },
@@ -349,6 +367,24 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
       toolbarLeft={(
         <>
           <Input allowClear placeholder="关键字" suffix={<SearchOutlined />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
+          <Select
+            allowClear
+            placeholder="作用域"
+            value={scopeFilter || undefined}
+            onChange={(v)=> setScopeFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={
+              // 租户模式下强制私有作用域，不再显示"公共镜像"选项
+              isTenant ? [
+                { value: '', label: '全部' },
+                { value: 'private', label: '私有镜像' },
+              ] : [
+                { value: '', label: '全部' },
+                { value: 'public', label: '公共镜像' },
+                { value: 'private', label: '私有镜像' },
+              ]
+            }
+          />
           <Select
             allowClear
             placeholder="镜像状态"

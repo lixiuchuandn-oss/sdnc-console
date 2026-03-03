@@ -1259,13 +1259,13 @@ export const deleteHarvesterSnapshot = async (cloudId: string, namespace: string
   return await res.json();
 };
 
-export const createHarvesterSshKey = async (cloudId: string, namespace: string, name: string, publicKey: string) => {
+export const createHarvesterSshKey = async (cloudId: string, namespace: string, name: string, publicKey: string, annotations?: Record<string, string>) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/sshkeys`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
-    body: JSON.stringify({ namespace, name, publicKey })
+    body: JSON.stringify({ namespace, name, publicKey, annotations })
   });
   if (!res.ok) throw new Error(await res.text());
   return await res.json();

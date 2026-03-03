@@ -1,7 +1,7 @@
 {
   "files": {
     "main.css": "/static/css/main.3265c0b7.css",
-    "main.js": "/static/js/main.9eeb3e95.js",
+    "main.js": "/static/js/main.73c8ca7c.js",
     "static/media/tsgz.png": "/static/media/tsgz.20d35d4704c7dee49c52.png",
     "static/media/wan.png": "/static/media/wan.c42623442346b093dcf7.png",
     "static/media/std.png": "/static/media/std.96848ef4058908bf9c0e.png",
@@ -11,16 +11,31 @@
     "static/media/sm-gz.png": "/static/media/sm-gz.526c80a22418db292907.png",
     "static/media/lan-gm.png": "/static/media/lan-gm.e80b12c1a8cafe024c08.png",
     "static/media/gm-to-sm.png": "/static/media/gm-to-sm.eaf5275d65b409ad2d65.png",
+    "static/media/neokylin.svg": "/static/media/neokylin.6c72e7d0096149085b85af227753dd71.svg",
+    "static/media/android.svg": "/static/media/android.5bd42a1221afba23a7bb1ae737fdd039.svg",
+    "static/media/debian.svg": "/static/media/debian.d3a9387098e564dbd2d943eb47fc6475.svg",
+    "static/media/suse.svg": "/static/media/suse.2237d2a1f7c2183811c1b02a93045963.svg",
+    "static/media/redhat.svg": "/static/media/redhat.811d54f9d3bb6e5adca57570d09e4870.svg",
+    "static/media/openeuler.svg": "/static/media/openeuler.0e56052d469bbcab9bb8ac3d47a45a6a.svg",
+    "static/media/kylin.svg": "/static/media/kylin.ae8ba24817c205da8b4f27e1effdf6ef.svg",
     "static/media/nic.svg": "/static/media/nic.3be0091d476135b4436cb8ab1416bebb.svg",
+    "static/media/ubuntu.svg": "/static/media/ubuntu.5b537ef74d81918498568f3f8586761e.svg",
+    "static/media/anolis.svg": "/static/media/anolis.b07618665e55e015577cc407ba1fa89f.svg",
+    "static/media/fedora.svg": "/static/media/fedora.d46f7d5d758676e828eb90f750185fe7.svg",
     "static/media/disk.svg": "/static/media/disk.0ec1e63a612548821d1032ac5bcecea9.svg",
+    "static/media/centos.svg": "/static/media/centos.37121a61a30b308b4e44a57c1a20acfa.svg",
+    "static/media/uos.svg": "/static/media/uos.47c65d4bc699badadcae69dc42014276.svg",
+    "static/media/freebsd.svg": "/static/media/freebsd.e71af96dd634d721861ebe42d311e34e.svg",
     "static/media/cpu.svg": "/static/media/cpu.8409f1524d43fd6fb5545c445724229b.svg",
+    "static/media/default-os.svg": "/static/media/default-os.fc74a5f4864a8d27d8c882be51fe01fc.svg",
     "static/media/mem.svg": "/static/media/mem.74877b2710e08e3adde15504225232a1.svg",
+    "static/media/windows.svg": "/static/media/windows.ae147f29c06a8616b6bfbbd54fc932ec.svg",
     "index.html": "/index.html",
     "main.3265c0b7.css.map": "/static/css/main.3265c0b7.css.map",
-    "main.9eeb3e95.js.map": "/static/js/main.9eeb3e95.js.map"
+    "main.73c8ca7c.js.map": "/static/js/main.73c8ca7c.js.map"
   },
   "entrypoints": [
     "static/css/main.3265c0b7.css",
-    "static/js/main.9eeb3e95.js"
+    "static/js/main.73c8ca7c.js"
   ]
 }

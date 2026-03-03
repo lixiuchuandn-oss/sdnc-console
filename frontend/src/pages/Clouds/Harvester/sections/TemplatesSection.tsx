@@ -22,6 +22,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * Props 定义
@@ -36,6 +37,9 @@ interface Props {
   templates: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  bordered?: boolean;
+  showYaml?: boolean;
+  isTenant?: boolean;
 }
 
 const getTemplateNamespace = (tpl: any): string =>
@@ -51,6 +55,7 @@ const getTemplateDisplayName = (tpl: any): string =>
   tpl?.spec?.displayName ||
   tpl?.metadata?.annotations?.['tower.io/alias'] ||
   getTemplateName(tpl);
+
 /**
  * TemplatesSection 组件
  *
@@ -62,7 +67,7 @@ const getTemplateDisplayName = (tpl: any): string =>
  * 说明：
  * - 此组件本身不直接调用后端，只消费上层传入的数据和回调
  */
-const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, onRefresh }) => {
+const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, onRefresh, bordered = true, showYaml = true, isTenant = false }) => {
   /**
    * 搜索关键字（受控 Input）
    * - 用户在顶部输入框中输入的文本
@@ -115,9 +120,13 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
       title: '名称',
       key: 'name',
       render: (_: any, r: any) => (
-        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
-          {getTemplateDisplayName(r)}
-        </span>
+        showYaml ? (
+          <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+            {getTemplateDisplayName(r)}
+          </span>
+        ) : (
+          <span>{getTemplateDisplayName(r)}</span>
+        )
       )
     },
     {
@@ -196,13 +205,28 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
    *   - 只保留名称或命名空间中包含关键字的模板
    */
   const filteredData = useMemo(() => {
-    if (!searchText) return templates;
+    if (!searchText) {
+      if (!isTenant) return templates;
+      return templates.filter((t: any) => {
+        const ns = getTemplateNamespace(t);
+        // 租户模式：过滤系统命名空间和公共命名空间
+        return !isSystemNamespace(ns) && !isPublicNamespace(ns);
+      });
+    }
+
     const lower = searchText.toLowerCase();
-    return templates.filter(item => 
-      item?.metadata?.name?.toLowerCase().includes(lower) ||
-      item?.metadata?.namespace?.toLowerCase().includes(lower)
-    );
-  }, [templates, searchText]);
+    return templates.filter((t: any) => {
+      const ns = getTemplateNamespace(t);
+      
+      // 租户模式：过滤系统命名空间和公共命名空间
+      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+      
+      return (
+        getTemplateDisplayName(t).toLowerCase().includes(lower) ||
+        ns.toLowerCase().includes(lower)
+      );
+    });
+  }, [searchText, templates, isTenant]);
 
   return (
       <PageDetailSection

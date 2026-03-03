@@ -92,13 +92,14 @@ type Props = {
   bordered?: boolean;
   showYaml?: boolean;
   isTenant?: boolean;
+  showSys?: boolean;
 };
 
 /**
  * [组件定义] VmSection
  * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], bordered = true, showYaml = true, isTenant = false }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], bordered = true, showYaml = true, isTenant = false, showSys = true }) => {
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
   const navigate = useNavigate();
@@ -111,6 +112,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // [搜索/筛选] 本地关键字和状态筛选
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
   
   // [表格交互] 选中行和列配置
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -666,8 +668,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       // [筛选] 租户/组织
       // 租户侧自动过滤系统命名空间和公共命名空间
       if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
-      // 管理员侧仅过滤系统命名空间 (如果没有显式选中某个系统ns)
-      if (!isTenant && isSystemNamespace(ns) && (!nsValue || nsValue !== ns)) return false;
+      // 管理员侧仅过滤系统命名空间 (如果没有显式选中某个系统ns 且 未开启显示系统资源)
+      if (!isTenant && !showSystemResources && isSystemNamespace(ns) && (!nsValue || nsValue !== ns)) return false;
 
       if (tenantOrgPath && tenantOrgPath.length > 0) {
         const currentNsObj = (namespaces || []).find((n: any) => n?.metadata?.name === ns);
@@ -687,7 +689,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       if (st && sKey !== st) return false;
       return true;
     });
-  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant]);
+  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant, showSystemResources]);
 
   // 计算当前抽屉需要显示的记录
   const drawerRecord = useMemo(() => {
@@ -1384,15 +1386,21 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           )}
           {!isTenant && (
             <Select
-              key="ns-filter"
-              className="toolbar-filter"
-              placeholder="命名空间"
-              value={nsValue || undefined}
-              onChange={(v)=> onNsChange(v || undefined)}
-              allowClear
-              showSearch
-              options={namespacesOptions.map(ns=> ({ value: ns, label: ns }))}
-            />
+            key="ns-filter"
+            className="toolbar-filter"
+            placeholder="命名空间"
+            value={nsValue || undefined}
+            onChange={(v)=> onNsChange(v || undefined)}
+            allowClear
+            showSearch
+            options={namespacesOptions.filter(ns => {
+              // 租户模式下，isTenant 已经在外部控制了传入的 namespacesOptions，这里做双重保险
+              if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+              // 管理员模式下，根据 showSystemResources 决定是否显示系统命名空间
+              if (!isTenant && !showSystemResources && isSystemNamespace(ns)) return false;
+              return true;
+            }).map(ns=> ({ value: ns, label: ns }))}
+          />
           )}
           <Select
             key="node-filter"
@@ -1413,6 +1421,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             allowClear
             options={[{ value: '', label: '全部' }, ...Object.keys(VM_STATUS_MAP).map(k=> ({ value: k, label: VM_STATUS_MAP[k] }))]}
           />
+          {!isTenant && (
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Checkbox 
+                checked={showSystemResources} 
+                onChange={(e: any) => setShowSystemResources(e.target.checked)}
+              >
+                显示系统资源
+              </Checkbox>
+            </div>
+          )}
         </div>
         
         {/* 右侧：操作按钮 */}

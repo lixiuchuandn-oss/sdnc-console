@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Drawer, Tabs, Descriptions } from 'antd';
+import yaml from 'js-yaml';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
 import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
@@ -210,6 +211,29 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
             children: <ViewLinkTab cloudId={cloudId} viewLink={record?.links?.view} active={activeTab === 'view_link'} />
           }] : []),
           
+          ...(record ? [{
+            key: 'yaml',
+            label: 'YAML',
+            children: (
+              <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <LinedTextArea
+                  readOnly
+                  value={(() => {
+                    try {
+                      // 移除 rawData 和 links 避免循环引用或不必要的元数据
+                      const { rawData, links, ...rest } = record;
+                      return yaml.dump(rest);
+                    } catch (e) {
+                      return String(record);
+                    }
+                  })()}
+                  className="metadata-viewer"
+                  style={{ flex: 1, border: 'none', borderRadius: 0 }}
+                />
+              </div>
+            )
+          }] : []),
+
           ...(record ? [{
             key: 'events',
             label: '事件 (Events)',

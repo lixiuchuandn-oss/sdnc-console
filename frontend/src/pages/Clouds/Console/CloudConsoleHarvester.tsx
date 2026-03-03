@@ -303,6 +303,9 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             templates={templates}
             loading={loading}
             onRefresh={onRefreshTemplates}
+            bordered={bordered}
+            showYaml={showYaml}
+            isTenant={true}
           />
         );
       case 'ssh':
@@ -314,6 +317,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onRefresh={onRefreshSshKeys}
             bordered={bordered}
             showYaml={showYaml}
+            isTenant={true}
           />
         );
       case 'cloudinit':
@@ -325,6 +329,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onRefresh={onRefreshCloudInits}
             bordered={bordered}
             showYaml={showYaml}
+            isTenant={true}
           />
         );
       case 'gpu':
@@ -373,6 +378,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudId={cloudId}
             bordered={bordered}
             showYaml={showYaml}
+            isTenant={true}
           />
         );
 

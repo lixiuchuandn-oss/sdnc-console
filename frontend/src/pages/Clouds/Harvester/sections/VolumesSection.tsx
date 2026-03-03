@@ -444,7 +444,7 @@ const VolumesSection: React.FC<Props> = ({
     
     if (isTenant) {
       list = list.filter(ns => !isSystemNamespace(ns) && !isPublicNamespace(ns));
-    } else if (!showSystemVolumes) {
+    } else if (!isTenant && !showSystemVolumes) {
       list = list.filter(ns => !isSystemNamespace(ns));
     }
     
@@ -851,13 +851,15 @@ const VolumesSection: React.FC<Props> = ({
             className="toolbar-filter" 
             options={[{ value: '', label: '全部' }, ...dataSource.map(v => v.storageClass).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map(s => ({ value: s, label: s }))]}
           />
-          {showSys && !isTenant && (
-            <Checkbox 
-              checked={showSystemVolumes} 
-              onChange={(e: any) => setShowSystemVolumes(e.target.checked)}
-            >
-              显示系统卷
-            </Checkbox>
+          {!isTenant && (
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Checkbox 
+                checked={showSystemVolumes} 
+                onChange={(e: any) => setShowSystemVolumes(e.target.checked)}
+              >
+                显示系统资源
+              </Checkbox>
+            </div>
           )}
         </>
       )}

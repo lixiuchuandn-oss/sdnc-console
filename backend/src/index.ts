@@ -31,10 +31,11 @@ import { initializeRoles } from './seeders/initRoles';
 // - saseGatewayRoutes：SASE 网关管理
 // - srv6Routes / ipsecRoutes / aclRoutes / aclGroupRoutes / natRoutes：
 //   对应 SRv6 隧道、IPsec 隧道、ACL 规则与分组、NAT 规则等
+import { toolRoutes } from './routes/tools';
 import { cenRoutes } from './routes/sdn/cens';
-import { dashboardRoutes } from './routes/dashboard';
 import { vrCacheRoutes } from './routes/sdn/vrCache';
 import { vrConfigRoutes } from './routes/sdn/vrConfig';
+import { dashboardRoutes } from './routes/dashboard';
 import { saseGatewayRoutes } from './routes/sdn/saseGateways';
 import { srv6Routes } from './routes/sdn/srv6';
 import { ipsecRoutes } from './routes/sdn/ipsec';
@@ -185,6 +186,8 @@ app.use('/api/clouds', authMiddleware, cloudRoutes);
 
 app.use('/api/tenants', authMiddleware, tenantRoutes);
 app.use('/api/cens', authMiddleware, cenRoutes);
+app.use('/api/tools', authMiddleware, toolRoutes);
+
 // 3) 仪表盘与 VR 相关：
 //    - /api/dashboard：总览面板数据
 //    - /api/vr-cache：VR 列表缓存接口，不要求登录，便于前端本地化存储

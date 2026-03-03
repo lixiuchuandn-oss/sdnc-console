@@ -131,6 +131,7 @@ const TRANSLATION_RULES = [
   { re: /Readiness probe failed/i, repl: '就绪探针检测失败' },
   { re: /Volume mount failed/i, repl: '卷挂载失败' },
   { re: /MountVolume.SetUp failed for volume/i, repl: '执行卷挂载 SetUp 失败' },
+  { re: /failed to add (.+?) to snapshot set/i, repl: '无法将卷 $1 添加到快照集 (VSS 快照失败，请检查 Windows 客户机内的 VSS 服务状态)' },
 ];
 
 function translateLogMessage(msg: string): string {
@@ -368,6 +369,13 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
     connect();
   }, [connect]);
 
+  const isInterruptedError = error && (error.includes('远程日志流已中断') || error.includes('aborted'));
+
+  // 如果是中断错误，显示更友好的提示，而不是技术性的“流错误”
+  const displayError = isInterruptedError 
+    ? '远程日志流已中断' 
+    : error;
+
   if (!ns || !vmName) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
@@ -428,8 +436,8 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
               实时
             </Text>
           ) : (error || !loading) ? (
-            <Text type="danger" style={{ fontSize: 12 }}>
-              断开链接
+            <Text type={isInterruptedError ? "secondary" : "danger"} style={{ fontSize: 12 }}>
+              {isInterruptedError ? '已断开' : '断开链接'}
             </Text>
           ) : null}
         </Space>
@@ -469,12 +477,13 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
           <div
             style={{
               padding: 12,
-              background: '#fff2f0',
-              borderBottom: '1px solid #ffccc7',
-              color: '#cf1322',
+              background: isInterruptedError ? '#e6f7ff' : '#fff2f0',
+              borderBottom: `1px solid ${isInterruptedError ? '#91d5ff' : '#ffccc7'}`,
+              color: isInterruptedError ? '#1890ff' : '#cf1322',
             }}
           >
-            {error}
+            {displayError}
+            {isInterruptedError && <span style={{ marginLeft: 8 }}>请点击上方刷新按钮重新连接。</span>}
           </div>
         )}
         {loading && logLines.length === 0 && (

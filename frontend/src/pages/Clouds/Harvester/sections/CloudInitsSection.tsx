@@ -9,6 +9,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
+import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参说明
@@ -29,6 +30,7 @@ interface Props {
    */
   bordered?: boolean;
   showYaml?: boolean;
+  isTenant?: boolean;
 }
 
 const CloudInitsSection: React.FC<Props> = ({ 
@@ -37,7 +39,8 @@ const CloudInitsSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   bordered = true,
-  showYaml = true
+  showYaml = true,
+  isTenant = false
 }) => {
   // 搜索关键字，仅在前端做简单的名称/命名空间模糊匹配
   const [keyword, setKeyword] = useState<string>('');
@@ -66,12 +69,21 @@ const CloudInitsSection: React.FC<Props> = ({
    */
   const filteredData = useMemo(() => {
     let d = dataSource;
+    
+    // 租户模式：过滤系统命名空间和公共命名空间
+    if (isTenant) {
+      d = d.filter((x: any) => {
+        const ns = (x.namespace || '').toLowerCase();
+        return !isSystemNamespace(ns) && !isPublicNamespace(ns);
+      });
+    }
+
     if (keyword) {
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
     }
     return d;
-  }, [dataSource, keyword]);
+  }, [dataSource, keyword, isTenant]);
 
   /**
    * 表格列定义
@@ -103,8 +115,8 @@ const CloudInitsSection: React.FC<Props> = ({
       render: (_: any, record: any) => {
         const items: any[] = [];
 
-        // 仅在 showYaml 为 true 时添加详情入口
-        if (showYaml) {
+        // 仅在 showYaml 为 true 且非租户模式下添加详情入口
+        if (showYaml && !isTenant) {
           items.push({ 
             key: 'detail', 
             label: '查看YAML', 

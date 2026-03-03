@@ -37,7 +37,6 @@ export const isSystemNamespace = (name: string): boolean => {
     'cluster-fleet',
     'cluster',
     'local',
-    'user',
     'ingress'
   ];
   
@@ -50,7 +49,7 @@ export const isSystemNamespace = (name: string): boolean => {
  */
 export const isPublicNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
-  return ['cloud-public', 'default'].includes(n);
+  return ['cloud-public', 'default', 'harvester-public'].includes(n);
 };
 
 /**
