@@ -296,7 +296,12 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
             setLoading(false);
             flushLogs();
             if (ev.code !== 1000 && ev.code !== 1001) {
-              setError(ev.reason || `连接关闭 (${ev.code})`);
+              const reason = ev.reason || '';
+              // 过滤掉因为连接关闭导致的 "aborted" 噪音，避免显示晦涩的错误
+              if (reason.toLowerCase().includes('aborted')) {
+                return;
+              }
+              setError(reason || `连接关闭 (${ev.code})`);
             }
           }
         };

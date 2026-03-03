@@ -144,6 +144,8 @@ export function createKvPodLogWss() {
       // K8s Pod 日志 API 使用 HTTP GET + chunked 流式传输（follow=true），非 WebSocket
       // 与 Harvester 1.6 / Rancher 一致：GET /api/v1/namespaces/{ns}/pods/{pod}/log?follow=true&...
       const mod = getRequestModule(logUrlHttp);
+      let isClosing = false;
+
       const logReq = mod.request(
         logUrlHttp,
         {
@@ -180,13 +182,17 @@ export function createKvPodLogWss() {
             } catch {}
           });
           res.on('error', (err) => {
+            if (isClosing) return;
             try {
-              ws.close(1011, `流错误: ${err?.message || err}`);
+              const msg = err?.message || String(err);
+              const userMsg = msg.toLowerCase().includes('aborted') ? '远程日志流已中断' : msg;
+              ws.close(1011, `流错误: ${userMsg}`);
             } catch {}
           });
         }
       );
       logReq.on('error', (err) => {
+        if (isClosing) return;
         try {
           ws.close(1011, `请求失败: ${err?.message || err}`);
         } catch {}
@@ -194,7 +200,9 @@ export function createKvPodLogWss() {
       // follow=true 时连接需长保持，不设短超时
       logReq.setTimeout(0);
       logReq.end();
+      
       ws.on('close', () => {
+        isClosing = true;
         try {
           logReq.destroy();
         } catch {}
