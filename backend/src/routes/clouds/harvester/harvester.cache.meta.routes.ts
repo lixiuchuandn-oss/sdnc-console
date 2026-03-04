@@ -347,24 +347,20 @@ export const registerHarvesterMetaRoutes = (
               (m) => m.organizationId === (req.user as any).organizationId,
             ) || matches[0];
 
-          if (!us)
-            return res.json({ message: '查询成功', data: { items: [] } });
+          const orgNs =
+            (req.user as any)?.organizationId
+              ? `ns-${(req.user as any).organizationId}`
+              : '';
 
           // [可见性规则] 
           // 1. 用户私有 Namespace
           // 2. 公共 Namespace (cloud-public, harvester-public)
-          if (us.namespace) {
-            whereCondition = [
-              { cloudId: id, namespace: us.namespace },
-              { cloudId: id, namespace: 'cloud-public' },
-              { cloudId: id, namespace: 'harvester-public' },
-            ];
-          } else {
-            whereCondition = [
-              { cloudId: id, namespace: 'cloud-public' },
-              { cloudId: id, namespace: 'harvester-public' },
-            ];
-          }
+          const cond: any[] = [];
+          if (us?.namespace) cond.push({ cloudId: id, namespace: us.namespace });
+          if (orgNs) cond.push({ cloudId: id, namespace: orgNs });
+          cond.push({ cloudId: id, namespace: 'cloud-public' });
+          cond.push({ cloudId: id, namespace: 'harvester-public' });
+          whereCondition = cond;
         }
 
         const count = await repo.count({ where: whereCondition });

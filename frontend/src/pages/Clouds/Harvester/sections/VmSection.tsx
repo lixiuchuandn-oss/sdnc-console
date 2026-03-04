@@ -45,11 +45,12 @@ import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Ta
 import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, saveHarvesterVmAsTemplate, fetchHarvesterNodes, fetchHarvesterNads } from '../../../../services/harvesterApi';
+import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, fetchHarvesterNodes, fetchHarvesterNads } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
+import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
 import { isSystemNamespace, isPublicNamespace, cnVmStatus, VM_STATUS_MAP } from '../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../components/OsIcon';
 
@@ -128,8 +129,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const [migrateModalVisible, setMigrateModalVisible] = useState(false);
   const [currentMigrateVm, setCurrentMigrateVm] = useState<any>(null);
 
-  // [加载状态] 模板保存中
-  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [saveTemplateModalOpen, setSaveTemplateModalOpen] = useState(false);
+  const [saveTemplateVm, setSaveTemplateVm] = useState<any>(null);
 
   // [弹窗控制] 备份与快照
   const [vmBackupModalVisible, setVmBackupModalVisible] = useState(false);
@@ -742,25 +743,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     }
   }, [cloudId, SafeRead]);
 
-  // [事件] 保存为模板
-  const handleSaveAsTemplate = useCallback(async (r: any) => {
-    if (!cloudId) return;
-    const ns = SafeRead.namespace(r);
-    const vmName = SafeRead.vmId(r);
-    if (!ns || !vmName) {
-      message.error('无法解析实例命名空间或名称');
-      return;
-    }
-    try {
-      setSavingTemplate(true);
-      await saveHarvesterVmAsTemplate(cloudId, ns, vmName, {});
-      message.success('已根据当前实例配置创建模板');
-    } catch (e: any) {
-      message.error(e?.message || '保存为模板失败');
-    } finally {
-      setSavingTemplate(false);
-    }
-  }, [cloudId, SafeRead]);
+  const handleOpenSaveAsTemplate = useCallback((r: any) => {
+    setSaveTemplateVm(r);
+    setSaveTemplateModalOpen(true);
+  }, []);
 
   // [事件] 触发备份操作
   const handleBackup = useCallback((r: any) => {
@@ -1305,6 +1291,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // VNC 控制台
         { key: 'webvnc', label: '访问VNC', disabled: isStopped, onClick: () => handleWebVnc(r) },
 
+        { key: 'save_as_template', label: '保存为模板', onClick: () => handleOpenSaveAsTemplate(r) },
+
         { type: 'divider' },
         
         // ----------------------------------------------------------------
@@ -1353,7 +1341,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }} />;
     } },
-  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant]);
+  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate]);
 
   // ==========================================
   // [UI渲染] 8. 组件结构返回 (Render)
@@ -1510,7 +1498,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       
       {/* 备份/快照创建弹窗 */}
       <VmBackupCreateModal
-        visible={vmBackupModalVisible}
+        open={vmBackupModalVisible}
         onCancel={() => setVmBackupModalVisible(false)}
         onSuccess={() => {
           setVmBackupModalVisible(false);
@@ -1533,6 +1521,20 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         cloudId={cloudId}
         vm={currentMigrateVm}
         nodes={nodesOptions.map(n => ({ metadata: { name: n } }))}
+      />
+
+      <VmSaveAsTemplateModal
+        open={saveTemplateModalOpen}
+        onClose={() => setSaveTemplateModalOpen(false)}
+        cloudId={cloudId}
+        vmNamespace={SafeRead.namespace(saveTemplateVm)}
+        vmName={SafeRead.vmId(saveTemplateVm)}
+        vmDisplayName={SafeRead.name(saveTemplateVm)}
+        namespacesOptions={namespacesOptions}
+        isTenant={isTenant}
+        onSuccess={() => {
+          onRefresh && onRefresh(true);
+        }}
       />
 
       {/* 扩容指南说明弹窗 */}

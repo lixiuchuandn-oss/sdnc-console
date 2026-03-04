@@ -43,15 +43,19 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
    * - 外部 IP 从 status.loadBalancer.ingress 提取
    */
   const dataSource = useMemo(() => {
-    return (services || []).map((s: any) => {
+    return (services || []).map((s: any, index: number) => {
       const raw = s.rawData || s;
       const ports = (raw.spec?.ports || []).map((p: any) => `${p.port}:${p.targetPort}/${p.protocol}`).join(', ');
       const externalIPs = (raw.status?.loadBalancer?.ingress || []).map((i: any) => i.ip || i.hostname).join(', ');
+      const name = raw.metadata?.name || s.name;
+      const namespace = raw.metadata?.namespace || s.namespace;
+      const uid = raw.metadata?.uid || s.id;
+      const stableId = uid || ((namespace || name) ? `${namespace || ''}/${name || ''}` : '');
 
       return {
-        key: raw.metadata?.uid || s.id,
-        name: raw.metadata?.name || s.name,
-        namespace: raw.metadata?.namespace || s.namespace,
+        key: stableId || `service_${index}`,
+        name,
+        namespace,
         type: raw.spec?.type || '-',
         clusterIP: raw.spec?.clusterIP || '-',
         externalIPs: externalIPs || '-',
@@ -202,7 +206,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
         bordered
         dataSource={filteredData}
         columns={tableColumns}
-        rowKey="key"
+        rowKey={(r) => r?.key || `${r?.namespace || ''}/${r?.name || ''}`}
         loading={loading}
         pagination={{
           size: 'small',

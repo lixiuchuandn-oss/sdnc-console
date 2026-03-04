@@ -391,7 +391,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
 
       {/* Modals */}
       <VmBackupCreateModal
-        visible={createBackupVisible}
+        open={createBackupVisible}
         onCancel={() => setCreateBackupVisible(false)}
         cloudId={cloudId}
         namespaces={namespaces}
@@ -407,7 +407,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
       />
 
       <VmBackupCreateModal
-        visible={createSnapshotVisible}
+        open={createSnapshotVisible}
         onCancel={() => setCreateSnapshotVisible(false)}
         cloudId={cloudId}
         namespaces={namespaces}
@@ -423,7 +423,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
       />
 
       <ScheduleVmBackupCreateModal
-        visible={createScheduleVisible}
+        open={createScheduleVisible}
         onCancel={() => setCreateScheduleVisible(false)}
         cloudId={cloudId}
         onSuccess={() => {
@@ -437,7 +437,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
 
       {currentRestoreItem && (
         <VmRestoreModal
-          visible={restoreVisible}
+          open={restoreVisible}
           onCancel={() => { setRestoreVisible(false); setCurrentRestoreItem(null); }}
           cloudId={cloudId}
           resource={currentRestoreItem}
@@ -454,7 +454,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
 
       {currentScheduleItem && (
         <ScheduleVmBackupEditModal
-          visible={editScheduleVisible}
+          open={editScheduleVisible}
           onCancel={() => { setEditScheduleVisible(false); setCurrentScheduleItem(null); }}
           cloudId={cloudId}
           record={currentScheduleItem}

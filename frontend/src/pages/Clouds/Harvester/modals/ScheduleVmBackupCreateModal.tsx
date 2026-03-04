@@ -22,7 +22,7 @@ import { formatCron } from '../../../../utils/cronFormatter';
  * - cloudId: 当前云 ID，用于调用 Harvester API
  */
 interface Props {
-  visible: boolean;
+  open: boolean;
   onCancel: () => void;
   onSuccess: (created?: {
     namespace: string;
@@ -39,7 +39,7 @@ interface Props {
   initialVmName?: string;
 }
 
-const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuccess, cloudId, initialNamespace, initialVmName }) => {
+const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, initialNamespace, initialVmName }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [namespaces, setNamespaces] = useState<any[]>([]);
@@ -54,7 +54,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
 
   // 弹窗打开时加载命名空间/云主机，并设置默认策略与随机分钟数
   useEffect(() => {
-    if (visible && cloudId) {
+    if (open && cloudId) {
       loadData();
       form.resetFields();
       
@@ -73,11 +73,11 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
         ...(initialVmName && { targetVm: initialVmName })
       });
     }
-  }, [visible, cloudId, initialNamespace, initialVmName]);
+  }, [open, cloudId, initialNamespace, initialVmName]);
 
   // 根据 cronMode + uiCron 推导 cron 字符串并写回表单字段
   useEffect(() => {
-    if (!visible) return;
+    if (!open) return;
     
     let nextCron = '';
     if (cronMode === 'daily') {
@@ -94,7 +94,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
     if (cronValue !== nextCron) {
       form.setFieldValue('cron', nextCron);
     }
-  }, [cronMode, uiCron, visible]);
+  }, [cronMode, uiCron, open]);
 
   // When switching TO custom mode, populate input with current calculated value?
   // Actually, standard behavior: switching modes should probably preserve intent if possible.
@@ -235,7 +235,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ visible, onCancel, onSuc
   return (
     <Modal
       title="创建定时策略"
-      open={visible}
+      open={open}
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}

@@ -20,14 +20,14 @@ import { formatCron } from '../../../../utils/cronFormatter';
  * - record: 当前要编辑的定时策略记录（包含 raw）
  */
 interface Props {
-  visible: boolean;
+  open: boolean;
   onCancel: () => void;
   onSuccess: () => void;
   cloudId: string;
   record: any;
 }
 
-const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSuccess, cloudId, record }) => {
+const ScheduleVmBackupEditModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, record }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   
@@ -39,7 +39,7 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSucce
 
   // 弹窗打开时，根据 record 内容回填表单，并尝试解析当前 cron 得到合适的 UI 模式
   useEffect(() => {
-    if (visible && record) {
+    if (open && record) {
       const raw = record.raw || record;
       const spec = raw.spec || {};
       const metadata = raw.metadata || {};
@@ -80,11 +80,11 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSucce
         cron: currentCron
       });
     }
-  }, [visible, record, form]);
+  }, [open, record, form]);
 
   // 根据当前 cronMode + uiCron 同步计算 cron 字符串到表单字段
   useEffect(() => {
-    if (!visible) return;
+    if (!open) return;
     
     let nextCron = '';
     if (cronMode === 'daily') {
@@ -98,7 +98,7 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSucce
     if (cronValue !== nextCron) {
       form.setFieldValue('cron', nextCron);
     }
-  }, [cronMode, uiCron, visible]);
+  }, [cronMode, uiCron, open]);
 
   /**
    * 校验表单并提交更新请求：
@@ -160,7 +160,7 @@ const ScheduleVmBackupEditModal: React.FC<Props> = ({ visible, onCancel, onSucce
   return (
     <Modal
       title="修改定时备份策略"
-      open={visible}
+      open={open}
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}

@@ -346,7 +346,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
           </div>
         );
         return (
-          <Tooltip title={content} overlayInnerStyle={{ maxWidth: 400, maxHeight: 300, overflowY: 'auto' }}>
+          <Tooltip title={content} styles={{ body: { maxWidth: 400, maxHeight: 300, overflowY: 'auto' } }}>
             <Tag style={{ cursor: 'pointer' }}>{keys.length}</Tag>
           </Tooltip>
         );
@@ -370,7 +370,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
           </div>
         );
         return (
-          <Tooltip title={content} overlayInnerStyle={{ maxWidth: 500, maxHeight: 400, overflowY: 'auto' }}>
+          <Tooltip title={content} styles={{ body: { maxWidth: 500, maxHeight: 400, overflowY: 'auto' } }}>
             <Tag style={{ cursor: 'pointer' }}>{keys.length}</Tag>
           </Tooltip>
         );

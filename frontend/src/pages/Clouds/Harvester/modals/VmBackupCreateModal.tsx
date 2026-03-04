@@ -17,7 +17,7 @@ import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参
- * - visible: 弹窗是否可见
+ * - open: 弹窗是否可见
  * - onCancel: 关闭回调
  * - onSuccess: 创建成功回调
  * - cloudId: 云 ID
@@ -26,7 +26,7 @@ import { isSystemNamespace } from '../../../../utils/harvesterUtils';
  * - initialType: 默认创建类型（备份/快照）
  */
 interface Props {
-  visible: boolean;
+  open: boolean;
   onCancel: () => void;
   onSuccess: (created?: { namespace: string; name: string }) => void;
   cloudId: string;
@@ -38,7 +38,7 @@ interface Props {
 }
 
 const VmBackupCreateModal: React.FC<Props> = ({ 
-  visible, 
+  open, 
   onCancel, 
   onSuccess, 
   cloudId, 
@@ -55,7 +55,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
 
   // 弹窗打开时重置表单，并根据 initialType 初始化当前类型
   useEffect(() => {
-    if (visible) {
+    if (open) {
       form.resetFields();
       setType(initialType);
       
@@ -77,7 +77,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
 
       form.setFieldsValue(initValues);
     }
-  }, [visible, initialType, initialVm, initialNamespace, form]);
+  }, [open, initialType, initialVm, initialNamespace, form]);
 
   /**
    * 校验表单并提交创建：
@@ -117,7 +117,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
   return (
     <Modal
       title={`创建${type === 'backup' ? '虚拟机备份' : '虚拟机快照'}`}
-      open={visible}
+      open={open}
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}

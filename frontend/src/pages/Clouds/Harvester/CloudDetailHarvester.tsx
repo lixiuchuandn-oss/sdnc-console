@@ -653,7 +653,23 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       es.addEventListener('stream_error', (ev: MessageEvent) => {
         try {
           const json = JSON.parse(String(ev.data || '{}'));
-          console.warn('[SSE] Server Logic Error:', json?.message, 'Cause:', json?.cause);
+          const message = String(json?.message ?? '');
+          const cause = String(json?.cause ?? '');
+          const s = `${message} ${cause}`.toLowerCase();
+          if (
+            s.includes('aborted') ||
+            s.includes('context canceled') ||
+            s.includes('context cancelled') ||
+            s.includes('canceled') ||
+            s.includes('cancelled') ||
+            s.includes('client disconnected') ||
+            s.includes('connection closed') ||
+            s.includes('broken pipe') ||
+            s.includes('eof')
+          ) {
+            return;
+          }
+          console.warn('[SSE] Server Logic Error:', message, 'Cause:', cause);
         } catch (e) {
           console.warn('[SSE] Server Logic Error (Raw):', ev);
         }

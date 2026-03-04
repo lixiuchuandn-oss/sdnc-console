@@ -24,7 +24,7 @@ import { createHarvesterVirtualMachineRestore } from '../../../../services/harve
  * - vms: 当前集群中 VM 列表（用于辅助判断目标 VM 运行状态等）
  */
 interface Props {
-  visible: boolean;
+  open: boolean;
   onCancel: () => void;
   onSuccess: () => void;
   cloudId: string;
@@ -34,7 +34,7 @@ interface Props {
 }
 
 const VmRestoreModal: React.FC<Props> = ({ 
-  visible, 
+  open, 
   onCancel, 
   onSuccess, 
   cloudId, 
@@ -75,7 +75,7 @@ const VmRestoreModal: React.FC<Props> = ({
 
   // 弹窗打开时重置表单并初始化默认值
   useEffect(() => {
-    if (visible && resource) {
+    if (open && resource) {
       form.resetFields();
       setKeepMacAddress(false);
       form.setFieldsValue({
@@ -86,7 +86,7 @@ const VmRestoreModal: React.FC<Props> = ({
         keepMacAddress: false // Default to Keep MAC (Disabled) -> Reset MAC
       });
     }
-  }, [visible, resource, form]);
+  }, [open, resource, form]);
 
   // 若目标 VM 正在运行或不存在，则强制切回「新建虚拟机」模式
   useEffect(() => {
@@ -174,7 +174,7 @@ const VmRestoreModal: React.FC<Props> = ({
   return (
     <Modal
       title="恢复虚拟机"
-      open={visible}
+      open={open}
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}

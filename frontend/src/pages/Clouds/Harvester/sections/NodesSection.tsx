@@ -7,7 +7,7 @@
  * - 通过 metrics.k8s.io 获取实时 CPU/内存使用率并绘制进度条
  * - 打开 HarvesterResourceDrawer 查看节点详情及事件
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress } from 'antd';
 import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -46,12 +46,11 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
    * 统一打开 HarvesterResourceDrawer 的入口
    * - 在列表视图中 Node 通常没有 kind 字段，这里统一补充为 'Node'
    */
-  const handleOpenDrawer = async (record: any, tab: string) => {
-    // Inject kind for EventsTab since Node doesn't usually carry it in list view
+  const handleOpenDrawer = useCallback(async (record: any, tab: string) => {
     setDrawerRecord({ ...record, kind: 'Node' });
     setDrawerActiveTab(tab);
     setDrawerVisible(true);
-  };
+  }, []);
 
   /**
    * 从节点对象中解析所有角色信息
@@ -311,7 +310,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
         );
       } 
     },
-  ], [handleOpenDrawer]);
+  ], [handleOpenDrawer, metricsMap]);
 
   const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
 

@@ -248,7 +248,7 @@ const PageDetailSection: React.FC<PageDetailSectionProps> = ({
       if (typeof c === 'function') {
         nextProps.children = c;
       } else if (Array.isArray(c)) {
-        nextProps.children = c.map((child: any) => normalizeNode(child));
+        nextProps.children = React.Children.map(c, (child: any) => normalizeNode(child));
       } else {
         nextProps.children = normalizeNode(c);
       }

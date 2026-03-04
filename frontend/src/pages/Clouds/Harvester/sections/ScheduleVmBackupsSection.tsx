@@ -578,7 +578,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
 
       {/* 创建弹窗 */}
       <ScheduleVmBackupCreateModal
-        visible={createModalVisible}
+        open={createModalVisible}
         cloudId={cloudId}
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={(created) => {
@@ -623,7 +623,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
 
       {/* 编辑弹窗 */}
       <ScheduleVmBackupEditModal
-        visible={editModalVisible}
+        open={editModalVisible}
         cloudId={cloudId}
         record={currentRecord}
         onCancel={() => setEditModalVisible(false)}

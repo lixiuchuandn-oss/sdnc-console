@@ -305,6 +305,22 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         eventSource.addEventListener('stream_error', (ev: MessageEvent) => {
             try {
               const json = JSON.parse(String(ev.data || '{}'));
+              const message = String(json?.message ?? '');
+              const cause = String(json?.cause ?? '');
+              const s = `${message} ${cause}`.toLowerCase();
+              if (
+                s.includes('aborted') ||
+                s.includes('context canceled') ||
+                s.includes('context cancelled') ||
+                s.includes('canceled') ||
+                s.includes('cancelled') ||
+                s.includes('client disconnected') ||
+                s.includes('connection closed') ||
+                s.includes('broken pipe') ||
+                s.includes('eof')
+              ) {
+                return;
+              }
               console.warn('[VmDetail] SSE Server Error:', json);
             } catch {}
         });
@@ -884,12 +900,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     
     try {
       setSavingTemplate(true);
-      const annotations: Record<string, string> = {};
-      if (templateAlias.trim()) {
-        annotations['tower.io/template-alias'] = templateAlias.trim();
-      }
-      
-      await saveHarvesterVmAsTemplate(cloudId, ns, vmName, annotations);
+      const alias = templateAlias.trim();
+      await saveHarvesterVmAsTemplate(cloudId, ns, vmName, alias ? { alias } : {});
       message.success('已根据当前实例配置创建模板');
       setShowTemplateModal(false);
     } catch (e: any) {

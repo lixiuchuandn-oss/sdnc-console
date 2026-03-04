@@ -346,7 +346,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       />
       <VmBackupCreateModal
         key="create-modal"
-        visible={createModalVisible}
+        open={createModalVisible}
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={(created) => {
           setCreateModalVisible(false);
@@ -359,7 +359,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       />
       <VmRestoreModal
         key="restore-modal"
-        visible={restoreModalVisible}
+        open={restoreModalVisible}
         onCancel={() => setRestoreModalVisible(false)}
         onSuccess={() => {
           setRestoreModalVisible(false);

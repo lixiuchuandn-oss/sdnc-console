@@ -16,7 +16,7 @@
 import React, { useState, useMemo } from 'react';
 import { Table, Input, Button, Checkbox, Select, Modal, message, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -40,7 +40,6 @@ interface Props {
   templates: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
-  // [新增] 视图控制属性
   isTenant?: boolean; // 是否为租户模式
 }
 
@@ -55,8 +54,22 @@ const getTemplateDescription = (tpl: any): string =>
 
 const getTemplateDisplayName = (tpl: any): string =>
   tpl?.spec?.displayName ||
+  tpl?.metadata?.annotations?.['tower.io/template-alias'] ||
+  tpl?.metadata?.annotations?.['field.cattle.io/displayName'] ||
   tpl?.metadata?.annotations?.['tower.io/alias'] ||
   getTemplateName(tpl);
+
+const getTemplateAlias = (tpl: any): string =>
+  tpl?.spec?.displayName ||
+  tpl?.metadata?.annotations?.['tower.io/template-alias'] ||
+  tpl?.metadata?.annotations?.['field.cattle.io/displayName'] ||
+  tpl?.metadata?.annotations?.['tower.io/alias'] ||
+  '';
+
+const getTemplateScope = (tpl: any): '公共模板' | '私有模板' => {
+  const ns = getTemplateNamespace(tpl);
+  return isPublicNamespace(ns) ? '公共模板' : '私有模板';
+};
 
 /**
  * TemplatesSection 组件
@@ -92,6 +105,8 @@ const TemplatesSection: React.FC<Props> = ({
   const [searchText, setSearchText] = useState('');
   // 命名空间筛选状态
   const [selectedNamespace, setSelectedNamespace] = useState<string | undefined>(undefined);
+  // 作用域筛选状态：all/public/private
+  const [selectedScope, setSelectedScope] = useState<'all' | 'public' | 'private'>('all');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
@@ -218,9 +233,19 @@ const TemplatesSection: React.FC<Props> = ({
       key: 'name',
       render: (_: any, r: any) => (
         <span className="cell-link" onClick={() => { handleOpenDrawer(r); }}>
-          {getTemplateDisplayName(r)}
+          {getTemplateName(r)}
         </span>
       )
+    },
+    {
+      title: '别名',
+      key: 'alias',
+      render: (_: any, r: any) => getTemplateAlias(r) || '-'
+    },
+    {
+      title: '作用域',
+      key: 'scope',
+      render: (_: any, r: any) => getTemplateScope(r)
     },
     {
       title: '命名空间',
@@ -352,6 +377,9 @@ const TemplatesSection: React.FC<Props> = ({
       // 1. 命名空间筛选
       const ns = getTemplateNamespace(t);
       if (selectedNamespace && ns !== selectedNamespace) return false;
+      // 1.1 作用域筛选
+      if (selectedScope === 'public' && !isPublicNamespace(ns)) return false;
+      if (selectedScope === 'private' && isPublicNamespace(ns)) return false;
 
       // 2. 关键字搜索（仅搜索名称）
       if (searchText) {
@@ -368,20 +396,34 @@ const TemplatesSection: React.FC<Props> = ({
         toolbarLeft={(
           <>
             <Input
-              placeholder="搜索名称"
+              placeholder="关键字"
+              suffix={<SearchOutlined />}
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
               className="toolbar-search"
               allowClear
             />
+            {!isTenant && (
+              <Select
+                allowClear
+                showSearch
+                placeholder="命名空间"
+                value={selectedNamespace}
+                onChange={setSelectedNamespace}
+                options={namespaceOptions}
+                className="toolbar-filter"
+              />
+            )}
             <Select
               allowClear
-              showSearch
-              placeholder="命名空间"
-              value={selectedNamespace}
-              onChange={setSelectedNamespace}
-              options={namespaceOptions}
-              className="toolbar-filter"
+              placeholder="作用域"
+              value={selectedScope === 'all' ? undefined : selectedScope}
+              onChange={(val) => setSelectedScope((val as any) || 'all')}
+              options={[
+                { value: 'public', label: '公共模板' },
+                { value: 'private', label: '私有模板' },
+              ]}
+              className="toolbar-filter-sm"
             />
             {!isTenant && (
               <Checkbox
@@ -396,14 +438,13 @@ const TemplatesSection: React.FC<Props> = ({
               onClick={() => {
                 setSearchText('');
                 setSelectedNamespace(undefined);
+                setSelectedScope('all');
               }}
             >
               重置
             </a>
           </>
         )}
-        toolbarGapLeft={12}
-        keywordWidth={200}
         toolbarRight={(
           <>
             {selectedRowKeys.length > 0 && (

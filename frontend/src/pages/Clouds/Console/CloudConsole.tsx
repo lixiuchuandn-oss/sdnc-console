@@ -1042,6 +1042,7 @@ const CloudConsolePage: React.FC = () => {
                   
                   // 1. 如果点击的是当前已选中的资源池，则切换折叠状态
                   if (key === currentCloudId) {
+                    setSelectedVpc(null);
                     setExpandedKeys((prev) => {
                        if (prev.includes(key)) {
                          return prev.filter(k => k !== key);
