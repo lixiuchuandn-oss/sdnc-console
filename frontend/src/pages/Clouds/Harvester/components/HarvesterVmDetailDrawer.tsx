@@ -35,7 +35,7 @@
  * ==============================================================================
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox, Input } from 'antd';
+import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox } from 'antd';
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 
   CodeOutlined, EllipsisOutlined, DesktopOutlined, DatabaseOutlined,
@@ -45,7 +45,7 @@ import {
   CloseOutlined, SyncOutlined, ReadOutlined, LineChartOutlined, BellOutlined, FileTextOutlined
 } from '@ant-design/icons';
 import { cnVmStatus, isSystemNamespace } from '../../../../utils/harvesterUtils';
-import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, saveHarvesterVmAsTemplate, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
+import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
 import { rebootCloudProviderEcs, API_BASE_URL } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
@@ -57,6 +57,7 @@ import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
 import HarvesterEventsTab from './HarvesterEventsTab';
 import HarvesterVmLogsTab from './HarvesterVmLogsTab';
 import { OsIcon } from '../../../../components/OsIcon';
+import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
 
 /**
  * HarvesterVmDetailDrawer 组件入参定义
@@ -119,9 +120,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // ==============================================================================
   const [localActiveTab, setLocalActiveTab] = useState('detail');
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [savingTemplate, setSavingTemplate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [templateAlias, setTemplateAlias] = useState('');
   const [showTemplateModal, setShowTemplateModal] = useState(false);
 
   // [状态同步] 抽屉内部统一使用 vmData 作为渲染/动作的数据源
@@ -885,31 +884,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleSaveAsTemplate = useCallback(async () => {
-    setTemplateAlias('');
     setShowTemplateModal(true);
   }, []);
 
-  const confirmSaveTemplate = async () => {
-    if (!cloudId) return;
-    const ns = SafeRead.namespace(vmData);
-    const vmName = SafeRead.vmId(vmData);
-    if (!ns || !vmName) {
-      message.error('无法解析实例命名空间或名称');
-      return;
-    }
-    
-    try {
-      setSavingTemplate(true);
-      const alias = templateAlias.trim();
-      await saveHarvesterVmAsTemplate(cloudId, ns, vmName, alias ? { alias } : {});
-      message.success('已根据当前实例配置创建模板');
-      setShowTemplateModal(false);
-    } catch (e: any) {
-      message.error(e?.message || '保存为模板失败');
-    } finally {
-      setSavingTemplate(false);
-    }
-  };
 
   const handleEjectCdrom = useCallback(async () => {
     const disks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
@@ -1125,8 +1102,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         ========================================
         常用运维动作入口；右侧“更多”下拉承载低频/危险操作。
       */}
-      <div style={{ background: '#f5f7fa', padding: '0 24px 8px', flexShrink: 0 }}>
-        <div style={{ padding: 4, background: '#fff', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ background: '#f5f7fa', padding: '0 24px 4px', flexShrink: 0 }}>
+        <div style={{ padding: 4, background: '#fff', borderRadius: 8, display: 'flex', gap: 4, alignItems: 'center',border: '1px solid #e0e0e0' }}>
           <Button className="vm-toolbar-btn" type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 14 }}>打开终端</Button>
           
           <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />} onClick={handleStart} disabled={!isStopped} style={{ fontSize: 14 }}>开机</Button>
@@ -1154,10 +1131,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         detail: 规格/磁盘/网卡/配置等；performance: 性能趋势；backup_snapshot: 备份与定时策略；events: 事件流。
       */}
       <div style={{ background: '#f5f7fa', padding: '0 24px', flexShrink: 0 }}>
-          <div style={{ padding: '0 0 12px 0' }}>
-            <div style={{ padding: 4, background: '#fff', borderRadius: 8 }}>
+          <div style={{ padding: '0 0 24px 0' }}>
+            <div style={{ padding: 4, background: '#fff', borderRadius: 8 ,border: '1px solid #e0e0e0'}}>
             <Segmented
-              size="middle"
+              size="small"
               value={activeTab}
               onChange={(val) => handleTabChange(String(val))}
               options={[
@@ -1218,13 +1195,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                     ========================================
                     上半部分展示 CPU/内存规格与当前使用率（来自 Prometheus 指标）。
                   */}
+                  
                   <Card variant="borderless" styles={{ body: { padding: 16 } }}>
                       <div style={{ display: 'flex', gap: 24 }}>
                           {/* CPU 区域 */}
-                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                                   <div style={{ 
-                                    width: 48, height: 48, borderRadius: 8, background: '#ffffff', border: '1px solid #188fff80',
+                                    width: 48, height: 48, borderRadius: 8, background: '#f0f9ff',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     color: '#1890ff', fontSize: 24
                                 }}>
@@ -1238,7 +1216,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                   </div>
                               </div>
                               {SafeRead.cpu(vmData) > 0 && (
-                                  <div>
+                                  <div style={{ flex: 1, marginLeft: 24, background: '#ffffff', border: '1px solid #188fff80', borderRadius: 8, padding: 8 }}>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
                                           <span>使用率</span>
                                           <span>{cpuUsage !== null ? `${((cpuUsage / SafeRead.cpu(vmData)) * 100).toFixed(1)}%` : '-'}</span>
@@ -1257,10 +1235,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                           <div style={{ width: 1, background: '#f0f0f0' }} />
 
                           {/* 内存区域 */}
-                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                                   <div style={{ 
-                                    width: 48, height: 48, borderRadius: 8, background: '#ffffff', border: '1px solid #188fff80',
+                                    width: 48, height: 48, borderRadius: 8, background: '#f0f9ff',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     color: '#1890ff', fontSize: 24
                                 }}>
@@ -1277,7 +1255,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                   </div>
                               </div>
                               {parseStorageSize(SafeRead.memory(vmData)) > 0 && (
-                                  <div>
+                                  <div style={{ flex: 1, marginLeft: 24, background: '#ffffff', border: '1px solid #188fff80', borderRadius: 8, padding: 8 }}>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
                                           <span>使用率</span>
                                           <span>{memUsage !== null ? `${((memUsage / (1024 ** 3) / parseStorageSize(SafeRead.memory(vmData))) * 100).toFixed(1)}%` : '-'}</span>
@@ -1391,9 +1369,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                             </div>
                                         }
                                         title={
-                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                                                 <span>{item.name}</span>
-                                                {item.bootOrder === 1 && <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>BOOT</Tag>}
+                                                {item.bootOrder === 1 && <Tag color="pink" style={{ fontSize: 10, margin: 0 }}>启动盘</Tag>}
                                                 {item.imageDisplayName && (
                                                     <Tag color="blue" style={{ fontSize: 10, margin: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                                         <OsIcon osName={item.imageDisplayName} style={{ fontSize: 12 }} />
@@ -1579,27 +1557,15 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         5. 弹窗组件
         ========================================
       */}
-      <Modal
-        title="保存为模板"
+      <VmSaveAsTemplateModal
         open={showTemplateModal}
-        onCancel={() => setShowTemplateModal(false)}
-        onOk={confirmSaveTemplate}
-        confirmLoading={savingTemplate}
-        destroyOnHidden
-      >
-        <div style={{ padding: '16px 0' }}>
-           <div style={{ marginBottom: 8, color: '#333' }}>模板名称 (Alias)</div>
-           <Input 
-              placeholder="请输入模板显示名称 (可选)" 
-              value={templateAlias}
-              onChange={e => setTemplateAlias(e.target.value)}
-              maxLength={63}
-           />
-           <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-              提示：此名称将作为模板的 tower.io/template-alias 注解保存，用于在列表中友好显示。
-           </div>
-        </div>
-      </Modal>
+        onClose={() => setShowTemplateModal(false)}
+        cloudId={cloudId}
+        vmNamespace={SafeRead.namespace(vmData)}
+        vmName={SafeRead.vmId(vmData)}
+        vmDisplayName={SafeRead.name(vmData)}
+        namespacesOptions={namespaces.map((n: any) => n?.metadata?.name || n)}
+      />
     </Drawer>
   );
 };

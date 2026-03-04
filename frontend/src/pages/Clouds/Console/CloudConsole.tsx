@@ -522,12 +522,12 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载模板列表
-  const loadTemplates = async (cloudId?: string) => {
+  const loadTemplates = async (cloudId?: string, force = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchHarvesterTemplates(cid);
+      const res = await fetchHarvesterTemplates(cid, force);
       setTemplates(res?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadTemplates error:', e);
@@ -1138,7 +1138,7 @@ const CloudConsolePage: React.FC = () => {
                       loadEcs(currentCloudId, true);
                       loadPvcs(currentCloudId);
                     }}
-                    onRefreshTemplates={() => loadTemplates(currentCloudId)}
+                    onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                     onRefreshVolumes={() => loadPvcs(currentCloudId)}
                     onRefreshImages={() => loadImages(currentCloudId)}
@@ -1211,7 +1211,7 @@ const CloudConsolePage: React.FC = () => {
                       loadEcs(currentCloudId, true);
                       loadPvcs(currentCloudId);
                     }}
-                    onRefreshTemplates={() => loadTemplates(currentCloudId)}
+                    onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                     onRefreshVolumes={() => loadPvcs(currentCloudId)}
                     onRefreshImages={() => loadImages(currentCloudId)}

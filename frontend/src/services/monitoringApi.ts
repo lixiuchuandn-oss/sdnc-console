@@ -220,7 +220,23 @@ export function fetchNotificationTargets(
   );
 }
 
-/** 告警通知对象：调用 list 路由，按 namespaces/receiverName 过滤聚合（GET .../alertmanagerconfigs/receivers） */
+/** 通过数据库验证通知对象名称是否已存在（不调用 Harvester） */
+export function checkReceiverNameExists(
+  cloudId: string,
+  namespace: string,
+  specReceiverName: string,
+  receiverType: string,
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId || !namespace || !specReceiverName) return Promise.resolve({ data: null, ok: false, error: '缺少参数' });
+  const params = new URLSearchParams({ namespace, specReceiverName, receiverType });
+  return apiGet<{ exists: boolean }>(
+    `${base(cloudId)}/alertmanagerconfigs/receivers/check?${params}`,
+    options
+  );
+}
+
+/** 告警通知对象：从数据库读取（GET .../alertmanagerconfigs/receivers，不调用 Harvester），按 namespaces/receiverName 过滤聚合 */
 export function fetchNotificationTargetsList(
   cloudId: string,
   options?: { signal?: AbortSignal; namespaces?: string[]; receiverName?: string[] }
@@ -270,6 +286,38 @@ export function deleteAlertmanagerconfig(cloudId: string, namespace: string, nam
   return apiDelete(`${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 }
 
+/** 告警策略与通知对象关联：查询 policy-receivers 表 */
+export interface AlertPolicyReceiverItem {
+  id: string;
+  cloudId: string;
+  namespace: string;
+  policyName: string;
+  emailReceiverId?: string;
+  dingtalkReceiverId?: string;
+  receiverType: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export function fetchAlertPolicyReceivers(
+  cloudId: string,
+  options?: { policyName?: string; receiverType?: string; namespace?: string; emailReceiverId?: string; dingtalkReceiverId?: string; websiteReceiverId?: string; signal?: AbortSignal }
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const params = new URLSearchParams();
+  if (options?.policyName) params.set('policyName', options.policyName);
+  if (options?.receiverType) params.set('receiverType', options.receiverType);
+  if (options?.namespace) params.set('namespace', options.namespace);
+  if (options?.emailReceiverId) params.set('emailReceiverId', options.emailReceiverId);
+  if (options?.dingtalkReceiverId) params.set('dingtalkReceiverId', options.dingtalkReceiverId);
+  if (options?.websiteReceiverId) params.set('websiteReceiverId', options.websiteReceiverId);
+  const q = params.toString();
+  return apiGet<{ data: AlertPolicyReceiverItem[] }>(
+    `${base(cloudId)}/alertmanagerconfigs/policy-receivers${q ? `?${q}` : ''}`,
+    { signal: options?.signal }
+  );
+}
+
 /** 告警通知对象：删除指定接收器（仅从 spec.receivers 中移除 specReceiverName，不删除整个 AlertmanagerConfig） */
 export function deleteAlertmanagerconfigReceiver(
   cloudId: string,
@@ -304,20 +352,57 @@ export function fetchPrometheusRuleVmCustomRules(cloudId: string, options?: { si
 /** Opaque Secret 项（后端 /monitoring/secrets 返回的数组元素） */
 export interface OpaqueSecretItem {
   name: string;
-  type: string;
+  type?: string;
   data: Record<string, string>;
 }
 
-/** 认证密钥列表（仅 type=Opaque），用于邮件 SMTP 密钥选择。请求 GET /monitoring/secrets，后端仅支持单参数 namespace（未传时默认 cattle-monitoring-system）。 */
+/** 认证密钥列表（labels: monitoring-receiver-secret=true）。请求 GET /monitoring/secrets，支持 namespace、datasource（默认 prometheus）。 */
 export function fetchSecrets(
   cloudId: string,
-  options?: { signal?: AbortSignal; namespace?: string }
+  options?: { signal?: AbortSignal; namespace?: string; datasource?: string }
 ) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   const params = new URLSearchParams();
   if (options?.namespace) params.set('namespace', options.namespace);
+  if (options?.datasource) params.set('datasource', options.datasource);
   const q = params.toString();
   return apiGet<OpaqueSecretItem[]>(`${base(cloudId)}/secrets${q ? `?${q}` : ''}`, options);
+}
+
+/** 获取单个告警密钥（GET /monitoring/secrets/:namespace/:name） */
+export function fetchSecretDetail(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiGet<OpaqueSecretItem & { namespace?: string }>(
+    `${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    options
+  );
+}
+
+/** 新增告警密钥（POST /monitoring/secrets），body 需含 metadata.namespace、metadata.name、data */
+export function createSecret(cloudId: string, body: { metadata: { namespace: string; name: string; labels?: Record<string, string> }; data: Record<string, string>; type?: string }) {
+  if (!cloudId) return Promise.resolve({ ok: false, error: '缺少 cloudId' });
+  return apiPostPut(`${base(cloudId)}/secrets`, 'POST', body);
+}
+
+/** 修改告警密钥（PUT /monitoring/secrets/:namespace/:name） */
+export function updateSecret(cloudId: string, namespace: string, name: string, body: { data: Record<string, string>; type?: string }) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiPostPut(
+    `${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    'PUT',
+    body
+  );
+}
+
+/** 删除告警密钥（DELETE /monitoring/secrets/:namespace/:name） */
+export function deleteSecret(cloudId: string, namespace: string, name: string) {
+  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
+  return apiDelete(`${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 }
 
 /** 告警规则列表（PrometheusRule 解析结果），需传 datasource=prometheus；租户可传 alertNames 只返回对应告警 */

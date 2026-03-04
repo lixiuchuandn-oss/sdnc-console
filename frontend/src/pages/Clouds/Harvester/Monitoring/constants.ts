@@ -6,8 +6,8 @@ export const WARNING_COLOR = '#f59e0b';
 
 /** 告警级别下拉选项（严重 / 警告） */
 export const LEVEL_OPTIONS = [
-  { label: '严重', value: 'critical' },
-  { label: '警告', value: 'warning' },
+  { label: '紧急告警', value: 'critical' },
+  { label: '普通告警', value: 'warning' },
 ];
 
 /** 告警列表级别筛选下拉选项（含「全部」） */

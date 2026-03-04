@@ -632,10 +632,16 @@ const OrgManagePage: React.FC = () => {
       const badgeClasses: Record<string, string> = { admin: 'std-badge std-badge-error', user: 'std-badge std-badge-info', viewer: 'std-badge std-badge-success' };
       const labels: Record<string, string> = { admin: '管理员', user: '用户', viewer: '查看者' };
       
+      const roleNameMap: Record<string, string> = {
+        'Super Admin': '超级管理员',
+        'Tenant Admin': '租户管理员',
+        'User': '普通用户'
+      };
+
       const cls = badgeClasses[row.role] || 'std-badge std-badge-default';
       // 尝试从预置映射获取，或从租户角色库动态查找名称，最后回落到 ID
       const match = tenantRoles.find(r => r.id === row.role);
-      const label = labels[row.role] || (match ? match.name : row.role);
+      const label = labels[row.role] || (match ? (roleNameMap[match.name] || match.name) : row.role);
 
       const assigned = rolesByUser[row.id] || [];
       return (
@@ -643,7 +649,7 @@ const OrgManagePage: React.FC = () => {
           <span className={cls}>{label}</span>
           {assigned.map(it => (
             <span key={`${row.id}-${it.id}`} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-              <span className="std-badge std-badge-default">{it.name}</span>
+              <span className="std-badge std-badge-default">{roleNameMap[it.name] || it.name}</span>
               <Typography.Text copyable style={{ fontSize: 12 }}>{it.id}</Typography.Text>
             </span>
           ))}
@@ -1260,7 +1266,7 @@ const OrgManagePage: React.FC = () => {
           <Form.Item label="姓名" name="fullName" rules={[{ required: true }]}>
             <Input placeholder="请输入姓名" />
           </Form.Item>
-          <Form.Item label="邮箱" name="email" rules={[{ required: true }, { type: 'email' }]}>
+          <Form.Item label="邮箱" name="email" rules={[{ required: true }, { type: 'email', message: '请输入有效的邮箱地址' }]}>
             <Input placeholder="请输入邮箱" />
           </Form.Item>
           <Form.Item label="密码" name="password" rules={[{ required: true }]}>
@@ -1268,12 +1274,19 @@ const OrgManagePage: React.FC = () => {
           </Form.Item>
           <Form.Item label="角色" name="role" rules={[{ required: true }]}>
             <Select placeholder="请选择角色">
-              <Select.Option value="admin">管理员</Select.Option>
-              <Select.Option value="user">用户</Select.Option>
-              <Select.Option value="viewer">查看者</Select.Option>
-              {tenantRoles.filter(r => !['admin','user','viewer'].includes(r.name)).map(r => (
-                <Select.Option key={r.id} value={r.id}>{r.name}</Select.Option>
-              ))}
+              {tenantRoles.map(r => {
+                const roleNameMap: Record<string, string> = {
+                  'Super Admin': '超级管理员',
+                  'Tenant Admin': '租户管理员',
+                  'User': '普通用户',
+                  'admin': '管理员',
+                  'user': '用户',
+                  'viewer': '查看者'
+                };
+                return (
+                  <Select.Option key={r.id} value={r.id}>{roleNameMap[r.name] || r.name}</Select.Option>
+                );
+              })}
             </Select>
           </Form.Item>
         </Form>
@@ -1398,13 +1411,19 @@ const OrgManagePage: React.FC = () => {
         </Form>
         <PermissionTreeTransfer
           dataSource={(() => {
+            const roleNameMap: Record<string, string> = {
+              'Super Admin': '超级管理员',
+              'Tenant Admin': '租户管理员',
+              'User': '普通用户'
+            };
             const base = tenantRoles
               .filter(r => String(r.status || 'active') === 'active')
               .filter(r => (roleAssignKw ? ((r.name || '').toLowerCase().includes(roleAssignKw.toLowerCase()) || (r.description || '').toLowerCase().includes(roleAssignKw.toLowerCase())) : true))
-              .map(r => ({ key: r.id, title: r.name, description: r.description }));
+              .map(r => ({ key: r.id, title: roleNameMap[r.name] || r.name, description: r.description }));
             const selected = (roleAssignSelected || []).map(k => {
               const role = tenantRoles.find(r => r.id === k);
-              return { key: String(k), title: role?.name || String(k), description: role?.description || '' };
+              const name = role?.name || String(k);
+              return { key: String(k), title: roleNameMap[name] || name, description: role?.description || '' };
             });
             const map = new Map<string, any>();
             [...base, ...selected].forEach(it => { map.set(String(it.key), it); });

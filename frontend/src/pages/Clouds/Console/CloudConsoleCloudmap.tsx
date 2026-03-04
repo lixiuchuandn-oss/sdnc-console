@@ -94,7 +94,7 @@ interface Props {
   onDelete: (iid: string, deleteImage?: boolean) => void;
 
   // Other Refresh Handlers
-  onRefreshTemplates: () => void;
+  onRefreshTemplates: (force?: boolean) => void;
   onRefreshSshKeys: () => void;
   onRefreshVolumes?: () => void;
   onRefreshImages?: () => void;
@@ -349,6 +349,7 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             templates={templates}
             loading={loading}
             onRefresh={onRefreshTemplates}
+            isTenant={true}
           />
         );
       case 'ssh':

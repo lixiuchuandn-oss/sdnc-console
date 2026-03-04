@@ -253,6 +253,8 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
       onCancel={onClose}
       confirmLoading={loading}
       width={700}
+      okText="创建"
+      cancelText="取消"
       destroyOnHidden
     >
       <Form

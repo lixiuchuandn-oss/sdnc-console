@@ -239,6 +239,8 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}
+      okText="创建"
+      cancelText="取消"
       width={600}
     >
       <Form form={form} layout="vertical">

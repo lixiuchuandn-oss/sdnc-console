@@ -20,7 +20,7 @@ const ROW2_HEIGHT = 300;
 interface MonitoringOverviewProps {
   cloudId: string;
 }
-
+ 
 const MonitoringOverview: React.FC<MonitoringOverviewProps> = ({ cloudId }) => {
   if (!cloudId) {
     return (

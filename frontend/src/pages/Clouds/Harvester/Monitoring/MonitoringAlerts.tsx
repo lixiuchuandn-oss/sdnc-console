@@ -1,16 +1,16 @@
 /**
- * 监控服务 - 监控告警（告警列表）
+ * 监控服务 - 监控告警（站内实时告警列表）
  * 设计文档：plan/设计-监控服务-监控告警.md、设计-监控服务-租户入口与权限.md
  * 告警通知配置已迁移至「告警通知策略」Tab（AlertForwardConfig）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Input, Select, Space, Table, Typography } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import { Button, Descriptions, Input, Modal, Select, Space, Table, Typography } from 'antd';
+import type { ColumnsType, ColumnType } from 'antd/es/table';
 import { useAuth } from '../../../../contexts/AuthContext';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
-import { fetchAlertsRules, fetchAllowedNamespaces } from '../../../../services/monitoringApi';
+import { fetchAlertsRules, fetchAllowedNamespaces, fetchPrometheusRulesGroups } from '../../../../services/monitoringApi';
 import { parseAlerts, type ParsedAlert } from './utils/prometheusAlerts';
 import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
 
@@ -22,7 +22,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'super_admin' || user?.role === 'leased_lines_admin';
 
-  // 告警列表
+  // 站内实时告警列表
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsData, setAlertsData] = useState<any>(null);
   const [alertTotal, setAlertTotal] = useState(0);
@@ -35,6 +35,10 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
   const [allowedNsLoading, setAllowedNsLoading] = useState(false);
   const [alertTableColumns, setAlertTableColumns] = useState<ColumnsType<ParsedAlert>>([]);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<ParsedAlert | null>(null);
+  /** 规则组中文映射（从 PrometheusRulesGroup 表 / prometheusrules-groups 接口读取） */
+  const [rulesGroupMap, setRulesGroupMap] = useState<Record<string, string>>({});
 
   const loadAlerts = useCallback(async () => {
     if (!cloudId) return;
@@ -78,7 +82,25 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     if (cloudId && !isAdmin) loadAllowedNamespaces();
   }, [cloudId, isAdmin, loadAllowedNamespaces]);
 
-  const alertsList = useMemo(() => parseAlerts(alertsData ?? null), [alertsData]);
+  useEffect(() => {
+    if (!cloudId) return;
+    fetchPrometheusRulesGroups(cloudId).then(({ data, ok }) => {
+      if (ok && data?.rulesGroupMap && typeof data.rulesGroupMap === 'object') {
+        setRulesGroupMap(data.rulesGroupMap);
+      } else {
+        setRulesGroupMap({});
+      }
+    });
+  }, [cloudId]);
+
+  const alertsList = useMemo(() => {
+    const list = parseAlerts(alertsData ?? null);
+    if (Object.keys(rulesGroupMap).length === 0) return list;
+    return list.map((a) => ({
+      ...a,
+      groupDescription: rulesGroupMap[a.groupName] ?? a.groupDescription,
+    }));
+  }, [alertsData, rulesGroupMap]);
 
   const filteredAlerts = useMemo(() => {
     let list = alertsList;
@@ -95,6 +117,54 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     return list;
   }, [alertsList, levelFilter, alertKeyword]);
 
+  const formatDescriptionForDetail = useCallback((description: string): string => {
+    if (!description) return '-';
+    const normalized = String(description)
+      .replace(/\\n/g, '\n')
+      .replace(/\r\n/g, '\n')
+      .trim();
+    // 优先尊重已有换行；若无换行，则按常见句读分段提升可读性
+    if (normalized.includes('\n')) return normalized;
+    return normalized
+      .replace(/([。；;！？!?])\s*/g, '$1\n')
+      .replace(/,\s+(?=[A-Z\u4e00-\u9fa5])/g, ',\n');
+  }, []);
+
+  const openDetail = useCallback((record: ParsedAlert) => {
+    setDetailRecord(record);
+    setDetailOpen(true);
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setDetailOpen(false);
+    setDetailRecord(null);
+  }, []);
+
+  const renderLevel = useCallback((level: 'critical' | 'warning') => {
+    const isCritical = level === 'critical';
+    const color = isCritical ? CRITICAL_COLOR : WARNING_COLOR;
+    const label = isCritical ? '紧急告警' : '普通告警';
+    return (
+      <Space size={6} style={{ alignItems: 'center' }}>
+        <span
+          style={{
+            display: 'inline-block',
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            backgroundColor: color,
+            flexShrink: 0,
+          }}
+        />
+        <span>{label}</span>
+      </Space>
+    );
+  }, []);
+
+  const renderRuleGroup = useCallback((row: ParsedAlert) => {
+    return row.groupDescription || row.groupName || '-';
+  }, []);
+
   const alertColumns: ColumnsType<ParsedAlert> = useMemo(
     () => [
       { title: '数据源', key: 'dataSource', width: 120, render: () => 'Prometheus' },
@@ -103,33 +173,56 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         title: '等级',
         dataIndex: 'level',
         key: 'level',
-        width: 100,
-        render: (level: 'critical' | 'warning') => {
-          const isCritical = level === 'critical';
-          const color = isCritical ? CRITICAL_COLOR : WARNING_COLOR;
-          const label = isCritical ? '严重' : '警告';
-          return (
-            <Space size={6} style={{ alignItems: 'center' }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  backgroundColor: color,
-                  flexShrink: 0,
-                }}
-              />
-              <span>{label}</span>
-            </Space>
-          );
-        },
+        width: 130,
+        render: (level: 'critical' | 'warning') => renderLevel(level),
       },
-      ...(isAdmin ? [] : [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120, render: (v: string) => v || '-' }]),
-      { title: '触发时间', dataIndex: 'activeAt', key: 'activeAt', width: 160, render: (v: string) => v || '-' },
-      { title: '描述', dataIndex: 'description', key: 'description', render: (v: string) => <Typography.Text type="secondary" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{v || '-'}</Typography.Text> },
+      { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150, render: (v: string) => v || '-' },
+      { title: '节点', dataIndex: 'node', key: 'node', width: 140, render: (v: string) => v || '-' },
+      {
+        title: '规则组',
+        key: 'groupDescription',
+        width: 180,
+        render: (_, row) => renderRuleGroup(row),
+      },
+      {
+        title: '描述',
+        dataIndex: 'description',
+        key: 'description',
+        width: 260,
+        render: (v: string) => (
+          <Typography.Text
+            type="secondary"
+            style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+          >
+            {v || '-'}
+          </Typography.Text>
+        ),
+      },
+      {
+        title: '触发时间',
+        dataIndex: 'activeAt',
+        key: 'activeAt',
+        width: 160,
+        sorter: (a: ParsedAlert, b: ParsedAlert) => {
+          const ta = a.activeAt ? new Date(a.activeAt).getTime() : 0;
+          const tb = b.activeAt ? new Date(b.activeAt).getTime() : 0;
+          return ta - tb;
+        },
+        render: (v: string) => v || '-',
+      },
+      {
+        title: '操作',
+        key: 'action',
+        width: 100,
+        fixed: 'right',
+        render: (_, row) => (
+          <Button type="link" onClick={() => openDetail(row)} style={{ paddingInline: 0 }}>
+            详情
+          </Button>
+        ),
+      },
     ],
-    [isAdmin]
+    [isAdmin, openDetail, renderLevel, renderRuleGroup]
   );
 
   const namespaceFilterOptions = useMemo(() => {
@@ -211,7 +304,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
           loading={alertsLoading}
           columns={alertTableDisplayColumns}
           dataSource={filteredAlerts}
-          scroll={{ x: 1000 }}
+          scroll={{ x: 'max-content' }}
           pagination={
             isAdmin
               ? {
@@ -230,6 +323,56 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
           }
         />
       </PageDetailSection>
+
+      <Modal
+        open={detailOpen}
+        onCancel={closeDetail}
+        title="告警详情"
+        footer={<Button onClick={closeDetail}>关闭</Button>}
+        width={860}
+        destroyOnClose
+      >
+        {detailRecord ? (
+          <Descriptions column={1} bordered size="small" labelStyle={{ width: 120 }}>
+            {(alertColumns as ColumnType<ParsedAlert>[])
+              .filter((col) => {
+                const key = (col.key as string) || (col.dataIndex as string);
+                // 详情里单独渲染「告警节点」「告警实例」，这里跳过节点列与操作列
+                return key !== 'action' && key !== 'node';
+              })
+              .map((col) => {
+                const label = (col.title as string) ?? '';
+                const dataIndex = col.dataIndex as string | undefined;
+                const key = (col.key as string) ?? dataIndex;
+                const raw =
+                  dataIndex != null
+                    ? (detailRecord as any)[dataIndex]
+                    : (key ? (detailRecord as any)[key] : undefined);
+                const rendered =
+                  typeof col.render === 'function'
+                    ? col.render(raw, detailRecord, 0)
+                    : (raw != null && raw !== '' ? String(raw) : '-');
+                const content =
+                  rendered != null && typeof rendered === 'object' && 'children' in rendered
+                    ? (rendered as { children?: React.ReactNode }).children
+                    : rendered;
+                return (
+                  <Descriptions.Item key={key || label} label={label}>
+                    {content as React.ReactNode}
+                  </Descriptions.Item>
+                );
+              })}
+            <Descriptions.Item label="告警节点">
+              {detailRecord.node || '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="告警实例">
+              {detailRecord.instance || '-'}
+            </Descriptions.Item>
+          </Descriptions>
+        ) : (
+          <Typography.Text type="secondary">暂无数据</Typography.Text>
+        )}
+      </Modal>
     </div>
   );
 };

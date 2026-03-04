@@ -12,6 +12,9 @@ export interface ParsedAlert {
   groupName: string;
   groupDescription: string;
   namespace?: string;
+  node?: string;
+  /** 告警实例（labels.instance 原始值） */
+  instance?: string;
 }
 
 function formatActiveAt(iso: string): string {
@@ -71,9 +74,12 @@ export function parseAlerts(data: unknown): ParsedAlert[] {
     const level: 'critical' | 'warning' = severity === 'critical' ? 'critical' : 'warning';
     const title = (annotations.summary ?? labels.alertname ?? '--') as string;
     const description = (annotations.description ?? '') as string;
-    const activeAtRaw = item?.startsAt ?? '';
+    // 触发时间：优先使用 updatedAt，没有则回退到 startsAt
+    const activeAtRaw = (item?.updatedAt ?? item?.startsAt ?? '') as string;
     const activeAt = formatActiveAt(activeAtRaw);
     const namespace = (labels.namespace as string) ?? '';
+    const node = (labels.node ?? '').toString().trim();
+    const instance = (labels.instance ?? '').toString().trim();
     const id = item?.fingerprint
       ? `v2-${item.fingerprint}-${activeAtRaw}`
       : `v2-${idSeq++}-${groupName}-${labels.alertname ?? ''}-${activeAtRaw}`;
@@ -86,8 +92,10 @@ export function parseAlerts(data: unknown): ParsedAlert[] {
       activeAt,
       activeAtRaw,
       groupName,
-      groupDescription: GROUP_NAME_DESCRIPTIONS[groupName] ?? groupName,
+      groupDescription: GROUP_NAME_DESCRIPTIONS[groupName] ?? GROUP_NAME_DESCRIPTIONS.other ?? groupName,
       namespace: namespace || undefined,
+      node: node || undefined,
+      instance: instance || undefined,
     });
   }
 

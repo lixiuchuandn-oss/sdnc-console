@@ -93,7 +93,7 @@ export const HostsCard: React.FC = () => {
         }}
         style={{ height: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
       >
-        <Spin />
+        <Spin tip="加载中..." />
       </Card>
     );
   }

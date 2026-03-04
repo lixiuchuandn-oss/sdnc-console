@@ -165,7 +165,7 @@ function parseDingtalkUrlToRobotUrlAndToken(url: string): { robotUrl: string; ro
 
 /**
  * 对 dingtalk-receiver 的单项做特殊处理：robotAccount = ${namespace}_${specReceiverName}；
- * robotUrl 与 robotAccessToken 从 DingtalkWebhookConfig 中 targetName = specReceiverName 的 url 用 "?" 拆出。
+ * robotUrl、robotAccessToken 优先使用数据库中的值；若数据库无则从 DingtalkWebhookConfig 解析补全。
  */
 export function normalizeDingtalkReceiverSpec(
   raw: ReceiverSpec,
@@ -176,21 +176,22 @@ export function normalizeDingtalkReceiverSpec(
   const webhookArr = raw.webhookConfigs;
   const existing = Array.isArray(webhookArr) ? webhookArr[0] : undefined;
   const robotAccount = [namespace, specReceiverName].filter(Boolean).join('_');
-  let robotUrl = '';
-  let robotAccessToken = '';
-  if (dingtalkWebhookConfig?.[robotAccount]?.url) {
+  let robotUrl = (existing as any)?.robotUrl ?? '';
+  let robotAccessToken = (existing as any)?.robotAccessToken ?? '';
+  if ((!robotUrl || !robotAccessToken) && dingtalkWebhookConfig?.[robotAccount]?.url) {
     const parsed = parseDingtalkUrlToRobotUrlAndToken(dingtalkWebhookConfig[robotAccount].url);
-    robotUrl = parsed.robotUrl;
-    robotAccessToken = parsed.robotAccessToken;
+    if (!robotUrl) robotUrl = parsed.robotUrl;
+    if (!robotAccessToken) robotAccessToken = parsed.robotAccessToken;
   }
+  const urlFromDb = (existing as any)?.url ?? '';
   return {
     ...raw,
     webhookConfigs: [
       {
-        url: getDingtalkWebhookUrl(robotAccount),
+        url: urlFromDb || getDingtalkWebhookUrl(robotAccount),
         robotAccount,
-        robotUrl: robotUrl,
-        robotAccessToken: robotAccessToken || (existing as any)?.robotAccessToken,
+        robotUrl,
+        robotAccessToken,
         sendResolved: (existing as any)?.sendResolved !== false,
       },
     ],

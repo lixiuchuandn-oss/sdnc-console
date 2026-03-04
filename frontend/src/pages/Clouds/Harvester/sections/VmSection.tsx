@@ -1291,8 +1291,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // VNC 控制台
         { key: 'webvnc', label: '访问VNC', disabled: isStopped, onClick: () => handleWebVnc(r) },
 
-        { key: 'save_as_template', label: '保存为模板', onClick: () => handleOpenSaveAsTemplate(r) },
-
         { type: 'divider' },
         
         // ----------------------------------------------------------------

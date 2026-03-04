@@ -122,6 +122,8 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
       onOk={handleOk}
       confirmLoading={loading}
       width={600}
+      okText="创建"
+      cancelText="取消"
       destroyOnHidden
     >
       <Form form={form} layout="vertical">

@@ -108,7 +108,7 @@ interface Props {
   onDelete: (iid: string, deleteImage?: boolean) => void;
 
   // Other Refresh Handlers
-  onRefreshTemplates: () => void;
+  onRefreshTemplates: (force?: boolean) => void;
   onRefreshSshKeys: () => void;
   onRefreshVolumes?: () => void;
   onRefreshImages?: () => void;

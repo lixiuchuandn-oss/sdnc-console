@@ -171,7 +171,14 @@ const AccessRolesPage: React.FC = () => {
 
   // 角色列表表格
   const fullColumns = useMemo(() => [
-    { title: '角色名称', dataIndex: 'name', key: 'name', width: 200, render: (t: any) => <span>{t}</span> },
+    { title: '角色名称', dataIndex: 'name', key: 'name', width: 200, render: (t: any) => {
+      const roleNameMap: Record<string, string> = {
+        'Super Admin': '超级管理员',
+        'Tenant Admin': '租户管理员',
+        'User': '普通用户'
+      };
+      return <span>{roleNameMap[t] || t}</span>;
+    }},
     // 角色类型：映射后端"系统策略"为"系统角色"
     { title: '类型', dataIndex: 'type', key: 'type', render: (t: any) => <span className={`std-badge ${t === '系统策略' ? 'std-badge-info' : 'std-badge-success'}`}>{t === '系统策略' ? '系统角色' : (t === '自定义策略' ? '自定义角色' : t)}</span> },
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
@@ -219,6 +226,8 @@ const AccessRolesPage: React.FC = () => {
           className="toolbar-container"
           layout="vertical"
           style={{ display:'flex', alignItems:'flex-end', rowGap:12, columnGap:12 }}
+          form={filterForm}
+          initialValues={{ type: '全部' }}
           onValuesChange={(_, all) => {
             setRoleKw(all.keyword || '');
             setRoleType(all.type || '全部');
@@ -228,7 +237,7 @@ const AccessRolesPage: React.FC = () => {
             <Input allowClear placeholder="搜索角色名称或说明" className="toolbar-search" />
           </Form.Item>
           <Form.Item name="type" label="类型">
-            <Select className="toolbar-filter" placeholder="全部类型" defaultValue="全部">
+            <Select className="toolbar-filter" placeholder="全部类型">
               <Select.Option value="全部">全部类型</Select.Option>
               <Select.Option value="系统策略">系统角色</Select.Option>
               <Select.Option value="自定义策略">自定义角色</Select.Option>

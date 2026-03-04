@@ -120,6 +120,8 @@ export const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, subnets, 
         onCancel={() => setIsCreateVisible(false)}
         onOk={handleCreate}
         confirmLoading={createLoading}
+        okText="创建"
+        cancelText="取消"
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入EIP名称' }]}>

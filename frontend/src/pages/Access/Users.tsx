@@ -53,9 +53,10 @@ const AccessUsersPage: React.FC = () => {
     { title:'角色', dataIndex:'roles', render: (_: any, row: SysUser) => {
       const assigned = rolesByUser[row.id] || [];
       const sysMap: Record<string,string> = { super_admin:'超级管理员', leased_lines_admin:'管理员', tenant:'系统用户' };
+      const roleNameMap: Record<string, string> = { 'Super Admin': '超级管理员', 'Tenant Admin': '租户管理员', 'User': '普通用户' };
       const sys = sysMap[row.role];
       const all = sys ? [sys, ...assigned] : assigned;
-      return all.length ? <Space wrap>{all.map(n => <span key={n} className="std-badge std-badge-default">{n}</span>)}</Space> : <span>-</span>;
+      return all.length ? <Space wrap>{all.map(n => <span key={n} className="std-badge std-badge-default">{roleNameMap[n] || n}</span>)}</Space> : <span>-</span>;
     } },
     { title:'状态', dataIndex:'status', render:(s:string)=> <span className={`std-badge ${s==='active'?'std-badge-success':s==='suspended'?'std-badge-warning':'std-badge-default'}`}>{ s==='active'?'活跃': s==='suspended'?'暂停':'非活跃' }</span> },
     { title:'操作', key:'actions', render: (_:any, row: SysUser) => {
@@ -329,7 +330,14 @@ const AccessUsersPage: React.FC = () => {
             .filter(r => (assignScope==='all' ? true : r.scope === assignScope))
             .filter(r => (assignStatus==='all' ? true : String(r.status || 'active') === assignStatus))
             .filter(r => (assignRoleKw ? ((r.name||'').toLowerCase().includes(assignRoleKw.toLowerCase()) || (r.description||'').toLowerCase().includes(assignRoleKw.toLowerCase())) : true))
-            .map(r => ({ key: r.id, title: r.name, description: r.description }))}
+            .map(r => {
+              const roleNameMap: Record<string, string> = {
+                'Super Admin': '超级管理员',
+                'Tenant Admin': '租户管理员',
+                'User': '普通用户'
+              };
+              return { key: r.id, title: roleNameMap[r.name] || r.name, description: r.description };
+            })}
           titles={["角色库","已选角色"]}
           targetKeys={assignSelected}
           onChange={(next)=> setAssignSelected(next.map(String))}

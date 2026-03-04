@@ -6,24 +6,22 @@ import {
   Button,
   Cascader,
   Col,
-  Divider,
+  Descriptions,
   Form,
   Input,
   message,
   Modal,
-  Radio,
   Row,
   Select,
   Space,
   Spin,
-  Switch,
   Table,
   Tag,
   Transfer,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { ALERTMANAGERCONFIG_KIND, MONITORING_API_VERSION, useMonitoring } from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -79,7 +77,7 @@ function flattenPrometheusRuleToTriggerOptions(raw: any): TriggerRuleOption[] {
 interface AlertmanagerConfigItem {
   id?: string;
   type?: string;
-  metadata?: { name?: string; namespace?: string; creationTimestamp?: string; annotations?: Record<string, string> };
+  metadata?: { name?: string; namespace?: string; creationTimestamp?: string; creator?: string; annotations?: Record<string, string> };
   spec?: { receivers?: Array<{ name?: string }>; route?: Record<string, unknown> };
 }
 
@@ -253,6 +251,19 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   const [rulesGroupMap, setRulesGroupMap] = useState<Record<string, string>>({});
   const [rulesLoading, setRulesLoading] = useState(false);
 
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailData, setDetailData] = useState<{
+    name?: string;
+    namespace?: string;
+    description?: string;
+    creator?: string;
+    creationTimestamp?: string;
+    receiverNames?: string[];
+    matchers?: string[];
+    repeatInterval?: string;
+  } | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   const loadConfigList = useCallback(async () => {
     if (!cloudId) return;
     setConfigLoading(true);
@@ -266,7 +277,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     setConfigList(normalizeListPayload(data));
   }, [cloudId]);
 
-  /** 通知对象名称下拉数据：来自后端 GET .../alertmanagerconfigs/receivers，按 receiverName 聚合；可指定 namespaces 覆盖（用于表单内按选中命名空间加载） */
+  /** 通知对象名称下拉数据：来自数据库（GET .../alertmanagerconfigs/receivers，不调用 Harvester），按 receiverName 聚合；可指定 namespaces 覆盖（用于表单内按选中命名空间加载） */
   const loadReceiversList = useCallback(
     async (overrideNamespaces?: string[]) => {
       if (!cloudId) return;
@@ -389,9 +400,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               const d = raw?.data != null && typeof raw.data === 'object' ? raw.data : raw;
               const annotations = d.metadata?.annotations ?? {};
               const receivers = Array.isArray(d.spec?.receivers) ? d.spec.receivers : [];
-              const routeReceiver = d.spec?.route?.receiver ?? receivers?.[0]?.name;
-              const routeReceiverNames = collectReceiverNamesFromRoute(d.spec?.route, receivers);
-              const r0 = routeReceiver ? receivers.find((r: any) => r.name === routeReceiver) : receivers[0];
+              const routeReceiverNames = (collectReceiverNamesFromRoute(d.spec?.route, receivers) ?? []).filter((n: string) => n !== 'null-receiver');
+              const routeReceiver = routeReceiverNames[0] ?? (d.spec?.route?.receiver !== 'null-receiver' ? d.spec?.route?.receiver : undefined) ?? receivers.find((r: any) => (r?.name ?? '') !== 'null-receiver')?.name;
+              const r0 = routeReceiver ? receivers.find((r: any) => r.name === routeReceiver) : receivers.find((r: any) => (r?.name ?? '') !== 'null-receiver');
               let receiverName: ReceiverName = 'email-receiver';
               let emailList = [{ emailTo: '', emailFrom: '', smarthost: '', requireTls: true, authUsername: '', authIdentity: '', authSecretKey: '' }];
               if (r0) {
@@ -417,7 +428,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               const route = d.spec?.route ?? {};
               const match = (route.match ?? {}) as Record<string, string>;
               const matchRe = (route.matchRe ?? {}) as Record<string, string>;
-              const routeMatchersArray = Array.isArray(route.matchers) ? route.matchers : [];
+              let routeMatchersArray = Array.isArray(route.matchers) ? route.matchers : [];
+              const childRoutes = Array.isArray(route.routes) ? route.routes : [];
+              if (routeMatchersArray.length === 0 && childRoutes.length > 0) {
+                const firstChild = childRoutes[0];
+                routeMatchersArray = Array.isArray(firstChild?.matchers) ? firstChild.matchers : [];
+              }
               const alertnameMatchers = routeMatchersArray.filter((m: any) => String(m?.name ?? '').toLowerCase() === 'alertname');
               let matchersFromRouteMatchers: string[] = [];
               if (alertnameMatchers.length > 0) {
@@ -437,7 +453,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 routeMatchersArray.length > 0
                   ? routeMatchersArray.filter((m: any) => (m?.name ?? '').trim() && (m?.value ?? '').trim()).map((m: any) => ({ key: String(m.name).trim(), value: String(m.value).trim() }))
                   : Object.keys(match).length ? Object.entries(match).map(([key, value]) => ({ key, value })) : [];
-              const routeRepeatInterval = (d.spec?.route as any)?.repeatInterval ?? '4h';
+              const routeRepeatInterval = (childRoutes[0] as any)?.repeatInterval ?? (d.spec?.route as any)?.repeatInterval ?? '4h';
               const configReceiverNameTypeName = routeReceiverNames.length
                 ? routeReceiverNames.map((n: string) => `${nameToType[n] ?? 'email-receiver'}:${n}`)
                 : routeReceiver ? [`${nameToType[routeReceiver] ?? 'email-receiver'}:${routeReceiver}`] : [];
@@ -481,6 +497,85 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     setEditingRecord(null);
     form.resetFields();
   }, [form]);
+
+  /** 打开详情：从接口拉取策略详情并展示只读 Modal */
+  const handleOpenDetail = useCallback(
+    (row: AlertmanagerConfigItem) => {
+      const ns = row.metadata?.namespace ?? '';
+      const name = row.metadata?.name ?? '';
+      if (!cloudId || !ns || !name) {
+        message.error('缺少命名空间或策略名称');
+        return;
+      }
+      setDetailData(null);
+      setDetailModalOpen(true);
+      setDetailLoading(true);
+      fetchAlertmanagerconfigDetail(cloudId, ns, name)
+        .then(({ data, ok, error }) => {
+          setDetailLoading(false);
+          if (!ok || !data) {
+            message.error(error || '获取策略详情失败');
+            setDetailData(null);
+            return;
+          }
+          const raw = data as any;
+          const d = raw?.data != null && typeof raw.data === 'object' ? raw.data : raw;
+          const annotations = d.metadata?.annotations ?? {};
+          const receivers = Array.isArray(d.spec?.receivers) ? d.spec.receivers : [];
+          const route = d.spec?.route ?? {};
+          const rawRouteReceiverNames = collectReceiverNamesFromRoute(route, receivers);
+          const routeReceiverNames = (rawRouteReceiverNames ?? []).filter((n: string) => n !== 'null-receiver');
+          const match = (route.match ?? {}) as Record<string, string>;
+          const matchRe = (route.matchRe ?? {}) as Record<string, string>;
+          let routeMatchersArray = Array.isArray(route.matchers) ? route.matchers : [];
+          const detailChildRoutes = Array.isArray(route.routes) ? route.routes : [];
+          if (routeMatchersArray.length === 0 && detailChildRoutes.length > 0) {
+            const firstChild = detailChildRoutes[0];
+            routeMatchersArray = Array.isArray(firstChild?.matchers) ? firstChild.matchers : [];
+          }
+          const alertnameMatchers = routeMatchersArray.filter((m: any) => String(m?.name ?? '').toLowerCase() === 'alertname');
+          let matchersFromRouteMatchers: string[] = [];
+          if (alertnameMatchers.length > 0) {
+            const first = alertnameMatchers[0];
+            const matchType = String(first?.matchType ?? '').trim();
+            const value = String(first?.value ?? '').trim();
+            if (matchType === '=~' && value) matchersFromRouteMatchers = value.split('|').map((s: string) => s.trim()).filter(Boolean);
+            else matchersFromRouteMatchers = alertnameMatchers.map((m: any) => String(m?.value ?? '').trim()).filter(Boolean);
+          }
+          const alertnameRe = (matchRe.alertname ?? '').toString().trim();
+          const matchersFromRe = alertnameRe ? parseAlertnameReToMatchers(alertnameRe) : [];
+          const alertnameExact = (match.alertname ?? '').toString().trim();
+          const matchersFromMatch = alertnameExact ? [alertnameExact] : [];
+          const fallbackMatchers = typeof annotations.matchers === 'string' ? annotations.matchers.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+          const resolvedMatchers =
+            matchersFromRouteMatchers.length ? matchersFromRouteMatchers
+              : matchersFromRe.length ? matchersFromRe
+              : matchersFromMatch.length ? matchersFromMatch
+              : fallbackMatchers;
+          setDetailData({
+            name: d.metadata?.name ?? name,
+            namespace: d.metadata?.namespace ?? ns,
+            description: (annotations.description ?? '').toString().trim() || undefined,
+            creator: d.metadata?.creator ?? undefined,
+            creationTimestamp: d.metadata?.creationTimestamp ?? undefined,
+            receiverNames: routeReceiverNames.length ? routeReceiverNames : (route.receiver && route.receiver !== 'null-receiver' ? [route.receiver] : receivers.map((r: any) => r.name).filter((n: string) => n !== 'null-receiver')),
+            matchers: resolvedMatchers.length ? resolvedMatchers : undefined,
+            repeatInterval: (detailChildRoutes[0] as any)?.repeatInterval ?? (route as any)?.repeatInterval ?? '4h',
+          });
+        })
+        .catch(() => {
+          setDetailLoading(false);
+          message.error('获取策略详情失败');
+          setDetailData(null);
+        });
+    },
+    [cloudId]
+  );
+
+  const handleCloseDetail = useCallback(() => {
+    setDetailModalOpen(false);
+    setDetailData(null);
+  }, []);
 
   /** 按 receiverName 类型筛选的 spec 接收器名称，用于级联下拉 */
   const specReceiverNameOptionsByType = useMemo(() => {
@@ -623,23 +718,19 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       return lookup[n] ?? buildReceiverSpec(n, type, values);
     });
     const repeatInterval = (form.getFieldValue('repeatInterval') ?? '4h').toString().trim() || '4h';
-    const baseRouteFields = {
+    const rootRepeatInterval = '30m';
+    const routePayload: Record<string, unknown> = {
       groupBy: ['alertname', 'namespace'],
       groupWait: '30s',
       groupInterval: '5m',
-      repeatInterval,
-      matchers: routeMatchers.map((m) => ({ matchType: m.matchType, name: m.name, value: m.value })),
-    };
-    const childRoutes = configReceiverNames.slice(1).map((receiver) => ({
-      ...baseRouteFields,
-      receiver,
-      routes: [],
-    }));
-    const routePayload: Record<string, unknown> = {
-      receivers: [],
       receiver: configReceiverNames[0],
-      ...baseRouteFields,
-      routes: childRoutes,
+      repeatInterval: rootRepeatInterval,
+      routes: configReceiverNames.map((receiver) => ({
+        continue: true,
+        matchers: routeMatchers.map((m) => ({ matchType: m.matchType, name: m.name, value: m.value })),
+        receiver,
+        repeatInterval,
+      })),
     };
     const payload: Record<string, unknown> = {
       apiVersion: MONITORING_API_VERSION,
@@ -657,15 +748,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       const existingRaw = full as any;
       const existing = existingRaw?.data != null && typeof existingRaw.data === 'object' ? existingRaw.data : existingRaw;
       const existingRouteFull = existing.spec?.route ?? {};
-      const { match: _omitMatch, matchRe: _omitMatchRe, ...restExistingRoute } = existingRouteFull as Record<string, unknown>;
+      const { match: _omitMatch, matchRe: _omitMatchRe, matchers: _omitMatchers, ...restExistingRoute } = existingRouteFull as Record<string, unknown>;
       const routeForPut = {
         ...restExistingRoute,
         groupBy: routePayload.groupBy,
         groupInterval: routePayload.groupInterval,
         groupWait: routePayload.groupWait,
-        repeatInterval: routePayload.repeatInterval,
-        matchers: routePayload.matchers,
         receiver: routePayload.receiver,
+        repeatInterval: routePayload.repeatInterval,
         routes: routePayload.routes,
       };
       const nextPayload = {
@@ -734,6 +824,8 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           );
         },
       },
+      { title: '创建人', dataIndex: ['metadata', 'creator'], key: 'creator', width: 100, ellipsis: true, render: (v: string | undefined) => v || '-' },
+      { title: '创建时间', dataIndex: ['metadata', 'creationTimestamp'], key: 'createdAt', width: 172, ellipsis: true, render: (v: string | undefined) => (v ? (String(v).replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
       {
         title: '操作',
         key: 'action',
@@ -742,6 +834,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         render: (_, row) => (
           <ResourceActionsDropdown
             items={[
+              { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
               { key: 'edit', label: '编辑策略', onClick: () => handleOpenForm(row) },
               { type: 'divider' },
               {
@@ -763,7 +856,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         ),
       },
     ],
-    [handleOpenForm, handleDeleteConfig]
+    [handleOpenForm, handleOpenDetail, handleDeleteConfig]
   );
 
   /** 告警规则 Transfer 数据源：管理员用 rulesList（含 groupName），租户用 vmTriggerOptions */
@@ -853,6 +946,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           toolbarRight={
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
+              <Button icon={<UploadOutlined />} onClick={() => message.info('功能开发中')}>导入YAML告警规则</Button>
               <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
             </>
           }
@@ -871,11 +965,57 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       </div>
 
       <Modal
+        open={detailModalOpen}
+        onCancel={handleCloseDetail}
+        title="告警通知策略详情"
+        footer={<Button onClick={handleCloseDetail}>关闭</Button>}
+        width={560}
+        destroyOnClose
+      >
+        {detailLoading ? (
+          <div style={{ padding: 24, textAlign: 'center' }}>
+            <Spin tip="加载中..." />
+          </div>
+        ) : detailData ? (
+          <Descriptions column={1} bordered size="small" labelStyle={{ width: 120 }}>
+            <Descriptions.Item label="策略名称">{detailData.name ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="命名空间">{detailData.namespace ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="描述">{detailData.description ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知对象">
+              {detailData.receiverNames?.length ? (
+                <Space size={[8, 4]} wrap>
+                  {detailData.receiverNames.map((n) => (
+                    <Tag key={n} color="blue">{n}</Tag>
+                  ))}
+                </Space>
+              ) : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="触发规则">
+              {detailData.matchers?.length ? (
+                <Space size={[8, 4]} wrap>
+                  {detailData.matchers.map((m) => (
+                    <Tag key={m}>{m}</Tag>
+                  ))}
+                </Space>
+              ) : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="重复推送间隔">{detailData.repeatInterval ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="创建人">{detailData.creator ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="创建时间">
+              {detailData.creationTimestamp ? String(detailData.creationTimestamp).replace('T', ' ').replace(/\.\d{3}Z?$/, '') : '-'}
+            </Descriptions.Item>
+          </Descriptions>
+        ) : (
+          <Typography.Text type="secondary">暂无数据</Typography.Text>
+        )}
+      </Modal>
+
+      <Modal
         open={formModalOpen}
         onCancel={handleCloseForm}
         title={editingRecord ? '编辑告警通知策略' : '新增告警通知策略'}
         width="90vw"
-        destroyOnHidden
+        destroyOnClose
         footer={
           <Space>
             <Button onClick={handleCloseForm}>取消</Button>

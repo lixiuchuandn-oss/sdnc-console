@@ -32,7 +32,7 @@ export const StorageCard: React.FC = () => {
         style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
       >
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 120 }}>
-          <Spin />
+          <Spin tip="加载中..." />
         </div>
       </Card>
     );

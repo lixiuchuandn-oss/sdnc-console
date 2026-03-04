@@ -49,6 +49,7 @@ import HarvesterMonitoringAlerts from './Monitoring/MonitoringAlerts';
 import MonitoringAlertNotificationPolicy from './Monitoring/MonitoringAlertNotificationPolicy';
 import MonitoringAlertNotificationTargets from './Monitoring/MonitoringAlertNotificationTargets';
 import MonitoringPrometheusRules from './Monitoring/MonitoringPrometheusRules';
+import MonitoringAlertSecrets from './Monitoring/MonitoringAlertSecrets';
 import { MonitoringProvider } from './Monitoring/context/MonitoringContext';
 
 /**
@@ -989,6 +990,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         label: '告警通知对象',
                         children: <MonitoringAlertNotificationTargets cloudId={cloudId} />,
                       },
+                      {
+          key: 'alert-secrets',
+          label: '告警密钥',
+          children: <MonitoringAlertSecrets cloudId={cloudId} />,
+        },
                     ]}
                   />
                 </MonitoringProvider>

@@ -45,6 +45,7 @@ import LogsOutputConfig from '../Harvester/Monitoring/LogsOutputConfig';
 import MonitoringPrometheusRules from '../Harvester/Monitoring/MonitoringPrometheusRules';
 import MonitoringAlertNotificationPolicy from '../Harvester/Monitoring/MonitoringAlertNotificationPolicy';
 import MonitoringAlertNotificationTargets from '../Harvester/Monitoring/MonitoringAlertNotificationTargets';
+import MonitoringAlertSecrets from '../Harvester/Monitoring/MonitoringAlertSecrets';
 import { MonitoringProvider } from '../Harvester/Monitoring/context/MonitoringContext';
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
@@ -949,6 +950,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                         key: 'notification-targets',
                         label: '告警通知对象',
                         children: <MonitoringAlertNotificationTargets cloudId={cloudId} />,
+                      },
+                      {
+                        key: 'alert-secrets',
+                        label: '告警密钥',
+                        children: <MonitoringAlertSecrets cloudId={cloudId} />,
                       },
                     ]}
                   />

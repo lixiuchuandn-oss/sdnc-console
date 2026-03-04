@@ -114,6 +114,8 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
         onCancel={() => setIsCreateVisible(false)}
         onOk={handleCreate}
         confirmLoading={createLoading}
+        okText="创建"
+        cancelText="取消"
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入规则名称' }]}>

@@ -31,6 +31,7 @@
  */
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
+import { In } from 'typeorm';
 import { UserSpace } from '../../../entities/UserSpace';
 import {
   HarvesterSshKeyInventory,
@@ -323,44 +324,40 @@ export const registerHarvesterMetaRoutes = (
         if (isTenant) {
           const tenantId = (req as any).user.tenantId;
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-          
-          // [UserSpace] 查找租户关联的 Namespace
-          // 优先匹配指定 organizationId 的空间，其次匹配未分配 org 的空间
-          const matches = await userSpaceRepo.find({
-            where: [
-              {
-                tenantId,
-                cloudId: id,
-                status: 'active',
-                organizationId: (req.user as any).organizationId,
-              },
-              {
-                tenantId,
-                cloudId: id,
-                status: 'active',
-                organizationId: null,
-              },
-            ],
-          });
-          const us =
-            matches.find(
-              (m) => m.organizationId === (req.user as any).organizationId,
-            ) || matches[0];
 
-          const orgNs =
-            (req.user as any)?.organizationId
-              ? `ns-${(req.user as any).organizationId}`
-              : '';
+          const orgId = (req.user as any).organizationId;
+          const whereUs: any = { tenantId, cloudId: id, status: 'active' };
+          if (orgId) whereUs.organizationId = orgId;
+          const us = await userSpaceRepo.findOne({ where: whereUs });
 
-          // [可见性规则] 
-          // 1. 用户私有 Namespace
-          // 2. 公共 Namespace (cloud-public, harvester-public)
-          const cond: any[] = [];
-          if (us?.namespace) cond.push({ cloudId: id, namespace: us.namespace });
-          if (orgNs) cond.push({ cloudId: id, namespace: orgNs });
-          cond.push({ cloudId: id, namespace: 'cloud-public' });
-          cond.push({ cloudId: id, namespace: 'harvester-public' });
-          whereCondition = cond;
+          const namespacesFromUserSpace = (us?.namespace || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+          const orgNs = orgId ? `ns-${orgId}` : '';
+          if (orgNs && !namespacesFromUserSpace.includes(orgNs)) {
+            namespacesFromUserSpace.push(orgNs);
+            if (us) {
+              us.namespace = namespacesFromUserSpace.join(',');
+              try {
+                await userSpaceRepo.save(us);
+              } catch (e) {
+                // ignore
+              }
+            }
+          }
+
+          const allowedNamespaces = Array.from(
+            new Set([
+              ...namespacesFromUserSpace,
+              'cloud-public',
+              'harvester-public',
+              'default',
+            ]),
+          );
+
+          whereCondition = { cloudId: id, namespace: In(allowedNamespaces) };
         }
 
         const count = await repo.count({ where: whereCondition });

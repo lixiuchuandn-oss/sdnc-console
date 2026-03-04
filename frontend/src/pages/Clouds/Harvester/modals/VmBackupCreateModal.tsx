@@ -121,6 +121,8 @@ const VmBackupCreateModal: React.FC<Props> = ({
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}
+      okText="创建"
+      cancelText="取消"
       destroyOnHidden
     >
       <Form

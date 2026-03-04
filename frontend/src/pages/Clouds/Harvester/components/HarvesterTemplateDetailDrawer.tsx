@@ -186,6 +186,17 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
       const domainDisks = versionData?.spec?.vm?.spec?.template?.spec?.domain?.devices?.disks || [];
       const vcts = versionData?.spec?.vm?.spec?.volumeClaimTemplates || [];
 
+      // 预先解析 annotations 中的 volumeClaimTemplates
+      let annotationVcts: any[] = [];
+      try {
+        const vctStr = versionData?.spec?.vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+        if (vctStr) {
+            annotationVcts = JSON.parse(vctStr);
+        }
+      } catch (e) {
+        // ignore
+      }
+
       return volumes.map((vol: any) => {
         // 注意：domainDisks 可能是 undefined，需要安全访问
         const diskConfig = Array.isArray(domainDisks) 
@@ -201,7 +212,14 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
           source = vol.persistentVolumeClaim.claimName;
           
           // 尝试查找对应的 VolumeClaimTemplate 以获取 Image ID
-          const vct = vcts.find((v: any) => v.metadata?.name === vol.persistentVolumeClaim.claimName);
+          // 优先查找 spec.volumeClaimTemplates
+          let vct = vcts.find((v: any) => v.metadata?.name === vol.persistentVolumeClaim.claimName);
+          
+          // 如果找不到，尝试查找 annotations 中的 volumeClaimTemplates
+          if (!vct && Array.isArray(annotationVcts)) {
+             vct = annotationVcts.find((v: any) => v.metadata?.name === vol.persistentVolumeClaim.claimName);
+          }
+
           if (vct?.metadata?.annotations?.['harvesterhci.io/imageId']) {
               imageId = vct.metadata.annotations['harvesterhci.io/imageId'];
           }
@@ -232,6 +250,25 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
     
     // ...
   }, [versionData, template, imageAliases]); // <--- 关键修复：添加 imageAliases 到依赖数组
+
+  // 计算操作系统镜像名称
+  const osImage = useMemo(() => {
+    if (!disks || !Array.isArray(disks) || disks.length === 0) return null;
+
+    // 优先找 bootOrder=1 的启动盘，其次第一个有 Image 的盘
+    const bootDisk = disks.find((d: any) => d.bootOrder === 1)
+      || disks.find((d: any) => typeof d.source === 'string' && d.source.startsWith('Image:'))
+      || disks[0];
+
+    if (!bootDisk || typeof bootDisk.source !== 'string') return null;
+
+    // disks 里 source 形如 "Image: xxx"，这里把前缀去掉
+    if (bootDisk.source.startsWith('Image:')) {
+      return bootDisk.source.replace(/^Image:\s*/, '');
+    }
+
+    return bootDisk.source;
+  }, [disks]);
 
   // 解析 Networks (优先 from versionData 解析)
   const networks = useMemo(() => {
@@ -355,6 +392,9 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
                                     </Descriptions.Item>
                                     <Descriptions.Item label={<Space><HddOutlined /> 内存</Space>}>
                                         {memoryInfo || '-'}
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label={<Space><LaptopOutlined /> 操作系统镜像</Space>}>
+                                        {osImage || '-'}
                                     </Descriptions.Item>
                                 </Descriptions>
                             </Card>

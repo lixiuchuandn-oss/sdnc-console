@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Popover, Checkbox, Button, Tooltip } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import type { ColumnsType, ColumnType, ColumnGroupType } from 'antd/es/table';
@@ -47,6 +47,8 @@ export const TableColumnSettings = <T extends object>({
   // 初始化选中状态
   const [checkedList, setCheckedList] = useState<CheckboxValueType[]>([]);
   const [initialized, setInitialized] = useState(false);
+  // 使用 ref 来存储上一次的 checkedList，避免不必要的更新
+  const prevCheckedListRef = useRef<CheckboxValueType[]>([]);
 
   // 加载初始设置
   useEffect(() => {
@@ -82,22 +84,29 @@ export const TableColumnSettings = <T extends object>({
   useEffect(() => {
     if (!initialized) return;
 
-    // 计算新的 columns
-    const newColumns = columns.filter(col => {
-      const key = getColumnKey(col);
-      // 如果 key 为空（未在 options 中），默认显示
-      if (!key) return true;
-      // 检查是否在 checkedList 中
-      return checkedList.includes(key);
-    });
+    // 只有当 checkedList 真正变化时才调用 onChange
+    if (JSON.stringify(checkedList) !== JSON.stringify(prevCheckedListRef.current)) {
+      // 计算新的 columns
+      const filteredColumns = columns.filter(col => {
+        const key = getColumnKey(col);
+        // 如果 key 为空（未在 options 中），默认显示
+        if (!key) return true;
+        // 检查是否在 checkedList 中
+        return checkedList.includes(key);
+      });
 
-    onChange(newColumns);
+      // 保存到 localStorage
+      if (settingsKey) {
+        localStorage.setItem(`table_cols_${settingsKey}`, JSON.stringify(checkedList));
+      }
 
-    // 保存到 localStorage
-    if (settingsKey) {
-      localStorage.setItem(`table_cols_${settingsKey}`, JSON.stringify(checkedList));
+      // 调用 onChange
+      onChange(filteredColumns);
+
+      // 更新上一次的 checkedList
+      prevCheckedListRef.current = checkedList;
     }
-  }, [checkedList, columns, initialized, settingsKey]); 
+  }, [checkedList, settingsKey, initialized, onChange, columns]); 
   // 注意：这里去掉了 onChange 依赖，防止父组件没用 useCallback 导致死循环，但 columns 变化时应该重新计算
 
   const handleCheckAll = (e: any) => {

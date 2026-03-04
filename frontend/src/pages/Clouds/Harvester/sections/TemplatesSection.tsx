@@ -339,11 +339,6 @@ const TemplatesSection: React.FC<Props> = ({
     return templates.filter((t: any) => {
       const ns = getTemplateNamespace(t);
       if (isTenant) {
-        // 租户模式：
-        // 1. 公共命名空间（无论是否是系统命名空间）：保留
-        if (isPublicNamespace(ns)) return true;
-        // 2. 非公共的系统命名空间：过滤
-        if (isSystemNamespace(ns)) return false;
         return true;
       }
       // 管理员模式：根据开关决定是否显示系统命名空间
@@ -389,7 +384,7 @@ const TemplatesSection: React.FC<Props> = ({
       
       return true;
     });
-  }, [baseData, searchText, selectedNamespace]);
+  }, [baseData, searchText, selectedNamespace, selectedScope]);
 
   return (
       <PageDetailSection

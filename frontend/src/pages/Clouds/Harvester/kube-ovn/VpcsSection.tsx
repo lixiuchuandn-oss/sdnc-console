@@ -652,6 +652,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         onOk={handleSubnetModalSubmit}
         onCancel={() => setCreateSubnetModalVisible(false)}
         confirmLoading={creatingSubnet}
+        okText={isEditSubnet ? '确定' : '创建'}
+        cancelText="取消"
         width={600}
         destroyOnHidden
       >
@@ -766,6 +768,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         onOk={handleVpcModalSubmit}
         onCancel={() => setCreateModalVisible(false)}
         confirmLoading={creating}
+        okText={isEditVpc ? '确定' : '创建'}
+        cancelText="取消"
         width={600}
         destroyOnHidden
       >
