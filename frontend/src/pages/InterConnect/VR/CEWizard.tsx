@@ -469,7 +469,7 @@ const CEWizard: React.FC = () => {
           </span>} variant="outlined">
             {ifaceLoading ? (
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                <Spin tip="正在读取设备配置..." />
+                <Spin />
               </div>
             ) : csmctlCfg ? (
               <>

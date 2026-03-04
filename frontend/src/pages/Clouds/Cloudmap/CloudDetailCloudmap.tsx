@@ -634,18 +634,19 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
         } catch {}
       });
       
-      es.addEventListener('error', (ev: MessageEvent) => {
+      // 业务逻辑错误 (服务端主动推送)
+      es.addEventListener('stream_error', (ev: MessageEvent) => {
         try {
           const json = JSON.parse(String(ev.data || '{}'));
-          console.warn('[SSE] Backend Error:', json?.message);
+          console.warn('[SSE] Server Logic Error:', json?.message, 'Cause:', json?.cause);
         } catch (e) {
-          console.warn('[SSE] Backend Error (Raw):', ev);
+          console.warn('[SSE] Server Logic Error (Raw):', ev);
         }
       });
       
+      // 网络连接错误 (浏览器原生触发，无 data 负载)
       es.onerror = (err) => {
-        console.error('[SSE] Connection Error:', err);
-        // 原生 EventSource 会自动重试，无需手动处理
+        // console.debug('[SSE] Connection lost/refused. Browser will auto-reconnect.');
       };
       
       return () => { try { es.close(); } catch {} };

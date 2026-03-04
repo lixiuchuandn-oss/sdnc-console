@@ -563,7 +563,7 @@ const StandardWizard: React.FC = () => {
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>{`第 ${current + 1} 步：${['WAN 侧配置', 'LAN 侧配置', '确认下发'][current]} 设备回读`}</span>} variant="outlined">
             {ifaceLoading ? (
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                <Spin tip="正在读取设备配置..." />
+                <Spin />
               </div>
             ) : renderDeviceStatus(deviceCfg)}
           </Card>

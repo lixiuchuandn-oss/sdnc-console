@@ -25,14 +25,14 @@ interface OsIconProps {
 
 const OS_MATCHERS = [
   // Windows
-  { keywords: ['windows', 'win10', 'win11', 'win2019', 'win2022', 'server'], component: WindowsSvg },
+  { keywords: ['windows', 'win10', 'win11', 'win2019', 'win2022', 'ws2019', 'ws2022'], component: WindowsSvg },
   
   // Linux - International
   { keywords: ['ubuntu'], component: UbuntuSvg },
-  { keywords: ['centos'], component: CentosSvg },
+  { keywords: ['centos', 'rocky', 'alma', 'amazon'], component: CentosSvg },
   { keywords: ['debian'], component: DebianSvg },
-  { keywords: ['redhat', 'rhel'], component: RedhatSvg },
-  { keywords: ['fedora'], component: FedoraSvg },
+  { keywords: ['redhat', 'red hat', 'rhel', 'oracle', 'ol8', 'ol9'], component: RedhatSvg },
+  { keywords: ['fedora', 'coreos'], component: FedoraSvg },
   { keywords: ['suse', 'opensuse', 'sles'], component: SuseSvg },
   { keywords: ['android'], component: AndroidSvg },
   { keywords: ['freebsd', 'bsd'], component: FreebsdSvg },
@@ -40,7 +40,7 @@ const OS_MATCHERS = [
   // Linux - Chinese (信创)
   { keywords: ['kylin', 'kylinos', 'galaxy'], component: KylinSvg },
   { keywords: ['neokylin'], component: NeokylinSvg },
-  { keywords: ['uos', 'uniontech'], component: UosSvg },
+  { keywords: ['uos', 'uniontech', 'deepin'], component: UosSvg },
   { keywords: ['openeuler', 'euler'], component: OpeneulerSvg },
   { keywords: ['anolis', 'openanolis'], component: AnolisSvg },
 ];

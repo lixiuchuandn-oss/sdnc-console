@@ -35,14 +35,14 @@
  * ==============================================================================
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Drawer, Tabs, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox, Input } from 'antd';
+import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox, Input } from 'antd';
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 
   CodeOutlined, EllipsisOutlined, DesktopOutlined, DatabaseOutlined,
   CloudServerOutlined, GlobalOutlined, HddOutlined, ApartmentOutlined,
   ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined,
   SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined, WarningOutlined,
-  CloseOutlined, SyncOutlined
+  CloseOutlined, SyncOutlined, ReadOutlined, LineChartOutlined, BellOutlined, FileTextOutlined
 } from '@ant-design/icons';
 import { cnVmStatus, isSystemNamespace } from '../../../../utils/harvesterUtils';
 import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, saveHarvesterVmAsTemplate, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
@@ -133,7 +133,25 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   
   // [状态同步] 外部 record 变化时同步到本地，避免抽屉展示与上游选中项不一致
   React.useEffect(() => {
-      setVmData(record);
+      setVmData((prev: any) => {
+        const prevUid = prev?.metadata?.uid || prev?.id || '';
+        const newUid = record?.metadata?.uid || record?.id || '';
+        const prevName = prev?.metadata?.name || prev?.name || '';
+        const newName = record?.metadata?.name || record?.name || '';
+        
+        if (!prevUid && !prevName) return record;
+        if ((prevUid && newUid && prevUid !== newUid) || (prevName && newName && prevName !== newName)) {
+          return record;
+        }
+        
+        return {
+          ...prev,
+          status: record?.status ?? prev?.status,
+          nodeName: record?.nodeName ?? prev?.nodeName,
+          ips: Array.isArray(record?.ips) ? record.ips : prev?.ips,
+          metadata: { ...(prev?.metadata || {}), ...(record?.metadata || {}) }
+        };
+      });
   }, [record]);
 
   // ==============================================================================
@@ -206,10 +224,17 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
     let eventSource: EventSource | null = null;
     const connectSSE = () => {
-        const token = localStorage.getItem('token') || '';
-        const sseUrl = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-        
-        eventSource = new EventSource(sseUrl);
+        const token = localStorage.getItem('token');
+        if (!token) {
+           console.warn('[VmDetail] No auth token found, skipping SSE');
+           return;
+        }
+
+        const urlObj = new URL(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream`);
+        urlObj.searchParams.append('token', token);
+        urlObj.searchParams.append('t', String(Date.now()));
+
+        eventSource = new EventSource(urlObj.toString());
         
         eventSource.addEventListener('vm_status', (event: any) => {
             try {
@@ -277,7 +302,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         });
         
         // [服务端错误] 仅记录告警，连接错误由浏览器自动重连机制处理
-        eventSource.addEventListener('error', (ev: MessageEvent) => {
+        eventSource.addEventListener('stream_error', (ev: MessageEvent) => {
             try {
               const json = JSON.parse(String(ev.data || '{}'));
               console.warn('[VmDetail] SSE Server Error:', json);
@@ -285,6 +310,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         });
 
         eventSource.onerror = (err) => {
+            // console.error('[VmDetail] SSE Connection Error:', err);
             // [重连策略] 不主动 close，交由浏览器内建的 EventSource 自动重连机制处理
         };
     };
@@ -1045,26 +1071,22 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               </Tooltip>
             )}
          </div>
-         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Tooltip title="刷新状态">
-                <Button 
-                    type="text" 
-                    icon={<SyncOutlined spin={refreshing} />} 
-                    onClick={() => fetchAggregated(true)}
-                    style={{ 
-                        width: 32, 
-                        height: 32, 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        background: '#ffffff', 
-                        border: '1px solid #e5e5e5', 
-                        borderRadius: 4,
-                        padding: 0,
-                        color: '#666'
+         <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Button 
+                type="text" 
+                icon={<SyncOutlined spin={refreshing} />} 
+                onClick={() => fetchAggregated(true)}
+                style={{ 
+                    width: 32, 
+                    height: 32, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    borderRadius: 4,
+                    padding: 0,
+                    color: '#666'
                     }}
                 />
-            </Tooltip>
             <Button 
                 type="text" 
                 onClick={onClose} 
@@ -1074,8 +1096,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                     display: 'flex', 
                     alignItems: 'center', 
                     justifyContent: 'center', 
-                    background: '#ffffff', 
-                    border: '1px solid #e5e5e5', 
                     borderRadius: 4,
                     fontSize: 16,
                     padding: 0,
@@ -1093,8 +1113,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         ========================================
         常用运维动作入口；右侧“更多”下拉承载低频/危险操作。
       */}
-      <div style={{ background: '#f5f7fa', padding: '0 24px 16px', flexShrink: 0 }}>
-        <div style={{ padding: 8, background: '#fff', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ background: '#f5f7fa', padding: '0 24px 8px', flexShrink: 0 }}>
+        <div style={{ padding: 4, background: '#fff', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
           <Button className="vm-toolbar-btn" type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 14 }}>打开终端</Button>
           
           <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />} onClick={handleStart} disabled={!isStopped} style={{ fontSize: 14 }}>开机</Button>
@@ -1122,20 +1142,22 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         detail: 规格/磁盘/网卡/配置等；performance: 性能趋势；backup_snapshot: 备份与定时策略；events: 事件流。
       */}
       <div style={{ background: '#f5f7fa', padding: '0 24px', flexShrink: 0 }}>
-          <Tabs 
-            type="card"
-            size='small'
-            activeKey={activeTab} 
-            onChange={handleTabChange}
-            tabBarStyle={{ borderBottom: '1px solid #e8e8e8'}}
-            items={[
-                { key: 'detail', label: '详情' },
-                { key: 'performance', label: '性能' },
-                { key: 'backup_snapshot', label: '备份/快照' },
-                { key: 'events', label: '事件' },
-                { key: 'logs', label: '实时日志' },
-            ]}
-          />
+          <div style={{ padding: '0 0 12px 0' }}>
+            <div style={{ padding: 4, background: '#fff', borderRadius: 8 }}>
+            <Segmented
+              size="middle"
+              value={activeTab}
+              onChange={(val) => handleTabChange(String(val))}
+              options={[
+                { label: '详情', value: 'detail', icon: <DesktopOutlined /> },
+                { label: '性能', value: 'performance', icon: <LineChartOutlined /> },
+                { label: '备份/快照', value: 'backup_snapshot', icon: <DatabaseOutlined /> },
+                { label: '事件', value: 'events', icon: <BellOutlined /> },
+                { label: '实时日志', value: 'logs', icon: <FileTextOutlined /> },
+              ]}
+            />
+            </div>
+          </div>
       </div>
 
       {/*
@@ -1551,7 +1573,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         onCancel={() => setShowTemplateModal(false)}
         onOk={confirmSaveTemplate}
         confirmLoading={savingTemplate}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ padding: '16px 0' }}>
            <div style={{ marginBottom: 8, color: '#333' }}>模板名称 (Alias)</div>

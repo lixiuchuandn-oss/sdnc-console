@@ -88,7 +88,7 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-       <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fafafa' }}>
+       <div style={{ padding: '12px 16px',  borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff' }}>
            <Text type="secondary" style={{ fontSize: 12 }}>
                共 {events.length} 条事件记录
            </Text>

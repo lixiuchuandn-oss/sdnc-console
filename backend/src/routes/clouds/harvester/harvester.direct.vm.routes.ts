@@ -355,6 +355,7 @@ export const registerHarvesterDirectVmRoutes = (
               (err) => {
                 console.error('VM Watch Error:', err);
                 try {
+                  send('stream_error', { message: 'Watch stream error', cause: err?.message });
                   if (!(res as any).writableEnded) res.end();
                 } catch {}
               },
@@ -409,6 +410,7 @@ export const registerHarvesterDirectVmRoutes = (
               (err) => {
                 console.error('VMI Watch Error:', err);
                 try {
+                  send('stream_error', { message: 'Watch stream error', cause: err?.message });
                   if (!(res as any).writableEnded) res.end();
                 } catch {}
               },

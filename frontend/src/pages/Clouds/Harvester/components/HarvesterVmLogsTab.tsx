@@ -488,7 +488,7 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
         )}
         {loading && logLines.length === 0 && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Spin tip="正在连接日志流..." />
+            <Spin />
           </div>
         )}
         <div

@@ -588,10 +588,20 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   // --- SSE 实时数据更新 Effect ---
   // 建立 EventSource 连接，监听 VM 状态变化
   useEffect(() => {
+    let es: EventSource | null = null;
     try {
-      const token = localStorage.getItem('token') || '';
-      const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-      const es = new EventSource(url);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.warn('[SSE] No auth token found, skipping connection.');
+        return;
+      }
+
+      const urlObj = new URL(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream`);
+      urlObj.searchParams.append('token', token);
+      // 添加时间戳防止缓存
+      urlObj.searchParams.append('t', String(Date.now()));
+
+      es = new EventSource(urlObj.toString());
       
       // 全量 VM 列表更新
       es.addEventListener('vms', (ev: MessageEvent) => {
@@ -639,22 +649,26 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
         } catch {}
       });
       
-      es.addEventListener('error', (ev: MessageEvent) => {
+      // 业务逻辑错误 (服务端主动推送)
+      es.addEventListener('stream_error', (ev: MessageEvent) => {
         try {
           const json = JSON.parse(String(ev.data || '{}'));
-          console.warn('[SSE] Backend Error:', json?.message);
+          console.warn('[SSE] Server Logic Error:', json?.message, 'Cause:', json?.cause);
         } catch (e) {
-          console.warn('[SSE] Backend Error (Raw):', ev);
+          console.warn('[SSE] Server Logic Error (Raw):', ev);
         }
       });
       
+      // 网络连接错误 (浏览器原生触发，无 data 负载)
       es.onerror = (err) => {
-        console.error('[SSE] Connection Error:', err);
-        // 原生 EventSource 会自动重试，无需手动处理
+        // console.debug('[SSE] Connection lost/refused. Browser will auto-reconnect.');
       };
       
-      return () => { try { es.close(); } catch {} };
-    } catch {}
+    } catch (e) {
+      console.error('[SSE] Init failed', e);
+    }
+
+    return () => { try { es?.close(); } catch {} };
   }, [cloudId]);
 
   // --- 定时刷新 VM 状态缓冲 ---
@@ -871,7 +885,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       )}
       <Tabs
           type="card"
-          destroyInactiveTabPane
+          destroyOnHidden
           defaultActiveKey="overview"
           onChange={handleTabChange}
           items={[
@@ -883,7 +897,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                   defaultActiveKey="overview"
                   tabPosition="top"
                   type="line"
-                  destroyInactiveTabPane
+                  destroyOnHidden
                   items={[
                     {
                       key: 'overview',
@@ -937,7 +951,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     defaultActiveKey="alerts-list"
                     tabPosition="top"
                     type="line"
-                    destroyInactiveTabPane
+                    destroyOnHidden
                     items={[
                       {
                         key: 'alerts-list',
@@ -970,7 +984,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               children: (
                 <Tabs
                   type="line"
-                  destroyInactiveTabPane
+                  destroyOnHidden
                   defaultActiveKey="cluster_nodes"
                   onChange={handleTabChange}
                   items={[
@@ -1052,7 +1066,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               children: (
                 <Tabs
                   type="line"
-                  destroyInactiveTabPane
+                  destroyOnHidden
                   defaultActiveKey="ecs"
                   onChange={handleTabChange}
                   items={[
@@ -1269,7 +1283,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               children: (
                 <Tabs
                   type="line"
-                  destroyInactiveTabPane
+                  destroyOnHidden
                   defaultActiveKey="volumes"
                   onChange={handleTabChange}
                   items={[
@@ -1336,7 +1350,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               children: (
                 <Tabs
                   type="line"
-                  destroyInactiveTabPane
+                  destroyOnHidden
                   defaultActiveKey="backups"
                   onChange={handleTabChange}
                   items={[
@@ -1393,7 +1407,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               children: (
                 <Tabs
                   type="line"
-                  destroyInactiveTabPane
+                  destroyOnHidden
                   defaultActiveKey="nad"
                   onChange={handleTabChange}
                   items={[
@@ -1460,7 +1474,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               children: (
                 <Tabs
                   type="line"
-                  destroyInactiveTabPane
+                  destroyOnHidden
                   defaultActiveKey="kubeovn_vpcs"
                   onChange={handleTabChange}
                   items={[
@@ -1600,7 +1614,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                   defaultActiveKey="logs-config"
                   tabPosition="top"
                   type="line"
-                  destroyInactiveTabPane
+                  destroyOnHidden
                   items={[
                     {
                       key: 'logs-config',

@@ -129,7 +129,7 @@ const SshKeyCreateModal: React.FC<Props> = ({ visible, cloudId, onCancel, onSucc
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}
-      destroyOnClose
+      destroyOnHidden
       width={640}
       okText="创建"
       cancelText="取消"

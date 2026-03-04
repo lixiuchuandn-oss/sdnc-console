@@ -1273,7 +1273,7 @@ const VRPage: React.FC = () => {
               key: 'vr3',
               label: 'CSMCTL 扩展信息 (VR3)',
               children: metadataLoading ? (
-                <div style={{ textAlign: 'center', padding: '40px' }}><Spin tip="正在从设备拉取扩展信息..." /></div>
+                <div style={{ textAlign: 'center', padding: '40px' }}><Spin /></div>
               ) : (
                 <Input.TextArea
                   value={currentMetadata?.vr3 ? JSON.stringify(currentMetadata.vr3, null, 2) : '暂无扩展信息或获取失败'}
@@ -1299,7 +1299,7 @@ const VRPage: React.FC = () => {
               key: 'vr2',
               label: 'VRConfig 缓存数据',
               children: metadataLoading ? (
-                <div style={{ textAlign: 'center', padding: '40px' }}><Spin tip="正在从设备拉取配置信息..." /></div>
+                <div style={{ textAlign: 'center', padding: '40px' }}><Spin /></div>
               ) : (
                 <Input.TextArea
                   value={currentMetadata?.vr2 ? JSON.stringify(currentMetadata.vr2, null, 2) : '暂无缓存数据或获取失败'}

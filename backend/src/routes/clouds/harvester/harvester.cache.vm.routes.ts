@@ -1111,7 +1111,7 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
                 (err) => {
                   console.error('VM Watch Error:', err);
                   // Notify client and close connection to force reconnect
-                  send('error', { message: 'Watch stream error', cause: err?.message });
+                  send('stream_error', { message: 'Watch stream error', cause: err?.message });
                   try { res.end(); } catch {}
                 },
               );
@@ -1145,7 +1145,7 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
                 (err) => {
                   console.error('VMI Watch Error:', err);
                   // Notify client and close connection to force reconnect
-                  send('error', { message: 'Watch stream error', cause: err?.message });
+                  send('stream_error', { message: 'Watch stream error', cause: err?.message });
                   try { res.end(); } catch {}
                 },
               );
@@ -1153,7 +1153,7 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
             }
           } catch (e: any) {
             console.error('[SSE] Init Error:', e);
-            send('error', { message: 'Initialization failed', cause: e?.message });
+            send('stream_error', { message: 'Initialization failed', cause: e?.message });
             try { res.end(); } catch {}
           }
         };

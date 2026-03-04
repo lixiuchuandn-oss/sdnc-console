@@ -207,6 +207,7 @@ export const watchJsonStream = (
 ) => {
   const mod = getRequestModule(target);
   const agent = getAgent(target, insecure);
+  let aborted = false;
   console.log(`[Watch] Initiating request to ${target}`);
   const req = mod.request(
     target,
@@ -223,7 +224,7 @@ export const watchJsonStream = (
       // [状态检查] 检查非 2xx 状态码 (如 401, 403, 404, 410, 500)
       console.log(`[Watch] Connected to ${target}, Status: ${res.statusCode}`);
       if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
-        if (onError) onError(new Error(`Stream HTTP Error ${res.statusCode}`));
+        if (!aborted && onError) onError(new Error(`Stream HTTP Error ${res.statusCode}`));
         // [资源释放] 消费剩余数据以避免内存泄漏，然后销毁连接
         res.resume(); 
         return;
@@ -257,15 +258,15 @@ export const watchJsonStream = (
              callback(json);
            } catch {}
         }
-        if (onError) onError(new Error('Stream ended'));
+        if (!aborted && onError) onError(new Error('Stream ended'));
       });
       res.on('error', (err) => {
-        if (onError) onError(err);
+        if (!aborted && onError) onError(err);
       });
     },
   );
   req.on('error', (err) => {
-    if (onError) onError(err);
+    if (!aborted && onError) onError(err);
   });
   req.end();
   console.log(`[Watch] Request end called for ${target}`);
@@ -273,6 +274,7 @@ export const watchJsonStream = (
   return {
     abort: () => {
       try {
+        aborted = true;
         req.destroy();
       } catch {}
     }
