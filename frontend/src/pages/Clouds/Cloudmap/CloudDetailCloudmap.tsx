@@ -1257,7 +1257,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: '云盘快照',
                       children: (
                         <>
-                          <SnapshotsSection cloudId={cloudId} snapshots={harvesterSnapshots} loading={resourceLoading.snapshots} onRefresh={() => loadTabResource('snapshots', true)} />
+                          <SnapshotsSection cloudId={cloudId} snapshots={harvesterSnapshots} namespaces={harvesterNamespaces} loading={resourceLoading.snapshots} onRefresh={() => loadTabResource('snapshots', true)} />
                           <DebugJSON data={rawSnapshots} show={showLog} />
                         </>
                       )

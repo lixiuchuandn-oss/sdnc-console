@@ -30,13 +30,7 @@ interface Props {
   sshKeys: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
-  /**
-   * 视图控制属性
-   * - bordered: 控制表格边框 (默认 true)
-   * - showYaml: 控制是否显示详情/YAML入口 (默认 true)
-   */
-  bordered?: boolean;
-  showYaml?: boolean;
+
   isTenant?: boolean;
 }
 
@@ -45,8 +39,6 @@ const SshKeysSection: React.FC<Props> = ({
   sshKeys, 
   loading, 
   onRefresh,
-  bordered = true,
-  showYaml = true,
   isTenant
 }) => {
   // 关键字搜索，仅用于前端过滤名称/命名空间
@@ -185,7 +177,7 @@ const SshKeysSection: React.FC<Props> = ({
    */
   const columns = useMemo(() => [
     { 
-      title: '名称', 
+      title: '密钥名称', 
       dataIndex: 'alias', 
       key: 'alias',
       render: (text: string, record: any) => {
@@ -211,8 +203,8 @@ const SshKeysSection: React.FC<Props> = ({
       render: (_: any, record: any) => {
         const items: any[] = [];
 
-        // 仅在 showYaml 为 true 且非租户模式下添加详情入口
-        if (showYaml && !isTenant) {
+        // 仅在非租户模式下添加详情入口
+        if (!isTenant) {
           items.push({ 
             key: 'detail', 
             label: '查看YAML', 
@@ -253,7 +245,7 @@ const SshKeysSection: React.FC<Props> = ({
         );
       },
     },
-  ], [showYaml]);
+  ], [isTenant]);
 
   const [tableColumns, setTableColumns] = useState<any[]>(columns);
 
@@ -276,15 +268,17 @@ const SshKeysSection: React.FC<Props> = ({
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
           />
-          <Select
-            placeholder="命名空间"
-            className="toolbar-filter" 
-            allowClear
-            showSearch
-            options={namespaceOptions}
-            value={namespaceFilter}
-            onChange={setNamespaceFilter}
-          />
+          {!isTenant && (
+            <Select
+              placeholder="命名空间"
+              className="toolbar-filter" 
+              allowClear
+              showSearch
+              options={namespaceOptions}
+              value={namespaceFilter}
+              onChange={setNamespaceFilter}
+            />
+          )}
           {!isTenant && (
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <Checkbox 
@@ -324,8 +318,8 @@ const SshKeysSection: React.FC<Props> = ({
       )}
     >
       <Table
-        className="std-table"
-        bordered={bordered}
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"

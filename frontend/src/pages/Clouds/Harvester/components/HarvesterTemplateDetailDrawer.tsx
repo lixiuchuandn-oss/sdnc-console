@@ -1,17 +1,18 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Drawer, Tabs, Button, Tag, Descriptions, Card, List, Space, Skeleton } from 'antd';
+import { Drawer, Tabs, Button, Tag, Descriptions, Card, List, Space, Skeleton, Tooltip } from 'antd';
 import { 
-  FileTextOutlined, 
   CloseOutlined, 
   ReloadOutlined,
-  HddOutlined,
-  GlobalOutlined,
   KeyOutlined,
-  LaptopOutlined
+  InfoCircleOutlined
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
+import { ReactComponent as CpuIcon } from '../../../../assets/clouds/cpu.svg';
+import { ReactComponent as MemIcon } from '../../../../assets/clouds/mem.svg';
+import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
+import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
+import { OsIcon } from '../../../../components/OsIcon';
 
 interface HarvesterTemplateDetailDrawerProps {
   open: boolean;
@@ -22,6 +23,12 @@ interface HarvesterTemplateDetailDrawerProps {
 
 // 缓存 Image Alias，避免重复请求
 const imageAliasCache = new Map<string, string>();
+
+const evictionStrategyMap: Record<string, string> = {
+    'LiveMigrate': '热迁移',
+    'LiveMigrateIfPossible': '尽可能热迁移',
+    'None': '无',
+};
 
 const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps> = ({
   open,
@@ -247,9 +254,8 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
         };
       }).sort((a: any, b: any) => (a.bootOrder || 999) - (b.bootOrder || 999));
     }
-    
-    // ...
-  }, [versionData, template, imageAliases]); // <--- 关键修复：添加 imageAliases 到依赖数组
+    return [];
+  }, [versionData, template, imageAliases]);
 
   // 计算操作系统镜像名称
   const osImage = useMemo(() => {
@@ -290,7 +296,7 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
         };
       });
     }
-    // ...
+    return [];
   }, [versionData, template]);
 
   // CloudInit
@@ -325,162 +331,296 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
       closable={false}
       styles={{ body: { padding: 0, background: '#f5f7fa', display: 'flex', flexDirection: 'column' } }}
     >
+       <style>{`
+          .minimal-scroll::-webkit-scrollbar {
+              width: 6px;
+              height: 6px;
+          }
+          .minimal-scroll::-webkit-scrollbar-track {
+              background: transparent;
+          }
+          .minimal-scroll::-webkit-scrollbar-thumb {
+              background: #e0e0e0;
+              border-radius: 3px;
+          }
+          .minimal-scroll::-webkit-scrollbar-thumb:hover {
+              background: #ccc;
+          }
+          .minimal-scroll::-webkit-scrollbar-button {
+              display: none;
+          }
+      `}</style>
+
       {/* Header */}
-      <div style={{ background: '#fff', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
+      <div style={{ background: '#f5f7fa', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ 
-                fontSize: 24, 
-                color: '#1890ff',
                 width: 38,
                 height: 38,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: '#e6f7ff',
-                borderRadius: '50%'
             }}>
-                <FileTextOutlined />
+                <OsIcon osName={osImage || ''} style={{ fontSize: 32 }} />
             </div>
             <div>
-                <div style={{ fontSize: 18, fontWeight: 500 }}>
+                <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>
                     {template?.spec?.displayName || template?.metadata?.name}
                 </div>
                 <div style={{ fontSize: 12, color: '#999'}}>
                     {template?.spec?.description || '无描述'}
                 </div>
             </div>
+            {defaultVersionId && (
+                <Tag style={{ margin: 0 }} color="blue">v{defaultVersionId.split('/').pop()}</Tag>
+            )}
          </div>
-         <div style={{ display: 'flex', gap: 8 }}>
+         <div style={{ display: 'flex', alignItems: 'center' }}>
             <Button 
-                icon={<ReloadOutlined />} 
+                icon={<ReloadOutlined spin={loading} />} 
                 onClick={fetchVersionDetail} 
-                loading={loading}
                 type="text"
+                style={{ width: 32, height: 32, borderRadius: 4, color: '#666' }}
             />
             <Button 
                 icon={<CloseOutlined />} 
                 onClick={onClose} 
                 type="text"
+                style={{ width: 32, height: 32, borderRadius: 4, fontSize: 16, color: '#666' }}
             />
          </div>
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                    {/* Basic Info */}
-                    <Card size="small" title="基础信息" bordered={false}>
-                        <Descriptions column={2}>
-                            <Descriptions.Item label="名称">{template?.metadata?.name}</Descriptions.Item>
-                            <Descriptions.Item label="命名空间">{template?.metadata?.namespace}</Descriptions.Item>
-                            <Descriptions.Item label="默认版本 ID">
-                                <Tag>{defaultVersionId || '未设置'}</Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="创建时间">
-                                {template?.metadata?.creationTimestamp ? dayjs(template.metadata.creationTimestamp).format('YYYY-MM-DD HH:mm:ss') : '-'}
-                            </Descriptions.Item>
-                        </Descriptions>
-                    </Card>
-
+      <div className="minimal-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 24px 24px' }}>
+          <Space direction="vertical" size={24} style={{ width: '100%' }}>
+                    {/* Basic Info (Optional, kept hidden or integrated if needed, now integrated into header or separate small card if critical info missing) */}
+                    
                     {loading ? <Skeleton active /> : (versionData || (disks && disks.length > 0) || (networks && networks.length > 0)) ? (
                         <>
-                            {/* Spec */}
-                            <Card size="small" title="规格配置 (Spec)" bordered={false} extra={versionData ? <Tag color="blue">Version: {versionData.metadata.resourceVersion}</Tag> : <Tag>From Template Metadata</Tag>}>
-                                <Descriptions column={2}>
-                                    <Descriptions.Item label={<Space><LaptopOutlined /> CPU</Space>}>
-                                        {cpuInfo ? `${cpuInfo.cores} Cores x ${cpuInfo.sockets} Sockets x ${cpuInfo.threads} Threads (${cpuInfo.total} vCPU)` : '-'}
+                            {/* Version Info */}
+                            <Card variant="borderless" styles={{ body: { padding: 16 } }}>
+                                <Descriptions column={2} size="small" styles={{ label: { width: 120, color: '#999' } }}>
+                                    <Descriptions.Item label="模板 ID">
+                                        <div style={{ wordBreak: 'break-all' }}>{template?.spec?.defaultVersionId || '-'}</div>
                                     </Descriptions.Item>
-                                    <Descriptions.Item label={<Space><HddOutlined /> 内存</Space>}>
-                                        {memoryInfo || '-'}
+                                    <Descriptions.Item label="版本">
+                                        <Tag color="blue">{versionData?.status?.version ? `v${versionData.status.version}` : '-'}</Tag>
                                     </Descriptions.Item>
-                                    <Descriptions.Item label={<Space><LaptopOutlined /> 操作系统镜像</Space>}>
-                                        {osImage || '-'}
+                                    <Descriptions.Item label="运行策略">
+                                        {versionData?.spec?.vm?.spec?.runStrategy || '-'}
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="操作系统">
+                                        {versionData?.spec?.vm?.metadata?.labels?.['harvesterhci.io/os'] || '-'}
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="状态">
+                                        {versionData?.status?.conditions ? (
+                                            <Space wrap size={4}>
+                                                {versionData.status.conditions.map((c: any) => (
+                                                    <Tooltip key={c.type} title={`最后更新: ${c.lastUpdateTime}`}>
+                                                        <Tag color={c.status === 'True' ? 'success' : 'default'}>
+                                                            {c.type}
+                                                        </Tag>
+                                                    </Tooltip>
+                                                ))}
+                                            </Space>
+                                        ) : '-'}
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="驱逐策略">
+                                        {(() => {
+                                            const strategy = versionData?.spec?.vm?.spec?.template?.spec?.evictionStrategy;
+                                            return evictionStrategyMap[strategy] || strategy || '-';
+                                        })()}
                                     </Descriptions.Item>
                                 </Descriptions>
                             </Card>
 
+                            {/* Spec */}
+                            <Card variant="borderless" styles={{ body: { padding: 16 } }}>
+                                <div style={{ display: 'flex', gap: 24 }}>
+                                    {/* CPU */}
+                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 16 }}>
+                                        <div style={{ 
+                                            width: 48, height: 48, borderRadius: 8, background: '#f0f9ff',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            color: '#1890ff', fontSize: 24
+                                        }}>
+                                            <CpuIcon width={28} height={28} style={{ fill: '#1890ff' }} />
+                                        </div>
+                                        <div>
+                                            <div style={{ color: '#999', fontSize: 12 }}>CPU</div>
+                                            <div style={{ fontSize: 20, fontWeight: 500 }}>
+                                                {cpuInfo ? cpuInfo.total : '-'} <span style={{ fontSize: 14, color: '#999', fontWeight: 400 }}>vCPU</span>
+                                            </div>
+                                            <div style={{ fontSize: 12, color: '#999' }}>
+                                                {cpuInfo ? `${cpuInfo.sockets} Sockets x ${cpuInfo.cores} Cores x ${cpuInfo.threads} Threads` : '-'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div style={{ width: 1, background: '#f0f0f0' }} />
+
+                                    {/* Memory */}
+                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 16 }}>
+                                        <div style={{ 
+                                            width: 48, height: 48, borderRadius: 8, background: '#f0f9ff',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            color: '#1890ff', fontSize: 24
+                                        }}>
+                                            <MemIcon width={28} height={28} style={{ fill: '#1890ff' }} />
+                                        </div>
+                                        <div>
+                                            <div style={{ color: '#999', fontSize: 12 }}>内存</div>
+                                            <div style={{ fontSize: 20, fontWeight: 500 }}>
+                                                {memoryInfo || '-'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </Card>
+
                             {/* Disks */}
-                            <Card size="small" title="存储卷 (Volumes)" bordered={false}>
-                                <List
-                                    dataSource={disks}
-                                    renderItem={(item: any) => (
-                                        <List.Item>
-                                            <List.Item.Meta
-                                                avatar={<HddOutlined style={{ fontSize: 18, color: '#1890ff' }} />}
-                                                title={
-                                                    <Space>
-                                                        <span>{item.name}</span>
-                                                        {item.isCdrom && <Tag color="orange">CD-ROM</Tag>}
-                                                        {item.bootOrder && <Tag color="green">Boot: {item.bootOrder}</Tag>}
-                                                    </Space>
-                                                }
-                                                description={
-                                                    <Space split="|">
-                                                        <span>Type: {item.type}</span>
-                                                        <span>Source: {item.source}</span>
-                                                        <span>Bus: {item.bus}</span>
-                                                    </Space>
-                                                }
-                                            />
-                                        </List.Item>
-                                    )}
-                                />
-                            </Card>
-
-                            {/* Networks */}
-                            <Card size="small" title="网络接口 (Interfaces)" bordered={false}>
-                                <List
-                                    dataSource={networks}
-                                    renderItem={(item: any) => (
-                                        <List.Item>
-                                            <List.Item.Meta
-                                                avatar={<GlobalOutlined style={{ fontSize: 18, color: '#52c41a' }} />}
-                                                title={item.name}
-                                                description={
-                                                    <Space split="|">
-                                                        <span>Network: {item.networkName}</span>
-                                                        <span>Model: {item.model}</span>
-                                                        <span>MAC: {item.mac}</span>
-                                                    </Space>
-                                                }
-                                            />
-                                        </List.Item>
-                                    )}
-                                />
-                            </Card>
-
-                            {/* SSH Keys */}
-                            {sshKeys.length > 0 && (
-                                <Card size="small" title="SSH 密钥" bordered={false}>
-                                    <Space wrap>
-                                        {sshKeys.map((keyId: string) => (
-                                            <Tag icon={<KeyOutlined />} key={keyId}>{keyId}</Tag>
-                                        ))}
-                                    </Space>
-                                </Card>
-                            )}
-                            
-                            {/* CloudInit Preview (if any) */}
-                            {cloudInit && (cloudInit.userData || cloudInit.networkData) && (
-                                <Card size="small" title="Cloud Config" bordered={false}>
-                                    <Tabs 
-                                        type="card" 
-                                        size="small"
-                                        items={[
-                                            ...(cloudInit.userData ? [{
-                                                key: 'userdata',
-                                                label: 'User Data',
-                                                children: <LinedTextArea value={cloudInit.userData} readOnly />
-                                            }] : []),
-                                            ...(cloudInit.networkData ? [{
-                                                key: 'networkdata',
-                                                label: 'Network Data',
-                                                children: <LinedTextArea value={cloudInit.networkData} readOnly />
-                                            }] : [])
-                                        ]}
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                                    <span style={{ color: '#666' }}>虚拟磁盘</span>
+                                </div>
+                                <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+                                    <List
+                                        dataSource={disks}
+                                        renderItem={(item: any) => (
+                                            <List.Item style={{ padding: '16px 24px' }}>
+                                                <List.Item.Meta
+                                                    avatar={
+                                                        <div style={{ 
+                                                            width: 48, height: 48, borderRadius: 8, background: '#ffffff',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            flexShrink: 0 
+                                                        }}>
+                                                            <DiskIcon width={38} height={38} style={{ fill: '#1890ff' }} />
+                                                        </div>
+                                                    }
+                                                    title={
+                                                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                                            <span>{item.name}</span>
+                                                            {item.isCdrom && <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>CD-ROM</Tag>}
+                                                            {item.bootOrder && <Tag color="green" style={{ fontSize: 10, margin: 0 }}>启动顺序: {item.bootOrder}</Tag>}
+                                                        </div>
+                                                    }
+                                                    description={
+                                                        <div style={{ fontSize: 12 }}>
+                                                            <span>类型: {item.type}</span>
+                                                            <span style={{ margin: '0 8px', color: '#eee' }}>|</span>
+                                                            <span>来源: {item.source}</span>
+                                                            <span style={{ margin: '0 8px', color: '#eee' }}>|</span>
+                                                            <span>总线: {item.bus}</span>
+                                                        </div>
+                                                    }
+                                                />
+                                            </List.Item>
+                                        )}
                                     />
                                 </Card>
-                            )}
+                            </div>
+
+                            {/* Networks */}
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                                    <span style={{ color: '#666' }}>虚拟网卡</span>
+                                </div>
+                                <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+                                    <List
+                                        dataSource={networks}
+                                        renderItem={(item: any) => (
+                                            <List.Item style={{ padding: '16px 24px' }}>
+                                                <List.Item.Meta
+                                                    avatar={
+                                                        <div style={{ 
+                                                            width: 48, height: 48, borderRadius: 8, background: '#ffffff',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            flexShrink: 0 
+                                                        }}>
+                                                            <NicIcon width={38} height={38} style={{ fill: '#1890ff' }} />
+                                                        </div>
+                                                    }
+                                                    title={item.name}
+                                                    description={
+                                                        <div style={{ fontSize: 12 }}>
+                                                            <span>网络: {item.networkName}</span>
+                                                            <span style={{ margin: '0 8px', color: '#eee' }}>|</span>
+                                                            <span>型号: {item.model}</span>
+                                                            <span style={{ margin: '0 8px', color: '#eee' }}>|</span>
+                                                            <span>MAC: {item.mac}</span>
+                                                        </div>
+                                                    }
+                                                />
+                                            </List.Item>
+                                        )}
+                                    />
+                                </Card>
+                            </div>
+
+                            {/* Others */}
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                                    <span style={{ color: '#666' }}>其他选项</span>
+                                </div>
+                                <Card variant="borderless" styles={{ body: { padding: '16px 24px' } }}>
+                                    <Descriptions column={1} size="small" styles={{ label: { width: 120, color: '#999' } }}>
+                                        {/* SSH Keys */}
+                                        <Descriptions.Item label="SSH Keys">
+                                            {sshKeys.length > 0 ? (
+                                                <Space wrap>
+                                                    {sshKeys.map((keyId: string) => (
+                                                        <Tag icon={<KeyOutlined />} key={keyId}>{keyId}</Tag>
+                                                    ))}
+                                                </Space>
+                                            ) : '无'}
+                                        </Descriptions.Item>
+                                        
+                                        {/* CloudInit Preview */}
+                                        <Descriptions.Item label="Cloud-Init">
+                                            {(cloudInit && (cloudInit.userData || cloudInit.networkData)) ? (
+                                                <div className="minimal-scroll" style={{ maxHeight: 200, overflow: 'auto', background: '#f5f5f5', padding: 8, borderRadius: 4, width: '100%' }}>
+                                                    {cloudInit.userData && (
+                                                        <div style={{ marginBottom: 8 }}>
+                                                            <div style={{ fontSize: 12, fontWeight: 500, color: '#666', marginBottom: 4 }}>User Data</div>
+                                                            <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                                                {cloudInit.userData}
+                                                            </pre>
+                                                        </div>
+                                                    )}
+                                                    {cloudInit.networkData && (
+                                                        <div>
+                                                            <div style={{ fontSize: 12, fontWeight: 500, color: '#666', marginBottom: 4 }}>Network Data</div>
+                                                            <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                                                {cloudInit.networkData}
+                                                            </pre>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : '未配置'}
+                                        </Descriptions.Item>
+                                        
+                                        <Descriptions.Item label="高级配置">
+                                            <Space direction="vertical" size={4}>
+                                                <div>预留内存: {versionData?.spec?.vm?.metadata?.annotations?.['harvesterhci.io/reservedMemory'] || '-'}</div>
+                                                <div>特性 (Features): {versionData?.spec?.vm?.spec?.template?.spec?.domain?.features ? (
+                                                    <span style={{ fontSize: 12, color: '#666' }}>
+                                                        {Object.keys(versionData.spec.vm.spec.template.spec.domain.features).join(', ')}
+                                                    </span>
+                                                ) : '-'}</div>
+                                            </Space>
+                                        </Descriptions.Item>
+
+                                        <Descriptions.Item label="基础信息">
+                                             <Space direction="vertical" size={0}>
+                                                <div>Namespace: {template?.metadata?.namespace}</div>
+                                                <div>Created: {template?.metadata?.creationTimestamp}</div>
+                                             </Space>
+                                        </Descriptions.Item>
+                                    </Descriptions>
+                                </Card>
+                            </div>
                         </>
                     ) : (
                         !loading && <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>暂无版本详情数据</div>

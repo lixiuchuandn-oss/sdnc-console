@@ -50,12 +50,11 @@ type Props = {
   images: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
-  bordered?: boolean;
-  showYaml?: boolean;
+
   isTenant?: boolean;
 };
 
-const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, bordered = true, showYaml = true, isTenant = false }) => {
+const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -329,7 +328,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
         <ResourceActionsDropdown 
           buttonProps={{ className: 'row-actions-trigger' }}
           items={[
-            ...(showYaml && !isTenant ? [{ key: 'detail_yaml', label: '查看YAML', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
+            ...(!isTenant ? [{ key: 'detail_yaml', label: '查看YAML', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, onClick: () => Modal.confirm({ title: `删除 ${name}?`, onOk: handleDelete }) },
@@ -337,7 +336,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
         />
       );
     } },
-  ], [cloudId, onRefresh, showYaml]);
+  ], [cloudId, onRefresh, isTenant]);
 
   const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
 
@@ -568,8 +567,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
         />
       </StdFormModal>
       <Table
-        className="std-table"
-        bordered={bordered}
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         rowKey={(r:any)=> getId(r)}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
         columns={tableColumns}

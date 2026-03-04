@@ -1148,7 +1148,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // ==========================================
 
   const allColumns = useMemo(() => [
-        { title: '实例名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
+        { title: '云主机名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
       const text = SafeRead.name(r) || '-';
       const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
       return (
@@ -1160,7 +1160,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         </span>
       );
     } },
-    { title: '实例ID', key: 'vmId', ellipsis: true, render: (_: any, r: any) => {
+    { title: '云主机ID', key: 'vmId', ellipsis: true, render: (_: any, r: any) => {
       const id = SafeRead.vmId(r);
       return id ? <Tooltip title={id}>{id}</Tooltip> : '-';
     } },

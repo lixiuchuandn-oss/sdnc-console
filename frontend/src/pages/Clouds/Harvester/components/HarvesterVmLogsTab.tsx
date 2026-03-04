@@ -401,7 +401,8 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          background: '#fafafa',
+          background: '#fff',
+          borderRadius: '8px 8px 0 0',
           flexShrink: 0,
         }}
       >
@@ -486,11 +487,6 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
             {isInterruptedError && <span style={{ marginLeft: 8 }}>请点击上方刷新按钮重新连接。</span>}
           </div>
         )}
-        {loading && logLines.length === 0 && (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Spin />
-          </div>
-        )}
         <div
           ref={containerRef}
           onScroll={handleScroll}
@@ -506,7 +502,13 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
             minHeight: 200,
           }}
         >
-          {logLines.map((line, idx) => {
+          {loading && logLines.length === 0 ? (
+            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Spin />
+            </div>
+          ) : (
+            <>
+              {logLines.map((line, idx) => {
             if (!enableFormatting) {
               return (
                 <div key={idx} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: 4 }}>
@@ -573,7 +575,9 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
             );
           })}
           {logLines.length === 0 && !loading && '等待日志...'}
-        </div>
+        </>
+      )}
+    </div>
       </div>
     </div>
   );

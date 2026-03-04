@@ -1217,7 +1217,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                               </div>
                               {SafeRead.cpu(vmData) > 0 && (
                                   <div style={{ flex: 1, marginLeft: 24, background: '#ffffff', border: '1px solid #188fff80', borderRadius: 8, padding: 8 }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666' }}>
                                           <span>使用率</span>
                                           <span>{cpuUsage !== null ? `${((cpuUsage / SafeRead.cpu(vmData)) * 100).toFixed(1)}%` : '-'}</span>
                                       </div>
@@ -1256,7 +1256,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                               </div>
                               {parseStorageSize(SafeRead.memory(vmData)) > 0 && (
                                   <div style={{ flex: 1, marginLeft: 24, background: '#ffffff', border: '1px solid #188fff80', borderRadius: 8, padding: 8 }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666' }}>
                                           <span>使用率</span>
                                           <span>{memUsage !== null ? `${((memUsage / (1024 ** 3) / parseStorageSize(SafeRead.memory(vmData))) * 100).toFixed(1)}%` : '-'}</span>
                                       </div>
@@ -1331,10 +1331,18 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                       {vmData?.spec?.template?.spec?.domain?.resources?.limits?.memory || '-'}
                                   </Descriptions.Item>
 
-                                  <Descriptions.Item label="机器架构">
+                                  <Descriptions.Item label={
+                                      <Tooltip title="机器架构: 虚拟机运行的 CPU 架构（如 x86_64, aarch64）">
+                                          <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>机器架构</span>
+                                      </Tooltip>
+                                  }>
                                       {vmData?.spec?.template?.spec?.architecture || '-'} 
                                   </Descriptions.Item>
-                                  <Descriptions.Item label="QEMU 机器类型">
+                                  <Descriptions.Item label={
+                                      <Tooltip title="QEMU 机器类型: 虚拟机使用的 QEMU 模拟硬件类型（如 pc, q35）">
+                                          <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>QEMU 机器类型</span>
+                                      </Tooltip>
+                                  }>
                                       {vmData?.spec?.template?.spec?.domain?.machine?.type || '-'}
                                   </Descriptions.Item>
                               </Descriptions>
@@ -1371,7 +1379,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                         title={
                                             <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                                                 <span>{item.name}</span>
-                                                {item.bootOrder === 1 && <Tag color="pink" style={{ fontSize: 10, margin: 0 }}>启动盘</Tag>}
+                                                {item.bootOrder === 1 && <Tag color="red" style={{ fontSize: 10, margin: 0 }}>启动盘</Tag>}
                                                 {item.imageDisplayName && (
                                                     <Tag color="blue" style={{ fontSize: 10, margin: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                                         <OsIcon osName={item.imageDisplayName} style={{ fontSize: 12 }} />

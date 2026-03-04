@@ -217,7 +217,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         { key: 'template', label: '模板' },
         { key: 'image', label: '镜像' },
         { key: 'ssh', label: 'SSH密钥' },
-        { key: 'cloudinit', label: 'Cloud init' },
       ]
     },
     {
@@ -312,8 +311,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             sshKeys={sshKeys}
             loading={loading}
             onRefresh={onRefreshSshKeys}
-            bordered={bordered}
-            showYaml={showYaml}
             isTenant={true}
           />
         );
@@ -350,9 +347,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             vms={vms}
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
-            bordered={bordered}
-            showYaml={showYaml}
-            showSys={showSys}
+            isTenant={true}
           />
         );
       case 'volume-snapshot':
@@ -362,9 +357,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshSnapshots}
             cloudId={cloudId}
-            bordered={bordered}
-            showYaml={showYaml}
             isTenant={true}
+            namespaces={namespaceObjects}
           />
         );
       case 'image':
@@ -374,8 +368,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshImages}
             cloudId={cloudId}
-            bordered={bordered}
-            showYaml={showYaml}
             isTenant={true}
           />
         );

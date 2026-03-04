@@ -1164,9 +1164,6 @@ const CloudConsolePage: React.FC = () => {
                     onStop={handleStop}
                     onReboot={handleReboot}
                     onDelete={handleDelete}
-                    bordered={false}
-                    showYaml={false}
-                    showSys={false}
                   />
                 ) : isHarvester ? (
                   <CloudConsoleHarvester
@@ -1237,9 +1234,6 @@ const CloudConsolePage: React.FC = () => {
                     onStop={handleStop}
                     onReboot={handleReboot}
                     onDelete={handleDelete}
-                    bordered={false}
-                    showYaml={false}
-                    showSys={false}
                   />
                 ) : cloudsLoading ? (
                   <div style={{ padding: 100, textAlign: 'center' }}>

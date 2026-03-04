@@ -14,9 +14,9 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Table, Input, Button, Checkbox, Select, Modal, message, App } from 'antd';
+import { Table, Input, Button, Checkbox, Select, Modal, message, App, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { ReloadOutlined, ProjectOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -26,6 +26,7 @@ import HarvesterTemplateDetailDrawer from '../components/HarvesterTemplateDetail
 import HarvesterOpsinfoDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import { deleteHarvesterResourceByLink } from '../../../../services/harvesterApi';
+import { OsIcon } from '../../../../components/OsIcon';
 
 /**
  * Props 定义
@@ -66,9 +67,25 @@ const getTemplateAlias = (tpl: any): string =>
   tpl?.metadata?.annotations?.['tower.io/alias'] ||
   '';
 
-const getTemplateScope = (tpl: any): '公共模板' | '私有模板' => {
+const getTemplateScope = (tpl: any): '全部' | '公共模板' | '私有模板' => {
+  if (!tpl) return '全部';
   const ns = getTemplateNamespace(tpl);
   return isPublicNamespace(ns) ? '公共模板' : '私有模板';
+};
+
+const getTemplateDefaultVersion = (tpl: any): string => {
+    // 优先展示 status.defaultVersion，其次尝试从 spec.defaultVersionId 解析
+    if (tpl?.status?.defaultVersion) return `v${tpl.status.defaultVersion}`;
+    if (tpl?.spec?.defaultVersionId) {
+        const parts = tpl.spec.defaultVersionId.split('/');
+        return `v${parts[parts.length - 1]}`;
+    }
+    return '-';
+};
+
+const getTemplateLatestVersion = (tpl: any): string => {
+    if (tpl?.status?.latestVersion) return `v${tpl.status.latestVersion}`;
+    return '-';
 };
 
 /**
@@ -106,7 +123,7 @@ const TemplatesSection: React.FC<Props> = ({
   // 命名空间筛选状态
   const [selectedNamespace, setSelectedNamespace] = useState<string | undefined>(undefined);
   // 作用域筛选状态：all/public/private
-  const [selectedScope, setSelectedScope] = useState<'all' | 'public' | 'private'>('all');
+  const [selectedScope, setSelectedScope] = useState<'all' | 'public' | 'private' | undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
@@ -229,23 +246,46 @@ const TemplatesSection: React.FC<Props> = ({
   const allColumns = useMemo<ColumnsType<any>>(
     () => [
     {
-      title: '名称',
-      key: 'name',
-      render: (_: any, r: any) => (
-        <span className="cell-link" onClick={() => { handleOpenDrawer(r); }}>
-          {getTemplateName(r)}
-        </span>
-      )
+      title: '模板名称',
+      key: 'displayName',
+      render: (_: any, r: any) => {
+        const displayName = getTemplateDisplayName(r);
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+             <ProjectOutlined style={{ fontSize: 14, color: '#007bff' }} />
+             <span className="cell-link" onClick={() => { handleOpenDrawer(r); }}>
+                {displayName}
+             </span>
+          </div>
+        );
+      }
     },
     {
-      title: '别名',
-      key: 'alias',
-      render: (_: any, r: any) => getTemplateAlias(r) || '-'
+      title: '模板ID',
+      key: 'name',
+      render: (_: any, r: any) => {
+        const name = getTemplateName(r);
+        return <span>{name}</span>;
+      }
+    },
+    {
+      title: '默认版本',
+      key: 'defaultVersion',
+      render: (_: any, r: any) => <Tag color="blue">{getTemplateDefaultVersion(r)}</Tag>
+    },
+    {
+      title: '最新版本',
+      key: 'latestVersion',
+      render: (_: any, r: any) => getTemplateLatestVersion(r)
     },
     {
       title: '作用域',
       key: 'scope',
-      render: (_: any, r: any) => getTemplateScope(r)
+      render: (_: any, r: any) => {
+          const scope = getTemplateScope(r);
+          const isPublic = scope === '公共模板';
+          return <Tag color={isPublic ? 'orange' : 'cyan'}>{scope}</Tag>;
+      }
     },
     {
       title: '命名空间',
@@ -255,7 +295,12 @@ const TemplatesSection: React.FC<Props> = ({
     {
       title: '描述',
       key: 'description',
-      render: (_: any, r: any) => getTemplateDescription(r) || '-'
+      ellipsis: true,
+      render: (_: any, r: any) => (
+          <Tooltip title={getTemplateDescription(r)} placement="topLeft">
+              <span>{getTemplateDescription(r) || '-'}</span>
+          </Tooltip>
+      )
     },
     {
       title: '创建时间',
@@ -278,11 +323,6 @@ const TemplatesSection: React.FC<Props> = ({
       render: (_: any, r: any) => {
         const items: any[] = [
           {
-            key: 'create_vm',
-            label: '创建虚拟机',
-            onClick: () => handleCreateFromTemplate(r),
-          },
-          {
             key: 'detail',
             label: '资源详情',
             onClick: () => { handleOpenDrawer(r); },
@@ -297,6 +337,12 @@ const TemplatesSection: React.FC<Props> = ({
             onClick: () => { handleOpenOpsInfo(r); },
           });
         }
+
+        items.push({
+            key: 'create_vm',
+            label: '创建虚拟机',
+            onClick: () => handleCreateFromTemplate(r),
+        });
 
         items.push(
           { type: 'divider' as const },
@@ -376,7 +422,7 @@ const TemplatesSection: React.FC<Props> = ({
       if (selectedScope === 'public' && !isPublicNamespace(ns)) return false;
       if (selectedScope === 'private' && isPublicNamespace(ns)) return false;
 
-      // 2. 关键字搜索（仅搜索名称）
+      // 2. 关键字搜索
       if (searchText) {
         const lower = searchText.toLowerCase();
         return getTemplateDisplayName(t).toLowerCase().includes(lower);
@@ -412,9 +458,10 @@ const TemplatesSection: React.FC<Props> = ({
             <Select
               allowClear
               placeholder="作用域"
-              value={selectedScope === 'all' ? undefined : selectedScope}
-              onChange={(val) => setSelectedScope((val as any) || 'all')}
+              value={selectedScope}
+              onChange={(val) => setSelectedScope((val as any) || undefined)}
               options={[
+                { value: 'all', label: '全部' },
                 { value: 'public', label: '公共模板' },
                 { value: 'private', label: '私有模板' },
               ]}
@@ -428,16 +475,6 @@ const TemplatesSection: React.FC<Props> = ({
                 显示系统资源
               </Checkbox>
             )}
-            <a 
-              className="toolbar-reset-btn" 
-              onClick={() => {
-                setSearchText('');
-                setSelectedNamespace(undefined);
-                setSelectedScope('all');
-              }}
-            >
-              重置
-            </a>
           </>
         )}
         toolbarRight={(
@@ -468,8 +505,8 @@ const TemplatesSection: React.FC<Props> = ({
         )}
       >
         <Table
-          className="std-table"
-          bordered={bordered}
+          className={!isTenant ? "std-table" : "std-table no-border"}
+          bordered={!isTenant}
           rowKey={(r) => r.metadata?.uid || r.metadata?.name}
           rowSelection={{
             selectedRowKeys,

@@ -32,15 +32,16 @@
  * 
  * ==============================================================================
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Badge, Button, Modal, Input, message, Dropdown, Select, Checkbox } from 'antd';
-import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { deleteHarvesterSnapshot } from '../../../../services/harvesterApi';
 import VolumeSnapshotRestoreModal from '../modals/VolumeSnapshotRestoreModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { TableColumnSettings } from '../../../../components/TableColumnSettings';
 
 /**
  * 组件 Props 定义
@@ -58,10 +59,9 @@ interface Props {
   snapshots: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
-  bordered?: boolean;
-  showYaml?: boolean;
   isTenant?: boolean;
   showSys?: boolean;
+  namespaces?: any[];
 }
 
 const SnapshotsSection: React.FC<Props> = ({ 
@@ -69,10 +69,9 @@ const SnapshotsSection: React.FC<Props> = ({
   snapshots, 
   loading, 
   onRefresh,
-  bordered = true,
-  showYaml = true,
   isTenant = false,
-  showSys = true
+  showSys = true,
+  namespaces = []
 }) => {
   // ==============================================================================
   // 1. 状态定义 (State Definitions)
@@ -83,6 +82,7 @@ const SnapshotsSection: React.FC<Props> = ({
 
   // 工具栏过滤与选择状态
   const [keyword, setKeyword] = useState<string>('');
+  const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   
@@ -94,6 +94,9 @@ const SnapshotsSection: React.FC<Props> = ({
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
+
+  // 列设置状态
+  const [visibleColumns, setVisibleColumns] = useState<any>();
 
   // ==============================================================================
   // 2. 数据处理与过滤 (Data Processing)
@@ -148,6 +151,9 @@ const SnapshotsSection: React.FC<Props> = ({
         (x.alias && x.alias.toLowerCase().includes(k))
       );
     }
+    if (namespaceFilter) {
+      d = d.filter((x: any) => x.namespace === namespaceFilter);
+    }
     if (statusFilter) {
       if (statusFilter === 'ready') {
         d = d.filter((x: any) => x.readyToUse);
@@ -156,7 +162,7 @@ const SnapshotsSection: React.FC<Props> = ({
       }
     }
     return d;
-  }, [dataSource, keyword, statusFilter, isTenant, showSystemResources]);
+  }, [dataSource, keyword, statusFilter, isTenant, showSystemResources, namespaceFilter]);
 
   // ==============================================================================
   // 3. 交互处理 (Action Handlers)
@@ -164,15 +170,15 @@ const SnapshotsSection: React.FC<Props> = ({
 
   // [恢复] 打开数据卷恢复弹窗
   // 将当前选中的快照记录传递给 Modal，用于后续的 PVC 恢复操作。
-  const handleRestore = (record: any) => {
+  const handleRestore = useCallback((record: any) => {
     setRestoreRecord(record);
     setRestoreVisible(true);
-  };
+  }, []);
 
   // [详情] 打开资源详情抽屉 (HarvesterResourceDrawer)
   // 1. 注入 Kind: 确保 EventsTab 能正确查询 VolumeSnapshot 的事件。
   // 2. 注入 View Link: 构造 K8s API 路径，用于“实时数据”页签展示 Raw YAML。
-  const handleOpenDrawer = (record: any, tab: string = 'detail') => {
+  const handleOpenDrawer = useCallback((record: any, tab: string = 'detail') => {
     const raw = record.raw || record;
     // Inject kind for EventsTab
     if (!raw.kind) raw.kind = 'VolumeSnapshot';
@@ -190,12 +196,12 @@ const SnapshotsSection: React.FC<Props> = ({
     setDetailRecord(raw);
     setDetailActiveTab(tab);
     setDetailVisible(true);
-  };
+  }, []);
 
   // [删除] 删除单个快照
   // 这是一个破坏性操作，必须弹出确认框。
   // 成功后触发 onRefresh(true) 强制刷新列表。
-  const handleDelete = (record: any) => {
+  const handleDelete = useCallback((record: any) => {
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除快照 ${record.alias !== '-' ? record.alias : record.name} (${record.name}) 吗？`,
@@ -211,7 +217,7 @@ const SnapshotsSection: React.FC<Props> = ({
         }
       }
     });
-  };
+  }, [cloudId, onRefresh]);
 
   // [批量删除] 处理多选删除逻辑
   // 1. 过滤出选中的数据对象。
@@ -253,14 +259,13 @@ const SnapshotsSection: React.FC<Props> = ({
   // 根据 showYaml 属性决定：
   // 1. 名称列是否可点击查看详情。
   // 2. 操作列菜单中是否包含“查看 YAML”选项。
-  const columns = [
+  const columns = useMemo(() => [
     { 
       title: '快照名称', 
       dataIndex: 'alias', 
       key: 'alias', 
-      width: 200,
       render: (_: any, r: any) => (
-        showYaml ? (
+        !isTenant ? (
           <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
             {r.alias !== '-' ? r.alias : r.name}
           </span>
@@ -269,25 +274,23 @@ const SnapshotsSection: React.FC<Props> = ({
         )
       )
     },
-    { title: '快照ID', dataIndex: 'name', key: 'name', width: 200 },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
-    { title: '源PVC', dataIndex: 'sourcePvc', key: 'sourcePvc', width: 200 },
-    { title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName', width: 150 },
+    { title: '快照ID', dataIndex: 'name', key: 'name' },
+    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '源PVC', dataIndex: 'sourcePvc', key: 'sourcePvc'  },
+    { title: '快照类', dataIndex: 'snapshotClassName', key: 'snapshotClassName' },
     { 
       title: '状态', 
       dataIndex: 'readyToUse', 
       key: 'readyToUse', 
-      width: 100,
       render: (ready: boolean) => (
-        <Badge status={ready ? 'success' : 'warning'} text={ready ? 'Ready' : 'NotReady'} />
+        <Badge status={ready ? 'success' : 'warning'} text={ready ? '就绪' : '未就绪'} />
       )
     },
-    { title: '大小', dataIndex: 'restoreSize', key: 'restoreSize', width: 100 },
+    { title: '大小', dataIndex: 'restoreSize', key: 'restoreSize' },
     { 
       title: '创建时间', 
       dataIndex: 'creationTimestamp', 
       key: 'creationTimestamp', 
-      width: 180,
       render: (t: string) => <span className="std-time">{t}</span>
     },
     {
@@ -297,8 +300,8 @@ const SnapshotsSection: React.FC<Props> = ({
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
-        if (showYaml) {
-          items.push({ key: 'detail', label: '查看YAML', onClick: () => handleOpenDrawer(record, 'detail') });
+        if (!isTenant) {
+          items.push({ key: 'detail', label: '运维信息', onClick: () => handleOpenDrawer(record, 'detail') });
           items.push({ type: 'divider' as const });
         }
         items.push({ key: 'restore', label: '恢复', onClick: () => handleRestore(record), disabled: !record.readyToUse });
@@ -312,7 +315,7 @@ const SnapshotsSection: React.FC<Props> = ({
         );
       },
     },
-  ];
+  ], [isTenant, handleOpenDrawer, handleRestore, handleDelete]);
 
   // ==============================================================================
   // 5. 渲染视图 (Render)
@@ -324,12 +327,34 @@ const SnapshotsSection: React.FC<Props> = ({
       toolbarLeft={(
         <>
           <Input
-            placeholder="搜索快照"
+            placeholder="关键字"
             className="toolbar-search"
+            suffix={<SearchOutlined />}
             allowClear
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
           />
+          {!isTenant && (
+            <Select
+              allowClear
+              showSearch
+              placeholder="命名空间"
+              className="toolbar-filter"
+              value={namespaceFilter || undefined}
+              onChange={(v) => setNamespaceFilter(v || '')}
+              options={[
+                  { value: '', label: '全部' },
+                  ...namespaces.filter((x: any) => {
+                    const n = x.metadata?.name || x.name || '';
+                    if (!showSystemResources && isSystemNamespace(n)) return false;
+                    return true;
+                  }).map((x: any) => {
+                    const n = x.metadata?.name || x.name || '';
+                    return { value: n, label: n };
+                  }).filter((x: any) => x.value)
+                ]}
+            />
+          )}
           <Select
             allowClear
             placeholder="状态"
@@ -338,8 +363,8 @@ const SnapshotsSection: React.FC<Props> = ({
             onChange={(v) => setStatusFilter(v || '')}
             options={[
               { value: '', label: '全部' },
-              { value: 'ready', label: 'Ready' },
-              { value: 'notReady', label: 'NotReady' }
+              { value: 'ready', label: '就绪' },
+              { value: 'notReady', label: '未就绪' }
             ]}
           />
           {!isTenant && (
@@ -365,15 +390,20 @@ const SnapshotsSection: React.FC<Props> = ({
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
+          <TableColumnSettings
+            columns={columns}
+            onChange={setVisibleColumns}
+            settingsKey="harvester_volume_snapshots_list"
+          />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
         </>
       }
     >
       <Table
-        className="std-table"
-        bordered={bordered}
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         dataSource={filteredData}
-        columns={columns}
+        columns={visibleColumns || columns}
         rowKey="key"
         loading={loading}
         rowSelection={{

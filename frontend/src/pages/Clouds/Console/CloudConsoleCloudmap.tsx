@@ -111,10 +111,6 @@ interface Props {
   onRefreshFips?: () => void;
   onRefreshSnatRules?: () => void;
   onRefreshDnatRules?: () => void;
-
-  bordered?: boolean;
-  showYaml?: boolean;
-  showSys?: boolean;
 }
 
 const CloudConsoleCloudmap: React.FC<Props> = ({
@@ -180,9 +176,6 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
   onRefreshFips,
   onRefreshSnatRules,
   onRefreshDnatRules,
-  bordered = true,
-  showYaml = true,
-  showSys = true
 }) => {
   const { message } = App.useApp();
 
@@ -359,8 +352,6 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             sshKeys={sshKeys}
             loading={loading}
             onRefresh={onRefreshSshKeys}
-            bordered={bordered}
-            showYaml={showYaml}
             isTenant={true}
           />
         );
@@ -371,8 +362,8 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             cloudInits={cloudInits}
             loading={loading}
             onRefresh={onRefreshCloudInits}
-            bordered={bordered}
-            showYaml={showYaml}
+            bordered={true}
+            showYaml={true}
           />
         );
       case 'gpu':
@@ -396,9 +387,6 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             vms={vms}
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
-            bordered={bordered}
-            showYaml={showYaml}
-            showSys={showSys}
             isTenant={true}
           />
         );
@@ -409,6 +397,7 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshSnapshots}
             cloudId={cloudId}
+            namespaces={namespaceObjects}
           />
         );
       case 'image':
@@ -418,8 +407,7 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshImages}
             cloudId={cloudId}
-            bordered={bordered}
-            showYaml={showYaml}
+            isTenant={true}
           />
         );
 
@@ -497,8 +485,8 @@ const CloudConsoleCloudmap: React.FC<Props> = ({
                  namespaces={namespaces}
                  loading={loading}
                  onRefresh={onRefreshVpcs}
-                 bordered={bordered}
-                 showYaml={showYaml}
+                 bordered={true}
+                 showYaml={true}
              />
          );
 

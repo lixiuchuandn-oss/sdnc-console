@@ -43,7 +43,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge } from 'antd';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume } from '../../../../services/harvesterApi';
@@ -73,9 +73,6 @@ type Props = {
   storageClasses?: any[];
   namespacesOptions?: string[];
   onRefresh?: (force?: boolean) => void;
-  bordered?: boolean; // 表格边框控制
-  showYaml?: boolean; // 控制是否显示资源详情抽屉入口 (租户侧可能不需要看底层YAML/详情)
-  showSys?: boolean;  // 控制是否显示"显示系统卷"复选框
   isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷)
 };
 
@@ -207,9 +204,6 @@ const VolumesSection: React.FC<Props> = ({
   storageClasses: propStorageClasses, 
   namespacesOptions, 
   onRefresh, 
-  bordered = true, 
-  showYaml = true, 
-  showSys = true,
   isTenant
 }) => {
   // ----------------------------------------------------------------
@@ -411,7 +405,7 @@ const VolumesSection: React.FC<Props> = ({
       
       // 2. 如果用户没有勾选“显示系统卷”，则隐藏系统命名空间的卷 (仅针对非租户场景或补充过滤)
       // 注意：租户场景下 showSystemVolumes 应该被忽略或强制为 false
-      if (!isTenant && !showSystemVolumes && isSystemNamespace(item.namespace)) return false;
+      if (!isTenant && !showSystemVolumes && (isSystemNamespace(item.namespace) || isSystemStorageClass(item.storageClass))) return false;
 
       // 命名空间筛选
       if (nsFilter && item.namespace !== nsFilter) return false;
@@ -444,7 +438,7 @@ const VolumesSection: React.FC<Props> = ({
     
     if (isTenant) {
       list = list.filter(ns => !isSystemNamespace(ns) && !isPublicNamespace(ns));
-    } else if (!isTenant && !showSystemVolumes) {
+    } else if (!showSystemVolumes) {
       list = list.filter(ns => !isSystemNamespace(ns));
     }
     
@@ -622,11 +616,11 @@ const VolumesSection: React.FC<Props> = ({
   // ----------------------------------------------------------------
   const allColumns = useMemo(() => [
     { 
-      title: 'PVC名称', 
+      title: '云盘名称 (PVC)', 
       dataIndex: 'name',
       key: 'name', 
       render: (_: string, r: VolumeView) => (
-        showYaml ? (
+        !isTenant ? (
           <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
             {r.alias || r.name}
           </span> 
@@ -636,13 +630,13 @@ const VolumesSection: React.FC<Props> = ({
       )
     },
     { 
-      title: 'PVC ID', 
+      title: '云盘ID', 
       dataIndex: 'name',
       key: 'id', 
       render: (v: string) => <span className="text-secondary">{v}</span> 
     },
     { 
-      title: '卷名称 (PV)', 
+      title: 'PV 名称', 
       dataIndex: 'pvName',
       key: 'pvName', 
       render: (v: string) => <span className="text-secondary">{v || '-'}</span> 
@@ -653,11 +647,11 @@ const VolumesSection: React.FC<Props> = ({
       key: 'phase', 
       render: (v: string) => statusBadge(v) 
     },
-    { 
+    ...(isTenant ? [] : [{ 
       title: '命名空间', 
       dataIndex: 'namespace',
       key: 'namespace' 
-    },
+    }]),
     { 
       title: '存储类', 
       dataIndex: 'storageClass',
@@ -730,7 +724,7 @@ const VolumesSection: React.FC<Props> = ({
         
         const items: any[] = [
           // 1. 资源详情
-          ...(showYaml ? [{ key: 'detail', label: '查看YAML', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
+          ...(!isTenant ? [{ key: 'detail', label: '运维信息', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
           
           // 2. 基础管理
           { 
@@ -824,7 +818,7 @@ const VolumesSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, showYaml]);
+  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant]);
 
   // ----------------------------------------------------------------
   // [渲染]
@@ -834,12 +828,14 @@ const VolumesSection: React.FC<Props> = ({
       asCard={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" value={keyword} onChange={(e) => setKeyword(e.target.value)} className="toolbar-search" />
-          <Select
-            allowClear showSearch placeholder="命名空间"
-            value={nsFilter || undefined} onChange={(v) => setNsFilter(v || '')}
-            className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...nsOptions]}
-          />
+          <Input allowClear placeholder="关键字" suffix={<SearchOutlined />} value={keyword} onChange={(e) => setKeyword(e.target.value)} className="toolbar-search" />
+          {!isTenant && (
+            <Select
+              allowClear showSearch placeholder="命名空间"
+              value={nsFilter || undefined} onChange={(v) => setNsFilter(v || '')}
+              className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...nsOptions]}
+            />
+          )}
           <Select
             allowClear placeholder="状态"
             value={statusFilter || undefined} onChange={(v) => setStatusFilter(v || '')}
@@ -905,8 +901,8 @@ const VolumesSection: React.FC<Props> = ({
       )}
     >
       <Table
-        className={bordered ? "std-table" : "std-table no-border"}
-        bordered={bordered}
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         rowKey="key"
         rowSelection={{
           selectedRowKeys,
