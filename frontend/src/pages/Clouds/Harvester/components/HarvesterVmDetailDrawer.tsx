@@ -35,7 +35,7 @@
  * ==============================================================================
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Drawer, Tabs, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox } from 'antd';
+import { Drawer, Tabs, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox, Input } from 'antd';
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 
   CodeOutlined, EllipsisOutlined, DesktopOutlined, DatabaseOutlined,
@@ -56,6 +56,7 @@ import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
 import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
 import HarvesterEventsTab from './HarvesterEventsTab';
 import HarvesterVmLogsTab from './HarvesterVmLogsTab';
+import { OsIcon } from '../../../../components/OsIcon';
 
 /**
  * HarvesterVmDetailDrawer 组件入参定义
@@ -120,6 +121,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [templateAlias, setTemplateAlias] = useState('');
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
 
   // [状态同步] 抽屉内部统一使用 vmData 作为渲染/动作的数据源
   // 详细解释：
@@ -450,6 +453,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // 2. 如何工作：将读取逻辑集中在一处，渲染与动作代码只依赖 SafeRead 的稳定返回值
   // 3. 边界处理：缺失字段统一返回空串或 '-'，避免 UI 报错
   const SafeRead = useMemo(() => ({
+    // ------------------------------------------
+    // 3.1 基础标识 (Identity)
+    // ------------------------------------------
     name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.InstanceName || r?.name || r?.metadata?.name || '',
     vmId: (r: any) => r?.metadata?.name || '',
     namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
@@ -457,6 +463,79 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         if (typeof r?.status === 'string') return r.status;
         return r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown';
     },
+
+    // ------------------------------------------
+    // 3.2 镜像与操作系统 (Image & OS) - 移植自 VmSection.tsx
+    // ------------------------------------------
+    image: (r: any) => {
+      // 1. 优先：spec.template annotations (最准确，代表当前配置)
+      const specImg = r?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId'];
+      if (specImg) return specImg;
+
+      // 2. 次选：metadata annotations
+      const metaImg = r?.metadata?.annotations?.['harvesterhci.io/imageId'];
+      if (metaImg) return metaImg;
+
+      // 3. 兜底：从 volumeClaimTemplates 中解析
+      try {
+        const annot = r?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+        if (annot) {
+          const arr = JSON.parse(annot);
+          for (const item of arr) {
+            const img = item?.metadata?.annotations?.['harvesterhci.io/imageId'];
+            if (img) return img;
+          }
+        }
+      } catch (e) {}
+      return '';
+    },
+    
+    imageDisplayName: (r: any) => {
+      const imgId = SafeRead.image(r);
+      if (!imgId) return '';
+      
+      // 在 vmImages (来自 aggregated 接口的 related.images) 中查找
+      const found = (vmImages || []).find((i: any) => {
+         const id = i?.metadata?.name;
+         const ns = i?.metadata?.namespace;
+         const fullId = `${ns}/${id}`;
+         return fullId === imgId || id === imgId || i.id === imgId;
+      });
+      
+      if (found) {
+        const labels = found.metadata?.labels || {};
+        const ann = found.metadata?.annotations || {};
+        // 尝试多个字段获取名称
+        const labelName = labels['harvesterhci.io/imageDisplayName'];
+        if (labelName) return labelName;
+        const imageName = ann['harvesterhci.io/image-name'];
+        if (imageName) return imageName;
+        const displayName = ann['field.cattle.io/displayName'];
+        if (displayName) return displayName;
+        if (found.spec?.displayName) return found.spec.displayName;
+        if (found.displayName) return found.displayName;
+      }
+      return '';
+    },
+
+    os: (r: any) => r?.vmi?.status?.guestOSInfo?.name || r?.vmi?.status?.guestOSInfo?.prettyName || '',
+
+    osName: (r: any) => {
+        // 1. 优先使用 Guest Agent 上报的 OS 名称 (最准确)
+        const guestOs = SafeRead.os(r);
+        if (guestOs) return guestOs;
+
+        // 2. 其次使用关联镜像的显示名称
+        const imgName = SafeRead.imageDisplayName(r);
+        if (imgName) return imgName;
+
+        // 3. 回退到 VM 名称组合
+        return `${r?.metadata?.annotations?.['tower.io/alias'] || r?.InstanceName || r?.name || r?.metadata?.name || ''} ${r?.metadata?.name || ''}`;
+    },
+
+    // ------------------------------------------
+    // 3.3 计算资源 (Compute)
+    // ------------------------------------------
     cpu: (r: any) => {
       const cpu = r?.spec?.template?.spec?.domain?.cpu;
       if (cpu?.cores && cpu?.sockets && cpu?.threads) {
@@ -474,6 +553,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       
       return r?.memoryGb || r?.vmi?.spec?.domain?.memory?.guest || '-';
     },
+
+    // ------------------------------------------
+    // 3.4 网络 (Network)
+    // ------------------------------------------
     ip: (r: any) => {
         if (Array.isArray(r?.ips) && r.ips.length > 0) return r.ips.join(', ');
         try {
@@ -499,6 +582,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
              const claimName = v?.persistentVolumeClaim?.claimName;
              const diskInfo = disks.find((d: any) => d.name === v.name);
              let capacityBytes = 0;
+             let imageDisplayName = '';
              
              if (claimName && volumes && volumes.length > 0) {
                  const pvc = volumes.find((p: any) => {
@@ -511,6 +595,26 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                      const actualPvc = pvc?.rawData || pvc;
                      const capStr = actualPvc?.status?.capacity?.storage || actualPvc?.spec?.resources?.requests?.storage || pvc?.size || '';
                      if (capStr) capacityBytes = parseStorageSize(capStr);
+
+                     // 尝试从 PVC 注解中获取镜像 ID，再查找镜像显示名称
+                     const pvcImageId = actualPvc?.metadata?.annotations?.['harvesterhci.io/imageId'];
+                     if (pvcImageId) {
+                         const foundImg = (vmImages || []).find((i: any) => {
+                             const id = i?.metadata?.name;
+                             const ns = i?.metadata?.namespace;
+                             const fullId = `${ns}/${id}`;
+                             return fullId === pvcImageId || id === pvcImageId || i.id === pvcImageId;
+                         });
+                         if (foundImg) {
+                             const labels = foundImg.metadata?.labels || {};
+                             const ann = foundImg.metadata?.annotations || {};
+                             imageDisplayName = labels['harvesterhci.io/imageDisplayName'] || 
+                                              ann['harvesterhci.io/image-name'] || 
+                                              ann['field.cattle.io/displayName'] || 
+                                              foundImg.spec?.displayName || 
+                                              foundImg.displayName || '';
+                         }
+                     }
                  }
              } else if (v.cloudInitNoCloud || v.cloudInitConfigDrive) {
                  // CloudInit 虚拟盘：容量不参与计算，仅用于展示类型
@@ -525,7 +629,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                  bootOrder: diskInfo?.bootOrder,
                  bus: diskInfo?.disk?.bus || diskInfo?.cdrom?.bus || '-',
                  type: v.persistentVolumeClaim ? 'Disk' : (v.cloudInitNoCloud || v.cloudInitConfigDrive ? 'CloudInit' : (v.containerDisk ? 'Container' : 'Unknown')),
-                 isCdrom: !!diskInfo?.cdrom
+                 isCdrom: !!diskInfo?.cdrom,
+                 imageDisplayName // 新增字段
              };
         }).sort((a: any, b: any) => (a.bootOrder || 999) - (b.bootOrder || 999));
     },
@@ -658,7 +763,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
             };
         });
     }
-  }), [namespaces, volumes, images, vpcs, subnets, nads]);
+  }), [namespaces, volumes, vpcs, subnets, nads]);
 
   // ==============================================================================
   // 10. 操作封装 (Actions)
@@ -738,6 +843,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleSaveAsTemplate = useCallback(async () => {
+    setTemplateAlias('');
+    setShowTemplateModal(true);
+  }, []);
+
+  const confirmSaveTemplate = async () => {
     if (!cloudId) return;
     const ns = SafeRead.namespace(vmData);
     const vmName = SafeRead.vmId(vmData);
@@ -745,16 +855,23 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       message.error('无法解析实例命名空间或名称');
       return;
     }
+    
     try {
       setSavingTemplate(true);
-      await saveHarvesterVmAsTemplate(cloudId, ns, vmName, {});
+      const annotations: Record<string, string> = {};
+      if (templateAlias.trim()) {
+        annotations['tower.io/template-alias'] = templateAlias.trim();
+      }
+      
+      await saveHarvesterVmAsTemplate(cloudId, ns, vmName, annotations);
       message.success('已根据当前实例配置创建模板');
+      setShowTemplateModal(false);
     } catch (e: any) {
       message.error(e?.message || '保存为模板失败');
     } finally {
       setSavingTemplate(false);
     }
-  }, [cloudId, vmData, SafeRead]);
+  };
 
   const handleEjectCdrom = useCallback(async () => {
     const disks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
@@ -872,7 +989,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       { key: 'backup', label: '备份', icon: <DatabaseOutlined />, onClick: () => onBackup && onBackup(vmData) },
       { key: 'snapshot', label: '快照', icon: <HistoryOutlined />, onClick: () => onSnapshot && onSnapshot(vmData) },
       { key: 'clone', label: '克隆', icon: <CopyOutlined />, onClick: () => onClone && onClone(vmData) },
-      { key: 'save_template', label: '保存为模板', icon: <SaveOutlined />, disabled: savingTemplate, onClick: handleSaveAsTemplate },
+      { key: 'save_template', label: '保存为模板', icon: <SaveOutlined />, onClick: handleSaveAsTemplate },
       
       { type: 'divider' },
 
@@ -906,15 +1023,13 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       <div style={{ background: '#f5f7fa', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ 
-                fontSize: 24, 
-                color: '#1890ff',
                 width: 38,
                 height: 38,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
             }}>
-                <DesktopOutlined />
+                <OsIcon osName={SafeRead.osName(vmData)} style={{ fontSize: 32 }} />
             </div>
             <div>
                 <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>{SafeRead.name(vmData)}</div>
@@ -1244,7 +1359,13 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                         title={
                                             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                                                 <span>{item.name}</span>
-                                                {item.bootOrder === 1 && <Tag color="orange" style={{ fontSize: 10 }}>BOOT</Tag>}
+                                                {item.bootOrder === 1 && <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>BOOT</Tag>}
+                                                {item.imageDisplayName && (
+                                                    <Tag color="blue" style={{ fontSize: 10, margin: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                                        <OsIcon osName={item.imageDisplayName} style={{ fontSize: 12 }} />
+                                                        {item.imageDisplayName}
+                                                    </Tag>
+                                                )}
                                             </div>
                                         }
                                         description={
@@ -1419,6 +1540,32 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               </Card>
           )}
       </div>
+      {/*
+        ========================================
+        5. 弹窗组件
+        ========================================
+      */}
+      <Modal
+        title="保存为模板"
+        open={showTemplateModal}
+        onCancel={() => setShowTemplateModal(false)}
+        onOk={confirmSaveTemplate}
+        confirmLoading={savingTemplate}
+        destroyOnClose
+      >
+        <div style={{ padding: '16px 0' }}>
+           <div style={{ marginBottom: 8, color: '#333' }}>模板名称 (Alias)</div>
+           <Input 
+              placeholder="请输入模板显示名称 (可选)" 
+              value={templateAlias}
+              onChange={e => setTemplateAlias(e.target.value)}
+              maxLength={63}
+           />
+           <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+              提示：此名称将作为模板的 tower.io/template-alias 注解保存，用于在列表中友好显示。
+           </div>
+        </div>
+      </Modal>
     </Drawer>
   );
 };

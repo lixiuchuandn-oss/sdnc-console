@@ -526,6 +526,61 @@ export const createHarvesterPVCVolume = async (
 };
 
 /**
+ * [获取单个镜像]
+ * 获取单个 Harvester 镜像详情。
+ *
+ * @param params 连接参数
+ * @param namespace 命名空间
+ * @param name 镜像名称
+ * @returns Promise<any> 镜像对象
+ */
+export const getHarvesterImage = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  // Try v1beta1 first, then v1
+  const candidates = [
+    `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachineimages/${encodeURIComponent(name)}`,
+    `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachineimages/${encodeURIComponent(name)}`,
+    // Global scope (Harvester images are often cluster-scoped or in 'default'/'harvester-public' namespace)
+    // If namespace provided is the VM's namespace, but image is public, we might need to check other namespaces.
+    // However, for getHarvesterImage(ns, name), we respect the provided namespace.
+  ];
+
+  let json: any = null;
+  for (const url of candidates) {
+    try {
+      json = await getJsonOnce(url, token, insecure);
+      if (json) break;
+    } catch (e) {
+      // ignore
+    }
+  }
+  
+  if (json) {
+     return {
+        name: json?.metadata?.name || json?.name || '',
+        namespace: json?.metadata?.namespace || json?.namespace || '',
+        displayName: json?.spec?.displayName || json?.spec?.name || '',
+        metadata: json?.metadata,
+        spec: json?.spec,
+        status: json?.status
+     };
+  }
+  return null;
+};
+
+/**
  * [导出镜像]
  * 从 PVC 导出为 Harvester 虚拟机镜像。
  *

@@ -11,7 +11,7 @@ import { TableColumnSettings } from '../../../../components/TableColumnSettings'
 import { deleteHarvesterBackup } from '../../../../services/harvesterApi';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 
 /**
  * 组件入参

@@ -13,7 +13,7 @@ import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 
 /**
  * 组件入参说明

@@ -656,25 +656,36 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
 
         const vmAnnotations = vm.metadata?.annotations || {};
 
-        const alias =
-          aliasFromBody ||
-          vmAnnotations['tower.io/alias'] ||
-          vmAnnotations['harvesterhci.io/displayName'] ||
-          vmName;
-
+        // 构造新的注解对象，避免直接复制原始 VM 的所有注解（如 mac-address 等不应在模板层保留）
+        const templateAnnotations: any = {};
+        
+        // 保留描述
         const description =
           descFromBody ||
           vmAnnotations['description'] ||
-          vmAnnotations['harvesterhci.io/description'] ||
-          '';
+          vmAnnotations['harvesterhci.io/description'];
+        
+        if (description) {
+            templateAnnotations['harvesterhci.io/description'] = description;
+        }
 
-        let volumeClaimTemplates: any[] | undefined = undefined;
+        // 处理别名 (Template Alias)
+        if (aliasFromBody) {
+             templateAnnotations['tower.io/template-alias'] = aliasFromBody;
+        } else if (vmAnnotations['tower.io/template-alias']) {
+             templateAnnotations['tower.io/template-alias'] = vmAnnotations['tower.io/template-alias'];
+        }
+
+        // 保留 volumeClaimTemplates (如果存在)
         const vctRaw = vmAnnotations['harvesterhci.io/volumeClaimTemplates'];
+        let volumeClaimTemplates: any[] | undefined = undefined;
         if (vctRaw) {
           try {
             const parsed = JSON.parse(vctRaw);
             if (Array.isArray(parsed)) {
               volumeClaimTemplates = parsed;
+              // 在 Template Metadata 中也保留这个注解，以便快速查看
+              templateAnnotations['harvesterhci.io/volumeClaimTemplates'] = vctRaw;
             }
           } catch {
           }
@@ -694,36 +705,27 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
         )}/virtualmachinetemplates`;
 
         const resourceName = `id-vmtpl-${Math.random().toString(36).substring(2, 18)}`;
+        const versionName = `id-vmtplv-${Math.random().toString(36).substring(2, 18)}`;
 
+        // 1. Create Template
         const templatePayload: any = {
           apiVersion: 'harvesterhci.io/v1beta1',
           kind: 'VirtualMachineTemplate',
           metadata: {
             name: resourceName,
             namespace: targetNamespace,
-            labels: vm.metadata?.labels || undefined,
-            annotations: {
-              ...vmAnnotations,
-              'tower.io/alias': alias,
+            labels: {
+                // 仅保留必要的 Label，不复制 vmName 等特定 Label
+                'harvesterhci.io/creator': 'tower', 
             },
+            annotations: templateAnnotations,
           },
           spec: {
             description: description || undefined,
-            template: {
-              metadata: {
-                labels: vm.spec?.template?.metadata?.labels || undefined,
-                annotations: vm.spec?.template?.metadata?.annotations || undefined,
-              },
-              spec: vm.spec?.template?.spec,
-            },
           },
         };
 
-        if (volumeClaimTemplates && volumeClaimTemplates.length > 0) {
-          (templatePayload.spec as any).volumeClaimTemplates = volumeClaimTemplates;
-        }
-
-        const created = await requestJson(
+        const createdTemplate = await requestJson(
           'POST',
           url,
           cloud.secretKey || '',
@@ -731,7 +733,121 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           templatePayload,
         );
 
-        res.json({ message: '模板创建成功', data: created });
+        // 2. Create Template Version
+        const versionUrl = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
+          targetNamespace,
+        )}/virtualmachinetemplateversions`;
+
+        // Extract SSH Key IDs from annotations
+        let keyPairIds: string[] = [];
+        try {
+            const sshNames = vmAnnotations['harvesterhci.io/sshNames'];
+            if (sshNames) {
+                const parsed = JSON.parse(sshNames);
+                if (Array.isArray(parsed)) {
+                    keyPairIds = parsed;
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to parse sshNames annotation', e);
+        }
+
+        const versionPayload: any = {
+          apiVersion: 'harvesterhci.io/v1beta1',
+          kind: 'VirtualMachineTemplateVersion',
+          metadata: {
+            name: versionName,
+            namespace: targetNamespace,
+            ownerReferences: [
+              {
+                apiVersion: 'harvesterhci.io/v1beta1',
+                kind: 'VirtualMachineTemplate',
+                name: resourceName,
+                uid: createdTemplate.metadata.uid,
+                blockOwnerDeletion: true,
+                controller: true
+              }
+            ]
+          },
+          spec: {
+            templateId: `${targetNamespace}/${resourceName}`,
+            keyPairIds: keyPairIds.length > 0 ? keyPairIds : undefined,
+            vm: {
+              // VirtualMachine structure (metadata + spec)
+              metadata: {
+                  annotations: {
+                      // 保留必要的注解
+                      'harvesterhci.io/volumeClaimTemplates': templateAnnotations['harvesterhci.io/volumeClaimTemplates'],
+                  }
+              },
+              spec: {
+                  template: {
+                    metadata: {
+                      labels: vm.spec?.template?.metadata?.labels || undefined,
+                      annotations: vm.spec?.template?.metadata?.annotations || undefined,
+                    },
+                    spec: {
+                        ...vm.spec?.template?.spec,
+                    }
+                  }
+              }
+            },
+          },
+        };
+
+        // Handle VolumeClaimTemplates (sibling to template in VirtualMachineSpec)
+        if (volumeClaimTemplates && volumeClaimTemplates.length > 0) {
+          (versionPayload.spec.vm.spec as any).volumeClaimTemplates = volumeClaimTemplates;
+        }
+
+        // Clean up
+        const templateSpec = versionPayload.spec.vm.spec.template.spec;
+        
+        // 1. Remove hostname to avoid conflict
+        if (templateSpec.hostname) {
+            delete templateSpec.hostname;
+        }
+
+        // 2. Clean up firmware UUID
+        if (templateSpec.domain?.firmware?.uuid) {
+            delete templateSpec.domain.firmware.uuid;
+        }
+
+        // 3. Remove MAC addresses
+        if (templateSpec.domain?.devices?.interfaces) {
+            templateSpec.domain.devices.interfaces.forEach((iface: any) => {
+                if (iface.macAddress) delete iface.macAddress;
+            });
+        }
+
+        await requestJson(
+          'POST',
+          versionUrl,
+          cloud.secretKey || '',
+          insecure,
+          versionPayload,
+        );
+
+        // 3. Update Template with defaultVersionId
+        // Fetch the latest template first to avoid 409 Conflict (resourceVersion mismatch)
+        const latestTemplate = await requestJson(
+            'GET',
+            `${url}/${resourceName}`,
+            cloud.secretKey || '',
+            insecure
+        );
+
+        latestTemplate.spec.defaultVersionId = versionName;
+        
+        await requestJson(
+            'PUT',
+            `${url}/${resourceName}`,
+            cloud.secretKey || '',
+            insecure,
+            latestTemplate
+        );
+
+        res.json({ message: '模板创建成功', data: latestTemplate });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '保存为模板失败', error: error.message || String(error) });

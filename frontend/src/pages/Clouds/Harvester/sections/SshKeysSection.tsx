@@ -14,7 +14,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import SshKeyCreateModal from '../modals/SshKeyCreateModal';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import { deleteHarvesterSshKey } from '../../../../services/harvesterApi';
 

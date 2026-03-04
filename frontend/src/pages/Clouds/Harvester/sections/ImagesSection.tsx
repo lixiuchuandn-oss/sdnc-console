@@ -32,7 +32,7 @@ import { EllipsisOutlined, ReloadOutlined, DownloadOutlined, SearchOutlined } fr
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { API_BASE_URL } from '../../../../services/api';
 import { deleteHarvesterImage, createHarvesterImage, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
@@ -174,15 +174,20 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
       const ns = getNs(r);
       
       // [系统资源过滤]
-      // 租户模式: 严格隔离，禁止查看公共命名空间和系统命名空间
-      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+      // 租户模式: 严格隔离，禁止查看系统命名空间，但允许查看公共命名空间 (harvester-public)
+      if (isTenant) {
+        if (isSystemNamespace(ns) && !isPublicNamespace(ns)) return false;
+      } else {
+        // 管理员模式: 默认不过滤，或根据其他逻辑过滤
+      }
 
       // Scope Filter
       if (scopeFilter === 'public' && !isPublicNamespace(ns)) return false;
-      // Private = !System && !Public
-      // Note: isSystemNamespace includes 'harvester-public', so !isSystemNamespace excludes it.
-      // However, to be safe and explicit based on user rule:
-      if (scopeFilter === 'private' && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+      
+      if (scopeFilter === 'private') {
+        // Private: 非公共且非系统
+        if (isPublicNamespace(ns) || isSystemNamespace(ns)) return false;
+      }
 
       if (kw && !(name.includes(kw) || id.includes(kw))) return false;
       const key = String((typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status)) || '').toLowerCase();
@@ -373,17 +378,11 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, b
             value={scopeFilter || undefined}
             onChange={(v)=> setScopeFilter(v || '')}
             className="toolbar-filter-sm"
-            options={
-              // 租户模式下强制私有作用域，不再显示"公共镜像"选项
-              isTenant ? [
-                { value: '', label: '全部' },
-                { value: 'private', label: '私有镜像' },
-              ] : [
-                { value: '', label: '全部' },
-                { value: 'public', label: '公共镜像' },
-                { value: 'private', label: '私有镜像' },
-              ]
-            }
+            options={[
+              { value: '', label: '全部' },
+              { value: 'public', label: '公共镜像' },
+              { value: 'private', label: '私有镜像' },
+            ]}
           />
           <Select
             allowClear

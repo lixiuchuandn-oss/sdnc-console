@@ -14,7 +14,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import { fetchHarvesterNadDetail, deleteHarvesterNad } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import NadCreateModal from '../modals/NadCreateModal';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 

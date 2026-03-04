@@ -95,7 +95,7 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
 
   const drawerTitle = record 
     ? `${resourceType}: ${record.metadata?.name || record.name || ''}`
-    : `Harvester ${resourceType} 详情`;
+    : ` ${resourceType} Opsinfo`;
 
   return (
     <Drawer
@@ -210,35 +210,6 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
             label: '实时数据 (View Link)',
             children: <ViewLinkTab cloudId={cloudId} viewLink={record?.links?.view} active={activeTab === 'view_link'} />
           }] : []),
-          
-          ...(record ? [{
-            key: 'yaml',
-            label: 'YAML',
-            children: (
-              <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <LinedTextArea
-                  readOnly
-                  value={(() => {
-                    try {
-                      // 移除 rawData 和 links 避免循环引用或不必要的元数据
-                      const { rawData, links, ...rest } = record;
-                      return yaml.dump(rest);
-                    } catch (e) {
-                      return String(record);
-                    }
-                  })()}
-                  className="metadata-viewer"
-                  style={{ flex: 1, border: 'none', borderRadius: 0 }}
-                />
-              </div>
-            )
-          }] : []),
-
-          ...(record ? [{
-            key: 'events',
-            label: '事件 (Events)',
-            children: <HarvesterEventsTab cloudId={cloudId} record={record} active={activeTab === 'events'} kind={resourceType} />
-          }] : [])
         ]}
       />
     </Drawer>

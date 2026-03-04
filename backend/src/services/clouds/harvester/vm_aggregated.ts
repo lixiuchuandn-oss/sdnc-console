@@ -1,12 +1,12 @@
 
 import { HarvesterTestParams } from './types';
-import { getHarvesterVM } from './vm';
+import { getHarvesterVM, getHarvesterVMI } from './vm';
 import {
   listHarvesterNADsStandard,
   listKubeOvnVpcs,
   listKubeOvnSubnets,
 } from './network';
-import { listHarvesterImagesStandard } from './storage';
+import { getHarvesterImage } from './storage';
 import { getJsonOnce } from './utils';
 
 /**
@@ -69,23 +69,83 @@ export const getHarvesterVMAggregated = async (
   // If VM fetch fails, the whole request fails, which is expected.
   
   const vmPromise = getHarvesterVM(params, namespace, name);
+  const vmiPromise = getHarvesterVMI(params, namespace, name);
   const nadsPromise = listHarvesterNADsStandard(params);
   const vpcsPromise = listKubeOvnVpcs(params);
   const subnetsPromise = listKubeOvnSubnets(params);
   const volumesPromise = listHarvesterPVCsInNamespace(params, namespace);
-  const imagesPromise = listHarvesterImagesStandard(params);
 
-  const [vm, allNads, allVpcs, allSubnets, allVolumes, allImages] = await Promise.all([
+  const [vm, vmi, allNads, allVpcs, allSubnets, allVolumes] = await Promise.all([
     vmPromise,
+    vmiPromise,
     nadsPromise,
     vpcsPromise,
     subnetsPromise,
-    volumesPromise,
-    imagesPromise
+    volumesPromise
   ]);
 
   if (!vm) {
     throw new Error(`VM ${namespace}/${name} not found`);
+  }
+
+  // Attach VMI to VM object for frontend compatibility
+  if (vmi) {
+      vm.vmi = vmi;
+      // Also merge status for robustness
+      if (!vm.status) vm.status = {};
+      if (vmi.status) {
+          // Merge VMI status into VM status, prioritizing VMI (runtime) info
+          vm.status = { ...vm.status, ...vmi.status };
+      }
+  }
+
+  // --- Fetch Related Image (if any) ---
+  // VM can be created from an image, which is usually stored in annotation "harvesterhci.io/imageId"
+  // format: "namespace/name"
+  let relatedImage = null;
+  let imageId = vm.metadata?.annotations?.['harvesterhci.io/imageId'];
+
+  // Fallback: If not found on VM, try to find image annotation on associated PVCs
+  if (!imageId) {
+      // Note: allVolumes contains PVCs in the same namespace.
+      // We need to check which volumes are actually used by this VM.
+      const vmVolumes = vm.spec?.template?.spec?.volumes || [];
+      const claimNames = new Set(
+        vmVolumes
+          .map((v: any) => v.persistentVolumeClaim?.claimName)
+          .filter((n: any) => n)
+      );
+      
+      const attachedVolumes = (allVolumes || []).filter((pvc: any) => 
+        claimNames.has(pvc?.metadata?.name)
+      );
+
+      for (const vol of attachedVolumes) {
+          const volImageId = vol.metadata?.annotations?.['harvesterhci.io/imageId'];
+          if (volImageId) {
+              imageId = volImageId;
+              break; // Found one, use it
+          }
+      }
+  }
+
+  if (imageId) {
+      // 1. Try to split by '/' directly
+      const parts = imageId.split('/');
+      if (parts.length === 2) {
+          try {
+              relatedImage = await getHarvesterImage(params, parts[0], parts[1]);
+          } catch(e) {
+              console.warn(`[Harvester-Aggregated] Failed to fetch related image ${imageId}:`, e);
+          }
+      } else {
+          // 2. Try to handle case where namespace is not present, assume same namespace as VM
+          try {
+              relatedImage = await getHarvesterImage(params, namespace, imageId);
+          } catch(e) {
+              console.warn(`[Harvester-Aggregated] Failed to fetch related image ${imageId} (assumed ns=${namespace}):`, e);
+          }
+      }
   }
 
   // --- Filter Resources to reduce payload size ---
@@ -168,8 +228,8 @@ export const getHarvesterVMAggregated = async (
       nads: relatedNads,
       vpcs: relatedVpcs,
       subnets: relatedSubnets,
-      images: allImages || [],
       volumes: relatedVolumes,
+      images: relatedImage ? [relatedImage] : [],
     }
   };
 };

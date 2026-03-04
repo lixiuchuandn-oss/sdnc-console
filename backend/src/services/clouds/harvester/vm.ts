@@ -463,6 +463,45 @@ export const getHarvesterVM = async (
 };
 
 /**
+ * 获取 Harvester 虚拟机实例 (Get VMI)
+ * 
+ * [功能描述]
+ * 获取虚拟机运行时实例 (VirtualMachineInstance)，包含详细的运行时状态（IP、节点、迁移状态等）。
+ * 
+ * @param params Harvester 连接参数
+ * @param namespace 命名空间
+ * @param name 虚拟机名称
+ * @returns VMI 对象或 null
+ */
+export const getHarvesterVMI = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachineinstances/${encodeURIComponent(name)}`;
+  
+  try {
+    const res = await getJsonOnce(url, token, insecure);
+    if (res && (res.metadata?.name || res.name)) {
+      return res;
+    }
+  } catch (e: any) {
+    // VMI might not exist if VM is stopped, just return null
+    return null;
+  }
+  return null;
+};
+
+/**
  * 创建 Harvester 虚拟机 (Create VM)
  * 
  * [功能描述]

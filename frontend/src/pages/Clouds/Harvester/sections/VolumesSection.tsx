@@ -49,7 +49,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 
 import { isSystemNamespace, isSystemStorageClass, isPublicNamespace } from '../../../../utils/harvesterUtils';
 

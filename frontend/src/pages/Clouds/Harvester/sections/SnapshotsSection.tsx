@@ -33,13 +33,14 @@
  * ==============================================================================
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Badge, Button, Modal, Input, message, Dropdown, Select } from 'antd';
+import { Table, Badge, Button, Modal, Input, message, Dropdown, Select, Checkbox } from 'antd';
 import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { deleteHarvesterSnapshot } from '../../../../services/harvesterApi';
 import VolumeSnapshotRestoreModal from '../modals/VolumeSnapshotRestoreModal';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件 Props 定义
@@ -49,6 +50,8 @@ import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
  * @property onRefresh - 刷新回调，force=true 表示强制从后端同步
  * @property bordered - 是否显示表格边框 (默认: true)。租户侧可能需要无边框样式。
  * @property showYaml - 是否显示 YAML/详情入口 (默认: true)。租户侧通常隐藏底层细节。
+ * @property isTenant - 是否为租户模式 (租户模式下强制过滤系统和公共卷，且隐藏开关)
+ * @property showSys - [已废弃，逻辑合并入 isTenant] 是否允许显示系统资源开关 (默认 true)
  */
 interface Props {
   cloudId: string;
@@ -57,6 +60,8 @@ interface Props {
   onRefresh?: (force?: boolean) => void;
   bordered?: boolean;
   showYaml?: boolean;
+  isTenant?: boolean;
+  showSys?: boolean;
 }
 
 const SnapshotsSection: React.FC<Props> = ({ 
@@ -65,12 +70,17 @@ const SnapshotsSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   bordered = true,
-  showYaml = true
+  showYaml = true,
+  isTenant = false,
+  showSys = true
 }) => {
   // ==============================================================================
   // 1. 状态定义 (State Definitions)
   // ==============================================================================
   
+  // 系统资源显示控制
+  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
+
   // 工具栏过滤与选择状态
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -116,8 +126,20 @@ const SnapshotsSection: React.FC<Props> = ({
   // 这里的逻辑是为了支持客户端即时搜索，无需频繁请求后端。
   // 1. 关键字匹配：同时搜索 Name, Namespace 和 Alias。
   // 2. 状态匹配：根据 Ready/NotReady 进行精确筛选。
+  // 3. 系统资源过滤：根据 isTenant 和 showSystemResources 决定是否显示系统资源。
   const filteredData = useMemo(() => {
     let d = dataSource;
+
+    // [系统资源过滤]
+    d = d.filter((r: any) => {
+      const ns = r.namespace;
+      // 1. 租户模式: 强制过滤系统命名空间和公共命名空间
+      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
+      // 2. 管理员模式: 仅在未勾选"显示系统资源"时过滤系统命名空间
+      if (!isTenant && !showSystemResources && isSystemNamespace(ns)) return false;
+      return true;
+    });
+
     if (keyword) {
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => 
@@ -134,7 +156,7 @@ const SnapshotsSection: React.FC<Props> = ({
       }
     }
     return d;
-  }, [dataSource, keyword, statusFilter]);
+  }, [dataSource, keyword, statusFilter, isTenant, showSystemResources]);
 
   // ==============================================================================
   // 3. 交互处理 (Action Handlers)
@@ -320,6 +342,16 @@ const SnapshotsSection: React.FC<Props> = ({
               { value: 'notReady', label: 'NotReady' }
             ]}
           />
+          {!isTenant && (
+            <div style={{ display: 'flex', alignItems: 'center', marginLeft: 8 }}>
+              <Checkbox 
+                checked={showSystemResources} 
+                onChange={(e: any) => setShowSystemResources(e.target.checked)}
+              >
+                显示系统资源
+              </Checkbox>
+            </div>
+          )}
         </>
       )}
       toolbarRight={

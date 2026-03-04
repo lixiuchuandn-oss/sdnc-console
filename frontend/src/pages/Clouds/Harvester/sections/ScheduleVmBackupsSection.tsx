@@ -34,7 +34,7 @@ import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from '../../../../services/harvesterApi';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { TableColumnSettings } from '../../../../components/TableColumnSettings';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
 

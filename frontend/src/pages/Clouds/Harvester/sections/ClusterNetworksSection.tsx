@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Table, Tag, Input, Button, Space, Badge, Select } from 'antd';
 import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import dayjs from 'dayjs';
 
 type Props = {

@@ -47,7 +47,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, saveHarvesterVmAsTemplate, fetchHarvesterNodes, fetchHarvesterNads } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import { isSystemNamespace, isPublicNamespace, cnVmStatus, VM_STATUS_MAP } from '../../../../utils/harvesterUtils';
@@ -89,17 +89,14 @@ type Props = {
   images?: any[];
   namespaces?: any[];
   volumes?: any[]; // 从父组件传入，用于状态检查
-  bordered?: boolean;
-  showYaml?: boolean;
   isTenant?: boolean;
-  showSys?: boolean;
 };
 
 /**
  * [组件定义] VmSection
  * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], bordered = true, showYaml = true, isTenant = false, showSys = true }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false }) => {
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
   const navigate = useNavigate();
@@ -1169,9 +1166,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const text = SafeRead.name(r) || '-';
       const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
       return (
-        <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>
+        <span>
           <OsIcon osName={osName} style={{ marginRight: 8 }} />
-          {text}
+          <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>
+            {text}
+          </span>
         </span>
       );
     } },
@@ -1299,7 +1298,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         { key: 'detail', label:'实例详情', onClick: () => handleShowMetadata(r, 'detail') },
         
         // 运维模式下的 YAML 查看
-        ...(showYaml ? [
+        ...(!isTenant ? [
             { key: 'detail_ops', label: '查看YAML', onClick: () => handleShowMetadata(r, 'detail', true) }
         ] : []),
 
@@ -1352,9 +1351,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
         { key: 'delete', label: '删除', danger: true, onClick: () => handleDeleteConfirm(r) },
       ];
-      return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+      return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }} />;
     } },
-  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, showYaml]);
+  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant]);
 
   // ==========================================
   // [UI渲染] 8. 组件结构返回 (Render)
@@ -1468,7 +1467,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       <Table
         key="vm-table"
         className="std-table"
-        bordered={bordered}
+        bordered={!isTenant}
         rowKey={(r:any)=> getIid(r)}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: (keys)=> setSelectedKeys(keys) }}
         columns={tableColumns}

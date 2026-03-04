@@ -214,6 +214,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       label: '云主机',
       resources: [
         { key: 'vm', label: '实例' },
+        { key: 'template', label: '模板' },
         { key: 'image', label: '镜像' },
         { key: 'ssh', label: 'SSH密钥' },
         { key: 'cloudinit', label: 'Cloud init' },
@@ -291,8 +292,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onPause={onPause}
             onUnpause={onUnpause}
             onDelete={onDelete}
-            bordered={bordered}
-            showYaml={showYaml}
             isTenant={true}
           />
         );
@@ -303,8 +302,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             templates={templates}
             loading={loading}
             onRefresh={onRefreshTemplates}
-            bordered={bordered}
-            showYaml={showYaml}
             isTenant={true}
           />
         );
@@ -367,6 +364,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudId={cloudId}
             bordered={bordered}
             showYaml={showYaml}
+            isTenant={true}
           />
         );
       case 'image':

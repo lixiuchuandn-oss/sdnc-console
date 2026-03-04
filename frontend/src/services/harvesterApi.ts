@@ -439,6 +439,28 @@ export const fetchHarvesterResourceByLink = async (cloudId: string, path: string
   return await res.json();
 };
 
+export const deleteHarvesterResourceByLink = async (cloudId: string, path: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    try {
+      const j = JSON.parse(t);
+      const msg = j?.message || '删除失败';
+      const detail = j?.error ? (typeof j.error === 'string' ? j.error : JSON.stringify(j.error)) : '';
+      throw new Error(detail ? `${msg} | ${detail}` : msg);
+    } catch (e: any) {
+      if (e.message && e.message.includes('|')) throw e;
+      throw new Error(t);
+    }
+  }
+  return await res.json();
+};
+
 export const fetchHarvesterUsbResources = async (cloudId: string) => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/usb-devices`, {

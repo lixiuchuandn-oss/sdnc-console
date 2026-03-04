@@ -14,15 +14,18 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Table, Input, Button } from 'antd';
+import { Table, Input, Button, Checkbox, Select, Modal, message, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
+import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterTemplateDetailDrawer from '../components/HarvesterTemplateDetailDrawer';
+import HarvesterOpsinfoDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { deleteHarvesterResourceByLink } from '../../../../services/harvesterApi';
 
 /**
  * Props 定义
@@ -37,9 +40,8 @@ interface Props {
   templates: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
-  bordered?: boolean;
-  showYaml?: boolean;
-  isTenant?: boolean;
+  // [新增] 视图控制属性
+  isTenant?: boolean; // 是否为租户模式
 }
 
 const getTemplateNamespace = (tpl: any): string =>
@@ -67,18 +69,92 @@ const getTemplateDisplayName = (tpl: any): string =>
  * 说明：
  * - 此组件本身不直接调用后端，只消费上层传入的数据和回调
  */
-const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, onRefresh, bordered = true, showYaml = true, isTenant = false }) => {
+const TemplatesSection: React.FC<Props> = ({ 
+  cloudId, 
+  templates = [], 
+  loading, 
+  onRefresh, 
+  isTenant = false,
+}) => {
+  const { modal } = App.useApp();
+  // [状态] 控制系统资源显示的开关 (默认关闭)
+  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
+  
+  // [推导] 视图控制变量
+  const bordered = !isTenant; // 租户模式无边框
+  const showYaml = !isTenant; // 租户模式不显示 YAML
+
   /**
    * 搜索关键字（受控 Input）
    * - 用户在顶部输入框中输入的文本
    * - 用于在前端过滤模板列表（按名称 / 命名空间模糊匹配）
    */
   const [searchText, setSearchText] = useState('');
+  // 命名空间筛选状态
+  const [selectedNamespace, setSelectedNamespace] = useState<string | undefined>(undefined);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
-  const [detailActiveTab, setDetailActiveTab] = useState('detail');
+  const [opsInfoVisible, setOpsInfoVisible] = useState(false);
+  const [opsInfoRecord, setOpsInfoRecord] = useState<any>(null);
+  const [opsInfoActiveTab, setOpsInfoActiveTab] = useState('detail');
   const navigate = useNavigate();
   const location = useLocation();
+
+  const handleDelete = async (tpl: any) => {
+    const ns = getTemplateNamespace(tpl);
+    const name = getTemplateName(tpl);
+    
+    modal.confirm({
+      title: '确认删除模板？',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要删除模板 ${name} 吗？此操作不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          // Template Path: /apis/harvesterhci.io/v1beta1/namespaces/{ns}/virtualmachinetemplates/{name}
+          const path = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
+          await deleteHarvesterResourceByLink(cloudId, path);
+          message.success('删除成功');
+          onRefresh?.(true);
+        } catch (e: any) {
+          message.error(`删除失败: ${e.message}`);
+        }
+      }
+    });
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) return;
+
+    modal.confirm({
+      title: '确认批量删除模板？',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要删除选中的 ${selectedRowKeys.length} 个模板吗？此操作不可恢复。`,
+      okText: '批量删除',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          const promises = selectedRowKeys.map(async (key) => {
+            const tpl = templates.find(t => (t.metadata?.uid || t.metadata?.name) === key);
+            if (!tpl) return;
+            const ns = getTemplateNamespace(tpl);
+            const name = getTemplateName(tpl);
+            const path = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
+            await deleteHarvesterResourceByLink(cloudId, path);
+          });
+          
+          await Promise.all(promises);
+          message.success('批量删除指令已发送');
+          setSelectedRowKeys([]);
+          onRefresh?.(true);
+        } catch (e: any) {
+          message.error(`批量删除失败: ${e.message}`);
+        }
+      }
+    });
+  };
 
   const handleCreateFromTemplate = (tpl: any) => {
     if (!tpl) return;
@@ -92,12 +168,33 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
     });
   };
 
-  const handleOpenDrawer = (tpl: any, tab: string = 'detail') => {
+  const handleOpenDrawer = (tpl: any) => {
     if (!tpl) return;
     const r = { ...tpl, kind: tpl?.kind || 'VirtualMachineTemplate' };
     setDetailRecord(r);
-    setDetailActiveTab(tab);
     setDetailVisible(true);
+  };
+
+  const handleOpenOpsInfo = (tpl: any) => {
+    if (!tpl) return;
+    const ns = getTemplateNamespace(tpl);
+    const name = getTemplateName(tpl);
+    // 构造 view link 用于 HarvesterOpsinfoDrawer 获取实时数据
+    // Template 路径: /apis/harvesterhci.io/v1beta1/namespaces/{ns}/virtualmachinetemplates/{name}
+    const viewLink = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
+    
+    const r = { 
+        ...tpl, 
+        kind: tpl?.kind || 'VirtualMachineTemplate',
+        links: {
+            ...(tpl?.links || {}),
+            view: viewLink
+        }
+    };
+    console.log('Opening OpsInfo for template:', r);
+    setOpsInfoRecord(r);
+    setOpsInfoActiveTab('detail');
+    setOpsInfoVisible(true);
   };
   
   /**
@@ -120,13 +217,9 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
       title: '名称',
       key: 'name',
       render: (_: any, r: any) => (
-        showYaml ? (
-          <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
-            {getTemplateDisplayName(r)}
-          </span>
-        ) : (
-          <span>{getTemplateDisplayName(r)}</span>
-        )
+        <span className="cell-link" onClick={() => { handleOpenDrawer(r); }}>
+          {getTemplateDisplayName(r)}
+        </span>
       )
     },
     {
@@ -142,48 +235,67 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
     {
       title: '创建时间',
       key: 'createdAt',
-      render: (_: any, r: any) => r.metadata?.creationTimestamp || '-'
+      className: 'std-time',
+      sorter: (a: any, b: any) => {
+        const t1 = a.metadata?.creationTimestamp || '';
+        const t2 = b.metadata?.creationTimestamp || '';
+        return t1.localeCompare(t2);
+      },
+      render: (_: any, r: any) => {
+        const t = r.metadata?.creationTimestamp;
+        return t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-';
+      }
     },
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 80,
       render: (_: any, r: any) => {
         const items: any[] = [
           {
             key: 'create_vm',
-            label: '基于此模版创建虚拟机',
+            label: '创建虚拟机',
             onClick: () => handleCreateFromTemplate(r),
-          },
-          {
-            key: 'edit_template',
-            label: '修改模版',
-            disabled: true,
-          },
-          {
-            key: 'set_default',
-            label: '设置默认版本',
-            disabled: true,
-          },
-          {
-            type: 'divider' as const,
           },
           {
             key: 'detail',
             label: '资源详情',
-            onClick: () => handleOpenDrawer(r, 'detail'),
-          },
+            onClick: () => { handleOpenDrawer(r); },
+          }
         ];
+
+        // 仅在非租户模式下显示运维信息
+        if (!isTenant) {
+          items.push({
+            key: 'ops_info',
+            label: '运维信息',
+            onClick: () => { handleOpenOpsInfo(r); },
+          });
+        }
+
+        items.push(
+          { type: 'divider' as const },
+          {
+            key: 'delete',
+            label: '删除',
+            danger: true,
+            onClick: () => handleDelete(r),
+          }
+        );
+
         return (
           <ResourceActionsDropdown
             items={items}
-            buttonProps={{ className: 'row-actions-trigger' }}
+            buttonProps={{ 
+              className: 'row-actions-trigger',
+              style: { margin: 0 } 
+            }}
           />
         );
       },
     }
   ],
-    [],
+    [isTenant, showYaml],
   );
 
   /**
@@ -196,53 +308,114 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
   const [tableColumns, setTableColumns] = useState<ColumnsType<any>>(allColumns);
 
   /**
-   * 过滤后的数据源（filteredData）
-   *
-   * 过滤逻辑：
-   * - 当 searchText 为空时，直接返回原始 templates
-   * - 当 searchText 不为空时：
-   *   - 将关键字转为小写
-   *   - 只保留名称或命名空间中包含关键字的模板
+   * 基础数据（过滤系统资源/租户权限）
    */
-  const filteredData = useMemo(() => {
-    if (!searchText) {
-      if (!isTenant) return templates;
-      return templates.filter((t: any) => {
-        const ns = getTemplateNamespace(t);
-        // 租户模式：过滤系统命名空间和公共命名空间
-        return !isSystemNamespace(ns) && !isPublicNamespace(ns);
-      });
-    }
-
-    const lower = searchText.toLowerCase();
+  const baseData = useMemo(() => {
     return templates.filter((t: any) => {
       const ns = getTemplateNamespace(t);
-      
-      // 租户模式：过滤系统命名空间和公共命名空间
-      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
-      
-      return (
-        getTemplateDisplayName(t).toLowerCase().includes(lower) ||
-        ns.toLowerCase().includes(lower)
-      );
+      if (isTenant) {
+        // 租户模式：
+        // 1. 公共命名空间（无论是否是系统命名空间）：保留
+        if (isPublicNamespace(ns)) return true;
+        // 2. 非公共的系统命名空间：过滤
+        if (isSystemNamespace(ns)) return false;
+        return true;
+      }
+      // 管理员模式：根据开关决定是否显示系统命名空间
+      if (!showSystemResources && isSystemNamespace(ns)) return false;
+      return true;
     });
-  }, [searchText, templates, isTenant]);
+  }, [templates, isTenant, showSystemResources]);
+
+  /**
+   * 命名空间选项
+   */
+  const namespaceOptions = useMemo(() => {
+    const nsSet = new Set<string>();
+    baseData.forEach((t: any) => {
+      const ns = getTemplateNamespace(t);
+      if (ns) nsSet.add(ns);
+    });
+    return Array.from(nsSet).map(ns => ({ value: ns, label: ns }));
+  }, [baseData]);
+
+  /**
+   * 最终展示的数据（filteredData）
+   *
+   * 过滤逻辑：
+   * - 基于 baseData
+   * - 应用命名空间筛选
+   * - 应用名称关键字搜索
+   */
+  const filteredData = useMemo(() => {
+    return baseData.filter((t: any) => {
+      // 1. 命名空间筛选
+      const ns = getTemplateNamespace(t);
+      if (selectedNamespace && ns !== selectedNamespace) return false;
+
+      // 2. 关键字搜索（仅搜索名称）
+      if (searchText) {
+        const lower = searchText.toLowerCase();
+        return getTemplateDisplayName(t).toLowerCase().includes(lower);
+      }
+      
+      return true;
+    });
+  }, [baseData, searchText, selectedNamespace]);
 
   return (
       <PageDetailSection
         toolbarLeft={(
-          <Input
-            placeholder="搜索名称或命名空间"
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            className="toolbar-search"
-            allowClear
-          />
+          <>
+            <Input
+              placeholder="搜索名称"
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+              className="toolbar-search"
+              allowClear
+            />
+            <Select
+              allowClear
+              showSearch
+              placeholder="命名空间"
+              value={selectedNamespace}
+              onChange={setSelectedNamespace}
+              options={namespaceOptions}
+              className="toolbar-filter"
+            />
+            {!isTenant && (
+              <Checkbox
+                checked={showSystemResources}
+                onChange={e => setShowSystemResources(e.target.checked)}
+              >
+                显示系统资源
+              </Checkbox>
+            )}
+            <a 
+              className="toolbar-reset-btn" 
+              onClick={() => {
+                setSearchText('');
+                setSelectedNamespace(undefined);
+              }}
+            >
+              重置
+            </a>
+          </>
         )}
         toolbarGapLeft={12}
         keywordWidth={200}
         toolbarRight={(
           <>
+            {selectedRowKeys.length > 0 && (
+              <Button 
+                danger
+                icon={<DeleteOutlined />} 
+                onClick={handleBatchDelete}
+                style={{ marginRight: 8 }}
+              >
+                批量删除
+              </Button>
+            )}
             <TableColumnSettings
               columns={allColumns}
               onChange={setTableColumns}
@@ -260,25 +433,37 @@ const TemplatesSection: React.FC<Props> = ({ cloudId, templates = [], loading, o
       >
         <Table
           className="std-table"
-          bordered
+          bordered={bordered}
           rowKey={(r) => r.metadata?.uid || r.metadata?.name}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+          }}
           columns={tableColumns}
           dataSource={filteredData}
           loading={loading}
           pagination={{
             size: 'small',
+            showSizeChanger: true,
             showQuickJumper: false,
           }}
         />
 
-        <HarvesterResourceDrawer
+        <HarvesterTemplateDetailDrawer
           open={detailVisible}
           onClose={() => setDetailVisible(false)}
-          resourceType="VirtualMachineTemplate"
-          record={detailRecord}
+          template={detailRecord}
           cloudId={cloudId}
-          activeTab={detailActiveTab}
-          onTabChange={setDetailActiveTab}
+        />
+        
+        <HarvesterOpsinfoDrawer
+          open={opsInfoVisible}
+          onClose={() => setOpsInfoVisible(false)}
+          resourceType="Template"
+          record={opsInfoRecord}
+          activeTab={opsInfoActiveTab}
+          onTabChange={setOpsInfoActiveTab}
+          cloudId={cloudId}
         />
       </PageDetailSection>
   );

@@ -1,39 +1,38 @@
 # Harvester 列表组件租户侧适配指南
 
-这份指南提供了将 Harvester 列表组件适配到租户侧（HarvesterConsole / CloudConsoleHarvester）的标准模式。通过统一的 `Props` 接口和渲染逻辑，实现管理端与租户侧的视图差异化控制。
+这份指南提供了将 Harvester 列表组件适配到租户侧（HarvesterConsole / CloudConsoleHarvester）的标准模式。通过统一的 `isTenant` 属性，实现管理端与租户侧的视图差异化控制。
 
 ## 1. 核心适配目标
 
-*   **Border Control (`bordered`)**: 租户侧通常需要更简洁的无边框表格样式。
-*   **Detail Access (`showYaml`)**: 租户侧通常不需要查看底层的 YAML 配置或复杂的 K8s 事件详情，因此需要隐藏这些入口。
-*   **System Resources Visibility (`showSys` / `isTenant`)**: 
-    *   **租户模式 (`isTenant=true`)**: 强制隐藏系统级资源（如 `harvester-system`, `longhorn-system` 等命名空间下的资源），且不提供查看选项。
+*   **View Mode (`isTenant`)**: 通过单一的 `isTenant` 属性来控制组件的渲染模式，减少冗余的 Props。
+*   **Border Control**: 
+    *   **管理员模式**: 默认有边框 (`bordered=true`)。
+    *   **租户模式**: 默认无边框 (`bordered=false`)，以适应 Console 页面的卡片式布局。
+*   **Detail Access**: 
+    *   **管理员模式**: 提供 YAML 查看入口和底层详情。
+    *   **租户模式**: 隐藏底层的 YAML 配置和复杂的 K8s 事件详情，仅展示业务相关信息。
+*   **System Resources Visibility**: 
     *   **管理员模式**: 默认隐藏系统级资源，但提供复选框允许管理员手动查看。
+    *   **租户模式**: 强制隐藏系统级资源（如 `harvester-system`, `longhorn-system` 等命名空间下的资源），且隐藏控制开关。
 
 ## 2. 代码适配步骤
 
 ### Step 1: 扩展 Props 接口定义
 
-在组件的 `Props` 接口中添加 `bordered`, `showYaml`, `showSys`, `isTenant` 属性。
+在组件的 `Props` 接口中仅添加 `isTenant` 属性。移除过时的 `bordered`, `showYaml`, `showSys` 属性。
 
 ```typescript
 interface Props {
-  // ... 原有的 Props
-  cloudId: string;
-  loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  // ... 原有的 Props (cloudId, loading, onRefresh 等)
   
   // [新增] 视图控制属性
-  bordered?: boolean; // 控制表格边框 (默认 true)
-  showYaml?: boolean; // 控制是否显示详情/YAML入口 (默认 true)
-  showSys?: boolean;  // [已废弃，逻辑合并入 isTenant] 是否允许显示系统资源开关 (默认 true)
-  isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷，且隐藏开关)
+  isTenant?: boolean; // 是否为租户模式
 }
 ```
 
-### Step 2: 设置默认值与状态
+### Step 2: 组件内部逻辑适配
 
-在组件解构时设置默认值，并初始化控制系统资源显示的状态。
+在组件内部，根据 `isTenant` 推导其他控制状态。
 
 ```typescript
 const SomeSection: React.FC<Props> = ({ 
@@ -41,13 +40,14 @@ const SomeSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   // ... 其他属性
-  bordered = true,
-  showYaml = true,
   isTenant = false,
-  showSys = true
 }) => {
   // [状态] 控制系统资源显示的开关 (默认关闭)
   const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
+  
+  // [推导] 视图控制变量
+  const bordered = !isTenant; // 租户模式无边框
+  const showYaml = !isTenant; // 租户模式不显示 YAML
   
   // ...
 ```
@@ -112,7 +112,7 @@ options={namespacesOptions.filter(ns => {
 </div>
 ```
 
-### Step 6: 适配表格列渲染逻辑 (同前)
+### Step 6: 适配表格列渲染逻辑
 
 **A. 名称列 (Name Column)**
 
@@ -120,13 +120,9 @@ options={namespacesOptions.filter(ns => {
     { 
       title: '名称', 
       render: (_: any, r: any) => (
-        showYaml ? (
-          <span className="cell-link" onClick={() => handleOpenDrawer(r)}>
-            {r.name}
-          </span>
-        ) : (
-          <span>{r.name}</span>
-        )
+        // 禁止添加 Link。Opsinfo（Opsinfo=HarvesterOpsinfoDrawer.tsx抽屉，禁止修改此文件） 入口仅通过行操作菜单提供。Opsinfo是运维版本，是面向管理员的
+        // 可以添加 资源详情 入口，资源详情是美化版本，是面向租户的
+        <span>{r.name}</span>
       )
     },
 ```
@@ -138,9 +134,9 @@ options={namespacesOptions.filter(ns => {
       title: '操作',
       render: (_: any, record: any) => {
         const items: any[] = [];
-        if (showYaml) {
-          items.push({ key: 'detail', label: '查看YAML', onClick: () => handleOpenDrawer(record) });
-          items.push({ type: 'divider' as const });
+        // 仅在非租户模式下显示 Opsinfo 选项（Opsinfo=HarvesterOpsinfoDrawer.tsx抽屉）
+        if (!isTenant) {
+          items.push({ key: 'detail', label: 'Opsinfo', onClick: () => handleOpenDrawer(record) });
         }
         // ... 其他操作
         return <ResourceActionsDropdown items={items} />;
@@ -148,22 +144,20 @@ options={namespacesOptions.filter(ns => {
     },
 ```
 
+### Step 7: 表格渲染
+
+```typescript
+<Table
+  // ...
+  bordered={!isTenant} // 租户模式无边框
+/>
+```
+
 ## 3. 调用示例 (CloudConsoleHarvester.tsx)
 
 ```typescript
 <SomeSection
   // ...
-  bordered={false}
-  showYaml={false}
-  isTenant={true} // 标记为租户视图
+  isTenant={true} // 仅需标记为租户视图，无需传递 bordered/showYaml
 />
 ```
-
-## 4. 特殊组件注意事项
-
-### SSH Keys (SshKeysSection)
-
-*   **严格禁止查看详情/YAML**: SSH 密钥包含敏感元数据，租户侧**必须**屏蔽所有查看详情的入口。
-*   **交互限制**: 在 `SshKeysSection` 中，**必须**移除“名称”列的点击事件（`onClick`）和链接样式（`.cell-link`），防止租户误入详情页查看原始 YAML 数据。
-*   **指纹列**: 如果数据为空，直接移除该列，避免展示无意义的空白。
-*   **字体规范**: 密钥 ID 等技术字段应使用 `.std-code` 样式以区分普通文本。

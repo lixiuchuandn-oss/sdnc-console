@@ -13,7 +13,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import IPPoolCreateModal from '../modals/IPPoolCreateModal';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterIpPool } from '../../../../services/harvesterApi';
 
 /**

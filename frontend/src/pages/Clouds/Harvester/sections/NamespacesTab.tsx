@@ -5,7 +5,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import { API_BASE_URL, getAuthHeaders } from '../../../../services/api';
 import { createHarvesterNamespace, deleteHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/harvesterApi';
 import { ReloadOutlined } from '@ant-design/icons';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import StdFormModal from '../../../../components/StdFormModal';
 
 import TableColumnSettings from '../../../../components/TableColumnSettings';

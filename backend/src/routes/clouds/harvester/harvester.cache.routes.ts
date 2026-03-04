@@ -34,7 +34,7 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
 import { HarvesterMigrationInventory } from '../../../entities/harvester/HarvesterMigrationInventory';
-import { getJsonOnce } from '../../../services/clouds/harvester/utils';
+import { requestJson } from '../../../services/clouds/harvester/utils';
 import { syncKubevirtMigrations } from '../../../services/clouds/harvester/inventory';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { registerHarvesterVmRoutes } from './harvester.cache.vm.routes';
@@ -106,8 +106,9 @@ export const registerHarvesterRoutes = (
    * 1. [路径重写]: 如果请求 k8s 原生 API (/api/, /apis/) 且 endpoint 含版本号，
    *    自动去除 endpoint 的版本后缀，确保 k8s API 路径正确拼接
    * 2. [安全性]: 复用 Cloud 配置的 secretKey 进行认证
+   * 3. [请求转发]: 默认支持 GET 请求，若需其他方法请扩展逻辑
    */
-  router.get(
+  router.all(
     '/:id/resources/harvester/proxy',
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
@@ -143,12 +144,14 @@ export const registerHarvesterRoutes = (
 
           target = `${base}${cleanPath}`;
         }
-        console.log(`[HarvesterProxy] Proxying to: ${target}`);
+        console.log(`[HarvesterProxy] Proxying ${req.method} to: ${target}`);
 
-        const data = await getJsonOnce(
+        const data = await requestJson(
+          req.method,
           target,
           cloud.secretKey || '',
           insecure,
+          req.method === 'POST' || req.method === 'PUT' ? req.body : undefined
         );
         res.json(data);
       } catch (error: any) {

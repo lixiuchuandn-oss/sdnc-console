@@ -14,7 +14,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import { fetchHarvesterMigrations, fetchHarvesterMigrationsDirect, abortHarvesterMigration } from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
-import HarvesterResourceDrawer from '../components/HarvesterResourceDrawer';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import dayjs from 'dayjs';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import type { ColumnsType } from 'antd/es/table';
