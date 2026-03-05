@@ -9,7 +9,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input, Select, Checkbox, Modal, Dropdown } from 'antd';
-import { ReloadOutlined, SearchOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, EllipsisOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
@@ -159,7 +159,7 @@ const SshKeysSection: React.FC<Props> = ({
     });
   };
 
-  const handleOpenDrawer = (record: any, tab: string = 'detail') => {
+  const handleOpenOpsinfo = (record: any, tab: string = 'detail') => {
     // 构造符合 HarvesterResourceDrawer 要求的 record 对象
     const raw = record.raw || record;
     // 确保有 kind 字段，以便抽屉组件正确处理
@@ -184,7 +184,12 @@ const SshKeysSection: React.FC<Props> = ({
         // 如果有别名，显示别名，否则显示名称（name）
         const content = text || record.name;
         // [Security] 租户侧严禁查看 YAML 详情，此处移除所有点击链接
-        return <span>{content}</span>;
+        return (
+          <span>
+            <SafetyCertificateOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
+            {content}
+          </span>
+        );
       }
     },
     { 
@@ -200,15 +205,16 @@ const SshKeysSection: React.FC<Props> = ({
       title: '操作',
       key: 'action',
       width: 80,
+      align: 'left' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
 
         // 仅在非租户模式下添加详情入口
         if (!isTenant) {
           items.push({ 
-            key: 'detail', 
-            label: '查看YAML', 
-            onClick: () => handleOpenDrawer(record, 'yaml')
+            key: 'opsinfo', 
+            label: '运维信息', 
+            onClick: () => handleOpenOpsinfo(record, 'yaml')
           });
           items.push({ type: 'divider' as const });
         }
@@ -263,7 +269,7 @@ const SshKeysSection: React.FC<Props> = ({
           <Input 
             allowClear 
             placeholder="关键字"  
-            suffix={<SearchOutlined />}
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             className="toolbar-search" 
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 

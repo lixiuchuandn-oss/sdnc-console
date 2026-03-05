@@ -321,8 +321,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudInits={cloudInits}
             loading={loading}
             onRefresh={onRefreshCloudInits}
-            bordered={bordered}
-            showYaml={showYaml}
             isTenant={true}
           />
         );
@@ -383,8 +381,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             namespaces={namespaceObjects}
             vms={vms}
             type="snapshot"
-            bordered={false}
-            showYaml={false}
+            isTenant={true}
           />
         );
       case 'backup':
@@ -396,8 +393,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudId={cloudId}
             namespaces={namespaceObjects}
             vms={vms}
-            bordered={false}
-            showYaml={false}
+            isTenant={true}
           />
         );
       case 'schedule':
@@ -408,8 +404,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onRefresh={onRefreshSchedules}
             cloudId={cloudId}
             vms={vms}
-            bordered={false}
-            showYaml={false}
+            isTenant={true}
           />
         );
 
@@ -421,6 +416,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshNads}
             cloudId={cloudId}
+            isTenant={true}
           />
         );
       case 'lb':
@@ -430,6 +426,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshLbs}
             cloudId={cloudId}
+            isTenant={true}
           />
         );
       case 'ippool':
@@ -439,6 +436,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             ippools={ippools}
             loading={loading}
             onRefresh={onRefreshIPPools}
+            isTenant={true}
           />
         );
 

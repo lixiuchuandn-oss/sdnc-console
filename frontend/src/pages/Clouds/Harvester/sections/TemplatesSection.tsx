@@ -14,9 +14,9 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Table, Input, Button, Checkbox, Select, Modal, message, App, Tag, Tooltip } from 'antd';
+import { Table, Input, Button, Checkbox, Select, message, App, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, ProjectOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined, FileTextOutlined } from '@ant-design/icons';
+import { ReloadOutlined, ProjectOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -26,7 +26,6 @@ import HarvesterTemplateDetailDrawer from '../components/HarvesterTemplateDetail
 import HarvesterOpsinfoDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import { deleteHarvesterResourceByLink } from '../../../../services/harvesterApi';
-import { OsIcon } from '../../../../components/OsIcon';
 
 /**
  * Props 定义
@@ -252,10 +251,14 @@ const TemplatesSection: React.FC<Props> = ({
         const displayName = getTemplateDisplayName(r);
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-             <ProjectOutlined style={{ fontSize: 14, color: '#007bff' }} />
-             <span className="cell-link" onClick={() => { handleOpenDrawer(r); }}>
-                {displayName}
-             </span>
+             <ProjectOutlined style={{ fontSize: 16, color: '#007bff' }} />
+             <Button
+               type="link"
+               style={{ padding: 0, height: 'auto' }}
+               onClick={() => handleOpenDrawer(r)}
+             >
+               {displayName}
+             </Button>
           </div>
         );
       }
@@ -438,7 +441,7 @@ const TemplatesSection: React.FC<Props> = ({
           <>
             <Input
               placeholder="关键字"
-              suffix={<SearchOutlined />}
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
               className="toolbar-search"

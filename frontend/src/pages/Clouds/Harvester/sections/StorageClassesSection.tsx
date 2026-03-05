@@ -18,7 +18,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
@@ -38,6 +38,7 @@ type Props = {
   storageClasses: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  isTenant?: boolean;
 };
 
 /**
@@ -53,7 +54,7 @@ type Props = {
  * - 不直接请求后端，只消费上层注入的数据和回调
  * - 工具栏和表格区域均遵循 PageDetailSection / global-new.css 的 UI 规范
  */
-const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh }) => {
+const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loading, onRefresh, isTenant }) => {
   /**
    * 关键字搜索（受控 Input）
    * - 用户在顶部输入框中输入的文本
@@ -89,7 +90,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
    * - 为配合 HarvesterResourceDrawer 的事件页签（EventsTab），这里主动注入 kind: 'StorageClass'
    * - 支持指定默认激活的 Tab（当前仅使用 detail）
    */
-  const handleOpenDrawer = async (record: any, tab: string = 'detail') => {
+  const handleOpenOpsinfo = async (record: any, tab: string = 'detail') => {
     const r = { ...record, kind: 'StorageClass' };
     setDetailRecord(r);
     setDetailActiveTab(tab);
@@ -126,7 +127,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
         const isDefault = String(r?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] || '').toLowerCase() === 'true';
         return (
           <div className="flex-center gap-8">
-            <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>{name}</span>
+            <span>{name}</span>
             {isDefault && <span className="std-badge std-badge-warning">Default</span>}
           </div>
         );
@@ -164,10 +165,12 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       title: '操作', 
       key: 'actions', 
       width: 80,
+      align: 'left' as const,
       render: (_: any, r: any) => {
-          const items: any[] = [
-              { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
-          ];
+          const items: any[] = [];
+          if (!isTenant) {
+            items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
+          }
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
@@ -200,6 +203,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
           <Input 
             allowClear 
             placeholder="关键字" 
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
             className="toolbar-search" 
@@ -225,8 +229,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       )}
     >
       <Table
-        className="std-table"
-        bordered
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         rowKey={(r: any) => r?.metadata?.name || r?.name}
         columns={tableColumns}
         dataSource={filtered}

@@ -89,7 +89,7 @@ type Props = {
   onDelete: (iid: string, deleteVolumes?: boolean) => void;
   images?: any[];
   namespaces?: any[];
-  volumes?: any[]; // 从父组件传入，用于状态检查
+  volumes?: any[]; 
   isTenant?: boolean;
 };
 
@@ -1217,8 +1217,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return v ? `${v} C` : '-';
     } },
     { title: '内存', key: 'memory',  render: (_: any, r: any) => SafeRead.memory(r) || '-' },
-    { title: '说明', key: 'memSpec', width: 200, ellipsis: true, render: (_: any, r: any) => SafeRead.memSpec(r) },
-    { title: '镜像', key: 'image', width: 220, ellipsis: true, render: (_: any, r: any) => {
+    { title: '说明', key: 'memSpec', ellipsis: true, render: (_: any, r: any) => SafeRead.memSpec(r) },
+    { title: '镜像', key: 'image', ellipsis: true, render: (_: any, r: any) => {
         const displayName = SafeRead.imageDisplayName(r);
         const img = SafeRead.image(r);
         const size = SafeRead.imageSize(r);
@@ -1245,7 +1245,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
        const mac = SafeRead.macAddress(r);
        return mac ? <Tooltip title={mac}>{mac}</Tooltip> : '-';
     } },
-    { title: '存储卷', key: 'volumes', width: 340, ellipsis: false, render: (_: any, r: any) => {
+    { title: '存储卷', key: 'volumes', ellipsis: false, render: (_: any, r: any) => {
        const details = SafeRead.volumeDetails(r);
        if (!details || details.length === 0) return '-';
 
@@ -1269,7 +1269,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
        const t = SafeRead.creationTimestamp(r);
        return t ? new Date(t).toLocaleString() : '-';
     } },
-    { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
+    { title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_: any, r: any) => {
       const iid = getIid(r);
       const statusStr = String(SafeRead.status(r)).toLowerCase();
       const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
@@ -1285,7 +1285,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         
         // 运维模式下的 YAML 查看
         ...(!isTenant ? [
-            { key: 'detail_ops', label: '查看YAML', onClick: () => handleShowMetadata(r, 'detail', true) }
+            { key: 'detail_ops', label: '运维信息', onClick: () => handleShowMetadata(r, 'detail', true) }
         ] : []),
 
         // VNC 控制台
@@ -1356,7 +1356,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       <div key="toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         {/* 左侧：筛选器 */}
         <div key="toolbar-left" style={{ display: 'flex', gap: 8 }}>
-          <Input key="keyword" allowClear placeholder="关键字" suffix={<SearchOutlined />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+          <Input key="keyword" allowClear placeholder="关键字" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
           {!isTenant && (
             <Cascader
               key="tenant-org-filter"

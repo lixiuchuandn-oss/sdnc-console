@@ -5,7 +5,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
@@ -23,13 +23,6 @@ interface Props {
   cloudInits: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
-  /**
-   * 视图控制属性
-   * - bordered: 控制表格边框 (默认 true)
-   * - showYaml: 控制是否显示详情/YAML入口 (默认 true)
-   */
-  bordered?: boolean;
-  showYaml?: boolean;
   isTenant?: boolean;
 }
 
@@ -38,8 +31,6 @@ const CloudInitsSection: React.FC<Props> = ({
   cloudInits, 
   loading, 
   onRefresh,
-  bordered = true,
-  showYaml = true,
   isTenant = false
 }) => {
   // 搜索关键字，仅在前端做简单的名称/命名空间模糊匹配
@@ -95,14 +86,7 @@ const CloudInitsSection: React.FC<Props> = ({
       title: '名称', 
       dataIndex: 'name', 
       key: 'name', 
-      className: showYaml ? 'cell-link' : undefined,
-      render: (text: string) => (
-        showYaml ? (
-          <span className="cell-link" onClick={() => message.info('详情功能开发中')}>{text}</span>
-        ) : (
-          <span>{text}</span>
-        )
-      )
+      render: (text: string) => <span>{text}</span>
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
@@ -115,11 +99,11 @@ const CloudInitsSection: React.FC<Props> = ({
       render: (_: any, record: any) => {
         const items: any[] = [];
 
-        // 仅在 showYaml 为 true 且非租户模式下添加详情入口
-        if (showYaml && !isTenant) {
+        // 非租户模式显示运维信息入口
+        if (!isTenant) {
           items.push({ 
-            key: 'detail', 
-            label: '查看YAML', 
+            key: 'opsinfo', 
+            label: '运维信息', 
             onClick: () => message.info('详情功能开发中') 
           });
           items.push({ type: 'divider' as const });
@@ -140,7 +124,7 @@ const CloudInitsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [showYaml]);
+  ], [isTenant]);
 
   const [tableColumns, setTableColumns] = useState<any[]>(columns);
 
@@ -150,11 +134,12 @@ const CloudInitsSection: React.FC<Props> = ({
       asCard={false}
       toolbarLeft={(
         <Input 
-          allowClear 
-          placeholder="关键字" 
-          className="toolbar-search" 
-          value={keyword} 
-          onChange={(e)=> setKeyword(e.target.value)} 
+            allowClear 
+            placeholder="关键字" 
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            className="toolbar-search" 
+            value={keyword} 
+            onChange={(e)=> setKeyword(e.target.value)} 
         />
       )}
       toolbarRight={(
@@ -169,8 +154,8 @@ const CloudInitsSection: React.FC<Props> = ({
       )}
     >
       <Table
-        className="std-table"
-        bordered={bordered}
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"

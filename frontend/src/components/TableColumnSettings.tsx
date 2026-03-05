@@ -47,8 +47,9 @@ export const TableColumnSettings = <T extends object>({
   // 初始化选中状态
   const [checkedList, setCheckedList] = useState<CheckboxValueType[]>([]);
   const [initialized, setInitialized] = useState(false);
-  // 使用 ref 来存储上一次的 checkedList，避免不必要的更新
+  // 使用 ref 来存储上一次的 checkedList 和 columns，避免不必要的更新
   const prevCheckedListRef = useRef<CheckboxValueType[]>([]);
+  const prevColumnsRef = useRef<ColumnsType<T>>(columns);
 
   // 加载初始设置
   useEffect(() => {
@@ -80,12 +81,15 @@ export const TableColumnSettings = <T extends object>({
     setInitialized(true);
   }, [columnOptions, settingsKey, defaultHiddenColumns, initialized]);
 
-  // 当 checkedList 改变时，通知父组件并保存
+  // 当 checkedList 或 columns 改变时，通知父组件并保存
   useEffect(() => {
     if (!initialized) return;
 
-    // 只有当 checkedList 真正变化时才调用 onChange
-    if (JSON.stringify(checkedList) !== JSON.stringify(prevCheckedListRef.current)) {
+    const listChanged = JSON.stringify(checkedList) !== JSON.stringify(prevCheckedListRef.current);
+    const columnsChanged = columns !== prevColumnsRef.current;
+
+    // 只有当 checkedList 真正变化，或者 columns 定义发生变化时才调用 onChange
+    if (listChanged || columnsChanged) {
       // 计算新的 columns
       const filteredColumns = columns.filter(col => {
         const key = getColumnKey(col);
@@ -95,16 +99,17 @@ export const TableColumnSettings = <T extends object>({
         return checkedList.includes(key);
       });
 
-      // 保存到 localStorage
-      if (settingsKey) {
+      // 保存到 localStorage (仅当列表变化时)
+      if (listChanged && settingsKey) {
         localStorage.setItem(`table_cols_${settingsKey}`, JSON.stringify(checkedList));
       }
 
       // 调用 onChange
       onChange(filteredColumns);
 
-      // 更新上一次的 checkedList
+      // 更新上一次的 refs
       prevCheckedListRef.current = checkedList;
+      prevColumnsRef.current = columns;
     }
   }, [checkedList, settingsKey, initialized, onChange, columns]); 
   // 注意：这里去掉了 onChange 依赖，防止父组件没用 useCallback 导致死循环，但 columns 变化时应该重新计算

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Table, Tag, Input, Button, Space, Badge, Select } from 'antd';
-import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import dayjs from 'dayjs';
@@ -141,7 +141,8 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 80,
+      align: 'left' as const,
       render: (_: any, record: any) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => handleOpenDrawer(record, 'detail')}>查看</Button>
@@ -158,6 +159,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
           <Input 
             allowClear 
             placeholder="关键字" 
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
             className="toolbar-search" 

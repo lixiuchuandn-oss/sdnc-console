@@ -71,14 +71,15 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
    * - 操作列当前仅提供删除占位（实际删除能力未开放）
    */
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
-    { title: '规则', dataIndex: 'rules', key: 'rules', width: 400, ellipsis: true },
-    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180 },
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '规则', dataIndex: 'rules', key: 'rules', ellipsis: true },
+    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp' },
     {
       title: '操作',
       key: 'action',
       width: 80,
+      align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <ResourceActionsDropdown 
@@ -97,7 +98,8 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
       toolbarLeft={(
         <Input
           className="toolbar-search"
-          placeholder="搜索名称或命名空间"
+          placeholder="关键字"
+          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
           value={keyword}
           onChange={e => setKeyword(e.target.value)}
           allowClear

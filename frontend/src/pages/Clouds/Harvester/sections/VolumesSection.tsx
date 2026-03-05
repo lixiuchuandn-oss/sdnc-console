@@ -43,7 +43,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge } from 'antd';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined, HddOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume } from '../../../../services/harvesterApi';
@@ -622,10 +622,14 @@ const VolumesSection: React.FC<Props> = ({
       render: (_: string, r: VolumeView) => (
         !isTenant ? (
           <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+            <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
             {r.alias || r.name}
           </span> 
         ) : (
-          <span>{r.alias || r.name}</span>
+          <span>
+            <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
+            {r.alias || r.name}
+          </span>
         )
       )
     },
@@ -828,7 +832,14 @@ const VolumesSection: React.FC<Props> = ({
       asCard={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" suffix={<SearchOutlined />} value={keyword} onChange={(e) => setKeyword(e.target.value)} className="toolbar-search" />
+          <Input 
+            allowClear 
+            placeholder="关键字" 
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} 
+            value={keyword} 
+            onChange={(e) => setKeyword(e.target.value)} 
+            className="toolbar-search" 
+          />
           {!isTenant && (
             <Select
               allowClear showSearch placeholder="命名空间"

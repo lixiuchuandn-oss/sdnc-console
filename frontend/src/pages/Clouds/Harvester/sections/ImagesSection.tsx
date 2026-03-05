@@ -88,7 +88,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     }
   }, [creating, cloudId]);
 
-  const handleOpenDrawer = async (record: any, tab: string = 'detail') => {
+  const handleOpenOpsinfo = async (record: any, tab: string = 'detail') => {
     // Ensure kind is present for Events tab
     const r = { ...record, kind: record.kind || 'VirtualMachineImage' };
     setCurrentRecord(r);
@@ -284,7 +284,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         const nameForIcon = labelDisp || r?.name || r?.metadata?.name || '';
         return (
           <span>
-            <OsIcon osName={nameForIcon} style={{ marginRight: 8 }} />
+            <OsIcon osName={nameForIcon} style={{ marginRight: 8, fontSize: 16 }} />
             {disp}
           </span>
         );
@@ -305,7 +305,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         const t = r?.metadata?.creationTimestamp || r?.createdAt;
         return t ? new Date(t).toLocaleString() : '-';
     } },
-    { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_:any, r:any)=> {
+    { title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_:any, r:any)=> {
       const name = r?.name || r?.metadata?.name || '';
       const ns = getNs(r);
       const links = r?.links || {};
@@ -328,7 +328,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         <ResourceActionsDropdown 
           buttonProps={{ className: 'row-actions-trigger' }}
           items={[
-            ...(!isTenant ? [{ key: 'detail_yaml', label: '查看YAML', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
+            ...(!isTenant ? [{ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, onClick: () => Modal.confirm({ title: `删除 ${name}?`, onOk: handleDelete }) },
@@ -370,7 +370,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       asCard={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" suffix={<SearchOutlined />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
+          <Input allowClear placeholder="关键字" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
           <Select
             allowClear
             placeholder="作用域"

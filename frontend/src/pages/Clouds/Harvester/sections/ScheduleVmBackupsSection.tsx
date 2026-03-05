@@ -28,7 +28,7 @@
  */
 import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Button, Input, Badge, Tooltip, Dropdown, message, Modal, Select } from 'antd';
-import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CalendarOutlined } from '@ant-design/icons';
 import { formatCron } from '../../../../utils/cronFormatter';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from '../../../../services/harvesterApi';
@@ -77,11 +77,9 @@ interface Props {
   bordered?: boolean;
   
   /** 
-   * 是否显示 YAML/详情入口
-   * - true (默认): 管理员视图，可以看底层详情。
-   * - false: 租户视图，隐藏复杂的技术细节。
+   * 租户模式：隐藏运维信息入口
    */
-  showYaml?: boolean;
+  isTenant?: boolean;
 }
 
 /**
@@ -113,7 +111,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   vmId, 
   defaultHiddenColumns, 
   bordered = true, 
-  showYaml = true 
+  isTenant
 }) => {
   // ==============================================================================
   // 1. 本地状态管理 (Local State)
@@ -122,7 +120,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   // 搜索框里的文字
   const [keyword, setKeyword] = useState<string>('');
   // 下拉框选中的类型（全部 / 备份 / 快照）
-  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   
   // 控制各种弹窗的显示/隐藏
   const [drawerVisible, setDrawerVisible] = useState(false); // 侧边详情抽屉
@@ -407,17 +405,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       title: '策略名称', 
       dataIndex: 'name', 
       key: 'name', 
-      render: (t: string, r: any) => showYaml ? (
-        // [管理员视图] 可以点击名字看详情
-        <span
-          className="cell-link"
-          onClick={() => { setCurrentRecord(r.raw); setDrawerVisible(true); }}
-        >
+      render: (t: string) => (
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <CalendarOutlined style={{  color: '#1677ff',fontSize: 16, marginRight: 8 }} />
           {t}
         </span>
-      ) : (
-        // [租户视图] 只是纯文本，不能点
-        <span>{t}</span>
       )
     },
     {
@@ -426,6 +418,8 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       key: 'id', 
       render: (t: string) => <span style={{ color: '#666', fontSize: 13 }}>{t}</span>
     },
+    { title: '策略类型', dataIndex: 'type', key: 'type', render: (t: string) => (t === 'snapshot' ? '快照定时策略' : '备份定时策略') },
+
     { 
       title: '状态', 
       dataIndex: 'suspended', 
@@ -436,7 +430,6 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { title: '源虚拟机', dataIndex: 'vmAlias', key: 'vmAlias' },
-    { title: '策略类型', dataIndex: 'type', key: 'type' },
     { 
       title: '计划任务', 
       dataIndex: 'cron', 
@@ -463,15 +456,16 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       title: '操作', 
       key: 'action', 
       width: 80,
+      align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
          const items: any[] = [];
          
          // [租户适配] 只有管理员才显示“查看详情”
-         if (showYaml) {
+         if (!isTenant) {
            items.push({
-             key: 'view',
-             label: '查看详情',
+             key: 'opsinfo',
+             label: '运维信息',
              onClick: () => { setCurrentRecord(r.raw); setDrawerVisible(true); }
            });
          }
@@ -508,7 +502,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       );
       }
     }
-  ], [handleDelete, handleSuspend, showYaml]);
+  ], [handleDelete, handleSuspend, isTenant]);
 
   return (
     <>
@@ -520,20 +514,23 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
             <Input
               key="schedule-search"
               className="toolbar-search"
-              placeholder="搜索名称或命名空间"
+              placeholder="关键字"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword}
               onChange={e => setKeyword(e.target.value)}
               allowClear
             />
             <Select
               key="schedule-type-filter"
-              className="toolbar-filter"
+              className="toolbar-filter-sm"
+              allowClear
+              placeholder="选择类型"
               value={typeFilter}
               onChange={setTypeFilter}
               options={[
                 { label: '全部类型', value: 'all' },
-                { label: '备份', value: 'backup' },
-                { label: '快照', value: 'snapshot' },
+                { label: '备份定时策略', value: 'backup' },
+                { label: '快照定时策略', value: 'snapshot' },
               ]}
             />
           </>
@@ -554,8 +551,8 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         )}
       >
         <Table
-          className="std-table"
-          bordered={bordered}
+          className={!isTenant ? "std-table" : "std-table no-border"}
+          bordered={!isTenant}
           dataSource={filteredData}
           columns={visibleColumns || columns}
           rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
@@ -567,7 +564,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         />
       </PageDetailSection>
 
-      {/* 侧边详情抽屉 (只在 showYaml=true 时才能触发) */}
+      {/* 侧边详情抽屉 */}
       <HarvesterResourceDrawer
         open={drawerVisible}
         onClose={() => setDrawerVisible(false)}

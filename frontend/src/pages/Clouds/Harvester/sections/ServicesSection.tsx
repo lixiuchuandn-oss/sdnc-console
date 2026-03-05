@@ -8,11 +8,12 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, Input, Select } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import { isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参说明
@@ -26,9 +27,10 @@ interface Props {
   services: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  isTenant?: boolean;
 }
 
-const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh }) => {
+const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant }) => {
   // 工具栏过滤及详情抽屉状态
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('All');
@@ -74,6 +76,9 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
    */
   const filteredData = useMemo(() => {
     let d = dataSource;
+    if (isTenant) {
+      d = d.filter((x: any) => !isPublicNamespace(x.namespace));
+    }
     if (keyword) {
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
@@ -100,18 +105,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       title: '名称', 
       dataIndex: 'name', 
       key: 'name',
-      render: (text: string, record: any) => (
-        <span
-          className="cell-link"
-          onClick={() => {
-            setSelectedRecord(record);
-            setDrawerActiveTab('detail');
-            setDrawerOpen(true);
-          }}
-        >
-          {text}
-        </span>
-      )
+      render: (text: string) => <span>{text}</span>
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { 
@@ -144,15 +138,16 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       title: '操作',
       key: 'action',
       width: 80,
+      align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <ResourceActionsDropdown 
           items={[
-            { key: 'detail', label: '资源详情', onClick: () => {
+            ...(!isTenant ? [{ key: 'opsinfo', label: '运维信息', onClick: () => {
               setSelectedRecord(record);
               setDrawerActiveTab('detail');
               setDrawerOpen(true);
-            }}
+            }}] : [])
           ]}
           buttonProps={{ className: 'row-actions-trigger' }}
         />
@@ -170,7 +165,8 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
         <>
           <Input 
             allowClear 
-            placeholder="搜索名称或命名空间" 
+            placeholder="关键字" 
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={e => { setKeyword(e.target.value); setPagination(p=>({...p, current:1})); }}
             className="toolbar-search" 
@@ -202,8 +198,8 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       }
     >
       <Table
-        className="std-table"
-        bordered
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey={(r) => r?.key || `${r?.namespace || ''}/${r?.name || ''}`}

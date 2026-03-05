@@ -4,7 +4,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { API_BASE_URL, getAuthHeaders } from '../../../../services/api';
 import { createHarvesterNamespace, deleteHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/harvesterApi';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import StdFormModal from '../../../../components/StdFormModal';
 
@@ -27,6 +27,7 @@ type Props = {
   onRefresh?: () => void;
   showLog?: boolean;
   raw?: any;
+  isTenant?: boolean;
 };
 
 /**
@@ -50,7 +51,7 @@ const phaseBadge = (phase?: string) => {
  * Harvester 命名空间管理页签组件
  * 展示命名空间列表，提供创建、编辑、删除及详情查看功能
  */
-const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw }) => {
+const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw, isTenant }) => {
   // === 状态管理 ===
   // 搜索关键字
   const [keyword, setKeyword] = useState('');
@@ -76,7 +77,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
    * 打开详情抽屉并获取最新资源详情
    * @param record - 表格行数据
    */
-  const handleOpenDetail = async (record: any, tab: string = 'detail') => {
+  const handleOpenOpsinfo = async (record: any, tab: string = 'detail') => {
     // 强制指定 kind 为 Namespace，以便 EventsTab 正确识别
     setDetailRecord({ ...record, kind: 'Namespace' });
     setDetailVisible(true);
@@ -295,7 +296,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       dataIndex: 'name',
       key: 'name',
       render: (_: any, r: any) => (
-        <span className="cell-link" onClick={() => handleOpenDetail(r, 'detail')}>
+        <span>
           {r?.metadata?.name || r?.name}
         </span>
       )
@@ -417,30 +418,33 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       title: '操作',
       key: 'actions',
       width: 80,
+      align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const name = r?.metadata?.name || r?.name;
         const isSys = isSystemNamespace(name);
+        const items: any[] = [];
+        if (!isTenant) {
+          items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
+        }
+        items.push({ key: 'edit', label: '编辑配置', onClick: () => handleEdit(r) });
+        items.push({ type: 'divider' });
+        items.push({ 
+          key: 'delete', 
+          label: '删除', 
+          danger: true, 
+          disabled: isSys,
+          onClick: () => Modal.confirm({
+            title: `确认删除 ${name}?`,
+            content: '删除后无法恢复',
+            okText: '删除',
+            okButtonProps: { danger: true },
+            onOk: () => handleDelete(name)
+          }) 
+        });
         return (
           <ResourceActionsDropdown 
-            items={[
-              { key: 'detail', label: '资源详情', onClick: () => handleOpenDetail(r, 'detail') },
-              { key: 'edit', label: '编辑配置', onClick: () => handleEdit(r) },
-              { type: 'divider' },
-              { 
-                key: 'delete', 
-                label: '删除', 
-                danger: true, 
-                disabled: isSys, // 系统命名空间禁止删除
-                onClick: () => Modal.confirm({
-                  title: `确认删除 ${name}?`,
-                  content: '删除后无法恢复',
-                  okText: '删除',
-                  okButtonProps: { danger: true },
-                  onOk: () => handleDelete(name)
-                }) 
-              }
-            ]} 
+            items={items} 
             buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
@@ -457,6 +461,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
           <Input
             allowClear
             placeholder="关键字（名称/标签）"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"

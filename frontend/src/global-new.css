@@ -335,7 +335,7 @@
   color: #666;
   cursor: pointer;
   transition: all 0.2s;
-  margin: 0 auto; /* 居中 */
+  margin: 0;
   padding: 0 !important;
   border: none !important;
   background: transparent;
@@ -417,6 +417,5 @@
   padding-bottom: 6px;
   border-bottom: 1px solid #e5e7eb;
 }
-
 
 

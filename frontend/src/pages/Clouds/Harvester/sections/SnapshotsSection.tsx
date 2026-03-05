@@ -34,7 +34,7 @@
  */
 import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Badge, Button, Modal, Input, message, Dropdown, Select, Checkbox } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined, CameraOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { deleteHarvesterSnapshot } from '../../../../services/harvesterApi';
@@ -60,7 +60,6 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
-  showSys?: boolean;
   namespaces?: any[];
 }
 
@@ -70,7 +69,6 @@ const SnapshotsSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   isTenant = false,
-  showSys = true,
   namespaces = []
 }) => {
   // ==============================================================================
@@ -265,13 +263,10 @@ const SnapshotsSection: React.FC<Props> = ({
       dataIndex: 'alias', 
       key: 'alias', 
       render: (_: any, r: any) => (
-        !isTenant ? (
-          <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
-            {r.alias !== '-' ? r.alias : r.name}
-          </span>
-        ) : (
-          <span>{r.alias !== '-' ? r.alias : r.name}</span>
-        )
+        <span>
+          <CameraOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
+          {r.alias !== '-' ? r.alias : r.name}
+        </span>
       )
     },
     { title: '快照ID', dataIndex: 'name', key: 'name' },
@@ -297,6 +292,7 @@ const SnapshotsSection: React.FC<Props> = ({
       title: '操作',
       key: 'action',
       width: 80,
+      align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
@@ -329,7 +325,7 @@ const SnapshotsSection: React.FC<Props> = ({
           <Input
             placeholder="关键字"
             className="toolbar-search"
-            suffix={<SearchOutlined />}
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             allowClear
             value={keyword}
             onChange={e => setKeyword(e.target.value)}

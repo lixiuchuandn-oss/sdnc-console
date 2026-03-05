@@ -261,6 +261,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
           <Input 
             allowClear
             placeholder="关键字"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"

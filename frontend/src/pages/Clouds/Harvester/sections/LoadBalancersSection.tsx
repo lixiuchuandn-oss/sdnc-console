@@ -9,12 +9,13 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Tag, Input, Space, Modal } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import CreateLoadBalancerModal from '../modals/CreateLoadBalancerModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterService } from '../../../../services/harvesterApi';
+import { isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参说明
@@ -30,9 +31,10 @@ interface Props {
   namespaces?: any[];
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
+  isTenant?: boolean;
 }
 
-const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh }) => {
+const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant }) => {
   // 工具栏与弹窗状态
   const [keyword, setKeyword] = useState<string>('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -67,17 +69,20 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
    */
   const filteredData = useMemo(() => {
     let d = dataSource;
+    if (isTenant) {
+      d = d.filter((x: any) => !isPublicNamespace(x.namespace));
+    }
     if (keyword) {
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
     }
     return d;
-  }, [dataSource, keyword]);
+  }, [dataSource, keyword, isTenant]);
 
   /**
    * 打开 HarvesterResourceDrawer 展示 Service 详情
    */
-  const handleOpenDrawer = (record: any) => {
+  const handleOpenOpsinfo = (record: any) => {
     if (record?.raw) {
       setSelectedRecord(record.raw);
       setDrawerTab('detail');
@@ -155,35 +160,31 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
       title: '名称', 
       dataIndex: 'name', 
       key: 'name', 
-      width: 200, 
-      render: (t: string, record: any) => (
-        <span 
-          className="cell-link"
-          style={{ fontWeight: 500 }}
-          onClick={() => handleOpenDrawer(record)}
-        >
+      render: (t: string) => (
+        <span style={{ fontWeight: 500 }}>
           {t}
         </span>
       ) 
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
-    { title: '地址', dataIndex: 'address', key: 'address', width: 150 },
-    { title: 'IPAM', dataIndex: 'ipam', key: 'ipam', width: 100, render: (t: string) => <Tag>{t}</Tag> },
-    { title: '监听器', dataIndex: 'listeners', key: 'listeners', width: 250, ellipsis: true },
-    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180 },
+    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    { title: '地址', dataIndex: 'address', key: 'address' },
+    { title: 'IPAM', dataIndex: 'ipam', key: 'ipam', render: (t: string) => <Tag>{t}</Tag> },
+    { title: '监听器', dataIndex: 'listeners', key: 'listeners', ellipsis: true },
+    { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp' },
     {
       title: '操作',
       key: 'action',
       width: 80,
+      align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <ResourceActionsDropdown 
           items={[
-            { 
-              key: 'detail', 
-              label: '资源详情', 
-              onClick: () => handleOpenDrawer(record)
-            },
+            ...(!isTenant ? [{
+              key: 'opsinfo',
+              label: '运维信息',
+              onClick: () => handleOpenOpsinfo(record)
+            }] : []),
             { type: 'divider' },
             { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) }
           ]}
@@ -198,7 +199,8 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
       toolbarLeft={
         <Input
           className="toolbar-search"
-          placeholder="搜索名称或命名空间"
+          placeholder="关键字"
+          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
           value={keyword}
           onChange={e => setKeyword(e.target.value)}
           allowClear
@@ -215,8 +217,8 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
       }
     >
       <Table
-        className="std-table"
-        bordered
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"

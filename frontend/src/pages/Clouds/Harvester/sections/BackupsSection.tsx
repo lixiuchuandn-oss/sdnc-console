@@ -5,13 +5,14 @@
  */
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge, Dropdown } from 'antd';
-import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined, SaveOutlined, CameraOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { TableColumnSettings } from '../../../../components/TableColumnSettings';
 import { deleteHarvesterBackup } from '../../../../services/harvesterApi';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import { isPublicNamespace, isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参
@@ -32,15 +33,14 @@ interface Props {
   vms: any[];
   type?: 'backup' | 'snapshot';
   vmId?: string;
-  bordered?: boolean;
-  showYaml?: boolean;
+  isTenant?: boolean;
 }
 
-const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, bordered = true, showYaml = true }) => {
+const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant }) => {
   // 关键字搜索
   const [keyword, setKeyword] = useState<string>('');
   // 状态过滤：all / ready / not_ready
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   // 创建备份/快照弹窗可见性
   const [createModalVisible, setCreateModalVisible] = useState(false);
   // 恢复弹窗可见性
@@ -134,6 +134,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       })
       .map((b: any) => {
       const raw = b.rawData || b;
+      const itemType = raw.spec?.type || 'backup';
       const ns = raw.metadata?.namespace || b.namespace;
       const targetName = raw.spec?.source?.name || b.targetVm || '';
       let targetAlias = '-';
@@ -151,6 +152,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       return {
         key: raw.metadata?.uid || b.id || `${ns}-${raw.metadata?.name || b.name}`,
         name: raw.metadata?.name || b.name,
+        itemType,
         namespace: ns,
         targetVmAlias: targetAlias,
         readyToUse: raw.status?.readyToUse,
@@ -159,7 +161,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         raw,
       };
     });
-  }, [backups, type, vms]);
+  }, [backups, type, vmId, vms]);
 
   /**
    * 客户端过滤逻辑
@@ -168,7 +170,13 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
    */
   const filteredData = useMemo(() => {
     let d = dataSource;
-    if (statusFilter !== 'all') {
+    if (isTenant) {
+      d = d.filter((x: any) => {
+        const ns = (x.namespace || '').toLowerCase();
+        return !isPublicNamespace(ns) && !isSystemNamespace(ns);
+      });
+    }
+    if (statusFilter === 'ready' || statusFilter === 'not_ready') {
       const isReady = statusFilter === 'ready';
       d = d.filter((x: any) => !!x.readyToUse === isReady);
     }
@@ -177,7 +185,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
     }
     return d;
-  }, [dataSource, keyword, statusFilter]);
+  }, [dataSource, keyword, statusFilter, isTenant]);
 
   /**
    * 删除单个备份 / 快照
@@ -209,29 +217,32 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
    * - 操作列支持恢复与删除
    */
   const columns = useMemo(() => [
-
+    {
+      title: '类型',
+      dataIndex: 'itemType',
+      key: 'itemType',
+      render: (t: string) => (
+        <span>{t === 'snapshot' ? '虚拟机快照' : '虚拟机备份'}</span>
+      ),
+    },
     { 
        title: '名称', 
        dataIndex: 'alias', 
        key: 'alias',
        render: (t: string, r: any) => (
-        showYaml ? (
-          <span 
-            className="cell-link" 
-            onClick={() => { setDrawerRecord(r.raw); setDrawerVisible(true); }}
-          >
+          <span>
+            {r.itemType === 'snapshot'
+              ? <CameraOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
+              : <SaveOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />}
             {t !== '-' ? t : r.name}
           </span>
-        ) : (
-          <span style={{ fontWeight: 500 }}>{t !== '-' ? t : r.name}</span>
-        )
        )
     },
     { 
        title: 'ID', 
        dataIndex: 'name', 
        key: 'name',
-       render: (t: string) => <span style={{ color: '#888', fontSize: 12 }}>{t}</span>
+       render: (t: string) => <span>{t}</span>
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { title: '目标虚拟机', dataIndex: 'targetVmAlias', key: 'targetVmAlias' },
@@ -240,27 +251,28 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       dataIndex: 'readyToUse', 
       key: 'readyToUse', 
       render: (ready: boolean) => (
-        <Badge status={ready ? 'success' : 'warning'} text={ready ? 'Ready' : 'NotReady'} />
+        <Badge status={ready ? 'success' : 'warning'} text={ready ? '就绪' : '未就绪'} />
       )
     },
     { 
       title: '创建时间', 
       dataIndex: 'creationTimestamp', 
       key: 'creationTimestamp', 
-      render: (t: string) => <span className="std-time">{t}</span>
+      render: (t: string) => <span>{t}</span>
     },
     {
       title: '操作',
       key: 'action',
       width: 80,
+      align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items: any[] = [];
         
-        if (showYaml) {
+        if (!isTenant) {
           items.push({
-            key: 'view',
-            label: '查看详情',
+            key: 'opsinfo',
+            label: '运维信息',
             onClick: () => { setDrawerRecord(record.raw); setDrawerVisible(true); }
           });
           items.push({ type: 'divider' });
@@ -285,7 +297,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         );
       },
     },
-  ], [handleDelete, showYaml]);
+  ], [handleDelete, isTenant]);
 
   return (
     <PageDetailSection asCard={false}>
@@ -295,7 +307,8 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
           <Input
             key="keyword-search"
             className="toolbar-search"
-            placeholder="搜索名称或命名空间"
+            placeholder="关键字"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
             allowClear
@@ -303,13 +316,15 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
           {/* 状态过滤：全部 / Ready / NotReady */}
           <Select
             key="status-filter"
-            className="toolbar-filter"
+            allowClear
+            className="toolbar-filter-sm"
+            placeholder="选择状态"
             value={statusFilter}
             onChange={setStatusFilter}
             options={[
-              { label: '全部状态', value: 'all' },
-              { label: 'Ready', value: 'ready' },
-              { label: 'NotReady', value: 'not_ready' },
+              { label: '全部状态', value: undefined as any },
+              { label: '就绪', value: 'ready' },
+              { label: '未就绪', value: 'not_ready' },
             ]}
           />
         </div>
@@ -326,8 +341,8 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       </div>
       <Table
         key="table"
-        className="std-table"
-        bordered={bordered}
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}

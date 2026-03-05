@@ -8,7 +8,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, Modal, Tabs, Space, Descriptions, message } from 'antd';
-import { ReloadOutlined, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchHarvesterNadDetail, deleteHarvesterNad } from '../../../../services/harvesterApi';
@@ -16,7 +16,7 @@ import { fetchCloudProviderEcs } from '../../../../services/api';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import NadCreateModal from '../modals/NadCreateModal';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参说明
@@ -30,9 +30,10 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean, silent?: boolean) => void;
   cloudId?: string;
+  isTenant?: boolean;
 };
 
-const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }) => {
+const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant }) => {
   // 过滤条件：关键字 / 命名空间 / IPAM 类型
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
@@ -51,7 +52,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
    * 打开 HarvesterResourceDrawer，查看 NAD 详情
    * kind 固定为 NetworkAttachmentDefinition 以兼容事件等功能
    */
-  const handleOpenDrawer = async (record: any, tab: string = 'detail') => {
+  const handleOpenOpsinfo = async (record: any, tab: string = 'detail') => {
     setDetailRecord({ ...record, kind: 'NetworkAttachmentDefinition' });
     setDetailActiveTab(tab);
     setDetailVisible(true);
@@ -189,6 +190,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
       const nspace = String(item._namespace || '').toLowerCase();
       const ipam = String(item._ipamType || '').toLowerCase();
 
+      if (isTenant && isPublicNamespace(nspace)) return false;
+
       // Keyword Filter
       const matchesKeyword = !kw || name.includes(kw) || nspace.includes(kw);
       if (!matchesKeyword) return false;
@@ -224,7 +227,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
       title: '网络名称', 
       key: 'name', 
       render: (_: any, r: any) => (
-        <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
+        <span>
           {r._name || '-'}
         </span>
       )
@@ -282,20 +285,22 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
       title: '操作', 
       key: 'actions', 
       width: 80,
+      align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
           const isSys = isSystemNamespace(r._namespace);
-          const items: any[] = [
-              { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
-              { type: 'divider' },
-              { 
-                key: 'delete', 
-                label: '删除', 
-                danger: true, 
-                disabled: isSys,
-                onClick: () => handleDelete(r) 
-              }
-          ];
+          const items: any[] = [];
+          if (!isTenant) {
+            items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
+            items.push({ type: 'divider' });
+          }
+          items.push({ 
+            key: 'delete', 
+            label: '删除', 
+            danger: true, 
+            disabled: isSys,
+            onClick: () => handleDelete(r) 
+          });
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
@@ -309,18 +314,21 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
           <Input 
             allowClear 
             placeholder="关键字" 
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
             className="toolbar-search"
           />
-          <Select 
-            allowClear 
-            placeholder="命名空间" 
-            value={nsFilter || undefined} 
-            onChange={(v) => setNsFilter(v || '')} 
-            className="toolbar-filter"
-            options={[{ value: '', label: '全部命名空间' }, ...nsOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
-          />
+          {!isTenant && (
+            <Select 
+              allowClear 
+              placeholder="命名空间" 
+              value={nsFilter || undefined} 
+              onChange={(v) => setNsFilter(v || '')} 
+              className="toolbar-filter"
+              options={[{ value: '', label: '全部命名空间' }, ...nsOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
+            />
+          )}
           <Select 
             allowClear 
             placeholder="IPAM类型" 
@@ -329,17 +337,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
             className="toolbar-filter"
             options={[{ value: '', label: '全部IPAM' }, ...ipamOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
           />
-          <button
-            type="button"
-            className="toolbar-reset-btn"
-            onClick={() => {
-              setKeyword('');
-              setNsFilter('');
-              setIpamFilter('');
-            }}
-          >
-            重置
-          </button>
         </>
       )}
       toolbarRight={(
@@ -355,8 +352,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId }
       )}
     >
       <Table
-        className="std-table"
-        bordered
+        className={!isTenant ? "std-table" : "std-table no-border"}
+        bordered={!isTenant}
         rowKey={(r: any) => r?.metadata?.uid || `${r?._namespace}/${r?._name}` || Math.random().toString(36).slice(2)}
         columns={tableColumns}
         dataSource={filteredData}

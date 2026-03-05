@@ -9,7 +9,7 @@
  */
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress } from 'antd';
-import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
+import { SettingOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
@@ -27,9 +27,10 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   cloudId?: string;
+  isTenant?: boolean;
 };
 
-const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) => {
+const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isTenant }) => {
   // 过滤条件：关键字、角色、就绪状态
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
@@ -46,7 +47,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
    * 统一打开 HarvesterResourceDrawer 的入口
    * - 在列表视图中 Node 通常没有 kind 字段，这里统一补充为 'Node'
    */
-  const handleOpenDrawer = useCallback(async (record: any, tab: string) => {
+  const handleOpenOpsinfo = useCallback(async (record: any, tab: string) => {
     setDrawerRecord({ ...record, kind: 'Node' });
     setDrawerActiveTab(tab);
     setDrawerVisible(true);
@@ -231,7 +232,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
   const allColumns = useMemo(() => [
     { title: '名称', key: 'name', render: (_:any, r:any)=> {
       const text = r?.name || r?.metadata?.name || '-';
-      return <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>{text}</span>;
+      return <span>{text}</span>;
     } },
     { title: '角色', key: 'roles', render: (_:any, r:any)=> {
       const roles = getRoles(r);
@@ -299,9 +300,10 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
     { title: '内核版本', key: 'kernel', render: (_:any, r:any)=> r?.kernelVersion || r?.status?.nodeInfo?.kernelVersion || '-' },
     { title: '容器运行时', key: 'runtime', render: (_:any, r:any)=> r?.containerRuntimeVersion || r?.status?.nodeInfo?.containerRuntimeVersion || '-' },
     { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
-        const items: any[] = [
-            { key: 'detail', label: '资源详情', onClick: () => handleOpenDrawer(r, 'detail') },
-        ];
+        const items: any[] = [];
+        if (!isTenant) {
+          items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
+        }
         return (
           <ResourceActionsDropdown 
             items={items} 
@@ -310,7 +312,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
         );
       } 
     },
-  ], [handleOpenDrawer, metricsMap]);
+  ], [handleOpenOpsinfo, metricsMap]);
 
   const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
 
@@ -322,7 +324,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId }) =
       autoStyleInputs={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" value={keyword} onChange={(e)=> { setKeyword(e.target.value); setPagination(p=>({...p, current:1})); }} className="toolbar-search" />
+          <Input allowClear placeholder="关键字" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} value={keyword} onChange={(e)=> { setKeyword(e.target.value); setPagination(p=>({...p, current:1})); }} className="toolbar-search" />
           <Select allowClear placeholder="角色" value={roleFilter || undefined} onChange={(v)=> { setRoleFilter(v || ''); setPagination(p=>({...p, current:1})); }} className="toolbar-filter" options={[{ value: '', label: '全部' }, ...roleOptions]} />
           <Select allowClear placeholder="就绪" value={readyFilter || undefined} onChange={(v)=> { setReadyFilter(v || ''); setPagination(p=>({...p, current:1})); }} className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, { value:'ready', label:'就绪' }, { value:'notready', label:'未就绪' }]} />
           <button

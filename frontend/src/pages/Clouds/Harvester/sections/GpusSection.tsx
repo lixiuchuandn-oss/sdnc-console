@@ -5,7 +5,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, Space, Select, Tag, Input, Modal, Tabs } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
@@ -150,7 +150,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
       return <Tag color={color}>{s}</Tag>;
     } },
     {
-      title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
+      title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_: any, r: any) => {
         const items = [
           { key: 'metadata', label: '查看 MetaData', onClick: () => handleShowMetadata(r) },
           ...(r?.links?.view ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links.view, '_blank') }] : []),
@@ -170,7 +170,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
         asCard={false}
         toolbarLeft={(
           <>
-            <Input allowClear placeholder="关键字" className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+            <Input allowClear placeholder="关键字" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
             <Select
               value={typeFilter}
               className="toolbar-filter-sm"
