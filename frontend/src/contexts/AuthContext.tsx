@@ -16,6 +16,8 @@ interface User {
   permissions?: string[];
   tenantName?: string;
   organizationName?: string;
+  tenantId?: string; // 租户ID（租户用户才有）
+  organizationId?: string; // 组织ID（组织级用户才有）
 }
 
 /**

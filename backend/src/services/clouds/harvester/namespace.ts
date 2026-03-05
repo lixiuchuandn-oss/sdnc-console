@@ -1,6 +1,47 @@
 import { HarvesterTestParams } from './types';
 import { requestJson, getJsonOnce } from './utils';
 
+export const isProtectedNamespace = (name: string): boolean => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  
+  // Exact match blacklist (System & Public namespaces)
+  const exactBlacklist = [
+    'default',
+    'kube-system',
+    'kube-public',
+    'kube-node-lease',
+    'harvester-system',
+    'cattle-system',
+    'cattle-fleet-system',
+    'cattle-global-data',
+    'cattle-global-nt',
+    'longhorn-system',
+    'ingress-nginx',
+    'monitoring-system',
+    'fleet-system',
+    'fleet-default',
+    'fleet-local',
+    'cloud-public',
+    'harvester-public'
+  ];
+  if (exactBlacklist.includes(lower)) return true;
+
+  // Prefix match blacklist (Aligned with frontend isSystemNamespace logic)
+  const prefixBlacklist = [
+    'cattle',
+    'fleet',
+    'longhorn',
+    'kube',
+    'harvester',
+    'cluster',
+    'local',
+    'ingress',
+    'user-' // Keep user- with hyphen as specific backend rule
+  ];
+  return prefixBlacklist.some(p => lower.startsWith(p));
+};
+
 export const createHarvesterNamespace = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   name: string,
@@ -30,6 +71,9 @@ export const deleteHarvesterNamespace = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   name: string,
 ): Promise<any> => {
+  if (isProtectedNamespace(name)) {
+    throw new Error(`Namespace ${name} is protected and cannot be deleted.`);
+  }
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
   try {

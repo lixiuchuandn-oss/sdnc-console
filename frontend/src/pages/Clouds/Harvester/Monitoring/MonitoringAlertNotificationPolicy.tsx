@@ -974,7 +974,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       >
         {detailLoading ? (
           <div style={{ padding: 24, textAlign: 'center' }}>
-            <Spin tip="加载中..." />
+            <Spin />
           </div>
         ) : detailData ? (
           <Descriptions column={1} bordered size="small" labelStyle={{ width: 120 }}>

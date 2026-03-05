@@ -8,7 +8,8 @@ import { CloseOutlined } from '@ant-design/icons';
 import Login from './pages/Auth/Login';
 import AdminLogin from './pages/Auth/AdminLogin';
 import AdminLayout from './layouts/AdminLayout';
-import Dashboard from './pages/Dashboard';
+import OverviewDashboard from './pages/Dashboard/OverviewDashboard';
+import SdnDashboard from './pages/Dashboard/SdnDashboard';
 import Users from './pages/Tenants/Users';
 import Clouds from './pages/Clouds';
 import CloudDetail from './pages/Clouds/CloudDetail';
@@ -96,7 +97,8 @@ const AppRoutes: React.FC = () => {
         {/* Admin area */}
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
           <Route index element={<AdminIndex />} />
-          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="dashboard" element={<OverviewDashboard />} />
+          <Route path="sdn-dashboard" element={<SdnDashboard />} />
           <Route path="clouds" element={<Clouds />} />
           <Route path="clouds/:id" element={<CloudDetail />} />
           

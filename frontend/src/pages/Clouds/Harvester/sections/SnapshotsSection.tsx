@@ -61,6 +61,7 @@ interface Props {
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
   namespaces?: any[];
+  bordered?: boolean;
 }
 
 const SnapshotsSection: React.FC<Props> = ({ 
@@ -69,7 +70,8 @@ const SnapshotsSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   isTenant = false,
-  namespaces = []
+  namespaces = [],
+  bordered = true
 }) => {
   // ==============================================================================
   // 1. 状态定义 (State Definitions)
@@ -396,8 +398,8 @@ const SnapshotsSection: React.FC<Props> = ({
       }
     >
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        className="std-table"
+        bordered={bordered}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey="key"
@@ -407,8 +409,9 @@ const SnapshotsSection: React.FC<Props> = ({
           onChange: setSelectedRowKeys,
         }}
         pagination={{
-          size: 'small',
-          showQuickJumper: false,
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`
         }}
       />
       <VolumeSnapshotRestoreModal

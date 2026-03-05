@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Table, Tag, Button, Space, Modal, Form, Input, Select, message, MenuProps } from 'antd';
-import { ReloadOutlined, PlusOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import { SearchOutlined } from '@ant-design/icons';
+import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { createCloudProviderOvnFip, deleteCloudProviderOvnFip } from '../../../../services/harvesterApi';
-import { DEFAULT_PAGINATION_CONFIG } from '../../../../constants/pagination';
 import MetadataModal from './MetadataModal';
 
 interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
   onRefresh: (force?: boolean) => void;
+  bordered?: boolean;
 }
 
 interface FipSectionProps extends BaseSectionProps {
@@ -18,11 +19,68 @@ interface FipSectionProps extends BaseSectionProps {
   vpcs: any[];
 }
 
-export const FipSection: React.FC<FipSectionProps> = ({ cloudId, fips, eips, vpcs, loading, onRefresh }) => {
+export const FipSection: React.FC<FipSectionProps> = ({ cloudId, fips, eips, vpcs, loading, onRefresh, bordered = true }) => {
   const [isCreateVisible, setIsCreateVisible] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [form] = Form.useForm();
   const [metadataRecord, setMetadataRecord] = useState<any>(null);
+  
+  // 筛选条件
+  const [keyword, setKeyword] = useState<string>('');
+  const [vpcFilter, setVpcFilter] = useState<string>('');
+  const [ipTypeFilter, setIpTypeFilter] = useState<string>('');
+
+  // 筛选数据
+  const filteredData = useMemo(() => {
+    return fips.filter((item: any) => {
+      const name = item.metadata?.name || '';
+      const eip = item.spec?.ovnEip || '';
+      const ipName = item.spec?.ipName || '';
+      const vpc = item.spec?.vpc || '';
+      const ipType = item.spec?.ipType || '';
+      
+      // 关键字搜索
+      if (keyword) {
+        const kw = keyword.toLowerCase();
+        if (!name.toLowerCase().includes(kw) && 
+            !eip.toLowerCase().includes(kw) && 
+            !ipName.toLowerCase().includes(kw)) {
+          return false;
+        }
+      }
+      
+      // VPC筛选
+      if (vpcFilter && vpc !== vpcFilter) {
+        return false;
+      }
+      
+      // IP类型筛选
+      if (ipTypeFilter && ipType !== ipTypeFilter) {
+        return false;
+      }
+      
+      return true;
+    });
+  }, [fips, keyword, vpcFilter, ipTypeFilter]);
+
+  // 筛选选项
+  const vpcOptions = useMemo(() => {
+    const set = new Set<string>();
+    fips.forEach((item: any) => {
+      const vpc = item.spec?.vpc;
+      if (vpc) set.add(vpc);
+    });
+    return Array.from(set);
+  }, [fips]);
+
+  const ipTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    fips.forEach((item: any) => {
+      const ipType = item.spec?.ipType;
+      if (ipType) set.add(ipType);
+    });
+    return Array.from(set);
+  }, [fips]);
 
   const handleCreate = async () => {
     try {
@@ -74,38 +132,111 @@ export const FipSection: React.FC<FipSectionProps> = ({ cloudId, fips, eips, vpc
   };
 
   const columns = [
-    { title: '名称', key: 'name', render: (_: any, r: any) => <b>{r.metadata?.name}</b> },
-    { title: 'EIP', key: 'eip', render: (_: any, r: any) => r.spec?.ovnEip },
-    { title: '内部IP', key: 'ip', render: (_: any, r: any) => <Tag>{r.spec?.ipName}</Tag> },
-    { title: '类型', key: 'type', render: (_: any, r: any) => r.spec?.ipType },
-    { title: 'VPC', key: 'vpc', render: (_: any, r: any) => r.spec?.vpc },
+    { 
+      title: '名称', 
+      key: 'name', 
+      render: (_: any, r: any) => r.metadata?.name 
+    },
+    { 
+      title: 'EIP', 
+      key: 'eip', 
+      render: (_: any, r: any) => r.spec?.ovnEip || '-' 
+    },
+    { 
+      title: '内部IP', 
+      key: 'ip', 
+      render: (_: any, r: any) => <Tag>{r.spec?.ipName}</Tag> 
+    },
+    { 
+      title: '类型', 
+      key: 'type', 
+      render: (_: any, r: any) => r.spec?.ipType || '-' 
+    },
+    { 
+      title: 'VPC', 
+      key: 'vpc', 
+      render: (_: any, r: any) => r.spec?.vpc || '-' 
+    },
     {
-      title: '操作', key: 'action', width: 80, render: (_: any, r: any) => {
+      title: '操作', 
+      key: 'action', 
+      width: 80, 
+      render: (_: any, r: any) => {
         const menuItems: MenuProps['items'] = [
-          { key: 'metadata', label: '查看元数据', icon: <EyeOutlined /> },
+          { key: 'metadata', label: '查看元数据' },
           { type: 'divider' },
-          { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true }
+          { key: 'delete', label: '删除', danger: true }
         ];
-        return <ResourceActionsDropdown items={menuItems} onClick={({ key }) => handleMenuClick(key, r)} />;
+        return (
+          <ResourceActionsDropdown 
+            items={menuItems} 
+            onClick={({ key }) => handleMenuClick(key, r)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       }
     }
   ];
 
   return (
     <>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-        <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateVisible(true)}>创建FIP</Button>
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading}>刷新</Button>
-        </Space>
-      </div>
-      <Table 
-        dataSource={fips} 
-        columns={columns} 
-        loading={loading} 
-        rowKey={r => r.metadata?.uid} 
-        pagination={DEFAULT_PAGINATION_CONFIG} 
-      />
+      <PageDetailSection
+        asCard={false}
+        toolbarLeft={(
+          <>
+            <Input 
+              allowClear 
+              placeholder="关键字" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword} 
+              onChange={(e) => setKeyword(e.target.value)} 
+              className="toolbar-search"
+            />
+            <Select 
+              allowClear 
+              placeholder="VPC" 
+              value={vpcFilter || undefined} 
+              onChange={(v) => setVpcFilter(v || '')} 
+              className="toolbar-filter"
+              options={[
+                { value: '', label: '全部' },
+                ...vpcOptions.map(v => ({ value: v, label: v }))
+              ]} 
+            />
+            <Select 
+              allowClear 
+              placeholder="IP类型" 
+              value={ipTypeFilter || undefined} 
+              onChange={(v) => setIpTypeFilter(v || '')} 
+              className="toolbar-filter-sm"
+              options={[
+                { value: '', label: '全部' },
+                ...ipTypeOptions.map(t => ({ value: t, label: t }))
+              ]} 
+            />
+          </>
+        )}
+        primaryAction={{
+          label: '创建FIP',
+          onClick: () => setIsCreateVisible(true)
+        }}
+        onRefresh={() => onRefresh(true)}
+        refreshLoading={loading}
+      >
+        <Table 
+          className="std-table"
+          dataSource={filteredData} 
+          columns={columns} 
+          loading={loading} 
+          bordered={bordered}
+          rowKey={r => r.metadata?.uid} 
+          pagination={{
+            size: 'small',
+            showQuickJumper: false
+          }}
+        />
+      </PageDetailSection>
+      
       <MetadataModal visible={!!metadataRecord} record={metadataRecord} onClose={() => setMetadataRecord(null)} />
 
       <Modal

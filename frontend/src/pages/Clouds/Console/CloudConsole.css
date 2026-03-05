@@ -85,3 +85,23 @@
   margin: 0 10px 4px 10px !important;
   padding-right: 10px !important;
 }
+
+.cloud-console-harvester-dropdown-trigger {
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: rgba(0, 0, 0, 0.35);
+  transition: background-color 0.15s ease;
+}
+
+.cloud-console-harvester-dropdown-trigger .anticon {
+  line-height: 0;
+  display: block;
+}
+
+.cloud-console-harvester-dropdown-trigger:hover {
+  background: rgba(0, 0, 0, 0.06);
+}

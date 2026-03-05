@@ -318,7 +318,7 @@ const AdminLayout: React.FC = () => {
 
   const adminSpecs = routeSpecs.filter(s => s.layout === 'admin' && !s.hidden);
   
-  const centers: any[] = PLATFORMS.filter(p => p !== '全部').map((pf: any) => ({
+  const centers = React.useMemo(() => PLATFORMS.filter(p => p !== '全部').map((pf: any) => ({
     key: pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : '/admin/cen_secops',
     label: PLATFORM_LABELS[pf as keyof typeof PLATFORM_LABELS] || pf,
     icon: <CodeOutlined />,
@@ -339,9 +339,9 @@ const AdminLayout: React.FC = () => {
         .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
         .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon) })),
     })),
-  }));
+  })), []);
 
-  const visibleCenters = (centers || [])
+  const visibleCenters = React.useMemo(() => (centers || [])
     .map((c:any) => ({
       ...c,
       items: (c.items || [])
@@ -351,7 +351,7 @@ const AdminLayout: React.FC = () => {
         }))
         .filter((p:any) => (p.children || []).length > 0),
     }))
-    .filter((c:any) => (c.items || []).length > 0);
+    .filter((c:any) => (c.items || []).length > 0), [centers, user]);
 
   const pageSearchOptions = React.useMemo(() => {
     const opts: any[] = [];
@@ -408,12 +408,8 @@ const AdminLayout: React.FC = () => {
           const sel = filteredSearchList[searchActiveIndex];
           if (sel) {
             const path = sel.path;
-            if (path === '/admin/clouds/console') {
-              window.open(path, '_blank');
-            } else {
-              navigate(path);
-              setActiveSidebarKey(sidebarForPath(path));
-            }
+            navigate(path);
+            setActiveSidebarKey(sidebarForPath(path));
             setSearchOpen(false);
           }
         }
@@ -459,10 +455,16 @@ const AdminLayout: React.FC = () => {
       const center = (visibleCenters.find(c => c.key === activeSidebarKey) || (visibleCenters || [])[0]);
       const currentPath = location.pathname;
       const activeGroup = (center?.items || []).find((p:any) => (p.children || []).some((it:any) => String(it.key || '').split('?')[0] === currentPath));
-      const keys = activeGroup ? [activeGroup.key] : [];
-      setOpenKeys(keys);
+      const nextKeys = activeGroup ? [activeGroup.key] : [];
+      
+      setOpenKeys(prev => {
+        if (prev.length === nextKeys.length && prev.every((k, i) => k === nextKeys[i])) {
+          return prev;
+        }
+        return nextKeys;
+      });
     }
-  }, [collapsed, activeSidebarKey, location.pathname]);
+  }, [collapsed, activeSidebarKey, location.pathname, visibleCenters]);
 
   useEffect(() => {
     if (navSection === 'products') {
@@ -670,12 +672,8 @@ const AdminLayout: React.FC = () => {
                       onMouseEnter={()=> setSearchActiveIndex(idx)}
                       onClick={()=> {
                         const path = it.path;
-                        if (path === '/admin/clouds/console') {
-                          window.open(path, '_blank');
-                        } else {
-                          navigate(path);
-                          setActiveSidebarKey(sidebarForPath(path));
-                        }
+                        navigate(path);
+                        setActiveSidebarKey(sidebarForPath(path));
                         setSearchOpen(false);
                       }}
                       style={{
@@ -752,7 +750,7 @@ const AdminLayout: React.FC = () => {
                   <Select.Option value="only_running">仅运行中</Select.Option>
                   <Select.Option value="only_non_running">仅非运行</Select.Option>
                 </Select>
-                <Button type="primary" onClick={()=> window.open('/admin/clouds/console','_blank')}>资源控制台pro</Button>
+                <Button type="primary" onClick={()=> navigate('/admin/clouds/console')}>资源控制台pro</Button>
               </Space>
               <Space size={12}>
                 <Button type="default" style={{ borderColor: NAV_DIVIDER_COLOR }} onClick={()=> setNavOpen(false)}>收起</Button>
@@ -849,7 +847,7 @@ const AdminLayout: React.FC = () => {
                     inlineCollapsed={collapsed}
                     onClick={({ key }) => {
                       if (typeof key === 'string' && key.startsWith('/')) {
-                        if (key === '/admin/clouds/console') { window.open(key, '_blank'); return; }
+                        if (key === '/admin/clouds/console') { navigate(key); return; }
                         navigate(key);
                       }
                     }}

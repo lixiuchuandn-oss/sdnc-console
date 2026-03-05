@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Popover, Checkbox, Button, Tooltip } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import type { ColumnsType, ColumnType, ColumnGroupType } from 'antd/es/table';
@@ -81,38 +81,54 @@ export const TableColumnSettings = <T extends object>({
     setInitialized(true);
   }, [columnOptions, settingsKey, defaultHiddenColumns, initialized]);
 
-  // 当 checkedList 或 columns 改变时，通知父组件并保存
+  // 使用 ref 存储 onChange，避免依赖它导致的无限循环
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  // 计算过滤后的列（提取为函数，避免重复代码）
+  const computeFilteredColumns = useCallback(() => {
+    return columns.filter(col => {
+      const key = getColumnKey(col);
+      // 如果 key 为空（未在 options 中），默认显示
+      if (!key) return true;
+      // 检查是否在 checkedList 中
+      return checkedList.includes(key);
+    });
+  }, [columns, checkedList]);
+
+  // 统一处理 checkedList 和 columns 的变化
+  // 当 checkedList 变化时，保存到 localStorage 并更新父组件
+  // 当 columns 引用变化时（如 SafeRead 更新），重新计算并更新父组件
   useEffect(() => {
     if (!initialized) return;
 
     const listChanged = JSON.stringify(checkedList) !== JSON.stringify(prevCheckedListRef.current);
-    const columnsChanged = columns !== prevColumnsRef.current;
+    const columnsRefChanged = columns !== prevColumnsRef.current;
 
-    // 只有当 checkedList 真正变化，或者 columns 定义发生变化时才调用 onChange
-    if (listChanged || columnsChanged) {
-      // 计算新的 columns
-      const filteredColumns = columns.filter(col => {
-        const key = getColumnKey(col);
-        // 如果 key 为空（未在 options 中），默认显示
-        if (!key) return true;
-        // 检查是否在 checkedList 中
-        return checkedList.includes(key);
-      });
+    // 如果 checkedList 或 columns 发生了变化，都需要重新计算
+    if (listChanged || columnsRefChanged) {
+      const filteredColumns = computeFilteredColumns();
 
-      // 保存到 localStorage (仅当列表变化时)
+      // 保存到 localStorage（仅当 checkedList 变化时）
       if (listChanged && settingsKey) {
         localStorage.setItem(`table_cols_${settingsKey}`, JSON.stringify(checkedList));
       }
 
-      // 调用 onChange
-      onChange(filteredColumns);
+      // 调用 onChange（使用 ref 避免依赖）
+      onChangeRef.current(filteredColumns);
 
       // 更新上一次的 refs
-      prevCheckedListRef.current = checkedList;
-      prevColumnsRef.current = columns;
+      if (listChanged) {
+        prevCheckedListRef.current = checkedList;
+      }
+      if (columnsRefChanged) {
+        prevColumnsRef.current = columns;
+      }
     }
-  }, [checkedList, settingsKey, initialized, onChange, columns]); 
-  // 注意：这里去掉了 onChange 依赖，防止父组件没用 useCallback 导致死循环，但 columns 变化时应该重新计算
+  }, [checkedList, columns, settingsKey, initialized, computeFilteredColumns]);
+
 
   const handleCheckAll = (e: any) => {
     const allKeys = columnOptions.map(o => o.value);

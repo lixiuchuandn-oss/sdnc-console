@@ -38,7 +38,7 @@
  * ==============================================================================
  */
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Tag, Tabs, Tooltip, Alert, Cascader } from 'antd';
@@ -51,7 +51,7 @@ import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
-import { isSystemNamespace, isPublicNamespace, cnVmStatus, VM_STATUS_MAP } from '../../../../utils/harvesterUtils';
+import { isPublicNamespace, cnVmStatus, VM_STATUS_MAP } from '../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../components/OsIcon';
 
 /**
@@ -91,13 +91,15 @@ type Props = {
   namespaces?: any[];
   volumes?: any[]; 
   isTenant?: boolean;
+  bordered?: boolean; // New prop to control table border explicitly
+  disableColumnSettings?: boolean; // 禁用列设置组件，避免在某些场景下导致死锁
 };
 
 /**
  * [组件定义] VmSection
  * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, bordered = true, disableColumnSettings = false }) => {
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
   const navigate = useNavigate();
@@ -664,10 +666,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const sKey = String(SafeRead.status(r)).toLowerCase();
 
       // [筛选] 租户/组织
-      // 租户侧自动过滤系统命名空间和公共命名空间
-      if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
-      // 管理员侧仅过滤系统命名空间 (如果没有显式选中某个系统ns 且 未开启显示系统资源)
-      if (!isTenant && !showSystemResources && isSystemNamespace(ns) && (!nsValue || nsValue !== ns)) return false;
+      // 租户侧过滤公共命名空间
+      if (isTenant && isPublicNamespace(ns)) return false;
 
       if (tenantOrgPath && tenantOrgPath.length > 0) {
         const currentNsObj = (namespaces || []).find((n: any) => n?.metadata?.name === ns);
@@ -687,7 +687,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       if (st && sKey !== st) return false;
       return true;
     });
-  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant, showSystemResources]);
+  }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant]);
 
   // 计算当前抽屉需要显示的记录
   const drawerRecord = useMemo(() => {
@@ -1341,6 +1341,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     } },
   ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate]);
 
+  // 当禁用列设置时，直接使用 allColumns，不通过 useEffect 更新状态
+  // 避免 allColumns 变化导致的无限循环
+
   // ==========================================
   // [UI渲染] 8. 组件结构返回 (Render)
   // ==========================================
@@ -1378,13 +1381,13 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             onChange={(v)=> onNsChange(v || undefined)}
             allowClear
             showSearch
-            options={namespacesOptions.filter(ns => {
-              // 租户模式下，isTenant 已经在外部控制了传入的 namespacesOptions，这里做双重保险
-              if (isTenant && (isSystemNamespace(ns) || isPublicNamespace(ns))) return false;
-              // 管理员模式下，根据 showSystemResources 决定是否显示系统命名空间
-              if (!isTenant && !showSystemResources && isSystemNamespace(ns)) return false;
-              return true;
-            }).map(ns=> ({ value: ns, label: ns }))}
+            options={namespacesOptions
+              .filter(ns => {
+                // 租户模式下过滤公共命名空间
+                if (isTenant && isPublicNamespace(ns)) return false;
+                return true;
+              })
+              .map(ns=> ({ value: ns, label: ns }))}
           />
           )}
           <Select
@@ -1406,16 +1409,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             allowClear
             options={[{ value: '', label: '全部' }, ...Object.keys(VM_STATUS_MAP).map(k=> ({ value: k, label: VM_STATUS_MAP[k] }))]}
           />
-          {!isTenant && (
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Checkbox 
-                checked={showSystemResources} 
-                onChange={(e: any) => setShowSystemResources(e.target.checked)}
-              >
-                显示系统资源
-              </Checkbox>
-            </div>
-          )}
+          
         </div>
         
         {/* 右侧：操作按钮 */}
@@ -1435,12 +1429,14 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           >
             <Button icon={<EllipsisOutlined />}></Button>
           </Dropdown>
-          <TableColumnSettings 
-            key="col-settings"
-            columns={allColumns} 
-            onChange={setTableColumns}
-            settingsKey="harvester_vm_table_v3"
-          />
+          {!disableColumnSettings && (
+            <TableColumnSettings 
+              key="col-settings"
+              columns={allColumns} 
+              onChange={setTableColumns}
+              settingsKey="harvester_vm_table_v3"
+            />
+          )}
           <Button key="refresh-btn" icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} />
         </div>
       </div>
@@ -1453,10 +1449,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       <Table
         key="vm-table"
         className="std-table"
-        bordered={!isTenant}
+        bordered={bordered}
         rowKey={(r:any)=> getIid(r)}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: (keys)=> setSelectedKeys(keys) }}
-        columns={tableColumns}
+        columns={disableColumnSettings ? allColumns : (tableColumns.length > 0 ? tableColumns : allColumns)}
         dataSource={filtered}
         loading={loading}
         scroll={{ x: 'max-content' }}

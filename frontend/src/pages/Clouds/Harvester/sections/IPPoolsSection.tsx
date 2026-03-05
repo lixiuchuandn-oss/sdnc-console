@@ -8,8 +8,8 @@
  * - 通过 IPPoolCreateModal 创建新的地址池
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Button, message, Input, Modal } from 'antd';
-import { ReloadOutlined,SearchOutlined } from '@ant-design/icons';
+import { Table, Button, message, Input, Modal, Select, Space, Tag } from 'antd';
+import { ReloadOutlined, SearchOutlined, GlobalOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import IPPoolCreateModal from '../modals/IPPoolCreateModal';
@@ -30,11 +30,13 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
+  bordered?: boolean;
 }
 
-const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant }) => {
-  // 工具栏状态：关键字搜索、创建弹窗、详情抽屉
+const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true }) => {
+  // 工具栏状态：关键字搜索、命名空间筛选、创建弹窗、详情抽屉
   const [keyword, setKeyword] = useState<string>('');
+  const [nsFilter, setNsFilter] = useState<string>('');
   const [createVisible, setCreateVisible] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState('detail');
@@ -82,12 +84,16 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
         rangesText = raw.spec.cidrs.join(', ') || '-';
       }
 
+      // 解析网络信息（从 selector.network 中提取）
+      const network = raw.spec?.selector?.network || '-';
+
       return {
         key: raw.metadata?.uid || pool.id,
         name: raw.metadata?.name || pool.name,
         namespace: namespace,
         ranges: rangesText,
-        selector: raw.spec?.selector ? JSON.stringify(raw.spec.selector) : '-',
+        network: network,
+        selector: raw.spec?.selector ? JSON.stringify(raw.spec.selector) : '-', // 保留原始数据用于详情查看
         creationTimestamp: raw.metadata?.creationTimestamp || pool.createdAt,
         raw,
       };
@@ -95,19 +101,48 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
   }, [ippools]);
 
   /**
-   * 根据关键字对名称 / 命名空间做包含匹配
+   * 根据关键字、命名空间进行过滤
    */
   const filteredData = useMemo(() => {
-    let d = dataSource;
-    if (isTenant) {
-      d = d.filter((x: any) => !isPublicNamespace(x.namespace));
-    }
-    if (keyword) {
-      const k = keyword.toLowerCase();
-      d = d.filter((x: any) => x.name.toLowerCase().includes(k) || (x.namespace && x.namespace.toLowerCase().includes(k)));
-    }
-    return d;
-  }, [dataSource, keyword, isTenant]);
+    const kw = keyword.trim().toLowerCase();
+    const ns = nsFilter.trim().toLowerCase();
+
+    return dataSource.filter((x: any) => {
+      // 租户模式过滤：自动过滤公共命名空间
+      if (isTenant && isPublicNamespace(x.namespace)) return false;
+
+      // 关键字过滤：匹配名称或命名空间
+      if (kw) {
+        const name = String(x.name || '').toLowerCase();
+        const namespace = String(x.namespace || '').toLowerCase();
+        if (!name.includes(kw) && !namespace.includes(kw)) return false;
+      }
+
+      // 命名空间过滤：精确匹配
+      if (ns) {
+        const namespace = String(x.namespace || '').toLowerCase();
+        if (namespace !== ns) return false;
+      }
+
+      return true;
+    });
+  }, [dataSource, keyword, nsFilter, isTenant]);
+
+  /**
+   * 提取可用的命名空间选项（用于筛选下拉框）
+   */
+  const namespaceOptions = useMemo(() => {
+    const nsSet = new Set<string>();
+    dataSource.forEach((item: any) => {
+      if (item.namespace && item.namespace !== '-') {
+        nsSet.add(item.namespace);
+      }
+    });
+    return Array.from(nsSet).sort().map(ns => ({
+      label: ns,
+      value: ns
+    }));
+  }, [dataSource]);
 
   /**
    * 打开 HarvesterResourceDrawer 查看地址池原始对象详情
@@ -222,18 +257,29 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
    */
   const columns = [
     { 
-      title: '名称', 
+      title: '地址池名称', 
       dataIndex: 'name', 
       key: 'name', 
       render: (t: string) => (
-        <span style={{ fontWeight: 500 }}>
+        <span>
+          <GlobalOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
           {t}
         </span>
       ) 
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { title: 'IP 范围/CIDR', dataIndex: 'ranges', key: 'ranges', ellipsis: true },
-    { title: '选择器', dataIndex: 'selector', key: 'selector', ellipsis: true },
+    { 
+      title: '网络', 
+      dataIndex: 'network', 
+      key: 'network',
+      render: (network: string) => {
+        if (!network || network === '-') {
+          return <span className="text-secondary">-</span>;
+        }
+        return <Tag color="blue">{network}</Tag>;
+      }
+    },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp' },
     {
       title: '操作',
@@ -261,35 +307,47 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
     <PageDetailSection
       asCard={false}
       toolbarLeft={
-        <Input
-          className="toolbar-search"
-          placeholder="关键字"
-          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-          value={keyword}
-          onChange={e => setKeyword(e.target.value)}
-          allowClear
-        />
+        <Space>
+          <Input
+            className="toolbar-search"
+            placeholder="关键字"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            allowClear
+            style={{ width: 200 }}
+          />
+          <Select
+            placeholder="命名空间"
+            value={nsFilter || undefined}
+            onChange={(v) => setNsFilter(v || '')}
+            allowClear
+            style={{ width: 150 }}
+            options={namespaceOptions}
+          />
+        </Space>
       }
       toolbarRight={
         <>
           {selectedRowKeys.length > 0 && (
             <Button danger onClick={handleBatchDelete}>批量删除</Button>
           )}
-          <Button type="primary" onClick={() => setCreateVisible(true)}>创建</Button>
+          <Button type="primary" onClick={() => setCreateVisible(true)}>创建地址池</Button>
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}></Button>
         </>
       }
     >
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        className="std-table"
+        bordered={bordered}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"
         loading={loading}
         pagination={{
-          size: 'small',
-          showQuickJumper: false,
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`
         }}
         rowSelection={rowSelection}
       />

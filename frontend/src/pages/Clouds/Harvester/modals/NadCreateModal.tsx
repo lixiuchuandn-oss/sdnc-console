@@ -7,10 +7,12 @@
  * - 可选配置 VLAN ID，用于为业务网络打 tag。
  */
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Select, InputNumber, Alert, message } from 'antd';
+import { Form, Input, Select, InputNumber, Alert, message, Switch, Collapse } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
 import { createHarvesterNad, fetchHarvesterNamespaces, fetchHarvesterClusterNetworks } from '../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
+
+const { Panel } = Collapse;
 
 /**
  * 组件入参
@@ -84,7 +86,9 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
 
   /**
    * 提交创建 NAD：
-   * - 组装 bridge CNI config（含可选 VLAN ID）；
+   * - 生成 ID：使用 generateHarvesterEntityId 生成 id-nad-{11位随机字符串} 格式的 ID
+   * - 别名处理：用户输入的 name 作为别名写入 tower.io/alias 注解
+   * - 组装 CNI config（支持 bridge/macvlan 等类型，含 IPAM 配置）；
    * - 以 k8s.cni.cncf.io.networkattachmentdefinition 类型提交给 Harvester；
    * - 使用 annotation 将 NAD 与 ClusterNetwork 关联。
    */
@@ -93,39 +97,144 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
     try {
       const cnName = values.clusterNetwork || 'mgmt';
       // For 'mgmt' network, the bridge is typically 'mgmt-br'. For others, use {cnName}-br convention
-      const bridgeName = cnName === 'mgmt' ? 'mgmt-br' : `${cnName}-br`;
+      const bridgeName = values.bridgeName || (cnName === 'mgmt' ? 'mgmt-br' : `${cnName}-br`);
 
-      // Construct config object for bridge CNI
+      // 生成 ID：id-nad-{11位随机字符串}
+      const nadId = generateHarvesterEntityId('nad');
+
+      // 构建 IPAM 配置
+      const ipam: any = {};
+      if (values.ipamType) {
+        ipam.type = values.ipamType;
+        
+        // host-local IPAM 配置
+        if (values.ipamType === 'host-local') {
+          if (values.ipamSubnet) {
+            ipam.subnet = values.ipamSubnet;
+          }
+          if (values.ipamRangeStart) {
+            ipam.rangeStart = values.ipamRangeStart;
+          }
+          if (values.ipamRangeEnd) {
+            ipam.rangeEnd = values.ipamRangeEnd;
+          }
+          if (values.ipamGateway) {
+            ipam.gateway = values.ipamGateway;
+          }
+          if (values.ipamRoutes && values.ipamRoutes.trim()) {
+            try {
+              ipam.routes = JSON.parse(values.ipamRoutes);
+            } catch (e) {
+              message.warning('路由配置 JSON 格式错误，将忽略');
+            }
+          }
+          if (values.ipamDns && values.ipamDns.trim()) {
+            const dnsList = values.ipamDns.split(/[,;\s]+/).filter((d: string) => d.trim());
+            if (dnsList.length > 0) {
+              ipam.dns = {
+                nameservers: dnsList
+              };
+            }
+          }
+        }
+        
+        // static IPAM 配置
+        if (values.ipamType === 'static') {
+          if (values.ipamAddresses && values.ipamAddresses.trim()) {
+            const addrList = values.ipamAddresses.split(/[,;\s]+/).filter((a: string) => a.trim());
+            if (addrList.length > 0) {
+              ipam.addresses = addrList;
+            }
+          }
+          if (values.ipamRoutes && values.ipamRoutes.trim()) {
+            try {
+              ipam.routes = JSON.parse(values.ipamRoutes);
+            } catch (e) {
+              message.warning('路由配置 JSON 格式错误，将忽略');
+            }
+          }
+          if (values.ipamDns && values.ipamDns.trim()) {
+            const dnsList = values.ipamDns.split(/[,;\s]+/).filter((d: string) => d.trim());
+            if (dnsList.length > 0) {
+              ipam.dns = {
+                nameservers: dnsList
+              };
+            }
+          }
+        }
+        
+        // dhcp IPAM 配置
+        if (values.ipamType === 'dhcp') {
+          // DHCP 通常不需要额外配置，但可以配置路由和 DNS
+          if (values.ipamRoutes && values.ipamRoutes.trim()) {
+            try {
+              ipam.routes = JSON.parse(values.ipamRoutes);
+            } catch (e) {
+              message.warning('路由配置 JSON 格式错误，将忽略');
+            }
+          }
+          if (values.ipamDns && values.ipamDns.trim()) {
+            const dnsList = values.ipamDns.split(/[,;\s]+/).filter((d: string) => d.trim());
+            if (dnsList.length > 0) {
+              ipam.dns = {
+                nameservers: dnsList
+              };
+            }
+          }
+        }
+      }
+
+      // Construct config object for CNI
       const config: any = {
-        cniVersion: '0.3.1',
-        name: values.name, // Usually matches NAD name
-        type: 'bridge',
-        bridge: bridgeName,
-        promiscMode: true,
-        vlan: values.vlanId ? Number(values.vlanId) : undefined, // Ensure number type
-        ipam: {} // Empty object
+        cniVersion: values.cniVersion || '0.3.1',
+        name: nadId, // Use generated ID as CNI config name
+        type: values.cniType || 'bridge',
+        promiscMode: values.promiscMode !== false, // 默认 true
       };
 
-      // Filter out undefined keys (like vlan if not set)
-      if (!config.vlan) delete config.vlan;
+      // Bridge CNI 特定配置
+      if (config.type === 'bridge') {
+        config.bridge = bridgeName;
+      }
+
+      // VLAN 配置
+      if (values.vlanId) {
+        config.vlan = Number(values.vlanId);
+      }
+
+      // IPAM 配置（如果配置了 IPAM）
+      if (Object.keys(ipam).length > 0) {
+        config.ipam = ipam;
+      } else {
+        // 如果没有配置 IPAM，使用空对象（L2 网络）
+        config.ipam = {};
+      }
+      
+      // 构建 annotations
+      const annotations: Record<string, string> = {
+        // Standard Harvester annotation to link with ClusterNetwork
+        'network.harvesterhci.io/route-cluster-network': cnName
+        // Removed 'network.harvesterhci.io/route' annotation as we are not configuring L3 routes
+        // and sending empty strings causes validation errors (CIDR invalid)
+      };
+      
+      // 如果用户输入了别名，写入 tower.io/alias 注解
+      if (values.name && values.name.trim()) {
+        annotations['tower.io/alias'] = values.name.trim();
+      }
       
       // Construct NAD payload (Rancher/Steve API Style)
       // This style uses 'type' instead of 'apiVersion/kind' and is robust for Harvester API
       const payload = {
         type: 'k8s.cni.cncf.io.networkattachmentdefinition',
         metadata: {
-          name: values.name,
+          name: nadId, // Use generated ID as NAD name
           namespace: values.namespace,
           labels: {
             // Also add label for easier filtering
             'network.harvesterhci.io/cluster-network': cnName
           },
-          annotations: {
-             // Standard Harvester annotation to link with ClusterNetwork
-             'network.harvesterhci.io/route-cluster-network': cnName
-             // Removed 'network.harvesterhci.io/route' annotation as we are not configuring L3 routes
-             // and sending empty strings causes validation errors (CIDR invalid)
-          }
+          annotations
         },
         spec: {
           config: JSON.stringify(config)
@@ -160,10 +269,10 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
     >
       <Form.Item
         name="name"
-        label="名称"
+        label="别名"
+        tooltip="网络的可读别名，将写入 tower.io/alias 注解。实际 ID 会自动生成（id-nad-{随机字符串}）"
         rules={[
-          { required: true, message: '请输入名称' },
-          { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '仅允许小写字母、数字与连字符' }
+          { required: true, message: '请输入别名' }
         ]}
       >
         <Input placeholder="例如: vlan-100" />
@@ -194,9 +303,8 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
       <Form.Item
         name="vlanId"
         label="VLAN ID"
-        extra="请输入 1-4094 之间的 VLAN ID，留空表示不使用 VLAN (Untagged)"
       >
-        <InputNumber min={1} max={4094} style={{ width: '100%' }} placeholder="留空则不使用 VLAN" />
+        <InputNumber min={1} max={4094} style={{ width: '100%' }} placeholder="请输入 1-4094 之间的 VLAN ID，留空表示不使用 VLAN" />
       </Form.Item>
 
       <Form.Item
@@ -211,16 +319,192 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
           loading={cnLoading}
         >
            {clusterNetworks.length > 0 ? (
-             clusterNetworks.map(cn => (
-               <Select.Option key={cn.metadata.name} value={cn.metadata.name}>
-                 {cn.metadata.name}
-               </Select.Option>
-             ))
+             clusterNetworks.map(cn => {
+               const cnName = cn.metadata.name;
+               const displayName = cnName === 'mgmt' ? '管理网' : cnName;
+               return (
+                 <Select.Option key={cnName} value={cnName}>
+                   {displayName}
+                 </Select.Option>
+               );
+             })
            ) : (
-             <Select.Option value="mgmt">mgmt (默认)</Select.Option>
+             <Select.Option value="mgmt">管理网 (默认)</Select.Option>
            )}
         </Select>
       </Form.Item>
+
+      <Collapse
+        className="std-collapse-minimal"
+        bordered={false}
+        expandIconPosition="start"
+        defaultActiveKey={[]}
+      >
+        <Panel header="高级配置" key="advanced">
+          <Form.Item
+            name="cniType"
+            label="CNI 类型"
+            initialValue="bridge"
+            tooltip="CNI 插件类型，bridge 用于桥接网络，macvlan 用于直通物理网络"
+          >
+            <Select>
+              <Select.Option value="bridge">bridge</Select.Option>
+              <Select.Option value="macvlan">macvlan</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="bridgeName"
+            label="网桥名称"
+            tooltip="网桥名称，留空则根据集群网络自动生成（mgmt -> mgmt-br）"
+          >
+            <Input placeholder="留空则自动生成" />
+          </Form.Item>
+
+          <Form.Item
+            name="promiscMode"
+            label="混杂模式"
+            valuePropName="checked"
+            initialValue={true}
+            tooltip="启用混杂模式允许网桥接收所有流量"
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="cniVersion"
+            label="CNI 版本"
+            initialValue="0.3.1"
+          >
+            <Select>
+              <Select.Option value="0.3.1">0.3.1</Select.Option>
+              <Select.Option value="0.4.0">0.4.0</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="ipamType"
+            label="IP分配方式"
+            tooltip="IP 地址管理方式：DHCP 模式（动态获取）、静态模式（手动指定 IP）、主机模式（节点本地分配）"
+          >
+            <Select placeholder="选择 IPAM 类型（留空表示不配置 IPAM）" allowClear>
+              <Select.Option value="dhcp">DHCP 模式</Select.Option>
+              <Select.Option value="static">静态模式</Select.Option>
+              <Select.Option value="host-local">主机模式</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.ipamType !== currentValues.ipamType}
+          >
+            {({ getFieldValue }) => {
+              const ipamType = getFieldValue('ipamType');
+              
+              if (ipamType === 'host-local') {
+                return (
+                  <>
+                    <Form.Item
+                      name="ipamSubnet"
+                      label="IPAM 子网 (CIDR)"
+                      tooltip="例如: 10.244.0.0/16"
+                    >
+                      <Input placeholder="例如: 10.244.0.0/16" />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="ipamRangeStart"
+                      label="IP 范围起始"
+                      tooltip="IP 地址池起始地址"
+                    >
+                      <Input placeholder="例如: 10.244.1.0" />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="ipamRangeEnd"
+                      label="IP 范围结束"
+                      tooltip="IP 地址池结束地址"
+                    >
+                      <Input placeholder="例如: 10.244.254.0" />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="ipamGateway"
+                      label="网关地址"
+                    >
+                      <Input placeholder="例如: 10.244.0.1" />
+                    </Form.Item>
+                  </>
+                );
+              }
+
+              if (ipamType === 'static') {
+                return (
+                  <Form.Item
+                    name="ipamAddresses"
+                    label="静态 IP 地址"
+                    tooltip="多个地址用逗号分隔，例如: 10.244.1.10/24, 10.244.1.11/24"
+                  >
+                    <Input placeholder="例如: 10.244.1.10/24" />
+                  </Form.Item>
+                );
+              }
+
+              return null;
+            }}
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.ipamType !== currentValues.ipamType}
+          >
+            {({ getFieldValue }) => {
+              const ipamType = getFieldValue('ipamType');
+              
+              // DHCP 类型：只显示 DNS 配置（路由由 DHCP 服务器提供）
+              if (ipamType === 'dhcp') {
+                return (
+                  <Form.Item
+                    name="ipamDns"
+                    label="DNS 服务器"
+                    tooltip="DHCP 服务器可能不提供 DNS，建议配置外部 DNS 服务器。多个 DNS 服务器用逗号分隔，例如: 8.8.8.8, 8.8.4.4"
+                  >
+                    <Input placeholder="例如: 8.8.8.8, 8.8.4.4" />
+                  </Form.Item>
+                );
+              }
+              
+              // static 和 host-local 类型：显示路由和 DNS 配置
+              if (ipamType === 'static' || ipamType === 'host-local') {
+                return (
+                  <>
+                    <Form.Item
+                      name="ipamRoutes"
+                      label="路由配置 (JSON)"
+                      tooltip='路由配置 JSON 数组，例如: [{"dst": "0.0.0.0/0", "gw": "10.244.0.1"}]'
+                    >
+                      <Input.TextArea 
+                        rows={3} 
+                        placeholder='例如: [{"dst": "0.0.0.0/0", "gw": "10.244.0.1"}]'
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="ipamDns"
+                      label="DNS 服务器"
+                      tooltip="多个 DNS 服务器用逗号分隔，例如: 8.8.8.8, 8.8.4.4"
+                    >
+                      <Input placeholder="例如: 8.8.8.8, 8.8.4.4" />
+                    </Form.Item>
+                  </>
+                );
+              }
+
+              return null;
+            }}
+          </Form.Item>
+        </Panel>
+      </Collapse>
     </StdFormModal>
   );
 };

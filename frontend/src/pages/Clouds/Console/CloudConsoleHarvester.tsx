@@ -28,7 +28,8 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
-import { DownOutlined } from '@ant-design/icons';
+import { CaretDownFilled } from '@ant-design/icons';
+import { useAuth } from '../../../contexts/AuthContext';
 import VmSection from '../Harvester/sections/VmSection';
 import TemplatesSection from '../Harvester/sections/TemplatesSection';
 import SshKeysSection from '../Harvester/sections/SshKeysSection';
@@ -198,6 +199,14 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   showYaml = true,
   showSys = true
 }) => {
+  const { user } = useAuth();
+  
+  // [租户判断] 根据用户角色动态判断是否为租户
+  const isTenantUser = useMemo(() => {
+    // 租户用户：role === 'tenant' 或者有 tenantId
+    return user?.role === 'tenant' || !!user?.tenantId;
+  }, [user]);
+
   // [二级导航] 当前类目与资源：由 Props 驱动 (Controlled Component)
   // const [activeCategory, setActiveCategory] = useState('compute');
   // const [activeResource, setActiveResource] = useState('vm');
@@ -291,7 +300,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onPause={onPause}
             onUnpause={onUnpause}
             onDelete={onDelete}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
       case 'template':
@@ -301,7 +311,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             templates={templates}
             loading={loading}
             onRefresh={onRefreshTemplates}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
       case 'ssh':
@@ -311,7 +322,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             sshKeys={sshKeys}
             loading={loading}
             onRefresh={onRefreshSshKeys}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
       case 'cloudinit':
@@ -321,7 +333,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudInits={cloudInits}
             loading={loading}
             onRefresh={onRefreshCloudInits}
-            isTenant={true}
+            isTenant={isTenantUser}
           />
         );
       case 'gpu':
@@ -345,7 +357,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             vms={vms}
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
       case 'volume-snapshot':
@@ -355,8 +368,9 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshSnapshots}
             cloudId={cloudId}
-            isTenant={true}
+            isTenant={isTenantUser}
             namespaces={namespaceObjects}
+            bordered={bordered}
           />
         );
       case 'image':
@@ -366,7 +380,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshImages}
             cloudId={cloudId}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
 
@@ -381,7 +396,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             namespaces={namespaceObjects}
             vms={vms}
             type="snapshot"
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
       case 'backup':
@@ -393,7 +409,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudId={cloudId}
             namespaces={namespaceObjects}
             vms={vms}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
       case 'schedule':
@@ -404,7 +421,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onRefresh={onRefreshSchedules}
             cloudId={cloudId}
             vms={vms}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
 
@@ -416,7 +434,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshNads}
             cloudId={cloudId}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
       case 'lb':
@@ -426,7 +445,9 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshLbs}
             cloudId={cloudId}
-            isTenant={true}
+            namespaces={namespaceObjects}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
       case 'ippool':
@@ -436,7 +457,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             ippools={ippools}
             loading={loading}
             onRefresh={onRefreshIPPools}
-            isTenant={true}
+            isTenant={isTenantUser}
+            bordered={bordered}
           />
         );
 
@@ -463,6 +485,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             subnets={subnets}
             loading={loading}
             onRefresh={onRefreshEips || (() => {})}
+            bordered={bordered}
           />
         );
       case 'fip':
@@ -474,6 +497,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             vpcs={vpcs}
             loading={loading}
             onRefresh={onRefreshFips || (() => {})}
+            bordered={bordered}
           />
         );
       case 'snat':
@@ -486,6 +510,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             subnets={subnets}
             loading={loading}
             onRefresh={onRefreshSnatRules || (() => {})}
+            bordered={bordered}
           />
         );
       case 'dnat':
@@ -497,6 +522,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             vpcs={vpcs}
             loading={loading}
             onRefresh={onRefreshDnatRules || (() => {})}
+            bordered={bordered}
           />
         );
       default:
@@ -515,7 +541,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       return {
         key: cat.key,
         label: (
-          <Space size={4}>
+          <Space size={4} align="center">
             <span>{cat.label} {currentResLabel}</span>
             <Dropdown
               menu={{
@@ -534,9 +560,9 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             >
               <span 
                 onClick={(e) => e.stopPropagation()} 
-                style={{ cursor: 'pointer', padding: '4px 0px', display: 'inline-flex', alignItems: 'center' }}
+                className="cloud-console-harvester-dropdown-trigger"
               >
-                <DownOutlined style={{ fontSize: 12 }} />
+                <CaretDownFilled style={{ fontSize: 12 }} />
               </span>
             </Dropdown>
           </Space>

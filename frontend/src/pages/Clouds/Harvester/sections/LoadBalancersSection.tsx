@@ -8,8 +8,8 @@
  * - 打开 HarvesterResourceDrawer 查看 Service 详情
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Button, message, Tag, Input, Space, Modal } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Table, Button, message, Tag, Input, Space, Modal, Select } from 'antd';
+import { ReloadOutlined, SearchOutlined, ShareAltOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import CreateLoadBalancerModal from '../modals/CreateLoadBalancerModal';
@@ -32,11 +32,14 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
+  bordered?: boolean;
 }
 
-const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant }) => {
+const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespaces = [], loading, onRefresh, isTenant, bordered = true }) => {
   // 工具栏与弹窗状态
   const [keyword, setKeyword] = useState<string>('');
+  const [nsFilter, setNsFilter] = useState<string>('');
+  const [ipamFilter, setIpamFilter] = useState<string>('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState('detail');
@@ -65,19 +68,71 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
   }, [loadBalancers]);
 
   /**
-   * 根据关键字对名称/命名空间进行模糊匹配
+   * 根据关键字、命名空间、IP分配模式进行过滤
    */
   const filteredData = useMemo(() => {
-    let d = dataSource;
-    if (isTenant) {
-      d = d.filter((x: any) => !isPublicNamespace(x.namespace));
-    }
-    if (keyword) {
-      const k = keyword.toLowerCase();
-      d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
-    }
-    return d;
-  }, [dataSource, keyword, isTenant]);
+    const kw = keyword.trim().toLowerCase();
+    const ns = nsFilter.trim().toLowerCase();
+    const ipam = ipamFilter.trim().toLowerCase();
+
+    return dataSource.filter((x: any) => {
+      // 租户模式过滤：自动过滤公共命名空间
+      if (isTenant && isPublicNamespace(x.namespace)) return false;
+
+      // 关键字过滤：匹配名称或命名空间
+      if (kw) {
+        const name = String(x.name || '').toLowerCase();
+        const namespace = String(x.namespace || '').toLowerCase();
+        if (!name.includes(kw) && !namespace.includes(kw)) return false;
+      }
+
+      // 命名空间过滤：精确匹配
+      if (ns) {
+        const namespace = String(x.namespace || '').toLowerCase();
+        if (namespace !== ns) return false;
+      }
+
+      // IP分配模式过滤：精确匹配
+      if (ipam) {
+        const ipamType = String(x.ipam || '').toLowerCase();
+        if (ipamType !== ipam) return false;
+      }
+
+      return true;
+    });
+  }, [dataSource, keyword, nsFilter, ipamFilter, isTenant]);
+
+  /**
+   * 提取可用的命名空间选项（用于筛选下拉框）
+   */
+  const namespaceOptions = useMemo(() => {
+    const nsSet = new Set<string>();
+    dataSource.forEach((item: any) => {
+      if (item.namespace) {
+        nsSet.add(item.namespace);
+      }
+    });
+    return Array.from(nsSet).sort().map(ns => ({
+      label: ns,
+      value: ns
+    }));
+  }, [dataSource]);
+
+  /**
+   * 提取可用的IP分配模式选项（用于筛选下拉框）
+   */
+  const ipamOptions = useMemo(() => {
+    const ipamSet = new Set<string>();
+    dataSource.forEach((item: any) => {
+      if (item.ipam && item.ipam !== '-') {
+        ipamSet.add(item.ipam);
+      }
+    });
+    return Array.from(ipamSet).sort().map(ipam => ({
+      label: ipam,
+      value: ipam
+    }));
+  }, [dataSource]);
 
   /**
    * 打开 HarvesterResourceDrawer 展示 Service 详情
@@ -157,18 +212,19 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
    */
   const columns = [
     { 
-      title: '名称', 
+      title: 'SLB名称', 
       dataIndex: 'name', 
       key: 'name', 
       render: (t: string) => (
-        <span style={{ fontWeight: 500 }}>
+        <span>
+          <ShareAltOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
           {t}
         </span>
       ) 
     },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { title: '地址', dataIndex: 'address', key: 'address' },
-    { title: 'IPAM', dataIndex: 'ipam', key: 'ipam', render: (t: string) => <Tag>{t}</Tag> },
+    { title: '地址分配模式', dataIndex: 'ipam', key: 'ipam', render: (t: string) => <Tag>{t}</Tag> },
     { title: '监听器', dataIndex: 'listeners', key: 'listeners', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp' },
     {
@@ -197,14 +253,33 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     <PageDetailSection
       asCard={false}
       toolbarLeft={
-        <Input
-          className="toolbar-search"
-          placeholder="关键字"
-          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-          value={keyword}
-          onChange={e => setKeyword(e.target.value)}
-          allowClear
-        />
+        <Space>
+          <Input
+            className="toolbar-search"
+            placeholder="关键字"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            allowClear
+            style={{ width: 200 }}
+          />
+          <Select
+            placeholder="命名空间"
+            value={nsFilter || undefined}
+            onChange={(v) => setNsFilter(v || '')}
+            allowClear
+            style={{ width: 150 }}
+            options={namespaceOptions}
+          />
+          <Select
+            placeholder="IP分配模式"
+            value={ipamFilter || undefined}
+            onChange={(v) => setIpamFilter(v || '')}
+            allowClear
+            style={{ width: 150 }}
+            options={ipamOptions}
+          />
+        </Space>
       }
       toolbarRight={
         <Space>
@@ -212,20 +287,21 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
               <Button danger onClick={handleBatchDelete}>批量删除</Button>
             )}
             <Button type="primary" onClick={() => setCreateModalOpen(true)}>创建负载均衡</Button>
-            <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} loading={loading}>刷新</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} loading={loading}></Button>
         </Space>
       }
     >
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        className="std-table"
+        bordered={bordered}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"
         loading={loading}
         pagination={{
-          size: 'small',
-          showQuickJumper: false,
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`
         }}
         rowSelection={rowSelection}
       />

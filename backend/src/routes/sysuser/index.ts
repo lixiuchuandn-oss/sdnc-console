@@ -178,7 +178,9 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         createdAt: tu.createdAt,
         lastLoginAt: tu.lastLoginAt,
         tenantName,
-        organizationName
+        organizationName,
+        tenantId: tu.tenantId, // 租户ID
+        organizationId: tu.organizationId, // 组织ID
       };
     } else {
       const userRepository = AppDataSource.getRepository(User);

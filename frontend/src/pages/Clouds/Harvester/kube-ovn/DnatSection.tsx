@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Table, Tag, Button, Space, Modal, Form, Input, Select, message, MenuProps } from 'antd';
-import { ReloadOutlined, PlusOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import { SearchOutlined } from '@ant-design/icons';
+import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { createCloudProviderOvnDnatRule, deleteCloudProviderOvnDnatRule } from '../../../../services/harvesterApi';
-import { DEFAULT_PAGINATION_CONFIG } from '../../../../constants/pagination';
 import MetadataModal from './MetadataModal';
 
 interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
   onRefresh: (force?: boolean) => void;
+  bordered?: boolean;
 }
 
 interface DnatSectionProps extends BaseSectionProps {
@@ -18,11 +19,68 @@ interface DnatSectionProps extends BaseSectionProps {
   vpcs: any[];
 }
 
-export const DnatSection: React.FC<DnatSectionProps> = ({ cloudId, dnatRules, eips, vpcs, loading, onRefresh }) => {
+export const DnatSection: React.FC<DnatSectionProps> = ({ cloudId, dnatRules, eips, vpcs, loading, onRefresh, bordered = true }) => {
   const [isCreateVisible, setIsCreateVisible] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [form] = Form.useForm();
   const [metadataRecord, setMetadataRecord] = useState<any>(null);
+  
+  // 筛选条件
+  const [keyword, setKeyword] = useState<string>('');
+  const [vpcFilter, setVpcFilter] = useState<string>('');
+  const [protocolFilter, setProtocolFilter] = useState<string>('');
+
+  // 筛选数据
+  const filteredData = useMemo(() => {
+    return dnatRules.filter((item: any) => {
+      const name = item.metadata?.name || '';
+      const eip = item.spec?.ovnEip || '';
+      const internalIp = item.spec?.internalIp || '';
+      const vpc = item.spec?.vpc || '';
+      const protocol = item.spec?.protocol || '';
+      
+      // 关键字搜索
+      if (keyword) {
+        const kw = keyword.toLowerCase();
+        if (!name.toLowerCase().includes(kw) && 
+            !eip.toLowerCase().includes(kw) && 
+            !internalIp.toLowerCase().includes(kw)) {
+          return false;
+        }
+      }
+      
+      // VPC筛选
+      if (vpcFilter && vpc !== vpcFilter) {
+        return false;
+      }
+      
+      // 协议筛选
+      if (protocolFilter && protocol !== protocolFilter) {
+        return false;
+      }
+      
+      return true;
+    });
+  }, [dnatRules, keyword, vpcFilter, protocolFilter]);
+
+  // 筛选选项
+  const vpcOptions = useMemo(() => {
+    const set = new Set<string>();
+    dnatRules.forEach((item: any) => {
+      const vpc = item.spec?.vpc;
+      if (vpc) set.add(vpc);
+    });
+    return Array.from(set);
+  }, [dnatRules]);
+
+  const protocolOptions = useMemo(() => {
+    const set = new Set<string>();
+    dnatRules.forEach((item: any) => {
+      const protocol = item.spec?.protocol;
+      if (protocol) set.add(protocol);
+    });
+    return Array.from(set);
+  }, [dnatRules]);
 
   const handleCreate = async () => {
     try {
@@ -74,38 +132,111 @@ export const DnatSection: React.FC<DnatSectionProps> = ({ cloudId, dnatRules, ei
   };
 
   const columns = [
-    { title: '名称', key: 'name', render: (_: any, r: any) => <b>{r.metadata?.name}</b> },
-    { title: 'EIP', key: 'eip', render: (_: any, r: any) => r.spec?.ovnEip },
-    { title: '端口', key: 'port', render: (_: any, r: any) => `${r.spec?.protocol} ${r.spec?.externalPort} -> ${r.spec?.internalPort}` },
-    { title: '内部IP', key: 'ip', render: (_: any, r: any) => r.spec?.internalIp },
-    { title: 'VPC', key: 'vpc', render: (_: any, r: any) => r.spec?.vpc },
+    { 
+      title: '名称', 
+      key: 'name', 
+      render: (_: any, r: any) => r.metadata?.name 
+    },
+    { 
+      title: 'EIP', 
+      key: 'eip', 
+      render: (_: any, r: any) => r.spec?.ovnEip || '-' 
+    },
+    { 
+      title: '端口', 
+      key: 'port', 
+      render: (_: any, r: any) => `${r.spec?.protocol} ${r.spec?.externalPort} -> ${r.spec?.internalPort}` 
+    },
+    { 
+      title: '内部IP', 
+      key: 'ip', 
+      render: (_: any, r: any) => r.spec?.internalIp || '-' 
+    },
+    { 
+      title: 'VPC', 
+      key: 'vpc', 
+      render: (_: any, r: any) => r.spec?.vpc || '-' 
+    },
     {
-      title: '操作', key: 'action', width: 80, render: (_: any, r: any) => {
+      title: '操作', 
+      key: 'action', 
+      width: 80, 
+      render: (_: any, r: any) => {
         const menuItems: MenuProps['items'] = [
-          { key: 'metadata', label: '查看元数据', icon: <EyeOutlined /> },
+          { key: 'metadata', label: '查看元数据' },
           { type: 'divider' },
-          { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true }
+          { key: 'delete', label: '删除', danger: true }
         ];
-        return <ResourceActionsDropdown items={menuItems} onClick={({ key }) => handleMenuClick(key, r)} />;
+        return (
+          <ResourceActionsDropdown 
+            items={menuItems} 
+            onClick={({ key }) => handleMenuClick(key, r)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       }
     }
   ];
 
   return (
     <>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-        <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateVisible(true)}>创建DNAT规则</Button>
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh(true)} loading={loading}>刷新</Button>
-        </Space>
-      </div>
-      <Table 
-        dataSource={dnatRules} 
-        columns={columns} 
-        loading={loading} 
-        rowKey={r => r.metadata?.uid} 
-        pagination={DEFAULT_PAGINATION_CONFIG} 
-      />
+      <PageDetailSection
+        asCard={false}
+        toolbarLeft={(
+          <>
+            <Input 
+              allowClear 
+              placeholder="关键字" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword} 
+              onChange={(e) => setKeyword(e.target.value)} 
+              className="toolbar-search"
+            />
+            <Select 
+              allowClear 
+              placeholder="VPC" 
+              value={vpcFilter || undefined} 
+              onChange={(v) => setVpcFilter(v || '')} 
+              className="toolbar-filter"
+              options={[
+                { value: '', label: '全部' },
+                ...vpcOptions.map(v => ({ value: v, label: v }))
+              ]} 
+            />
+            <Select 
+              allowClear 
+              placeholder="协议" 
+              value={protocolFilter || undefined} 
+              onChange={(v) => setProtocolFilter(v || '')} 
+              className="toolbar-filter-sm"
+              options={[
+                { value: '', label: '全部' },
+                ...protocolOptions.map(p => ({ value: p, label: p.toUpperCase() }))
+              ]} 
+            />
+          </>
+        )}
+        primaryAction={{
+          label: '创建DNAT规则',
+          onClick: () => setIsCreateVisible(true)
+        }}
+        onRefresh={() => onRefresh(true)}
+        refreshLoading={loading}
+      >
+        <Table 
+          className="std-table"
+          dataSource={filteredData} 
+          columns={columns} 
+          loading={loading} 
+          bordered={bordered}
+          rowKey={r => r.metadata?.uid} 
+          pagination={{
+            size: 'small',
+            showQuickJumper: false
+          }}
+        />
+      </PageDetailSection>
+      
       <MetadataModal visible={!!metadataRecord} record={metadataRecord} onClose={() => setMetadataRecord(null)} />
 
       <Modal

@@ -128,38 +128,67 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
         if (isTenant) {
           validNamespaces = [];
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
-          if ((req.user as any).organizationId) {
-            where.organizationId = (req.user as any).organizationId;
-          }
-          const userSpace = await userSpaceRepo.findOne({ where });
+          const userOrgId = (req.user as any).organizationId;
+          const whereClause: any[] = [];
 
-          if (!userSpace) {
-            return res.json({ message: '查询成功', data: [], capabilities: {} });
+          // [UserSpace Query] 查询当前用户所属组织的 UserSpace 记录（组织隔离）
+          // 组织级用户：只查询 organizationId = userOrgId 的记录
+          // 租户级用户（无 organizationId）：查询 organizationId = null 的记录
+          if (userOrgId) {
+            whereClause.push({
+              tenantId: (req.user as any).tenantId,
+              cloudId: id,
+              status: 'active',
+              organizationId: userOrgId, // 严格限制：只查询当前组织的 UserSpace
+            });
           } else {
-            const nsList: string[] = [];
-            if (userSpace.namespace) {
-              userSpace.namespace.split(',').forEach((s) => nsList.push(s.trim()));
+            whereClause.push({
+              tenantId: (req.user as any).tenantId,
+              cloudId: id,
+              status: 'active',
+              organizationId: null, // 租户级用户：查询租户级的 UserSpace
+            });
+          }
+
+          const matches = await userSpaceRepo.find({ where: whereClause });
+
+          if (!matches || matches.length === 0) {
+            return res.json({ message: '查询成功', data: [], capabilities: {} });
+          }
+
+          // [Namespace Aggregation] 聚合同一组织内所有 UserSpace 记录的命名空间
+          // 注意：不会跨组织聚合，因为查询条件已限制 organizationId
+          const uniqueNamespaces = new Set<string>();
+          matches.forEach((m) => {
+            if (m.namespace) {
+              m.namespace.split(',').forEach((ns) => {
+                const trimmed = ns.trim();
+                if (trimmed) uniqueNamespaces.add(trimmed);
+              });
             }
-            
-            // Auto-Fix: Ensure organization namespace is included in UserSpace
-            if ((req.user as any).organizationId) {
-              const orgNs = `ns-${(req.user as any).organizationId}`;
-              if (!nsList.includes(orgNs)) {
-                nsList.push(orgNs);
-                // Update UserSpace record immediately
-                userSpace.namespace = nsList.join(',');
+          });
+
+          // Auto-Fix: Ensure organization namespace is included
+          if (userOrgId) {
+            const orgNs = `ns-${userOrgId}`;
+            if (!uniqueNamespaces.has(orgNs)) {
+              uniqueNamespaces.add(orgNs);
+              // Update the first matching UserSpace record
+              const firstMatch = matches.find(m => m.organizationId === userOrgId) || matches[0];
+              if (firstMatch) {
+                const nsList = Array.from(uniqueNamespaces);
+                firstMatch.namespace = nsList.join(',');
                 try {
-                   await userSpaceRepo.save(userSpace);
+                  await userSpaceRepo.save(firstMatch);
                 } catch (e) {
-                   console.warn('Failed to auto-update UserSpace namespace', e);
+                  console.warn('Failed to auto-update UserSpace namespace', e);
                 }
               }
             }
+          }
 
-            if (nsList.length > 0) {
-              validNamespaces = nsList;
-            }
+          if (uniqueNamespaces.size > 0) {
+            validNamespaces = Array.from(uniqueNamespaces);
           }
         }
 

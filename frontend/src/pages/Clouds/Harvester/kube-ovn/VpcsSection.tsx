@@ -6,7 +6,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
-import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc } from '../../../../services/harvesterApi';
+import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc, createHarvesterNad } from '../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 /**
@@ -93,6 +93,25 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [tableColumns, setTableColumns] = useState<any[]>([]);
   
+  // 命名空间选项（用于筛选下拉框）
+  const namespaceOptions = useMemo(() => {
+    const nsSet = new Set<string>();
+    vpcs.forEach((vpc: any) => {
+      const nsList = SafeRead.vpcNamespaces(vpc);
+      if (Array.isArray(nsList)) {
+        nsList.forEach((ns: string) => {
+          if (ns && !isSystemNamespace(ns)) {
+            nsSet.add(ns);
+          }
+        });
+      }
+    });
+    return Array.from(nsSet).sort().map(ns => ({
+      label: ns,
+      value: ns
+    }));
+  }, [vpcs]);
+  
   // Drawer State
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [currentDrawerRecord, setCurrentDrawerRecord] = useState<any>(null);
@@ -129,8 +148,21 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     if (cloudId) {
       setNsLoading(true);
       fetchHarvesterNamespaces(cloudId)
-        .then(res => {
-          setNamespaces(res?.data?.items || []);
+        .then((res: any) => {
+          // 兼容不同的返回格式: { data: { items: [...] } } 或 { data: [...] } 或 { items: [...] } 或直接数组
+          const items: any[] = Array.isArray(res?.data?.items) 
+            ? res.data.items 
+            : (Array.isArray(res?.data) 
+              ? res.data 
+              : (Array.isArray(res?.items) 
+                ? res.items 
+                : (Array.isArray(res) ? res : [])));
+          // 过滤掉系统命名空间
+          const filteredItems = items.filter((n: any) => {
+            const name = n?.metadata?.name || n?.name || '';
+            return !isSystemNamespace(name);
+          });
+          setNamespaces(filteredItems);
         })
         .catch(() => {
           // silent fail
@@ -154,6 +186,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     const name = SafeRead.name(record);
     const alias = SafeRead.alias(record) || name;
     const namespaces = SafeRead.vpcNamespaces(record);
+    // 取第一个命名空间（单选模式）
+    const namespace = Array.isArray(namespaces) && namespaces.length > 0 ? namespaces[0] : '';
     const staticRoutes = record.spec?.staticRoutes?.map((r: any) => ({
       cidr: r.cidr,
       nextHopIP: r.nextHopIP
@@ -164,7 +198,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     form.resetFields();
     form.setFieldsValue({
       name: alias,
-      namespaces,
+      namespaces: namespace,
       staticRoutes
     });
     setCreateModalVisible(true);
@@ -181,7 +215,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
 
       const payload: any = {
         ...values,
-        namespaces: values.namespaces || [],
+        // 将单个命名空间值转换为数组格式（后端 API 需要数组）
+        namespaces: values.namespaces ? [values.namespaces] : [],
         staticRoutes: values.staticRoutes || [],
       };
 
@@ -311,6 +346,55 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           'tower.io/alias': values.name,
         };
         
+        // 创建子网前，先创建对应的 NAD（Kube-OVN 要求）
+        // NAD 名称必须与子网名称相同
+        try {
+          const nadPayload = {
+            type: 'k8s.cni.cncf.io.networkattachmentdefinition',
+            metadata: {
+              name: generatedName,
+              namespace: targetNamespace,
+              annotations: {
+                'tower.io/alias': values.name,
+              },
+            },
+            spec: {
+              config: JSON.stringify({
+                cniVersion: '0.3.1',
+                name: generatedName,
+                type: 'kube-ovn',
+                server_socket: '/run/openvswitch/kube-ovn-daemon.sock',
+                provider: `${generatedName}.${targetNamespace}.ovn`,
+              }),
+            },
+          };
+          
+          try {
+            await createHarvesterNad(cloudId, nadPayload);
+          } catch (nadError: any) {
+            // 如果 NAD 已存在，忽略错误继续创建子网
+            if (nadError.message?.includes('already exists') || nadError.message?.includes('AlreadyExists')) {
+              // NAD 已存在，继续创建子网
+            } else if (nadError.message?.includes('being terminated') || nadError.message?.includes('terminating')) {
+              // 命名空间正在终止，无法创建资源
+              const errorMsg = `无法在命名空间 ${targetNamespace} 中创建资源：该命名空间正在被终止。请选择其他命名空间或等待命名空间删除完成。`;
+              message.error(errorMsg);
+              throw new Error(errorMsg);
+            } else {
+              throw nadError;
+            }
+          }
+        } catch (nadError: any) {
+          // 如果错误已经处理过（如命名空间终止），直接抛出
+          if (nadError.message?.includes('正在被终止')) {
+            throw nadError;
+          }
+          // 其他错误，显示详细错误信息
+          const errorMsg = nadError.message || '未知错误';
+          message.error(`创建 NAD 失败: ${errorMsg}`);
+          throw nadError;
+        }
+        
         await createKubeOvnSubnet(cloudId, payload);
         message.success('子网创建成功');
       }
@@ -318,7 +402,19 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       setCreateSubnetModalVisible(false);
       onRefresh?.(true);
     } catch (error: any) {
-      message.error(`${isEditSubnet ? '更新' : '创建'}子网失败: ${error.message}`);
+      // 如果错误信息已经包含友好的提示（如命名空间终止），直接显示
+      if (error.message?.includes('正在被终止')) {
+        // 错误已在创建 NAD 时显示，这里不再重复显示
+      } else {
+        // 其他错误，显示详细错误信息
+        const errorMsg = error.message || '未知错误';
+        // 检查是否是命名空间终止相关的错误
+        if (errorMsg.includes('being terminated') || errorMsg.includes('terminating')) {
+          message.error(`创建子网失败: 命名空间 ${targetNamespace} 正在被终止，无法创建资源。请选择其他命名空间。`);
+        } else {
+          message.error(`${isEditSubnet ? '更新' : '创建'}子网失败: ${errorMsg}`);
+        }
+      }
     } finally {
       setCreatingSubnet(false);
     }
@@ -367,6 +463,13 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   // 过滤逻辑
   const dataSource = useMemo(() => {
     let filtered = vpcs;
+
+    // 过滤掉系统 VPC（不显示给客户）
+    filtered = filtered.filter(item => {
+      const name = SafeRead.name(item);
+      // 排除系统 VPC：ovn-cluster（默认 VPC）和 ovn-vpc-external-network（Provider VPC）
+      return name !== 'ovn-cluster' && name !== 'ovn-vpc-external-network';
+    });
 
     // 搜索过滤
     if (searchText) {
@@ -597,15 +700,12 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           />
           <Select
             className="toolbar-filter"
-            placeholder="筛选命名空间"
+            placeholder="选择命名空间"
             allowClear
             showSearch
-            value={namespaceFilter}
+            value={namespaceFilter || undefined}
             onChange={setNamespaceFilter}
-            options={namespaces.map(n => ({
-              label: SafeRead.name(n),
-              value: SafeRead.name(n)
-            }))}
+            options={namespaceOptions}
             loading={nsLoading}
           />
         </Space>
@@ -666,16 +766,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
             ]}
           >
             <Input placeholder="请输入子网名称 (支持中文)" />
-          </Form.Item>
-
-          <Form.Item
-             label="所属命名空间"
-             tooltip="子网将创建在此 Namespace 中"
-          >
-             <Tag>{targetNamespace || '-'}</Tag>
-             <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                * 子网必须与所属 VPC 处于同一 Namespace 范围
-             </div>
           </Form.Item>
 
           <Form.Item
@@ -787,18 +877,26 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           <Form.Item
             name="namespaces"
             label="绑定命名空间"
-            tooltip="VPC 将接管这些命名空间下的网络流量，实现租户隔离"
+            tooltip="VPC 将接管该命名空间下的网络流量，实现租户隔离。通常一个 VPC 对应一个命名空间。"
+            rules={[{ required: true, message: '请选择命名空间' }]}
           >
             <Select 
-              mode="tags" 
-              placeholder="选择或输入命名空间" 
-              tokenSeparators={[',', ' ']} 
+              placeholder="选择命名空间" 
               style={{ width: '100%' }}
               loading={nsLoading}
-              options={namespaces.map(n => {
-                const name = n.metadata?.name || n.name || '';
-                return { label: name, value: name };
-              })}
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={namespaces
+                .filter((n: any) => {
+                  const name = n?.metadata?.name || n?.name || '';
+                  return name && !isSystemNamespace(name);
+                })
+                .map((n: any) => {
+                  const name = n.metadata?.name || n.name || '';
+                  return { label: name, value: name };
+                })}
             />
           </Form.Item>
 

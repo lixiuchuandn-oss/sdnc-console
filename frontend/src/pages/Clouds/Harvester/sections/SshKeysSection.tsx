@@ -32,6 +32,7 @@ interface Props {
   onRefresh?: (force?: boolean) => void;
 
   isTenant?: boolean;
+  bordered?: boolean;
 }
 
 const SshKeysSection: React.FC<Props> = ({ 
@@ -39,7 +40,8 @@ const SshKeysSection: React.FC<Props> = ({
   sshKeys, 
   loading, 
   onRefresh,
-  isTenant
+  isTenant,
+  bordered = true
 }) => {
   // 关键字搜索，仅用于前端过滤名称/命名空间
   const [keyword, setKeyword] = useState<string>('');
@@ -324,22 +326,20 @@ const SshKeysSection: React.FC<Props> = ({
       )}
     >
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        className="std-table"
+        bordered={bordered}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"
         rowSelection={{
-          selectedRowKeys,
+          selectedRowKeys: selectedRowKeys,
           onChange: setSelectedRowKeys,
         }}
         loading={loading}
         pagination={{
-          size: 'small',
+          defaultPageSize: 10,
           showSizeChanger: true,
-          pageSize: 10,
-          pageSizeOptions: ['10', '20', '50', '100'],
-          showQuickJumper: false,
+          showTotal: (total) => `共 ${total} 条`
         }}
       />
       <SshKeyCreateModal 

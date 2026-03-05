@@ -5,7 +5,8 @@ import { HarvesterNamespaceInventory } from '../../../entities/harvester/Harvest
 import { HarvesterNamespace } from '../../../entities/harvester/HarvesterNamespace';
 import { UserSpace } from '../../../entities/UserSpace';
 import { syncHarvesterNamespaces } from '../../../services/clouds/harvester/inventory';
-import { requestJson } from '../../../services/clouds/harvester/utils';
+import { isProtectedNamespace } from '../../../services/clouds/harvester/namespace';
+import { requestJson, getJsonOnce } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
 /**
@@ -77,43 +78,70 @@ export const registerHarvesterNamespaceRoutes = (
         // 2. 包含自动修复逻辑：如果租户所属 Organization 的 Namespace 不在列表中，自动添加并更新 DB。
         if (isTenant) {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-          const where: any = {
-            tenantId: (req as any).user.tenantId,
-            cloudId: id,
-            status: 'active',
-          };
-          if ((req.user as any).organizationId) {
-            where.organizationId = (req.user as any).organizationId;
-          }
-          const us = await userSpaceRepo.findOne({ where });
-          if (!us)
-            return res.json({ message: '查询成功', data: { items: [] } });
+          const userOrgId = (req.user as any).organizationId;
+          const whereClause: any[] = [];
 
-          // Auto-Fix: Ensure organization namespace is included in UserSpace
-          let allowedNamespaces: string[] = [];
-          if (us.namespace) {
-            allowedNamespaces = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
+          // [UserSpace Query] 查询当前用户所属组织的 UserSpace 记录（组织隔离）
+          // 组织级用户：只查询 organizationId = userOrgId 的记录
+          // 租户级用户（无 organizationId）：查询 organizationId = null 的记录
+          if (userOrgId) {
+            whereClause.push({
+              tenantId: (req.user as any).tenantId,
+              cloudId: id,
+              status: 'active',
+              organizationId: userOrgId, // 严格限制：只查询当前组织的 UserSpace
+            });
+          } else {
+            whereClause.push({
+              tenantId: (req.user as any).tenantId,
+              cloudId: id,
+              status: 'active',
+              organizationId: null, // 租户级用户：查询租户级的 UserSpace
+            });
           }
-          
-          if ((req.user as any).organizationId) {
-            const orgNs = `ns-${(req.user as any).organizationId}`;
-            if (!allowedNamespaces.includes(orgNs)) {
-              allowedNamespaces.push(orgNs);
-              // Update UserSpace record immediately
-              us.namespace = allowedNamespaces.join(',');
-              try {
-                 await userSpaceRepo.save(us);
-              } catch (e) {
-                 console.warn('Failed to auto-update UserSpace namespace', e);
+
+          const matches = await userSpaceRepo.find({ where: whereClause });
+
+          if (!matches || matches.length === 0) {
+            return res.json({ message: '查询成功', data: { items: [] } });
+          }
+
+          // [Namespace Aggregation] 聚合同一组织内所有 UserSpace 记录的命名空间
+          // 注意：不会跨组织聚合，因为查询条件已限制 organizationId
+          const uniqueNamespaces = new Set<string>();
+          matches.forEach((m) => {
+            if (m.namespace) {
+              m.namespace.split(',').forEach((ns) => {
+                const trimmed = ns.trim();
+                if (trimmed) uniqueNamespaces.add(trimmed);
+              });
+            }
+          });
+
+          // Auto-Fix: Ensure organization namespace is included
+          if (userOrgId) {
+            const orgNs = `ns-${userOrgId}`;
+            if (!uniqueNamespaces.has(orgNs)) {
+              uniqueNamespaces.add(orgNs);
+              // Update the first matching UserSpace record
+              const firstMatch = matches.find(m => m.organizationId === userOrgId) || matches[0];
+              if (firstMatch) {
+                const nsList = Array.from(uniqueNamespaces);
+                firstMatch.namespace = nsList.join(',');
+                try {
+                  await userSpaceRepo.save(firstMatch);
+                } catch (e) {
+                  console.warn('Failed to auto-update UserSpace namespace', e);
+                }
               }
             }
           }
 
-          if (allowedNamespaces.length === 0) {
-             return res.json({ message: '查询成功', data: { items: [] } });
+          if (uniqueNamespaces.size === 0) {
+            return res.json({ message: '查询成功', data: { items: [] } });
           }
 
-          whereCondition.name = In(allowedNamespaces);
+          whereCondition.name = In(Array.from(uniqueNamespaces));
         }
 
         const count = await repo.count({ where: whereCondition });
@@ -149,6 +177,12 @@ export const registerHarvesterNamespaceRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id, name } = req.params;
+        
+        // 禁止删除系统或公共命名空间
+        if (isProtectedNamespace(name)) {
+          return res.status(403).json({ message: '禁止删除系统或公共命名空间' });
+        }
+
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -349,6 +383,42 @@ export const registerHarvesterNamespaceRoutes = (
           origin = `${u.protocol}//${u.host}`;
         } catch {
           origin = base.replace(/\/v[0-9].*$/, '');
+        }
+        try {
+          const ecsList = await getJsonOnce(
+            `${origin}/v1/harvester/kubevirt.io.virtualmachines`,
+            cloud.secretKey || '',
+            insecure,
+          );
+          const vms: any[] = Array.isArray(ecsList?.items)
+            ? ecsList.items
+            : Array.isArray(ecsList?.data)
+            ? ecsList.data
+            : [];
+          const inNs = vms.filter(
+            (vm: any) =>
+              (vm?.metadata?.namespace || vm?.namespace) === name,
+          );
+          if (inNs.length > 0) {
+            const names = inNs
+              .map(
+                (vm: any) =>
+                  vm?.metadata?.annotations?.['tower.io/alias'] ||
+                  vm?.metadata?.name ||
+                  vm?.name,
+              )
+              .filter((n: any) => typeof n === 'string' && n.trim().length > 0);
+            res
+              .status(409)
+              .send(
+                `不能删除此命名空间，因为存在虚拟机 ${names
+                  .slice(0, 5)
+                  .join('，')}${names.length > 5 ? ' 等' : ''}`,
+              );
+            return;
+          }
+        } catch (e: any) {
+          console.warn('[DeleteNamespace] VM usage check failed:', e?.message || e);
         }
         const candidates = [
           `${origin}/api/v1/namespaces/${name}`,

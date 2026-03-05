@@ -40,13 +40,24 @@ export const routeSpecs: RouteSpec[] = [
   {
     id: 'dashboard',
     path: '/admin/dashboard',
-    element: 'Dashboard',
+    element: 'OverviewDashboard',
     layout: 'admin',
     platform: 'CNMC',
     group: '资源控制台',
-    title: '仪表盘',
+    title: '仪表板',
     icon: 'DashboardOutlined',
     order: 1
+  },
+  {
+    id: 'sdn-dashboard',
+    path: '/admin/sdn-dashboard',
+    element: 'SdnDashboard',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: '资源控制台',
+    title: 'SDN总览',
+    icon: 'SafetyCertificateOutlined',
+    order: 2
   },
   {
     id: 'clouds-list',

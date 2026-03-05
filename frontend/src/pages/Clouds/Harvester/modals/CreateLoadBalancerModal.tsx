@@ -10,10 +10,13 @@
  *   并尝试自动注入 `kube-vip.io/serviceInterface`（根据 NAD bridge 推导）。
  */
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Button, Space, message, InputNumber, Radio, Tag } from 'antd';
+import { Modal, Form, Input, Select, Button, Space, message, InputNumber, Radio, Tag, Row, Col, Collapse } from 'antd';
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { apiPost, apiRequest } from '../../../../services/api';
-import { fetchHarvesterNadDetail } from '../../../../services/harvesterApi';
+import { fetchHarvesterNadDetail, fetchHarvesterNads, fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+
+const { Panel } = Collapse;
 
 /**
  * 组件入参说明
@@ -31,21 +34,66 @@ interface Props {
   onSuccess: () => void;
 }
 
-const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, onClose, onSuccess }) => {
+const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces: propNamespaces, onClose, onSuccess }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [ipPools, setIpPools] = useState<any[]>([]);
   const [nadInfo, setNadInfo] = useState<{name: string, bridge: string, range?: string} | null>(null);
+  const [namespaces, setNamespaces] = useState<any[]>([]);
+
+  // 加载命名空间列表（如果外部没有传入）
+  useEffect(() => {
+    if (open && (!propNamespaces || propNamespaces.length === 0)) {
+      fetchHarvesterNamespaces(cloudId)
+        .then((res: any) => {
+          const items = res?.data?.items || res?.items || res || [];
+          setNamespaces(items);
+        })
+        .catch((err: any) => console.error('Failed to load namespaces', err));
+    } else if (propNamespaces && propNamespaces.length > 0) {
+      setNamespaces(propNamespaces);
+    }
+  }, [open, cloudId, propNamespaces]);
 
   // 打开弹窗时加载 IP 池列表
+  // 注意：LoadBalancer 只支持 mgmt 网络，因此只显示关联到 mgmt 网络的 IP Pool
   useEffect(() => {
     if (open) {
-      apiRequest(`/api/clouds/${cloudId}/resources/ippools`)
-        .then((res: any) => {
-            const items = res.data?.items || [];
-            setIpPools(items);
+      Promise.all([
+        apiRequest(`/api/clouds/${cloudId}/resources/ippools`),
+        fetchHarvesterNads(cloudId)
+      ])
+        .then(([ippoolsRes, nadsRes]: [any, any]) => {
+            const allPools = ippoolsRes.data?.items || [];
+            const allNads = nadsRes?.data?.items || nadsRes || [];
+            
+            // 构建 mgmt NAD 名称集合（用于快速查找）
+            // 注意：只支持默认的 mgmt 网络（名称必须是 'mgmt'）
+            const mgmtNadSet = new Set<string>();
+            allNads.forEach((nad: any) => {
+              const name = nad?.metadata?.name || nad?.name || '';
+              const ns = nad?.metadata?.namespace || nad?.namespace || '';
+              
+              // 只添加名称是 'mgmt' 的网络（默认 mgmt 网络）
+              if (name === 'mgmt') {
+                mgmtNadSet.add(`${ns}/${name}`);
+                mgmtNadSet.add(name); // 也支持短名称匹配
+              }
+            });
+            
+            // 过滤：只保留关联到 mgmt 网络的 IP Pool
+            const mgmtPools = allPools.filter((pool: any) => {
+              const poolSpec = pool?.spec || pool?.rawData?.spec;
+              const networkRef = poolSpec?.selector?.network || poolSpec?.network;
+              if (!networkRef) return false;
+              
+              // 检查 networkRef 是否匹配 mgmt NAD
+              return mgmtNadSet.has(networkRef);
+            });
+            
+            setIpPools(mgmtPools);
         })
-        .catch((err: any) => console.error('Failed to fetch IP pools', err));
+        .catch((err: any) => console.error('Failed to fetch IP pools or NADs', err));
     }
   }, [open, cloudId]);
 
@@ -233,11 +281,16 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
     }
   };
 
-  // 命名空间下拉选项
-  const nsOptions = (namespaces || []).map((n: any) => ({
-    label: n.metadata?.name || n.name,
-    value: n.metadata?.name || n.name,
-  }));
+  // 命名空间下拉选项（过滤系统命名空间）
+  const nsOptions = (namespaces || [])
+    .filter((n: any) => {
+      const nsName = n.metadata?.name || n.name;
+      return nsName && !isSystemNamespace(nsName);
+    })
+    .map((n: any) => ({
+      label: n.metadata?.name || n.name,
+      value: n.metadata?.name || n.name,
+    }));
   
   // IP Pool 下拉选项
   const poolOptions = ipPools.map((p: any) => ({
@@ -265,21 +318,26 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
           listeners: [{ protocol: 'TCP' }],
         }}
       >
-        <Form.Item
-          name="name"
-          label="名称"
-          rules={[{ required: true, message: '请输入名称' }]}
-        >
-          <Input placeholder="请输入负载均衡名称" />
-        </Form.Item>
-
-        <Form.Item
-          name="namespace"
-          label="命名空间"
-          rules={[{ required: true, message: '请选择命名空间' }]}
-        >
-          <Select options={nsOptions} placeholder="请选择命名空间" showSearch />
-        </Form.Item>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              name="name"
+              label="名称"
+              rules={[{ required: true, message: '请输入名称' }]}
+            >
+              <Input placeholder="请输入负载均衡名称" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item
+              name="namespace"
+              label="命名空间"
+              rules={[{ required: true, message: '请选择命名空间' }]}
+            >
+              <Select options={nsOptions} placeholder="请选择命名空间" showSearch />
+            </Form.Item>
+          </Col>
+        </Row>
 
         <Form.Item label="IP 分配模式" name="ipam">
           <Radio.Group>
@@ -296,7 +354,7 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
                 return getFieldValue('ipam') === 'pool' ? (
                     <Form.Item 
                         name="ipPool" 
-                        label="指定 IP Pool (可选)"
+                        label="选择地址池"
                         help={nadInfo ? (
                             <Space size={16} style={{ marginTop: 4, flexWrap: 'wrap' }}>
                                 <Space size={4}>
@@ -314,106 +372,132 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces, o
                                     </Space>
                                 )}
                             </Space>
-                        ) : "留空则使用默认 IP Pool"}
+                        ) : null}
                     >
                         <Select 
                             options={poolOptions} 
-                            placeholder="请选择 IP Pool" 
+                            placeholder="请选择 IP Pool"
                             allowClear
                             onChange={onPoolChange}
+                            notFoundContent={poolOptions.length === 0 ? '未找到关联到管理网的 IP Pool，请先创建管理网 IP Pool' : undefined}
                         />
                     </Form.Item>
                 ) : null;
             }}
         </Form.Item>
 
-        <Form.Item label="监听端口配置 (Listeners)" required>
-          <Form.List name="listeners">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'name']}
-                      rules={[{ required: true, message: '请输入名称' }]}
-                    >
-                      <Input placeholder="名称 (e.g. http)" style={{ width: 120 }} />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'protocol']}
-                      initialValue="TCP"
-                    >
-                      <Select style={{ width: 80 }}>
-                        <Select.Option value="TCP">TCP</Select.Option>
-                        <Select.Option value="UDP">UDP</Select.Option>
-                      </Select>
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'port']}
-                      rules={[{ required: true, message: 'Port' }]}
-                    >
-                      <InputNumber placeholder="前端端口" min={1} max={65535} style={{ width: 100 }} />
-                    </Form.Item>
-                    <span style={{ margin: '0 8px' }}>→</span>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'backendPort']}
-                      rules={[{ required: true, message: 'Target' }]}
-                    >
-                      <InputNumber placeholder="后端端口" min={1} max={65535} style={{ width: 100 }} />
-                    </Form.Item>
-                    <MinusCircleOutlined onClick={() => remove(name)} />
-                  </Space>
-                ))}
-                <Form.Item>
-                  <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                    添加监听端口
-                  </Button>
-                </Form.Item>
-              </>
-            )}
-          </Form.List>
-        </Form.Item>
+        <Collapse
+          className="std-collapse-minimal"
+          bordered={false}
+          expandIconPosition="start"
+          defaultActiveKey={['listeners']}
+        >
+          <Panel header="监听端口配置" key="listeners">
+            <Form.Item required style={{ marginBottom: 0 }}>
+              <Form.List name="listeners">
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map(({ key, name, ...restField }) => (
+                      <Space key={key} style={{ display: 'flex', marginBottom: 12 }} align="baseline">
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'name']}
+                          rules={[{ required: true, message: '请输入名称' }]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Input placeholder="名称 (e.g. http)" style={{ width: 120 }} />
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'protocol']}
+                          initialValue="TCP"
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Select style={{ width: 80 }}>
+                            <Select.Option value="TCP">TCP</Select.Option>
+                            <Select.Option value="UDP">UDP</Select.Option>
+                          </Select>
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'port']}
+                          rules={[{ required: true, message: '前端端口' }]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <InputNumber placeholder="前端端口" min={1} max={65535} style={{ width: 110 }} />
+                        </Form.Item>
+                        <span style={{ margin: '0 8px', color: '#999' }}>→</span>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'backendPort']}
+                          rules={[{ required: true, message: '后端端口' }]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <InputNumber placeholder="后端端口" min={1} max={65535} style={{ width: 110 }} />
+                        </Form.Item>
+                        <Button 
+                          type="text" 
+                          icon={<MinusCircleOutlined />} 
+                          onClick={() => remove(name)}
+                          danger
+                          style={{ padding: 0 }}
+                        />
+                      </Space>
+                    ))}
+                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} style={{ marginTop: 8, marginBottom: 24 }}>
+                      添加监听端口
+                    </Button>
+                  </>
+                )}
+              </Form.List>
+            </Form.Item>
+          </Panel>
 
-        <Form.Item label="后端关联标签 (Selector)">
-          <div style={{ marginBottom: 8, color: '#888' }}>
-            负载均衡将流量转发到具有这些标签的 VM。
-          </div>
-          <Form.List name="selectors">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'key']}
-                      rules={[{ required: true, message: 'Key' }]}
-                    >
-                      <Input placeholder="Label Key" />
-                    </Form.Item>
-                    <span style={{ margin: '0 8px' }}>=</span>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'value']}
-                      rules={[{ required: true, message: 'Value' }]}
-                    >
-                      <Input placeholder="Label Value" />
-                    </Form.Item>
-                    <MinusCircleOutlined onClick={() => remove(name)} />
-                  </Space>
-                ))}
-                <Form.Item>
-                  <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                    添加关联标签
-                  </Button>
-                </Form.Item>
-              </>
-            )}
-          </Form.List>
-        </Form.Item>
+          <Panel header="后端关联标签" key="selectors">
+            <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
+              负载均衡将流量转发到具有这些标签的 VM
+            </div>
+            <Form.Item style={{ marginBottom: 0 }}>
+              <Form.List name="selectors">
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map(({ key, name, ...restField }) => (
+                      <Space key={key} style={{ display: 'flex', marginBottom: 12 }} align="baseline">
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'key']}
+                          rules={[{ required: true, message: '请输入 Key' }]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Input placeholder="标签 Key" style={{ width: 180 }} />
+                        </Form.Item>
+                        <span style={{ margin: '0 8px', color: '#999' }}>=</span>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'value']}
+                          rules={[{ required: true, message: '请输入 Value' }]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Input placeholder="标签 Value" style={{ width: 180 }} />
+                        </Form.Item>
+                        <Button 
+                          type="text" 
+                          icon={<MinusCircleOutlined />} 
+                          onClick={() => remove(name)}
+                          danger
+                          style={{ padding: 0 }}
+                        />
+                      </Space>
+                    ))}
+                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} style={{ marginTop: 8, marginBottom: 24 }}>
+                      添加关联标签
+                    </Button>
+                  </>
+                )}
+              </Form.List>
+            </Form.Item>
+          </Panel>
+        </Collapse>
       </Form>
     </Modal>
   );

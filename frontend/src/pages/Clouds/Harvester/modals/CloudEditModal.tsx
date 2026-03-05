@@ -85,8 +85,6 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         resourceProject: cloud?.config?.resourceProject || 'system',
         harvesterVersion: cloud?.config?.harvesterVersion || 'auto'
       });
-    } else {
-        form.resetFields();
     }
   }, [visible, cloud, form]);
 
@@ -146,6 +144,7 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         footer={null}
         width={600}
         centered
+        destroyOnClose
       >
         <Form
           form={form}

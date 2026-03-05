@@ -641,7 +641,14 @@ export const registerHarvesterDirectNetworkRoutes = (
         const fullProvider = `${nadName}.${nadNamespace}.ovn`;
 
         // [Create NAD] 创建关联的 NAD
-        const nadUrl = `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNamespace}/network-attachment-definitions`;
+        // Harvester 版本差异可能导致 API 路径不同 (K8s 原生 vs Rancher 代理)。
+        const nadCandidates = [
+          `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNamespace}/network-attachment-definitions`,
+          `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nadNamespace}/networkattachmentdefinitions`,
+          `${origin}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions`,
+          `${origin}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions`,
+        ];
+
         const nadPayload = {
           apiVersion: 'k8s.cni.cncf.io/v1',
           kind: 'NetworkAttachmentDefinition',
@@ -661,29 +668,49 @@ export const registerHarvesterDirectNetworkRoutes = (
         };
 
         let createdNewNad = false;
-        try {
-          await requestJson(
-            'POST',
-            nadUrl,
-            cloud.secretKey || '',
-            insecure,
-            nadPayload,
-          );
-          createdNewNad = true;
-        } catch (nadError: any) {
-          const isConflict =
-            nadError?.response?.status === 409 ||
-            nadError?.status === 409 ||
-            String(nadError?.message || '')
-              .toLowerCase()
-              .includes('alreadyexists');
-          if (!isConflict) {
-            console.warn(
-              '[CreateSubnet] Warning: Failed to create NAD, but will attempt Subnet creation anyway.',
-              nadError.message,
+        let nadCreatedOrExists = false;
+        let lastNadError: any = null;
+
+        for (const nadUrl of nadCandidates) {
+          try {
+            await requestJson(
+              'POST',
+              nadUrl,
+              cloud.secretKey || '',
+              insecure,
+              nadPayload,
             );
+            createdNewNad = true;
+            nadCreatedOrExists = true;
+            break;
+          } catch (nadError: any) {
+            const status = Number(nadError?.response?.status || nadError?.status || 0);
+            const msg = String(nadError?.message || '').toLowerCase();
+            const isConflict = status === 409 || msg.includes('alreadyexists');
+
+            if (isConflict) {
+              nadCreatedOrExists = true;
+              createdNewNad = false;
+              break;
+            }
+
+            // If 404/405/400/422, try next candidate
+            if (status === 404 || status === 405 || status === 400 || status === 422 || msg.includes('404')) {
+              lastNadError = nadError;
+              continue;
+            }
+
+            // Other errors (500, 403, etc), stop and fail
+            console.error('[CreateSubnet] Failed to create NAD:', nadError);
+            if (!res.headersSent) res.status(500).json({ message: '创建 NAD 失败', error: nadError.message });
+            return;
           }
-          if (isConflict) createdNewNad = false;
+        }
+
+        if (!nadCreatedOrExists) {
+            console.error('[CreateSubnet] Failed to create NAD (all paths tried):', lastNadError);
+            if (!res.headersSent) res.status(500).json({ message: '创建 NAD 失败 (API 路径未找到)', error: lastNadError?.message });
+            return;
         }
 
         // [Create Subnet] 创建 Subnet CRD

@@ -56,11 +56,24 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
   };
 
   // 加载可用 NAD 网络列表，用于 selector.network 下拉
+  // 注意：IPPool 只支持 mgmt 网络，因此只显示 mgmt 相关的 NAD
   const loadNetworks = async () => {
     try {
       const res = await fetchHarvesterNads(cloudId);
       const items = res?.data?.items || res || [];
-      setNetworks(items);
+      
+      // 过滤：只显示默认的 mgmt 网络（名称必须是 'mgmt'）
+      // 注意：IPPool 只支持默认的 mgmt 网络，而不是所有关联到 mgmt 集群网络的 NAD
+      const mgmtNetworks = items.filter((nad: any) => {
+        // 兼容多种数据格式：可能是原始对象或包装对象
+        const raw = nad?.rawData || nad;
+        const name = raw?.metadata?.name || nad?.metadata?.name || nad?.name || '';
+        
+        // 只显示名称是 'mgmt' 的网络（默认 mgmt 网络）
+        return name === 'mgmt';
+      });
+      
+      setNetworks(mgmtNetworks);
     } catch (e) {
       console.error('Failed to load networks', e);
     }
@@ -159,17 +172,21 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
           rules={[{ required: true, message: '请选择关联网络' }]}
         >
           <Select 
-            placeholder="选择网络 (namespace/name)" 
+            placeholder="IP 地址池仅支持管理网 (mgmt) 网络" 
             showSearch
             filterOption={(input, option) => 
               (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
             }
             options={networks.map(n => {
-              const name = n.metadata?.name || n.name;
-              const ns = n.metadata?.namespace || n.namespace;
+              const raw = n?.rawData || n;
+              const name = raw?.metadata?.name || n?.metadata?.name || n?.name;
+              const ns = raw?.metadata?.namespace || n?.metadata?.namespace || n?.namespace;
+              const alias = raw?.metadata?.annotations?.['tower.io/alias'] || n?.metadata?.annotations?.['tower.io/alias'] || '';
+              const displayName = alias || (name === 'mgmt' ? '管理网' : name);
               const val = `${ns}/${name}`;
-              return { label: val, value: val };
+              return { label: `${ns}/${displayName}`, value: val };
             })}
+            notFoundContent={networks.length === 0 ? '未找到管理网相关的网络，请先创建管理网 NAD' : undefined}
           />
         </Form.Item>
 

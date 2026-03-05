@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Input, Select, Table, Dropdown, message, Popover, Modal } from 'antd';
+import { Button, Form, Input, Select, Table, Dropdown, message, Popover, Modal, Space, Tag, Popconfirm, Typography } from 'antd';
+import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import StdFormModal from '../../components/StdFormModal';
-import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { featureLabelOf } from '../../catalogs/navCatalog';
 import PermissionTreeTransfer from '../../components/TreeTransfer';
 import TableColumnSettings from '../../components/TableColumnSettings';
+
+const { Text } = Typography;
 
 // 角色数据结构定义
 type RBACRole = {
@@ -106,7 +108,7 @@ const AccessRolesPage: React.FC = () => {
   }, []);
 
   // 处理角色创建
-  const handleCreate = async () => {
+  const handleCreate = React.useCallback(async () => {
     const vals = await createForm.validateFields();
     const payload = { name: vals.name, description: vals.description || '', scope: vals.scope };
     const token = localStorage.getItem('token');
@@ -130,18 +132,18 @@ const AccessRolesPage: React.FC = () => {
         message.error('创建角色失败');
       }
     }
-  };
+  }, [createForm]);
 
   // 处理角色删除
-  const handleDelete = async (row: RBACRole) => {
+  const handleDelete = React.useCallback(async (row: RBACRole) => {
     const token = localStorage.getItem('token');
     const res = await fetch(`/api/system/rbac/roles/${row.id}`, { method:'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : undefined });
     if (res.ok) { message.success('已删除'); fetchRoles(); }
     else { try { message.error(await res.text()); } catch { message.error('删除失败'); } }
-  };
+  }, []);
 
   // 打开授权配置抽屉
-  const openAuthorize = (row: RBACRole) => {
+  const openAuthorize = React.useCallback((row: RBACRole) => {
     setGrantTarget(row);
     let arr: string[] = [];
     if (Array.isArray(row.actions)) { arr = row.actions; }
@@ -152,10 +154,10 @@ const AccessRolesPage: React.FC = () => {
     }
     setGrantSelectedIds(arr);
     setGrantOpen(true);
-  };
+  }, []);
 
   // 保存授权配置
-  const saveAuthorization = async () => {
+  const saveAuthorization = React.useCallback(async () => {
     if (!grantTarget) return;
     const actions = Array.from(new Set(grantSelectedIds));
     const token = localStorage.getItem('token');
@@ -167,52 +169,35 @@ const AccessRolesPage: React.FC = () => {
       fetchRoles();
     }
     else { try { message.error(await res.text()); } catch { message.error('保存失败'); } }
-  };
+  }, [grantTarget, grantSelectedIds]);
 
   // 角色列表表格
-  const fullColumns = useMemo(() => [
-    { title: '角色名称', dataIndex: 'name', key: 'name', width: 200, render: (t: any) => {
-      const roleNameMap: Record<string, string> = {
-        'Super Admin': '超级管理员',
-        'Tenant Admin': '租户管理员',
-        'User': '普通用户'
-      };
-      return <span>{roleNameMap[t] || t}</span>;
-    }},
-    // 角色类型：映射后端"系统策略"为"系统角色"
-    { title: '类型', dataIndex: 'type', key: 'type', render: (t: any) => <span className={`std-badge ${t === '系统策略' ? 'std-badge-info' : 'std-badge-success'}`}>{t === '系统策略' ? '系统角色' : (t === '自定义策略' ? '自定义角色' : t)}</span> },
-    { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
-    // { title: '范围', dataIndex: 'scope', key: 'scope', width: 100, render: (t: any) => t === 'system' ? '系统' : '租户' }, // 已根据需求移除
-    { title: '权限数', key: 'perms', width: 100, render: (_: any, r: RBACRole) => {
-        let acts: string[] = [];
-        if (Array.isArray(r.actions)) acts = r.actions;
-        else if (Array.isArray((r as any).permissions)) acts = (r as any).permissions;
-        else if (typeof r.permissions === 'string') { try { acts = JSON.parse(r.permissions) } catch { } }
-        
-        const c = acts.length;
-        if (c === 0) return 0;
-        
-        return (
-          <Popover 
-            title={`权限列表 (${c})`} 
-            content={
-              <div style={{ maxHeight: '300px', overflowY: 'auto', maxWidth: '300px' }}>
-                {acts.map((a, i) => <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>{a}</div>)}
-              </div>
-            }
-          >
-            <span className="stat-trigger">{c}</span>
-          </Popover>
-        );
-    }},
-    { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: RBACRole) => {
-        const items = [
-          { key: 'auth', label: '授权配置', onClick: () => openAuthorize(r) },
-          { type: 'divider' },
-          { key: 'del', label: '删除角色', danger: true, onClick: () => handleDelete(r) },
-        ];
-        return <Dropdown menu={{ items: items as any }} trigger={['click']}><Button type="text" icon={<EllipsisOutlined />} className="row-actions-trigger" /></Dropdown>;
-    }}
+  const fullColumns = React.useMemo(() => [
+    { title:'角色名称', key:'name', dataIndex:'name', width:180, render: (v:any, row: RBACRole) => (
+      <Space>
+        { row.scope === 'system' ? <Tag color="blue">System</Tag> : <Tag color="green">Tenant</Tag> }
+        <Text strong>{v}</Text>
+      </Space>
+    ) },
+    { title:'描述', key:'description', dataIndex:'description', ellipsis: true },
+    { title:'权限摘要', key:'perms', render: (_:any, row: RBACRole) => {
+      let count = 0;
+      if (Array.isArray(row.actions)) count = row.actions.length;
+      else {
+        const raw: any = (row as any).permissions;
+        if (Array.isArray(raw)) count = raw.length;
+        else if (typeof raw === 'string') { try { count = JSON.parse(raw).length; } catch {} }
+      }
+      return <Tag>{count} Actions</Tag>;
+    } },
+    { title:'操作', key:'op', width:180, render: (_:any, row: RBACRole) => (
+      <Space>
+        <Button type="link" size="small" onClick={() => openAuthorize(row)}>授权</Button>
+        <Popconfirm title="确认删除？" onConfirm={() => handleDelete(row)}>
+          <Button type="link" size="small" danger disabled={row.scope==='system'}>删除</Button>
+        </Popconfirm>
+      </Space>
+    ) },
   ], [openAuthorize, handleDelete]);
 
   return (

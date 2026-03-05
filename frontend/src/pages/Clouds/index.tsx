@@ -41,7 +41,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { 
   EllipsisOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  SyncOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi } from '../../services/api';
@@ -65,7 +66,7 @@ const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;mi
   const percent = total? used/total*100:0;
   const trail='#d8dee8';
   return (
-    <Card styles={{ body: { padding:12 } }} style={{ borderRadius:6 }}>
+    <Card styles={{ body: { padding:12 } }} style={{ borderRadius:6, border: '1px solid #1677ff' }}>
       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
         <span style={{ fontWeight:600, fontSize:13 }}>{title}</span>
         <span style={{ color:'#8c8c8c', fontSize:12 }}>总{unit} {total}{unit}</span>
@@ -451,7 +452,6 @@ const Clouds: React.FC = () => {
           className="toolbar-container"
           form={filterForm}
           layout="vertical"
-          style={{ rowGap:12, columnGap:12, display:'flex', alignItems:'flex-end' }}
           onValuesChange={handleFilterChange}
         >
           <Form.Item name="keyword">
@@ -479,7 +479,10 @@ const Clouds: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item>
-            <a className="toolbar-reset-btn" onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined);}}>重置</a>
+            <Button 
+              icon={<SyncOutlined />} 
+              onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined);}}
+            />
           </Form.Item>
         </Form>
       )}
@@ -498,6 +501,7 @@ const Clouds: React.FC = () => {
       <Table
         className="std-table"
         bordered
+        size="large"
         columns={activeColumns}
         dataSource={filteredClouds}
         rowKey="id"

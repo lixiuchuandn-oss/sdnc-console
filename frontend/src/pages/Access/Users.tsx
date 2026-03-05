@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Dropdown, Form, Input, Modal, Select, Space, Table, Transfer, message } from 'antd';
+import { Button, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Transfer, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { ReloadOutlined, SafetyCertificateOutlined, EllipsisOutlined } from '@ant-design/icons';
 import StdFormModal from '../../components/StdFormModal';
 import StdSideDrawer from '../../components/StdSideDrawer';
-import { ReloadOutlined, SafetyCertificateOutlined, EllipsisOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 import TableColumnSettings from '../../components/TableColumnSettings';
+
+const { Text } = Typography;
 type SysUser = {
   id: string;
   username: string;
@@ -41,38 +43,67 @@ const AccessUsersPage: React.FC = () => {
   const [editForm] = Form.useForm();
   const [editingUser, setEditingUser] = useState<SysUser | null>(null);
   const [isEditingAdmin, setIsEditingAdmin] = useState(false);
-  const [rolesByUser, setRolesByUser] = useState<Record<string, string[]>>({});
+  const [rolesByUser, setRolesByUser] = useState<Record<string, RBACRole[]>>({});
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [visibleColumns, setVisibleColumns] = useState<ColumnsType<SysUser>>([]);
 
+  const openAssign = React.useCallback(async (u: SysUser) => {
+    if (u.username === 'admin') { message.warning('系统管理员不支持修改权限'); return; }
+    try {
+      setAssignUser(u);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      const json = await res.json();
+      const list: Assignment[] = Array.isArray(json?.assignments) ? json.assignments : [];
+      setAssignExisting(list);
+      const selected = list.map(it => it.roleId);
+      setAssignSelected(selected);
+      setAssignOpen(true);
+    } catch {}
+  }, []);
+
   const defaultColumns: ColumnsType<SysUser> = useMemo(() => [
-    { title:'姓名', dataIndex:'fullName' },
-    { title:'用户名', dataIndex:'username' },
-    { title:'邮箱', dataIndex:'email' },
-    { title:'类型', dataIndex:'builtIn', render: (_: any, row: SysUser) => { const b = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin'); return <span className={`std-badge ${b ? 'std-badge-info' : 'std-badge-default'}`}>{b?'内置':'自定义'}</span>; } },
-    { title:'角色', dataIndex:'roles', render: (_: any, row: SysUser) => {
-      const assigned = rolesByUser[row.id] || [];
-      const sysMap: Record<string,string> = { super_admin:'超级管理员', leased_lines_admin:'管理员', tenant:'系统用户' };
-      const roleNameMap: Record<string, string> = { 'Super Admin': '超级管理员', 'Tenant Admin': '租户管理员', 'User': '普通用户' };
-      const sys = sysMap[row.role];
-      const all = sys ? [sys, ...assigned] : assigned;
-      return all.length ? <Space wrap>{all.map(n => <span key={n} className="std-badge std-badge-default">{roleNameMap[n] || n}</span>)}</Space> : <span>-</span>;
+    { title:'用户名', key:'username', dataIndex:'username', width:150, render: (v:any, row: SysUser) => (
+      <Space>
+        { row.username === 'admin' ? <Tag color="gold">Admin</Tag> : (row.builtIn ? <Tag color="blue">BuiltIn</Tag> : <Tag>User</Tag>) }
+        <Text strong>{v}</Text>
+      </Space>
+    ) },
+    { title:'姓名', key:'fullName', dataIndex:'fullName', width:150 },
+    { title:'角色', key:'roles', render: (_:any, row: SysUser) => {
+      const myRoles = rolesByUser[row.id] || [];
+      if (!myRoles.length) return <Text type="secondary">-</Text>;
+      return (
+        <Space wrap size={4}>
+          {myRoles.map((r, i) => (
+            <Tag key={i} color={r.scope==='system'?'blue':'green'}>{r.name}</Tag>
+          ))}
+        </Space>
+      );
     } },
-    { title:'状态', dataIndex:'status', render:(s:string)=> <span className={`std-badge ${s==='active'?'std-badge-success':s==='suspended'?'std-badge-warning':'std-badge-default'}`}>{ s==='active'?'活跃': s==='suspended'?'暂停':'非活跃' }</span> },
-    { title:'操作', key:'actions', render: (_:any, row: SysUser) => {
+    { title:'邮箱', key:'email', dataIndex:'email' },
+    { title:'状态', key:'status', width:100, render: (v:any) => {
+      const map: any = { 'active': <Tag color="success">活跃</Tag>, 'inactive': <Tag color="default">非活跃</Tag>, 'suspended': <Tag color="error">暂停</Tag> };
+      return map[String(v)] || v;
+    } },
+    { title:'操作', key:'actions', width:120, fixed:'right' as const, render: (_:any, row: SysUser) => {
+      if (row.username === 'admin') return null;
       const itemsRaw = [
-        { key:'assign', label:'配置角色', icon:<SafetyCertificateOutlined />, onClick: () => openAssign(row) },
-        { key:'edit', label:'编辑用户', onClick: () => { setEditingUser(row); setIsEditingAdmin(row.username === 'admin'); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, role: row.role, status: row.status }); setEditOpen(true); } },
-        { type: 'divider' },
-        { key:'del', label:'删除用户', danger: true, onClick: async () => { const token = localStorage.getItem('token'); const res = await fetch(`/api/users/${row.id}`, { method:'DELETE', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } }); if (res.ok) { message.success('删除成功'); fetchUsers(); } else { try { message.error(await res.text()); } catch { message.error('删除失败'); } } } },
+        { key:'assign', label:'分配角色', onClick: () => openAssign(row) },
+        { key:'edit', label:'编辑', onClick: () => { setEditingUser(row); setIsEditingAdmin(false); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, status: row.status }); setEditOpen(true); } },
+        { type:'divider' },
+        { key:'del', label:'删除用户', danger: true, onClick: async () => {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/api/users/${row.id}`, { method:'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+            if (res.ok) { message.success('已删除'); fetchUsers(); }
+            else { try { message.error(await res.text()); } catch {} }
+          } },
       ];
-      const built = (typeof row.builtIn === 'boolean') ? row.builtIn : (row.username === 'admin');
-      const items = itemsRaw
-        .filter(it => built ? (it.key === 'edit') : true);
-      
+      // Filter out invalid items or dividers if needed
+      const items = itemsRaw.filter(Boolean);
       return <ResourceActionsDropdown items={items as any} />;
     } }
-  ], [rolesByUser]);
+  ], [rolesByUser, openAssign]);
 
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
@@ -135,12 +166,12 @@ const AccessUsersPage: React.FC = () => {
         const token = localStorage.getItem('token');
         const resps = await Promise.all(users.map(u => fetch(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })));
         const jsons = await Promise.all(resps.map(r => r.json().catch(() => ({ assignments: [] }))));
-        const next: Record<string, string[]> = {};
+        const next: Record<string, RBACRole[]> = {};
         users.forEach((u, i) => {
           const list: Assignment[] = Array.isArray(jsons[i]?.assignments) ? jsons[i].assignments : [];
           const ids = list.map(it => it.roleId);
-          const names = ids.map(id => roles.find(r => r.id === id)?.name).filter(Boolean) as string[];
-          next[u.id] = names;
+          const roleObjs = ids.map(id => roles.find(r => r.id === id)).filter(Boolean) as RBACRole[];
+          next[u.id] = roleObjs;
         });
         setRolesByUser(next);
       } catch {}
@@ -155,22 +186,7 @@ const AccessUsersPage: React.FC = () => {
       .filter(u => (u.username||'').toLowerCase().includes(lower) || (u.fullName||'').toLowerCase().includes(lower) || (u.email||'').toLowerCase().includes(lower));
   }, [users, kw, statusFilter]);
 
-  const openAssign = async (u: SysUser) => {
-    if (u.username === 'admin') { message.warning('系统管理员不支持修改权限'); return; }
-    try {
-      setAssignUser(u);
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-      const json = await res.json();
-      const list: Assignment[] = Array.isArray(json?.assignments) ? json.assignments : [];
-      setAssignExisting(list);
-      const selected = list.map(it => it.roleId);
-      setAssignSelected(selected);
-      setAssignOpen(true);
-    } catch {}
-  };
-
-  const saveAssign = async () => {
+  const saveAssign = React.useCallback(async () => {
     if (!assignUser) return;
     const token = localStorage.getItem('token');
     const current = new Set(assignExisting.map(x => x.roleId));
@@ -187,15 +203,15 @@ const AccessUsersPage: React.FC = () => {
       setAssignOpen(false); setAssignUser(null); setAssignExisting([]); setAssignSelected([]);
       fetchUsers();
     } catch { message.error('保存失败'); }
-  };
+  }, [assignUser, assignExisting, assignSelected]);
 
-  const handleCreate = async () => {
+  const handleCreate = React.useCallback(async () => {
     const vals = await createForm.validateFields();
     const token = localStorage.getItem('token');
     const res = await fetch('/api/users', { method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(vals) });
     if (res.ok) { message.success('系统用户创建成功'); setCreateOpen(false); createForm.resetFields(); fetchUsers(); }
     else { try { message.error(await res.text()); } catch { message.error('创建失败'); } }
-  };
+  }, [createForm]);
 
   return (
     <PageContainer

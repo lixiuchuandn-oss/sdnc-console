@@ -74,6 +74,7 @@ type Props = {
   namespacesOptions?: string[];
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷)
+  bordered?: boolean;
 };
 
 // ==============================================================================
@@ -204,7 +205,8 @@ const VolumesSection: React.FC<Props> = ({
   storageClasses: propStorageClasses, 
   namespacesOptions, 
   onRefresh, 
-  isTenant
+  isTenant,
+  bordered = true
 }) => {
   // ----------------------------------------------------------------
   // 状态管理 (State)
@@ -620,17 +622,10 @@ const VolumesSection: React.FC<Props> = ({
       dataIndex: 'name',
       key: 'name', 
       render: (_: string, r: VolumeView) => (
-        !isTenant ? (
-          <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}>
-            <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-            {r.alias || r.name}
-          </span> 
-        ) : (
-          <span>
-            <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-            {r.alias || r.name}
-          </span>
-        )
+        <span>
+          <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
+          {r.alias || r.name}
+        </span>
       )
     },
     { 
@@ -912,8 +907,8 @@ const VolumesSection: React.FC<Props> = ({
       )}
     >
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        className="std-table"
+        bordered={bordered}
         rowKey="key"
         rowSelection={{
           selectedRowKeys,
@@ -924,8 +919,9 @@ const VolumesSection: React.FC<Props> = ({
         loading={loading}
         scroll={{ x: 'max-content' }}
         pagination={{
-          size: 'small',
-          showQuickJumper: false,
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`
         }}
       />
 

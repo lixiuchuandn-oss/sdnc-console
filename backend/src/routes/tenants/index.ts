@@ -10,8 +10,15 @@ import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
 import { TenantLeasedLine } from '../../entities/TenantLeasedLine';
 import { Cloud } from '../../entities/Cloud';
 import { HarvesterNamespaceInventory } from '../../entities/harvester/HarvesterNamespaceInventory';
+import { VpcNetwork } from '../../entities/VpcNetwork';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { SecurityDomain } from '../../entities/SecurityDomain';
+import { ServiceChain } from '../../entities/ServiceChain';
+import { SecurityZone } from '../../entities/SecurityZone';
+import { ProtectionObject } from '../../entities/ProtectionObject';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
-import { createHarvesterNamespace, deleteHarvesterNamespace } from '../../services/clouds/harvester/client';
+import { createHarvesterNamespace, deleteHarvesterNamespace, isProtectedNamespace } from '../../services/clouds/harvester/client';
+import { getJsonOnce } from '../../services/clouds/harvester/utils';
 import bcrypt from 'bcryptjs';
 
 // 租户与组织/用户/资源池管理路由：
@@ -201,6 +208,7 @@ router.put('/:id', async (req, res) => {
 
 // 删除租户：
 // - 级联删除租户下所有组织、资源池分配与租户用户
+// - 如果租户下存在资源绑定，禁止删除
 // - 注意：与业务强关联的其它实体（如专线、防护策略等）需在对应模块中单独处理
 router.delete('/:id', async (req, res) => {
   try {
@@ -208,6 +216,13 @@ router.delete('/:id', async (req, res) => {
     const organizationRepository = AppDataSource.getRepository(Organization);
     const userRepository = AppDataSource.getRepository(TenantUser);
     const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
+    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
+    const vpcRepository = AppDataSource.getRepository(VpcNetwork);
+    const vrConfigRepository = AppDataSource.getRepository(VRConfig);
+    const securityDomainRepository = AppDataSource.getRepository(SecurityDomain);
+    const serviceChainRepository = AppDataSource.getRepository(ServiceChain);
+    const securityZoneRepository = AppDataSource.getRepository(SecurityZone);
+    const protectionObjectRepository = AppDataSource.getRepository(ProtectionObject);
 
     const tenant = await tenantRepository.findOne({ where: { id: req.params.id } });
     if (!tenant) {
@@ -216,6 +231,128 @@ router.delete('/:id', async (req, res) => {
 
     // 获取租户下的所有组织
     const organizations = await organizationRepository.find({ where: { tenantId: req.params.id } });
+    const orgIds = organizations.map(org => org.id);
+
+    // 检查租户下所有组织是否有关联的资源绑定
+    const resourceChecks: Array<{ name: string; count: number }> = [];
+
+    if (orgIds.length > 0) {
+      // 检查资源池绑定（UserSpace）
+      const userSpaces = await userSpaceRepository.find({
+        where: { organizationId: In(orgIds) },
+      });
+      if (userSpaces.length > 0) {
+        resourceChecks.push({ name: '资源池绑定', count: userSpaces.length });
+      }
+
+      // 检查资源池分配（ResourcePoolAssignment）
+      const assignments = await assignmentRepository.find({
+        where: { organizationId: In(orgIds) },
+      });
+      if (assignments.length > 0) {
+        resourceChecks.push({ name: '资源池分配', count: assignments.length });
+      }
+
+      // 检查VPC网络
+      const vpcs = await vpcRepository.find({
+        where: { organizationId: In(orgIds) },
+      });
+      if (vpcs.length > 0) {
+        resourceChecks.push({ name: 'VPC网络', count: vpcs.length });
+      }
+
+      // 检查虚拟路由器配置
+      const vrConfigs = await vrConfigRepository.find({
+        where: { organizationId: In(orgIds) },
+      });
+      if (vrConfigs.length > 0) {
+        resourceChecks.push({ name: '虚拟路由器', count: vrConfigs.length });
+      }
+
+      // 检查安全域
+      const securityDomains = await securityDomainRepository.find({
+        where: { organizationId: In(orgIds) },
+      });
+      if (securityDomains.length > 0) {
+        resourceChecks.push({ name: '安全域', count: securityDomains.length });
+      }
+
+      // 检查服务链
+      const serviceChains = await serviceChainRepository.find({
+        where: { organizationId: In(orgIds) },
+      });
+      if (serviceChains.length > 0) {
+        resourceChecks.push({ name: '服务链', count: serviceChains.length });
+      }
+
+      // 检查安全域区域
+      const securityZones = await securityZoneRepository.find({
+        where: { organizationId: In(orgIds) },
+      });
+      if (securityZones.length > 0) {
+        resourceChecks.push({ name: '安全域区域', count: securityZones.length });
+      }
+
+      // 检查防护对象
+      const protectionObjects = await protectionObjectRepository.find({
+        where: { organizationId: In(orgIds) },
+      });
+      if (protectionObjects.length > 0) {
+        resourceChecks.push({ name: '防护对象', count: protectionObjects.length });
+      }
+    }
+
+    // 检查租户级别的资源（直接关联到租户的资源）
+    const tenantUserSpaces = await userSpaceRepository.find({
+      where: { tenantId: req.params.id },
+    });
+    if (tenantUserSpaces.length > 0) {
+      resourceChecks.push({ name: '租户资源池绑定', count: tenantUserSpaces.length });
+    }
+
+    const tenantVpcs = await vpcRepository.find({
+      where: { tenantId: req.params.id },
+    });
+    if (tenantVpcs.length > 0) {
+      resourceChecks.push({ name: '租户VPC网络', count: tenantVpcs.length });
+    }
+
+    const tenantSecurityDomains = await securityDomainRepository.find({
+      where: { tenantId: req.params.id },
+    });
+    if (tenantSecurityDomains.length > 0) {
+      resourceChecks.push({ name: '租户安全域', count: tenantSecurityDomains.length });
+    }
+
+    const tenantServiceChains = await serviceChainRepository.find({
+      where: { tenantId: req.params.id },
+    });
+    if (tenantServiceChains.length > 0) {
+      resourceChecks.push({ name: '租户服务链', count: tenantServiceChains.length });
+    }
+
+    const tenantSecurityZones = await securityZoneRepository.find({
+      where: { tenantId: req.params.id },
+    });
+    if (tenantSecurityZones.length > 0) {
+      resourceChecks.push({ name: '租户安全域区域', count: tenantSecurityZones.length });
+    }
+
+    const tenantProtectionObjects = await protectionObjectRepository.find({
+      where: { tenantId: req.params.id },
+    });
+    if (tenantProtectionObjects.length > 0) {
+      resourceChecks.push({ name: '租户防护对象', count: tenantProtectionObjects.length });
+    }
+
+    // 如果存在资源绑定，禁止删除
+    if (resourceChecks.length > 0) {
+      const resourceList = resourceChecks.map((r) => `${r.name}(${r.count}个)`).join('、');
+      return res.status(409).json({
+        message: `不能删除租户：租户下存在关联资源，请先解除资源绑定后再删除。关联资源：${resourceList}`,
+        resources: resourceChecks,
+      });
+    }
 
     // 删除所有组织的资源池分配
     for (const org of organizations) {
@@ -430,12 +567,20 @@ router.put('/organizations/:orgId', async (req, res) => {
 // - 根组织不可删除（防止误删整个租户根节点）
 // - 对目标组织及其所有子孙组织进行级联删除
 // - 同时删除对应组织上的资源池分配与租户用户
+// - 如果组织下有资源绑定，禁止删除
 router.delete('/organizations/:orgId', async (req, res) => {
   try {
     const { orgId } = req.params;
     const organizationRepository = AppDataSource.getRepository(Organization);
     const userRepository = AppDataSource.getRepository(TenantUser);
     const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
+    const userSpaceRepository = AppDataSource.getRepository(UserSpace);
+    const vpcRepository = AppDataSource.getRepository(VpcNetwork);
+    const vrConfigRepository = AppDataSource.getRepository(VRConfig);
+    const securityDomainRepository = AppDataSource.getRepository(SecurityDomain);
+    const serviceChainRepository = AppDataSource.getRepository(ServiceChain);
+    const securityZoneRepository = AppDataSource.getRepository(SecurityZone);
+    const protectionObjectRepository = AppDataSource.getRepository(ProtectionObject);
     const tenantRepository = AppDataSource.getRepository(Tenant);
 
     const target = await organizationRepository.findOne({ where: { id: orgId } });
@@ -468,6 +613,82 @@ router.delete('/organizations/:orgId', async (req, res) => {
       toDeleteIds.push(id);
       const childIds = childrenMap.get(id) || [];
       childIds.forEach((cid) => stack.push(cid));
+    }
+
+    // 检查待删除的组织及其子孙组织是否有关联的资源绑定
+    const resourceChecks: Array<{ name: string; count: number }> = [];
+
+    // 检查资源池绑定（UserSpace）
+    const userSpaces = await userSpaceRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+    });
+    if (userSpaces.length > 0) {
+      resourceChecks.push({ name: '资源池绑定', count: userSpaces.length });
+    }
+
+    // 检查资源池分配（ResourcePoolAssignment）
+    const assignments = await assignmentRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+    });
+    if (assignments.length > 0) {
+      resourceChecks.push({ name: '资源池分配', count: assignments.length });
+    }
+
+    // 检查VPC网络
+    const vpcs = await vpcRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+    });
+    if (vpcs.length > 0) {
+      resourceChecks.push({ name: 'VPC网络', count: vpcs.length });
+    }
+
+    // 检查虚拟路由器配置
+    const vrConfigs = await vrConfigRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+    });
+    if (vrConfigs.length > 0) {
+      resourceChecks.push({ name: '虚拟路由器', count: vrConfigs.length });
+    }
+
+    // 检查安全域
+    const securityDomains = await securityDomainRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+    });
+    if (securityDomains.length > 0) {
+      resourceChecks.push({ name: '安全域', count: securityDomains.length });
+    }
+
+    // 检查服务链
+    const serviceChains = await serviceChainRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+    });
+    if (serviceChains.length > 0) {
+      resourceChecks.push({ name: '服务链', count: serviceChains.length });
+    }
+
+    // 检查安全域区域
+    const securityZones = await securityZoneRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+    });
+    if (securityZones.length > 0) {
+      resourceChecks.push({ name: '安全域区域', count: securityZones.length });
+    }
+
+    // 检查防护对象
+    const protectionObjects = await protectionObjectRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+    });
+    if (protectionObjects.length > 0) {
+      resourceChecks.push({ name: '防护对象', count: protectionObjects.length });
+    }
+
+    // 如果存在资源绑定，禁止删除
+    if (resourceChecks.length > 0) {
+      const resourceList = resourceChecks.map((r) => `${r.name}(${r.count}个)`).join('、');
+      return res.status(409).json({
+        message: `不能删除组织：组织下存在关联资源，请先解除资源绑定后再删除。关联资源：${resourceList}`,
+        resources: resourceChecks,
+      });
     }
 
     // 删除相关的资源池分配与租户用户
@@ -936,9 +1157,41 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
                 ? userSpace.namespace.split(',').map(s => s.trim()).filter(Boolean)
                 : [userSpace.name];
                 
+                // 统一计算 origin，用于直连 Harvester API
+                const base = (endpoint || '').replace(/\/+$/, '');
+                let origin = base;
+                try {
+                  const u = new URL(base);
+                  origin = `${u.protocol}//${u.host}`;
+                } catch {
+                  origin = base.replace(/\/v[0-9].*$/, '');
+                }
+                
+                // 在删除前做 VM 占用校验：如命名空间内存在 VM，则阻断解绑操作
+                try {
+                  const ecsList = await getJsonOnce(`${origin}/v1/harvester/kubevirt.io.virtualmachines`, token, insecure);
+                  const vms: any[] = Array.isArray(ecsList?.items) ? ecsList.items : Array.isArray(ecsList?.data) ? ecsList.data : [];
+                  for (const ns of namespacesToDelete) {
+                    // Skip check for protected namespaces as we won't delete them anyway
+                    if (isProtectedNamespace(ns)) continue;
+                    
+                    const inNs = vms.filter((vm: any) => (vm?.metadata?.namespace || vm?.namespace) === ns);
+                    if (inNs.length > 0) {
+                      const names = inNs
+                        .map((vm: any) => vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name || vm?.name)
+                        .filter((n: any) => typeof n === 'string' && n.trim().length > 0);
+                      return res.status(409).json({
+                        message: `不能解绑资源池：命名空间 ${ns} 内存在虚拟机 ${names.slice(0, 5).join('，')}${names.length > 5 ? ' 等' : ''}`,
+                      });
+                    }
+                  }
+                } catch (e: any) {
+                  console.warn('[Tenant-Unbind] VM usage check failed:', e?.message || e);
+                }
+                
              for (const ns of namespacesToDelete) {
                // 绝对禁止删除公共/系统命名空间
-               if (ns === 'cloud-public' || ns === 'harvester-public' || ns === 'default' || ns === 'kube-system') {
+               if (isProtectedNamespace(ns)) {
                  console.log(`跳过删除受保护的 Namespace: ${ns}`);
                  continue;
                }

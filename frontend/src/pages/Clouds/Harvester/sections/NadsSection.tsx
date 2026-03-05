@@ -1,17 +1,37 @@
 /**
  * Harvester - 网络 (NetworkAttachmentDefinition / NAD) 列表 Section
- * 展示 Harvester / Kube-OVN 中的网络附加定义（NAD），支持：
- * - 关键字 / 命名空间 / IPAM 类型过滤
- * - 新建网络（NadCreateModal）
- * - 查看 Harvester 资源详情
- * - 非系统命名空间网络的删除操作
+ * 
+ * [功能概述]
+ * 展示和管理 Harvester / Kube-OVN 中的网络附加定义（NAD），提供完整的网络资源管理能力。
+ * 
+ * [核心功能]
+ * 1. 列表展示：支持关键字、命名空间、IP分配方式等多维度过滤
+ * 2. 资源创建：通过 NadCreateModal 创建新的网络定义
+ * 3. 资源查看：通过 HarvesterResourceDrawer 查看网络详情、事件等信息
+ * 4. 资源删除：
+ *    - 单个删除：检查 VM 占用和 Subnet 依赖，防止误删
+ *    - 批量删除：支持多选批量删除，自动过滤不可删除的资源
+ * 5. 权限控制：
+ *    - 系统命名空间资源不可删除
+ *    - 租户模式下，公共命名空间资源不可删除且不可选择
+ * 
+ * [数据流程]
+ * 1. 接收原始 NAD 数据（可能为 K8s 原始对象或后端包装对象）
+ * 2. 预处理：解析 config、提取 name/namespace、标准化 IP分配方式等
+ * 3. 过滤：根据关键字、命名空间、IP分配方式过滤，租户模式下过滤公共命名空间
+ * 4. 渲染：表格展示，支持列设置、分页等功能
+ * 
+ * [依赖检查]
+ * 删除前会检查：
+ * - VM 占用：检查是否有虚拟机正在使用该网络
+ * - Subnet 依赖：检查是否有 Kube-OVN 子网依赖该 NAD（名称匹配）
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Select, Tag, Button, Modal, Tabs, Space, Descriptions, message } from 'antd';
-import { ReloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
+import { Table, Input, Select, Tag, Button, Modal, Tabs, Space, Descriptions, message, Dropdown } from 'antd';
+import { ReloadOutlined, EyeOutlined, SearchOutlined, EllipsisOutlined, ApartmentOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { fetchHarvesterNadDetail, deleteHarvesterNad } from '../../../../services/harvesterApi';
+import { fetchHarvesterNadDetail, deleteHarvesterNad, fetchKubeOvnSubnets } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
@@ -19,33 +39,49 @@ import NadCreateModal from '../modals/NadCreateModal';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
- * 组件入参说明
- * - nads: NAD 列表，可能为 Harvester/K8s 原始对象或平台包装后的对象
- * - loading: 外层传入的加载状态
- * - onRefresh: 刷新回调，支持传入 force=true
- * - cloudId: 当前云 ID，用于调用删除等 API
+ * 组件入参类型定义
  */
 type Props = {
+  /** NAD 列表数据，可能为 Harvester/K8s 原始对象或平台包装后的对象 */
   nads: any[];
+  /** 加载状态，控制表格 loading 显示 */
   loading: boolean;
+  /** 刷新回调函数
+   * @param force - 是否强制刷新（跳过缓存）
+   * @param silent - 是否静默刷新（不显示加载状态）
+   */
   onRefresh?: (force?: boolean, silent?: boolean) => void;
+  /** 当前云 ID，用于调用删除、创建等 API */
   cloudId?: string;
+  /** 是否为租户模式，影响权限控制和资源过滤 */
   isTenant?: boolean;
+  /** 是否显示表格边框，默认 true */
+  bordered?: boolean;
 };
 
-const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant }) => {
-  // 过滤条件：关键字 / 命名空间 / IPAM 类型
+const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true }) => {
+  // ==================== 状态管理 ====================
+  
+  /** 过滤条件：关键字搜索（匹配网络名称或命名空间） */
   const [keyword, setKeyword] = useState<string>('');
+  /** 过滤条件：命名空间筛选（仅管理员可见） */
   const [nsFilter, setNsFilter] = useState<string>('');
+  /** 过滤条件：IP分配方式筛选（dhcp/static/host-local） */
   const [ipamFilter, setIpamFilter] = useState<string>('');
+  /** 表格列配置（由 TableColumnSettings 组件管理） */
   const [tableColumns, setTableColumns] = useState<any[]>([]);
+  
+  /** 批量选择：选中的行 key 列表 */
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  // 详情抽屉状态
+  /** 详情抽屉：是否显示 */
   const [detailVisible, setDetailVisible] = useState(false);
+  /** 详情抽屉：当前查看的记录 */
   const [detailRecord, setDetailRecord] = useState<any>(null);
+  /** 详情抽屉：当前激活的标签页 */
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
-  // 创建网络弹窗状态
+  /** 创建网络弹窗：是否显示 */
   const [createVisible, setCreateVisible] = useState(false);
 
   /**
@@ -59,25 +95,55 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
   };
 
   /**
-   * 删除单个网络
-   * - 系统命名空间会在操作列中被禁用删除按钮
+   * 检查网络是否被虚拟机使用
+   * 
+   * [匹配规则]
+   * 1. 完整格式：`namespace/name` 精确匹配
+   * 2. 后缀匹配：以 `/name` 结尾的网络引用
+   * 3. 短格式：仅名称匹配，且 VM 命名空间与 NAD 命名空间相同
+   * 
+   * [处理逻辑]
+   * - 处理 @ 符号：如 "namespace/name@vlan" 只取 @ 之前的部分
+   * - 跳过 Pod 网络和默认网络（不使用 NAD）
+   * 
+   * @param record - NAD 记录对象，需包含 _namespace 和 _name 字段
+   * @returns 使用该网络的虚拟机名称列表，如果检查失败返回空数组
    */
-  const handleDelete = async (record: any) => {
-    // Pre-check占用情况，供确认框内展示并禁用删除按钮
-    let usingVms: string[] = [];
+  const checkNetworkUsage = async (record: any): Promise<string[]> => {
     try {
       const ecsRes = await fetchCloudProviderEcs(cloudId || '', true);
       const vms: any[] = ecsRes?.data || ecsRes || [];
-      const targetRef = `${record._namespace}/${record._name}`.toLowerCase();
-      usingVms = vms
+      const targetNs = record._namespace.toLowerCase();
+      const targetName = record._name.toLowerCase();
+      const targetRef = `${targetNs}/${targetName}`;
+      
+      return vms
         .filter((vm: any) => Array.isArray(vm.networks))
-        .filter((vm: any) =>
-          vm.networks.some((n: string) => {
-            const s = String(n || '').toLowerCase();
+        .filter((vm: any) => {
+          const vmNs = (vm.namespace || vm.metadata?.namespace || '').toLowerCase();
+          
+          return vm.networks.some((n: string) => {
+            if (!n) return false;
+            
+            // 处理 @ 符号（如 "namespace/name@vlan"）
+            const s = String(n).toLowerCase();
             const base = s.includes('@') ? s.split('@')[0] : s;
-            return base === targetRef || base.endsWith(`/${record._name.toLowerCase()}`);
-          }),
-        )
+            
+            // 跳过 Pod 网络和默认网络
+            if (base === 'pod' || base === 'default') return false;
+            
+            // 情况1：完整格式精确匹配 "namespace/name"
+            if (base === targetRef) return true;
+            
+            // 情况2：后缀匹配 "/name"
+            if (base.endsWith(`/${targetName}`)) return true;
+            
+            // 情况3：短格式匹配（仅名称，且 VM 命名空间与 NAD 命名空间相同）
+            if (base === targetName && vmNs === targetNs) return true;
+            
+            return false;
+          });
+        })
         .map(
           (vm: any) =>
             vm?.metadata?.annotations?.['tower.io/alias'] ||
@@ -87,20 +153,99 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         )
         .filter(Boolean);
     } catch (e) {
-      // 忽略占用检查错误，不影响确认框展示
+      // 忽略占用检查错误，返回空数组
+      return [];
+    }
+  };
+
+  /**
+   * 检查 NAD 是否被 Kube-OVN Subnet 依赖
+   * 
+   * [依赖关系]
+   * 在 Kube-OVN 架构中，Subnet 名称通常与对应的 NAD 名称相同。
+   * 如果 Subnet 依赖某个 NAD，删除 NAD 前必须先删除 Subnet，
+   * 或者删除 Subnet 时会自动级联删除对应的 NAD。
+   * 
+   * [匹配规则]
+   * - 精确匹配：Subnet 名称 === NAD 名称（不区分大小写）
+   * 
+   * @param record - NAD 记录对象，需包含 _name 字段
+   * @returns 依赖该 NAD 的子网名称列表，如果检查失败返回空数组
+   */
+  const checkSubnetDependency = async (record: any): Promise<string[]> => {
+    try {
+      const subnetsRes = await fetchKubeOvnSubnets(cloudId || '', true);
+      const subnets: any[] = subnetsRes?.data?.items || subnetsRes?.items || [];
+      const nadName = record._name.toLowerCase();
+      
+      // 检查是否有子网名称与 NAD 名称相同
+      return subnets
+        .filter((subnet: any) => {
+          const subnetName = (subnet?.metadata?.name || subnet?.name || '').toLowerCase();
+          return subnetName === nadName;
+        })
+        .map((subnet: any) => subnet?.metadata?.name || subnet?.name)
+        .filter(Boolean);
+    } catch (e) {
+      // 忽略检查错误，返回空数组
+      return [];
+    }
+  };
+
+  /**
+   * 删除单个网络
+   * 
+   * [权限检查]
+   * 1. 系统命名空间：操作列中删除按钮已禁用，此处不再检查
+   * 2. 公共命名空间：租户模式下直接返回，不允许删除
+   * 
+   * [依赖检查]
+   * 1. VM 占用检查：并行检查是否有虚拟机使用该网络
+   * 2. Subnet 依赖检查：并行检查是否有子网依赖该 NAD
+   * 
+   * [用户交互]
+   * - 如果被占用或依赖，显示详细原因并禁用删除按钮
+   * - 确认删除后调用 API 执行删除，成功后刷新列表
+   * 
+   * @param record - NAD 记录对象
+   */
+  const handleDelete = async (record: any) => {
+    // 租户不能删除公共命名空间的资源
+    const isPublic = isPublicNamespace(record._namespace);
+    if (isTenant && isPublic) {
+      message.warning('租户不能删除公共命名空间的资源');
+      return;
     }
 
-    const blocked = usingVms.length > 0;
+    const [usingVms, dependentSubnets] = await Promise.all([
+      checkNetworkUsage(record),
+      checkSubnetDependency(record),
+    ]);
+    
+    const blockedByVm = usingVms.length > 0;
+    const blockedBySubnet = dependentSubnets.length > 0;
+    const blocked = blockedByVm || blockedBySubnet;
+    
     Modal.confirm({
       title: '确认删除',
       content: (
         <>
           <div>{`确定要删除网络 ${record._name} 吗？此操作不可恢复。`}</div>
-          {blocked && (
+          {blockedByVm && (
             <div style={{ color: '#ff4d4f', marginTop: 8 }}>
-              {`不能删除此虚拟网络，因为正在被虚拟机使用 ${usingVms
+              {`不能删除此虚拟网络，因为正在被虚拟机使用：${usingVms
                 .slice(0, 5)
                 .join('，')}${usingVms.length > 5 ? ' 等' : ''}`}
+            </div>
+          )}
+          {blockedBySubnet && (
+            <div style={{ color: '#ff4d4f', marginTop: 8 }}>
+              {`不能删除此虚拟网络，因为正在被 Kube-OVN 子网依赖：${dependentSubnets
+                .slice(0, 5)
+                .join('，')}${dependentSubnets.length > 5 ? ' 等' : ''}`}
+              <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                提示：请先删除依赖的子网，或删除子网时会自动级联删除对应的 NAD。
+              </div>
             </div>
           )}
         </>
@@ -124,10 +269,249 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
   };
 
   /**
+   * 批量删除选中的网络
+   * 
+   * [处理流程]
+   * 1. 从过滤后的数据中获取选中的记录
+   * 2. 过滤不可删除的资源：
+   *    - 系统命名空间的网络
+   *    - 公共命名空间的网络（如果是租户）
+   * 3. 并行检查所有可删除网络的占用情况：
+   *    - VM 占用：遍历所有 VM，匹配网络引用
+   *    - Subnet 依赖：遍历所有 Subnet，匹配名称
+   * 4. 构建确认对话框，显示：
+   *    - 将被跳过的系统/公共命名空间资源数量
+   *    - 被 VM 占用的网络列表
+   *    - 被 Subnet 依赖的网络列表
+   *    - 实际可删除的网络数量
+   * 5. 并发执行删除：使用 Promise.allSettled 并发删除所有可删除的网络
+   * 6. 统计结果：显示成功/失败数量，清空选中状态，刷新列表
+   * 
+   * [错误处理]
+   * - 检查失败不影响删除流程（忽略错误继续执行）
+   * - 删除失败时显示错误信息，但不影响其他网络的删除
+   */
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) return;
+
+    // 从过滤后的数据中获取选中的记录
+    const targets = filteredData.filter((item: any) => {
+      const key = item?.metadata?.uid || `${item?._namespace}/${item?._name}`;
+      return selectedRowKeys.includes(key);
+    });
+
+    if (targets.length === 0) {
+      message.warning('未找到可删除的网络');
+      return;
+    }
+
+    // 过滤掉系统命名空间和公共命名空间的网络（如果是租户）
+    const deletableTargets = targets.filter((item: any) => {
+      if (isSystemNamespace(item._namespace)) return false;
+      if (isTenant && isPublicNamespace(item._namespace)) return false;
+      return true;
+    });
+    const systemTargets = targets.filter((item: any) => isSystemNamespace(item._namespace));
+    const publicTargets = isTenant ? targets.filter((item: any) => isPublicNamespace(item._namespace)) : [];
+
+    if (deletableTargets.length === 0) {
+      const reasons: string[] = [];
+      if (systemTargets.length > 0) reasons.push(`${systemTargets.length} 个系统命名空间`);
+      if (publicTargets.length > 0) reasons.push(`${publicTargets.length} 个公共命名空间`);
+      message.warning(`选中的网络无法删除：${reasons.join('，')}`);
+      setSelectedRowKeys([]);
+      return;
+    }
+
+    // 检查占用情况（VM 和 Subnet）
+    const usageMap = new Map<string, string[]>();
+    const subnetDependencyMap = new Map<string, string[]>();
+    
+    try {
+      const [ecsRes, subnetsRes] = await Promise.all([
+        fetchCloudProviderEcs(cloudId || '', true),
+        fetchKubeOvnSubnets(cloudId || '', true),
+      ]);
+      
+      const vms: any[] = ecsRes?.data || ecsRes || [];
+      const subnets: any[] = subnetsRes?.data?.items || subnetsRes?.items || [];
+      
+      for (const target of deletableTargets) {
+        const targetNs = target._namespace.toLowerCase();
+        const targetName = target._name.toLowerCase();
+        const targetRef = `${targetNs}/${targetName}`;
+        
+        // 检查 VM 占用
+        const usingVms = vms
+          .filter((vm: any) => Array.isArray(vm.networks))
+          .filter((vm: any) => {
+            const vmNs = (vm.namespace || vm.metadata?.namespace || '').toLowerCase();
+            
+            return vm.networks.some((n: string) => {
+              if (!n) return false;
+              const s = String(n).toLowerCase();
+              const base = s.includes('@') ? s.split('@')[0] : s;
+              if (base === 'pod' || base === 'default') return false;
+              if (base === targetRef) return true;
+              if (base.endsWith(`/${targetName}`)) return true;
+              if (base === targetName && vmNs === targetNs) return true;
+              return false;
+            });
+          })
+          .map(
+            (vm: any) =>
+              vm?.metadata?.annotations?.['tower.io/alias'] ||
+              vm.InstanceName ||
+              vm.name ||
+              vm.metadata?.name,
+          )
+          .filter(Boolean);
+        
+        if (usingVms.length > 0) {
+          usageMap.set(`${target._namespace}/${target._name}`, usingVms);
+        }
+        
+        // 检查 Subnet 依赖
+        const dependentSubnets = subnets
+          .filter((subnet: any) => {
+            const subnetName = (subnet?.metadata?.name || subnet?.name || '').toLowerCase();
+            return subnetName === targetName;
+          })
+          .map((subnet: any) => subnet?.metadata?.name || subnet?.name)
+          .filter(Boolean);
+        
+        if (dependentSubnets.length > 0) {
+          subnetDependencyMap.set(`${target._namespace}/${target._name}`, dependentSubnets);
+        }
+      }
+    } catch (e) {
+      // 忽略占用检查错误，继续执行删除
+    }
+
+    // 构建确认对话框内容
+    const blockedByVm = Array.from(usageMap.entries());
+    const blockedBySubnet = Array.from(subnetDependencyMap.entries());
+    const canDelete = deletableTargets.filter(
+      (t: any) => 
+        !usageMap.has(`${t._namespace}/${t._name}`) &&
+        !subnetDependencyMap.has(`${t._namespace}/${t._name}`)
+    );
+
+    let content = (
+      <>
+        <div>{`确定要删除选中的 ${deletableTargets.length} 个网络吗？此操作不可恢复。`}</div>
+        {systemTargets.length > 0 && (
+          <div style={{ color: '#faad14', marginTop: 8 }}>
+            {`注意：${systemTargets.length} 个系统命名空间的网络将被跳过。`}
+          </div>
+        )}
+        {publicTargets.length > 0 && (
+          <div style={{ color: '#faad14', marginTop: 8 }}>
+            {`注意：${publicTargets.length} 个公共命名空间的网络将被跳过（租户不能删除公共命名空间的资源）。`}
+          </div>
+        )}
+        {blockedByVm.length > 0 && (
+          <div style={{ color: '#ff4d4f', marginTop: 8 }}>
+            <div>以下网络正在被虚拟机使用，无法删除：</div>
+            {blockedByVm.slice(0, 5).map(([net, vms]) => (
+              <div key={net} style={{ marginLeft: 16, marginTop: 4 }}>
+                {net}: {vms.slice(0, 3).join('，')}{vms.length > 3 ? ' 等' : ''}
+              </div>
+            ))}
+            {blockedByVm.length > 5 && (
+              <div style={{ marginLeft: 16, marginTop: 4 }}>
+                等共 {blockedByVm.length} 个网络
+              </div>
+            )}
+          </div>
+        )}
+        {blockedBySubnet.length > 0 && (
+          <div style={{ color: '#ff4d4f', marginTop: 8 }}>
+            <div>以下网络正在被 Kube-OVN 子网依赖，无法删除：</div>
+            {blockedBySubnet.slice(0, 5).map(([net, subnets]) => (
+              <div key={net} style={{ marginLeft: 16, marginTop: 4 }}>
+                {net}: {subnets.slice(0, 3).join('，')}{subnets.length > 3 ? ' 等' : ''}
+              </div>
+            ))}
+            {blockedBySubnet.length > 5 && (
+              <div style={{ marginLeft: 16, marginTop: 4 }}>
+                等共 {blockedBySubnet.length} 个网络
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: '#999', marginTop: 4, marginLeft: 16 }}>
+              提示：请先删除依赖的子网，或删除子网时会自动级联删除对应的 NAD。
+            </div>
+          </div>
+        )}
+        {canDelete.length > 0 && (
+          <div style={{ color: '#52c41a', marginTop: 8 }}>
+            {`将删除 ${canDelete.length} 个网络。`}
+          </div>
+        )}
+      </>
+    );
+
+    const hasBlocked = blockedByVm.length > 0 || blockedBySubnet.length > 0;
+    const hasDeletable = canDelete.length > 0;
+
+    Modal.confirm({
+      title: '批量删除确认',
+      content,
+      okText: '删除',
+      okType: 'danger',
+      okButtonProps: { disabled: !hasDeletable },
+      cancelText: '取消',
+      onOk: hasDeletable
+        ? async () => {
+            try {
+              const results = await Promise.allSettled(
+                canDelete.map((target: any) =>
+                  deleteHarvesterNad(cloudId || '', target._namespace, target._name)
+                )
+              );
+
+              const ok = results.filter((r) => r.status === 'fulfilled').length;
+              const fail = results.filter((r) => r.status === 'rejected').length;
+
+              if (ok > 0) {
+                message.success(`成功删除 ${ok} 个网络`);
+              }
+              if (fail > 0) {
+                const errors = results
+                  .filter((r) => r.status === 'rejected')
+                  .map((r: any) => r.reason?.message || String(r.reason))
+                  .filter(Boolean);
+                message.error(`删除失败 ${fail} 个网络${errors.length > 0 ? `: ${errors[0]}` : ''}`);
+              }
+
+              setSelectedRowKeys([]);
+              onRefresh && onRefresh(true);
+            } catch (e: any) {
+              message.error(e?.message || '批量删除失败');
+            }
+          }
+        : undefined,
+    });
+  };
+
+  /**
    * 预处理 NAD 数据
-   * - 解析 name / namespace
-   * - 解析并 JSON 化 config / ipam / vlan / bridge 等字段
-   * - 将结果挂载到以 _ 开头的内部字段上，方便后续渲染与过滤
+   * 
+   * [处理目标]
+   * 将后端返回的 NAD 数据（可能是 K8s 原始对象或后端包装对象）标准化为统一的内部格式，
+   * 方便后续的过滤、渲染和操作。
+   * 
+   * [处理步骤]
+   * 1. 提取 name 和 namespace：兼容 metadata.name/name 和 metadata.namespace/namespace
+   * 2. 解析 config：支持字符串 JSON 和对象格式，解析失败时使用空对象
+   * 3. 标准化 IP分配方式：
+   *    - 优先使用 config.ipam.type
+   *    - 如果未设置但存在 config.ipam.subnet，推断为 'host-local'
+   * 4. 提取关键字段：vlan、promiscMode、bridge、type、cniVersion
+   * 5. 挂载到内部字段：使用 _ 前缀避免与原始数据冲突
+   * 
+   * [返回格式]
+   * 原始对象 + 内部字段（_name, _namespace, _config, _vlan, _ipamType 等）
    */
   const processedData = useMemo(() => {
     return (Array.isArray(nads) ? nads : []).map(item => {
@@ -159,11 +543,24 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
              ipamType = 'host-local';
         }
 
+        // 提取别名：优先使用 tower.io/alias 注解
+        const alias = item?.metadata?.annotations?.['tower.io/alias'] || '';
+        
+        // 提取集群网络名称并映射：mgmt -> 管理网
+        // 优先从 labels 中获取，如果没有则从 annotations 中获取
+        const clusterNetwork = item?.metadata?.labels?.['network.harvesterhci.io/clusternetwork'] 
+          || item?.metadata?.annotations?.['network.harvesterhci.io/route-cluster-network'] 
+          || '';
+        const clusterNetworkDisplay = clusterNetwork === 'mgmt' ? '管理网' : clusterNetwork;
+
         return {
             ...item,
             _config: config,
             _name: name,
             _namespace: namespace,
+            _alias: alias,
+            _clusterNetwork: clusterNetwork,
+            _clusterNetworkDisplay: clusterNetworkDisplay,
             _vlan: config?.vlan,
             _ipamType: ipamType,
             _promisc: config?.promiscMode,
@@ -176,9 +573,17 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
 
   /**
    * 过滤逻辑
-   * - 关键字匹配名称 / 命名空间
-   * - 命名空间精确匹配
-   * - IPAM 类型精确匹配
+   * 
+   * [过滤顺序]
+   * 1. 租户模式过滤：租户模式下，自动过滤公共命名空间的资源
+   * 2. 关键字过滤：匹配网络名称或命名空间（不区分大小写）
+   * 3. 命名空间过滤：精确匹配（不区分大小写）
+   * 4. IP分配方式过滤：精确匹配（不区分大小写）
+   * 
+   * [过滤规则]
+   * - 所有过滤条件都是 AND 关系（必须同时满足）
+   * - 空字符串表示不过滤该维度
+   * - 关键字支持部分匹配，命名空间和 IP分配方式必须精确匹配
    */
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -192,44 +597,93 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
 
       if (isTenant && isPublicNamespace(nspace)) return false;
 
-      // Keyword Filter
-      const matchesKeyword = !kw || name.includes(kw) || nspace.includes(kw);
+      // Keyword Filter: 匹配名称、别名或命名空间
+      const alias = String(item._alias || '').toLowerCase();
+      const matchesKeyword = !kw || name.includes(kw) || alias.includes(kw) || nspace.includes(kw);
       if (!matchesKeyword) return false;
 
       // Namespace Filter
       if (ns && nspace !== ns) return false;
 
-      // IPAM Type Filter
+      // IP分配方式过滤
       if (ipt && ipam !== ipt) return false;
 
       return true;
     });
   }, [processedData, keyword, nsFilter, ipamFilter]);
 
-  // 命名空间过滤下拉选项
+  // ==================== 过滤选项 ====================
+  
+  /** 命名空间过滤下拉选项：从处理后的数据中提取唯一命名空间并排序 */
   const nsOptions = useMemo(() => 
     Array.from(new Set(processedData.map(r => r._namespace).filter(Boolean))).sort(),
   [processedData]);
 
-  // IPAM 类型过滤下拉选项
+  /** IP分配方式过滤下拉选项：从处理后的数据中提取唯一 IP分配方式并排序 */
   const ipamOptions = useMemo(() => 
     Array.from(new Set(processedData.map(r => r._ipamType).filter(Boolean))).sort(),
   [processedData]);
 
+  // ==================== 表格配置 ====================
+  
+  /** 表格行选择配置
+   * - 禁用系统命名空间的资源
+   * - 租户模式下，禁用公共命名空间的资源
+   */
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+    getCheckboxProps: (record: any) => ({
+      disabled: isSystemNamespace(record._namespace) || (isTenant && isPublicNamespace(record._namespace)),
+    }),
+  };
+
   /**
    * 表格列定义
-   * - 名称列可点击打开详情
-   * - IPAM 类型列用 std-badge 不同颜色区分 dhcp/static/host-local
-   * - 操作列会根据是否系统命名空间禁用删除按钮
+   * 
+   * [列说明]
+   * - 网络名称：显示别名（tower.io/alias），如果没有别名则显示 ID
+   * - 网络ID：显示 NAD 的 metadata.name（K8s 资源名称）
+   * - 命名空间：显示所属命名空间
+   * - VLAN：如果配置了 VLAN，显示为蓝色标签
+   * - IP分配方式：使用不同颜色的标签区分类型
+   *   - dhcp: 绿色 (std-badge-success)
+   *   - static: 蓝色 (std-badge-info)
+   *   - host-local: 橙色 (std-badge-warning)
+   *   - 未配置: 灰色 (std-badge-default)
+   * - 混杂模式：如果开启，显示橙色标签
+   * - 网桥信息：显示网桥名称和类型
+   * - CNI版本：显示 CNI 版本号
+   * - UID：显示 K8s UID
+   * - 操作：操作菜单
+   *   - 管理员模式：显示"运维信息"和"删除"
+   *   - 租户模式：仅显示"删除"
+   *   - 系统命名空间或公共命名空间（租户）：删除按钮禁用
    */
   const allColumns = useMemo(() => [
     { 
       title: '网络名称', 
       key: 'name', 
+      render: (_: any, r: any) => {
+        // 优先显示别名，如果没有别名则显示 ID
+        let displayName = r._alias || r._name || '-';
+        // 如果名称是 mgmt，映射为管理网
+        if (!r._alias && displayName === 'mgmt') {
+          displayName = '管理网';
+        }
+        return (
+          <span>
+            <ApartmentOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
+            {displayName}
+          </span>
+        );
+      }
+    },
+    { 
+      title: '网络ID', 
+      key: 'id', 
       render: (_: any, r: any) => (
-        <span>
-          {r._name || '-'}
-        </span>
+        <span className="text-secondary">{r._name || '-'}</span>
       )
     },
     { 
@@ -240,10 +694,10 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     { 
       title: 'VLAN', 
       key: 'vlan', 
-      render: (_: any, r: any) => r._vlan ? <span className="std-badge std-badge-info">{r._vlan}</span> : '-' 
+      render: (_: any, r: any) => r._vlan ? <span>{r._vlan}</span> : '-' 
     },
     { 
-      title: 'IPAM类型', 
+      title: 'IP分配方式', 
       key: 'ipamType', 
       render: (_: any, r: any) => {
           const t = String(r._ipamType || '').toLowerCase();
@@ -260,7 +714,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     { 
       title: '混杂模式', 
       key: 'promisc', 
-      render: (_: any, r: any) => r._promisc ? <span className="std-badge std-badge-warning">开启</span> : '-' 
+      render: (_: any, r: any) => r._promisc ? <span>开启</span> : '-' 
     },
     { 
       title: '网桥信息', 
@@ -289,6 +743,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       fixed: 'right' as const,
       render: (_: any, r: any) => {
           const isSys = isSystemNamespace(r._namespace);
+          const isPublic = isPublicNamespace(r._namespace);
+          const deleteDisabled = isSys || (isTenant && isPublic);
           const items: any[] = [];
           if (!isTenant) {
             items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
@@ -298,7 +754,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             key: 'delete', 
             label: '删除', 
             danger: true, 
-            disabled: isSys,
+            disabled: deleteDisabled,
             onClick: () => handleDelete(r) 
           });
           return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
@@ -331,17 +787,33 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           )}
           <Select 
             allowClear 
-            placeholder="IPAM类型" 
+            placeholder="IP分配方式" 
             value={ipamFilter || undefined} 
             onChange={(v) => setIpamFilter(v || '')} 
             className="toolbar-filter"
-            options={[{ value: '', label: '全部IPAM' }, ...ipamOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
+            options={[{ value: '', label: '全部IP分配方式' }, ...ipamOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
           />
         </>
       )}
       toolbarRight={(
         <>
           <Button type="primary" onClick={() => setCreateVisible(true)}>创建网络</Button>
+          <Dropdown
+            menu={{
+              items: [
+                { 
+                  key: 'batchDelete', 
+                  label: '批量删除', 
+                  disabled: selectedRowKeys.length === 0 
+                },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'batchDelete') handleBatchDelete();
+              },
+            }}
+          >
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
           <TableColumnSettings 
             columns={allColumns} 
             onChange={setTableColumns}
@@ -352,15 +824,17 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       )}
     >
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        className="std-table"
+        bordered={bordered}
         rowKey={(r: any) => r?.metadata?.uid || `${r?._namespace}/${r?._name}` || Math.random().toString(36).slice(2)}
+        rowSelection={rowSelection}
         columns={tableColumns}
         dataSource={filteredData}
         loading={loading}
         pagination={{
-          size: 'small',
-          showQuickJumper: false,
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`
         }}
       />
 

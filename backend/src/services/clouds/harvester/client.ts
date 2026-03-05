@@ -114,5 +114,6 @@ export {
   deleteHarvesterNamespace,
   listHarvesterNamespacesRaw,
   getHarvesterNamespaceRaw,
+  isProtectedNamespace,
 } from './namespace';
 export { listHarvesterGpuResources, listHarvesterUsbResources, listHarvesterPciDevices } from './peripherals';

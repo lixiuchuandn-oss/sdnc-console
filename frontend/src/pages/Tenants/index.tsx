@@ -178,18 +178,14 @@ const TenantsPage: React.FC = () => {
 
   // 删除租户
   const handleDeleteTenant = async (id: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/tenants/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success('租户删除成功');
-      fetchTenants();
-      if (selectedTenant?.id === id) {
-        setSelectedTenant(null);
-      }
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '删除失败');
+    const token = localStorage.getItem('token');
+    await axios.delete(`/api/tenants/${id}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    message.success('租户删除成功');
+    fetchTenants();
+    if (selectedTenant?.id === id) {
+      setSelectedTenant(null);
     }
   };
 
@@ -268,12 +264,57 @@ const TenantsPage: React.FC = () => {
               return;
             }
             if (key === 'delete') {
-              Modal.confirm({
+              const confirmInstance = Modal.confirm({
                 title: '确认删除租户',
                 content: '删除后将无法恢复，相关的组织和用户也会被删除。',
                 okText: '删除',
                 cancelText: '取消',
-                onOk: async () => { await handleDeleteTenant(record.id); },
+                onOk: async () => {
+                  try {
+                    await handleDeleteTenant(record.id);
+                  } catch (error: any) {
+                    const errorMessage = error?.response?.data?.message || '删除租户失败';
+                    const resources = error?.response?.data?.resources || [];
+                    
+                    // 关闭确认框
+                    confirmInstance.destroy();
+                    
+                    // 如果是资源绑定错误，使用 Modal.error 显示详细信息
+                    if (error?.response?.status === 409) {
+                      Modal.error({
+                        title: '无法删除租户',
+                        width: 500,
+                        content: (
+                          <div style={{ marginTop: 16 }}>
+                            <p style={{ marginBottom: 16, color: '#ff4d4f' }}>
+                              {errorMessage}
+                            </p>
+                            
+                            {resources.length > 0 && (
+                              <div style={{ marginBottom: 16 }}>
+                                <div style={{ marginBottom: 8, fontWeight: 500 }}>关联资源：</div>
+                                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                  {resources.map((r: any, index: number) => (
+                                    <li key={index} style={{ marginBottom: 4 }}>
+                                      {r.name} ({r.count}个)
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            <p style={{ margin: 0, color: '#8c8c8c', fontSize: 12 }}>
+                              请先解除上述资源绑定后再尝试删除租户。
+                            </p>
+                          </div>
+                        ),
+                      });
+                    } else {
+                      // 其他错误显示普通消息
+                      message.error(errorMessage);
+                    }
+                  }
+                },
               });
               return;
             }

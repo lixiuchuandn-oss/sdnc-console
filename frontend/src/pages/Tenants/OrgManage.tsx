@@ -8,7 +8,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
 // 数据来源统一通过后端接口（axios）获取，并在切换组织/租户时刷新。
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Alert, List, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -599,7 +599,7 @@ const OrgManagePage: React.FC = () => {
                   icon={<CloseOutlined />}
                   onClick={(e) => {
                     e.stopPropagation();
-                    modal.confirm({
+                    const confirmInstance = modal.confirm({
                       title: '确认删除组织',
                       content: '将删除该组织及其所有下级组织、关联用户与资源池分配。',
                       okText: '删除',
@@ -608,8 +608,50 @@ const OrgManagePage: React.FC = () => {
                         try {
                           const token = localStorage.getItem('token');
                           await axios.delete(`/api/tenants/organizations/${org.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                          messageApi.success('删除组织成功');
                           if (tenantId) fetchOrganizations(tenantId);
-                        } catch {}
+                        } catch (error: any) {
+                          const errorMessage = error?.response?.data?.message || '删除组织失败';
+                          const resources = error?.response?.data?.resources || [];
+                          
+                          // 关闭确认框
+                          confirmInstance.destroy();
+                          
+                          // 如果是资源绑定错误，使用 Modal.error 显示详细信息
+                          if (error?.response?.status === 409) {
+                            modal.error({
+                              title: '无法删除组织',
+                              width: 500,
+                              content: (
+                                <div style={{ marginTop: 16 }}>
+                                  <p style={{ marginBottom: 16, color: '#ff4d4f' }}>
+                                    {errorMessage}
+                                  </p>
+                                  
+                                  {resources.length > 0 && (
+                                    <div style={{ marginBottom: 16 }}>
+                                      <div style={{ marginBottom: 8, fontWeight: 500 }}>关联资源：</div>
+                                      <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                        {resources.map((r: any, index: number) => (
+                                          <li key={index} style={{ marginBottom: 4 }}>
+                                            {r.name} ({r.count}个)
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+
+                                  <p style={{ margin: 0, color: '#8c8c8c', fontSize: 12 }}>
+                                    请先解除上述资源绑定后再尝试删除组织。
+                                  </p>
+                                </div>
+                              ),
+                            });
+                          } else {
+                            // 其他错误显示普通消息
+                            messageApi.error(errorMessage);
+                          }
+                        }
                       }
                     });
                   }}

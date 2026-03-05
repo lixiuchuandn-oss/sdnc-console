@@ -3,7 +3,7 @@ import { Table, Input, Tag, Button, Modal, Form, message, Select, Tabs, InputNum
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { API_BASE_URL, getAuthHeaders } from '../../../../services/api';
-import { createHarvesterNamespace, deleteHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/harvesterApi';
+import { createHarvesterNamespace, updateHarvesterNamespace } from '../../../../services/harvesterApi';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import StdFormModal from '../../../../components/StdFormModal';
@@ -138,19 +138,6 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     }
     return res;
   }, [namespaces, keyword, filterType, filterStatus]);
-
-  /**
-   * 处理删除操作
-   */
-  const handleDelete = async (name: string) => {
-    try {
-      await deleteHarvesterNamespace(cloudId, name);
-      message.success('删除成功');
-      onRefresh?.();
-    } catch (e: any) {
-      message.error(e?.message || '删除失败');
-    }
-  };
 
   /**
    * 处理编辑操作 - 填充表单
@@ -428,20 +415,6 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
           items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
         }
         items.push({ key: 'edit', label: '编辑配置', onClick: () => handleEdit(r) });
-        items.push({ type: 'divider' });
-        items.push({ 
-          key: 'delete', 
-          label: '删除', 
-          danger: true, 
-          disabled: isSys,
-          onClick: () => Modal.confirm({
-            title: `确认删除 ${name}?`,
-            content: '删除后无法恢复',
-            okText: '删除',
-            okButtonProps: { danger: true },
-            onOk: () => handleDelete(name)
-          }) 
-        });
         return (
           <ResourceActionsDropdown 
             items={items} 

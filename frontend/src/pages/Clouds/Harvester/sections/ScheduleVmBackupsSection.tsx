@@ -110,8 +110,8 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   vms, 
   vmId, 
   defaultHiddenColumns, 
-  bordered = true, 
-  isTenant
+  isTenant,
+  bordered = true
 }) => {
   // ==============================================================================
   // 1. 本地状态管理 (Local State)
@@ -551,17 +551,19 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         )}
       >
         <Table
-          className={!isTenant ? "std-table" : "std-table no-border"}
-          bordered={!isTenant}
-          dataSource={filteredData}
-          columns={visibleColumns || columns}
-          rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
-          loading={loading}
-          pagination={{
-            size: 'small',
-            showQuickJumper: false,
-          }}
-        />
+        key="table"
+        className="std-table"
+        bordered={bordered}
+        dataSource={filteredData}
+        columns={visibleColumns || columns}
+        rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
+        loading={loading}
+        pagination={{
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`
+        }}
+      />
       </PageDetailSection>
 
       {/* 侧边详情抽屉 */}

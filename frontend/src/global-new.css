@@ -197,8 +197,8 @@
 .toolbar-container {
   display: flex !important;
   align-items: flex-end !important;
-  row-gap: 12px !important;
-  column-gap: 12px !important;
+  row-gap: 8px !important;
+  column-gap: 8px !important;
 }
 
 /* 

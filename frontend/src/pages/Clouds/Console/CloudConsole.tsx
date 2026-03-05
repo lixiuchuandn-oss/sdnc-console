@@ -397,21 +397,42 @@ const CloudConsolePage: React.FC = () => {
       });
       setClouds(filtered);
       
-      // 自动选择第一个资源池，如果当前未选择或选择无效
+      // 自动选择资源池：优先选择第一个 Cloudmap 资源池，如果没有则选择其他资源池
       if (!currentCloudId && filtered.length > 0) {
-        const firstId = filtered[0].id;
-        setCurrentCloudId(firstId);
+        // 优先查找 Cloudmap 资源池
+        const cloudmapCloud = filtered.find(c => {
+          const pRaw = String(c?.config?.provider || '');
+          return pRaw.toLowerCase().startsWith('cloudmap');
+        });
+        
+        if (cloudmapCloud) {
+          setCurrentCloudId(cloudmapCloud.id);
+        } else {
+          // 如果没有 Cloudmap，选择第一个其他资源池
+          setCurrentCloudId(filtered[0].id);
+        }
       } else if (currentCloudId && !filtered.find(c => String(c.id) === String(currentCloudId))) {
+        // 当前选择的资源池无效，重新选择
         if (filtered.length > 0) {
-          const firstId = filtered[0].id;
-          setCurrentCloudId(firstId);
+          // 优先查找 Cloudmap 资源池
+          const cloudmapCloud = filtered.find(c => {
+            const pRaw = String(c?.config?.provider || '');
+            return pRaw.toLowerCase().startsWith('cloudmap');
+          });
+          
+          if (cloudmapCloud) {
+            setCurrentCloudId(cloudmapCloud.id);
+          } else {
+            // 如果没有 Cloudmap，选择第一个其他资源池
+            setCurrentCloudId(filtered[0].id);
+          }
         } else {
           setCurrentCloudId(undefined);
         }
       }
       
       if (filtered.length === 0) {
-        setError('当前未找到可用资源池 (Cloudmap/Harvester)，请先在“资源池管理”中创建');
+        setError('当前未找到可用资源池 (Cloudmap/Harvester)，请先在"资源池管理"中创建');
       }
     } catch (e) {
       // ignore
@@ -718,8 +739,12 @@ const CloudConsolePage: React.FC = () => {
     setError(null);
     try {
       // 使用 Harvester 专用的 LB 接口
-      const items = await fetchHarvesterLoadBalancers(cid);
-      setLbrules(Array.isArray(items) ? items : []);
+      const json = await fetchHarvesterLoadBalancers(cid);
+      // 兼容不同的返回格式: { data: { items: [...] } } 或 { items: [...] } 或直接数组
+      const items: any[] = Array.isArray(json?.data?.items) 
+        ? json.data.items 
+        : (Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []));
+      setLbrules(items);
     } catch (e: any) {
       console.error('[CloudConsole] loadLbrules error:', e);
       setLbrules([]);
@@ -1057,7 +1082,7 @@ const CloudConsolePage: React.FC = () => {
             {/* Loading 状态 */}
             {cloudsLoading ? (
               <div style={{ padding: '20px', textAlign: 'center' }}>
-                <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} tip="加载资源池..." />
+                <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} />
               </div>
             ) : (
               /* Tree 组件 */
@@ -1167,9 +1192,16 @@ const CloudConsolePage: React.FC = () => {
                     vpcs={vpcs}
                     subnets={subnets}
                     ecs={ecs}
+                    volumes={pvcs}
+                    snapshots={snapshots}
+                    backups={backups}
+                    storageClasses={storageClasses}
                     loading={loading}
                     isHarvester={!!caps?.isHarvester}
                     onRefresh={() => loadEcs(currentCloudId, true)}
+                    onRefreshVolumes={() => loadPvcs(currentCloudId)}
+                    onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
+                    onRefreshBackups={() => loadBackups(currentCloudId)}
                     onOpenReconfigure={(vm) => {
                       setReconfVm(vm);
                       setReconfVisible(true);
@@ -1178,6 +1210,7 @@ const CloudConsolePage: React.FC = () => {
                     onStop={handleStop}
                     onReboot={handleReboot}
                     onDelete={handleDelete}
+                    bordered={false}
                 />
             ) : (
                 // 场景 B: 选中了资源池
@@ -1250,6 +1283,7 @@ const CloudConsolePage: React.FC = () => {
                     onStop={handleStop}
                     onReboot={handleReboot}
                     onDelete={handleDelete}
+                    bordered={false}
                   />
                 ) : isHarvester ? (
                   <CloudConsoleHarvester
@@ -1320,6 +1354,7 @@ const CloudConsolePage: React.FC = () => {
                     onStop={handleStop}
                     onReboot={handleReboot}
                     onDelete={handleDelete}
+                    bordered={false}
                   />
                 ) : cloudsLoading ? (
                   <div style={{ padding: 100, textAlign: 'center' }}>

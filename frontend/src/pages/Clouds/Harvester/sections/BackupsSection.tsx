@@ -34,9 +34,10 @@ interface Props {
   type?: 'backup' | 'snapshot';
   vmId?: string;
   isTenant?: boolean;
+  bordered?: boolean;
 }
 
-const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant }) => {
+const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant, bordered = true }) => {
   // 关键字搜索
   const [keyword, setKeyword] = useState<string>('');
   // 状态过滤：all / ready / not_ready
@@ -341,15 +342,16 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       </div>
       <Table
         key="table"
-        className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        className="std-table"
+        bordered={bordered}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
         loading={loading}
         pagination={{
-          size: 'small',
-          showQuickJumper: false,
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`
         }}
       />
       <HarvesterResourceDrawer

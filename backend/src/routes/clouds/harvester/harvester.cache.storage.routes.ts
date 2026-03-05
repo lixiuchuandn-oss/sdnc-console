@@ -131,34 +131,76 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
 
         // [租户隔离] 过滤 UserSpace 命名空间
         let whereCondition: any = { cloudId: id };
-        if ((req as any).user?.role === 'tenant') {
-          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-          const us = await userSpaceRepo.findOne({
-            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
-          });
-          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req.user as any)?.role === 'tenant';
+        const isTenant = isTenantUser || isTenantRole;
 
-          // [自动修复] 确保组织命名空间 (ns-{orgId}) 包含在 UserSpace 中
-          let allowedNamespaces: string[] = [];
-          if (us.namespace) {
-            allowedNamespaces = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
+        if (isTenant) {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const userOrgId = (req.user as any).organizationId;
+          const whereClause: any[] = [];
+
+          // [UserSpace Query] 查询当前用户所属组织的 UserSpace 记录（组织隔离）
+          // 组织级用户：只查询 organizationId = userOrgId 的记录
+          // 租户级用户（无 organizationId）：查询 organizationId = null 的记录
+          if (userOrgId) {
+            whereClause.push({
+              tenantId: (req.user as any).tenantId,
+              cloudId: id,
+              status: 'active',
+              organizationId: userOrgId, // 严格限制：只查询当前组织的 UserSpace
+            });
+          } else {
+            whereClause.push({
+              tenantId: (req.user as any).tenantId,
+              cloudId: id,
+              status: 'active',
+              organizationId: null, // 租户级用户：查询租户级的 UserSpace
+            });
           }
-          if ((req.user as any).organizationId) {
-             const orgNs = `ns-${(req.user as any).organizationId}`;
-             if (!allowedNamespaces.includes(orgNs)) {
-                allowedNamespaces.push(orgNs);
-                us.namespace = allowedNamespaces.join(',');
+
+          const matches = await userSpaceRepo.find({ where: whereClause });
+
+          if (!matches || matches.length === 0) {
+            return res.json({ message: '查询成功', data: { items: [] } });
+          }
+
+          // [Namespace Aggregation] 聚合同一组织内所有 UserSpace 记录的命名空间
+          // 注意：不会跨组织聚合，因为查询条件已限制 organizationId
+          const uniqueNamespaces = new Set<string>();
+          matches.forEach((m) => {
+            if (m.namespace) {
+              m.namespace.split(',').forEach((ns) => {
+                const trimmed = ns.trim();
+                if (trimmed) uniqueNamespaces.add(trimmed);
+              });
+            }
+          });
+
+          // Auto-Fix: Ensure organization namespace is included
+          if (userOrgId) {
+            const orgNs = `ns-${userOrgId}`;
+            if (!uniqueNamespaces.has(orgNs)) {
+              uniqueNamespaces.add(orgNs);
+              // Update the first matching UserSpace record
+              const firstMatch = matches.find(m => m.organizationId === userOrgId) || matches[0];
+              if (firstMatch) {
+                const nsList = Array.from(uniqueNamespaces);
+                firstMatch.namespace = nsList.join(',');
                 try {
-                   await userSpaceRepo.save(us);
+                  await userSpaceRepo.save(firstMatch);
                 } catch (e) {
-                   console.warn('Failed to auto-update UserSpace namespace', e);
+                  console.warn('Failed to auto-update UserSpace namespace', e);
                 }
-             }
+              }
+            }
           }
-          if (allowedNamespaces.length === 0) {
-             return res.json({ message: '查询成功', data: { items: [] } });
+
+          if (uniqueNamespaces.size === 0) {
+            return res.json({ message: '查询成功', data: { items: [] } });
           }
-          whereCondition.namespace = In(allowedNamespaces);
+
+          whereCondition.namespace = In(Array.from(uniqueNamespaces));
         }
 
         // [缓存策略] 如果数据库为空或强制刷新，则同步数据

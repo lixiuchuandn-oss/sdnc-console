@@ -41,6 +41,7 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean; // 是否为租户模式
+  bordered?: boolean;
 }
 
 const getTemplateNamespace = (tpl: any): string =>
@@ -104,13 +105,13 @@ const TemplatesSection: React.FC<Props> = ({
   loading, 
   onRefresh, 
   isTenant = false,
+  bordered = true,
 }) => {
   const { modal } = App.useApp();
   // [状态] 控制系统资源显示的开关 (默认关闭)
   const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
   
   // [推导] 视图控制变量
-  const bordered = !isTenant; // 租户模式无边框
   const showYaml = !isTenant; // 租户模式不显示 YAML
 
   /**
@@ -508,20 +509,20 @@ const TemplatesSection: React.FC<Props> = ({
         )}
       >
         <Table
-          className={!isTenant ? "std-table" : "std-table no-border"}
-          bordered={!isTenant}
+          className="std-table"
+          bordered={bordered}
           rowKey={(r) => r.metadata?.uid || r.metadata?.name}
           rowSelection={{
             selectedRowKeys,
-            onChange: (keys) => setSelectedRowKeys(keys),
+            onChange: setSelectedRowKeys,
           }}
           columns={tableColumns}
           dataSource={filteredData}
           loading={loading}
           pagination={{
-            size: 'small',
+            defaultPageSize: 10,
             showSizeChanger: true,
-            showQuickJumper: false,
+            showTotal: (total) => `共 ${total} 条`
           }}
         />
 

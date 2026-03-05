@@ -52,9 +52,10 @@ type Props = {
   onRefresh?: (force?: boolean) => void;
 
   isTenant?: boolean;
+  bordered?: boolean;
 };
 
-const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false }) => {
+const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false, bordered = true }) => {
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -567,17 +568,17 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         />
       </StdFormModal>
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        className="std-table"
+        bordered={bordered}
         rowKey={(r:any)=> getId(r)}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
         pagination={{
-          size: 'small',
-          showQuickJumper: false,
+          defaultPageSize: 10,
           showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`
         }}
         scroll={{ x: 'max-content' }}
       />
