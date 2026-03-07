@@ -43,7 +43,7 @@ export const SubResourceCard: React.FC<{ title: React.ReactNode; extra?: React.R
       </div>
     ] : undefined}
     headStyle={{ background: '#f5f9ff' }}
-    bodyStyle={{ padding: 14 }}
+    styles={{ body: { padding: 14 } }}
     style={{ borderRadius: 10 }}
   >
     {children}

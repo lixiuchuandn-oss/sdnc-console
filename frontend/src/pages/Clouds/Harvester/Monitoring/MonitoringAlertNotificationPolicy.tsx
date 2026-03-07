@@ -970,7 +970,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         title="告警通知策略详情"
         footer={<Button onClick={handleCloseDetail}>关闭</Button>}
         width={560}
-        destroyOnClose
+        destroyOnHidden
       >
         {detailLoading ? (
           <div style={{ padding: 24, textAlign: 'center' }}>
@@ -1015,7 +1015,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         onCancel={handleCloseForm}
         title={editingRecord ? '编辑告警通知策略' : '新增告警通知策略'}
         width="90vw"
-        destroyOnClose
+        destroyOnHidden
         footer={
           <Space>
             <Button onClick={handleCloseForm}>取消</Button>

@@ -392,7 +392,7 @@ export const AppWizard: React.FC<AppWizardProps> = ({ open, onClose, onSuccess, 
             variant="borderless"
             style={{ height: '100%', background: '#f5f7fa' }}
       headStyle={{ borderBottom: '1px solid #e8e8e8', minHeight: 48 }}
-      bodyStyle={{ padding: 16 }}
+      styles={{ body: { padding: 16 } }}
     >
       <div style={{ marginBottom: 16, height: 40, color: '#666', fontSize: 13 }}>{help}</div>
       <Form.Item name={field} style={{ marginBottom: 0 }}>

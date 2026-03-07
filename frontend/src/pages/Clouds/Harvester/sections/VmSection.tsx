@@ -46,7 +46,8 @@ import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOut
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, fetchHarvesterNodes, fetchHarvesterNads, patchHarvesterVm } from '../../../../services/harvesterApi';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
@@ -116,7 +117,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   
   // [表格交互] 选中行和列配置
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
-  const [tableColumns, setTableColumns] = useState<any[]>([]);
   
   // [弹窗控制] 详情抽屉状态
   const [metadataModalVisible, setMetadataModalVisible] = useState(false);
@@ -1464,8 +1464,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     } },
   ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant]);
 
-  // 当禁用列设置时，直接使用 allColumns，不通过 useEffect 更新状态
-  // 避免 allColumns 变化导致的无限循环
+  // 使用新的 hook 管理列设置
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vm_table_v3');
 
   // ==========================================
   // [UI渲染] 8. 组件结构返回 (Render)
@@ -1553,10 +1553,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             <Button icon={<EllipsisOutlined />}></Button>
           </Dropdown>
           {!disableColumnSettings && (
-            <TableColumnSettings 
+            <TableColumnSettingsButton
               key="col-settings"
-              columns={allColumns} 
-              onChange={setTableColumns}
+              allColumns={allColumns}
               settingsKey="harvester_vm_table_v3"
             />
           )}

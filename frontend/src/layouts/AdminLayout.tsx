@@ -1,97 +1,122 @@
+/**
+ * ============================================================================
+ * AdminLayout 组件 - 管理后台主布局
+ * ============================================================================
+ * 
+ * 【功能概述】
+ * 这是整个管理后台的核心布局组件，负责：
+ * 1. 顶部导航栏（Header）- 包含 Logo、平台切换、搜索、用户信息等
+ * 2. 左侧边栏（Sider）- 动态菜单导航，支持多平台切换
+ * 3. 内容区域（Content）- 使用 Outlet 渲染子路由
+ * 4. 快速导航抽屉 - 资源池快速展示
+ * 
+ * 【检索关键词】
+ * - 布局组件 layout admin
+ * - 侧边栏菜单 sidebar menu navigation
+ * - 平台切换 platform switch cen_compute cen_sdn cen_secops cen_settings
+ * - 菜单构建 menu build visibleCenters
+ * - 权限控制 permission access canAccessPath
+ * - 搜索功能 search Ctrl+K
+ * - 资源池导航 resource pool navigation
+ * - SETTINGS 平台特殊处理 settings platform flat menu
+ * 
+ * 【关键特性】
+ * - 支持多平台（CNMC/SDNCC/CNSOC/SETTINGS）动态切换
+ * - SETTINGS 平台菜单项直接平铺（无分组嵌套）
+ * - 基于权限的菜单项过滤
+ * - 全局搜索功能（Ctrl+K）
+ * - 资源池快速展示
+ * - 收藏和最近访问记录
+ * ============================================================================
+ */
+
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Input, Divider, Typography, Row, Col, Card, Space, Tag, AutoComplete, Badge, App, Select, Dropdown, Avatar, Drawer, Tooltip } from 'antd';
+import { Layout, Menu, Button, Input, Divider, Typography, Space, Tag, Badge, App, Select, Dropdown, Tooltip, Spin, Empty } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
-  SlidersOutlined,ProjectOutlined,CodeOutlined,CloudOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, RightOutlined, CaretDownOutlined,
-  ClusterOutlined, TeamOutlined, CodepenOutlined, DesktopOutlined, HddOutlined, GatewayOutlined,
-  AppstoreAddOutlined, ApiOutlined, DatabaseOutlined, BellOutlined, RobotOutlined, EditOutlined, PlayCircleOutlined,
-  BulbOutlined, CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, UserSwitchOutlined, DeploymentUnitOutlined, LockOutlined, EnvironmentOutlined, BranchesOutlined, AppstoreOutlined, StarOutlined, StarFilled, InboxOutlined, LogoutOutlined, DashboardOutlined, CodeFilled, DatabaseFilled, SearchOutlined, PoweroffOutlined, ReloadOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, BarChartOutlined,
-  FundProjectionScreenOutlined, RadarChartOutlined, FileTextOutlined, SafetyCertificateOutlined, ApartmentOutlined
+  CodeOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, CaretDownOutlined,
+  ApiOutlined, DatabaseOutlined, BellOutlined, CloudServerOutlined, DeploymentUnitOutlined,
+  AppstoreOutlined, LogoutOutlined, CodeFilled, DatabaseFilled, SearchOutlined,
+  SafetyCertificateOutlined,
+  AliyunOutlined, AmazonOutlined, GoogleOutlined, CheckCircleFilled, StopFilled
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useLicense } from '../contexts/LicenseContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../utils/accessMapping';
-import { ROUTE_CATALOG, RouteItem, PLATFORMS, PLATFORM_LABELS, GROUPS } from '../catalogs/navCatalog';
+import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../catalogs/navCatalog';
 import { routeSpecs } from '../routes/RouteSpec';
 import { iconOf } from '../components/PageContainer';
-import { fetchClouds, fetchInventoryInstancesByCloud, refreshInventoryInstances, fetchAllInstances, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs } from '../services/api';
-import { fetchAliyunEcsVncUrl } from '../services/aliyunApi';
+import { fetchClouds } from '../services/api';
+import '../pages/Dashboard/Dashboard.css';
 
 const { Header, Sider, Content } = Layout;
 
 const AdminLayout: React.FC = () => {
-  const [collapsed, setCollapsed] = useState(false);
-  const [navOpen, setNavOpen] = useState(false);
-  const [navKeyword, setNavKeyword] = useState('');
-  const [selectedGroupKey, setSelectedGroupKey] = useState<string>('');
-  const [activeSidebarKey, setActiveSidebarKey] = useState<string>('/admin/cen_compute');
-  const [activeTab, setActiveTab] = useState<string>('全部');
-  const [navSection, setNavSection] = useState<'resources'|'favorites'|'products'>('products');
-  const [openKeys, setOpenKeys] = useState<string[]>([]);
-  const [menuKey, setMenuKey] = useState<number>(0);
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('ct_fav')||'[]'); } catch { return []; }
-  });
-  const [recents, setRecents] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('ct_recent')||'[]'); } catch { return []; }
-  });
-  const [resourceClouds, setResourceClouds] = useState<any[]>([]);
-  const [resourceLoading, setResourceLoading] = useState<boolean>(false);
-  const [resInstanceStats, setResInstanceStats] = useState<Record<string, { running: number; stopped: number; total: number }>>({});
-  const [resMatrixCols, setResMatrixCols] = useState<Record<string, number>>({});
+  // ============================================================================
+  // 【状态管理】State Management
+  // ============================================================================
+  // 检索关键词: state useState 状态管理
+  
+  // 【侧边栏状态】
+  const [collapsed, setCollapsed] = useState(true); // 侧边栏是否折叠，默认折叠
+  const [activeSidebarKey, setActiveSidebarKey] = useState<string>('/admin/cen_compute'); // 当前激活的平台 key (cen_compute/cen_sdn/cen_secops/cen_settings)
+  const [openKeys, setOpenKeys] = useState<string[]>([]); // 菜单展开的分组 keys（SETTINGS 平台不需要）
+  const [menuKey, setMenuKey] = useState<number>(0); // 菜单 key，用于强制重新渲染菜单
+  
+  // 【快速导航抽屉状态】
+  const [navOpen, setNavOpen] = useState(false); // 资源池快速展示抽屉是否打开
+  const [navSection, setNavSection] = useState<'resources'|'favorites'|'products'>('products'); // 导航抽屉的标签页（保留用于未来扩展）
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string>(''); // 选中的平台分组 key（用于 StandardHeader 中的逻辑）
+  const [activeTab, setActiveTab] = useState<string>('全部'); // 当前激活的标签（保留用于未来扩展）
+  
+  // 【资源池数据】
+  const [resourceClouds, setResourceClouds] = useState<any[]>([]); // 资源池列表
+  const [resourceLoading, setResourceLoading] = useState<boolean>(false); // 资源池加载状态
+  const [resourcePoolInstanceCounts, setResourcePoolInstanceCounts] = useState<Record<string, { total: number, running: number }>>({}); // 资源池实例统计信息
   
 
-  const getItemMeta = (k: string): any => {
-    for (const c of visibleCenters) {
-      for (const p of (c.items||[])) {
-        const found = (p.children||[]).find((it:any)=> it.key === k);
-        if (found) return { ...found, platformLabel: p.label, platformIcon: p.icon };
-      }
-    }
-    return null;
-  };
-
-  const getItemPlatformLabel = (k: string): string | null => {
-    for (const c of visibleCenters) {
-      for (const p of (c.items||[])) {
-        const found = (p.children||[]).find((it:any)=> it.key === k);
-        if (found) return p.label;
-      }
-    }
-    return null;
-  };
-
-  const toggleFavorite = (item:any) => {
-    setFavorites(prev => {
-      const exists = prev.includes(item.key);
-      const next = exists ? prev.filter(k=> k !== item.key) : [item.key, ...prev];
-      localStorage.setItem('ct_fav', JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const pushRecent = (item:any) => {
-    setRecents(prev => {
-      const filtered = prev.filter(k=> k !== item.key);
-      const next = [item.key, ...filtered].slice(0, 12);
-      localStorage.setItem('ct_recent', JSON.stringify(next));
-      return next;
-    });
-  };
+  // ============================================================================
+  // 【工具函数】Utility Functions
+  // ============================================================================
+  // 检索关键词: utility function helper 工具函数
+  
+  // ============================================================================
+  // 【Hooks 和常量】Hooks & Constants
+  // ============================================================================
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
-  const isProConsole = location.pathname.startsWith('/admin/clouds/console');
+  const { hasFeature } = useLicense();
+  const { settings } = useSettings();
+  const isProConsole = location.pathname.startsWith('/admin/clouds/console'); // 是否为 Pro 控制台模式
 
-  const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
+  const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)'; // 导航分隔线颜色
  
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchText, setSearchText] = useState('');
-  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
-  const { message } = App.useApp();
-  const [navEcs, setNavEcs] = useState<any[]>([]);
-  const [navEcsLoading, setNavEcsLoading] = useState<boolean>(false);
-  const [navStatusMode, setNavStatusMode] = useState<'all'|'prefer_running'|'only_running'|'only_non_running'>('prefer_running');
+  // 【全局搜索状态】
+  const [searchOpen, setSearchOpen] = useState(false); // 搜索弹窗是否打开
+  const [searchText, setSearchText] = useState(''); // 搜索关键词
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0); // 当前选中的搜索结果索引
+  const { message } = App.useApp(); // Ant Design 消息提示
 
+  // ============================================================================
+  // 【权限控制】Permission Control
+  // ============================================================================
+  // 检索关键词: permission access control canAccessPath 权限控制
+  
+  /**
+   * 检查用户是否有权限访问指定路径
+   * 检索关键词: canAccessPath permission check 权限检查
+   * 
+   * @param p - 路由路径
+   * @returns 是否有权限访问
+   * 
+   * 【权限逻辑】
+   * 1. super_admin 和 admin 角色拥有所有权限
+   * 2. 其他角色根据 permissions 数组判断
+   * 3. 通过 getRequiredActionForPath 获取路径所需的权限动作
+   * 4. 通过 hasPermissionForAction 检查用户是否有该权限
+   */
   const canAccessPath = (p: string): boolean => {
     const pure = String(p || '').split('?')[0];
     if (!user) return false;
@@ -102,137 +127,30 @@ const AdminLayout: React.FC = () => {
     return hasPermissionForAction(perms, act);
   };
 
+  /**
+   * 处理用户登出
+   * 检索关键词: handleLogout logout 登出
+   */
   const handleLogout = () => {
     logout();
     navigate('/admin/login');
   };
 
-  const StandardHeader: React.FC = () => (
-    <Header style={{ background:'linear-gradient(90deg, #0A4CC0 0%, #1B64ED 100%)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 64, lineHeight:'64px', boxShadow:'0 4px 16px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
-      <div style={{ display:'flex', alignItems:'center', height:64 }}>
-        <Button type="text" icon={(navOpen ? <DatabaseOutlined style={{color:'#fff',fontSize:20}} /> : <DatabaseFilled style={{color:'#fff',fontSize:20}} />)} onClick={()=> {
-          setNavOpen(v => {
-            const next = !v;
-            if (next && !selectedGroupKey) {
-              const first = (centers || [])[0]?.key;
-              if (first) setSelectedGroupKey(first);
-            }
-            if (next) setNavSection('resources');
-            return next;
-          });
-        }} style={{height:40,width:40,display:'flex',alignItems:'center',justifyContent:'center'}} />
-        <Space size={8} style={{ height:'100%', alignItems:'center' }}>
-          <span style={{ fontSize:18, color:'#fff' }}><span style={{ fontWeight:700 }}>Compute</span>.Tower</span>
-        </Space>
-         <Dropdown
-             menu={{
-               items: visibleCenters.map((c: any) => ({
-                 key: c.key,
-                 label: (
-                  <Space>
-                    {c.icon}
-                    <span style={{ fontWeight: 500 }}>{c.label}</span>
-                  </Space>
-                ),
-                onClick: () => {
-                  const firstGroup = (c.items || [])[0];
-                  const firstPage = (firstGroup?.children || [])[0];
-                  if (firstPage?.key) {
-                    navigate(firstPage.key);
-                  }
-                },
-              })),
-              selectable: true,
-              selectedKeys: [visibleCenters.find(c => c.key === activeSidebarKey)?.key || ''],
-            }}
-            trigger={['click']}
-          >
-           <div
-              style={{
-                marginLeft: 16,
-                padding: '4px 12px',
-                background: 'transparent',
-                borderRadius: 0,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                border: 'none',
-                borderBottom: '1px solid rgba(255,255,255,0.6)',
-                transition: 'all 0.3s ease',
-                height: 32,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.9)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.6)';
-              }}
-            >
-              <span style={{ color: '#fff', fontSize: 16, display: 'flex', alignItems: 'center' }}>
-                {visibleCenters.find(c => c.key === activeSidebarKey)?.icon || <AppstoreOutlined />}
-              </span>
-              <span style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>
-                {visibleCenters.find(c => c.key === activeSidebarKey)?.label || '选择控制台'}
-              </span>
-              <CaretDownOutlined style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }} />
-            </div>
-          </Dropdown>
-      </div>
-      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 20px' }}>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={()=> setSearchOpen(true)}
-          onKeyDown={(e)=> { if (e.key === 'Enter' || e.key === ' ') setSearchOpen(true); }}
-          style={{
-            width: 520,
-            height: 36,
-            borderRadius: 10,
-            border: '1px solid rgba(255,255,255,0.6)',
-            background: '#1062fe',
-            display:'flex',
-            alignItems:'center',
-            justifyContent:'space-between',
-            padding:'0 10px',
-            color:'#fff',
-            boxShadow:'inset 0 0 0 1px rgba(255,255,255,0.25)'
-          }}
-        >
-          <Space size={8} style={{ color:'#fff' }}>
-            <SearchOutlined />
-            <span>Search</span>
-          </Space>
-          <span style={{ border:'1px solid rgba(255,255,255,0.8)', color:'#fff', borderRadius:6, padding:'2px 8px', fontSize:12, lineHeight:'16px' }}>Ctrl+K</span>
-        </div>
-      </div>
-      <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
-        <ApiOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/api-docs')} />
-        <BellOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/alarms')} />
-        <SettingOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/settings')} />
-        {user && (<>
-          <div>
-          <UserOutlined style={{color:'#fff',fontSize:18,marginRight:6}} />
-          {(() => {
-            const full = String(user.fullName || '').trim();
-            const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
-            const display = shouldUseUsername ? (user.username || '') : full;
-            
-            return (
-              <Space>
-                <span style={{color:'#fff'}}>{display}</span>
-                {user.tenantName && <Tag color="gold" style={{marginRight:0}}>租户: {user.tenantName}</Tag>}
-                {user.organizationName && <Tag color="cyan" style={{marginRight:0}}>组织: {user.organizationName}</Tag>}
-              </Space>
-            );
-          })()}
-          </div>
-          <Button style={{color:'#1062fe',borderRadius:16,fontSize:12}} size="small" onClick={handleLogout}>Logout</Button>
-        </>)}
-      </div>
-    </Header>
-  );
+  // ============================================================================
+  // 【Header 组件】Header Components
+  // ============================================================================
+  // 检索关键词: header StandardHeader ProHeader 顶部导航栏
+  
+  // StandardHeader 将在 visibleCenters 定义后定义
 
+  /**
+   * Pro Header 组件（资源控制台专用）
+   * 检索关键词: ProHeader Pro 头部
+   * 
+   * 【功能模块】
+   * 1. 左侧：Logo、页面内搜索
+   * 2. 右侧：告警中心、用户信息、登出按钮
+   */
   const ProHeader: React.FC = () => (
     <Header style={{ background:'#fff', color:'#1f2a44', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 50, lineHeight:'50px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
       <div style={{display:'inline-flex', alignItems:'center', gap:4}}>
@@ -307,8 +225,20 @@ const AdminLayout: React.FC = () => {
 
   
 
+  // ============================================================================
+  // 【菜单构建逻辑】Menu Building Logic
+  // ============================================================================
+  // 检索关键词: menu build centers visibleCenters 菜单构建
+  
+  /**
+   * 获取分组的图标
+   * 检索关键词: groupIconOf group icon 分组图标
+   * 
+   * @param pf - 平台标识 (CNMC/SDNCC/CNSOC/SETTINGS)
+   * @param grp - 分组名称
+   * @returns React 图标组件
+   */
   const groupIconOf = (pf: string, grp: string) => {
-    if (grp === '安全管理面') return iconOf('SecurityScanOutlined');
     const firstSpec = routeSpecs
       .filter(s => s.layout === 'admin' && s.platform === pf && s.group === grp)
       .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))[0];
@@ -316,13 +246,40 @@ const AdminLayout: React.FC = () => {
     return iconOf(iconKey);
   };
 
+  /**
+   * 构建平台中心菜单结构
+   * 检索关键词: centers menu structure 菜单结构
+   * 
+   * 【核心逻辑】
+   * 1. 遍历所有平台（CNMC/SDNCC/CNSOC/SETTINGS）
+   * 2. SETTINGS 平台：菜单项直接平铺（无分组嵌套）
+   * 3. 其他平台：按分组（group）组织，每个分组包含多个菜单项（children）
+   * 
+   * 【数据结构】
+   * {
+   *   key: '/admin/cen_compute' | '/admin/cen_sdn' | '/admin/cen_secops' | '/admin/cen_settings',
+   *   label: '平台名称',
+   *   icon: <Icon />,
+   *   items: [
+   *     // SETTINGS: 直接是菜单项数组
+   *     // 其他平台: 分组数组，每个分组有 children
+   *   ]
+   * }
+   */
   const adminSpecs = routeSpecs.filter(s => s.layout === 'admin' && !s.hidden);
   
   const centers = React.useMemo(() => PLATFORMS.filter(p => p !== '全部').map((pf: any) => ({
-    key: pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : '/admin/cen_secops',
+    key: pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : pf === 'CNSOC' ? '/admin/cen_secops' : '/admin/cen_settings',
     label: PLATFORM_LABELS[pf as keyof typeof PLATFORM_LABELS] || pf,
-    icon: <CodeOutlined />,
-    items: Array.from(new Set(adminSpecs.filter(s => s.platform === pf).map(s => String(s.group || ''))))
+    icon: pf === 'SETTINGS' ? <SettingOutlined /> : <CodeOutlined />,
+    // 对于 SETTINGS 平台，直接平铺子菜单，不进行分组嵌套
+    items: pf === 'SETTINGS' ? 
+      adminSpecs.filter(s => s.platform === pf)
+        .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
+        .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature }))
+      :
+      // 其他平台保持原有的分组逻辑
+      Array.from(new Set(adminSpecs.filter(s => s.platform === pf).map(s => String(s.group || ''))))
       .sort((a, b) => {
         const idxA = GROUPS.indexOf(a as any);
         const idxB = GROUPS.indexOf(b as any);
@@ -337,28 +294,260 @@ const AdminLayout: React.FC = () => {
       children: adminSpecs
         .filter(s => s.platform === pf && s.group === grp)
         .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
-        .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon) })),
+        .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature })),
     })),
   })), []);
 
-  const visibleCenters = React.useMemo(() => (centers || [])
-    .map((c:any) => ({
-      ...c,
-      items: (c.items || [])
-        .map((p:any) => ({
-          ...p,
-          children: (p.children || []).filter((it:any) => canAccessPath(String(it.key || ''))),
-        }))
-        .filter((p:any) => (p.children || []).length > 0),
-    }))
-    .filter((c:any) => (c.items || []).length > 0), [centers, user]);
+  /**
+   * 移除菜单项中的自定义属性（避免传递给 DOM 元素）
+   * 检索关键词: cleanMenuItem remove custom props 清理菜单项
+   */
+  const cleanMenuItem = (item: any): any => {
+    const { requiredFeature, ...rest } = item;
+    if (rest.children) {
+      return {
+        ...rest,
+        children: rest.children.map(cleanMenuItem),
+      };
+    }
+    return rest;
+  };
 
+  /**
+   * 过滤后的可见平台中心（根据权限过滤）
+   * 检索关键词: visibleCenters filtered centers 可见平台
+   * 
+   * 【过滤逻辑】
+   * 1. SETTINGS 平台：直接过滤 items 中的菜单项
+   * 2. 其他平台：先过滤每个分组的 children，再过滤掉空分组
+   * 3. 最后过滤掉没有菜单项的平台
+   * 4. 移除 requiredFeature 属性（避免传递给 DOM 元素）
+   */
+  const visibleCenters = React.useMemo(() => (centers || [])
+    .filter((c: any) => {
+      if (c.key === '/admin/cen_sdn' && !hasFeature('platform.sdn')) return false;
+      if (c.key === '/admin/cen_secops' && !hasFeature('platform.aisoc')) return false;
+      return true;
+    })
+    .map((c:any) => {
+      // SETTINGS 平台的菜单项是直接平铺的（没有 children 结构）
+      if (c.key === '/admin/cen_settings') {
+        return {
+          ...c,
+          items: (c.items || [])
+            .filter((it:any) => 
+              canAccessPath(String(it.key || '')) &&
+              (!it.requiredFeature || hasFeature(it.requiredFeature))
+            )
+            .map(cleanMenuItem),
+        };
+      }
+      // 其他平台保持原有的分组逻辑
+      return {
+        ...c,
+        items: (c.items || [])
+          .map((p:any) => ({
+            ...p,
+            children: (p.children || [])
+              .filter((it:any) => 
+                canAccessPath(String(it.key || '')) &&
+                (!it.requiredFeature || hasFeature(it.requiredFeature))
+              )
+              .map(cleanMenuItem),
+          }))
+          .filter((p:any) => (p.children || []).length > 0),
+      };
+    })
+    .filter((c:any) => (c.items || []).length > 0), [centers, user, hasFeature]);
+
+  /**
+   * 标准 Header 组件
+   * 检索关键词: StandardHeader 标准头部
+   * 
+   * 【功能模块】
+   * 1. 左侧：Logo、平台切换下拉菜单
+   * 2. 中间：全局搜索框（Ctrl+K）
+   * 3. 右侧：API 文档、告警中心、系统设置（齿轮图标）、用户信息、登出按钮
+   */
+  const StandardHeader: React.FC = () => {
+    const headerColor = settings.headerColor || '#0A4CC0';
+    const headerColorEnd = settings.headerColorEnd || '#1B64ED';
+    const gradient = `linear-gradient(90deg, ${headerColor} 0%, ${headerColorEnd} 100%)`;
+    
+    return (
+    <Header style={{ background: gradient, color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 64, lineHeight:'64px', boxShadow:'0 4px 16px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
+      <div style={{ display:'flex', alignItems:'center', height:64 }}>
+        <Button type="text" icon={(navOpen ? <DatabaseOutlined style={{color:'#fff',fontSize:20}} /> : <DatabaseFilled style={{color:'#fff',fontSize:20}} />)} onClick={()=> {
+          setNavOpen(v => {
+            const next = !v;
+            if (next && !selectedGroupKey) {
+              const first = (centers || [])[0]?.key;
+              if (first) setSelectedGroupKey(first);
+            }
+            if (next) setNavSection('resources');
+            return next;
+          });
+        }} style={{height:40,width:40,display:'flex',alignItems:'center',justifyContent:'center'}} />
+        <Space size={8} style={{ height:'100%', alignItems:'center' }}>
+          {settings.headerIcon && (
+            <img 
+              src={settings.headerIcon} 
+              alt="Logo" 
+              style={{ height: 28, width: 'auto', display: 'block' }} 
+            />
+          )}
+          <span style={{ fontSize:18, color:'#fff' }}>
+            <span style={{ fontWeight: 700 }}>{((settings.headerTitle || 'Compute.Tower').split('.')[0])}</span>
+            {((settings.headerTitle || 'Compute.Tower').includes('.') ? '.' + (settings.headerTitle || 'Compute.Tower').split('.').slice(1).join('.') : '')}
+          </span>
+        </Space>
+         <Dropdown
+            menu={{
+              items: visibleCenters
+                .filter((c: any) => c.key !== '/admin/cen_settings') // 过滤掉系统设置
+                .map((c: any) => ({
+                  key: c.key,
+                  label: (
+                    <Space>
+                      {c.icon}
+                      <span style={{ fontWeight: 500 }}>{c.label}</span>
+                    </Space>
+                  ),
+                  onClick: () => {
+                    const firstGroup = (c.items || [])[0];
+                    const firstPage = (firstGroup?.children || [])[0];
+                    if (firstPage?.key) {
+                      navigate(firstPage.key);
+                    }
+                  },
+                })),
+              selectable: true,
+              selectedKeys: [visibleCenters.find(c => c.key === activeSidebarKey && c.key !== '/admin/cen_settings')?.key || ''],
+            }}
+            trigger={['click']}
+          >
+           <div
+              style={{
+                marginLeft: 16,
+                padding: '4px 12px',
+                background: 'transparent',
+                borderRadius: 0,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                border: 'none',
+                borderBottom: '1px solid rgba(255,255,255,0.6)',
+                transition: 'all 0.3s ease',
+                height: 32,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.9)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.6)';
+              }}
+            >
+              <span style={{ color: '#fff', fontSize: 16, display: 'flex', alignItems: 'center' }}>
+                {(() => {
+                  const current = visibleCenters.find(c => c.key === activeSidebarKey);
+                  // 如果是系统设置，不显示图标，显示默认图标
+                  if (activeSidebarKey === '/admin/cen_settings') {
+                    return <AppstoreOutlined />;
+                  }
+                  return current?.icon || <AppstoreOutlined />;
+                })()}
+              </span>
+              <span style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>
+                {(() => {
+                  const current = visibleCenters.find(c => c.key === activeSidebarKey);
+                  // 如果是系统设置，显示"系统设置"，否则显示平台名称
+                  if (activeSidebarKey === '/admin/cen_settings') {
+                    return current?.label || '系统设置';
+                  }
+                  return current?.label || '选择控制台';
+                })()}
+              </span>
+              <CaretDownOutlined style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }} />
+            </div>
+          </Dropdown>
+      </div>
+      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 20px' }}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={()=> setSearchOpen(true)}
+          onKeyDown={(e)=> { if (e.key === 'Enter' || e.key === ' ') setSearchOpen(true); }}
+          style={{
+            width: 520,
+            height: 36,
+            borderRadius: 10,
+            border: '1px solid rgba(255,255,255,0.6)',
+            background: settings.searchBackgroundColor || '#1062fe',
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'space-between',
+            padding:'0 10px',
+            color:'#fff',
+            boxShadow:'inset 0 0 0 1px rgba(255,255,255,0.25)'
+          }}
+        >
+          <Space size={8} style={{ color:'#fff' }}>
+            <SearchOutlined />
+            <span>Search</span>
+          </Space>
+          <span style={{ border:'1px solid rgba(255,255,255,0.8)', color:'#fff', borderRadius:6, padding:'2px 8px', fontSize:12, lineHeight:'16px' }}>Ctrl+K</span>
+        </div>
+      </div>
+      <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
+        <ApiOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/api-docs')} />
+        <BellOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/alarms')} />
+        <SettingOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/settings/general')} />
+        {user && (<>
+          <div>
+          <UserOutlined style={{color:'#fff',fontSize:18,marginRight:6}} />
+          {(() => {
+            const full = String(user.fullName || '').trim();
+            const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
+            const display = shouldUseUsername ? (user.username || '') : full;
+            
+            return (
+              <Space>
+                <span style={{color:'#fff'}}>{display}</span>
+                {user.tenantName && <Tag color="gold" style={{marginRight:0}}>租户: {user.tenantName}</Tag>}
+                {user.organizationName && <Tag color="cyan" style={{marginRight:0}}>组织: {user.organizationName}</Tag>}
+              </Space>
+            );
+          })()}
+          </div>
+          <Button style={{color:'#1062fe',borderRadius:16,fontSize:12}} size="small" onClick={handleLogout}>Logout</Button>
+        </>)}
+      </div>
+    </Header>
+    );
+  };
+
+  /**
+   * 构建全局搜索的选项列表
+   * 检索关键词: pageSearchOptions search options 搜索选项
+   * 
+   * 【数据结构】
+   * 每个选项包含：
+   * - value: 路由路径
+   * - title: 完整标题（用于搜索匹配）
+   * - label: React 节点（用于显示）
+   * 
+   * 【特殊处理】
+   * - SETTINGS 平台：直接从 items 构建选项
+   * - 其他平台：从分组的 children 构建选项
+   */
   const pageSearchOptions = React.useMemo(() => {
     const opts: any[] = [];
     (visibleCenters || []).forEach((c:any) => {
-      (c.items || []).forEach((p:any) => {
-        (p.children || []).forEach((it:any) => {
-          const title = `${String(it.label || '')} ${String(p.label || '')} ${String(c.label || '')}`;
+      // SETTINGS 平台的菜单项是直接平铺的（没有 children 结构）
+      if (c.key === '/admin/cen_settings') {
+        (c.items || []).forEach((it:any) => {
+          const title = `${String(it.label || '')} ${String(c.label || '')}`;
           opts.push({
             value: String(it.key || ''),
             title,
@@ -366,16 +555,42 @@ const AdminLayout: React.FC = () => {
               <Space size={8}>
                 <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#f0f5ff' }}>{it.icon}</span>
                 <span style={{ fontSize:13 }}>{it.label}</span>
-                <Typography.Text type="secondary" style={{ marginLeft:8 }}>{p.label}</Typography.Text>
+                <Typography.Text type="secondary" style={{ marginLeft:8 }}>{c.label}</Typography.Text>
               </Space>
             ),
           });
         });
-      });
+      } else {
+        // 其他平台保持原有的分组逻辑
+        (c.items || []).forEach((p:any) => {
+          (p.children || []).forEach((it:any) => {
+            const title = `${String(it.label || '')} ${String(p.label || '')} ${String(c.label || '')}`;
+            opts.push({
+              value: String(it.key || ''),
+              title,
+              label: (
+                <Space size={8}>
+                  <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#f0f5ff' }}>{it.icon}</span>
+                  <span style={{ fontSize:13 }}>{it.label}</span>
+                  <Typography.Text type="secondary" style={{ marginLeft:8 }}>{p.label}</Typography.Text>
+                </Space>
+              ),
+            });
+          });
+        });
+      }
     });
     return opts;
   }, [visibleCenters]);
 
+  /**
+   * 过滤后的搜索结果列表
+   * 检索关键词: filteredSearchList search filter 搜索结果
+   * 
+   * 【过滤逻辑】
+   * - 如果有搜索关键词：按标题模糊匹配
+   * - 如果没有搜索关键词：显示前 12 条
+   */
   const filteredSearchList = React.useMemo(() => {
     const kw = String(searchText || '').toLowerCase();
     const base = pageSearchOptions.map((o:any)=> ({ path: o.value, title: o.title, icon: o.label?.props?.children?.[0], label: o.label?.props?.children?.[1]?.props?.children, group: o.label?.props?.children?.[2]?.props?.children }));
@@ -383,6 +598,22 @@ const AdminLayout: React.FC = () => {
     return list;
   }, [pageSearchOptions, searchText]);
 
+  // ============================================================================
+  // 【全局搜索快捷键】Global Search Keyboard Shortcuts
+  // ============================================================================
+  // 检索关键词: search keyboard shortcut Ctrl+K 搜索快捷键
+  
+  /**
+   * 全局搜索快捷键处理
+   * 检索关键词: search keyboard handler 搜索快捷键处理
+   * 
+   * 【快捷键】
+   * - Ctrl+K / Cmd+K: 打开搜索弹窗
+   * - Esc: 关闭搜索弹窗
+   * - ArrowDown: 向下选择
+   * - ArrowUp: 向上选择
+   * - Enter: 打开选中的页面
+   */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -419,8 +650,28 @@ const AdminLayout: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [searchOpen, filteredSearchList]);
 
-  useEffect(() => {}, [user, location.pathname]);
 
+  // ============================================================================
+  // 【路由处理】Route Handling
+  // ============================================================================
+  // 检索关键词: route path sidebarForPath 路由处理
+  
+  /**
+   * 根据路径确定应该激活哪个侧边栏平台
+   * 检索关键词: sidebarForPath path to sidebar 路径转侧边栏
+   * 
+   * @param p - 路由路径
+   * @returns 平台 key ('/admin/cen_compute' | '/admin/cen_sdn' | '/admin/cen_secops' | '/admin/cen_settings')
+   * 
+   * 【匹配逻辑】
+   * 1. 优先从 routeSpecs 中查找精确匹配或前缀匹配
+   * 2. 如果找到且指定了 platform，返回对应的平台 key
+   * 3. 否则根据路径关键词判断：
+   *    - /interconnect, /sec-mgr-plane, /security/traffic → cen_sdn
+   *    - /alarms, /soc, /aisoc → cen_secops
+   *    - /settings → cen_settings
+   *    - 其他 → cen_compute（默认）
+   */
   const sidebarForPath = (p: string) => {
     // Try to find exact match or prefix match in routeSpecs
     // This helps when routes are explicitly defined with a platform
@@ -438,22 +689,44 @@ const AdminLayout: React.FC = () => {
       if (found.platform === 'CNMC') return '/admin/cen_compute';
       if (found.platform === 'SDNCC') return '/admin/cen_sdn';
       if (found.platform === 'CNSOC') return '/admin/cen_secops';
+      if (found.platform === 'SETTINGS') return '/admin/cen_settings';
     }
 
     const s = p.toLowerCase();
     if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security/traffic')) return '/admin/cen_sdn';
     if (s.includes('/alarms') || s.includes('/soc') || s.includes('/aisoc')) return '/admin/cen_secops';
+    if (s.includes('/settings')) return '/admin/cen_settings';
     return '/admin/cen_compute';
   };
 
+  /**
+   * 监听路径变化，自动切换侧边栏平台
+   * 检索关键词: path change sidebar switch 路径变化侧边栏切换
+   */
   useEffect(() => {
     setActiveSidebarKey(sidebarForPath(location.pathname + location.search));
   }, [location.pathname, location.search]);
 
+  /**
+   * 根据当前路径自动展开对应的菜单分组
+   * 检索关键词: openKeys auto expand 自动展开菜单
+   * 
+   * 【逻辑说明】
+   * - SETTINGS 平台：菜单项直接平铺，不需要展开分组，openKeys 设为空数组
+   * - 其他平台：找到包含当前路径的分组，展开该分组
+   */
   useEffect(() => {
     if (!collapsed) {
       const center = (visibleCenters.find(c => c.key === activeSidebarKey) || (visibleCenters || [])[0]);
       const currentPath = location.pathname;
+      
+      // SETTINGS 平台的菜单项是直接平铺的（没有 children 结构），不需要设置 openKeys
+      if (center?.key === '/admin/cen_settings') {
+        setOpenKeys([]);
+        return;
+      }
+      
+      // 其他平台保持原有的分组逻辑
       const activeGroup = (center?.items || []).find((p:any) => (p.children || []).some((it:any) => String(it.key || '').split('?')[0] === currentPath));
       const nextKeys = activeGroup ? [activeGroup.key] : [];
       
@@ -466,167 +739,51 @@ const AdminLayout: React.FC = () => {
     }
   }, [collapsed, activeSidebarKey, location.pathname, visibleCenters]);
 
+  /**
+   * 导航抽屉标签页切换时重置标签
+   */
   useEffect(() => {
     if (navSection === 'products') {
       setActiveTab('全部');
     }
   }, [navSection]);
 
+  /**
+   * 打开导航抽屉时加载资源池数据
+   * 检索关键词: nav drawer resource pool load 导航抽屉资源池加载
+   */
   useEffect(() => {
     if (navOpen) {
       setResourceLoading(true);
-      setNavEcsLoading(true);
       fetchClouds().then((list:any[]) => {
         const arr = Array.isArray(list) ? list : [];
         setResourceClouds(arr);
+        
+        // 计算每个资源池的实例统计
+        const counts: Record<string, { total: number, running: number }> = {};
+        arr.forEach((cloud: any) => {
+          const count = Number(cloud.vmCount || 0);
+          const running = Number(cloud.runningVmCount || 0);
+          counts[cloud.id] = { total: count, running: running };
+        });
+        setResourcePoolInstanceCounts(counts);
       }).catch(() => {}).finally(() => setResourceLoading(false));
-      fetchAllInstances().then((json:any) => {
-        const list = Array.isArray(json?.data) ? json.data : [];
-        setNavEcs(list);
-      }).catch(()=> setNavEcs([])).finally(()=> setNavEcsLoading(false));
     }
   }, [navOpen, navSection]);
 
-  const providerLabel = (p:string): string => {
-    const s = String(p || '').toLowerCase();
-    return (s === 'aliyun' && '阿里云') || (s === 'huaweicloud' && '华为云') || (s === 'harvester' && 'Harvester') || (s === 'cloudmap' && 'Cloudmap') || (p || '-');
-  };
-  const statusBadge = (raw:any) => {
-    const v = String(raw || '').toLowerCase();
-    if (['running','healthy','ok','active','on'].includes(v)) return <Badge status="success" text="运行中" />;
-    if (['warning','degraded','maintenance'].includes(v)) return <Badge status="warning" text="维护/告警" />;
-    if (['error','failed','unhealthy','offline','stopped','stop','inactive','terminated','off'].includes(v)) return <Badge status="error" text="异常/停止" />;
-    return <Badge status="default" text="未知" />;
-  };
-  const isRunningRec = (r:any): boolean => {
-    const s = String(r?.status || r?.Status || r?.State || r?.state || r?.power_state || r?.PowerState || r?.InstanceState?.Name || r?.statusName || '').toLowerCase();
-    return s.includes('running') || s === 'active' || s === 'on';
-  };
-  const isStoppedRec = (r:any): boolean => {
-    const s = String(r?.status || r?.Status || r?.State || r?.state || r?.power_state || r?.PowerState || r?.InstanceState?.Name || r?.statusName || '').toLowerCase();
-    return s.includes('stopped') || s.includes('stop') || s.includes('shut') || s.includes('terminated') || s.includes('off') || s === 'inactive';
-  };
-  const isBusyRec = (r:any): boolean => {
-    const s = String(r?.status || r?.Status || r?.State || r?.state || r?.statusName || '').toLowerCase();
-    return s.includes('sched') || s.includes('pending') || s.includes('reboot') || s.includes('provision') || s.includes('creat') || s.includes('delet');
-  };
-  const parseMem = (v:any): number => {
-    const s = String(v || '').trim().toLowerCase();
-    if (!s) return 0;
-    if (/^\d+$/.test(s)) return Number(s);
-    const m = s.match(/^(\d+(?:\.\d+)?)(?:\s*)(gib?|gi|gb?|g|mib?|mi|mb?|m|kib?|ki|kb?|k|tib?|ti|tb?|t|b)$/);
-    if (!m) return 0;
-    const val = Number(m[1]);
-    const unit = m[2];
-    if (unit === 'gib' || unit === 'gi' || unit === 'gb' || unit === 'g') return val * 1024;
-    if (unit === 'mib' || unit === 'mi' || unit === 'mb' || unit === 'm') return val;
-    if (unit === 'kib' || unit === 'ki' || unit === 'kb' || unit === 'k') return val / 1024;
-    if (unit === 'tib' || unit === 'ti' || unit === 'tb' || unit === 't') return val * 1024 * 1024;
-    if (unit === 'b') return val / (1024 * 1024);
-    return 0;
-  };
-  const specTextOf = (r:any): string => {
-    const cpu = r?.cpu ?? r?.Extra?.CPU;
-    const providerKey = String(r?.provider || '').toLowerCase();
-    let memGi: number | undefined;
-    if (providerKey === 'harvester' || providerKey === 'cloudmap') {
-      const memMi = parseMem(r?.extra?.memory ?? r?.Extra?.Memory ?? r?.Memory ?? r?.memory);
-      memGi = memMi && memMi > 0 ? Math.round(memMi / 1024) : undefined;
-      if (memGi == null) {
-        const memGbRaw = r?.memoryGb ?? r?.memoryGB ?? r?.memory;
-        const gb = parseFloat(String(memGbRaw));
-        if (Number.isFinite(gb)) {
-          memGi = gb > 1024 && gb < 65536 ? Math.round((gb * 2) / 1024) : Math.round(gb);
-        }
-      }
-    } else {
-      const memGbRaw = r?.memoryGb ?? r?.memoryGB ?? r?.memory;
-      const val = parseFloat(String(memGbRaw));
-      memGi = Number.isFinite(val) ? Math.round(val) : undefined;
-    }
-    const base = (typeof cpu === 'number' || typeof memGi === 'number')
-      ? `CPU ${cpu ?? '-'}核 / 内存 ${typeof memGi === 'number' ? memGi : '-'}G`
-      : '-';
-    return base;
-  };
-  const openVnc = async (r:any) => {
-    const provider = String(r?.provider || '').toLowerCase();
-    const cloudId = String(r?.cloudId || '');
-    const iid = String(r?.id || r?.InstanceId || '');
-    if (!cloudId || !iid) return;
-    const isAliyun = provider.includes('aliyun');
-    const isHuawei = provider.includes('huawei');
-    if (isAliyun || isHuawei) {
-      try {
-        const json = await fetchAliyunEcsVncUrl(cloudId, iid);
-        const url = json?.data?.VncUrl || json?.data?.vncUrl;
-        if (url) {
-          const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
-          const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
-          const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
-          if (isAliyun) {
-            const osRaw = String(r?.os || r?.image || '').toLowerCase();
-            const isWindows = osRaw.includes('win');
-            const page = 'https://g.alicdn.com/aliyun/ecs-console-vnc2/0.0.8/index.html';
-            const web = `${page}?vncUrl=${encodeURIComponent(url)}&instanceId=${encodeURIComponent(iid)}&isWindows=${isWindows ? 'true' : 'false'}`;
-            window.open(web, 'webvnc', features);
-          } else {
-            window.open(url, 'webvnc', features);
-          }
-        } else {
-          message.warning('未获取到VNC地址');
-        }
-      } catch (e:any) {
-        message.error(e?.message || '获取VNC地址失败');
-      }
-      return;
-    }
-    const isHarvester = provider.includes('harvester') || provider.includes('cloudmap');
-    if (isHarvester) {
-      const s = String(iid || '');
-      const ns = s.includes('/') ? s.split('/')[0] : '';
-      const nm = s.includes('/') ? s.split('/')[1] : s;
-      const w = Math.max(1280, (window.screen?.availWidth || 1600) - 40);
-      const h = Math.max(800, (window.screen?.availHeight || 900) - 80);
-      const features = `width=${w},height=${h},top=0,left=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`;
-      const url = `/clouds/${encodeURIComponent(cloudId)}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(nm)}`;
-      window.open(url, 'harvester-vnc', features);
-      return;
-    }
-    // WebVNC fallback removed
-    message.warning('该云厂商暂不支持 VNC 或 WebVNC 已移除');
-  };
-  const lifecycleOp = async (r:any, op:'start'|'stop'|'reboot') => {
-    try {
-      const cloudId = String(r?.cloudId || '');
-      const iid = String(r?.id || r?.InstanceId || '');
-      const providerKey = String(r?.provider || '').toLowerCase();
-      if (!cloudId || !iid) return;
-      if (op === 'start') {
-        if (providerKey.includes('aliyun') || providerKey.includes('huawei') || providerKey.includes('tencent') || providerKey.includes('harvester') || providerKey.includes('cloudmap')) {
-          await startCloudProviderEcs(cloudId, iid);
-        }
-        message.success('启动指令已下发');
-      } else if (op === 'stop') {
-        if (providerKey.includes('aliyun') || providerKey.includes('huawei') || providerKey.includes('tencent') || providerKey.includes('harvester') || providerKey.includes('cloudmap')) {
-          await stopCloudProviderEcs(cloudId, iid, true);
-        }
-        message.success('停止指令已下发');
-      } else if (op === 'reboot') {
-        if (providerKey.includes('aliyun') || providerKey.includes('huawei') || providerKey.includes('tencent') || providerKey.includes('harvester') || providerKey.includes('cloudmap')) {
-          await rebootCloudProviderEcs(cloudId, iid, true);
-        }
-        message.success('重启指令已下发');
-      }
-    } catch(e:any) {
-      message.error(e?.message || '操作失败');
-    }
-  };
 
+  // ============================================================================
+  // 【主渲染】Main Render
+  // ============================================================================
+  // 检索关键词: render layout main 主渲染
+  
   return (
     <Layout style={{ height:'100vh', overflow:'hidden' }}>
+      {/* 根据路径选择 Header 组件 */}
       {isProConsole ? <ProHeader /> : <StandardHeader />}
       <>
+        {/* 全局搜索弹窗 */}
+        {/* 检索关键词: search modal dialog 搜索弹窗 */}
         {searchOpen && (
           <div
             onClick={()=> setSearchOpen(false)}
@@ -702,6 +859,8 @@ const AdminLayout: React.FC = () => {
             </div>
           </div>
         )}
+        {/* 资源池快速展示抽屉 */}
+        {/* 检索关键词: resource pool drawer navigation 资源池导航抽屉 */}
         <div
           onClick={()=> setNavOpen(false)}
           style={{
@@ -720,7 +879,7 @@ const AdminLayout: React.FC = () => {
             top: isProConsole ? 50 : 64,
             left:0,
             bottom:0,
-            width:720,
+            width:400,
             zIndex:2000,
             background:'#fff',
             borderRight:'1px solid ' + NAV_DIVIDER_COLOR,
@@ -731,135 +890,222 @@ const AdminLayout: React.FC = () => {
             transition: 'transform 220ms ease',
           }}
         >
-          <div style={{ padding:'12px 20px' }}>
-            <div>
-              <Typography.Text style={{ fontSize:16, color:'#1f2a44' }}>云主机快速预览</Typography.Text>
-            </div>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:8 }}>
-              <Space size={12}>
-                <Input.Search allowClear placeholder="按名称过滤" style={{ width: 300 }} onSearch={(v)=> setNavKeyword(v)} onChange={(e)=> setNavKeyword(e.target.value)} />
-                <Select
-                  size="middle"
-                  value={navStatusMode}
-                  onChange={(v)=> setNavStatusMode(v)}
-                  style={{ width: 110 }}
-                  popupMatchSelectWidth={false}
-                  getPopupContainer={(trigger)=> trigger?.parentElement as HTMLElement}
-                >
-                  <Select.Option value="prefer_running">运行优先</Select.Option>
-                  <Select.Option value="only_running">仅运行中</Select.Option>
-                  <Select.Option value="only_non_running">仅非运行</Select.Option>
-                </Select>
-                <Button type="primary" onClick={()=> navigate('/admin/clouds/console')}>资源控制台pro</Button>
-              </Space>
-              <Space size={12}>
-                <Button type="default" style={{ borderColor: NAV_DIVIDER_COLOR }} onClick={()=> setNavOpen(false)}>收起</Button>
-              </Space>
-            </div>
-          </div>
-          <Divider style={{ margin: 0, borderColor: NAV_DIVIDER_COLOR }} />
-          <div style={{ display:'flex', flex:1, minHeight:0 }}>
-            <div style={{ flex:1, padding:'20px 24px', overflow:'auto', backgroundColor:'#fbfdff', backgroundImage:'radial-gradient(#eaeffb 1px, transparent 1px)', backgroundSize:'12px 12px' }}>
-              {(() => {
-                const kw = navKeyword.toLowerCase();
-                const clouds = Array.isArray(resourceClouds) ? resourceClouds : [];
-                const cloudMap: Record<string, any> = {};
-                clouds.forEach(c => { cloudMap[String(c.id)] = c; });
-                let list = (Array.isArray(navEcs) ? navEcs : []).filter((r:any)=> String(r?.name || r?.InstanceName || '').toLowerCase().includes(kw));
-                if (navStatusMode === 'only_running') list = list.filter((r:any)=> isRunningRec(r));
-                else if (navStatusMode === 'only_non_running') list = list.filter((r:any)=> !isRunningRec(r));
-                else if (navStatusMode === 'prefer_running') list = list.slice().sort((a:any,b:any)=> (isRunningRec(b)?1:0) - (isRunningRec(a)?1:0));
-                if (navEcsLoading) {
-                  return <Typography.Text type="secondary">加载中…</Typography.Text>;
-                }
-                if (list.length === 0) {
-                  return <Typography.Text type="secondary">暂无云主机</Typography.Text>;
-                }
-                return (
-                  <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                    {list.map((r:any) => {
-                      const name = r?.name || r?.InstanceName || '-';
-                      const provider = String(r?.provider || '').toLowerCase();
-                      const cloudId = String(r?.cloudId || '');
-                      const cloudName = cloudMap[cloudId]?.name || '-';
-                      const vendor = providerLabel(provider);
-                      const spec = specTextOf(r);
-                      const pri = Array.isArray(r?.privateIps) && r.privateIps.length > 0 ? r.privateIps[0] : (Array.isArray(r?.VpcAttributes?.PrivateIpAddress?.IpAddress) ? r?.VpcAttributes?.PrivateIpAddress?.IpAddress[0] : undefined);
-                      const ipText = pri ? String(pri) : 'IP待配置';
-                      return (
-                        <Card key={String(r?.id || r?.InstanceId || name)} size="small" variant="outlined" hoverable style={{ borderRadius:12, border:'1px solid #e9edf3', boxShadow:'0 2px 10px rgba(16,98,254,0.06)', background:'#fff' }}>
-                          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                            <Space size={8}>
-                              {statusBadge(r?.status || r?.Status)}
-                              <Typography.Text style={{ fontSize:14 }}>{name}</Typography.Text>
-                            </Space>
-                            <Button type="link" size="small" onClick={()=> { if (!cloudId || !(r?.id || r?.InstanceId)) return; navigate(`/admin/clouds/${cloudId}/instances/${encodeURIComponent(String(r?.id || r?.InstanceId))}`); }} style={{ padding:0 }}>详情</Button>
+          <div style={{ display:'flex', flex:1, minHeight:0, padding:'16px', overflow:'auto' }}>
+            {resourceLoading ? (
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px 0' }}>
+                <Spin size="large" />
+              </div>
+            ) : resourceClouds.length > 0 ? (
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {resourceClouds
+                  .slice(0, 8)
+                  .map((cloud: any) => {
+                    const stats = resourcePoolInstanceCounts[cloud.id] || { total: 0, running: 0 };
+                    const isOnline = cloud.status === 'online' || cloud.status === 'active';
+                    const MATRIX_ARRAY = [...Array(100)];
+                    
+                    return (
+                      <div key={cloud.id} style={{ width: '100%' }}>
+                        <div 
+                          className={`resource-card-professional ${isOnline ? 'active' : ''}`} 
+                          onClick={() => navigate(`/admin/clouds/${cloud.id}`)}
+                        >
+                          <div className="resource-card-header-professional">
+                            <div className="resource-header-content-professional">
+                              <div className="resource-icon-professional">
+                                {cloud.config?.provider === 'aliyun' ? <AliyunOutlined /> :
+                                 cloud.config?.provider === 'aws' ? <AmazonOutlined /> :
+                                 cloud.config?.provider === 'huaweicloud' ? <span style={{ fontWeight: 900, fontSize: '14px', fontFamily: 'Arial' }}>HW</span> :
+                                 cloud.config?.provider === 'google' ? <GoogleOutlined /> :
+                                (cloud.config?.provider === 'cloudmap.edge' || cloud.config?.provider === 'cloudmap.private') ? <CloudServerOutlined /> :
+                                (cloud.config?.provider === 'cloudmap.csm') ? <SafetyCertificateOutlined /> :
+                                 <DeploymentUnitOutlined />}
+                              </div>
+                              <div className="resource-info-professional">
+                                <div className="resource-name-professional" title={cloud.name}>{cloud.name}</div>
+                                <div className="resource-meta-professional">
+                                  <span className="region-tag-professional">{cloud.region || '-'}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className={`status-badge-professional ${isOnline ? 'online' : 'offline'}`}>
+                              {isOnline ? <CheckCircleFilled /> : <StopFilled />}
+                              <span className="status-text">{isOnline ? '运行中' : cloud.status || '离线'}</span>
+                            </div>
                           </div>
-                          <div style={{ marginTop:6, color:'#8c8c8c' }}>
-                            <Space size={8} wrap>
-                              <span>{vendor}</span>
-                              <span>·</span>
-                              <span>{cloudName}</span>
-                              <span>·</span>
-                              <span>{spec}</span>
-                              <span>·</span>
-                              <span>{ipText}</span>
-                            </Space>
+                          
+                          <div className="resource-stats-row-professional">
+                             <div className="stat-group">
+                                <span className="stat-value running">{stats.running}</span>
+                                <span className="stat-label">运行中</span>
+                             </div>
+                             <div className="stat-divider"></div>
+                             <div className="stat-group">
+                                <span className="stat-value total">{stats.total}</span>
+                                <span className="stat-label">总实例</span>
+                             </div>
                           </div>
-                          <div style={{ marginTop:8 }}>
-                            <Space size={8} wrap>
-                              <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={isRunningRec(r) || isBusyRec(r)} icon={<PlayCircleOutlined style={{ fontSize: 12, color: 'var(--primary-hex)' }} />} onClick={()=> lifecycleOp(r, 'start')}>启动</Button>
-                              <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={isStoppedRec(r) || isBusyRec(r)} icon={<PoweroffOutlined style={{ fontSize: 12, color: '#f5222d' }} />} onClick={()=> lifecycleOp(r, 'stop')}>停止</Button>
-                              <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} disabled={!isRunningRec(r) || isBusyRec(r)} icon={<ReloadOutlined style={{ fontSize: 12, color: 'var(--primary-hex)' }} />} onClick={()=> lifecycleOp(r, 'reboot')}>重启</Button>
-                              <Button shape="round" size="small" style={{ fontSize: 12, height: 24, paddingInline: 8 }} icon={<DesktopOutlined style={{ fontSize: 12, color: 'var(--primary-hex)' }} />} onClick={()=> openVnc(r)}>VNC</Button>
-                            </Space>
+
+                          <div className="resource-card-body-professional">
+                            <div className="resource-matrix-professional">
+                              {MATRIX_ARRAY.map((_, i) => {
+                                let statusClass = 'empty-slot';
+                                let title = '空闲资源槽位';
+                                
+                                if (i < stats.running) {
+                                    statusClass = 'running-instance';
+                                    title = '运行中实例';
+                                } else if (i < stats.total) {
+                                    statusClass = 'stopped-instance';
+                                    title = '已停止实例';
+                                }
+
+                                return (
+                                  <div 
+                                    key={i} 
+                                    className={`matrix-block-professional ${statusClass}`}
+                                    title={title}
+                                  />
+                                );
+                              })}
+                            </div>
                           </div>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : (
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '60px 0' }}>
+                <Empty description="未接入任何资源池" />
+              </div>
+            )}
           </div>
         </div>
       </>
+      {/* 侧边栏和内容区域 */}
       <Layout>
+        <style>{`
+          .admin-sidebar {
+            background: transparent !important;
+          }
+          .admin-sidebar .ant-layout-sider {
+            background: transparent !important;
+          }
+          .admin-sidebar .ant-layout-sider-children {
+            background: transparent !important;
+          }
+          .admin-sidebar-header {
+            background: #F9F9FA !important;
+          }
+          .admin-sidebar-menu {
+            background: #ffffff !important;
+          }
+          .admin-sidebar-menu.ant-menu {
+            background: #ffffff !important;
+          }
+          .admin-sidebar .ant-menu {
+            background: #ffffff !important;
+          }
+          .admin-sidebar-menu .ant-menu-item-selected {
+            background-color: ${settings.sidebarMenuItemSelectedColor || '#e6f7ff'} !important;
+          }
+          .admin-sidebar-menu .ant-menu-item-selected::after {
+            border-right-color: ${settings.sidebarMenuItemSelectedColor || '#e6f7ff'} !important;
+          }
+          .admin-sidebar-menu .ant-menu-item-selected > span {
+            color: ${settings.sidebarMenuItemSelectedTextColor || '#1677ff'} !important;
+          }
+          .admin-sidebar-menu .ant-menu-item-selected .anticon {
+            color: ${settings.sidebarMenuItemSelectedIconColor || '#1677ff'} !important;
+          }
+        `}</style>
+        {/* 侧边栏菜单 */}
+        {/* 检索关键词: sidebar sider menu navigation 侧边栏菜单 */}
+        {/* 在特定页面隐藏侧边栏：资源控制台、API 文档 */}
         {!(location.pathname.includes('/admin/clouds/ecs') || location.pathname.includes('/admin/clouds/console') || location.pathname.includes('/admin/api-docs')) && (
-          <Sider collapsible collapsed={collapsed} trigger={null} style={{background:'#F9F9FA', borderRight:'1px solid ' + NAV_DIVIDER_COLOR, position:'sticky', top: isProConsole ? 50 : 64, height:`calc(100vh - ${isProConsole ? 50 : 64}px)`, transition:'all 200ms ease'}}>
+          <Sider 
+            collapsible 
+            collapsed={collapsed} 
+            trigger={null} 
+            className="admin-sidebar"
+            style={{
+              background: 'transparent', 
+              borderRight:'1px solid ' + NAV_DIVIDER_COLOR, 
+              position:'sticky', 
+              top: isProConsole ? 50 : 64, 
+              height:`calc(100vh - ${isProConsole ? 50 : 64}px)`, 
+              transition:'all 200ms ease'
+            }}
+          >
             {(() => {
+              // 获取当前激活的平台中心，如果找不到则使用第一个
               const center = (visibleCenters.find(c => c.key === activeSidebarKey) || (visibleCenters || [])[0]);
               return (
                 <>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent: collapsed ? 'center' : 'space-between', padding: collapsed ? '12px' : '12px', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
+                  {/* 侧边栏头部：平台名称和折叠按钮，默认折叠 */}
+                  <div 
+                    className="admin-sidebar-header" 
+                    style={{ 
+                      display:'flex', 
+                      alignItems:'center', 
+                      justifyContent: collapsed ? 'center' : 'space-between', 
+                      padding: collapsed ? '12px' : '12px', 
+                      borderBottom:'1px solid ' + NAV_DIVIDER_COLOR, 
+                      background: '#F9F9FA' 
+                    }}
+                  >
                     {!collapsed && (
                       <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                         <Typography.Text>{center.label}</Typography.Text>
-                        <span style={{ display:'inline-flex', alignItems:'center', color:'#8c8c8c', fontSize:14 }}>{center.icon}</span>
                       </div>
                     )}
-                    <Button type="text" icon={collapsed? <MenuUnfoldOutlined style={{color:'#1062fe',fontSize:16}} />:<MenuFoldOutlined style={{color:'#1062fe',fontSize:16}} />} onClick={()=>{ setOpenKeys([]); setCollapsed(!collapsed); setMenuKey(k=>k+1); }} style={{height:28,width:28,display:'flex',alignItems:'center',justifyContent:'center'}} />
+                    <Button 
+                      type="text" 
+                      icon={collapsed ? (
+                        <MenuUnfoldOutlined style={{fontSize:16}} />
+                      ) : (
+                        <MenuFoldOutlined style={{fontSize:16}} />
+                      )} 
+                      onClick={() => { 
+                        setOpenKeys([]); 
+                        setCollapsed(!collapsed); 
+                        setMenuKey(k => k + 1); 
+                      }} 
+                      style={{
+                        height:28,
+                        width:28,
+                        display:'flex',
+                        alignItems:'center',
+                        justifyContent:'center'
+                      }} 
+                    />
                   </div>
-                  <Menu key={menuKey} mode="inline" theme="light" style={{height:'calc(100% - 56px)', borderRight: '0', overflow: collapsed ? 'visible' : 'auto'}}
-                    items={(center?.items || [])}
-                    selectedKeys={[location.pathname + location.search]}
-                    openKeys={collapsed ? undefined : openKeys}
-                    inlineCollapsed={collapsed}
+                  {/* 菜单组件 */}
+                  {/* 检索关键词: Menu component items selectedKeys openKeys 菜单组件 */}
+                  <Menu key={menuKey} mode="inline" theme="light" className="admin-sidebar-menu" style={{height:'calc(100% - 56px)', borderRight: '0', overflow: collapsed ? 'visible' : 'auto', background: '#ffffff'}}
+                    items={(center?.items || [])} // SETTINGS 平台直接是菜单项数组，其他平台是分组数组
+                    selectedKeys={[location.pathname + location.search]} // 根据当前路径高亮菜单项
+                    openKeys={collapsed ? undefined : openKeys} // 展开的分组（SETTINGS 平台为空数组）
+                    inlineCollapsed={collapsed} // 是否折叠
                     onClick={({ key }) => {
+                      // 菜单项点击处理
                       if (typeof key === 'string' && key.startsWith('/')) {
                         if (key === '/admin/clouds/console') { navigate(key); return; }
                         navigate(key);
                       }
                     }}
-                    onOpenChange={(keys)=> { if (!collapsed) setOpenKeys(keys as string[]); }}
+                    onOpenChange={(keys)=> { if (!collapsed) setOpenKeys(keys as string[]); }} // 分组展开/收起处理
                   />
                 </>
               );
             })()}
           </Sider>
         )}
+        {/* 内容区域 */}
+        {/* 检索关键词: Content Outlet 内容区域 */}
         <Content style={{background: location.pathname.includes('/webssh') ? '#1e1e1e' : '#fff', height:`calc(100vh - ${isProConsole ? 50 : 64}px)`, overflow:'auto'}}>
-          <Outlet />
+          <Outlet /> {/* React Router 的子路由渲染出口 */}
         </Content>
       </Layout>
     </Layout>

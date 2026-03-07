@@ -53,7 +53,8 @@ import {
   Cloud, ComputeResource
 } from './providers';
 import PageContainer from '../../components/PageContainer';
-import { TableColumnSettings } from '../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -61,6 +62,10 @@ import CloudWizard from './CloudWizard';
 import CloudEditModal from './Harvester/modals/CloudEditModal';
  
 
+// ============================================================================
+// [功能块: 统计卡片组件]
+// 检索关键词: MetricCard 统计卡片 数据展示卡片 进度条卡片
+// ============================================================================
 const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;midLabel:string;midValue:number;mainColor:string;usedLabel?:string}> = ({title,total,unit='',used,midLabel,midValue,mainColor,usedLabel})=>{
   const remain = Math.max(total-used-midValue,0);
   const percent = total? used/total*100:0;
@@ -94,9 +99,14 @@ const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;mi
 
 const { Text } = Typography;
 
-
+// ============================================================================
+// [功能块: 云资源列表主组件]
+// 检索关键词: Clouds组件 状态管理 权限检查
+// ============================================================================
 const Clouds: React.FC = () => {
   const navigate = useNavigate();
+  
+  // [状态管理] 云资源数据与UI状态
   const [clouds, setClouds] = useState<Cloud[]>([]);
   const [loading, setLoading] = useState(false);
   const [wizardVisible, setWizardVisible] = useState(false);
@@ -106,6 +116,7 @@ const Clouds: React.FC = () => {
   const [vmStats, setVmStats] = useState<{ total: number; online: number; offline: number }>({ total: 0, online: 0, offline: 0 });
   const [vpcStats, setVpcStats] = useState<{ total: number; online: number; offline: number }>({ total: 0, online: 0, offline: 0 });
   
+  // [状态管理] 筛选表单与过滤条件
   const [filterForm] = Form.useForm();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string[]|undefined>(undefined);
@@ -113,17 +124,24 @@ const Clouds: React.FC = () => {
   const [vendorFilter, setVendorFilter] = useState<string|undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   
-  
+  // [权限管理] 用户权限检查
   const { user } = useAuth();
-
   const hasAdminPermission = user?.role === 'super_admin';
 
   
 
+  // ============================================================================
+  // [功能块: 初始化数据加载]
+  // 检索关键词: 初始化 useEffect fetchClouds
+  // ============================================================================
   useEffect(() => {
     fetchClouds();
   }, []);
 
+  // ============================================================================
+  // [功能块: VM统计数据计算]
+  // 检索关键词: VM统计 vmStats 虚拟机数量统计
+  // ============================================================================
   useEffect(() => {
     // [数据统计] VM 状态汇总
     // 基于后端返回的 cached 字段 (vmCount, runningVmCount) 进行前端聚合。
@@ -142,6 +160,10 @@ const Clouds: React.FC = () => {
     loadVmStats();
   }, [clouds]);
 
+  // ============================================================================
+  // [功能块: VPC统计数据异步加载]
+  // 检索关键词: VPC统计 vpcStats 网络统计 Harvester Kube-OVN
+  // ============================================================================
   useEffect(() => {
     // [数据统计] VPC 状态异步加载
     // 由于后端列表接口未返回 VPC 详情，需要根据 Provider 类型并行请求。
@@ -185,6 +207,10 @@ const Clouds: React.FC = () => {
     if (clouds.length > 0) loadVpcStats();
   }, [clouds]);
 
+  // ============================================================================
+  // [功能块: 云资源列表数据获取]
+  // 检索关键词: fetchClouds 获取云资源列表 API调用
+  // ============================================================================
   // [核心逻辑] 资源列表加载
   // 1. 调用后端 API 获取所有云资源。
   // 2. 处理 loading 状态。
@@ -203,6 +229,10 @@ const Clouds: React.FC = () => {
 
   // 已移除算力配额相关方法
 
+  // ============================================================================
+  // [功能块: 连接测试功能]
+  // 检索关键词: testConnection 连接测试 测试云资源连接
+  // ============================================================================
   const testConnection = useCallback(async (cloudId: string) => {
     setTestingConnection(cloudId);
     try {
@@ -219,16 +249,20 @@ const Clouds: React.FC = () => {
     }
   }, [fetchClouds]);
 
-  
-
+  // ============================================================================
+  // [功能块: 工具函数 - 状态和类型文本映射]
+  // 检索关键词: getStatusText getTypeText 状态映射 类型映射
+  // ============================================================================
   const getStatusText = (status: string) => CLOUD_STATUS_MAP[status] || '未知';
-
   const getTypeText = (type: string) => CLOUD_TYPE_MAP[type] || '未知';
 
   // 编辑模态框样式：分组标题与表单标签/输入字号
   // 样式已迁移至 global-new.css
 
-
+  // ============================================================================
+  // [功能块: 编辑云资源]
+  // 检索关键词: handleEdit 编辑云资源 编辑模态框
+  // ============================================================================
   const handleEdit = useCallback((cloud: Cloud) => {
     if (!hasAdminPermission) {
       message.error('权限不足，只有超级管理员可以编辑云资源');
@@ -238,8 +272,11 @@ const Clouds: React.FC = () => {
     setEditModalVisible(true);
   }, [hasAdminPermission]);
 
+  // ============================================================================
+  // [功能块: 删除云资源]
+  // 检索关键词: handleDelete 删除云资源 删除确认
+  // ============================================================================
   // [核心逻辑] 资源删除
-
   // 1. 权限校验 (isAdmin)。
   // 2. 二次确认 (Confirm Modal)。
   // 3. 执行删除并刷新列表。
@@ -269,6 +306,10 @@ const Clouds: React.FC = () => {
     });
   }, [hasAdminPermission, fetchClouds]);
 
+  // ============================================================================
+  // [功能块: 表格列定义]
+  // 检索关键词: tableColumns 表格列 列配置 表格渲染
+  // ============================================================================
   const tableColumns: ColumnsType<Cloud> = useMemo(() => [
     {
       title: '云平台',
@@ -362,8 +403,17 @@ const Clouds: React.FC = () => {
     }
   ], [navigate, hasAdminPermission, testingConnection, testConnection, handleEdit, handleDelete]);
 
-  const [activeColumns, setActiveColumns] = useState<ColumnsType<Cloud>>(tableColumns);
+  // ============================================================================
+  // [功能块: 表格列设置管理]
+  // 检索关键词: useTableColumnSettings 列设置 列显示控制
+  // ============================================================================
+  // 使用新的 hook 管理列设置
+  const { displayColumns: activeColumns } = useTableColumnSettings(tableColumns, 'clouds-list');
 
+  // ============================================================================
+  // [功能块: 数据过滤逻辑]
+  // 检索关键词: filteredClouds 过滤 筛选 关键字过滤 状态过滤 类型过滤 厂商过滤
+  // ============================================================================
   // 过滤后的云资源池
   const filteredClouds = (clouds || []).filter(c=>{
     if(keyword && !c.name.toLowerCase().includes(keyword.toLowerCase())) return false;
@@ -376,6 +426,10 @@ const Clouds: React.FC = () => {
     return true;
   });
 
+  // ============================================================================
+  // [功能块: 统计数据计算]
+  // 检索关键词: 统计数据 totalCnt onlineCnt 资源池统计 容器统计
+  // ============================================================================
   // 统计数据
   const totalCnt = clouds.length;
   const onlineCnt = clouds.filter(c=>c.status==='online').length;
@@ -391,8 +445,10 @@ const Clouds: React.FC = () => {
   const vmCounts = vmStats;
   const vpcCounts = vpcStats;
 
-  
-
+  // ============================================================================
+  // [功能块: 筛选表单变更处理]
+  // 检索关键词: handleFilterChange 筛选变更 表单变更
+  // ============================================================================
   const handleFilterChange = (_: any, all: any) => {
     setKeyword(all.keyword || '');
     setStatusFilter(all.status ? [all.status] : undefined);
@@ -400,6 +456,10 @@ const Clouds: React.FC = () => {
     setVendorFilter(all.vendor ? all.vendor : undefined);
   };
 
+  // ============================================================================
+  // [功能块: 批量删除云资源]
+  // 检索关键词: handleBulkDelete 批量删除 批量操作
+  // ============================================================================
   const handleBulkDelete = useCallback(async () => {
     if (!hasAdminPermission) { message.error('权限不足，只有超级管理员可以删除云资源'); return; }
     Modal.confirm({
@@ -429,12 +489,20 @@ const Clouds: React.FC = () => {
     });
   }, [hasAdminPermission, selectedRowKeys, fetchClouds]);
 
+  // ============================================================================
+  // [功能块: 批量操作菜单配置]
+  // 检索关键词: bulkActionsMenu 批量操作菜单 下拉菜单
+  // ============================================================================
   const bulkActionsMenu: MenuProps = {
     items: [
       { key: 'bulkDelete', label: '批量删除', danger: true, disabled: !hasAdminPermission || selectedRowKeys.length === 0, onClick: handleBulkDelete }
     ]
   };
 
+  // ============================================================================
+  // [功能块: 页面渲染]
+  // 检索关键词: return 渲染 PageContainer 统计卡片 表格 工具栏
+  // ============================================================================
   return (
     <PageContainer
       titleLevel={3}
@@ -479,10 +547,7 @@ const Clouds: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item>
-            <Button 
-              icon={<SyncOutlined />} 
-              onClick={()=>{filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined);}}
-            />
+            <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined); }}>重置</a>
           </Form.Item>
         </Form>
       )}
@@ -492,7 +557,7 @@ const Clouds: React.FC = () => {
           <Dropdown menu={bulkActionsMenu}>
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <TableColumnSettings columns={tableColumns} onChange={setActiveColumns} settingsKey="clouds-list" />
+          <TableColumnSettingsButton allColumns={tableColumns} settingsKey="clouds-list" />
           <Button icon={<ReloadOutlined />} onClick={fetchClouds} />
         </div>
       )}
@@ -501,7 +566,6 @@ const Clouds: React.FC = () => {
       <Table
         className="std-table"
         bordered
-        size="large"
         columns={activeColumns}
         dataSource={filteredClouds}
         rowKey="id"

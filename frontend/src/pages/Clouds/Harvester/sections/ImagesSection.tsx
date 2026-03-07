@@ -553,7 +553,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
                     ]}
                   />
 
-                  <Card size="small" title="高级用法：命令行模式" style={{ marginTop: 16, background: '#f9f9f9' }} bodyStyle={{ padding: '8px 12px' }}>
+                  <Card size="small" title="高级用法：命令行模式" style={{ marginTop: 16, background: '#f9f9f9' }} styles={{ body: { padding: '8px 12px' } }}>
                      <Typography.Paragraph style={{ marginBottom: 4, fontFamily: 'monospace', fontSize: 12 }} copyable>
                        CloudmapUploader.exe --direct --url=https://10.x.x.x --token=... --name=ubuntu-20.04 --file=./image.iso
                      </Typography.Paragraph>

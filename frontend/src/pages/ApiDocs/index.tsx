@@ -184,7 +184,7 @@ const ApiDocs: React.FC = () => {
               onClose={() => setDrawerVisible(false)}
               open={drawerVisible}
               title="目录"
-              bodyStyle={{ padding: 0 }}
+              styles={{ body: { padding: 0 } }}
             >
               {tocContent}
             </Drawer>

@@ -1548,8 +1548,8 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           )}
           {activeTab === 'logs' && (
               <Card 
-                bordered={false} 
-                bodyStyle={{ padding: 0, height: '100%', display: 'flex', flexDirection: 'column' }} 
+                variant="borderless"
+                styles={{ body: { padding: 0, height: '100%', display: 'flex', flexDirection: 'column' } }} 
                 style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
               >
                  <HarvesterVmLogsTab 

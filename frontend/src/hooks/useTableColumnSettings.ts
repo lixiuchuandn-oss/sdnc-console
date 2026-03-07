@@ -65,12 +65,30 @@ export function useTableColumnSettings<T extends object>(
     setColumnSettingsInitialized(true);
   }, [allColumns, columnSettingsInitialized, settingsKey, defaultHiddenColumns, getColumnKey]);
 
+  // 监听自定义事件，实现同页面多实例同步（解决 Hook 与 Button 组件状态分离的问题）
+  useEffect(() => {
+    const handleSync = (e: CustomEvent) => {
+      if (e.detail?.key === `table_cols_${settingsKey}` && Array.isArray(e.detail?.value)) {
+        setCheckedColumnKeys(e.detail.value);
+      }
+    };
+
+    window.addEventListener('table-settings-sync', handleSync as any);
+    return () => {
+      window.removeEventListener('table-settings-sync', handleSync as any);
+    };
+  }, [settingsKey]);
+
   // 处理列设置变化
   const handleColumnSettingsChange = useCallback((keys: string[]) => {
     setCheckedColumnKeys(keys);
     // 保存到 localStorage
     try {
       localStorage.setItem(`table_cols_${settingsKey}`, JSON.stringify(keys));
+      // 触发同步事件
+      window.dispatchEvent(new CustomEvent('table-settings-sync', { 
+        detail: { key: `table_cols_${settingsKey}`, value: keys } 
+      }));
     } catch (e) {
       console.warn('Failed to save column settings', e);
     }
@@ -98,7 +116,7 @@ export function useTableColumnSettings<T extends object>(
         if (!key) return null;
         return { label: title, value: key };
       })
-      .filter((opt): opt is { label: string; value: string } => !!opt);
+      .filter(Boolean) as { label: string; value: string }[];
   }, [allColumns, getColumnKey]);
 
   return {

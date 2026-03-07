@@ -390,14 +390,14 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                         if (!points.length) {
                           return (
                             <Col span={12} key={`${name}-${idx}`}>
-                              <Card size="small" bodyStyle={{ padding: 8, display:'flex', alignItems:'center', justifyContent:'center', height: 220 }}>
+                              <Card size="small" styles={{ body: { padding: 8, display:'flex', alignItems:'center', justifyContent:'center', height: 220 } }}>
                                 <span style={{ color:'#999' }}>无数据</span>
                               </Card>
                             </Col>
                           );
                         }
                         const option:any = { grid: { left: 40, right: 20, top: 30, bottom: 30 }, tooltip: { trigger: 'axis' }, xAxis: { type: 'category', data: x.map((t:any)=> { const d = Number(t || 0); return d ? new Date(d).toLocaleTimeString() : ''; }) }, yAxis: { type: 'value', min: 0 }, series: [{ name, type: 'line', data: y, smooth: true }], title: { text: name, left: 'center', textStyle: { fontSize: 12 } } };
-                        return (<Col span={12} key={`${name}-${idx}`}><Card size="small" bodyStyle={{ padding: 8 }}><ReactECharts option={option} notMerge style={{ height: 220 }} /></Card></Col>);
+                        return (<Col span={12} key={`${name}-${idx}`}><Card size="small" styles={{ body: { padding: 8 } }}><ReactECharts option={option} notMerge style={{ height: 220 }} /></Card></Col>);
                       });
                       return charts.length ? charts : [<Col span={24} key="empty"><Alert type="info" message="无CES指标数据" /></Col>];
                     })()}

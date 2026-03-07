@@ -1,12 +1,72 @@
 /**
- * 回收站视图组件
- * 显示回收站中的虚拟机，包含倒计时和恢复/删除操作
- * 与VM云主机视图保持一致的数据展示
+ * ==============================================================================
+ * 模块名称: Harvester 回收站视图组件 (RecycleBinSection)
+ * 文件路径: src/pages/Clouds/Harvester/sections/RecycleBinSection.tsx
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 该组件用于展示和管理 Harvester 云平台中已删除但尚未彻底清理的虚拟机。
+ * 回收站机制允许用户在删除虚拟机后有一个"后悔期"，可以恢复误删的资源。
+ * 
+ * [核心功能]
+ * 1. [回收站识别]: 
+ *    - 通过 finalizers 中的 'tower.io/recycle-bin' 或 labels 中的标记识别回收站中的 VM
+ *    - 只显示标记为回收站状态的虚拟机，过滤掉正常运行的 VM
+ * 
+ * 2. [倒计时显示]:
+ *    - 显示每个虚拟机距离自动清理的剩余时间
+ *    - 支持天/小时/分钟的倒计时显示
+ *    - 过期虚拟机显示"已过期"标签
+ * 
+ * 3. [恢复功能]:
+ *    - 支持将回收站中的虚拟机恢复到正常运行状态
+ *    - 恢复后会移除回收站标记，VM 重新出现在主列表中
+ * 
+ * 4. [彻底删除]:
+ *    - 支持彻底删除虚拟机（绕过回收站机制）
+ *    - 可选择是否同步删除关联的数据卷（PVC）
+ *    - 彻底删除后无法恢复
+ * 
+ * 5. [清理周期配置]:
+ *    - 支持配置自动清理任务的执行间隔（1-168小时）
+ *    - 配置保存在系统设置中，影响后端清理任务的执行频率
+ * 
+ * [数据展示]
+ * - 与 VM 云主机视图保持一致的列定义和数据显示
+ * - 额外显示"删除时间"和"剩余时间"两列
+ * - 使用 SafeRead 辅助函数统一处理复杂的数据结构
+ * 
+ * [筛选功能]
+ * - 支持按关键字（名称/ID/命名空间）筛选
+ * - 支持按命名空间筛选（租户模式下隐藏）
+ * - 支持按状态筛选
+ * 
+ * [列设置]
+ * - 使用 useTableColumnSettings hook 管理列显示/隐藏
+ * - 设置持久化到 localStorage
+ * - 避免使用旧的 TableColumnSettings 组件（防止死锁问题）
+ * 
+ * ------------------------------------------------------------------------------
+ * [交互/依赖说明]
+ * ------------------------------------------------------------------------------
+ * 1. 上游数据:
+ *    - 依赖父组件传入 `vms` (所有虚拟机列表), `volumes` (存储卷), `images` (镜像) 等
+ *    - 本组件负责从 vms 中过滤出回收站中的 VM
+ * 
+ * 2. 关键服务:
+ *    - harvesterApi.ts: restoreHarvesterVm, forceDeleteHarvesterVm
+ *    - systemApi.ts: getSystemSetting, updateSystemSetting (清理周期配置)
+ * 
+ * 3. 状态管理:
+ *    - 使用 React Hooks 管理本地 UI 状态
+ *    - 筛选条件、抽屉状态、配置模态框状态等
+ * 
+ * ==============================================================================
  */
 
-import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
-import { Table, Space, message, Modal, Tooltip, App, Badge, Tag, Input, Select, Button, Form, InputNumber, Typography, Checkbox, Popover } from 'antd';
-import { DeleteOutlined, ClockCircleOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, SettingOutlined, WarningOutlined } from '@ant-design/icons';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
+import { Table, Space, message, Modal, Tooltip, App, Badge, Tag, Input, Select, Button, Form, InputNumber, Typography, Checkbox } from 'antd';
+import { DeleteOutlined, ClockCircleOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from '../../../../services/harvesterApi';
 import { getSystemSetting, updateSystemSetting } from '../../../../services/systemApi';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -14,7 +74,21 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import { cnVmStatus } from '../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../components/OsIcon';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 
+/**
+ * [类型定义] 组件 Props 接口
+ * 
+ * @property vms - [数据源] 所有虚拟机对象数组，包含正常和回收站中的 VM
+ * @property loading - [UI状态] 表格是否处于加载中状态
+ * @property cloudId - [上下文] 当前云平台的 ID，用于 API 调用
+ * @property onRefresh - [回调] 请求父组件刷新数据列表
+ * @property namespaces - [关联数据] 命名空间列表，用于解析租户/组织信息
+ * @property volumes - [关联数据] 存储卷列表，用于显示卷详情
+ * @property images - [关联数据] 镜像列表，用于显示镜像名称
+ * @property isTenant - [权限控制] 是否为租户模式，影响功能可见性
+ */
 interface Props {
   vms: any[];
   loading: boolean;
@@ -36,31 +110,43 @@ const RecycleBinSection: React.FC<Props> = ({
   images = [],
   isTenant = false 
 }) => {
-  const { modal } = App.useApp();
-
-  // 筛选状态
-  const [keyword, setKeyword] = useState<string>('');
-  const [namespaceFilter, setNamespaceFilter] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  // ==========================================
+  // [状态管理] 1. 本地 UI 状态 (Local State)
+  // ==========================================
   
-  // 列设置相关状态
-  const [columnSettingsVisible, setColumnSettingsVisible] = useState(false);
-  const [checkedColumnKeys, setCheckedColumnKeys] = useState<string[]>([]);
-  const [columnSettingsInitialized, setColumnSettingsInitialized] = useState(false);
-  const allColumnsRef = useRef<any[]>([]);
-  const settingsKey = 'harvester_recycle_bin_table';
+  const { modal } = App.useApp(); // Ant Design App 上下文，用于显示确认对话框
 
-  // 运维信息抽屉状态
-  const [drawerVisible, setDrawerVisible] = useState(false);
-  const [currentDrawerRecord, setCurrentDrawerRecord] = useState<any>(null);
-  const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
+  // [筛选状态] 用户输入的筛选条件
+  const [keyword, setKeyword] = useState<string>(''); // 关键字搜索（名称/ID/命名空间）
+  const [namespaceFilter, setNamespaceFilter] = useState<string>(''); // 命名空间筛选
+  const [statusFilter, setStatusFilter] = useState<string>(''); // 状态筛选
 
-  // 清理周期设置模态框状态
-  const [cleanupSettingsModalVisible, setCleanupSettingsModalVisible] = useState(false);
-  const [cleanupSettingsLoading, setCleanupSettingsLoading] = useState(false);
-  const [cleanupSettingsForm] = Form.useForm();
+  // [运维信息抽屉状态] 控制资源详情抽屉的显示
+  const [drawerVisible, setDrawerVisible] = useState(false); // 抽屉是否可见
+  const [currentDrawerRecord, setCurrentDrawerRecord] = useState<any>(null); // 当前查看的 VM 记录
+  const [drawerActiveTab, setDrawerActiveTab] = useState('detail'); // 抽屉当前激活的标签页
 
-  // 过滤出回收站中的VM
+  // [清理周期设置模态框状态] 控制清理间隔配置对话框
+  // 注意: cleanupSettingsModalVisible 已废弃，使用 configOpen 替代
+  const [cleanupSettingsModalVisible, setCleanupSettingsModalVisible] = useState(false); // 已废弃
+  const [cleanupSettingsLoading, setCleanupSettingsLoading] = useState(false); // 已废弃
+  const [cleanupSettingsForm] = Form.useForm(); // 已废弃
+
+  // ==========================================
+  // [数据处理] 2. 数据过滤与转换 (Data Processing)
+  // ==========================================
+  
+  /**
+   * 过滤出回收站中的虚拟机
+   * 
+   * 回收站识别规则:
+   * 1. 检查 metadata.finalizers 数组中是否包含 'tower.io/recycle-bin'
+   * 2. 检查 metadata.labels 中 'tower.io/recycle-bin' 是否为 'true'
+   * 
+   * 满足任一条件即视为回收站中的 VM
+   * 
+   * @returns 回收站中的虚拟机数组
+   */
   const recycledVms = useMemo(() => {
     return vms.filter((vm: any) => {
       const finalizers = vm?.metadata?.finalizers || [];
@@ -69,7 +155,26 @@ const RecycleBinSection: React.FC<Props> = ({
     });
   }, [vms]);
 
-  // 解析存储大小字符串
+  // ==========================================
+  // [工具函数] 3. 辅助函数 (Utility Functions)
+  // ==========================================
+  
+  /**
+   * 解析存储大小字符串，转换为 GiB 数值
+   * 
+   * 支持的格式:
+   * - 纯数字: 视为字节数，转换为 GiB
+   * - 带单位: 如 "10Gi", "500Mi", "2Ti" 等
+   * - 支持二进制单位 (Ki, Mi, Gi, Ti) 和十进制单位 (K, KB, M, MB, G, GB, T, TB)
+   * 
+   * @param sizeStr - 存储大小字符串，如 "10Gi", "500Mi", "10737418240" 等
+   * @returns 以 GiB 为单位的数值
+   * 
+   * @example
+   * parseStorageSize("10Gi") => 10
+   * parseStorageSize("500Mi") => 0.48828125
+   * parseStorageSize("10737418240") => 10
+   */
   const parseStorageSize = (sizeStr: string): number => {
     if (!sizeStr) return 0;
     const str = String(sizeStr).trim();
@@ -90,7 +195,22 @@ const RecycleBinSection: React.FC<Props> = ({
     return (val * mul) / (1024 ** 3);
   };
 
-  // 格式化存储大小
+  /**
+   * 格式化存储大小为可读字符串
+   * 
+   * 根据大小自动选择合适的单位:
+   * - < 1 GiB: 显示为 MiB
+   * - >= 1024 GiB: 显示为 TiB
+   * - 其他: 显示为 GiB
+   * 
+   * @param sizeGiB - 以 GiB 为单位的存储大小
+   * @returns 格式化后的字符串，如 "500 MiB", "10 GiB", "2.5 TiB"
+   * 
+   * @example
+   * formatStorageSize(0.5) => "512 MiB"
+   * formatStorageSize(10) => "10 GiB"
+   * formatStorageSize(2048) => "2.0 TiB"
+   */
   const formatStorageSize = (sizeGiB: number): string => {
     if (sizeGiB === 0) return '-';
     if (sizeGiB < 1) return `${Math.round(sizeGiB * 1024)} MiB`;
@@ -98,7 +218,17 @@ const RecycleBinSection: React.FC<Props> = ({
     return `${parseFloat(sizeGiB.toFixed(1))} GiB`;
   };
 
-  // 获取实例唯一标识
+  /**
+   * 获取虚拟机的唯一标识符
+   * 
+   * 优先级顺序:
+   * 1. namespace/name 格式 (Kubernetes 标准格式)
+   * 2. InstanceId (兼容旧格式)
+   * 3. id (兜底)
+   * 
+   * @param r - 虚拟机对象
+   * @returns 唯一标识符字符串
+   */
   const getIid = (r: any): string => {
     if (r?.metadata?.name && r?.metadata?.namespace) {
       return `${r.metadata.namespace}/${r.metadata.name}`;
@@ -106,8 +236,28 @@ const RecycleBinSection: React.FC<Props> = ({
     return String(r?.InstanceId || r?.id || '');
   };
 
-  // 安全读取辅助函数（与VM视图保持一致）
+  /**
+   * 安全读取辅助函数对象
+   * 
+   * 目的: 统一处理 Harvester VM 对象的复杂嵌套结构，避免 undefined 错误
+   * 
+   * 设计原因:
+   * - Harvester (基于 KubeVirt) 的资源对象结构非常深 (如 spec.template.spec.domain.cpu)
+   * - 不同版本的 API 可能返回不同的数据结构
+   * - 需要兼容多种数据格式（原始 K8s 对象、抽象后的对象等）
+   * 
+   * 使用方式:
+   * - 所有字段读取都通过 SafeRead 对象的方法
+   * - 每个方法都有多个回退路径，确保总能返回有效值
+   * - 与 VmSection.tsx 保持完全一致，确保数据展示的一致性
+   * 
+   * 依赖项: namespaces, volumes, images - 用于解析关联信息
+   */
   const SafeRead = useMemo(() => ({
+    /**
+     * 获取虚拟机显示名称
+     * 优先级: 别名 > InstanceName > name > metadata.name
+     */
     name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.InstanceName || r?.name || r?.metadata?.name || '',
     vmId: (r: any) => r?.metadata?.name || '',
     namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
@@ -170,8 +320,22 @@ const RecycleBinSection: React.FC<Props> = ({
       } catch (e) {}
       return '';
     },
+    /**
+     * 获取镜像显示名称
+     * 
+     * 逻辑:
+     * 1. 先获取镜像 ID (通过 image 方法)
+     * 2. 在 images 列表中查找对应的镜像对象
+     * 3. 按优先级返回显示名称:
+     *    - labels['harvesterhci.io/imageDisplayName']
+     *    - annotations['harvesterhci.io/image-name']
+     *    - annotations['field.cattle.io/displayName']
+     *    - spec.displayName
+     *    - displayName
+     * 
+     * 注意: 内联实现 image 逻辑，避免循环依赖
+     */
     imageDisplayName: (r: any) => {
-      // 内联image逻辑避免循环依赖
       let imgId = '';
       const specImg = r?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId'];
       if (specImg) imgId = specImg;
@@ -227,6 +391,23 @@ const RecycleBinSection: React.FC<Props> = ({
       } catch (e) {}
       return '';
     },
+    /**
+     * 获取存储卷详细信息
+     * 
+     * 返回每个卷的:
+     * - name: 卷名称
+     * - claimName: PVC 名称
+     * - capacity: 容量字符串
+     * - capacityBytes: 容量（GiB 数值）
+     * - phase: PVC 状态（Bound/Pending 等）
+     * - kind: 卷类型（system/data/cloudinit）
+     * 
+     * 逻辑:
+     * 1. 从 spec.template.spec.volumes 获取卷定义
+     * 2. 从 spec.template.spec.domain.devices.disks 确定启动卷（bootOrder 最小）
+     * 3. 在 volumes 列表中查找对应的 PVC，获取实际容量和状态
+     * 4. 区分系统卷、数据卷和 cloudinit 卷
+     */
     volumeDetails: (r: any) => {
       const vols = r?.spec?.template?.spec?.volumes || [];
       let vmNs = r?.metadata?.namespace || r?.namespace;
@@ -307,7 +488,16 @@ const RecycleBinSection: React.FC<Props> = ({
     os: (r: any) => r?.vmi?.status?.guestOSInfo?.name || r?.vmi?.status?.guestOSInfo?.prettyName || '',
   }), [namespaces, volumes, images]);
 
-  // 命名空间选项
+  // ==========================================
+  // [筛选选项] 4. 动态筛选选项生成 (Filter Options)
+  // ==========================================
+  
+  /**
+   * 生成命名空间筛选选项
+   * 
+   * 从回收站中的 VM 提取所有唯一的命名空间，生成下拉选项
+   * 用于工具栏的命名空间筛选器
+   */
   const namespaceOptions = useMemo(() => {
     const uniqueNamespaces = Array.from(new Set(recycledVms.map((vm: any) => {
       return vm?.metadata?.namespace || vm?.namespace || '';
@@ -315,7 +505,12 @@ const RecycleBinSection: React.FC<Props> = ({
     return uniqueNamespaces.map((ns: string) => ({ value: ns, label: ns }));
   }, [recycledVms]);
 
-  // 状态选项
+  /**
+   * 生成状态筛选选项
+   * 
+   * 从回收站中的 VM 提取所有唯一的状态值，并映射为中文标签
+   * 状态映射表包含: running(运行中), starting(启动中), stopped(已停止) 等
+   */
   const statusOptions = useMemo(() => {
     const uniqueStatuses = Array.from(new Set(recycledVms.map((vm: any) => {
       let s = '';
@@ -342,7 +537,16 @@ const RecycleBinSection: React.FC<Props> = ({
     }));
   }, [recycledVms]);
 
-  // 应用筛选后的数据
+  /**
+   * 应用所有筛选条件后的虚拟机列表
+   * 
+   * 筛选逻辑（AND 关系）:
+   * 1. 关键字筛选: 在名称、ID、命名空间中搜索
+   * 2. 命名空间筛选: 精确匹配
+   * 3. 状态筛选: 精确匹配（不区分大小写）
+   * 
+   * 所有筛选条件都是可选的，未设置时不进行筛选
+   */
   const filteredVms = useMemo(() => {
     return recycledVms.filter((vm: any) => {
       // 关键字筛选
@@ -372,14 +576,38 @@ const RecycleBinSection: React.FC<Props> = ({
     });
   }, [recycledVms, keyword, namespaceFilter, statusFilter]);
 
-  // 从 filteredVms 中查找最新的记录，确保数据是最新的
+  /**
+   * 抽屉中显示的记录（确保数据最新）
+   * 
+   * 当用户打开抽屉后，如果数据刷新了，需要从最新的 filteredVms 中查找对应记录
+   * 这样可以确保抽屉中显示的是最新数据，而不是打开时的快照
+   */
   const drawerRecord = useMemo(() => {
     if (!currentDrawerRecord) return null;
     const currentId = SafeRead.uid(currentDrawerRecord);
     return filteredVms.find((v: any) => SafeRead.uid(v) === currentId) || currentDrawerRecord;
   }, [filteredVms, currentDrawerRecord, SafeRead]);
 
-  // 计算倒计时
+  // ==========================================
+  // [业务逻辑] 5. 回收站特有功能 (Recycle Bin Features)
+  // ==========================================
+  
+  /**
+   * 计算距离自动清理的剩余时间
+   * 
+   * 这是回收站的核心功能之一，显示每个 VM 还有多久会被自动清理
+   * 
+   * @param expiresAtStr - 过期时间字符串（ISO 格式），存储在 metadata.annotations['tower.io/deletion-expires']
+   * @returns 倒计时信息对象:
+   *   - expired: 是否已过期
+   *   - days: 剩余天数
+   *   - hours: 剩余小时数
+   *   - minutes: 剩余分钟数
+   *   - text: 格式化后的文本（如 "2天5小时" 或 "3小时30分钟"）
+   * 
+   * @example
+   * getTimeRemaining("2024-01-01T12:00:00Z") => { expired: false, days: 2, hours: 5, text: "2天5小时" }
+   */
   const getTimeRemaining = useCallback((expiresAtStr: string) => {
     if (!expiresAtStr) return null;
     const expiresAt = new Date(expiresAtStr);
@@ -401,7 +629,17 @@ const RecycleBinSection: React.FC<Props> = ({
     };
   }, []);
 
-  // 恢复虚拟机
+  /**
+   * 恢复虚拟机
+   * 
+   * 将回收站中的虚拟机恢复到正常运行状态:
+   * 1. 调用 restoreHarvesterVm API
+   * 2. 后端会移除回收站标记（finalizer 或 label）
+   * 3. VM 重新出现在主列表中
+   * 4. 刷新列表以反映变化
+   * 
+   * @param r - 要恢复的虚拟机对象
+   */
   const handleRestore = useCallback(async (r: any) => {
     const ns = r?.metadata?.namespace || r?.namespace || '';
     const name = r?.metadata?.name || r?.InstanceId?.split('/')[1] || '';
@@ -416,19 +654,44 @@ const RecycleBinSection: React.FC<Props> = ({
     }
   }, [cloudId, onRefresh]);
 
-  // 显示运维信息抽屉
+  /**
+   * 显示运维信息抽屉
+   * 
+   * 打开 HarvesterResourceDrawer 查看虚拟机的详细信息
+   * 在租户模式下，此功能会被隐藏
+   * 
+   * @param record - 要查看的虚拟机对象
+   * @param tab - 初始激活的标签页（默认为 'detail'）
+   */
   const handleShowOpsinfo = useCallback((record: any, tab: string = 'detail') => {
     setCurrentDrawerRecord(record);
     setDrawerActiveTab(tab);
     setDrawerVisible(true);
   }, []);
 
-  // --- Config Dialog Logic (Refactored) ---
-  const [configOpen, setConfigOpen] = useState(false);
-  const [configLoading, setConfigLoading] = useState(false);
-  const [configForm] = Form.useForm();
+  // ==========================================
+  // [配置管理] 6. 清理周期配置 (Cleanup Interval Config)
+  // ==========================================
+  
+  /**
+   * 清理周期配置状态
+   * 
+   * 用于配置自动清理任务的执行间隔（1-168小时）
+   * 配置保存在系统设置中，影响后端清理任务的执行频率
+   */
+  const [configOpen, setConfigOpen] = useState(false); // 配置对话框是否打开
+  const [configLoading, setConfigLoading] = useState(false); // 保存配置时的加载状态
+  const [configForm] = Form.useForm(); // 配置表单实例
 
-  // Load config on mount
+  /**
+   * 组件挂载时加载清理周期配置
+   * 
+   * 从系统设置中读取 'recycleBin.cleanupInterval' 的值
+   * 支持多种格式: "24h", "1d", "24" 等
+   * 解析后设置到表单中
+   * 
+   * 注意: 使用 mounted 标志防止组件卸载后更新状态
+   */
   useEffect(() => {
     let mounted = true;
     const fetchConfig = async () => {
@@ -457,6 +720,12 @@ const RecycleBinSection: React.FC<Props> = ({
     return () => { mounted = false; };
   }, []); // Only run once on mount
 
+  /**
+   * 保存清理周期配置
+   * 
+   * 将用户输入的间隔（小时）转换为 "Xh" 格式并保存到系统设置
+   * 保存成功后关闭对话框并显示成功提示
+   */
   const handleSaveConfig = async () => {
     try {
       const values = await configForm.validateFields();
@@ -472,7 +741,29 @@ const RecycleBinSection: React.FC<Props> = ({
     }
   };
 
-  // 强制删除虚拟机
+  /**
+   * 彻底删除虚拟机
+   * 
+   * 这是回收站中的危险操作，会永久删除虚拟机，无法恢复
+   * 
+   * 功能特点:
+   * 1. 显示详细的确认对话框，包含警告信息
+   * 2. 列出关联的数据卷（PVC），让用户了解影响范围
+   * 3. 提供选项：是否同步删除关联的数据卷
+   *    - 默认不勾选（保护数据）
+   *    - 用户可勾选以彻底清理所有相关资源
+   * 
+   * 删除流程:
+   * 1. 显示确认对话框
+   * 2. 用户确认后调用 forceDeleteHarvesterVm API
+   * 3. 根据 shouldDeleteVolumes 参数决定是否删除关联卷
+   * 4. 删除成功后刷新列表
+   * 
+   * @param r - 要删除的虚拟机对象
+   * 
+   * 注意: 使用闭包变量 shouldDeleteVolumes 来捕获用户的选择
+   * 因为 Checkbox 的 onChange 在对话框渲染时执行，而 onOk 在用户确认时执行
+   */
   const handleForceDelete = useCallback(async (r: any) => {
     const ns = r?.metadata?.namespace || r?.namespace || '';
     const name = r?.metadata?.name || r?.InstanceId?.split('/')[1] || '';
@@ -483,6 +774,8 @@ const RecycleBinSection: React.FC<Props> = ({
     const volumeNames = volDetails.filter((v: any) => v.claimName).map((v: any) => v.claimName).join(', ');
     
     // 默认不勾选删除卷，通过闭包变量控制
+    // 注意: 这个变量在 Checkbox 的 onChange 中被修改，在 onOk 中被使用
+    // 使用闭包而不是 state，因为需要在对话框的 onOk 回调中访问
     let shouldDeleteVolumes = false;
     
     modal.confirm({
@@ -527,8 +820,32 @@ const RecycleBinSection: React.FC<Props> = ({
     });
   }, [cloudId, onRefresh, modal, SafeRead]);
 
-  // 表格列定义（与VM视图保持一致，添加回收站特有列）
-  // 使用 useMemo 并稳定化引用，避免不必要的重新计算
+  // ==========================================
+  // [表格定义] 7. 表格列配置 (Table Columns)
+  // ==========================================
+  
+  /**
+   * 表格列定义
+   * 
+   * 设计原则:
+   * 1. 与 VmSection.tsx 保持一致的列定义和渲染逻辑
+   * 2. 额外添加回收站特有的列: "删除时间" 和 "剩余时间"
+   * 3. 使用 useMemo 稳定引用，避免不必要的重新计算
+   * 4. 所有列都通过 SafeRead 对象读取数据，确保兼容性
+   * 
+   * 列说明:
+   * - 基础信息: 名称、ID、状态、命名空间、租户、组织
+   * - 资源信息: 节点、CPU、内存、镜像、操作系统
+   * - 网络信息: IP地址、MAC地址
+   * - 存储信息: 存储卷详情
+   * - 时间信息: 创建时间、删除时间（回收站特有）、剩余时间（回收站特有）
+   * - 操作列: 恢复、运维信息（租户模式隐藏）、彻底删除
+   * 
+   * 固定列:
+   * - 名称列: fixed='left' - 始终显示在左侧
+   * - 状态列: fixed='left' - 始终显示在左侧
+   * - 操作列: fixed='right' - 始终显示在右侧
+   */
   const allColumns = useMemo(() => {
     const cols = [
     {
@@ -712,6 +1029,12 @@ const RecycleBinSection: React.FC<Props> = ({
         return <span className="std-time">{`${year}-${month}-${day} ${hours}:${minutes}:${seconds}`}</span>;
       },
     },
+    /**
+     * [回收站特有列] 删除时间
+     * 
+     * 显示虚拟机被删除的时间，从 metadata.annotations['tower.io/deletion-scheduled'] 读取
+     * 这是回收站机制记录的时间点，用于追踪删除操作
+     */
     {
       title: '删除时间',
       key: 'deletedAt',
@@ -728,6 +1051,15 @@ const RecycleBinSection: React.FC<Props> = ({
         return <span className="std-time">{`${year}-${month}-${day} ${hours}:${minutes}:${seconds}`}</span>;
       },
     },
+    /**
+     * [回收站特有列] 剩余时间
+     * 
+     * 显示距离自动清理的倒计时
+     * - 从 metadata.annotations['tower.io/deletion-expires'] 读取过期时间
+     * - 使用 getTimeRemaining 计算剩余时间
+     * - 已过期显示红色"已过期"标签
+     * - 未过期显示倒计时文本和时钟图标
+     */
     {
       title: '剩余时间',
       key: 'timeRemaining',
@@ -779,113 +1111,45 @@ const RecycleBinSection: React.FC<Props> = ({
       },
     },
     ];
-    // 更新 ref，用于列设置
-    allColumnsRef.current = cols;
     return cols;
   }, [SafeRead, getTimeRemaining, handleRestore, handleForceDelete, handleShowOpsinfo, isTenant]);
 
-  // 初始化列设置（只执行一次）
-  useEffect(() => {
-    if (columnSettingsInitialized || allColumns.length === 0) return;
-    
-    const allKeys = allColumns
-      .map((col) => {
-        if (col.key) return String(col.key);
-        return '';
-      })
-      .filter(Boolean);
-    
-    // 从 localStorage 读取保存的设置
-    try {
-      const saved = localStorage.getItem(`table_cols_${settingsKey}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // 过滤掉无效的 key
-          const validKeys = parsed.filter((k: string) => allKeys.includes(k));
-          if (validKeys.length > 0) {
-            setCheckedColumnKeys(validKeys);
-            setColumnSettingsInitialized(true);
-            return;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to load column settings', e);
-    }
-    
-    // 默认全部选中
-    setCheckedColumnKeys(allKeys);
-    setColumnSettingsInitialized(true);
-  }, [allColumns, columnSettingsInitialized, settingsKey]);
+  /**
+   * 使用 useTableColumnSettings hook 管理列显示/隐藏
+   * 
+   * 功能:
+   * - 从 localStorage 读取用户保存的列设置
+   * - 根据用户选择过滤列
+   * - 自动保存用户的选择到 localStorage
+   * 
+   * 优势:
+   * - 避免使用旧的 TableColumnSettings 组件（防止死锁问题）
+   * - 使用单向数据流，避免循环更新
+   * - 初始化只执行一次，性能更好
+   * 
+   * @param allColumns - 所有列定义
+   * @param 'harvester_recycle_bin_table' - localStorage 的 key
+   * @returns displayColumns - 过滤后的列数组，用于表格显示
+   */
+  const { displayColumns } = useTableColumnSettings(allColumns, 'harvester_recycle_bin_table');
 
-  // 根据选中的列键过滤列
-  const displayColumns = useMemo(() => {
-    if (!columnSettingsInitialized || checkedColumnKeys.length === 0) {
-      return allColumns;
-    }
-    return allColumns.filter((col) => {
-      const key = col.key ? String(col.key) : '';
-      // 如果没有 key，默认显示（如操作列）
-      if (!key) return true;
-      return checkedColumnKeys.includes(key);
-    });
-  }, [allColumns, checkedColumnKeys, columnSettingsInitialized]);
-
-  // 处理列设置变化
-  const handleColumnSettingsChange = useCallback((keys: string[]) => {
-    setCheckedColumnKeys(keys);
-    // 保存到 localStorage
-    try {
-      localStorage.setItem(`table_cols_${settingsKey}`, JSON.stringify(keys));
-    } catch (e) {
-      console.warn('Failed to save column settings', e);
-    }
-  }, [settingsKey]);
-
-  // 列设置内容
-  const columnSettingsContent = useMemo(() => {
-    const allKeys = allColumns
-      .map((col) => {
-        const key = col.key ? String(col.key) : '';
-        const title = typeof col.title === 'string' ? col.title : key;
-        if (!key) return null;
-        return { label: title, value: key };
-      })
-      .filter((opt): opt is { label: string; value: string } => !!opt);
-
-    const handleCheckAll = (e: any) => {
-      const allValues = allKeys.map((o) => o.value);
-      handleColumnSettingsChange(e.target.checked ? allValues : []);
-    };
-
-    return (
-      <div style={{ minWidth: 150 }}>
-        <div style={{ padding: '4px 8px 8px', borderBottom: '1px solid #f0f0f0' }}>
-          <Checkbox
-            indeterminate={checkedColumnKeys.length > 0 && checkedColumnKeys.length < allKeys.length}
-            onChange={handleCheckAll}
-            checked={checkedColumnKeys.length === allKeys.length}
-          >
-            列展示
-          </Checkbox>
-        </div>
-        <div style={{ padding: '8px', maxHeight: '300px', overflowY: 'auto' }}>
-          <Checkbox.Group
-            style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
-            options={allKeys}
-            value={checkedColumnKeys}
-            onChange={(list) => handleColumnSettingsChange(list as string[])}
-          />
-        </div>
-      </div>
-    );
-  }, [allColumns, checkedColumnKeys, handleColumnSettingsChange]);
-
+  // ==========================================
+  // [UI渲染] 8. 组件结构返回 (Render)
+  // ==========================================
+  
   return (
     <PageDetailSection 
       asCard={false}
       toolbarLeft={
+        /**
+         * 工具栏左侧: 筛选器
+         * 
+         * 包含:
+         * 1. 关键字搜索框 - 搜索名称/ID/命名空间
+         * 2. 命名空间下拉 - 租户模式下隐藏
+         * 3. 状态下拉 - 筛选不同状态的 VM
+         * 4. 重置按钮 - 当有筛选条件时显示，一键清空所有筛选
+         */
         <>
           <Input
             allowClear
@@ -932,22 +1196,22 @@ const RecycleBinSection: React.FC<Props> = ({
         </>
       }
       toolbarRight={
+        /**
+         * 工具栏右侧: 操作按钮
+         * 
+         * 包含:
+         * 1. 设定清理间隔 - 打开配置对话框，设置自动清理任务的执行间隔
+         * 2. 列设置按钮 - 使用 TableColumnSettingsButton 组件，管理列的显示/隐藏
+         * 3. 刷新按钮 - 手动刷新数据列表
+         */
         <div className="toolbar-actions">
           <Button type="primary"  onClick={() => setConfigOpen(true)}>
             设定清理间隔
           </Button>
-          <Popover
-            content={columnSettingsContent}
-            title={null}
-            trigger="click"
-            placement="bottomRight"
-            open={columnSettingsVisible}
-            onOpenChange={setColumnSettingsVisible}
-          >
-            <Tooltip title="列设置">
-              <Button icon={<SettingOutlined />} />
-            </Tooltip>
-          </Popover>
+          <TableColumnSettingsButton
+            allColumns={allColumns}
+            settingsKey="harvester_recycle_bin_table"
+          />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh()} loading={loading} />
         </div>
       }
@@ -971,7 +1235,19 @@ const RecycleBinSection: React.FC<Props> = ({
         }}
       />
       
-      {/* 运维信息抽屉 */}
+      {/* 
+        ========================================
+        运维信息抽屉 (Resource Detail Drawer)
+        ========================================
+        
+        用于显示虚拟机的详细信息，包括:
+        - 基本信息
+        - YAML 配置
+        - 事件日志
+        - 关联资源等
+        
+        注意: 在租户模式下，此抽屉不会显示（isTenant 控制）
+      */}
       {drawerRecord && (
         <HarvesterResourceDrawer
           open={drawerVisible}
@@ -992,7 +1268,18 @@ const RecycleBinSection: React.FC<Props> = ({
         />
       )}
 
-      {/* 清理任务执行间隔设置模态框 */}
+      {/* 
+        ========================================
+        清理周期配置对话框 (Cleanup Interval Config Modal)
+        ========================================
+        
+        用于配置自动清理任务的执行间隔:
+        - 范围: 1-168 小时
+        - 默认: 24 小时
+        - 配置保存在系统设置中，影响后端清理任务的执行频率
+        
+        注意: destroyOnHidden={false} 保持表单状态，避免重复加载配置
+      */}
       <Modal
         title="配置自动清理"
         open={configOpen}
@@ -1005,7 +1292,7 @@ const RecycleBinSection: React.FC<Props> = ({
         confirmLoading={configLoading}
         okText="保存"
         cancelText="取消"
-        destroyOnClose={false}
+        destroyOnHidden={false}
       >
         <Form
           form={configForm}

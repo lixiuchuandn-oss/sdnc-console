@@ -6,7 +6,8 @@ import StdFormModal from '../../components/StdFormModal';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import PageContainer from '../../components/PageContainer';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
 
 const { Text } = Typography;
 type SysUser = {
@@ -45,7 +46,6 @@ const AccessUsersPage: React.FC = () => {
   const [isEditingAdmin, setIsEditingAdmin] = useState(false);
   const [rolesByUser, setRolesByUser] = useState<Record<string, RBACRole[]>>({});
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [visibleColumns, setVisibleColumns] = useState<ColumnsType<SysUser>>([]);
 
   const openAssign = React.useCallback(async (u: SysUser) => {
     if (u.username === 'admin') { message.warning('系统管理员不支持修改权限'); return; }
@@ -104,6 +104,9 @@ const AccessUsersPage: React.FC = () => {
       return <ResourceActionsDropdown items={items as any} />;
     } }
   ], [rolesByUser, openAssign]);
+
+  // 使用新的 hook 管理列设置
+  const { displayColumns: visibleColumns } = useTableColumnSettings(defaultColumns, 'sys_users_v1');
 
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
@@ -205,10 +208,9 @@ const AccessUsersPage: React.FC = () => {
     } catch { message.error('保存失败'); }
   }, [assignUser, assignExisting, assignSelected]);
 
-  const handleCreate = React.useCallback(async () => {
-    const vals = await createForm.validateFields();
+  const handleCreate = React.useCallback(async (values: any) => {
     const token = localStorage.getItem('token');
-    const res = await fetch('/api/users', { method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(vals) });
+    const res = await fetch('/api/users', { method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(values) });
     if (res.ok) { message.success('系统用户创建成功'); setCreateOpen(false); createForm.resetFields(); fetchUsers(); }
     else { try { message.error(await res.text()); } catch { message.error('创建失败'); } }
   }, [createForm]);
@@ -239,7 +241,7 @@ const AccessUsersPage: React.FC = () => {
           <Dropdown menu={batchMenuProps}>
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <TableColumnSettings columns={defaultColumns} onChange={setVisibleColumns} settingsKey="sys_users_v1" />
+          <TableColumnSettingsButton allColumns={defaultColumns} settingsKey="sys_users_v1" />
           <Button icon={<ReloadOutlined />} onClick={fetchUsers} />
         </div>
       </div>
@@ -249,7 +251,7 @@ const AccessUsersPage: React.FC = () => {
         rowKey="id"
         loading={loading}
         dataSource={filteredUsers}
-        columns={visibleColumns.length > 0 ? visibleColumns : defaultColumns}
+        columns={visibleColumns}
         rowSelection={{
           selectedRowKeys,
           onChange: setSelectedRowKeys,
@@ -269,7 +271,7 @@ const AccessUsersPage: React.FC = () => {
         <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}> 
           <Input placeholder="例如：ops_admin" />
         </Form.Item>
-        <Form.Item name="email" label="邮箱" rules={[{ type:'email', message: '请输入有效邮箱' }]}> 
+        <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱' }, { type:'email', message: '请输入有效邮箱' }]}> 
           <Input placeholder="例如：ops@example.com" />
         </Form.Item>
         <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}> 

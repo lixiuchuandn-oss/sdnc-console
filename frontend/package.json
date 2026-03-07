@@ -15,6 +15,7 @@
     "buffer": "^6.0.3",
     "cronstrue": "^3.11.0",
     "crypto-js": "^4.2.0",
+    "dayjs": "^1.11.19",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",
     "http-proxy-middleware": "^3.0.5",
@@ -32,9 +33,9 @@
   },
   "scripts": {
     "postinstall": "patch-package",
-    "start": "set \"HOST=0.0.0.0\" && set \"PORT=5000\" && set \"REACT_APP_API_URL=http://127.0.0.1:5001\" && set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-app-rewired start",
-    "build": "set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-app-rewired build",
-    "test": "set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-app-rewired test",
+    "start": "set \"HOST=0.0.0.0\" && set \"PORT=5000\" && set \"REACT_APP_API_URL=http://127.0.0.1:5001\" && set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-scripts start",
+    "build": "set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-scripts build",
+    "test": "set \"NODE_OPTIONS=--max-old-space-size=4096\" && react-scripts test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -62,9 +63,8 @@
     "@types/d3-dispatch": "3.0.6",
     "@types/jest": "^29.5.8",
     "@types/novnc__novnc": "^1.6.0",
-    "prettier": "^3.8.1",
     "patch-package": "^8.0.0",
-    "react-app-rewired": "^2.2.1"
+    "prettier": "^3.8.1"
   },
   "jest": {
     "transformIgnorePatterns": [

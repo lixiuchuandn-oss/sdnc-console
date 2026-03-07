@@ -12,7 +12,8 @@ import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, 
 import { SettingOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 
 /**
@@ -314,7 +315,8 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     },
   ], [handleOpenOpsinfo, metricsMap]);
 
-  const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
+  // 使用新的 hook 管理列设置
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nodes_table');
 
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
 
@@ -344,9 +346,8 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
       toolbarRight={(
         <div className="toolbar-actions">
           {/* Settings button is handled by columnsConfig if provided, or manual if not */}
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton
+            allColumns={allColumns}
             settingsKey="harvester_nodes_table"
           />
           <Button 

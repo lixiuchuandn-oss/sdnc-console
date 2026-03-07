@@ -1036,7 +1036,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title={editingRecord ? '编辑邮件通知对象' : '新增邮件通知对象'}
           open={addEmailModalOpen}
           onCancel={handleCloseAddEmailModal}
-          destroyOnClose
+          destroyOnHidden
           width={800}
           footer={[
             <Button key="cancel" onClick={handleCloseAddEmailModal}>取消</Button>,
@@ -1151,7 +1151,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title={editingRecord ? '编辑钉钉通知对象' : '新增钉钉通知对象'}
           open={addDingtalkModalOpen}
           onCancel={handleCloseAddDingtalkModal}
-          destroyOnClose
+          destroyOnHidden
           width={800}
           footer={[
             <Button key="cancel" onClick={handleCloseAddDingtalkModal}>取消</Button>,
@@ -1210,7 +1210,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title="开通站内信"
           open={addWebsiteModalOpen}
           onCancel={handleCloseAddWebsiteModal}
-          destroyOnClose
+          destroyOnHidden
           width={520}
           footer={[
             <Button key="cancel" onClick={handleCloseAddWebsiteModal}>取消</Button>,

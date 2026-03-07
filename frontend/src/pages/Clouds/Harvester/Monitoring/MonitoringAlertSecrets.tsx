@@ -55,7 +55,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState<SecretRow | null>(null);
   const [detailRecord, setDetailRecord] = useState<SecretRow | null>(null);
-  /** 编辑时从后端拉取的表单初始值，用于 Modal 打开后正确填充（destroyOnClose 时 setFieldsValue 可能失效） */
+  /** 编辑时从后端拉取的表单初始值，用于 Modal 打开后正确填充（destroyOnHidden 时 setFieldsValue 可能失效） */
   const [editFormInitialValues, setEditFormInitialValues] = useState<{
     namespace: string;
     name: string;
@@ -310,7 +310,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         okText="确定"
         cancelText="取消"
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         width={480}
       >
         <Form

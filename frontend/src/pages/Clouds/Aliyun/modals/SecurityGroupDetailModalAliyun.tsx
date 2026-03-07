@@ -407,7 +407,7 @@ const SecurityGroupDetailModalAliyun: React.FC<Props> = ({ open, onCancel, cloud
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         width={720}
-        destroyOnClose
+        destroyOnHidden
         footer={
           <Space style={{ float: 'right' }}>
             <Button onClick={() => setCreateModalOpen(false)}>取消</Button>

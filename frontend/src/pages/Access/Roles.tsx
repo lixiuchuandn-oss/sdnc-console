@@ -6,7 +6,8 @@ import StdFormModal from '../../components/StdFormModal';
 import PageContainer from '../../components/PageContainer';
 import { featureLabelOf } from '../../catalogs/navCatalog';
 import PermissionTreeTransfer from '../../components/TreeTransfer';
-import TableColumnSettings from '../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
 
 const { Text } = Typography;
 
@@ -72,7 +73,29 @@ const AccessRolesPage: React.FC = () => {
   
   // 表格选择与列配置
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [displayedColumns, setDisplayedColumns] = useState<any[]>([]);
+  
+  // 角色列表表格
+  const fullColumns = useMemo(() => [
+    { title:'角色名称', key:'name', dataIndex:'name', width:180, render: (v:any, row: RBACRole) => (
+      <Space>
+        { row.scope === 'system' ? <Tag color="blue">System</Tag> : <Tag color="green">Tenant</Tag> }
+        <Text strong>{v}</Text>
+      </Space>
+    ) },
+    { title:'描述', key:'description', dataIndex:'description', ellipsis:true },
+    { title:'创建时间', key:'createdAt', dataIndex:'createdAt', width:180, render: (v:string) => v ? new Date(v).toLocaleString() : '-' },
+    { title:'操作', key:'action', width:150, fixed:'right' as const, render: (_:any, row: RBACRole) => (
+      <Space>
+        <Button type="link" size="small" onClick={() => openAuthorize(row)}>授权</Button>
+        <Popconfirm title="确认删除？" onConfirm={() => handleDelete(row)}>
+          <Button type="link" size="small" danger disabled={row.scope==='system'}>删除</Button>
+        </Popconfirm>
+      </Space>
+    ) },
+  ], []);
+
+  // 使用新的 hook 管理列设置
+  const { displayColumns: displayedColumns } = useTableColumnSettings(fullColumns, 'access_roles_table');
 
   // 获取角色列表
   const fetchRoles = async () => {
@@ -134,71 +157,36 @@ const AccessRolesPage: React.FC = () => {
     }
   }, [createForm]);
 
-  // 处理角色删除
-  const handleDelete = React.useCallback(async (row: RBACRole) => {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api/system/rbac/roles/${row.id}`, { method:'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-    if (res.ok) { message.success('已删除'); fetchRoles(); }
-    else { try { message.error(await res.text()); } catch { message.error('删除失败'); } }
-  }, []);
-
-  // 打开授权配置抽屉
-  const openAuthorize = React.useCallback((row: RBACRole) => {
-    setGrantTarget(row);
-    let arr: string[] = [];
-    if (Array.isArray(row.actions)) { arr = row.actions; }
-    else {
-      const raw: any = (row as any).permissions;
-      if (Array.isArray(raw)) { arr = raw as string[]; }
-      else if (typeof raw === 'string') { try { arr = JSON.parse(raw || '[]') || []; } catch {} }
-    }
-    setGrantSelectedIds(arr);
-    setGrantOpen(true);
-  }, []);
-
-  // 保存授权配置
-  const saveAuthorization = React.useCallback(async () => {
+  // 提交授权
+  const handleGrantSave = React.useCallback(async (targetKeys: string[]) => {
     if (!grantTarget) return;
-    const actions = Array.from(new Set(grantSelectedIds));
-    const token = localStorage.getItem('token');
-    const res = await fetch(`/api/system/rbac/roles/${grantTarget.id}`, { method:'PUT', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ permissions: actions }) });
+    const res = await fetch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+      body: JSON.stringify({ permissions: targetKeys })
+    });
     if (res.ok) {
-      message.success('授权已保存');
+      message.success('授权成功');
       setGrantOpen(false);
-      setGrantTarget(null);
       fetchRoles();
     }
     else { try { message.error(await res.text()); } catch { message.error('保存失败'); } }
-  }, [grantTarget, grantSelectedIds]);
+  }, [grantTarget]);
 
-  // 角色列表表格
-  const fullColumns = React.useMemo(() => [
-    { title:'角色名称', key:'name', dataIndex:'name', width:180, render: (v:any, row: RBACRole) => (
-      <Space>
-        { row.scope === 'system' ? <Tag color="blue">System</Tag> : <Tag color="green">Tenant</Tag> }
-        <Text strong>{v}</Text>
-      </Space>
-    ) },
-    { title:'描述', key:'description', dataIndex:'description', ellipsis: true },
-    { title:'权限摘要', key:'perms', render: (_:any, row: RBACRole) => {
-      let count = 0;
-      if (Array.isArray(row.actions)) count = row.actions.length;
-      else {
-        const raw: any = (row as any).permissions;
-        if (Array.isArray(raw)) count = raw.length;
-        else if (typeof raw === 'string') { try { count = JSON.parse(raw).length; } catch {} }
-      }
-      return <Tag>{count} Actions</Tag>;
-    } },
-    { title:'操作', key:'op', width:180, render: (_:any, row: RBACRole) => (
-      <Space>
-        <Button type="link" size="small" onClick={() => openAuthorize(row)}>授权</Button>
-        <Popconfirm title="确认删除？" onConfirm={() => handleDelete(row)}>
-          <Button type="link" size="small" danger disabled={row.scope==='system'}>删除</Button>
-        </Popconfirm>
-      </Space>
-    ) },
-  ], [openAuthorize, handleDelete]);
+  const openAuthorize = React.useCallback((role: RBACRole) => {
+    setGrantTarget(role);
+    setGrantSelectedIds(role.actions || []);
+    setGrantOpen(true);
+  }, []);
+
+  const handleDelete = React.useCallback(async (role: RBACRole) => {
+    const res = await fetch(`/api/system/rbac/roles/${role.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    });
+    if (res.ok) { message.success('删除成功'); fetchRoles(); }
+    else { message.error('删除失败'); }
+  }, []);
 
   return (
     <PageContainer
@@ -253,9 +241,8 @@ const AccessRolesPage: React.FC = () => {
           }} trigger={['click']}>
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <TableColumnSettings 
-            columns={fullColumns} 
-            onChange={setDisplayedColumns} 
+          <TableColumnSettingsButton
+            allColumns={fullColumns}
             settingsKey="access_roles_table"
           />
           <Button icon={<ReloadOutlined />} onClick={fetchRoles} />
@@ -272,10 +259,12 @@ const AccessRolesPage: React.FC = () => {
         }}
         dataSource={roles.filter(r => {
           const matchKw = roleKw ? ((r.name||'').toLowerCase().includes(roleKw.toLowerCase()) || (r.description||'').toLowerCase().includes(roleKw.toLowerCase())) : true;
-          const matchType = roleType === '全部' ? true : r.type === roleType;
+          // type 筛选逻辑可能需要根据实际数据调整，这里假设前端不做严格过滤或数据源已有 type 字段
+          // 如果数据源没有 type 字段，可能需要根据 scope 或其他属性推断
+          const matchType = roleType === '全部' ? true : (r.type === roleType || (roleType === '系统策略' && r.scope === 'system') || (roleType === '自定义策略' && r.scope === 'tenant'));
           return matchKw && matchType;
         })}
-        columns={displayedColumns.length > 0 ? displayedColumns : fullColumns}
+        columns={displayedColumns}
         pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: ['10','20','50','100'], showQuickJumper: false }}
         scroll={{ x: 'max-content' }}
         bordered
@@ -298,7 +287,7 @@ const AccessRolesPage: React.FC = () => {
       </StdFormModal>
 
       {/* 授权配置抽屉 */}
-      <StdSideDrawer title="授权配置" open={grantOpen} onClose={()=> { setGrantOpen(false); setGrantTarget(null); }} onOk={saveAuthorization} width={1200} styles={{ body: { display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}>
+      <StdSideDrawer title="授权配置" open={grantOpen} onClose={()=> { setGrantOpen(false); setGrantTarget(null); }} onOk={() => handleGrantSave(grantSelectedIds)} width={1200} styles={{ body: { display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}>
         <Form layout="vertical" style={{ display:'flex', gap: 16, marginBottom: 20 }}>
           <Form.Item label="读写" style={{ width: 160, marginBottom: 0 }}>
             <Select value={permVerb} onChange={(v:any)=> setPermVerb(v)} options={[{ value:'全部', label:'全部' }, { value:'read', label:'read' }, { value:'write', label:'write' }]} />

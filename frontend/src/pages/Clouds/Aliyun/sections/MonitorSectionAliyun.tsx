@@ -85,7 +85,7 @@ const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics
           size="small"
           title={m.label}
           variant="outlined"
-          bodyStyle={{ padding: 12 }}
+          styles={{ body: { padding: 12 } }}
           style={{ overflow: 'hidden' }}
           extra={<span style={{ fontSize: 12, color: '#8c8c8c' }}>当前 {formatNum(Number(cur))} · 最小 {formatNum(Number(min))} · 最大 {formatNum(Number(max))}</span>}
         >

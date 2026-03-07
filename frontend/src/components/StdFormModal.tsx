@@ -11,15 +11,13 @@ type StdFormModalProps = {
   onCancel?: () => void;
   onFinish?: (values: any) => void;
   children?: React.ReactNode;
-  destroyOnClose?: boolean;
   destroyOnHidden?: boolean;
   forceRender?: boolean;
   initialValues?: any;
   centered?: boolean;
 };
 
-const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = '保存', width = 600, confirmLoading, form, onCancel, onFinish, children, destroyOnClose = true, destroyOnHidden, forceRender, initialValues, centered = true }) => {
-  const shouldDestroyOnHidden = typeof destroyOnHidden !== 'undefined' ? destroyOnHidden : destroyOnClose;
+const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = '保存', width = 600, confirmLoading, form, onCancel, onFinish, children, destroyOnHidden = true, forceRender, initialValues, centered = true }) => {
   return (
     <Modal
       className="stdform-modal"
@@ -30,7 +28,7 @@ const StdFormModal: React.FC<StdFormModalProps> = ({ open, title, okText = '保�
       onOk={() => form?.submit?.()}
       okText={okText}
       confirmLoading={confirmLoading}
-      destroyOnHidden={shouldDestroyOnHidden}
+      destroyOnHidden={destroyOnHidden}
       forceRender={forceRender}
       width={width}
       styles={{

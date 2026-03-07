@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Table, Button, message, Typography, Input, Select, Form, Dropdown, Modal, Transfer, Popover, Checkbox, Tooltip } from 'antd';
-import { ReloadOutlined, UserAddOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
+import { Table, Button, message, Typography, Input, Select, Form, Dropdown, Modal, Transfer } from 'antd';
+import { ReloadOutlined, UserAddOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import PageContainer from '../../components/PageContainer';
 import StdFormModal from '../../components/StdFormModal';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
+import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
 const { Option } = Select;
 
 interface TenantUser {
@@ -80,12 +82,6 @@ const UserManagement: React.FC = () => {
   const [roleAssignSelected, setRoleAssignSelected] = useState<string[]>([]);
 
   const [filterForm] = Form.useForm();
-
-  // 列设置相关状态
-  const [columnSettingsVisible, setColumnSettingsVisible] = useState(false);
-  const [checkedColumnKeys, setCheckedColumnKeys] = useState<string[]>([]);
-  const [columnSettingsInitialized, setColumnSettingsInitialized] = useState(false);
-  const settingsKey = 'tenant-users-columns';
 
   // Fetch Helper
   const apiCall = async (method: string, url: string, data?: any) => {
@@ -373,103 +369,8 @@ const UserManagement: React.FC = () => {
     }
   ], [modal, availableRolesRef, openAssignRoleModal, handleDeleteUser]);
 
-  // 初始化列设置（只执行一次）
-  useEffect(() => {
-    if (columnSettingsInitialized || baseColumns.length === 0) return;
-    
-    const allKeys = baseColumns
-      .map((col) => {
-        if (col.key) return String(col.key);
-        return '';
-      })
-      .filter(Boolean);
-    
-    // 从 localStorage 读取保存的设置
-    try {
-      const saved = localStorage.getItem(`table_cols_${settingsKey}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // 过滤掉无效的 key
-          const validKeys = parsed.filter((k: string) => allKeys.includes(k));
-          if (validKeys.length > 0) {
-            setCheckedColumnKeys(validKeys);
-            setColumnSettingsInitialized(true);
-            return;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to load column settings', e);
-    }
-    
-    // 默认全部选中
-    setCheckedColumnKeys(allKeys);
-    setColumnSettingsInitialized(true);
-  }, [baseColumns, columnSettingsInitialized, settingsKey]);
-
-  // 根据选中的列键过滤列
-  const columns = useMemo(() => {
-    if (!columnSettingsInitialized || checkedColumnKeys.length === 0) {
-      return baseColumns;
-    }
-    return baseColumns.filter((col) => {
-      const key = col.key ? String(col.key) : '';
-      // 如果没有 key，默认显示（如操作列）
-      if (!key) return true;
-      return checkedColumnKeys.includes(key);
-    });
-  }, [baseColumns, checkedColumnKeys, columnSettingsInitialized]);
-
-  // 处理列设置变化
-  const handleColumnSettingsChange = useCallback((keys: string[]) => {
-    setCheckedColumnKeys(keys);
-    // 保存到 localStorage
-    try {
-      localStorage.setItem(`table_cols_${settingsKey}`, JSON.stringify(keys));
-    } catch (e) {
-      console.warn('Failed to save column settings', e);
-    }
-  }, [settingsKey]);
-
-  // 列设置内容
-  const columnSettingsContent = useMemo(() => {
-    const allKeys = baseColumns
-      .map((col) => {
-        const key = col.key ? String(col.key) : '';
-        const title = typeof col.title === 'string' ? col.title : key;
-        if (!key) return null;
-        return { label: title, value: key };
-      })
-      .filter((opt): opt is { label: string; value: string } => !!opt);
-
-    const handleCheckAll = (e: any) => {
-      const allValues = allKeys.map((o) => o.value);
-      handleColumnSettingsChange(e.target.checked ? allValues : []);
-    };
-
-    return (
-      <div style={{ minWidth: 150 }}>
-        <div style={{ padding: '4px 8px 8px', borderBottom: '1px solid #f0f0f0' }}>
-          <Checkbox
-            indeterminate={checkedColumnKeys.length > 0 && checkedColumnKeys.length < allKeys.length}
-            onChange={handleCheckAll}
-            checked={checkedColumnKeys.length === allKeys.length}
-          >
-            列展示
-          </Checkbox>
-        </div>
-        <div style={{ padding: '8px', maxHeight: '300px', overflowY: 'auto' }}>
-          <Checkbox.Group
-            style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
-            options={allKeys}
-            value={checkedColumnKeys}
-            onChange={(list) => handleColumnSettingsChange(list as string[])}
-          />
-        </div>
-      </div>
-    );
-  }, [baseColumns, checkedColumnKeys, handleColumnSettingsChange]);
+  // 使用新的 hook 管理列设置
+  const { displayColumns: columns } = useTableColumnSettings(baseColumns, 'tenant-users-columns');
 
   return (
     <PageContainer
@@ -512,18 +413,10 @@ const UserManagement: React.FC = () => {
           >
             批量删除 {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : ''}
           </Button>
-          <Popover
-            content={columnSettingsContent}
-            title={null}
-            trigger="click"
-            placement="bottomRight"
-            open={columnSettingsVisible}
-            onOpenChange={setColumnSettingsVisible}
-          >
-            <Tooltip title="列设置">
-              <Button icon={<SettingOutlined />} />
-            </Tooltip>
-          </Popover>
+          <TableColumnSettingsButton
+            allColumns={baseColumns}
+            settingsKey="tenant-users-columns"
+          />
           <Button icon={<ReloadOutlined />} onClick={fetchTenantUsers} loading={loading} />
         </div>
       </div>

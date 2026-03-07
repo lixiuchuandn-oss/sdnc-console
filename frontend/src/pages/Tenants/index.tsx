@@ -16,7 +16,8 @@ import {
 import { 
   EllipsisOutlined,
   SettingOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  SearchOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { Tenant, Organization, CreateTenantRequest } from '../../types/tenant';
@@ -329,17 +330,16 @@ const TenantsPage: React.FC = () => {
   ];
 
   // 过滤后的租户列表
-  const [idFilter, setIdFilter] = useState<string>('');
-  
   const handleFilterChange = (_: any, all: any) => {
     setTenantSearch(all.keyword || '');
-    setIdFilter(all.id || '');
   };
   
   const filteredTenants = tenants.filter(t => {
-    const okKeyword = t.name.toLowerCase().includes(tenantSearch.toLowerCase()) || (t.description || '').toLowerCase().includes(tenantSearch.toLowerCase());
-    const okId = !idFilter || t.id.toLowerCase().includes(idFilter.toLowerCase());
-    return okKeyword && okId;
+    if (!tenantSearch) return true;
+    const searchLower = tenantSearch.toLowerCase();
+    return t.name.toLowerCase().includes(searchLower) || 
+           (t.description || '').toLowerCase().includes(searchLower) ||
+           t.id.toLowerCase().includes(searchLower);
   });
 
   useEffect(() => {
@@ -361,9 +361,15 @@ const TenantsPage: React.FC = () => {
           style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
           onValuesChange={handleFilterChange}
         >
-          <Form.Item name="keyword" label="租户名称"><Input className="toolbar-search" allowClear placeholder="支持模糊查询" /></Form.Item>
-          <Form.Item name="id" label="ID"><Input className="toolbar-search" allowClear placeholder="请输入ID" /></Form.Item>
-          <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); setIdFilter(''); }}>重置</a>
+          <Form.Item name="keyword">
+            <Input 
+              className="toolbar-search" 
+              allowClear 
+              placeholder="关键字搜索" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
+          </Form.Item>
+          <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setTenantSearch(''); }}>重置</a>
         </Form>
         <div className="toolbar-actions">
           <Button type="primary" onClick={()=> setTenantDrawerOpen(true)}>添加租户</Button>

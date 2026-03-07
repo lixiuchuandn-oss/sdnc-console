@@ -1429,7 +1429,7 @@ const CenDetailPage: React.FC = () => {
         footer={null}
         width="95%"
         style={{ top: '5vh' }}
-        bodyStyle={{ height: '85vh', padding: 0, overflow: 'hidden' }}
+        styles={{ body: { height: '85vh', padding: 0, overflow: 'hidden' } }}
         title={null}
         destroyOnHidden
       >

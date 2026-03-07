@@ -435,34 +435,44 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               {/* 动态渲染 Provider 定义的字段 */}
               {(() => {
                 const fieldsToRender = selectedProvider.fields;
-                return fieldsToRender.map(field => (
-                <Form.Item
-                  key={field.key}
-                  name={field.key}
-                  label={field.label}
-                  rules={field.required ? [{ required: true, message: `请输入${field.label}` }] : []}
-                  help={field.help}
-                >
-                  {field.type === 'input' && (
-                    <Input placeholder={field.placeholder} />
-                  )}
-                  {field.type === 'password' && (
-                    <Input.Password placeholder={field.placeholder} />
-                  )}
-                  {field.type === 'select' && (
-                    <Select placeholder={field.placeholder}>
-                      {field.options?.map(option => (
-                        <Option key={option.value} value={option.value}>
-                          {option.label}
-                        </Option>
-                      ))}
-                    </Select>
-                  )}
-                  {field.type === 'textarea' && (
-                    <Input.TextArea rows={4} placeholder={field.placeholder} />
-                  )}
-                </Form.Item>
-                ));
+                return fieldsToRender.map(field => {
+                  // 渲染单个输入组件，确保 Form.Item 只有一个子元素
+                  const renderInput = () => {
+                    if (field.type === 'input') {
+                      return <Input placeholder={field.placeholder} />;
+                    }
+                    if (field.type === 'password') {
+                      return <Input.Password placeholder={field.placeholder} />;
+                    }
+                    if (field.type === 'select') {
+                      return (
+                        <Select placeholder={field.placeholder}>
+                          {field.options?.map(option => (
+                            <Option key={option.value} value={option.value}>
+                              {option.label}
+                            </Option>
+                          ))}
+                        </Select>
+                      );
+                    }
+                    if (field.type === 'textarea') {
+                      return <Input.TextArea rows={4} placeholder={field.placeholder} />;
+                    }
+                    return null;
+                  };
+
+                  return (
+                    <Form.Item
+                      key={field.key}
+                      name={field.key}
+                      label={field.label}
+                      rules={field.required ? [{ required: true, message: `请输入${field.label}` }] : []}
+                      help={field.help}
+                    >
+                      {renderInput()}
+                    </Form.Item>
+                  );
+                });
               })()}
 
               <Collapse

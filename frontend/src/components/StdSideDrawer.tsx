@@ -28,7 +28,7 @@ const StdSideDrawer: React.FC<StdSideDrawerProps> = ({
       placement={placement}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       width={width}
       maskClosable={maskClosable}
       styles={{

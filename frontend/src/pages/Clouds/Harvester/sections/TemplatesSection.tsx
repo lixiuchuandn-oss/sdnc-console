@@ -20,7 +20,8 @@ import { ReloadOutlined, ProjectOutlined, DeleteOutlined, SearchOutlined, Exclam
 import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import HarvesterTemplateDetailDrawer from '../components/HarvesterTemplateDetailDrawer';
 import HarvesterOpsinfoDrawer from '../components/HarvesterOpsinfoDrawer';
@@ -380,7 +381,8 @@ const TemplatesSection: React.FC<Props> = ({
    * - 通过 TableColumnSettings 组件的 onChange 回调更新
    * - 用户可以在 UI 中选择显示/隐藏列，这里保存用户的选择结果
    */
-  const [tableColumns, setTableColumns] = useState<ColumnsType<any>>(allColumns);
+  // 使用新的 hook 管理列设置
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_templates_table');
 
   /**
    * 基础数据（过滤系统资源/租户权限）
@@ -493,9 +495,8 @@ const TemplatesSection: React.FC<Props> = ({
                 批量删除
               </Button>
             )}
-            <TableColumnSettings
-              columns={allColumns}
-              onChange={setTableColumns}
+            <TableColumnSettingsButton
+              allColumns={allColumns}
               settingsKey="harvester_templates_table"
             />
             {onRefresh && (

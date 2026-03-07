@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Form, Input, Select, Space, Table, Tag, Tree } from 'antd';
 import { ApiOutlined, ReloadOutlined } from '@ant-design/icons';
- 
 import axios from 'axios';
 import { routeSpecs } from '../../routes/RouteSpec';
 import PageContainer from '../../components/PageContainer';
 import { PLATFORMS, PLATFORM_LABELS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../catalogs/navCatalog';
+import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
+
 type ApiItem = { method: string; path: string; file: string };
 type ActionItem = { key: string; action: string; group: string; feature: string; platform: string; desc: string; bound: boolean; apis: ApiItem[] };
 
@@ -16,8 +18,6 @@ const mapGroupOf = (val: string): string => groupOf(val.split(':')[0]) || '';
 const mapPlatformOf = (val: string): string => platformOf(val.split(':')[0]) || '';
 
 const featureOf = (resource: string): string => featureLabelOf(resource);
-
- 
 
 const describeAction = (action: string): string => {
   const [resource, op] = String(action).split(':');
@@ -54,6 +54,18 @@ const AccessActionsPage: React.FC = () => {
   const [selectedTreeKeys, setSelectedTreeKeys] = useState<string[]>(['grp:全部']);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [filterForm] = Form.useForm();
+
+  // 定义列
+  const columns = useMemo(() => [
+    { title:'权限原子', dataIndex:'action', key: 'action' },
+    { title:'功能', dataIndex:'feature', key: 'feature' },
+    { title:'分组', dataIndex:'group', key: 'group' },
+    { title:'描述', dataIndex:'desc', key: 'desc' },
+    { title:'状态', key:'status', render: (_:any, r:any) => (<span className={`std-badge ${r.bound ? 'std-badge-success' : 'std-badge-warning'}`}>{r.bound ? '已绑定' : '策划'}</span>) },
+  ], []);
+
+  // 使用新的 hook 管理列设置
+  const { displayColumns } = useTableColumnSettings(columns, 'access_actions_table');
 
   const load = async () => {
     const baseItems: ActionItem[] = [];
@@ -109,10 +121,77 @@ const AccessActionsPage: React.FC = () => {
         }));
       const items = itemsBase.concat(extraItems);
       setList(items);
-    } catch {
+    } catch (e) {
+      console.error(e);
+      // In case of error, show base items
       setList(baseItems);
     }
   };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  // Filter logic
+  const filteredList = useMemo(() => {
+    const lower = kw.toLowerCase();
+    return list.filter(item => {
+      if (activePlatform !== '全部' && item.platform !== activePlatform) return false;
+      if (activeGroup !== '全部' && item.group !== activeGroup) return false;
+      if (activeFeature && item.feature !== activeFeature) return false;
+      if (activeAction && item.action !== activeAction) return false;
+      if (activeStatus !== '全部' && (activeStatus === '已绑定' ? !item.bound : item.bound)) return false;
+      
+      return item.action.toLowerCase().includes(lower) || 
+             item.feature.toLowerCase().includes(lower) || 
+             item.desc.toLowerCase().includes(lower);
+    });
+  }, [list, kw, activePlatform, activeGroup, activeFeature, activeAction, activeStatus]);
+
+  // Tree data generation
+  const treeData = useMemo(() => {
+    // Group items by Group -> Feature -> Action
+    const structure: Record<string, Record<string, ActionItem[]>> = {};
+    
+    // Filter base list by platform first
+    const baseList = list.filter(item => activePlatform === '全部' || item.platform === activePlatform);
+    
+    baseList.forEach(item => {
+      if (!structure[item.group]) structure[item.group] = {};
+      if (!structure[item.group][item.feature]) structure[item.group][item.feature] = [];
+      structure[item.group][item.feature].push(item);
+    });
+
+    const nodes = Object.entries(structure).map(([groupName, features]) => {
+      const featureNodes = Object.entries(features).map(([featureName, items]) => {
+        return {
+          title: featureName,
+          key: `feat:${featureName}`,
+          // Leaf nodes (actions)
+          children: items.map(action => ({
+            title: action.action,
+            key: `act:${action.action}`,
+            isLeaf: true
+          }))
+        };
+      });
+
+      return {
+        title: groupName,
+        key: `grp:${groupName}`,
+        children: featureNodes
+      };
+    });
+
+    return [{ title: '全部', key: 'grp:全部' }, ...nodes];
+  }, [list, activePlatform]);
+
+  useEffect(() => {
+    const keys = treeData
+      .filter((n: any) => String(n.key).startsWith('grp:') && String(n.key) !== 'grp:全部')
+      .map((n: any) => String(n.key));
+    setExpandedKeys(keys);
+  }, [treeData]);
 
   // Reset all filters when platform changes
   useEffect(() => {
@@ -122,50 +201,6 @@ const AccessActionsPage: React.FC = () => {
     setSelectedTreeKeys(['grp:全部']);
     filterForm.setFieldsValue({ group: '全部' });
   }, [activePlatform]);
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  const rows = useMemo(() => {
-    const lower = kw.toLowerCase();
-    return list
-      .filter(x => activePlatform === '全部' || x.platform === activePlatform)
-      .filter(x => activeGroup === '全部' || x.group === activeGroup)
-      // When filtering by feature, ensure it matches EXACTLY, to avoid cross-contamination
-      .filter(x => !activeFeature || x.feature === activeFeature)
-      .filter(x => !activeAction || x.action === activeAction)
-      .filter(x => activeStatus === '全部' || (activeStatus === '已绑定' ? !!x.bound : !x.bound))
-      .filter(x => x.action.toLowerCase().includes(lower))
-      .map(x => ({ key: x.key, action: x.action, group: x.group, feature: x.feature, desc: x.desc, bound: x.bound }));
-  }, [list, kw, activePlatform, activeGroup, activeFeature, activeAction, activeStatus]);
-
-  const treeData = useMemo(() => {
-    const gmap = new Map<string, Map<string, ActionItem[]>>();
-    const base = list.filter(x => activePlatform === '全部' || x.platform === activePlatform);
-    base.forEach(x => {
-      const fmap = gmap.get(x.group) || new Map<string, ActionItem[]>();
-      const arr = fmap.get(x.feature) || [];
-      arr.push(x);
-      fmap.set(x.feature, arr);
-      gmap.set(x.group, fmap);
-    });
-    const groupsNodes = Array.from(gmap.entries()).map(([g, fm]) => ({
-      key: `grp:${g}`,
-      title: g,
-      children: Array.from(fm.entries()).map(([feat, items]) => ({
-        key: `feat:${g}::${feat}`,
-        title: feat,
-        children: items.map(it => ({ key: `act:${it.key}`, title: it.action }))
-      }))
-    }));
-    return [{ key: 'grp:全部', title: '全部' } as any].concat(groupsNodes as any);
-  }, [list, activePlatform]);
-
-  useEffect(() => {
-    const keys = treeData.filter((n: any) => String(n.key).startsWith('grp:') && String(n.key) !== 'grp:全部').map((n: any) => String(n.key));
-    setExpandedKeys(keys);
-  }, [treeData]);
 
   return (
     <PageContainer
@@ -186,107 +221,91 @@ const AccessActionsPage: React.FC = () => {
             onSelect={(keys) => {
               const k = String((keys as any)[0] || 'grp:全部');
               setSelectedTreeKeys([k]);
-              if (k === 'grp:全部') {
-                setActiveGroup('全部');
-                setActiveFeature(undefined);
-                setActiveAction(undefined);
-                filterForm.setFieldsValue({ group: '全部' });
-              } else if (k.startsWith('grp:')) {
-                const g = k.replace(/^grp:/, '');
+              
+              if (k.startsWith('grp:')) {
+                const g = k.split(':')[1];
                 setActiveGroup(g);
                 setActiveFeature(undefined);
                 setActiveAction(undefined);
                 filterForm.setFieldsValue({ group: g });
               } else if (k.startsWith('feat:')) {
-                const rest = k.replace(/^feat:/, '');
-                const parts = rest.split('::');
-                const g = parts[0];
-                const feat = parts.slice(1).join('::');
-                setActiveGroup(g);
-                setActiveFeature(feat);
+                // feat:featureName
+                const f = k.split(':')[1];
+                // Find group for this feature
+                const group = list.find(i => i.feature === f && (activePlatform === '全部' || i.platform === activePlatform))?.group || '全部';
+                setActiveGroup(group);
+                setActiveFeature(f);
                 setActiveAction(undefined);
-                filterForm.setFieldsValue({ group: g });
+                filterForm.setFieldsValue({ group: group });
               } else if (k.startsWith('act:')) {
-                const itemKey = k.replace(/^act:/, '');
-                const item = list.find(x => x.key === itemKey);
-                const g = item?.group || '全部';
-                setActiveGroup(g);
-                setActiveFeature(item?.feature);
-                setActiveAction(item?.action);
-                filterForm.setFieldsValue({ group: g });
+                 // act:actionName
+                 const a = k.split(':')[1];
+                 const item = list.find(i => i.action === a && (activePlatform === '全部' || i.platform === activePlatform));
+                 if (item) {
+                   setActiveGroup(item.group);
+                   setActiveFeature(item.feature);
+                   setActiveAction(a);
+                   filterForm.setFieldsValue({ group: item.group });
+                 }
               }
             }}
+            height={600}
+            style={{ overflow: 'hidden' }}
           />
         </div>
-        <div style={{ flex: 1, minWidth: 0, padding: 16 }}>
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          {/* 筛选工具栏 */}
           <div className="page-toolbar">
             <Form
-              form={filterForm}
-              className="toolbar-container"
               layout="vertical"
-              style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
+              style={{ display:'flex', alignItems:'flex-end', rowGap:12, columnGap:12 }}
+              form={filterForm}
+              initialValues={{ group: '全部', status: '全部' }}
               onValuesChange={(_, all) => {
                 setKw(all.keyword || '');
-                setActiveGroup(all.group || '全部');
+                if (all.group !== activeGroup) {
+                  setActiveGroup(all.group || '全部');
+                  setActiveFeature(undefined);
+                  setActiveAction(undefined);
+                  setSelectedTreeKeys([`grp:${all.group || '全部'}`]);
+                }
                 setActiveStatus(all.status || '全部');
-                setActiveFeature(undefined);
-                setActiveAction(undefined);
-                setSelectedTreeKeys([`grp:${all.group || '全部'}`]);
               }}
             >
               <Form.Item name="keyword" label="关键字">
-                <Input allowClear placeholder="搜索功能权限" className="toolbar-search" />
+                <Input allowClear placeholder="搜索权限原子/功能/描述" className="toolbar-search" />
               </Form.Item>
-              <Form.Item name="group" label="分组" initialValue={activeGroup}>
-                <Select showSearch optionFilterProp="label" style={{ width: 220 }} options={groups.map(g => ({ value: g, label: g }))} />
+              <Form.Item name="group" label="分组">
+                <Select
+                  className="toolbar-filter"
+                  placeholder="全部"
+                  options={[{ value: '全部', label: '全部' }].concat(groups.map(g => ({ value: g, label: g })))}
+                />
               </Form.Item>
-              <Form.Item name="status" label="状态" initialValue={activeStatus}>
-                <Select style={{ width: 160 }} options={[{ value: '全部', label: '全部' }, { value: '已绑定', label: '已绑定' }]} />
+              <Form.Item name="status" label="状态">
+                <Select className="toolbar-filter" options={[{ value:'全部', label:'全部' }, { value:'已绑定', label:'已绑定' }, { value:'策划', label:'策划' }]} />
               </Form.Item>
-              <a className="toolbar-reset-btn" onClick={() => { 
-                setKw(''); 
-                setActiveGroup('全部'); 
-                setActiveStatus('全部'); 
-                setActiveFeature(undefined); 
-                setActiveAction(undefined); 
-                setSelectedTreeKeys(['grp:全部']); 
-                filterForm.setFieldsValue({ group: '全部', status: '全部' }); 
+              <a className="toolbar-reset-btn" onClick={() => {
+                filterForm.resetFields();
+                setKw('');
+                setActiveGroup('全部');
+                setActiveFeature(undefined);
+                setActiveAction(undefined);
+                setActiveStatus('全部');
+                setSelectedTreeKeys(['grp:全部']);
               }}>重置</a>
             </Form>
             <Space className="toolbar-actions">
+              <TableColumnSettingsButton allColumns={columns} settingsKey="access_actions_table" />
               <Button icon={<ReloadOutlined />} onClick={load} />
             </Space>
           </div>
+
           <Table
             className="std-table"
-            rowKey={(r:any)=> r.key || r.id || Math.random().toString(36).slice(2)}
-            dataSource={rows}
-            expandable={{
-              expandedRowRender: (record:any) => {
-                const apis: ApiItem[] = (list.find(x => x.key === record.key)?.apis) || [];
-                if (!apis.length) return (<div style={{ color:'#9aa0a6' }}>未扫描到绑定的API</div>);
-                return (
-                  <div style={{ padding:'6px 12px' }}>
-                    <Table size="middle" pagination={false} rowKey={(r:any)=> r.method+':'+r.path} dataSource={apis}
-                      columns={[
-                        { title:'功能名', key:'apiTitle', width:180, render: (_:any, r:ApiItem) => apiTitle(r.method, r.path) },
-                        { title:'方法', dataIndex:'method', width:100 },
-                        { title:'路径', dataIndex:'path' },
-                        { title:'文件', dataIndex:'file' },
-                        { title:'用途', key:'usage', width:220, render: (_:any, r:ApiItem) => apiUsage(r.method, r.path) },
-                      ] as any}
-                    />
-                  </div>
-                );
-              }
-            }}
-            columns={[
-              { title:'权限原子', dataIndex:'action' },
-              { title:'功能', dataIndex:'feature' },
-              { title:'分组', dataIndex:'group' },
-              { title:'描述', dataIndex:'desc' },
-              { title:'状态', key:'status', render: (_:any, r:any) => (<span className={`std-badge ${r.bound ? 'std-badge-success' : 'std-badge-warning'}`}>{r.bound ? '已绑定' : '策划'}</span>) },
-            ] as any}
+            rowKey="key"
+            dataSource={filteredList}
+            columns={displayColumns as any}
             pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], size: 'small', showQuickJumper: false }}
             scroll={{ x: 'max-content' }}
             bordered

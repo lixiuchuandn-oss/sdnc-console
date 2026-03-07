@@ -13,7 +13,7 @@ import { ReactNode } from 'react';
 // 而非具体的 URL 路由路径。
 // ============================================================================
 
-export type Platform = 'CNMC' | 'SDNCC' | 'CNSOC' | '全部';
+export type Platform = 'CNMC' | 'SDNCC' | 'CNSOC' | 'SETTINGS' | '全部';
 
 export type Group = 
   | '资源控制台' 
@@ -31,16 +31,20 @@ export type Group =
   | '数据预处理' 
   | '威胁综合分析' 
   | '报告管理' 
+  | '通用设置'
+  | '高级集成'
+  | '授权管理'
   | '全部';
 
 // 平台列表定义
-export const PLATFORMS: Platform[] = ['全部', 'CNMC', 'SDNCC', 'CNSOC'];
+export const PLATFORMS: Platform[] = ['全部', 'CNMC', 'SDNCC', 'CNSOC', 'SETTINGS'];
 
 // 平台显示名称映射
 export const PLATFORM_LABELS: Record<Platform, string> = {
   'CNMC': '多云管理',
   'SDNCC': 'SDN管理',
   'CNSOC': 'AI SOC中心',
+  'SETTINGS': '系统设置',
   '全部': '全部'
 };
 
@@ -61,7 +65,10 @@ export const GROUPS: Group[] = [
   '态势中心',
   '数据预处理',
   '威胁综合分析',
-  '报告管理'
+  '报告管理',
+  '通用设置',
+  '高级集成',
+  '授权管理'
 ];
 
 export type RouteItem = {
@@ -146,6 +153,11 @@ export const ROUTE_CATALOG: RouteItem[] = [
   // 可信数据空间 (CNSOC)
   { prefix: 'trust.spaces', label: '空间管理', group: '可信数据空间', platform: 'CNSOC' },
   { prefix: 'trust.datasets', label: '数据集管理', group: '可信数据空间', platform: 'CNSOC' },
+
+  // 系统设置 (SETTINGS)
+  { prefix: 'settings.general', label: '通用设置', group: '通用设置', platform: 'SETTINGS' },
+  { prefix: 'settings.advanced', label: '高级集成', group: '高级集成', platform: 'SETTINGS' },
+  { prefix: 'settings.license', label: '授权管理', group: '授权管理', platform: 'SETTINGS' },
 ];
 
 /**

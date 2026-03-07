@@ -144,7 +144,7 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         footer={null}
         width={600}
         centered
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={form}

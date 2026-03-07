@@ -3,7 +3,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { getDefaultAdminPath } from './utils/accessMapping';
-import { ConfigProvider, Modal } from 'antd';
+import { ConfigProvider, Modal, theme as antdTheme } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import Login from './pages/Auth/Login';
 import AdminLogin from './pages/Auth/AdminLogin';
@@ -16,9 +16,13 @@ import CloudDetail from './pages/Clouds/CloudDetail';
 import InstanceDetail from './pages/Clouds/InstanceDetail';
 import Tenants from './pages/Tenants';
 import { AuthProvider } from './contexts/AuthContext';
+import { LicenseProvider } from './contexts/LicenseContext';
+import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import AdminRoute from './components/AdminRoute';
 import PrivateRoute from './components/PrivateRoute';
-import Settings from './pages/Settings/index';
+import GeneralSettings from './pages/Settings/GeneralSettings';
+import AdvancedSettings from './pages/Settings/AdvancedSettings';
+import LicenseSettingsPage from './pages/Settings/LicenseSettings';
 import Alarms from './pages/Alarms/index';
 import SRv6Page from './pages/InterConnect/SRv6/index';
 import SRv6CreatePage from './pages/InterConnect/SRv6/Create';
@@ -151,7 +155,11 @@ const AppRoutes: React.FC = () => {
           
           <Route path="aisoc/report" element={<AiSocFrame path="report" />} />
 
-          <Route path="settings" element={<Settings />} />
+          <Route path="settings" element={<Navigate to="settings/general" replace />} />
+          <Route path="settings/general" element={<GeneralSettings />} />
+          <Route path="settings/advanced" element={<AdvancedSettings />} />
+          <Route path="settings/license" element={<LicenseSettingsPage />} />
+          
           <Route path="coming-soon" element={<ComingSoon />} />
           <Route path="access/actions" element={<AccessActionsPage />} />
           <Route path="access/roles" element={<AccessRolesPage />} />
@@ -204,22 +212,35 @@ const AdminIndex: React.FC = () => {
   return <Navigate to={target} replace />;
 };
 
-  const App: React.FC = () => {
+  const AppContent: React.FC = () => {
+  const { settings } = useSettings();
+  const isDark = settings.theme === 'dark';
   return (
     <ConfigProvider
       theme={{
+        algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: '#1677ff',
+          colorPrimary: settings.primaryColor || '#1677ff',
           borderRadius: 6,
         },
       }}
     >
       <AuthProvider>
-        <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-          <AppRoutes />
-        </Router>
+        <LicenseProvider>
+          <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+            <AppRoutes />
+          </Router>
+        </LicenseProvider>
       </AuthProvider>
     </ConfigProvider>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <SettingsProvider>
+      <AppContent />
+    </SettingsProvider>
   );
 };
 

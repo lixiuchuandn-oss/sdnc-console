@@ -16,6 +16,7 @@ export interface RouteSpec {
   requiredActions?: Record<string, string>;
   parentId?: string;
   subtitle?: string;
+  requiredFeature?: string;
 }
 
 export const routeSpecs: RouteSpec[] = [
@@ -46,18 +47,20 @@ export const routeSpecs: RouteSpec[] = [
     group: '资源控制台',
     title: '仪表板',
     icon: 'DashboardOutlined',
-    order: 1
+    order: 1,
+    requiredFeature: 'sys.dashboard'
   },
   {
     id: 'sdn-dashboard',
     path: '/admin/sdn-dashboard',
     element: 'SdnDashboard',
     layout: 'admin',
-    platform: 'CNMC',
-    group: '资源控制台',
+    platform: 'SDNCC',
+    group: '跨地域互联',
     title: 'SDN总览',
     icon: 'SafetyCertificateOutlined',
-    order: 2
+    order: 0,
+    requiredFeature: 'platform.sdn'
   },
   {
     id: 'clouds-list',
@@ -87,7 +90,8 @@ export const routeSpecs: RouteSpec[] = [
       read: 'tenants:read',
       write: 'tenants:write'
     },
-    order: 1
+    order: 1,
+    requiredFeature: 'sys.tenant-mgmt'
   },
   {
     id: 'tenant-organizations',
@@ -115,7 +119,8 @@ export const routeSpecs: RouteSpec[] = [
       read: 'users:read',
       write: 'users:write'
     },
-    order: 3
+    order: 3,
+    requiredFeature: 'sys.tenant-mgmt'
   },
   {
     id: 'access-actions',
@@ -127,7 +132,8 @@ export const routeSpecs: RouteSpec[] = [
     title: '功能权限',
     subtitle: '列出后端提供的 API 级别功能点，供策略组合与角色授权使用。',
     icon: 'ApiOutlined',
-    order: 0
+    order: 0,
+    requiredFeature: 'sys.rbac-advanced'
   },
   {
     id: 'access-roles',
@@ -139,7 +145,8 @@ export const routeSpecs: RouteSpec[] = [
     title: '角色管理',
     subtitle: '角色用于将权限策略批量授权给用户或租户，便于统一管理与快速复用。',
     icon: 'SolutionOutlined',
-    order: 2
+    order: 2,
+    requiredFeature: 'sys.rbac-advanced'
   },
   {
     id: 'access-users',
@@ -607,5 +614,43 @@ export const routeSpecs: RouteSpec[] = [
     subtitle: '一站式管理租户专线IP；支持多维筛选/全列排序与批量操作；联动安全报告任务（进度跟踪、下载/取消/删除）；提供CSV导入与日志文件管理。',
     icon: 'BarChartOutlined',
     order: 20
+  },
+
+  // Settings Platform Routes
+  {
+    id: 'settings-general',
+    path: '/admin/settings/general',
+    element: 'GeneralSettings',
+    layout: 'admin',
+    platform: 'SETTINGS',
+    group: '通用设置',
+    title: '通用设置',
+    subtitle: '配置系统外观、通知偏好、网络连接等基础选项。',
+    icon: 'SettingOutlined',
+    order: 10
+  },
+  {
+    id: 'settings-advanced',
+    path: '/admin/settings/advanced',
+    element: 'AdvancedSettings',
+    layout: 'admin',
+    platform: 'SETTINGS',
+    group: '高级集成',
+    title: '高级集成',
+    subtitle: '管理 AI SOC、Dify 工作流等第三方服务的集成参数。',
+    icon: 'ApiOutlined',
+    order: 20
+  },
+  {
+    id: 'settings-license',
+    path: '/admin/settings/license',
+    element: 'LicenseSettingsPage',
+    layout: 'admin',
+    platform: 'SETTINGS',
+    group: '授权管理',
+    title: '授权管理',
+    subtitle: '查看系统授权状态、资源配额限制，或导入新的授权文件。',
+    icon: 'SafetyCertificateOutlined',
+    order: 30
   }
 ];

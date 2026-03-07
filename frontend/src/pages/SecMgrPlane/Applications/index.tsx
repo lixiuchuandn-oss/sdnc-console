@@ -546,7 +546,7 @@ const SecurityApps: React.FC = () => {
         footer={null}
         width={800}
         destroyOnHidden
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         <div style={{ display: 'flex', height: 500 }}>
           <Tabs

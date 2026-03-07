@@ -12,6 +12,7 @@ import { UserSpace } from '../entities/UserSpace';
 import { AuthRequest } from '../middleware/auth';
 import { User, UserRole } from '../entities/User';
 import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
+import { licenseService } from '../services/LicenseService';
 
 // 多云接入与资源池路由：
 // - 管理云资源池（Cloud）对象的增删改查与连通性测试
@@ -929,6 +930,31 @@ router.post(
       const { name, description, type, region, endpoint, accessKey, secretKey, config } = req.body;
 
       const cloudRepository = AppDataSource.getRepository(Cloud);
+
+      // License Check
+      const licStatus = licenseService.getStatus();
+      const features = licStatus.payload?.features || [];
+      const limits = licStatus.payload?.limits;
+      // Check if multi-cloud feature is enabled
+      const isMultiCloud = features.includes('platform.multi-cloud');
+      // Default max accounts is 1 if not specified in license
+      const maxAccounts = limits?.maxCloudAccounts || 1; 
+
+      // 1. Check max accounts limit
+      const currentCount = await cloudRepository.count();
+      if (currentCount >= maxAccounts) {
+        return res.status(403).json({ message: `已达到最大云资源连接数限制 (${maxAccounts})。请联系管理员升级授权。` });
+      }
+
+      // 2. Check provider whitelist (if not multi-cloud)
+      const provider = String(config?.provider || '').toLowerCase();
+      if (!isMultiCloud) {
+        // Default license only supports cloudmap types (including harvester which is underlying)
+        const allowedInDefault = ['cloudmap.private', 'cloudmap.edge', 'cloudmap.csm', 'harvester'];
+        if (!allowedInDefault.includes(provider)) {
+          return res.status(403).json({ message: '当前授权仅支持接入 CloudMap 类型的资源池。需接入多云资源请升级授权。' });
+        }
+      }
 
       // 检查名称是否已存在
       const existingCloud = await cloudRepository.findOne({

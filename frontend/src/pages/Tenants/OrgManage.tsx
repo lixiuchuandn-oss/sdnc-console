@@ -20,6 +20,8 @@ import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePool
 import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
 import { fetchVrCachePageList } from '../../services/virtualRouterApi';
+import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
 
 // RBAC 角色模型：名称、范围（system/tenant）、状态等
 type RBACRole = { id: string; name: string; description?: string; scope: 'system' | 'tenant'; status?: 'active' | 'inactive' };
@@ -667,7 +669,7 @@ const OrgManagePage: React.FC = () => {
     return recur(orgs);
   };
 
-  const userColumns: ColumnsType<TenantUser> = [
+  const userColumns: ColumnsType<TenantUser> = React.useMemo(() => [
     { title: '用户名', dataIndex: 'username', key: 'username' },
     { title: '角色', dataIndex: 'role', key: 'role', render: (_: any, row: TenantUser) => {
       // 预置角色（Legacy）映射
@@ -731,11 +733,13 @@ const OrgManagePage: React.FC = () => {
         </Dropdown>
       ),
     }
-  ];
+  ], [tenantRoles, rolesByUser, openRoleAssign, handleDeleteUser, modal]);
+
+  const { displayColumns: userDisplayColumns } = useTableColumnSettings(userColumns, 'org_manage_users');
 
   // 资源池分配表格列：
   // - 类型/供应商列做 provider → 文本的归一化映射，提升可读性
-  const assignmentColumns: ColumnsType<ResourcePoolAssignment> = [
+  const assignmentColumns: ColumnsType<ResourcePoolAssignment> = React.useMemo(() => [
     { title: '资源池名称', dataIndex: ['cloud', 'name'], key: 'name' },
     { 
       title: '资源池类型', 
@@ -792,7 +796,9 @@ const OrgManagePage: React.FC = () => {
         </Dropdown>
       ),
     },
-  ];
+  ], [handleRemoveAssignment, modal]);
+
+  const { displayColumns: assignmentDisplayColumns } = useTableColumnSettings(assignmentColumns, 'org_manage_assignments');
 
   return (
     <PageDetailContainer
@@ -879,6 +885,7 @@ const OrgManagePage: React.FC = () => {
                         onChange={(e)=> setUserKeyword(e.target.value)}
                       />
                       <div className="toolbar-actions" style={{ display: 'flex', gap: 8 }}>
+                        <TableColumnSettingsButton allColumns={userColumns} settingsKey="org_manage_users" />
                         <Button 
                           type="primary" 
                           onClick={() => {
@@ -924,7 +931,7 @@ const OrgManagePage: React.FC = () => {
                       </div>
                     </div>
                     <Table
-                      columns={userColumns}
+                      columns={userDisplayColumns}
                       rowSelection={{ selectedRowKeys: selectedUserRowKeys, onChange: (keys)=> setSelectedUserRowKeys(keys as string[]) }}
                       dataSource={(userKeyword.trim() ? users.filter(u => {
                         const kw = userKeyword.trim().toLowerCase();
@@ -962,18 +969,21 @@ const OrgManagePage: React.FC = () => {
                           value={assignmentKeyword}
                           onChange={(e)=> setAssignmentKeyword(e.target.value)}
                         />
-                        <Button 
-                          type="primary" 
-                          onClick={() => {
-                            fetchResourcePools();
-                            resourcePoolForm.resetFields();
-                            setAssignType('compute');
-                            setResourcePoolDrawerOpen(true);
-                          }}
-                         >分配计算资源池</Button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <TableColumnSettingsButton allColumns={assignmentColumns} settingsKey="org_manage_assignments" />
+                          <Button 
+                            type="primary" 
+                            onClick={() => {
+                              fetchResourcePools();
+                              resourcePoolForm.resetFields();
+                              setAssignType('compute');
+                              setResourcePoolDrawerOpen(true);
+                            }}
+                          >分配计算资源池</Button>
+                        </div>
                     </div>
                     <Table
-                      columns={assignmentColumns}
+                      columns={assignmentDisplayColumns}
                       dataSource={(assignmentKeyword.trim() ? assignments.filter(a => {
                         const kw = assignmentKeyword.trim().toLowerCase();
                         const name = String((a.cloud as any)?.name || '').toLowerCase();

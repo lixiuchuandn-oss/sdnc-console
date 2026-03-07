@@ -330,7 +330,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         title="告警详情"
         footer={<Button onClick={closeDetail}>关闭</Button>}
         width={860}
-        destroyOnClose
+        destroyOnHidden
       >
         {detailRecord ? (
           <Descriptions column={1} bordered size="small" labelStyle={{ width: 120 }}>
