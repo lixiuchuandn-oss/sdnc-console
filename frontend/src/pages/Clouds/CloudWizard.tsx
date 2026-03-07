@@ -30,10 +30,10 @@
  *    - Icons (@ant-design/icons)
  * ==============================================================================
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { 
   Modal, Card, Row, Col, Button, Form, Input, Select, 
-  Switch, message, Space, Typography, Alert, Divider, Collapse
+  Switch, message, Space, Typography, Alert, Divider, Collapse, Image, Cascader
 } from 'antd';
 import { 
   CloudOutlined, CloudUploadOutlined, CheckCircleOutlined, SettingOutlined,
@@ -42,6 +42,10 @@ import {
 } from '@ant-design/icons';
 import './Harvester/modals/VmCreateWizard/InstanceWizard.css';
 import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from './providers';
+import { useLicense } from '../../contexts/LicenseContext';
+import cloudmapKeyImage from '../../assets/clouds/cloudmapkey.png';
+import cloudmapApiImage from '../../assets/clouds/cloudmapapi.png';
+import { provinces, cityOptionsByProvince } from '../../constants/chinaRegions';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -62,6 +66,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [loading, setLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [formData, setFormData] = useState<any>(null);
+  const { license, loading: licenseLoading } = useLicense();
 
   // [权限/功能开关] 开放平台检查
   // 仅允许列表中定义的云平台进行接入操作
@@ -69,6 +74,32 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const isOpenProvider = (id: string) => {
     return ['aliyun', 'huaweicloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'].includes(id);
   };
+
+  // [级联数据] 构建省份-城市级联选项（必须在组件顶层）
+  const regionCascaderOptions = useMemo(() => {
+    return provinces.map(province => ({
+      value: province,
+      label: province,
+      children: (cityOptionsByProvince[province] || []).map(city => ({
+        value: city,
+        label: city
+      }))
+    }));
+  }, []);
+
+  // [试用版判断] 如果是基础授权基础版（试用/Trial），自动跳过选择云平台步骤
+  // 直接进入私有云-cloudmap类型的配置云账号页面
+  useEffect(() => {
+    if (visible && !licenseLoading && license?.payload?.type === 'trial') {
+      // 查找 cloudmap.private 提供商
+      const cloudmapProvider = cloudProviders.find(p => p.id === 'cloudmap.private');
+      if (cloudmapProvider) {
+        setPoolType('private');
+        setSelectedProvider(cloudmapProvider);
+        setCurrentStep(1); // 跳过步骤0，直接进入配置页面
+      }
+    }
+  }, [visible, licenseLoading, license]);
 
 
 
@@ -95,13 +126,11 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         // 保存表单数据
         const values = form.getFieldsValue();
         setFormData(values);
-        console.log('保存的表单数据:', values);
         
         setCurrentStep(2);
         // 自动进行连接测试
         handleTestConnection();
       }).catch((errorInfo) => {
-        console.log('Validation Failed:', errorInfo);
         // 校验失败时，Ant Design Form 会自动在表单项上显示错误提示
         // 这里捕获错误防止 Promise Rejection 导致的崩溃
       });
@@ -110,6 +139,10 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   };
 
   const handlePrev = () => {
+    // [试用版限制] 如果是试用版且当前在步骤1，不允许返回到步骤0（选择云平台）
+    if (currentStep === 1 && license?.payload?.type === 'trial') {
+      return; // 阻止返回
+    }
     setCurrentStep(currentStep - 1);
     if (currentStep === 1) {
       setSelectedProvider(null);
@@ -146,10 +179,19 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         cfgBase.harvesterVersion = '1.6';
       }
 
+      // [数据标准化] 对于 cloudmap.private，将级联选择的值转换为 region 格式
+      let regionValue = values.region || 'default';
+      if (selectedProvider?.id === 'cloudmap.private' && Array.isArray(values.region) && values.region.length >= 2) {
+        // Cascader 返回的是数组 [province, city]
+        regionValue = `${values.region[0]}/${values.region[1]}`;
+      } else if (selectedProvider?.id === 'cloudmap.private' && Array.isArray(values.region) && values.region.length === 1) {
+        regionValue = values.region[0];
+      }
+      
       // [Payload构造] 映射不同平台的字段到统一的 accessKey/secretKey
       const payload = {
         provider: selectedProvider?.id,
-        region: values.region || 'default',
+        region: regionValue,
         endpoint,
         accessKey: values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '',
         secretKey: values.secretKey || values.accessKeySecret || values.secretAccessKey ||
@@ -174,10 +216,16 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
       }
 
       setTestResult({ success: !!json?.ok, message: msg });
-    } catch (error) {
+    } catch (error: any) {
+      // 使用统一错误处理
+      const { handleApiError } = require('../../utils/errorHandler');
+      const apiError = handleApiError(error, { 
+        showMessage: false, 
+        defaultMessage: '连接测试失败' 
+      });
       setTestResult({
         success: false,
-        message: '连接测试失败，请检查网络连接。'
+        message: apiError.message || '连接测试失败，请检查网络连接。'
       });
     } finally {
       setLoading(false);
@@ -198,7 +246,6 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     try {
       // 使用保存的表单数据 (formData) 或 实时获取 (兜底)
       const values = formData || form.getFieldsValue();
-      console.log('使用的表单数据:', values);
       
       // [数据标准化] 资源类型
       // 后端已更新 CloudType 枚举，直接使用前端选择的类型
@@ -215,11 +262,20 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         cfg.harvesterVersion = '1.6';
       }
 
+      // [数据标准化] 对于 cloudmap.private，将级联选择的值转换为 region 格式
+      let finalRegion = values.region || 'default';
+      if (selectedProvider.id === 'cloudmap.private' && Array.isArray(values.region) && values.region.length >= 2) {
+        // Cascader 返回的是数组 [province, city]
+        finalRegion = `${values.region[0]}/${values.region[1]}`;
+      } else if (selectedProvider.id === 'cloudmap.private' && Array.isArray(values.region) && values.region.length === 1) {
+        finalRegion = values.region[0];
+      }
+      
       const cloudData = {
         name: values.name,
         description: values.description || `${selectedProvider.name}云资源`,
         type: normalizedType,
-        region: values.region || 'default',
+        region: finalRegion,
         // [Endpoint构造] 根据 Provider 类型决定 Endpoint 来源
         endpoint: selectedProvider.id === 'aliyun'
           ? 'https://ecs.aliyuncs.com'
@@ -235,12 +291,9 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         config: cfg
       };
 
-      console.log('表单原始数据:', values);
-      console.log('构建的云资源数据:', cloudData);
 
       // [最终校验] 确保关键字段不为空
       if (!cloudData.name || !cloudData.type || !cloudData.region || !cloudData.endpoint) {
-        console.log('验证失败的数据:', cloudData);
         message.error(`请填写完整的配置信息。缺少字段: ${[
           !cloudData.name ? 'name' : '',
           !cloudData.type ? 'type' : '',
@@ -250,7 +303,6 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         return;
       }
 
-      console.log('提交的云资源数据:', cloudData);
 
       // 调用API创建云资源
       const token = localStorage.getItem('token');
@@ -268,11 +320,17 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         onSuccess();
         handleCancel();
       } else {
-        const error = await response.json();
-        message.error('创建失败：' + error.message);
+        // 使用统一错误处理
+        const errorData = await response.json();
+        const error = new Error(errorData.message || '创建失败');
+        (error as any).response = response;
+        (error as any).status = response.status;
+        throw error;
       }
     } catch (error: any) {
-      message.error('创建失败：' + error.message);
+      // 使用统一错误处理工具
+      const { handleApiError } = require('../../utils/errorHandler');
+      handleApiError(error, { defaultMessage: '创建云资源失败' });
     } finally {
       setLoading(false);
     }
@@ -281,6 +339,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const handleCancel = () => {
     setCurrentStep(0);
     setSelectedProvider(null);
+    setPoolType('central');
     setTestResult(null);
     setFormData(null);
     form.resetFields();
@@ -435,6 +494,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               {/* 动态渲染 Provider 定义的字段 */}
               {(() => {
                 const fieldsToRender = selectedProvider.fields;
+                
                 return fieldsToRender.map(field => {
                   // 渲染单个输入组件，确保 Form.Item 只有一个子元素
                   const renderInput = () => {
@@ -455,12 +515,36 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                         </Select>
                       );
                     }
+                    if (field.type === 'cascader') {
+                      // 特殊处理：如果是 region 字段且是 cloudmap.private，使用级联选择
+                      if (field.key === 'region' && selectedProvider?.id === 'cloudmap.private') {
+                        return (
+                          <Cascader
+                            placeholder={field.placeholder}
+                            options={regionCascaderOptions}
+                            showSearch={{
+                              filter: (inputValue, path) => {
+                                return path.some(option => 
+                                  String(option.label).toLowerCase().includes(inputValue.toLowerCase())
+                                );
+                              }
+                            }}
+                            changeOnSelect={false}
+                          />
+                        );
+                      }
+                      return null;
+                    }
                     if (field.type === 'textarea') {
                       return <Input.TextArea rows={4} placeholder={field.placeholder} />;
                     }
                     return null;
                   };
 
+                  // 特殊处理：如果是 cloudmap.private 的 endpoint 或 apiToken 字段，在输入框下方显示说明图片
+                  const isCloudmapPrivateEndpoint = selectedProvider?.id === 'cloudmap.private' && field.key === 'endpoint';
+                  const isCloudmapPrivateToken = selectedProvider?.id === 'cloudmap.private' && field.key === 'apiToken';
+                  
                   return (
                     <Form.Item
                       key={field.key}
@@ -469,7 +553,47 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                       rules={field.required ? [{ required: true, message: `请输入${field.label}` }] : []}
                       help={field.help}
                     >
-                      {renderInput()}
+                      <>
+                        {renderInput()}
+                        {isCloudmapPrivateEndpoint && (
+                          <div style={{ marginTop: 12 }}>
+                            <Image
+                              src={cloudmapApiImage}
+                              alt="如何获取 Cloudmap API 地址"
+                              preview={{
+                                mask: '点击放大',
+                              }}
+                              style={{
+                                maxWidth: '100%',
+                                height: 'auto',
+                                border: '1px solid #eaeaea',
+                                borderRadius: 4,
+                                display: 'block',
+                                cursor: 'pointer'
+                              }}
+                            />
+                          </div>
+                        )}
+                        {isCloudmapPrivateToken && (
+                          <div style={{ marginTop: 12 }}>
+                            <Image
+                              src={cloudmapKeyImage}
+                              alt="如何获取 Cloudmap API 令牌"
+                              preview={{
+                                mask: '点击放大',
+                              }}
+                              style={{
+                                maxWidth: '100%',
+                                height: 'auto',
+                                border: '1px solid #eaeaea',
+                                borderRadius: 4,
+                                display: 'block',
+                                cursor: 'pointer'
+                              }}
+                            />
+                          </div>
+                        )}
+                      </>
                     </Form.Item>
                   );
                 });
@@ -478,7 +602,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               <Collapse
                 className="std-collapse-minimal"
                 bordered={false}
-                expandIconPosition="end"
+                expandIconPosition="start"
                 defaultActiveKey={[]}
                 items={[
                   {
@@ -486,37 +610,8 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                     label: (<div className="wizard-section-title">高级选项</div>),
                     children: (
                       <>
-                        <Row gutter={16}>
-                          <Col span={12}>
-                            <Form.Item name="autoSync" label="自动同步" valuePropName="checked">
-                              <Switch />
-                            </Form.Item>
-                          </Col>
-                          <Col span={12}>
-                            <Form.Item name="enableSSO" label="开启免密登录" valuePropName="checked">
-                              <Switch />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                        <Row gutter={16}>
-                          <Col span={12}>
-                            <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">
-                              <Switch />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                        <Form.Item name="proxyType" label="代理">
-                          <Select placeholder="DIRECT（直连）" defaultValue="direct">
-                            <Option value="direct">DIRECT（直连）</Option>
-                            <Option value="http">HTTP代理</Option>
-                            <Option value="socks">SOCKS代理</Option>
-                          </Select>
-                        </Form.Item>
-                        <Form.Item name="resourceProject" label="资源归属项目">
-                          <Select placeholder="system" defaultValue="system">
-                            <Option value="system">system</Option>
-                            <Option value="default">default</Option>
-                          </Select>
+                        <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked" initialValue={true}>
+                          <Switch />
                         </Form.Item>
                       </>
                     ),
@@ -615,15 +710,19 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     const v = formData || {};
     const providerName = selectedProvider?.name || '-';
     const typeTxt = v?.type || '-';
-    const regionTxt = v?.region || '-';
+    // 对于 cloudmap.private，将级联选择的值转换为显示格式
+    let regionTxt = '-';
+    if (selectedProvider?.id === 'cloudmap.private' && Array.isArray(v?.region) && v.region.length >= 2) {
+      regionTxt = `${v.region[0]}/${v.region[1]}`;
+    } else if (selectedProvider?.id === 'cloudmap.private' && Array.isArray(v?.region) && v.region.length === 1) {
+      regionTxt = v.region[0];
+    } else {
+      regionTxt = (typeof v?.region === 'string' ? v.region : '-') || '-';
+    }
     const endpointTxt = v?.endpoint || v?.authUrl || v?.vcenterHost || '-';
-    const proxyTxt = v?.proxyType || 'direct';
     const tlsTxt = v?.ignoreTls ? '忽略' : '校验';
-    const syncTxt = v?.autoSync ? '启用' : '未启用';
-    const ssoTxt = v?.enableSSO ? '启用' : '未启用';
-    const projTxt = v?.resourceProject || 'system';
     const testTxt = testResult ? (testResult.success ? '成功' : '失败') : '未测试';
-    return { providerName, typeTxt, regionTxt, endpointTxt, proxyTxt, tlsTxt, syncTxt, ssoTxt, projTxt, testTxt };
+    return { providerName, typeTxt, regionTxt, endpointTxt, tlsTxt, testTxt };
   }, [formData, selectedProvider, testResult]);
 
   return (
@@ -674,11 +773,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
                 <div className="wizard-summary-item"><span className="wizard-summary-label">资源类型</span><span className="wizard-summary-value" title={summary.typeTxt}>{summary.typeTxt}</span></div>
                 <div className="wizard-summary-item"><span className="wizard-summary-label">Region</span><span className="wizard-summary-value" title={summary.regionTxt}>{summary.regionTxt}</span></div>
                 <div className="wizard-summary-item"><span className="wizard-summary-label">端点</span><span className="wizard-summary-value" title={summary.endpointTxt}>{summary.endpointTxt}</span></div>
-                <div className="wizard-summary-item"><span className="wizard-summary-label">代理</span><span className="wizard-summary-value" title={summary.proxyTxt}>{summary.proxyTxt}</span></div>
                 <div className="wizard-summary-item"><span className="wizard-summary-label">TLS</span><span className="wizard-summary-value" title={summary.tlsTxt}>{summary.tlsTxt}</span></div>
-                <div className="wizard-summary-item"><span className="wizard-summary-label">自动同步</span><span className="wizard-summary-value" title={summary.syncTxt}>{summary.syncTxt}</span></div>
-                <div className="wizard-summary-item"><span className="wizard-summary-label">免密登录</span><span className="wizard-summary-value" title={summary.ssoTxt}>{summary.ssoTxt}</span></div>
-                <div className="wizard-summary-item"><span className="wizard-summary-label">归属项目</span><span className="wizard-summary-value" title={summary.projTxt}>{summary.projTxt}</span></div>
                 <div className="wizard-summary-item"><span className="wizard-summary-label">测试状态</span><span className="wizard-summary-value" title={summary.testTxt}>{summary.testTxt}</span></div>
               </div>
               <Divider style={{ margin: '12px 0' }} />
@@ -686,7 +781,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             <div className="wizard-preview-actions">
               <Space>
                 <Button onClick={handleCancel}>取消</Button>
-                {currentStep > 0 && (
+                {currentStep > 0 && !(currentStep === 1 && license?.payload?.type === 'trial') && (
                   <Button onClick={handlePrev}>上一步</Button>
                 )}
                 {currentStep === 0 && selectedProvider && (

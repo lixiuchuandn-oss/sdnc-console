@@ -1532,7 +1532,19 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             allowClear
             options={[{ value: '', label: '全部' }, ...Object.keys(VM_STATUS_MAP).map(k=> ({ value: k, label: VM_STATUS_MAP[k] }))]}
           />
-          
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setStatusFilter('');
+              setTenantOrgPath([]);
+              onNsChange(undefined);
+              onNodeChange(undefined);
+            }}
+          >
+            重置
+          </button>
         </div>
         
         {/* 右侧：操作按钮 */}

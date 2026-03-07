@@ -412,6 +412,19 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
             className="toolbar-filter-sm"
             options={osOptions}
           />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setScopeFilter('');
+              setStatusFilter('');
+              setTypeFilter('');
+              setOsFilter('');
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={(

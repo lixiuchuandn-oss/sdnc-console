@@ -101,23 +101,20 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
   // But for simplicity, we just let the Effect handle the 'daily/weekly' -> 'cron' sync.
   // If user switches to Custom, the Input will show the current cron string.
 
-  // 加载命名空间和 VM 列表，并过滤系统命名空间
+  // 加载命名空间和 VM 列表（后端已过滤系统命名空间）
   const loadData = async () => {
     try {
       const [nsRes, vmRes] = await Promise.all([
-        fetchHarvesterNamespaces(cloudId).catch(() => ({ data: { items: [] } })),
+        fetchHarvesterNamespaces(cloudId, false, true).catch(() => ({ data: { items: [] } })), // excludeSystem=true
         fetchCloudProviderEcs(cloudId).catch(() => ({ data: [] }))
       ]);
       
       const nsItems = nsRes?.data?.items || nsRes?.items || [];
-      // Filter out system namespaces
-      const validNamespaces = nsItems.filter((n: any) => !isSystemNamespace(n.metadata?.name || n.name));
-      
-      setNamespaces(validNamespaces);
+      setNamespaces(nsItems);
 
       // Default select first namespace if available
-      if (validNamespaces.length > 0) {
-        form.setFieldValue('namespace', validNamespaces[0].metadata?.name || validNamespaces[0].name);
+      if (nsItems.length > 0) {
+        form.setFieldValue('namespace', nsItems[0].metadata?.name || nsItems[0].name);
       }
       
       const vmItems = Array.isArray(vmRes?.data) ? vmRes.data : (vmRes || []);

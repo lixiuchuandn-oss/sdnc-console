@@ -41,18 +41,13 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces: p
   const [nadInfo, setNadInfo] = useState<{name: string, bridge: string, range?: string} | null>(null);
   const [namespaces, setNamespaces] = useState<any[]>([]);
 
-  // 加载命名空间列表（如果外部没有传入）
+  // 加载命名空间列表（如果外部没有传入，后端已过滤系统命名空间）
   useEffect(() => {
     if (open && (!propNamespaces || propNamespaces.length === 0)) {
-      fetchHarvesterNamespaces(cloudId)
+      fetchHarvesterNamespaces(cloudId, false, true) // excludeSystem=true
         .then((res: any) => {
           const items = res?.data?.items || res?.items || res || [];
-          // 过滤掉系统命名空间
-          const filteredItems = items.filter((n: any) => {
-            const name = n?.metadata?.name || n?.name || '';
-            return name && !isSystemNamespace(name);
-          });
-          setNamespaces(filteredItems);
+          setNamespaces(items);
         })
         .catch((err: any) => console.error('Failed to load namespaces', err));
     } else if (propNamespaces && propNamespaces.length > 0) {
@@ -286,12 +281,8 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces: p
     }
   };
 
-  // 命名空间下拉选项（过滤系统命名空间）
+  // 命名空间下拉选项（后端已过滤系统命名空间）
   const nsOptions = (namespaces || [])
-    .filter((n: any) => {
-      const nsName = n.metadata?.name || n.name;
-      return nsName && !isSystemNamespace(nsName);
-    })
     .map((n: any) => ({
       label: n.metadata?.name || n.name,
       value: n.metadata?.name || n.name,

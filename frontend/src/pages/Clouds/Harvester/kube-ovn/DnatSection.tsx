@@ -214,6 +214,17 @@ export const DnatSection: React.FC<DnatSectionProps> = ({ cloudId, dnatRules, ei
                 ...protocolOptions.map(p => ({ value: p, label: p.toUpperCase() }))
               ]} 
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                setVpcFilter('');
+                setProtocolFilter('');
+              }}
+            >
+              重置
+            </button>
           </>
         )}
         primaryAction={{

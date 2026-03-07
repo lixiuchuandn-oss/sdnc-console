@@ -214,6 +214,17 @@ export const FipSection: React.FC<FipSectionProps> = ({ cloudId, fips, eips, vpc
                 ...ipTypeOptions.map(t => ({ value: t, label: t }))
               ]} 
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                setVpcFilter('');
+                setIpTypeFilter('');
+              }}
+            >
+              重置
+            </button>
           </>
         )}
         primaryAction={{

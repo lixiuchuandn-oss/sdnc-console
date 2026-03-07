@@ -254,9 +254,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
         return <span className={`std-badge ${ok ? 'std-badge-success' : 'std-badge-error'}`}>{ok ? 'Ready' : 'NotReady'}</span>;
       } 
     },
-    { title: 'CPU', key: 'cpu', render: (_:any, r:any)=> formatCpu(r?.cpu ?? r?.status?.capacity?.cpu) },
-    { title: '内存', key: 'mem', render: (_:any, r:any)=> formatMemGb(r?.memory ?? r?.status?.capacity?.memory) },
-    { title: 'CPU使用率', key: 'cpu_usage', render: (_:any, r:any)=> {
+    { title: 'CPU', key: 'cpu', render: (_:any, r:any)=> {
       const name = r?.name || r?.metadata?.name || '';
       const used = metricsMap[name]?.cpuUsedCores ?? 0;
       const total = parseCpuToCores(r?.status?.allocatable?.cpu || r?.status?.capacity?.cpu || r?.cpu);
@@ -269,13 +267,17 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
                 <Progress percent={Math.max(0, Math.min(100, pct))} size="small" showInfo={false} />
                 <span>{Math.max(0, Math.min(100, pct)).toFixed(1)}%</span>
               </div>
-              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>已用 {used.toFixed(2)} 核，{pct.toFixed(1)}%</div>
+              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>{used.toFixed(2)} core / {total.toFixed(2)} core</div>
             </>
-          ) : <span>-</span>}
+          ) : (
+            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>
+              {total > 0 ? `${total.toFixed(2)} core` : '-'}
+            </div>
+          )}
         </div>
       );
     } },
-    { title: '内存使用率', key: 'mem_usage', render: (_:any, r:any)=> {
+    { title: '内存', key: 'mem', render: (_:any, r:any)=> {
       const name = r?.name || r?.metadata?.name || '';
       const used = metricsMap[name]?.memUsedBytes ?? 0;
       const total = parseMemoryToBytes(r?.status?.allocatable?.memory || r?.status?.capacity?.memory || r?.memory);
@@ -289,9 +291,13 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
                 <Progress percent={Math.max(0, Math.min(100, pct))} size="small" showInfo={false} />
                 <span>{Math.max(0, Math.min(100, pct)).toFixed(1)}%</span>
               </div>
-              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>已用 {toGiBNum(used).toFixed(2)} GiB，{pct.toFixed(1)}%</div>
+              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>{toGiBNum(used).toFixed(2)} GiB / {toGiBNum(total).toFixed(2)} GiB</div>
             </>
-          ) : <span>-</span>}
+          ) : (
+            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>
+              {total > 0 ? `${toGiBNum(total).toFixed(2)} GiB` : '-'}
+            </div>
+          )}
         </div>
       );
     } },

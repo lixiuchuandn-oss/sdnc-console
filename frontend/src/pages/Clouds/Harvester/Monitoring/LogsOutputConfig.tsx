@@ -156,11 +156,11 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
     setNamespaceLoading(true);
     try {
       if (isAdmin) {
-        const res: any = await fetchHarvesterNamespaces(cloudId);
+        const res: any = await fetchHarvesterNamespaces(cloudId, false, true); // excludeSystem=true
         const items: any[] = Array.isArray(res?.data?.items) ? res.data.items : res?.data ?? res?.items ?? [];
         const raw = items
           .map((i: any) => i?.metadata?.name ?? i?.name)
-          .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0 && !isSystemNamespace(n));
+          .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0); // 后端已过滤系统命名空间
         const uniq = [...new Set(raw)].sort();
         setNamespaceOptions([{ label: '全部', value: '' }, ...uniq.map((ns) => {
           const orgId = getOrgIdFromNamespace(ns);
@@ -507,6 +507,16 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
               loading={namespaceLoading}
               style={{ width: 160 }}
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                setNamespaceFilter('');
+              }}
+            >
+              重置
+            </button>
           </Space>
         }
         toolbarRight={

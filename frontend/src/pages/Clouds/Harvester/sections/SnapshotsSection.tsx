@@ -375,6 +375,18 @@ const SnapshotsSection: React.FC<Props> = ({
               </Checkbox>
             </div>
           )}
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setNamespaceFilter('');
+              setStatusFilter('');
+              setShowSystemResources(false);
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={

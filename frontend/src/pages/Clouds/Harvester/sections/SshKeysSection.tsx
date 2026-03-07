@@ -103,7 +103,10 @@ const SshKeysSection: React.FC<Props> = ({
    */
   const namespaceOptions = useMemo(() => {
     const nsSet = new Set<string>();
-    baseData.forEach((item: any) => item.namespace && nsSet.add(item.namespace));
+    baseData.forEach((item: any) => {
+      const ns = item.namespace;
+      if (ns && !isSystemNamespace(ns)) nsSet.add(ns); // 过滤系统命名空间
+    });
     return Array.from(nsSet).sort().map(ns => ({ label: ns, value: ns }));
   }, [baseData]);
 
@@ -297,6 +300,17 @@ const SshKeysSection: React.FC<Props> = ({
               </Checkbox>
             </div>
           )}
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setNamespaceFilter(undefined);
+              setShowSystemResources(false);
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={(

@@ -169,6 +169,17 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
             onSearch={() => {}}
             style={{ width: 200 }}
           />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setGroupFilter('');
+              setLevelFilter('');
+            }}
+          >
+            重置
+          </button>
         </>
       }
       toolbarRight={

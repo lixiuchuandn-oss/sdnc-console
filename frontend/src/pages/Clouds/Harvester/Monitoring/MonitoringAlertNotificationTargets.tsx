@@ -933,6 +933,16 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
                 options={formNamespaceOptions}
                 style={{ width: 250 }}
               />
+              <button
+                type="button"
+                className="toolbar-reset-btn"
+                onClick={() => {
+                  setReceiverNameFilter(EMAIL_RECEIVER);
+                  setConfigNsFilter(undefined);
+                }}
+              >
+                重置
+              </button>
             </>
           }
           toolbarRight={

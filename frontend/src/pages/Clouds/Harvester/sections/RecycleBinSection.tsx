@@ -1166,7 +1166,7 @@ const RecycleBinSection: React.FC<Props> = ({
               placeholder="命名空间"
               value={namespaceFilter || undefined}
               onChange={(v) => setNamespaceFilter(v || '')}
-              className="toolbar-filter-sm"
+              className="toolbar-filter"
               options={[{ value: '', label: '全部' }, ...namespaceOptions]}
             />
           )}

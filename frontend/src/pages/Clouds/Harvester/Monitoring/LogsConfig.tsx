@@ -417,13 +417,24 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
       <PageDetailSection
         asCard={false}
         toolbarLeft={
-          <Input.Search
-            placeholder="请输入名称"
-            allowClear
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onSearch={loadConfigList}
-          />
+          <>
+            <Input.Search
+              placeholder="请输入名称"
+              allowClear
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onSearch={loadConfigList}
+            />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+              }}
+            >
+              重置
+            </button>
+          </>
         }
         toolbarRight={
           <>

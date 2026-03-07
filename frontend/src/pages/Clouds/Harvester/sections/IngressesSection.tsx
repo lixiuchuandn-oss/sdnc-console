@@ -96,14 +96,25 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
     <PageDetailSection
       asCard={false}
       toolbarLeft={(
-        <Input
-          className="toolbar-search"
-          placeholder="关键字"
-          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-          value={keyword}
-          onChange={e => setKeyword(e.target.value)}
-          allowClear
-        />
+        <>
+          <Input
+            className="toolbar-search"
+            placeholder="关键字"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            allowClear
+          />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+            }}
+          >
+            重置
+          </button>
+        </>
       )}
       toolbarRight={
         <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>

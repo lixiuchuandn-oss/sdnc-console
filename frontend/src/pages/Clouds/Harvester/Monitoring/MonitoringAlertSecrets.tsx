@@ -276,6 +276,16 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
               onChange={(e) => setKeyword(e.target.value)}
               style={{ width: 200 }}
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                setNamespaceFilter('cattle-monitoring-system');
+              }}
+            >
+              重置
+            </button>
           </Space>
         }
         toolbarRight={

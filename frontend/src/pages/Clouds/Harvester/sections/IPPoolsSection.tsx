@@ -15,7 +15,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import IPPoolCreateModal from '../modals/IPPoolCreateModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterIpPool } from '../../../../services/harvesterApi';
-import { isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
  * 组件入参说明
@@ -134,8 +134,9 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
   const namespaceOptions = useMemo(() => {
     const nsSet = new Set<string>();
     dataSource.forEach((item: any) => {
-      if (item.namespace && item.namespace !== '-') {
-        nsSet.add(item.namespace);
+      const ns = item.namespace;
+      if (ns && ns !== '-' && !isSystemNamespace(ns)) { // 过滤系统命名空间
+        nsSet.add(ns);
       }
     });
     return Array.from(nsSet).sort().map(ns => ({
@@ -325,6 +326,16 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
             style={{ width: 150 }}
             options={namespaceOptions}
           />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setNsFilter('');
+            }}
+          >
+            重置
+          </button>
         </Space>
       }
       toolbarRight={

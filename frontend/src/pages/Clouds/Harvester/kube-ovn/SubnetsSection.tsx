@@ -346,6 +346,19 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
           <Select allowClear placeholder="协议" options={protocolOptions} value={protocol} onChange={(v)=> setProtocol(v)} className="toolbar-filter-sm" />
           <Select allowClear placeholder="NAT" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={nat} onChange={(v)=> setNat(v)} className="toolbar-filter-sm" />
           <Select allowClear placeholder="DHCP" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={dhcp} onChange={(v)=> setDhcp(v)} className="toolbar-filter-sm" />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setVpc(undefined);
+              setProtocol(undefined);
+              setNat(undefined);
+              setDhcp(undefined);
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={(

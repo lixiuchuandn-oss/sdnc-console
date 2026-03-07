@@ -21,7 +21,8 @@ import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions } from '
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { fetchHarvesterStorageClassDetail } from '../../../../services/harvesterApi';
 
@@ -62,15 +63,6 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
    * - 匹配字段：名称（metadata.name）与 provisioner
    */
   const [keyword, setKeyword] = useState<string>('');
-
-  /**
-   * 表格当前列配置
-   *
-   * - 初始时为空数组，由 TableColumnSettings 首次触发 onChange 后写入 allColumns
-   * - 用户在 UI 中勾选列显示/隐藏时，通过 onChange 更新
-   * - 使用 any[] 是为了兼容 antd ColumnsType 的内部结构
-   */
-  const [tableColumns, setTableColumns] = useState<any[]>([]);
   
   /**
    * HarvesterResourceDrawer 抽屉相关状态
@@ -176,6 +168,9 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
     },
   ], []);
 
+  // 使用新的 hook 管理列设置
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_storageclasses_table');
+
   /**
    * 过滤后的数据源（filtered）
    *
@@ -219,9 +214,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       )}
       toolbarRight={(
         <>
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton
+            allColumns={allColumns}
             settingsKey="harvester_storageclasses_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} />

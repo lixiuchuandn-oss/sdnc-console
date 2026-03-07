@@ -77,12 +77,8 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         endpoint: cloud.endpoint,
         accessKey: cloud.accessKey || '', // Pre-fill with redacted key
         secretKey: cloud.secretKey || '',
-        // 高级参数（从 config 预填）
-        autoSync: !!cloud?.config?.autoSync,
-        enableSSO: !!cloud?.config?.enableSSO,
-        ignoreTls: !!cloud?.config?.ignoreTls,
-        proxyType: cloud?.config?.proxyType || 'direct',
-        resourceProject: cloud?.config?.resourceProject || 'system',
+        // 高级参数（从 config 预填，如果不存在则默认为 true）
+        ignoreTls: cloud?.config?.ignoreTls !== undefined ? !!cloud?.config?.ignoreTls : true,
         harvesterVersion: cloud?.config?.harvesterVersion || 'auto'
       });
     }
@@ -115,11 +111,7 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
       const prevCfg = (cloud as any)?.config || {};
       submitData.config = {
         ...prevCfg,
-        autoSync: !!values.autoSync,
-        enableSSO: !!values.enableSSO,
         ignoreTls: !!values.ignoreTls,
-        proxyType: values.proxyType || prevCfg.proxyType || 'direct',
-        resourceProject: values.resourceProject || prevCfg.resourceProject || 'system',
         harvesterVersion: values.harvesterVersion || prevCfg.harvesterVersion || 'auto',
         provider: prevCfg.provider
       };
@@ -271,43 +263,9 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
 
           {/* 分组：高级选项（与创建向导一致） */}
           <div className="modal-group-title">高级选项</div>
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item name="autoSync" label="自动同步" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="enableSSO" label="开启免密登录" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="proxyType" label="代理">
-                <Select placeholder="DIRECT（直连）" defaultValue="direct" style={{ width: '100%' }}>
-                  <Select.Option value="direct">DIRECT（直连）</Select.Option>
-                  <Select.Option value="http">HTTP代理</Select.Option>
-                  <Select.Option value="socks">SOCKS代理</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="resourceProject" label="资源归属项目">
-                <Select placeholder="system" defaultValue="system" style={{ width: '100%' }}>
-                  <Select.Option value="system">system</Select.Option>
-                  <Select.Option value="default">default</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">
+            <Switch />
+          </Form.Item>
 
           {(() => {
             const provider = cloud?.config?.provider as string | undefined;

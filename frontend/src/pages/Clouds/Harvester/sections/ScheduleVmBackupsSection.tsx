@@ -533,6 +533,16 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
                 { label: '快照定时策略', value: 'snapshot' },
               ]}
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                setTypeFilter(undefined);
+              }}
+            >
+              重置
+            </button>
           </>
         )}
         // 右侧工具栏：创建按钮 + 列设置 + 刷新

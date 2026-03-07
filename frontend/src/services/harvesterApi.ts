@@ -705,9 +705,14 @@ export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
   return await res.json();
 };
 
-export const fetchHarvesterNamespaces = async (cloudId: string, force = false) => {
+export const fetchHarvesterNamespaces = async (cloudId: string, force = false, excludeSystem = false) => {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces${force ? '?force=true' : ''}`, {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (excludeSystem) params.append('excludeSystem', 'true');
+  const queryString = params.toString();
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/namespaces${queryString ? `?${queryString}` : ''}`;
+  const res = await fetch(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',

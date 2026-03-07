@@ -230,6 +230,17 @@ export const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, subnets, 
                 ...typeOptions.map(t => ({ value: t, label: t }))
               ]} 
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                setStatusFilter('');
+                setTypeFilter('');
+              }}
+            >
+              重置
+            </button>
           </>
         )}
         primaryAction={{

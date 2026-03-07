@@ -46,15 +46,14 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
     }
   }, [open, cloudId]);
 
-  // 加载命名空间列表，并在前端过滤系统命名空间
+  // 加载命名空间列表（后端已过滤系统命名空间）
   const loadNamespaces = async () => {
     setNsLoading(true);
     try {
-      const res = await fetchHarvesterNamespaces(cloudId);
+      const res = await fetchHarvesterNamespaces(cloudId, false, true); // excludeSystem=true
       // Backend typically returns { data: [...] } or { data: { items: [...] } }
       const items = Array.isArray(res?.data) ? res.data : (res?.data?.items || []);
-      const validItems = items.filter((n: any) => !isSystemNamespace(n?.metadata?.name || n?.name));
-      setNamespaces(validItems);
+      setNamespaces(items);
     } catch (e) {
       console.error(e);
       message.error('加载命名空间失败');

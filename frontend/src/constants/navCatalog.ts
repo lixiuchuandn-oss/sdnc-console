@@ -9,7 +9,7 @@ import { ReactNode } from 'react';
 // 2. 权限管控(Access Control)中的资源与功能名称映射 (via ROUTE_CATALOG)
 //
 // 注意：实际的路由定义(Route Definition)在 src/routes/RouteSpec.ts 中。
-// 本文件的 ROUTE_CATALOG 更多关注于“功能模块”或“权限资源”的逻辑分类与命名，
+// 本文件的 ROUTE_CATALOG 更多关注于"功能模块"或"权限资源"的逻辑分类与命名，
 // 而非具体的 URL 路由路径。
 // ============================================================================
 

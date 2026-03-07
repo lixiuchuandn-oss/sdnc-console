@@ -1,6 +1,10 @@
 // API服务函数
 // 远端访问时，如果 .env 指向 localhost，会导致请求打到访问者本机而非服务器。
 // 这里做一个健壮性处理：当检测到页面不在 localhost，但 REACT_APP_API_URL 包含 localhost 时，改用同主机的 4002 端口。
+
+// 导入请求管理器（提供去重、缓存、重试功能）
+import { requestManager } from '../utils/requestManager';
+
 const defaultApiBase = (() => {
   const envUrl = process.env.REACT_APP_API_URL;
   if (envUrl) {
@@ -83,80 +87,94 @@ const parseErrorResponse = async (response: Response) => {
     throw err;
 };
 
-// 通用请求函数
-export const apiRequest = async (endpoint: string) => {
+// 通用请求函数（带缓存、去重、重试）
+export const apiRequest = async (endpoint: string, options?: { skipCache?: boolean }) => {
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'GET',
-      headers: getAuthHeaders(),
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      await parseErrorResponse(response);
-    }
-
-    return await response.json();
+    return await requestManager(
+      {
+        method: 'GET',
+        endpoint,
+        headers: getAuthHeaders(),
+        options: {
+          enableDeduplication: true,
+          enableCache: true,
+          enableRetry: true,
+          skipCache: options?.skipCache || false,
+        },
+      },
+      API_BASE_URL
+    );
   } catch (error) {
     console.error(`API请求失败 ${endpoint}:`, error);
     throw error;
   }
 };
 
-// 通用 POST 请求
+// 通用 POST 请求（带重试，不缓存，不去重）
+// 注意：创建操作禁用去重，确保每次点击都能真正创建
 export const apiPost = async (endpoint: string, body: any = {}) => {
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(body),
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      await parseErrorResponse(response);
-    }
-
-    return await response.json();
+    return await requestManager(
+      {
+        method: 'POST',
+        endpoint,
+        body,
+        headers: getAuthHeaders(),
+        options: {
+          enableDeduplication: false, // 创建操作不去重，允许重复创建
+          enableCache: false, // POST 请求不缓存
+          enableRetry: true, // 保留重试功能
+        },
+      },
+      API_BASE_URL
+    );
   } catch (error) {
     console.error(`API请求失败 ${endpoint}:`, error);
     throw error;
   }
 };
 
+// 通用 DELETE 请求（带重试，不缓存，不去重）
+// 注意：删除操作禁用去重，确保每次删除都能真正执行
 export const apiDelete = async (endpoint: string) => {
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      await parseErrorResponse(response);
-    }
-    if (response.status === 204) {
-      return null;
-    }
-    return await response.json();
+    return await requestManager(
+      {
+        method: 'DELETE',
+        endpoint,
+        headers: getAuthHeaders(),
+        options: {
+          enableDeduplication: false, // 删除操作不去重，允许重复删除
+          enableCache: false, // DELETE 请求不缓存
+          enableRetry: true, // 保留重试功能
+        },
+      },
+      API_BASE_URL
+    );
   } catch (error) {
     console.error(`API请求失败 ${endpoint}:`, error);
     throw error;
   }
 };
 
-// 通用 PATCH 请求
+// 通用 PATCH 请求（带重试，不缓存，不去重）
+// 注意：更新操作禁用去重，确保每次更新都能真正执行
 export const apiPatch = async (endpoint: string, body: any = {}) => {
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'PATCH',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(body),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      await parseErrorResponse(response);
-    }
-    return await response.json();
+    return await requestManager(
+      {
+        method: 'PATCH',
+        endpoint,
+        body,
+        headers: getAuthHeaders(),
+        options: {
+          enableDeduplication: false, // 更新操作不去重，允许重复更新
+          enableCache: false, // PATCH 请求不缓存
+          enableRetry: true, // 保留重试功能
+        },
+      },
+      API_BASE_URL
+    );
   } catch (error) {
     console.error(`API请求失败 ${endpoint}:`, error);
     throw error;

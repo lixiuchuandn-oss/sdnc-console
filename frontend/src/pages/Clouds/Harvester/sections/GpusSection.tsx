@@ -194,6 +194,17 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
               ]}
               onChange={(v) => setStatusFilter(v)}
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                setTypeFilter('all');
+                setStatusFilter('all');
+              }}
+            >
+              重置
+            </button>
           </>
         )}
         toolbarRight={(

@@ -1,12 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Row, Col, Button, Empty, Spin, Badge, Tooltip } from 'antd';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { Row, Col, Button, Empty, Spin } from 'antd';
 import {
   CloudServerOutlined,
   DesktopOutlined,
   TeamOutlined,
   BellOutlined,
-  ArrowUpOutlined,
-  ArrowDownOutlined,
   RightOutlined,
   AliyunOutlined,
   AmazonOutlined,
@@ -20,9 +18,6 @@ import {
   ClockCircleOutlined,
   BellFilled,
   UserOutlined,
-  CaretUpFilled,
-  CaretDownFilled,
-  ThunderboltFilled,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useNavigate } from 'react-router-dom';
@@ -77,7 +72,7 @@ const OverviewDashboard: React.FC = () => {
   const [instanceCounts, setInstanceCounts] = useState<Record<string, { total: number, running: number }>>({});
   const [cloudStats, setCloudStats] = useState({ online: 0, total: 0 });
 
-  const loadCriticalData = async () => {
+  const loadCriticalData = useCallback(async () => {
     setStatsLoading(true);
     try {
       const results = await Promise.allSettled([
@@ -116,9 +111,9 @@ const OverviewDashboard: React.FC = () => {
     } finally {
       setStatsLoading(false);
     }
-  };
+  }, []);
 
-  const loadSecondaryData = async () => {
+  const loadSecondaryData = useCallback(async () => {
     setChartsLoading(true);
     try {
       const results = await Promise.allSettled([
@@ -135,14 +130,14 @@ const OverviewDashboard: React.FC = () => {
     } finally {
       setChartsLoading(false);
     }
-  };
+  }, []);
 
-  const loadAllData = () => {
+  const loadAllData = useCallback(() => {
     loadCriticalData();
     setTimeout(() => {
       loadSecondaryData();
     }, 100);
-  };
+  }, [loadCriticalData, loadSecondaryData]);
 
   useEffect(() => {
     loadAllData();
@@ -160,7 +155,7 @@ const OverviewDashboard: React.FC = () => {
     
     observer.observe(el, { attributes: true });
     return () => observer.disconnect();
-  }, []);
+  }, [loadAllData]);
 
   const providerData = useMemo(() => {
     const map: Record<string, number> = {};
@@ -221,10 +216,6 @@ const OverviewDashboard: React.FC = () => {
       default: return <InfoCircleFilled style={{ color: '#1677ff' }} />;
     }
   };
-
-  const utilizationRate = instanceStats.total > 0 
-    ? Number(((instanceStats.running / instanceStats.total) * 100).toFixed(1)) 
-    : 0;
 
   return (
     <div className="dashboard-modern">

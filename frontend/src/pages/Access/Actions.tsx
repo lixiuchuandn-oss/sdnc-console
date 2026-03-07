@@ -4,7 +4,7 @@ import { ApiOutlined, ReloadOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { routeSpecs } from '../../routes/RouteSpec';
 import PageContainer from '../../components/PageContainer';
-import { PLATFORMS, PLATFORM_LABELS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../catalogs/navCatalog';
+import { PLATFORMS, PLATFORM_LABELS, GROUPS, platformOf, groupOf, featureLabelOf } from '../../constants/navCatalog';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
 

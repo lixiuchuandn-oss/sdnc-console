@@ -279,6 +279,17 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
             style={{ width: 150 }}
             options={ipamOptions}
           />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setNsFilter('');
+              setIpamFilter('');
+            }}
+          >
+            重置
+          </button>
         </Space>
       }
       toolbarRight={

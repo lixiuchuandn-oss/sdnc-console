@@ -195,7 +195,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 setSubnets(data.related.subnets || []);
                 setVmImages(data.related.images || []);
             }
-            console.log('[VmDetail] Aggregated Data Loaded:', data);
             if (manual) message.success('刷新成功');
         }
     } catch (e) {
@@ -275,7 +274,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                         newStatus = { printableStatus: statusStr, phase: statusStr };
                     }
 
-                    console.log(`[VmDetail] SSE Update: ${prevStatusStr} -> ${statusStr}`);
                     return {
                         ...prev,
                         status: newStatus,

@@ -183,6 +183,16 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
                 ...vpcOptions.map(v => ({ value: v, label: v }))
               ]} 
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+                setVpcFilter('');
+              }}
+            >
+              重置
+            </button>
           </>
         )}
         primaryAction={{

@@ -1,8 +1,119 @@
 /* 
- * Global CSS Migration File
- * 用于逐步迁移和重构 global.css 中的样式
- * 最终目标是替代 global.css
+ * Global CSS File
+ * 全局样式文件，包含所有全局样式定义
  */
+
+/* ==========================================================================
+   Base Styles (基础样式)
+   ========================================================================== */
+
+html, body, #root {
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+}
+
+/* 调整侧边菜单项与其上方的间距为 4px（遵循默认紧凑间距） */
+.ant-menu .ant-menu-item {
+  margin-top: 4px;
+}
+
+/* 让图标按钮中的 SVG 垂直居中 */
+.ant-btn-icon-only .ant-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ant-btn-icon-only .anticon > svg {
+  vertical-align: middle !important;
+}
+
+/* ==========================================================================
+   Animations (动画定义)
+   ========================================================================== */
+
+@keyframes breath {
+  from { box-shadow: 0 0 4px 1px #00b96b44; }
+  to   { box-shadow: 0 0 12px 4px #00b96b99; }
+}
+
+/* 脉冲动画 */
+@keyframes pulse {
+  0% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% { 
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+  100% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 连接线动画 */
+@keyframes dash {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 10; }
+}
+
+/* 渐变流动动画 */
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* 浮动动画 */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+/* 闪烁动画 */
+@keyframes shimmer {
+  0% { opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+/* 旋转动画 */
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 缩放动画 */
+@keyframes scale-in {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* ==========================================================================
+   React Flow Styles (React Flow 样式)
+   ========================================================================== */
+
+/* React Flow 样式优化 */
+.react-flow__node {
+  animation: scale-in 0.3s ease-out;
+}
+
+.react-flow__edge {
+  animation: scale-in 0.5s ease-out;
+}
+
+.react-flow__controls {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid #e8e8e8 !important;
+  border-radius: 8px !important;
+  backdrop-filter: blur(10px);
+  top: 32px !important;
+}
 
 /* ==========================================================================
    Table Styles (std)

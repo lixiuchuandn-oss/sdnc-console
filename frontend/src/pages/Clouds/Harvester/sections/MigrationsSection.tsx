@@ -266,6 +266,15 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={(

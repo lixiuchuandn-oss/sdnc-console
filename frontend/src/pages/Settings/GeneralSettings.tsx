@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Button, Input, App, Upload, Image, Typography, ColorPicker } from 'antd';
-import { BgColorsOutlined, UploadOutlined, DeleteOutlined, MenuOutlined } from '@ant-design/icons';
+import { BgColorsOutlined, UploadOutlined, DeleteOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { useSettings } from '../../contexts/SettingsContext';
 
@@ -8,6 +8,7 @@ const GeneralSettings: React.FC = () => {
   const { message } = App.useApp();
   const [themeForm] = Form.useForm();
   const [sidebarForm] = Form.useForm();
+  const [contentCardForm] = Form.useForm();
   const { settings, updateSetting, loading } = useSettings();
   const [previewIcon, setPreviewIcon] = useState<string | undefined>(undefined);
 
@@ -18,15 +19,17 @@ const GeneralSettings: React.FC = () => {
       headerColor: settings.headerColor || '#0A4CC0',
       headerColorEnd: settings.headerColorEnd || '#1B64ED',
       searchBackgroundColor: settings.searchBackgroundColor || '#1062fe',
-      primaryColor: settings.primaryColor || '#1677ff',
     });
     sidebarForm.setFieldsValue({
       sidebarMenuItemSelectedColor: settings.sidebarMenuItemSelectedColor || '#e6f7ff',
       sidebarMenuItemSelectedTextColor: settings.sidebarMenuItemSelectedTextColor || '#1677ff',
       sidebarMenuItemSelectedIconColor: settings.sidebarMenuItemSelectedIconColor || '#1677ff',
     });
+    contentCardForm.setFieldsValue({
+      primaryColor: settings.primaryColor || '#1677ff',
+    });
     setPreviewIcon(settings.headerIcon);
-  }, [settings, themeForm, sidebarForm]);
+  }, [settings, themeForm, sidebarForm, contentCardForm]);
 
   const handleSaveTheme = async (values: any) => {
     // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
@@ -58,11 +61,30 @@ const GeneralSettings: React.FC = () => {
       const hexColor = getHexString(values.searchBackgroundColor);
       await updateSetting('searchBackgroundColor', hexColor);
     }
+    message.success('顶部导航栏设置已保存');
+  };
+
+  const handleSaveContentCard = async (values: any) => {
+    // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
+    const getHexString = (color: any): string => {
+      if (!color) return '#1677ff';
+      if (typeof color === 'string') {
+        return color.startsWith('#') ? color : `#${color}`;
+      }
+      if (color && typeof color.toHexString === 'function') {
+        return color.toHexString();
+      }
+      if (color && color.hex) {
+        return color.hex.startsWith('#') ? color.hex : `#${color.hex}`;
+      }
+      return '#1677ff';
+    };
+    
     if (values.primaryColor !== undefined) {
       const hexColor = getHexString(values.primaryColor);
       await updateSetting('primaryColor', hexColor);
     }
-    message.success('顶部导航栏设置已保存');
+    message.success('Content card 设置已保存');
   };
 
   // 处理图标上传
@@ -152,7 +174,6 @@ const GeneralSettings: React.FC = () => {
               headerColor: settings.headerColor || '#0A4CC0', 
               headerColorEnd: settings.headerColorEnd || '#1B64ED',
               searchBackgroundColor: settings.searchBackgroundColor || '#1062fe',
-              primaryColor: settings.primaryColor || '#1677ff',
             }}
           >
             <Form.Item label="系统标题 (Header Title)" name="headerTitle">
@@ -241,6 +262,31 @@ const GeneralSettings: React.FC = () => {
                 ]}
               />
             </Form.Item>
+            
+            {previewIcon && (
+              <div style={{ marginBottom: 24, marginTop: -12 }}>
+                <div style={{ padding: 8, border: '1px solid #f0f0f0', borderRadius: 6, display: 'inline-block', background: '#fff' }}>
+                  <Image src={previewIcon} height={40} style={{ objectFit: 'contain' }} />
+                </div>
+              </div>
+            )}
+            <Form.Item>
+              <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button>
+            </Form.Item>
+          </Form>
+        </Card>
+
+        <Card title={<span><BgColorsOutlined style={{ marginRight: 8 }} />Content card 设置</span>} style={{ marginBottom: 24 }}>
+          <Form 
+            form={contentCardForm}
+            layout="vertical" 
+            className="general-settings-form"
+            style={{ maxWidth: 360 }} 
+            onFinish={handleSaveContentCard}
+            initialValues={{ 
+              primaryColor: settings.primaryColor || '#1677ff',
+            }}
+          >
             <Form.Item label="主按钮颜色 (Primary Button Color)" name="primaryColor">
               <ColorPicker 
                 showText 
@@ -262,21 +308,13 @@ const GeneralSettings: React.FC = () => {
                 ]}
               />
             </Form.Item>
-            
-            {previewIcon && (
-              <div style={{ marginBottom: 24, marginTop: -12 }}>
-                <div style={{ padding: 8, border: '1px solid #f0f0f0', borderRadius: 6, display: 'inline-block', background: '#fff' }}>
-                  <Image src={previewIcon} height={40} style={{ objectFit: 'contain' }} />
-                </div>
-              </div>
-            )}
             <Form.Item>
               <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button>
             </Form.Item>
           </Form>
         </Card>
 
-        <Card title={<span><MenuOutlined style={{ marginRight: 8 }} />侧边栏设置</span>} style={{ marginBottom: 24 }}>
+        <Card title={<span><BgColorsOutlined style={{ marginRight: 8 }} />侧边栏设置</span>} style={{ marginBottom: 24 }}>
           <Form 
             form={sidebarForm}
             layout="vertical" 

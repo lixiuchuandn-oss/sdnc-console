@@ -11,7 +11,8 @@ import { Table, Button, Input, Select } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isPublicNamespace } from '../../../../utils/harvesterUtils';
 
@@ -155,7 +156,8 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
     },
   ], []);
 
-  const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
+  // 使用新的 hook 管理列设置
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_services_table');
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
 
   return (
@@ -188,9 +190,8 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       }
       toolbarRight={
         <div className="toolbar-actions">
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton
+            allColumns={allColumns}
             settingsKey="harvester_services_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />

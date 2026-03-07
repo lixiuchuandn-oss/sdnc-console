@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Table, Input, Button, Checkbox, Select, message, App, Tag, Tooltip } from 'antd';
+import { Table, Input, Button, Select, message, App, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, ProjectOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -109,8 +109,6 @@ const TemplatesSection: React.FC<Props> = ({
   bordered = true,
 }) => {
   const { modal } = App.useApp();
-  // [状态] 控制系统资源显示的开关 (默认关闭)
-  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
   
   // [推导] 视图控制变量
   const showYaml = !isTenant; // 租户模式不显示 YAML
@@ -224,7 +222,6 @@ const TemplatesSection: React.FC<Props> = ({
             view: viewLink
         }
     };
-    console.log('Opening OpsInfo for template:', r);
     setOpsInfoRecord(r);
     setOpsInfoActiveTab('detail');
     setOpsInfoVisible(true);
@@ -385,28 +382,20 @@ const TemplatesSection: React.FC<Props> = ({
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_templates_table');
 
   /**
-   * 基础数据（过滤系统资源/租户权限）
+   * 基础数据（租户权限过滤）
    */
   const baseData = useMemo(() => {
-    return templates.filter((t: any) => {
-      const ns = getTemplateNamespace(t);
-      if (isTenant) {
-        return true;
-      }
-      // 管理员模式：根据开关决定是否显示系统命名空间
-      if (!showSystemResources && isSystemNamespace(ns)) return false;
-      return true;
-    });
-  }, [templates, isTenant, showSystemResources]);
+    return templates;
+  }, [templates]);
 
   /**
-   * 命名空间选项
+   * 命名空间选项（过滤系统命名空间）
    */
   const namespaceOptions = useMemo(() => {
     const nsSet = new Set<string>();
     baseData.forEach((t: any) => {
       const ns = getTemplateNamespace(t);
-      if (ns) nsSet.add(ns);
+      if (ns && !isSystemNamespace(ns)) nsSet.add(ns); // 过滤系统命名空间
     });
     return Array.from(nsSet).map(ns => ({ value: ns, label: ns }));
   }, [baseData]);
@@ -473,14 +462,17 @@ const TemplatesSection: React.FC<Props> = ({
               ]}
               className="toolbar-filter-sm"
             />
-            {!isTenant && (
-              <Checkbox
-                checked={showSystemResources}
-                onChange={e => setShowSystemResources(e.target.checked)}
-              >
-                显示系统资源
-              </Checkbox>
-            )}
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setSearchText('');
+                setSelectedNamespace(undefined);
+                setSelectedScope(undefined);
+              }}
+            >
+              重置
+            </button>
           </>
         )}
         toolbarRight={(

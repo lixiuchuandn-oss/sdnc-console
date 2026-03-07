@@ -1,67 +1,85 @@
 import 'antd/dist/reset.css';
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { getDefaultAdminPath } from './utils/accessMapping';
-import { ConfigProvider, Modal, theme as antdTheme } from 'antd';
+import { ConfigProvider, Modal, theme as antdTheme, Spin } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
-import Login from './pages/Auth/Login';
-import AdminLogin from './pages/Auth/AdminLogin';
-import AdminLayout from './layouts/AdminLayout';
-import OverviewDashboard from './pages/Dashboard/OverviewDashboard';
-import SdnDashboard from './pages/Dashboard/SdnDashboard';
-import Users from './pages/Tenants/Users';
-import Clouds from './pages/Clouds';
-import CloudDetail from './pages/Clouds/CloudDetail';
-import InstanceDetail from './pages/Clouds/InstanceDetail';
-import Tenants from './pages/Tenants';
+import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
 import { LicenseProvider } from './contexts/LicenseContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import AdminRoute from './components/AdminRoute';
 import PrivateRoute from './components/PrivateRoute';
-import GeneralSettings from './pages/Settings/GeneralSettings';
-import AdvancedSettings from './pages/Settings/AdvancedSettings';
-import LicenseSettingsPage from './pages/Settings/LicenseSettings';
-import Alarms from './pages/Alarms/index';
-import SRv6Page from './pages/InterConnect/SRv6/index';
-import SRv6CreatePage from './pages/InterConnect/SRv6/Create';
-import IPsecVPNPage from './pages/InterConnect/IPsecVPN/index';
-import IPsecVPNWizard from './pages/InterConnect/IPsecVPN/IPsecVPNWizard';
-import VRPage from './pages/InterConnect/VR/index';
-import AddVRInstance from './pages/InterConnect/VR/AddVRInstance';
-import EditVRConfig from './pages/InterConnect/VR/EditVRConfig';
-import PEWizard from './pages/InterConnect/VR/PEWizard';
-import CEWizard from './pages/InterConnect/VR/CEWizard';
-import StandardWizard from './pages/InterConnect/VR/StandardWizard';
-import SASEWizard from './pages/InterConnect/VR/SASEWizard';
-import ACLPage from './pages/InterConnect/ACL/index';
-import NATPage from './pages/InterConnect/NAT/index';
-import SecurityDomainPage from './pages/SecMgrPlane/SecurityDomain/index';
-import SecurityDomainWizardPage from './pages/SecMgrPlane/SecurityDomain/Wizard';
-import SecurityDomainDetail from './pages/SecMgrPlane/SecurityDomain/Detail';
-import CENPage from './pages/SecMgrPlane/CascadeChannels/index';
-import CENDetailPage from './pages/SecMgrPlane/CascadeChannels/Detail';
-import ComingSoon from './pages/ComingSoon';
-import SecurityApps from './pages/SecMgrPlane/Applications/index';
-import SecurityServices from './pages/SecMgrPlane/SecurityServices/index';
-import AccessRolesPage from './pages/Access/Roles';
-import AccessActionsPage from './pages/Access/Actions';
-import AccessUsersPage from './pages/Access/Users';
-import ProtectedObjects from './pages/Security/TrafficOrchestration/ProtectedObjects';
-import ServiceChains from './pages/Security/TrafficOrchestration/ServiceChains';
-import CreateServiceChainWizard from './pages/Security/TrafficOrchestration/ServiceChains/CreateWizard';
-import Policies from './pages/Security/TrafficOrchestration/Policies';
-import WebSSHPage from './pages/Clouds/WebSSH';
-import CloudConsolePage from './pages/Clouds/Console/CloudConsole';
-import HarvesterVNCPage from './pages/Clouds/Harvester/HarvesterVNC';
-import TenantLeasedLinesPage from './pages/Tenants/LeasedLines';
-import OrgManagePage from './pages/Tenants/OrgManage';
-import ApiDocs from './pages/ApiDocs';
 import { routeSpecs } from './routes/RouteSpec';
-import VmCreateWizardModal from './pages/Clouds/Harvester/modals/VmCreateWizardModal';
-import AiSocPlaceholder from './pages/SecOps/AiSocPlaceholder';
-import AiSocFrame from './pages/SecOps/AiSocFrame';
+
+// 关键路由保持同步加载（首屏必需，体积小）
+import Login from './pages/Auth/Login';
+import AdminLogin from './pages/Auth/AdminLogin';
+import AdminLayout from './layouts/AdminLayout';
+
+// 懒加载主要页面组件
+const OverviewDashboard = lazy(() => import('./pages/Dashboard/OverviewDashboard'));
+const SdnDashboard = lazy(() => import('./pages/Dashboard/SdnDashboard'));
+const Users = lazy(() => import('./pages/Tenants/Users'));
+const Clouds = lazy(() => import('./pages/Clouds'));
+const CloudDetail = lazy(() => import('./pages/Clouds/CloudDetail'));
+const InstanceDetail = lazy(() => import('./pages/Clouds/InstanceDetail'));
+const Tenants = lazy(() => import('./pages/Tenants'));
+const GeneralSettings = lazy(() => import('./pages/Settings/GeneralSettings'));
+const AdvancedSettings = lazy(() => import('./pages/Settings/AdvancedSettings'));
+const LicenseSettingsPage = lazy(() => import('./pages/Settings/LicenseSettings'));
+const Alarms = lazy(() => import('./pages/Alarms/index'));
+const SRv6Page = lazy(() => import('./pages/InterConnect/SRv6/index'));
+const SRv6CreatePage = lazy(() => import('./pages/InterConnect/SRv6/Create'));
+const IPsecVPNPage = lazy(() => import('./pages/InterConnect/IPsecVPN/index'));
+const IPsecVPNWizard = lazy(() => import('./pages/InterConnect/IPsecVPN/IPsecVPNWizard'));
+const VRPage = lazy(() => import('./pages/InterConnect/VR/index'));
+const AddVRInstance = lazy(() => import('./pages/InterConnect/VR/AddVRInstance'));
+const EditVRConfig = lazy(() => import('./pages/InterConnect/VR/EditVRConfig'));
+const PEWizard = lazy(() => import('./pages/InterConnect/VR/PEWizard'));
+const CEWizard = lazy(() => import('./pages/InterConnect/VR/CEWizard'));
+const StandardWizard = lazy(() => import('./pages/InterConnect/VR/StandardWizard'));
+const SASEWizard = lazy(() => import('./pages/InterConnect/VR/SASEWizard'));
+const ACLPage = lazy(() => import('./pages/InterConnect/ACL/index'));
+const NATPage = lazy(() => import('./pages/InterConnect/NAT/index'));
+const SecurityDomainPage = lazy(() => import('./pages/SecMgrPlane/SecurityDomain/index'));
+const SecurityDomainWizardPage = lazy(() => import('./pages/SecMgrPlane/SecurityDomain/Wizard'));
+const SecurityDomainDetail = lazy(() => import('./pages/SecMgrPlane/SecurityDomain/Detail'));
+const CENPage = lazy(() => import('./pages/SecMgrPlane/CascadeChannels/index'));
+const CENDetailPage = lazy(() => import('./pages/SecMgrPlane/CascadeChannels/Detail'));
+const ComingSoon = lazy(() => import('./pages/ComingSoon'));
+const SecurityApps = lazy(() => import('./pages/SecMgrPlane/Applications/index'));
+const SecurityServices = lazy(() => import('./pages/SecMgrPlane/SecurityServices/index'));
+const AccessRolesPage = lazy(() => import('./pages/Access/Roles'));
+const AccessActionsPage = lazy(() => import('./pages/Access/Actions'));
+const AccessUsersPage = lazy(() => import('./pages/Access/Users'));
+const ProtectedObjects = lazy(() => import('./pages/Security/TrafficOrchestration/ProtectedObjects'));
+const ServiceChains = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains'));
+const CreateServiceChainWizard = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains/CreateWizard'));
+const Policies = lazy(() => import('./pages/Security/TrafficOrchestration/Policies'));
+const WebSSHPage = lazy(() => import('./pages/Clouds/WebSSH'));
+const CloudConsolePage = lazy(() => import('./pages/Clouds/Console/CloudConsole'));
+const HarvesterVNCPage = lazy(() => import('./pages/Clouds/Harvester/HarvesterVNC'));
+const TenantLeasedLinesPage = lazy(() => import('./pages/Tenants/LeasedLines'));
+const OrgManagePage = lazy(() => import('./pages/Tenants/OrgManage'));
+const ApiDocs = lazy(() => import('./pages/ApiDocs'));
+const VmCreateWizardModal = lazy(() => import('./pages/Clouds/Harvester/modals/VmCreateWizardModal'));
+const AiSocPlaceholder = lazy(() => import('./pages/SecOps/AiSocPlaceholder'));
+const AiSocFrame = lazy(() => import('./pages/SecOps/AiSocFrame'));
+
+// 加载中组件
+const LoadingFallback: React.FC = () => (
+  <div style={{ 
+    display: 'flex', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    minHeight: '400px',
+    width: '100%'
+  }}>
+    <Spin size="large" tip="加载中..." />
+  </div>
+);
 
 
   
@@ -89,7 +107,7 @@ const AppRoutes: React.FC = () => {
   const location = useLocation();
   const background = (location.state as any)?.backgroundLocation;
   return (
-    <>
+    <Suspense fallback={<LoadingFallback />}>
       <Routes location={background || location}>
         <Route path="/login" element={<Login />} />
         <Route path="/admin/login" element={<AdminLogin />} />
@@ -199,7 +217,7 @@ const AppRoutes: React.FC = () => {
           })}
         </Routes>
       )}
-    </>
+    </Suspense>
   );
 };
 
@@ -238,9 +256,11 @@ const AdminIndex: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <SettingsProvider>
-      <AppContent />
-    </SettingsProvider>
+    <ErrorBoundary>
+      <SettingsProvider>
+        <AppContent />
+      </SettingsProvider>
+    </ErrorBoundary>
   );
 };
 

@@ -59,7 +59,7 @@ export const registerHarvesterNamespaceRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
+        const { force, excludeSystem } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -161,7 +161,16 @@ export const registerHarvesterNamespaceRoutes = (
         }
 
         const items = await repo.find({ where: whereCondition });
-        const list = items.map((i) => i.rawData);
+        let list = items.map((i) => i.rawData);
+        
+        // [系统命名空间过滤] 如果 excludeSystem=true，过滤掉系统/受保护的命名空间
+        if (String(excludeSystem) === 'true') {
+          list = list.filter((item: any) => {
+            const name = item?.metadata?.name || item?.name || '';
+            return !isProtectedNamespace(name);
+          });
+        }
+        
         res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
         res
@@ -300,6 +309,16 @@ export const registerHarvesterNamespaceRoutes = (
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源创建')) return;
+        
+        // [系统命名空间保护] 禁止创建系统/受保护的命名空间
+        const namespaceName = req.body?.metadata?.name || req.body?.name;
+        if (namespaceName && isProtectedNamespace(namespaceName)) {
+          return res.status(403).json({ 
+            message: '禁止创建系统或受保护的命名空间',
+            error: `命名空间 "${namespaceName}" 是系统命名空间，不能用于用户资源`
+          });
+        }
+        
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const base = (cloud.endpoint || '').replace(/\/+$/, '');
         let origin = base;

@@ -284,6 +284,17 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
               onChange={(e) => setAlertKeyword(e.target.value)}
               onSearch={loadAlerts}
             />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setAlertKeyword('');
+                setLevelFilter('');
+                setNamespaceFilter('');
+              }}
+            >
+              重置
+            </button>
           </>
         }
         toolbarRight={

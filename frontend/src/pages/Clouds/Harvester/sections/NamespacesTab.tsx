@@ -8,7 +8,8 @@ import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import StdFormModal from '../../../../components/StdFormModal';
 
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 
 /**
@@ -63,8 +64,6 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
   const [filterType, setFilterType] = useState<string>('all');
   // 状态过滤器: all(全部) | Active | Terminating
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  // 表格列配置
-  const [tableColumns, setTableColumns] = useState<any[]>([]);
   
   // === 详情抽屉状态 ===
   const [detailVisible, setDetailVisible] = useState(false);
@@ -201,6 +200,13 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     try {
       const v = values;
       const name = String(v.name || '');
+      
+      // [系统命名空间保护] 禁止创建系统命名空间
+      if (isSystemNamespace(name)) {
+        message.error('禁止创建系统或受保护的命名空间');
+        return;
+      }
+      
       const labels = parseLabels(v.labels);
       const annotations: any = {};
 
@@ -414,7 +420,10 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         if (!isTenant) {
           items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
         }
-        items.push({ key: 'edit', label: '编辑配置', onClick: () => handleEdit(r) });
+        // [系统命名空间保护] 系统命名空间不允许编辑，只能查看
+        if (!isSys) {
+          items.push({ key: 'edit', label: '编辑配置', onClick: () => handleEdit(r) });
+        }
         return (
           <ResourceActionsDropdown 
             items={items} 
@@ -423,7 +432,10 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         );
       }
     }
-  ], [cloudId]);
+  ], [cloudId, isTenant, handleOpenOpsinfo, handleEdit]);
+
+  // 使用新的 hook 管理列设置
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_namespaces_table_v3');
 
   return (
     <PageDetailSection
@@ -476,9 +488,8 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       toolbarRight={
         <>
           <Button type="primary" onClick={() => { form.resetFields(); setCreating(true); }}>新增命名空间</Button>
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton
+            allColumns={allColumns}
             settingsKey="harvester_namespaces_table_v3"
           />
           <Button icon={<ReloadOutlined />} onClick={onRefresh} />

@@ -100,7 +100,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [harvesterImages, setHarvesterImages] = useState<any[]>([]); // 镜像列表
   const [harvesterVolumes, setHarvesterVolumes] = useState<any[]>([]); // 虚拟卷列表
   const [harvesterNodes, setHarvesterNodes] = useState<any[]>([]); // 节点列表
-  const [harvesterNamespaces, setHarvesterNamespaces] = useState<any[]>([]); // 命名空间列表
+  const [harvesterNamespaces, setHarvesterNamespaces] = useState<any[]>([]); // 命名空间列表（用于筛选和展示，已过滤系统命名空间）
+  const [harvesterNamespacesForManagement, setHarvesterNamespacesForManagement] = useState<any[]>([]); // 命名空间管理页面专用（包含系统命名空间）
   const [harvesterStorageClasses, setHarvesterStorageClasses] = useState<any[]>([]); // 存储类列表
   const [capabilities, setCapabilities] = useState<any>(null); // 集群能力（如架构信息）
 
@@ -298,7 +299,9 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       }, force);
     }
 
-    loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, force), (json) => {
+    // 命名空间查询：用于筛选和展示时过滤系统命名空间
+    // 注意：命名空间管理 Tab 会单独查询所有命名空间（包括系统命名空间）
+    loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, force, true), (json) => {
         const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
         setHarvesterNamespaces(Array.isArray(list) ? list : []);
         setRawNamespaces(json || null);
@@ -317,6 +320,24 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    */
   const loadTabResource = async (key: string, force = false) => {
       switch (key) {
+          case 'namespaces':
+            // 命名空间管理页面：加载所有命名空间（包括系统命名空间），使用独立状态避免影响其他组件
+            // 后端已实现租户隔离，租户用户即使查询所有命名空间，也只会看到分配给自己的命名空间
+            if (checkPerm('clouds.namespaces:read')) {
+              setResourceLoading(prev => ({ ...prev, namespaces: true }));
+              fetchHarvesterNamespaces(cloudId, force, false) // excludeSystem=false，管理页面需要查看系统命名空间
+                .then((json) => {
+                  const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                  setHarvesterNamespacesForManagement(Array.isArray(list) ? list : []);
+                })
+                .catch((e) => {
+                  console.warn('Failed to load namespaces for management', e);
+                })
+                .finally(() => {
+                  setResourceLoading(prev => ({ ...prev, namespaces: false }));
+                });
+            }
+            break;
           case 'volumes':
             // 确保进入 PVC 页面时，关联的 VM 数据也已加载 (用于挂载操作)
             if (checkPerm('clouds.instances:read')) {
@@ -1057,7 +1078,31 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     {
                       key: 'namespaces',
                       label: '命名空间',
-                      children: <NamespacesTab cloudId={cloudId} namespaces={harvesterNamespaces} loading={resourceLoading.namespaces} onRefresh={() => loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, true), (json) => setHarvesterNamespaces(json?.data?.items || []), true)} showLog={showLog} raw={rawNamespaces} />
+                      children: <NamespacesTab 
+                        cloudId={cloudId} 
+                        namespaces={harvesterNamespacesForManagement.length > 0 ? harvesterNamespacesForManagement : harvesterNamespaces} 
+                        loading={resourceLoading.namespaces} 
+                        onRefresh={() => {
+                          // 命名空间管理页面需要显示所有命名空间（包括系统命名空间），用于管理员查看和管理
+                          // 注意：使用独立状态 harvesterNamespacesForManagement，避免影响其他组件使用的 harvesterNamespaces
+                          // 后端已实现租户隔离，租户用户即使查询所有命名空间，也只会看到分配给自己的命名空间
+                          setResourceLoading(prev => ({ ...prev, namespaces: true }));
+                          fetchHarvesterNamespaces(cloudId, true, false)
+                            .then((json) => {
+                              const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                              setHarvesterNamespacesForManagement(Array.isArray(list) ? list : []);
+                            })
+                            .catch((e) => {
+                              console.warn('Failed to load namespaces for management', e);
+                            })
+                            .finally(() => {
+                              setResourceLoading(prev => ({ ...prev, namespaces: false }));
+                            });
+                        }} 
+                        showLog={showLog} 
+                        raw={rawNamespaces}
+                        isTenant={user?.role === 'tenant' || (user as any)?.tenantId}
+                      />
                     },
                     {
                       key: 'storage_classes',
@@ -1125,7 +1170,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                     setHarvesterVolumes(json?.data?.items || []);
                                   }, true);
                                 }
-                                loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, true), (json) => {
+                                loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, true, true), (json) => {
                                   setHarvesterNamespaces(json?.data?.items || []);
                                 }, true);
                               });

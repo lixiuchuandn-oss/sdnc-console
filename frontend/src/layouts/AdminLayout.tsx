@@ -44,7 +44,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLicense } from '../contexts/LicenseContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../utils/accessMapping';
-import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../catalogs/navCatalog';
+import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../constants/navCatalog';
 import { routeSpecs } from '../routes/RouteSpec';
 import { iconOf } from '../components/PageContainer';
 import { fetchClouds } from '../services/api';

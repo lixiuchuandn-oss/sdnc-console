@@ -941,6 +941,16 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 onChange={(e) => setKeyword(e.target.value)}
                 style={{ width: 200 }}
               />
+              <button
+                type="button"
+                className="toolbar-reset-btn"
+                onClick={() => {
+                  setKeyword('');
+                  setConfigNsFilter(undefined);
+                }}
+              >
+                重置
+              </button>
             </>
           }
           toolbarRight={

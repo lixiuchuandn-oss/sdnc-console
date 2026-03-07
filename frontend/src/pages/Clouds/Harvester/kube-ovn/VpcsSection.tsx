@@ -147,7 +147,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
 
     if (cloudId) {
       setNsLoading(true);
-      fetchHarvesterNamespaces(cloudId)
+      fetchHarvesterNamespaces(cloudId, false, true) // excludeSystem=true
         .then((res: any) => {
           // 兼容不同的返回格式: { data: { items: [...] } } 或 { data: [...] } 或 { items: [...] } 或直接数组
           const items: any[] = Array.isArray(res?.data?.items) 
@@ -157,12 +157,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
               : (Array.isArray(res?.items) 
                 ? res.items 
                 : (Array.isArray(res) ? res : [])));
-          // 过滤掉系统命名空间
-          const filteredItems = items.filter((n: any) => {
-            const name = n?.metadata?.name || n?.name || '';
-            return !isSystemNamespace(name);
-          });
-          setNamespaces(filteredItems);
+          // 后端已过滤系统命名空间
+          setNamespaces(items);
         })
         .catch(() => {
           // silent fail
@@ -708,6 +704,16 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
             options={namespaceOptions}
             loading={nsLoading}
           />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setSearchText('');
+              setNamespaceFilter('');
+            }}
+          >
+            重置
+          </button>
         </Space>
       )}
       toolbarRight={(

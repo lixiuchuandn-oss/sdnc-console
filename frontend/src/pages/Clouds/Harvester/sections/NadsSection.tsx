@@ -616,7 +616,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
   
   /** 命名空间过滤下拉选项：从处理后的数据中提取唯一命名空间并排序 */
   const nsOptions = useMemo(() => 
-    Array.from(new Set(processedData.map(r => r._namespace).filter(Boolean))).sort(),
+    Array.from(new Set(processedData.map(r => r._namespace).filter(ns => ns && !isSystemNamespace(ns)))).sort(), // 过滤系统命名空间
   [processedData]);
 
   /** IP分配方式过滤下拉选项：从处理后的数据中提取唯一 IP分配方式并排序 */
@@ -793,6 +793,17 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             className="toolbar-filter"
             options={[{ value: '', label: '全部IP分配方式' }, ...ipamOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
           />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setNsFilter('');
+              setIpamFilter('');
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={(

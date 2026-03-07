@@ -121,11 +121,12 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   }, [getCid, form]);
 
   // [数据获取] 刷新命名空间
+  // [业务规则] 创建 VM 时，任何用户都不应在系统命名空间创建，使用 excludeSystem=true
   const reloadNamespaces = useCallback(async () => {
     const cid = getCid();
     if (!cid) return;
     try {
-      const res: any = await fetchHarvesterNamespaces(cid);
+      const res: any = await fetchHarvesterNamespaces(cid, false, true); // excludeSystem=true
       const items: any[] = res?.data?.items || res?.items || [];
       setNamespaces(items);
     } catch { }
@@ -307,13 +308,9 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
 
   // [数据处理] 命名空间选项
   // [业务规则] 创建 VM 时，任何用户都不应在系统命名空间创建
+  // 注意：后端已过滤系统命名空间，这里只需要处理租户模式的公共命名空间过滤
   const namespaceOptions = useMemo(() => {
-    let list = (namespaces || []).filter((n: any) => {
-      const name = n?.metadata?.name || n?.name;
-      // 始终过滤系统命名空间 (如 kube-system)
-      if (isSystemNamespace(name)) return false;
-      return true;
-    });
+    let list = namespaces || [];
 
     if (isTenant) {
       // 租户模式下，创建 VM 时也不能选择公共命名空间 (如 harvester-public)

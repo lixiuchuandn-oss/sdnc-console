@@ -35,21 +35,17 @@ const SshKeyCreateModal: React.FC<Props> = ({ visible, cloudId, onCancel, onSucc
   const loadNamespaces = async () => {
     setNsLoading(true);
     try {
-      const res: any = await fetchHarvesterNamespaces(cloudId);
+      const res: any = await fetchHarvesterNamespaces(cloudId, false, true); // excludeSystem=true
       let list = res?.data?.items || res?.items || [];
       
       // Filter logic:
-      // 1. Remove system namespaces for everyone (Creating resources in system namespace is generally restricted)
-      // 2. For tenants: Remove public namespaces (read-only for them)
-      
-      list = list.filter((n: any) => {
-        const name = n.metadata.name;
-        // Always filter system namespaces
-        if (isSystemNamespace(name)) return false;
-        // If tenant, also filter public namespaces
-        if (isTenant && isPublicNamespace(name)) return false;
-        return true;
-      });
+      // 后端已过滤系统命名空间，这里只需要处理租户模式的公共命名空间过滤
+      if (isTenant) {
+        list = list.filter((n: any) => {
+          const name = n.metadata?.name || n.name;
+          return !isPublicNamespace(name);
+        });
+      }
       
       setNamespaces(list);
       

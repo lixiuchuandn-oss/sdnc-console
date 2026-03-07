@@ -407,13 +407,24 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
       <PageDetailSection
         asCard={false}
         toolbarLeft={
-          <Input.Search
-            placeholder="请输入名称"
-            allowClear
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onSearch={loadList}
-          />
+          <>
+            <Input.Search
+              placeholder="请输入名称"
+              allowClear
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onSearch={loadList}
+            />
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => {
+                setKeyword('');
+              }}
+            >
+              重置
+            </button>
+          </>
         }
         toolbarRight={
           <>

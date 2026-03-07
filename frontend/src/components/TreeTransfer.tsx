@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Tree, Empty, Button, List, Typography } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { TransferItem } from 'antd/es/transfer';
-import { groupOf, featureLabelOf, platformOf, PLATFORM_LABELS } from '../catalogs/navCatalog';
+import { groupOf, featureLabelOf, platformOf, PLATFORM_LABELS } from '../constants/navCatalog';
 
 interface Props {
   dataSource: TransferItem[];

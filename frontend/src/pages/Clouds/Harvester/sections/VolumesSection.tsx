@@ -1,41 +1,66 @@
 /**
  * ==============================================================================
- * 模块名称: Harvester 虚拟卷 (Volume) 列表
- * 文件路径: src/pages/Clouds/Harvester/sections/VolumesSection.tsx
+ * [模块] VolumesSection - Harvester 虚拟卷 (PVC) 列表管理
+ * [文件] src/pages/Clouds/Harvester/sections/VolumesSection.tsx
+ * [标签] #Harvester #Volume #PVC #存储管理 #生命周期管理
  * ==============================================================================
  * 
- * [功能描述]
- * 负责展示 Harvester 集群中的虚拟卷 (PVC) 资源，提供全生命周期管理功能。
- * 核心功能包括：
- * 1. 列表展示: 统一展示 PVC 的状态、容量、存储类、挂载 VM 等信息。
- * 2. 资源过滤: 支持按关键字、命名空间、状态、存储类筛选，并提供“显示系统卷”开关。
- * 3. 生命周期管理: 支持创建、克隆、扩容、删除、创建快照、导出镜像等操作。
- * 4. 挂载管理: 支持将卷挂载到虚拟机或从虚拟机卸载。
+ * [功能概述]
+ * 展示和管理 Harvester 集群中的虚拟卷 (PersistentVolumeClaim) 资源。
+ * 
+ * [核心功能]
+ * 1. 列表展示: 展示 PVC 的状态、容量、存储类、挂载 VM 等信息
+ * 2. 资源过滤: 支持按关键字、命名空间、状态、存储类筛选，提供"显示系统卷"开关
+ * 3. 生命周期管理: 创建、克隆、扩容、删除、创建快照、导出镜像
+ * 4. 挂载管理: 将卷挂载到虚拟机或从虚拟机卸载
  * 
  * [核心逻辑]
- * 1. [视图模型 (ViewModel)]:
- *    - 定义 `VolumeView` 接口，将后端返回的复杂 K8s PVC 对象 (Raw/Wrapped) 转换为扁平化的前端视图数据。
- *    - 统一处理容量单位 (Bytes/GiB)、状态映射 (Phase)、挂载关系 (AttachedTo)。
- * 2. [系统资源过滤]:
- *    - 默认过滤掉 Harvester/Longhorn 等系统命名空间的卷 (依赖 `isSystemNamespace`)。
- *    - 默认过滤掉系统存储类 (依赖 `isSystemStorageClass`)。
- *    - 提供 Checkbox 开关允许用户查看系统级资源。
- * 3. [关联查询]:
- *    - 利用 `SafeRead.attachedVm` 和传入的 `vms` 列表，自动反查卷当前挂载的虚拟机名称。
- *    - 在列表中生成指向 VM 详情页的链接。
- * 4. [操作权限]:
- *    - 根据卷的状态 (Bound/Available/In-use) 动态禁用或启用特定操作按钮 (如仅 Bound 状态可扩容)。
  * 
- * ------------------------------------------------------------------------------
- * [交互/依赖说明]
- * ------------------------------------------------------------------------------
- * 1. 上游数据: 
- *    - 依赖 `CloudDetailHarvester` 传入 `volumes`, `vms`, `storageClasses` 数据。
- * 2. 下游接口: 
- *    - 调用 `harvesterApi` 执行实际的 CRUD 和挂载/卸载操作。
- * 3. 复用组件: 
- *    - `HarvesterResourceDrawer` 展示详情。
- *    - `ResourceActionsDropdown` 展示操作菜单。
+ * 1. 视图模型 (ViewModel)
+ *    - 定义 `VolumeView` 接口，将后端返回的复杂 K8s PVC 对象转换为扁平化的前端视图数据
+ *    - 统一处理容量单位 (Bytes/GiB)、状态映射 (Phase)、挂载关系 (AttachedTo)
+ *    - 位置: 第 91-107 行
+ * 
+ * 2. 系统资源过滤
+ *    - 默认过滤掉 Harvester/Longhorn 等系统命名空间的卷 (依赖 `isSystemNamespace`)
+ *    - 默认过滤掉系统存储类 (依赖 `isSystemStorageClass`)
+ *    - 提供 Checkbox 开关允许用户查看系统级资源
+ *    - 位置: 第 402-410 行
+ * 
+ * 3. 关联查询 (挂载反查)
+ *    - 利用 `SafeRead.attachedVm` 和传入的 `vms` 列表，自动反查卷当前挂载的虚拟机名称
+ *    - 在列表中生成指向 VM 详情页的链接
+ *    - 位置: 第 287-311 行
+ * 
+ * 4. 操作权限控制
+ *    - 根据卷的状态 (Bound/Available/In-use) 动态禁用或启用特定操作按钮
+ *    - 如仅 Bound 状态可扩容
+ *    - 位置: 第 721-819 行
+ * 
+ * [数据流]
+ * 
+ * 上游数据源:
+ *   - `CloudDetailHarvester` 传入 `volumes`, `vms`, `storageClasses` 数据
+ *   - Props 定义: 第 68-78 行
+ * 
+ * 下游接口调用:
+ *   - `harvesterApi`: 执行 CRUD 和挂载/卸载操作
+ *   - 导入位置: 第 49 行
+ * 
+ * [复用组件]
+ *   - `HarvesterResourceDrawer`: 展示详情 (第 52 行)
+ *   - `ResourceActionsDropdown`: 展示操作菜单 (第 48 行)
+ *   - `TableColumnSettings`: 列设置 (第 50 行)
+ * 
+ * [关键函数索引]
+ *   - `parseQuantity`: 容量单位解析 (第 118 行)
+ *   - `gbText`: 容量格式化 (第 138 行)
+ *   - `statusBadge`: 状态徽标渲染 (第 168 行)
+ *   - `SafeRead`: 安全读取工具 (第 271 行)
+ *   - `handleAttach`: 挂载处理 (第 512 行)
+ *   - `handleDetach`: 卸载处理 (第 537 行)
+ *   - `handleBatchDelete`: 批量删除 (第 485 行)
+ * 
  * ==============================================================================
  */
 
@@ -54,16 +79,19 @@ import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isSystemStorageClass, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
- * [组件参数定义]
- * 定义组件从外部接收的数据源和回调。
- *
- * @property cloudId           云平台 ID（用于调用 Harvester 相关 API）
- * @property volumes           后端返回的卷列表（PVC 或包装对象），作为原始数据源
- * @property loading           上层传入的加载状态，用于控制表格 / 刷新按钮的 loading
- * @property vms               当前集群中云主机列表，用于反查卷挂载到哪台 VM
- * @property storageClasses    存储类列表（StorageClass），用于创建/导出卷时提供下拉选项
- * @property namespacesOptions 可选的命名空间选项（如果不给，则从数据中推导）
- * @property onRefresh         触发上层重新拉取 volumes / vms 等数据的回调
+ * [组件参数] Props - VolumesSection 组件入参
+ * [标签] #Props #接口定义 #数据源
+ * 
+ * [参数说明]
+ * - cloudId: 云平台 ID（用于调用 Harvester 相关 API）
+ * - volumes: 后端返回的卷列表（PVC 或包装对象），作为原始数据源
+ * - loading: 上层传入的加载状态，用于控制表格/刷新按钮的 loading
+ * - vms: 当前集群中云主机列表，用于反查卷挂载到哪台 VM
+ * - storageClasses: 存储类列表（StorageClass），用于创建/导出卷时提供下拉选项
+ * - namespacesOptions: 可选的命名空间选项（如果不给，则从数据中推导）
+ * - onRefresh: 触发上层重新拉取 volumes/vms 等数据的回调
+ * - isTenant: 是否为租户模式（租户模式下强制过滤系统和公共卷）
+ * - bordered: 表格是否显示边框
  */
 type Props = {
   cloudId: string;
@@ -78,15 +106,31 @@ type Props = {
 };
 
 // ==============================================================================
-// 1. 视图模型定义 (ViewModel)
+// [1] 视图模型定义 (ViewModel)
 // ==============================================================================
 
 /**
- * [类型定义] VolumeView 前端统一视图模型
+ * [类型定义] VolumeView - 前端统一视图模型
+ * [标签] #ViewModel #数据转换 #类型定义
  * 
- * 为什么需要这个模型？
- * 后端返回的数据结构可能不一致（有时是原生 K8s 对象，有时是经过包装的对象）。
- * 我们在这里定义一个标准结构，把混乱的数据“洗”干净，给表格组件使用。
+ * [用途]
+ * 将后端返回的不一致数据结构（原生 K8s 对象或包装对象）转换为标准化的前端视图数据。
+ * 
+ * [字段说明]
+ * - key: 唯一标识 (UID)
+ * - name: PVC 名称
+ * - alias: 别名 (Annotations)
+ * - namespace: 命名空间
+ * - pvName: 绑定的 PV 名称
+ * - phase: 卷状态 (Bound, Pending, etc.)
+ * - capacityRaw: 原始容量 (10Gi)
+ * - capacityBytes: 字节容量 (用于排序)
+ * - storageClass: 存储类
+ * - accessModes: 访问模式 (RWO, RWX)
+ * - volumeMode: 卷模式 (Block, Filesystem)
+ * - creationTimestamp: 创建时间
+ * - attachedTo: 挂载到的节点/实例
+ * - raw: 原始数据对象 (用于详情抽屉)
  */
 interface VolumeView {
   key: string;               // 唯一标识 (UID)
@@ -107,13 +151,23 @@ interface VolumeView {
 }
 
 // ==============================================================================
-// 2. 辅助工具函数 (Helpers)
+// [2] 辅助工具函数 (Helpers)
 // ==============================================================================
 
 /**
- * [辅助工具] K8s 容量单位解析
- * 把 "10Gi", "500Mi" 这种字符串转换成具体的字节数 (number)。
- * 方便后续进行数值排序和格式化。
+ * [工具函数] parseQuantity - K8s 容量单位解析
+ * [标签] #工具函数 #容量解析 #单位转换
+ * 
+ * [功能]
+ * 将 K8s 容量字符串 ("10Gi", "500Mi") 转换为字节数 (number)。
+ * 
+ * [用途]
+ * - 用于数值排序
+ * - 用于容量格式化显示
+ * 
+ * [支持单位]
+ * - 二进制: Ki, Mi, Gi, Ti, Pi
+ * - 十进制: k, M, G, T, P
  */
 const parseQuantity = (s: string | number | undefined): number => {
   if (typeof s === 'number') return s;
@@ -132,8 +186,11 @@ const parseQuantity = (s: string | number | undefined): number => {
 };
 
 /**
- * [辅助工具] 格式化容量文本
- * 把字节数转换成人类可读的 "xx.xx GB" 格式。
+ * [工具函数] gbText - 格式化容量文本
+ * [标签] #工具函数 #容量格式化 #显示
+ * 
+ * [功能]
+ * 将字节数转换为人类可读的 "xx.xx GB" 格式。
  */
 const gbText = (bytes: number): string => {
   if (!bytes || bytes <= 0) return '-';
@@ -142,8 +199,11 @@ const gbText = (bytes: number): string => {
 };
 
 /**
- * [辅助工具] 状态汉化映射
- * 把 K8s 的英文状态 (Bound, Lost) 翻译成中文，用于筛选框展示。
+ * [工具函数] cnStatus - 状态汉化映射
+ * [标签] #工具函数 #状态映射 #国际化
+ * 
+ * [功能]
+ * 将 K8s 的英文状态 (Bound, Lost) 翻译成中文，用于筛选框展示。
  */
 const cnStatus = (s: string): string => {
   const k = s.toLowerCase();
@@ -158,12 +218,17 @@ const cnStatus = (s: string): string => {
 };
 
 /**
- * [辅助工具] 状态徽标渲染
+ * [工具函数] statusBadge - 状态徽标渲染
+ * [标签] #工具函数 #状态显示 #UI组件
+ * 
+ * [功能]
  * 根据卷的状态显示不同颜色的徽标 (Badge)。
- * - 绿色: 正常/已绑定
- * - 红色: 丢失/错误
- * - 蓝色: 处理中/创建中
- * - 黄色: 警告
+ * 
+ * [状态映射]
+ * - 绿色 (success): 正常/已绑定 (Bound, Available)
+ * - 红色 (error): 丢失/错误 (Lost)
+ * - 蓝色 (processing): 处理中/创建中 (Pending, Resizing)
+ * - 黄色 (warning): 警告 (FileSystemResizePending)
  */
 const statusBadge = (phase: string) => {
   const p = (phase || '').toLowerCase();
@@ -194,7 +259,7 @@ const statusBadge = (phase: string) => {
   };
 
 // ==============================================================================
-// 3. 主组件 (Component)
+// [3] 主组件 (Component)
 // ==============================================================================
 
 const VolumesSection: React.FC<Props> = ({ 
@@ -209,7 +274,8 @@ const VolumesSection: React.FC<Props> = ({
   bordered = true
 }) => {
   // ----------------------------------------------------------------
-  // 状态管理 (State)
+  // [状态管理] State
+  // [标签] #状态管理 #useState
   // ----------------------------------------------------------------
   
   // 过滤条件
@@ -258,15 +324,28 @@ const VolumesSection: React.FC<Props> = ({
 
   // ----------------------------------------------------------------
   // [安全读取工具] SafeRead
+  // [标签] #工具对象 #数据提取 #挂载反查
   // ----------------------------------------------------------------
   /**
-   * SafeRead 对象封装了所有从 raw 数据中提取字段的逻辑。
+   * [工具对象] SafeRead - 安全读取工具
    * 
-   * [核心逻辑] 挂载虚拟机反查 (attachedVm)
-   * 为什么需要这个？
-   * - PVC 对象本身通常只记录“被谁使用了”，但不一定包含 VM 的名字。
-   * - 我们需要遍历所有 VM，检查 VM 的 Volume 列表里有没有包含当前 PVC 的名字。
-   * - 匹配规则：Namespace 必须相同，且 ClaimName 必须匹配。
+   * [功能]
+   * 封装所有从 raw 数据中提取字段的逻辑，统一处理数据不一致问题。
+   * 
+   * [核心方法] attachedVm - 挂载虚拟机反查
+   * 
+   * [为什么需要]
+   * - PVC 对象本身通常只记录"被谁使用了"，但不一定包含 VM 的名字
+   * - 需要遍历所有 VM，检查 VM 的 Volume 列表里有没有包含当前 PVC 的名字
+   * 
+   * [匹配规则]
+   * 1. Namespace 必须相同
+   * 2. ClaimName 必须匹配
+   * 3. 支持两种策略：
+   *    - 策略 A: 检查后端预处理的 volumeClaims 字段
+   *    - 策略 B: 深度检查 K8s spec.template.spec.volumes
+   * 
+   * [位置] 第 271-312 行
    */
   const SafeRead = useMemo(() => ({
     id: (r: any) => r?.name || r?.metadata?.name || '',
@@ -313,14 +392,24 @@ const VolumesSection: React.FC<Props> = ({
 
   // ----------------------------------------------------------------
   // [数据处理] 归一化与视图转换
+  // [标签] #数据处理 #数据转换 #useMemo
   // ----------------------------------------------------------------
   /**
-   * [核心逻辑] 数据源归一化 (dataSource)
+   * [核心逻辑] dataSource - 数据源归一化
    * 
-   * 为什么要这么做？
-   * 1. 统一格式: 后端返回的数据格式可能不统一，这里强制转成 `VolumeView`。
-   * 2. 状态修正: K8s 的 Phase 字段有时不够详细，我们需要结合 Conditions (如 Resizing) 来生成更准确的状态。
-   * 3. 去重: 防止后端返回重复数据导致列表 Key 冲突。
+   * [功能]
+   * 将后端返回的不一致数据格式转换为统一的 `VolumeView` 视图模型。
+   * 
+   * [处理步骤]
+   * 1. 统一格式: 强制转换为 `VolumeView` 结构
+   * 2. 状态修正: 结合 Conditions (如 Resizing) 生成更准确的状态
+   * 3. 去重: 按 namespace/name 去重，防止列表 Key 冲突
+   * 
+   * [状态修正逻辑]
+   * - 检查 `FileSystemResizePending` Condition → phase = 'FileSystemResizePending'
+   * - 检查 `Resizing` Condition → phase = 'Resizing'
+   * 
+   * [位置] 第 325-388 行
    */
   const dataSource = useMemo<VolumeView[]>(() => {
     const rawList = Array.isArray(volumes) ? volumes : [];
@@ -389,6 +478,7 @@ const VolumesSection: React.FC<Props> = ({
 
   // ----------------------------------------------------------------
   // [数据过滤] 列表筛选逻辑
+  // [标签] #数据过滤 #筛选 #useMemo
   // ----------------------------------------------------------------
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -400,12 +490,12 @@ const VolumesSection: React.FC<Props> = ({
       if (st && item.phase.toLowerCase() !== st) return false;
       
       // [系统资源过滤]
-      // 1. 如果是租户模式 (isTenant=true)，强制过滤系统命名空间和公共命名空间
+      // 1. 租户模式: 强制过滤系统命名空间和公共命名空间
       if (isTenant) {
         if (isSystemNamespace(item.namespace) || isPublicNamespace(item.namespace)) return false;
       }
       
-      // 2. 如果用户没有勾选“显示系统卷”，则隐藏系统命名空间的卷 (仅针对非租户场景或补充过滤)
+      // 2. 非租户模式: 根据"显示系统卷"开关决定是否过滤
       // 注意：租户场景下 showSystemVolumes 应该被忽略或强制为 false
       if (!isTenant && !showSystemVolumes && (isSystemNamespace(item.namespace) || isSystemStorageClass(item.storageClass))) return false;
 
@@ -453,14 +543,21 @@ const VolumesSection: React.FC<Props> = ({
 
   // ----------------------------------------------------------------
   // [交互处理] 动作处理函数
+  // [标签] #事件处理 #用户交互 #回调函数
   // ----------------------------------------------------------------
   
   /**
-   * 打开资源详情抽屉
+   * [处理函数] handleOpenDrawer - 打开资源详情抽屉
+   * [标签] #详情查看 #抽屉
    * 
-   * [注意]
-   * 我们必须确保传入的对象包含 `kind` 和 `metadata`，
+   * [功能]
+   * 打开 HarvesterResourceDrawer 展示卷的详细信息。
+   * 
+   * [注意事项]
+   * 必须确保传入的对象包含 `kind` 和 `metadata`，
    * 否则抽屉组件无法正确请求 K8s 事件 API。
+   * 
+   * [位置] 第 465-480 行
    */
   const handleOpenDrawer = useCallback(async (record: VolumeView, tab: string = 'detail') => {
     const raw = record.raw || {};
@@ -480,7 +577,13 @@ const VolumesSection: React.FC<Props> = ({
   }, []);
 
   /**
-   * 批量删除
+   * [处理函数] handleBatchDelete - 批量删除
+   * [标签] #批量操作 #删除
+   * 
+   * [功能]
+   * 批量删除选中的多个卷。
+   * 
+   * [位置] 第 485-507 行
    */
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
@@ -507,7 +610,13 @@ const VolumesSection: React.FC<Props> = ({
   };
 
   /**
-   * 打开挂载弹窗
+   * [处理函数] handleAttach - 打开挂载弹窗
+   * [标签] #挂载 #弹窗
+   * 
+   * [功能]
+   * 打开挂载弹窗，允许用户将卷挂载到虚拟机。
+   * 
+   * [位置] 第 512-527 行
    */
   const handleAttach = useCallback((r: VolumeView) => {
     // 防止页面刚加载完 VM 数据还没同步过来
@@ -527,12 +636,21 @@ const VolumesSection: React.FC<Props> = ({
   }, [vms, onRefresh, SafeRead, attachForm]);
 
   /**
-   * [核心逻辑] 卸载卷 (Detach)
+   * [处理函数] handleDetach - 卸载卷
+   * [标签] #卸载 #核心逻辑 #复杂处理
    * 
-   * 为什么这里逻辑这么复杂？
-   * 1. 找到 VM: 首先得知道卷挂在哪个 VM 上。
-   * 2. 确定磁盘名: Harvester API 卸载时需要传 `diskName`，这不一定是 PVC 的名字，可能是 VM 内部生成的随机名。
-   * 3. 兜底重启: 如果实在找不到磁盘名，说明状态可能不一致，最安全的做法是让用户去 VM 内部卸载或者重启 VM 来强制解绑。
+   * [功能]
+   * 从虚拟机卸载卷。
+   * 
+   * [处理流程]
+   * 1. 找到 VM: 确定卷挂载在哪台 VM 上
+   * 2. 确定磁盘名: Harvester API 卸载时需要传 `diskName`
+   *    - 磁盘名不一定是 PVC 的名字，可能是 VM 内部生成的随机名
+   *    - 从 VM spec.template.spec.volumes 中查找
+   *    - 或从 Extra.VolumeMap 中查找
+   * 3. 兜底重启: 如果找不到磁盘名，提示用户重启 VM 来强制解绑
+   * 
+   * [位置] 第 537-614 行
    */
   const handleDetach = useCallback(async (r: VolumeView) => {
     // 1. 数据检查
@@ -614,7 +732,8 @@ const VolumesSection: React.FC<Props> = ({
   }, [vms, onRefresh, SafeRead, cloudId, message, modal]);
 
   // ----------------------------------------------------------------
-  // [表格列配置]
+  // [表格列配置] Table Columns
+  // [标签] #表格配置 #列定义 #useMemo
   // ----------------------------------------------------------------
   const allColumns = useMemo(() => [
     { 
@@ -820,7 +939,8 @@ const VolumesSection: React.FC<Props> = ({
   ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant]);
 
   // ----------------------------------------------------------------
-  // [渲染]
+  // [渲染] Render
+  // [标签] #渲染 #JSX #UI组件
   // ----------------------------------------------------------------
   return (
     <PageDetailSection
@@ -839,19 +959,19 @@ const VolumesSection: React.FC<Props> = ({
             <Select
               allowClear showSearch placeholder="命名空间"
               value={nsFilter || undefined} onChange={(v) => setNsFilter(v || '')}
-              className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...nsOptions]}
+              className="toolbar-filter" options={[{ value: '', label: '全部' }, ...nsOptions]}
             />
           )}
-          <Select
-            allowClear placeholder="状态"
-            value={statusFilter || undefined} onChange={(v) => setStatusFilter(v || '')}
-            className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...statusOptions.map(k => ({ value: k, label: cnStatus(k) }))]}
-          />
           <Select
             allowClear showSearch placeholder="存储类"
             value={scFilter || undefined} onChange={(v) => setScFilter(v || '')}
             className="toolbar-filter" 
             options={[{ value: '', label: '全部' }, ...dataSource.map(v => v.storageClass).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map(s => ({ value: s, label: s }))]}
+          />
+          <Select
+            allowClear placeholder="状态"
+            value={statusFilter || undefined} onChange={(v) => setStatusFilter(v || '')}
+            className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...statusOptions.map(k => ({ value: k, label: cnStatus(k) }))]}
           />
           {!isTenant && (
             <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -863,6 +983,19 @@ const VolumesSection: React.FC<Props> = ({
               </Checkbox>
             </div>
           )}
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setStatusFilter('');
+              setNsFilter('');
+              setScFilter('');
+              setShowSystemVolumes(false);
+            }}
+          >
+            重置
+          </button>
         </>
       )}
       toolbarRight={(

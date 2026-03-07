@@ -41,14 +41,14 @@ const IPPoolCreateModal: React.FC<Props> = ({ open, onClose, onSuccess, cloudId 
     }
   }, [open]);
 
-  // 加载业务命名空间（过滤掉系统命名空间）
+  // 加载业务命名空间（后端已过滤系统命名空间）
   const loadNamespaces = async () => {
     try {
-      const res = await fetchHarvesterNamespaces(cloudId);
+      const res = await fetchHarvesterNamespaces(cloudId, false, true); // excludeSystem=true
       const items = res?.data?.items || res || [];
       const nsList = items
         .map((i: any) => i.metadata?.name || i.name)
-        .filter((n: string) => n && !isSystemNamespace(n));
+        .filter((n: string) => n); // 后端已过滤系统命名空间，这里只需要过滤空值
       setNamespaces(nsList);
     } catch (e) {
       console.error('Failed to load namespaces', e);

@@ -84,6 +84,7 @@ export const iconOf = (key?: string) => {
     ClusterOutlined: <ClusterOutlined />,
     BorderOuterOutlined: <BorderOuterOutlined />,
     SafetyCertificateOutlined: <SafetyCertificateOutlined />,
+    SettingOutlined: <SettingOutlined />,
   };
   return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
 };

@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Table, Tag, Input, Button, Space, Badge, Select } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import dayjs from 'dayjs';
 
@@ -98,7 +100,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
     );
   };
 
-  const columns: any[] = [
+  const allColumns = useMemo(() => [
     {
       title: '名称',
       dataIndex: ['metadata', 'name'],
@@ -149,7 +151,10 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
         </Space>
       )
     }
-  ];
+  ], [handleOpenDrawer]);
+
+  // 使用新的 hook 管理列设置
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_cluster_networks_table');
 
   return (
     <PageDetailSection
@@ -187,6 +192,10 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
       )}
       toolbarRight={(
         <div className="toolbar-actions">
+          <TableColumnSettingsButton
+            allColumns={allColumns}
+            settingsKey="harvester_cluster_networks_table"
+          />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} loading={loading} />
         </div>
       )}
@@ -196,7 +205,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
         bordered
         rowKey={(r) => r.metadata?.uid || r.metadata?.name}
         dataSource={filtered}
-        columns={columns}
+        columns={tableColumns}
         loading={loading}
         pagination={{ 
           size: 'small', 

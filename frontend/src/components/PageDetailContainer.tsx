@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { Breadcrumb, Card, Space, Typography, theme, Tooltip, Button, Dropdown, Collapse, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, SettingOutlined } from '@ant-design/icons';
 
 export interface PageDetailContainerProps {
   title?: React.ReactNode;
@@ -83,6 +83,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
       BranchesOutlined: <BranchesOutlined />,
       GlobalOutlined: <GlobalOutlined />,
       EnvironmentOutlined: <EnvironmentOutlined />,
+      SettingOutlined: <SettingOutlined />,
     };
     return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
   };

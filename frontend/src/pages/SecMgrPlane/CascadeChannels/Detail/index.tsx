@@ -1200,7 +1200,7 @@ const CenDetailPage: React.FC = () => {
                   { label: '负责人', value: 'owner' },
                   { label: '状态', value: 'status' },
                 ],
-                onChange: (vals: string[]) => console.log('Columns changed:', vals)
+                onChange: () => {}
               }
             )}
           >
@@ -1250,7 +1250,7 @@ const CenDetailPage: React.FC = () => {
                   { label: '防御类型', value: 'defenseType' },
                   { label: '网元数量', value: 'neCount' },
                 ],
-                onChange: (vals: string[]) => console.log('Columns changed:', vals)
+                onChange: () => {}
               }
             )}
           >

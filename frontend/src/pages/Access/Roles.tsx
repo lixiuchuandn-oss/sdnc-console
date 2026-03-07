@@ -4,7 +4,7 @@ import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import StdFormModal from '../../components/StdFormModal';
 import PageContainer from '../../components/PageContainer';
-import { featureLabelOf } from '../../catalogs/navCatalog';
+import { featureLabelOf } from '../../constants/navCatalog';
 import PermissionTreeTransfer from '../../components/TreeTransfer';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';

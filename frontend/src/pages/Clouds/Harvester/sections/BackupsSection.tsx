@@ -328,6 +328,16 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
               { label: '未就绪', value: 'not_ready' },
             ]}
           />
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setStatusFilter(undefined);
+            }}
+          >
+            重置
+          </button>
         </div>
         <div key="toolbar-right" className="toolbar-actions">
            <Button key="create-btn" type="primary" onClick={() => setCreateModalVisible(true)}>创建{type === 'backup' ? '备份' : '快照'}</Button>
