@@ -27,6 +27,7 @@ export {
   getHarvesterVM,
   createHarvesterVM,
   updateHarvesterVMSpec,
+  patchHarvesterVM, // Export the new function
   getHarvesterVmVncUrl,
   syncVmVolumeSize,
 } from './vm';
@@ -38,6 +39,8 @@ export {
   harvesterPauseVM,
   harvesterUnpauseVM,
   harvesterDeleteVM,
+  harvesterForceDeleteVM,
+  harvesterRestoreVM,
   harvesterAddVolumeToVM,
   harvesterRemoveVolumeFromVM,
   harvesterAddVolumeToVMDirect,

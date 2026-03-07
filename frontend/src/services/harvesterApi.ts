@@ -1198,11 +1198,11 @@ export const createHarvesterVm = async (cloudId: string, payload: any) => {
   return await res.json();
 };
 
-export const patchHarvesterVm = async (cloudId: string, namespace: string, name: string, payload: any) => {
+export const patchHarvesterVm = async (cloudId: string, namespace: string, name: string, payload: any, contentType = 'application/merge-patch+json') => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    headers: { 'Content-Type': contentType, 'Authorization': token ? `Bearer ${token}` : '' },
     body: JSON.stringify(payload),
     credentials: 'include',
   });
@@ -1216,6 +1216,30 @@ export const stopHarvesterVm = async (cloudId: string, namespace: string, name: 
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
     body: JSON.stringify({ force }),
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+// 恢复虚拟机（从回收站）
+export const restoreHarvesterVm = async (cloudId: string, instanceId: string) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) { throw new Error(await res.text()); }
+  return await res.json();
+};
+
+// 强制删除虚拟机（从回收站中真正删除）
+export const forceDeleteHarvesterVm = async (cloudId: string, instanceId: string, deleteVolumes = false) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/force?deleteVolumes=${deleteVolumes}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': token ? `Bearer ${token}` : '' },
     credentials: 'include',
   });
   if (!res.ok) { throw new Error(await res.text()); }

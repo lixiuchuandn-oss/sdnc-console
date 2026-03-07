@@ -53,7 +53,8 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
       const res = await fetchHarvesterNamespaces(cloudId);
       // Backend typically returns { data: [...] } or { data: { items: [...] } }
       const items = Array.isArray(res?.data) ? res.data : (res?.data?.items || []);
-      setNamespaces(items);
+      const validItems = items.filter((n: any) => !isSystemNamespace(n?.metadata?.name || n?.name));
+      setNamespaces(validItems);
     } catch (e) {
       console.error(e);
       message.error('加载命名空间失败');
@@ -251,11 +252,6 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
     }
   };
 
-  const filteredNamespaces = namespaces.filter(ns => {
-      const name = ns?.metadata?.name || ns?.name;
-      return !isSystemNamespace(name);
-  });
-
   return (
     <StdFormModal
       open={open}
@@ -289,7 +285,7 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
           loading={nsLoading}
           optionFilterProp="children"
         >
-          {filteredNamespaces.map(ns => {
+          {namespaces.map(ns => {
             const name = ns?.metadata?.name || ns?.name;
             return (
                 <Select.Option key={name} value={name}>

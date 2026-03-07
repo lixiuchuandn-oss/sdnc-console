@@ -306,15 +306,23 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     }), [availableVolumes]);
 
   // [数据处理] 命名空间选项
+  // [业务规则] 创建 VM 时，任何用户都不应在系统命名空间创建
   const namespaceOptions = useMemo(() => {
-    let list = (namespaces || []);
+    let list = (namespaces || []).filter((n: any) => {
+      const name = n?.metadata?.name || n?.name;
+      // 始终过滤系统命名空间 (如 kube-system)
+      if (isSystemNamespace(name)) return false;
+      return true;
+    });
+
     if (isTenant) {
-      // 租户模式下，创建 VM 时不能选择系统命名空间和公共命名空间
+      // 租户模式下，创建 VM 时也不能选择公共命名空间 (如 harvester-public)
       list = list.filter((n: any) => {
         const name = n?.metadata?.name || n?.name;
-        return !isSystemNamespace(name) && !isPublicNamespace(name);
+        return !isPublicNamespace(name);
       });
     }
+    
     return list.map((x: any) => ({ label: x?.metadata?.name || x?.name || '-', value: x?.metadata?.name || x?.name }));
   }, [namespaces, isTenant]);
 

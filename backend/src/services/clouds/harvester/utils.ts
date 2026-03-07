@@ -308,21 +308,35 @@ export const requestJson = (
   customHeaders?: Record<string, string>,
 ) => {
   return new Promise<any>((resolve, reject) => {
-    const data = body ? Buffer.from(JSON.stringify(body)) : undefined;
+    // 允许 body 为 null (无请求体)
+    const data = body !== undefined ? Buffer.from(JSON.stringify(body)) : undefined;
+    
+    // 如果 body 是数组，data 也是 buffer。
+    // 问题在于 headers 的构建方式。
+    
     const mod = getRequestModule(target);
     const agent = getAgent(target, insecure);
+    
+    const defaultHeaders: any = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    };
+    
+    // 仅当有请求体时设置 Content-Type 和 Length
+    if (data) {
+        defaultHeaders['Content-Type'] = 'application/json';
+        defaultHeaders['Content-Length'] = String(data.length);
+    }
+    
+    // 合并自定义 Header (注意：这会覆盖上面的默认值)
+    // 如果 customHeaders 提供了 Content-Type (例如 application/json-patch+json)，它应该覆盖默认的 application/json
+    const finalHeaders = { ...defaultHeaders, ...(customHeaders || {}) };
+
     const req = mod.request(
       target,
       {
         method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-          ...(data
-            ? { 'Content-Type': 'application/json', 'Content-Length': String(data.length) }
-            : {}),
-          ...(customHeaders || {}),
-        },
+        headers: finalHeaders,
         agent,
         rejectUnauthorized: !insecure,
       },
@@ -330,8 +344,10 @@ export const requestJson = (
         const chunks: Buffer[] = [];
         res.on('data', (d) => chunks.push(Buffer.from(d)));
         res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf-8');
+          const buffer = Buffer.concat(chunks);
+          const text = buffer.toString('utf-8');
           const status = res.statusCode || 0;
+          
           if (status >= 200 && status < 300) {
             try {
               resolve(JSON.parse(text));
@@ -339,7 +355,15 @@ export const requestJson = (
               resolve(text);
             }
           } else {
-            reject({ status, body: text, message: translateErrorMessage({ status, message: `HTTP ${status}` }) });
+            // 尝试解析错误体中的 JSON
+            let errorBody = text;
+            try { errorBody = JSON.parse(text); } catch {}
+            
+            reject({ 
+                status, 
+                body: errorBody, 
+                message: translateErrorMessage({ status, message: `HTTP ${status}` }) 
+            });
           }
         });
       },

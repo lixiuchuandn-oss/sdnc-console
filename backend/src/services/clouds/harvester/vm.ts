@@ -544,6 +544,16 @@ export const createHarvesterVM = async (
   
   // Clone payload to avoid side effects
   const vmPayload = JSON.parse(JSON.stringify(payload));
+  
+  // [Feature] 强制添加不可删除标记 (Deletion Protection)
+  // 通过 Finalizer 阻止级联删除
+  if (!vmPayload.metadata) vmPayload.metadata = {};
+  if (!vmPayload.metadata.finalizers) vmPayload.metadata.finalizers = [];
+  const protectionFinalizer = 'tower.io/deletion-protection';
+  if (!vmPayload.metadata.finalizers.includes(protectionFinalizer)) {
+    vmPayload.metadata.finalizers.push(protectionFinalizer);
+  }
+
   const vmName = vmPayload.metadata?.name;
 
   if (vmName && vmPayload.spec?.template?.spec?.volumes) {
@@ -607,6 +617,44 @@ export const createHarvesterVM = async (
   // 1. Create VM
   const vm = await requestJson('POST', url, token, insecure, vmPayload);
 
+  // [Feature] 防删保护再次确认
+  // 由于 K8s ValidatingWebhook 可能会清洗非标准 Finalizers，导致创建时的 protectionFinalizer 丢失。
+  // 因此在创建成功后，再次检查返回对象。如果丢失，则通过 Patch 强行加回。
+  const createdFinalizers = vm?.metadata?.finalizers || [];
+  if (!createdFinalizers.includes(protectionFinalizer)) {
+      try {
+          const patchUrl = `${url}/${encodeURIComponent(vm.metadata.name)}`;
+          // 使用 JSON Patch 添加 finalizer
+          const patchBody = [
+              {
+                  op: createdFinalizers.length > 0 ? "add" : "add", 
+                  path: "/metadata/finalizers/-", // append
+                  value: protectionFinalizer
+              }
+          ];
+          // 如果原 finalizers 为空，路径可能是 "/metadata/finalizers" (需初始化数组) 
+          // 但 JSON Patch 的 "-" 语法通常要求数组已存在。
+          // 更稳健的方式是使用 Merge Patch (application/merge-patch+json)
+          const mergePatchBody = {
+              metadata: {
+                  finalizers: [...createdFinalizers, protectionFinalizer]
+              }
+          };
+          
+          await requestJson('PATCH', patchUrl, token, insecure, mergePatchBody, {
+              'Content-Type': 'application/merge-patch+json'
+          });
+          
+          // 更新本地 vm 对象以反映变更
+          if (!vm.metadata.finalizers) vm.metadata.finalizers = [];
+          vm.metadata.finalizers.push(protectionFinalizer);
+          
+      } catch (e: any) {
+          console.warn(`[Harvester] Failed to apply deletion-protection finalizer for VM ${vmName}:`, e.message);
+          // 不阻断创建流程，仅记录警告
+      }
+  }
+
   // 2. Create Secret (if needed) and link OwnerReference
   if (cloudInitSecret && vm?.metadata?.uid) {
       cloudInitSecret.metadata.ownerReferences = [{
@@ -627,6 +675,45 @@ export const createHarvesterVM = async (
   }
 
   return vm;
+};
+
+/**
+ * 通用 Patch VM 接口 (JSON Merge Patch / JSON Patch)
+ * 
+ * [功能描述]
+ * 直接对 VM 资源执行 Patch 操作，支持自定义 Payload 和 Content-Type。
+ * 用于标签管理、注解更新等非 Spec 变更场景。
+ * 
+ * [JSON Patch 推荐]
+ * 建议使用 JSON Patch (application/json-patch+json) 进行精确控制，
+ * 避免 Merge Patch 可能导致的标签覆盖问题。
+ */
+export const patchHarvesterVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  namespace: string,
+  name: string,
+  payload: any,
+  contentType = 'application/merge-patch+json'
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  // [标签处理优化] 已移除自动合并逻辑。
+  // 请在调用端使用 JSON Patch (application/json-patch+json) 来实现原子操作。
+  // 或者确保 Merge Patch 的 payload 是正确的增量结构。
+
+  // 构建 API URL (优先尝试 kubevirt.io API)
+  const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachines/${encodeURIComponent(name)}`;
+
+  return await requestJson('PATCH', url, token, insecure, payload, {
+    'Content-Type': contentType
+  });
 };
 
 /**

@@ -30,9 +30,10 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm } from '../../../services/harvesterApi';
 import VmReconfigureModal from './modals/VmReconfigureModal';
 import VmSection from './sections/VmSection';
+import RecycleBinSection from './sections/RecycleBinSection';
 import TemplatesSection from './sections/TemplatesSection';
 import ScheduleVmBackupsSection from './sections/ScheduleVmBackupsSection';
 import EipSection from './kube-ovn/EipSection';
@@ -851,6 +852,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       }
       asCard={false}
       subtitle="集中展示云资源池信息，提供多种资源类型的生命周期管理能力"
+      defaultOverviewCollapsed={true}
       overviewContent={(
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
@@ -1215,9 +1217,47 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                               } catch(e:any){ message.error(e?.message||'恢复失败'); } 
                             }}
                             onDelete={async (iid:string, deleteVolumes?: boolean)=>{ 
-                              try { 
+                              try {
+                                // 解析实例ID获取命名空间和名称
+                                const [namespace, name] = iid.split('/');
+                                if (!namespace || !name) {
+                                  throw new Error('无效的实例ID格式');
+                                }
+                                
+                                // 查找虚拟机对象以检查状态
+                                const vm = ecs.find((v: any) => {
+                                  const vmNs = v?.metadata?.namespace || v?.namespace || '';
+                                  const vmName = v?.metadata?.name || v?.InstanceId?.split('/')[1] || '';
+                                  return vmNs === namespace && vmName === name;
+                                });
+                                
+                                // 检查虚拟机状态，如果正在运行则先停止
+                                if (vm) {
+                                  let status = '';
+                                  if (typeof vm?.status === 'string') {
+                                    status = vm.status;
+                                  } else {
+                                    status = vm?.status?.printableStatus || vm?.status?.phase || vm?.Status || 'Unknown';
+                                  }
+                                  const statusLower = String(status).toLowerCase();
+                                  
+                                  if (statusLower === 'running' || statusLower === 'starting') {
+                                    message.loading('虚拟机正在运行，正在停止...', 0);
+                                    try {
+                                      await stopHarvesterVm(cloudId, namespace, name, true);
+                                      // 等待虚拟机停止
+                                      await new Promise(resolve => setTimeout(resolve, 3000));
+                                      message.destroy();
+                                    } catch (stopError: any) {
+                                      message.destroy();
+                                      throw new Error(`停止虚拟机失败: ${stopError?.message || stopError}`);
+                                    }
+                                  }
+                                }
+                                
+                                // 删除虚拟机到回收站
                                 await deleteCloudProviderEcs(cloudId, iid, deleteVolumes); 
-                                message.success('删除成功'); 
+                                message.success('虚拟机已移入回收站，7天后自动删除'); 
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
                               } catch(e:any){ message.error(e?.message||'删除失败'); } 
                             }}
@@ -1233,8 +1273,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         </>
                       )
                     },
-
-
+                  
                     {
                       key: 'templates',
                       label: 'VM 模板',
@@ -1281,6 +1320,36 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       key: 'gpu',
                       label: 'GPU',
                       children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={refreshGpu} raw={rawGpu} showLog={showLog} />)
+                    },
+                    {
+                      key: 'recycle_bin',
+                      label: '回收站',
+                      children: (
+                        <>
+                          <RecycleBinSection
+                            vms={ecs}
+                            loading={resourceLoading.ecs}
+                            cloudId={cloudId}
+                            onRefresh={() => {
+                              apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
+                            }}
+                            namespaces={harvesterNamespaces}
+                            volumes={harvesterVolumes}
+                            images={harvesterImages}
+                          />
+                          {showLog && (
+                            <div style={{ marginTop: 12 }}>
+                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>
+                                {JSON.stringify(ecs.filter((vm: any) => {
+                                  const finalizers = vm?.metadata?.finalizers || [];
+                                  const labels = vm?.metadata?.labels || {};
+                                  return finalizers.includes('tower.io/recycle-bin') || labels['tower.io/recycle-bin'] === 'true';
+                                }), null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                        </>
+                      )
                     },
                     {
                       key: 'migrations',

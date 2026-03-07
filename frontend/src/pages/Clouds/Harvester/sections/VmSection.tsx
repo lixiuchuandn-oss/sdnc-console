@@ -42,10 +42,10 @@ import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Tag, Tabs, Tooltip, Alert, Cascader } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined, SafetyCertificateFilled } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, fetchHarvesterNodes, fetchHarvesterNads } from '../../../../services/harvesterApi';
+import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, fetchHarvesterNodes, fetchHarvesterNads, patchHarvesterVm } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
@@ -659,6 +659,13 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     const st = statusFilter.trim().toLowerCase();
     
     return (vms || []).filter((r: any) => {
+      // [筛选] 过滤回收站中的VM（在正常VM视图中不显示）
+      const finalizers = r?.metadata?.finalizers || [];
+      const labels = r?.metadata?.labels || {};
+      if (finalizers.includes('tower.io/recycle-bin') || labels['tower.io/recycle-bin'] === 'true') {
+        return false;
+      }
+      
       const iid = getIid(r);
       const name = String(SafeRead.name(r)).toLowerCase();
       const ns = SafeRead.namespace(r) || (iid.includes('/') ? iid.split('/')[0] : '');
@@ -767,9 +774,91 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     navigate(`/clouds/${cloudId}/instances/create`, { state: { fromVm: r, backgroundLocation: location } });
   }, [cloudId, location, navigate]);
 
+  // [事件] 切换重要实例标记 (Toggle Important)
+  // 使用 JSON Patch (RFC 6902) 操作 Finalizer，实现真正的 Kubernetes 级硬防删
+  const handleToggleImportant = useCallback(async (r: any) => {
+    // 1. 判断当前状态 (基于 Finalizer)
+    const finalizers = r?.metadata?.finalizers || [];
+    const protectionKey = 'tower.io/deletion-protection';
+    const isProtected = finalizers.includes(protectionKey);
+    
+    const ns = SafeRead.namespace(r);
+    const name = SafeRead.vmId(r);
+    
+    try {
+      let patchBody: any[] = [];
+      
+      if (isProtected) {
+        // [移除逻辑]
+        // 查找所有匹配项并生成移除操作 (从后往前删，避免索引偏移)
+        const indices: number[] = [];
+        finalizers.forEach((f: string, i: number) => {
+            if (f === protectionKey) indices.push(i);
+        });
+        
+        if (indices.length > 0) {
+            // 倒序排列索引
+            indices.sort((a, b) => b - a);
+            indices.forEach(idx => {
+                patchBody.push({ op: 'remove', path: `/metadata/finalizers/${idx}` });
+            });
+            // 同时移除 Label
+            patchBody.push({ op: 'remove', path: '/metadata/labels/tower.io~1important' });
+        }
+      } else {
+        // [添加逻辑]
+        // 追加到 finalizers 数组末尾
+        // 如果 metadata.finalizers 不存在，K8s 允许直接 add 到 /metadata/finalizers
+        if (!r?.metadata?.finalizers) {
+           patchBody = [ { op: 'add', path: '/metadata/finalizers', value: [protectionKey] } ];
+        } else {
+           patchBody = [ { op: 'add', path: '/metadata/finalizers/-', value: protectionKey } ];
+        }
+        // 同时添加 Label (为了 UI 显示一致性，Label 用于快速查询和显示)
+        patchBody.push({ op: 'add', path: '/metadata/labels/tower.io~1important', value: 'true' });
+      }
+
+      if (patchBody.length > 0) {
+        await patchHarvesterVm(
+          cloudId, 
+          ns, 
+          name, 
+          patchBody,
+          'application/json-patch+json' // 显式指定 Content-Type
+        );
+        message.success(isProtected ? '已取消重要实例标记 (防删锁已移除)' : '已设为重要实例 (防删锁已启用)');
+        onRefresh();
+      }
+    } catch (e: any) {
+      console.error(e);
+      message.error(`操作失败: ${e.message}`);
+    }
+  }, [cloudId, onRefresh]);
+
   // [事件] 删除确认
   // 包含“同步删除关联卷”的选项
   const handleDeleteConfirm = useCallback((r: any) => {
+    // [Feature] 检查重要实例标记 (优先检查 Finalizer，其次检查 Label)
+    const finalizers = r?.metadata?.finalizers || [];
+    const isProtected = finalizers.includes('tower.io/deletion-protection');
+    // 兼容旧的 Label 标记
+    const isLabelProtected = r?.metadata?.labels?.['tower.io/important'] === 'true';
+
+    if (isProtected || isLabelProtected) {
+      modal.warning({
+        title: '无法删除重要实例',
+        icon: <SafetyCertificateFilled style={{ color: '#faad14' }} />,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <p>该实例被标记为 <b>重要实例</b>，受到防删保护。</p>
+            <p>如需删除，请先在操作菜单中取消“设为重要实例”标记。</p>
+          </div>
+        ),
+        okText: '知道了',
+      });
+      return;
+    }
+
     const iid = getIid(r);
     const status = String(SafeRead.status(r)).toLowerCase();
     const isRunning = status === 'running' || status === 'starting';
@@ -778,11 +867,12 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     
     let deleteVolumes = false; // 默认不删除数据卷
     modal.confirm({
-      title: '确认删除该实例？',
+      title: '移入回收站',
       icon: <ExclamationCircleOutlined />,
       width: 500,
       content: (
         <div style={{ marginTop: 16 }}>
+          <p>确定要将实例 <b>{SafeRead.name(r)}</b> 移入回收站吗？</p>
           {isRunning && (
             <div style={{ marginBottom: 16, color: '#ff4d4f', background: '#fff1f0', padding: '8px 12px', border: '1px solid #ffccc7', borderRadius: 4 }}>
               <WarningOutlined style={{ marginRight: 8 }} />
@@ -790,22 +880,24 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             </div>
           )}
           
-          <p>确定要永久删除实例 <b>{SafeRead.name(r)}</b> 吗？此操作不可恢复。</p>
+          <div style={{ marginBottom: 16, color: '#1890ff', background: '#e6f7ff', padding: '8px 12px', border: '1px solid #91d5ff', borderRadius: 4 }}>
+            <InfoCircleOutlined style={{ marginRight: 8 }} />
+            实例将被移入回收站，7天后自动删除。您可以在回收站中恢复或立即删除。
+          </div>     
           
           {volumeNames && (
-              <div style={{ marginBottom: 16, background: '#f5f5f5', padding: '8px 12px', borderRadius: 4 }}>
+              <div style={{ marginBottom: 16, background: '#f5f5f5', padding: '8px 12px', border: '1px solid #d9d9d9', borderRadius: 4 }}>
                 <div style={{ fontWeight: 500, marginBottom: 4 }}>关联的数据卷 (PVC):</div>
                 <div style={{ color: 'rgba(0,0,0,0.65)' }}>{volumeNames}</div>
+                <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                  注意：移入回收站时不会删除关联卷。如需删除卷，请在回收站中执行彻底删除操作。
+                </div>
               </div>
           )}
-
-          <div style={{ marginTop: 16 }}>
-              <Checkbox onChange={(e) => { deleteVolumes = e.target.checked; }}>同步删除关联卷 (PVC) <span style={{ color:'#999', fontSize:12 }}>(推荐)</span></Checkbox>
-          </div>
         </div>
       ),
-      okText: isRunning ? '强制删除' : '删除',
-      okType: 'danger',
+      okText: '移入回收站',
+      okType: 'default',
       onOk: () => onDelete(iid, deleteVolumes)
     });
   }, [onDelete, SafeRead]);
@@ -1167,6 +1259,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     { title: '状态', key: 'status', fixed: 'left' as any, render: (_: any, r: any) => {
       const s = String(SafeRead.status(r));
       const k = s.toLowerCase();
+      // [Feature] 检查重要实例标记
+      const isImportant = r?.metadata?.labels?.['tower.io/important'] === 'true';
+
       // [逻辑] 状态颜色映射
       const status = (function(){
         if (k==='running') return 'success';
@@ -1182,26 +1277,33 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       
       return (
         <div>
-          <Badge status={status as any} text={
-            <span>
-              {cnVmStatus(s)}
-              {isResizing && <span style={{ color: '#1890ff', marginLeft: 4 }}>[系统盘扩容中]</span>}
-              {isFsPending && (
-                <>
-                  <span style={{ color: '#faad14', marginLeft: 4 }}>[系统盘待扩容]</span>
-                  <Button 
-                      type="link" 
-                      size="small" 
-                      className="cell-link"
-                      style={{ padding: 0, height: 'auto', fontSize: 12, marginLeft: 6 }}
-                      onClick={(e) => { e.stopPropagation(); setResizeGuideVisible(true); }}
-                  >
-                      扩容指南
-                  </Button>
-                </>
-              )}
-            </span>
-          } />
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Badge status={status as any} text={
+              <span>
+                {cnVmStatus(s)}
+                {isResizing && <span style={{ color: '#1890ff', marginLeft: 4 }}>[系统盘扩容中]</span>}
+                {isFsPending && (
+                  <>
+                    <span style={{ color: '#faad14', marginLeft: 4 }}>[系统盘待扩容]</span>
+                    <Button 
+                        type="link" 
+                        size="small" 
+                        className="cell-link"
+                        style={{ padding: 0, height: 'auto', fontSize: 12, marginLeft: 6 }}
+                        onClick={(e) => { e.stopPropagation(); setResizeGuideVisible(true); }}
+                    >
+                        扩容指南
+                    </Button>
+                  </>
+                )}
+              </span>
+            } />
+            {isImportant && (
+              <Tooltip title="重要实例 (防删保护)">
+                <SafetyCertificateFilled style={{ color: '#faad14', marginLeft: 8, fontSize: 14 }} />
+              </Tooltip>
+            )}
+          </div>
         </div>
       );
     } },
@@ -1277,6 +1379,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const isPaused = statusStr === 'paused';
       const { isResizing, pvcName } = checkResizeStatus(r);
 
+      // [Feature] 检查重要实例标记
+      const isImportant = r?.metadata?.labels?.['tower.io/important'] === 'true';
+
       const items: any[] = [
         // ----------------------------------------------------------------
         // 1. 基础信息与访问
@@ -1323,7 +1428,18 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         ] : []),
 
         // ----------------------------------------------------------------
-        // 3. 风险操作 (Danger Zone)
+        // 3. 标记管理 (Tags)
+        // ----------------------------------------------------------------
+        { type: 'divider' },
+        { 
+          key: 'important', 
+          label: isImportant ? '取消重要标记' : '设为重要实例', 
+          icon: isImportant ? undefined : <SafetyCertificateFilled style={{ color: '#faad14' }} />,
+          onClick: () => handleToggleImportant(r) 
+        },
+
+        // ----------------------------------------------------------------
+        // 4. 风险操作 (Danger Zone)
         // ----------------------------------------------------------------
         { type: 'divider' },
         
@@ -1335,11 +1451,18 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
            { key: 'reboot', label: '强制重启', danger: true, onClick: () => onReboot(iid) },
         ] : []),
 
-        { key: 'delete', label: '删除', danger: true, onClick: () => handleDeleteConfirm(r) },
+        { 
+          key: 'delete', 
+          label: '删除', 
+          danger: true, 
+          disabled: isImportant,
+          tooltip: isImportant ? '重要实例受保护，无法删除' : undefined,
+          onClick: () => handleDeleteConfirm(r) 
+        },
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }} />;
     } },
-  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate]);
+  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant]);
 
   // 当禁用列设置时，直接使用 allColumns，不通过 useEffect 更新状态
   // 避免 allColumns 变化导致的无限循环

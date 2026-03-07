@@ -601,6 +601,28 @@ export const harvesterDeleteVM = async (
     let vm: any = null;
     try {
       vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+      
+      // [Feature] 检查重要实例标记 (Important VM Check)
+      // 如果存在 tower.io/deletion-protection Finalizer，则禁止删除
+      // 注意：这与 Labels 方案不同。Labels 是前端标记，Finalizer 是 K8s 原生防删锁。
+      // 我们通过 API 删除时，如果发现此 Finalizer，应该报错阻止，而不是自动移除。
+      const finalizers = vm?.metadata?.finalizers || [];
+      const protectionFinalizer = 'tower.io/deletion-protection';
+
+      if (finalizers.includes(protectionFinalizer)) {
+        const err: any = new Error(`该虚拟机被标记为重要实例 (Finalizer Protected)，无法删除。请先移除重要标记。`);
+        err.status = 403;
+        throw err;
+      }
+      
+      // [Feature] 检查 tower.io/important 标签 (兼容旧方案)
+      const labels = vm?.metadata?.labels || {};
+      if (labels['tower.io/important'] === 'true') {
+        const err: any = new Error(`该虚拟机被标记为重要实例 (Label Protected)，无法删除。请先移除重要标记。`);
+        err.status = 403;
+        throw err;
+      }
+
     } catch (e: any) {
       if (e?.status === 404) {
         console.warn('[DeleteVM] VM not found, may already be deleted.', { namespace: path.namespace, name: path.name });
@@ -635,21 +657,178 @@ export const harvesterDeleteVM = async (
       pvcNames = Array.from(new Set(pvcNames));
       console.info('[DeleteVM] PVCs to delete:', pvcNames);
     }
-  } catch (e) {
+  } catch (e: any) {
     console.warn('[DeleteVM] Failed to read VM info before deletion. Associated resources may not be deleted.', e);
+  }
+
+  // 2. 软删除：将VM移入回收站（添加Finalizer和Annotation标记）
+  // 不直接删除，而是标记为"待删除"状态，7天后自动删除
+  const protectionDays = 7; // 默认保护期7天
+  const deletedAt = new Date();
+  const expiresAt = new Date(deletedAt.getTime() + protectionDays * 24 * 60 * 60 * 1000);
+  
+  const recycleBinFinalizer = 'tower.io/recycle-bin';
+  const deletionTimestamp = deletedAt.toISOString();
+  const expirationTimestamp = expiresAt.toISOString();
+  
+  try {
+    // 获取当前VM
+    const currentVm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+    const finalizers = currentVm?.metadata?.finalizers || [];
+    const annotations = currentVm?.metadata?.annotations || {};
+    const labels = currentVm?.metadata?.labels || {};
+    
+    // 检查是否已经在回收站中
+    if (finalizers.includes(recycleBinFinalizer)) {
+      throw new Error('该虚拟机已在回收站中');
+    }
+    
+    // 添加回收站Finalizer（防止被真正删除）
+    const newFinalizers = [...finalizers, recycleBinFinalizer];
+    
+    // 添加删除时间标记
+    const newAnnotations = {
+      ...annotations,
+      'tower.io/deletion-scheduled': deletionTimestamp,
+      'tower.io/deletion-expires': expirationTimestamp,
+      'tower.io/deletion-protection-days': String(protectionDays),
+    };
+    
+    // 添加删除状态标签
+    const newLabels = {
+      ...labels,
+      'tower.io/recycle-bin': 'true',
+      'tower.io/deletion-status': 'pending',
+    };
+    
+    // 使用JSON Patch更新VM
+    const patchBody = [
+      { op: 'add', path: '/metadata/finalizers/-', value: recycleBinFinalizer },
+      { op: 'add', path: '/metadata/annotations/tower.io~1deletion-scheduled', value: deletionTimestamp },
+      { op: 'add', path: '/metadata/annotations/tower.io~1deletion-expires', value: expirationTimestamp },
+      { op: 'add', path: '/metadata/annotations/tower.io~1deletion-protection-days', value: String(protectionDays) },
+      { op: 'add', path: '/metadata/labels/tower.io~1recycle-bin', value: 'true' },
+      { op: 'add', path: '/metadata/labels/tower.io~1deletion-status', value: 'pending' },
+    ];
+    
+    const patchUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachines/${encodeURIComponent(path.name)}`;
+    await requestJson('PATCH', patchUrl, token, insecure, patchBody, {
+      'Content-Type': 'application/json-patch+json'
+    });
+    
+    console.info('[DeleteVM] VM moved to recycle bin', { 
+      namespace: path.namespace, 
+      name: path.name,
+      deletedAt: deletionTimestamp,
+      expiresAt: expirationTimestamp
+    });
+    
+    return {
+      vm: currentVm,
+      status: 'Recycled',
+      message: `虚拟机已移入回收站，将在 ${protectionDays} 天后自动删除`,
+      deletedAt: deletionTimestamp,
+      expiresAt: expirationTimestamp,
+      workflow: 'recycle-bin'
+    };
+  } catch (e: any) {
+    if (e?.status === 404) {
+      throw new Error('虚拟机不存在');
+    }
+    throw e;
+  }
+
+  // 注意：由于改为软删除（移入回收站），不再执行真正的删除操作
+  // 真正的删除操作由 harvesterForceDeleteVM 函数处理
+};
+
+/**
+ * 强制删除虚拟机（从回收站中真正删除）
+ * 用于回收站中的立即删除操作和后台清理任务
+ */
+export const harvesterForceDeleteVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+  deleteVolumes: boolean = false,
+  background: boolean = false,
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+
+  // 1. 预先读取 VM 信息
+  let pvcNames: string[] = [];
+  let vm: any = null;
+  try {
+    vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+    
+    // 1.1 解析 PVC Names
+    if (deleteVolumes) {
+      const volumes = vm?.spec?.template?.spec?.volumes || [];
+      pvcNames = volumes.map((v: any) => v?.persistentVolumeClaim?.claimName).filter((n: any) => !!n);
+      try {
+        const vctStr = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+        if (vctStr) {
+          const vct = JSON.parse(vctStr);
+          if (Array.isArray(vct)) {
+            const tplNames = vct
+              .map((t: any) => t?.metadata?.name)
+              .filter((n: any) => typeof n === 'string' && !!n);
+            pvcNames = [...pvcNames, ...tplNames];
+          }
+        }
+      } catch {}
+      try {
+        const dvts = Array.isArray(vm?.spec?.dataVolumeTemplates) ? vm.spec.dataVolumeTemplates : [];
+        const dvNames = dvts
+          .map((d: any) => d?.metadata?.name)
+          .filter((n: any) => typeof n === 'string' && !!n);
+        pvcNames = [...pvcNames, ...dvNames];
+      } catch {}
+      pvcNames = Array.from(new Set(pvcNames));
+    }
+    
+    // 1.2 移除回收站Finalizer，允许真正删除
+    const finalizers = vm?.metadata?.finalizers || [];
+    const recycleBinFinalizer = 'tower.io/recycle-bin';
+    
+    if (finalizers.includes(recycleBinFinalizer)) {
+      const finalizerIndex = finalizers.indexOf(recycleBinFinalizer);
+      const patchUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachines/${encodeURIComponent(path.name)}`;
+      
+      // 移除Finalizer
+      await requestJson('PATCH', patchUrl, token, insecure, [
+        { op: 'remove', path: `/metadata/finalizers/${finalizerIndex}` }
+      ], {
+        'Content-Type': 'application/json-patch+json'
+      });
+    }
+  } catch (e: any) {
+    if (e?.status === 404) {
+      console.warn('[ForceDeleteVM] VM not found, may already be deleted.', { namespace: path.namespace, name: path.name });
+      return { status: 'AlreadyDeleted', message: '虚拟机已不存在' };
+    }
+    throw e;
   }
 
   // 2. 删除 VM
   const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}`;
-  console.info('[DeleteVM] Request delete VM', { namespace: path.namespace, name: path.name, url });
+  console.info('[ForceDeleteVM] Request delete VM', { namespace: path.namespace, name: path.name, url });
   const delRes = await requestJson('DELETE', url, token, insecure);
-  console.info('[DeleteVM] Delete VM request sent', { namespace: path.namespace, name: path.name });
+  console.info('[ForceDeleteVM] Delete VM request sent', { namespace: path.namespace, name: path.name });
 
-  // 3. 定义后续清理任务 (等待 VM 删除 -> 删除关联资源)
+  // 3. 定义后续清理任务
   const cleanupTask = async () => {
     // 3.1 等待 VM 删除完成
     const waitUntilDeleted = async () => {
-      console.info('[DeleteVM] Waiting for VM deletion', { namespace: path.namespace, name: path.name });
+      console.info('[ForceDeleteVM] Waiting for VM deletion', { namespace: path.namespace, name: path.name });
       const start = Date.now();
       const timeoutMs = 120000;
       const intervalMs = 1500;
@@ -657,15 +836,14 @@ export const harvesterDeleteVM = async (
         try {
           await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
         } catch (e: any) {
-          // Check for 404
           if (e?.status === 404 || e?.message?.includes('not found') || e?.message?.includes('404')) {
-            console.info('[DeleteVM] VM deletion confirmed', { namespace: path.namespace, name: path.name });
+            console.info('[ForceDeleteVM] VM deletion confirmed', { namespace: path.namespace, name: path.name });
             return;
           }
         }
         await new Promise((r) => setTimeout(r, intervalMs));
       }
-      console.warn(`[DeleteVM] Timeout waiting for VM ${path.namespace}/${path.name} deletion`);
+      console.warn(`[ForceDeleteVM] Timeout waiting for VM ${path.namespace}/${path.name} deletion`);
     };
     await waitUntilDeleted();
 
@@ -674,33 +852,31 @@ export const harvesterDeleteVM = async (
       for (const claimName of pvcNames) {
         try {
           const delUrl = `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(path.namespace)}/${encodeURIComponent(claimName)}`;
-          console.info('[DeleteVM] Request delete PVC', { namespace: path.namespace, name: claimName, url: delUrl });
+          console.info('[ForceDeleteVM] Request delete PVC', { namespace: path.namespace, name: claimName, url: delUrl });
           await requestJson('DELETE', delUrl, token, insecure);
-          console.info(`[DeleteVM] Deleted PVC: ${claimName}`);
+          console.info(`[ForceDeleteVM] Deleted PVC: ${claimName}`);
         } catch (e: any) {
           if (e?.status !== 404) {
-            console.warn(`[DeleteVM] Failed to delete PVC ${claimName}:`, e?.message || e);
+            console.warn(`[ForceDeleteVM] Failed to delete PVC ${claimName}:`, e?.message || e);
           }
         }
       }
     }
 
-    console.info('[DeleteVM] Workflow finished', { namespace: path.namespace, name: path.name, deletedPVCCount: pvcNames.length });
+    console.info('[ForceDeleteVM] Workflow finished', { namespace: path.namespace, name: path.name, deletedPVCCount: pvcNames.length });
   };
 
   if (background) {
-    // 异步后台执行清理
     cleanupTask().catch(err => {
-      console.error('[DeleteVM] Background cleanup error:', { namespace: path.namespace, name: path.name, err });
+      console.error('[ForceDeleteVM] Background cleanup error:', { namespace: path.namespace, name: path.name, err });
     });
     return {
       vm: delRes,
       status: 'Deleting',
-      message: 'Deletion initiated in background. Associated resources (PVCs) will be deleted shortly.',
+      message: '删除任务已在后台启动，关联资源将稍后删除',
       workflow: 'background-cleanup'
     };
   } else {
-    // 同步等待清理完成
     await cleanupTask();
     return {
       vm: delRes,
@@ -708,4 +884,67 @@ export const harvesterDeleteVM = async (
       workflow: 'sync-cleanup'
     };
   }
+};
+
+/**
+ * 恢复虚拟机（从回收站中恢复）
+ */
+export const harvesterRestoreVM = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+
+  // 获取当前VM
+  const vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+  const finalizers = vm?.metadata?.finalizers || [];
+  const recycleBinFinalizer = 'tower.io/recycle-bin';
+  
+  if (!finalizers.includes(recycleBinFinalizer)) {
+    throw new Error('该虚拟机不在回收站中');
+  }
+
+  // 移除回收站Finalizer和标记
+  const patchBody = [];
+  
+  // 移除Finalizer
+  const finalizerIndex = finalizers.indexOf(recycleBinFinalizer);
+  if (finalizerIndex >= 0) {
+    patchBody.push({ op: 'remove', path: `/metadata/finalizers/${finalizerIndex}` });
+  }
+  
+  // 移除删除相关的Annotation
+  patchBody.push(
+    { op: 'remove', path: '/metadata/annotations/tower.io~1deletion-scheduled' },
+    { op: 'remove', path: '/metadata/annotations/tower.io~1deletion-expires' },
+    { op: 'remove', path: '/metadata/annotations/tower.io~1deletion-protection-days' }
+  );
+  
+  // 移除删除相关的Label
+  patchBody.push(
+    { op: 'remove', path: '/metadata/labels/tower.io~1recycle-bin' },
+    { op: 'remove', path: '/metadata/labels/tower.io~1deletion-status' }
+  );
+
+  const patchUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachines/${encodeURIComponent(path.name)}`;
+  const result = await requestJson('PATCH', patchUrl, token, insecure, patchBody, {
+    'Content-Type': 'application/json-patch+json'
+  });
+
+  console.info('[RestoreVM] VM restored from recycle bin', { namespace: path.namespace, name: path.name });
+  
+  return {
+    vm: result,
+    status: 'Restored',
+    message: '虚拟机已从回收站恢复'
+  };
 };

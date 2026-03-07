@@ -37,7 +37,7 @@
  * ==============================================================================
  */
 
-import { Router, Response } from 'express';
+import { Router, Response, json } from 'express';
 import { AppDataSource } from '../../../config/database';
 import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory';
 import { HarvesterNamespaceInventory } from '../../../entities/harvester/HarvesterNamespaceInventory';
@@ -61,6 +61,9 @@ import {
   listHarvesterGpuResources,
   listHarvesterUsbResources,
   getHarvesterVMAggregated,
+  patchHarvesterVM,
+  harvesterForceDeleteVM,
+  harvesterRestoreVM,
 } from '../../../services/clouds/harvester/client';
 import { getJsonOnce, watchJsonStream } from '../../../services/clouds/harvester/utils';
 import {
@@ -206,6 +209,8 @@ export const registerHarvesterDirectVmRoutes = (
               status,
               nodeName,
               ips: Array.from(new Set(ips)),
+              // [Fix] 推送 metadata 以支持 Label/Finalizer 变更的实时更新 (如重要实例状态)
+              metadata: item.metadata, 
             };
             const payloadStr = JSON.stringify(payload);
 
@@ -797,6 +802,113 @@ export const registerHarvesterDirectVmRoutes = (
 
   /**
    * ==================================================================================
+   * 回收站管理 (Recycle Bin)
+   * ==================================================================================
+   * 恢复和强制删除回收站中的虚拟机
+   */
+  router.post(
+    '/:id/resources/ecs/:instanceId/restore',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, instanceId } = req.params;
+        const { allowed, namespace: tenantNamespace, isTenant } =
+          await checkTenantAccess(req, id);
+        if (!allowed)
+          return res
+            .status(403)
+            .json({ message: 'Access denied to this resource pool' });
+        if (isTenant) {
+          const p = (req.user as any)?.permissions || [];
+          if (!p.includes('clouds.console:write'))
+            return res.status(403).json({
+              message: 'Permission denied: Requires clouds.console:write',
+            });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next))
+          return;
+
+        const { resolvedId, error } = await resolveTenantVmId(
+          tenantNamespace,
+          instanceId,
+          cloud,
+        );
+        if (error)
+          return res.status(error.status).json({ message: error.message });
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const data = await harvesterRestoreVM(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          resolvedId,
+        );
+        res.json({ message: '恢复成功', data });
+      } catch (error: any) {
+        res.status(500).json({
+          message: error.message || '恢复实例失败',
+          error: error.body || error.message,
+        });
+      }
+    },
+  );
+
+  router.delete(
+    '/:id/resources/ecs/:instanceId/force',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, instanceId } = req.params;
+        const { deleteVolumes } = req.query;
+        const { allowed, namespace: tenantNamespace, isTenant } =
+          await checkTenantAccess(req, id);
+        if (!allowed)
+          return res
+            .status(403)
+            .json({ message: 'Access denied to this resource pool' });
+        if (isTenant) {
+          const p = (req.user as any)?.permissions || [];
+          if (!p.includes('clouds.console:write'))
+            return res.status(403).json({
+              message: 'Permission denied: Requires clouds.console:write',
+            });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported', next))
+          return;
+
+        const { resolvedId, error } = await resolveTenantVmId(
+          tenantNamespace,
+          instanceId,
+          cloud,
+        );
+        if (error)
+          return res.status(error.status).json({ message: error.message });
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const data = await harvesterForceDeleteVM(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          resolvedId,
+          String(deleteVolumes) === 'true',
+          true,
+        );
+        res.json({ message: '强制删除成功', data });
+      } catch (error: any) {
+        res.status(500).json({
+          message: error.message || '强制删除实例失败',
+          error: error.body || error.message,
+        });
+      }
+    },
+  );
+
+  /**
+   * ==================================================================================
    * VM Configuration & CRUD
    * ==================================================================================
    * 包含 VM 的创建、更新 (PUT/PATCH)、Spec 修改等操作。
@@ -940,8 +1052,8 @@ export const registerHarvesterDirectVmRoutes = (
     },
   );
 
-  router.patch(
-    '/:id/resources/harvester/vms/:namespace/:name',
+  router.post(
+    '/:id/resources/harvester/vms/:namespace/:name/update-spec',
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
@@ -1013,9 +1125,16 @@ export const registerHarvesterDirectVmRoutes = (
     },
   );
 
-  router.post(
-    '/:id/resources/harvester/vms/:namespace/:name/update-spec',
+  /**
+   * [PATCH] /:id/resources/harvester/vms/:namespace/:name
+   * 通用 PATCH 接口，支持透传 Content-Type (如 application/merge-patch+json)
+   */
+  router.patch(
+    '/:id/resources/harvester/vms/:namespace/:name',
     checkAdminPermission,
+    // [中间件] 显式支持 Patch JSON 类型解析
+    // Express 默认 json() 可能不包含 application/json-patch+json
+    json({ type: ['application/json-patch+json', 'application/merge-patch+json'] }),
     async (req: any, res: Response, next: any) => {
       try {
         const { id, namespace, name } = req.params;
@@ -1047,39 +1166,36 @@ export const registerHarvesterDirectVmRoutes = (
           }
         }
 
-        const data = await updateHarvesterVMSpec(
+        // 透传 Content-Type，默认为 application/merge-patch+json
+        const contentType = req.headers['content-type'] || 'application/merge-patch+json';
+
+        const data = await patchHarvesterVM(
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
           namespace,
           name,
           req.body,
+          contentType
         );
 
+        // 尝试更新本地缓存 (Best Effort)
         try {
           const repo = AppDataSource.getRepository(HarvesterVmInventory);
           await repo.update(
             { cloudId: id, uid: data.metadata.uid },
             {
-              name: data.metadata?.name,
-              namespace: data.metadata?.namespace,
-              running: data.spec?.running,
-              runStrategy: data.spec?.runStrategy,
-              template: data.spec?.template,
               labels: data.metadata?.labels,
               annotations: data.metadata?.annotations,
               rawData: data,
             },
           );
         } catch (ignore) {
-          console.warn(
-            '[HarvesterDirect] Failed to update local cache:',
-            ignore,
-          );
+           // ignore cache update error
         }
 
         res.json({ message: '更新成功', data });
       } catch (error: any) {
         res.status(500).json({
-          message: '更新实例失败',
+          message: 'Patch 实例失败',
           error: error.body || error.message,
         });
       }

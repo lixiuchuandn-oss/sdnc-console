@@ -49,7 +49,7 @@ export async function listSecurityLogs(): Promise<{ logs: { fileName: string; si
   return res.data as any;
 }
 
-export async function getSystemSetting(key: string): Promise<{ key: string; value: string }> {
+export async function getSystemSetting(key: string): Promise<any> {
   const token = localStorage.getItem('token');
   const res = await axios.get(`${API_BASE}/settings/${key}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,

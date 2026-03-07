@@ -30,7 +30,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
+import { isSystemNamespace } from '../../../utils/harvesterUtils';
 import VmSection from '../Harvester/sections/VmSection';
+import RecycleBinSection from '../Harvester/sections/RecycleBinSection';
 import TemplatesSection from '../Harvester/sections/TemplatesSection';
 import SshKeysSection from '../Harvester/sections/SshKeysSection';
 import VolumesSection from '../Harvester/sections/VolumesSection';
@@ -47,7 +49,7 @@ import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
 import NadsSection from '../Harvester/sections/NadsSection';
 import LoadBalancersSection from '../Harvester/sections/LoadBalancersSection';
-import VpcsSection from '../Harvester/kube-ovn/VpcsSection';
+import VpcsSection from '../Harvester/kube-ovn/VpcsSection'; 
 
 
 
@@ -216,6 +218,15 @@ const CloudConsoleHarvester: React.FC<Props> = ({
     return namespacesOptions.map(ns => ({ metadata: { name: ns } }));
   }, [namespacesOptions]);
 
+  // [安全过滤] 过滤掉系统命名空间，仅透传业务命名空间给子组件 (VmSection/VpcsSection)
+  // 防止子组件意外展示或允许操作 kube-system 等敏感命名空间
+  const filteredNamespaces = useMemo(() => {
+    return (namespaces || []).filter((n: any) => {
+      const name = n?.metadata?.name || n?.name || '';
+      return name && !isSystemNamespace(name);
+    });
+  }, [namespaces]);
+
   // [结构配置] 类目与资源的二级导航配置
   const tabConfig = useMemo(() => [
     {
@@ -223,6 +234,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       label: '云主机',
       resources: [
         { key: 'vm', label: '实例' },
+        { key: 'recycle-bin', label: '回收站' },
         { key: 'template', label: '模板' },
         { key: 'image', label: '镜像' },
         { key: 'ssh', label: 'SSH密钥' },
@@ -284,7 +296,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             volumes={volumes}
             loading={loading}
             namespacesOptions={namespacesOptions}
-            namespaces={namespaces}
+            namespaces={filteredNamespaces}
             nodesOptions={nodesOptions}
             cloudId={cloudId}
             nsValue={nsValue}
@@ -302,6 +314,19 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             onDelete={onDelete}
             isTenant={isTenantUser}
             bordered={bordered}
+          />
+        );
+      case 'recycle-bin':
+        return (
+          <RecycleBinSection
+            vms={vms}
+            loading={loading}
+            cloudId={cloudId}
+            onRefresh={onRefreshVms}
+            namespaces={filteredNamespaces}
+            volumes={volumes}
+            images={images}
+            isTenant={isTenantUser}
           />
         );
       case 'template':
@@ -469,7 +494,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
                  cloudId={cloudId}
                  vpcs={vpcs}
                  subnets={subnets}
-                 namespaces={namespaces}
+                 namespaces={filteredNamespaces}
                  loading={loading}
                  onRefresh={onRefreshVpcs}
                  bordered={bordered}

@@ -47,7 +47,12 @@ const CreateLoadBalancerModal: React.FC<Props> = ({ open, cloudId, namespaces: p
       fetchHarvesterNamespaces(cloudId)
         .then((res: any) => {
           const items = res?.data?.items || res?.items || res || [];
-          setNamespaces(items);
+          // 过滤掉系统命名空间
+          const filteredItems = items.filter((n: any) => {
+            const name = n?.metadata?.name || n?.name || '';
+            return name && !isSystemNamespace(name);
+          });
+          setNamespaces(filteredItems);
         })
         .catch((err: any) => console.error('Failed to load namespaces', err));
     } else if (propNamespaces && propNamespaces.length > 0) {
