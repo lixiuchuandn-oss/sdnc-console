@@ -160,8 +160,12 @@ const StepDisks: React.FC<StepDisksProps> = ({
                   } catch { } 
                 }
                 // [自动推断] 根据来源设置设备类型
-                if (v === 'iso') { try { form.setFieldsValue({ rootDeviceType: 'cdrom' }); } catch {} }
-                else if (v === 'image') { try { form.setFieldsValue({ rootDeviceType: 'disk' }); } catch {} }
+                if (v === 'iso') { 
+                    try { 
+                        form.setFieldsValue({ rootDeviceType: 'cdrom', rootBus: 'sata' }); 
+                    } catch {} 
+                }
+                else if (v === 'image') { try { form.setFieldsValue({ rootDeviceType: 'disk', rootBus: 'virtio' }); } catch {} }
               }} 
             />
           </Form.Item>
@@ -371,7 +375,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
           </Col>
           <Col span={8}>
             <Form.Item label="总线" name="rootBus"> 
-              <Select options={[{ label: 'VIRTIO', value: 'virtio' }, { label: 'SATA', value: 'sata' }, { label: 'SCSI', value: 'scsi' }]} />
+              <Select options={[{ label: 'VirtIO', value: 'virtio' }, { label: 'SATA', value: 'sata' }, { label: 'SCSI', value: 'scsi' }]} />
             </Form.Item>
           </Col>
           <Col span={8}>
@@ -400,7 +404,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 </span>
               ) : undefined}
             > 
-              <Select options={[{ label: 'DISK', value: 'disk' }, { label: 'CDROM', value: 'cdrom' }]} />
+              <Select options={[{ label: 'Disk', value: 'disk' }, { label: 'CD-ROM', value: 'cdrom' }]} />
             </Form.Item>
           </Col>
           {(form.getFieldValue('rootSourceType') || 'image') !== 'existing' && (

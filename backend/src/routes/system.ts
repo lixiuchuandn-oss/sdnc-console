@@ -534,6 +534,34 @@ router.put('/rbac/roles/:id', async (req: any, res) => {
   }
 });
 
+// 更新角色权限（仅超级管理员或拥有 system.roles:write 权限）
+// 专门用于更新角色的权限列表，接收 permissions 数组
+router.patch('/rbac/roles/:id/permissions', async (req: any, res) => {
+  try {
+    const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
+    const hasPerm = Array.isArray(req.user?.permissions) && req.user.permissions.includes('system.roles:write');
+    if (!isSuper && !hasPerm)
+      return res.status(403).json({ message: '权限不足' });
+    const { id } = req.params;
+    const { permissions } = req.body as any;
+    if (!Array.isArray(permissions)) {
+      return res.status(400).json({ message: 'permissions 必须是数组' });
+    }
+    const repo = AppDataSource.getRepository(RBACRole);
+    const row = await repo.findOne({ where: { id } });
+    if (!row) return res.status(404).json({ message: '角色不存在' });
+    try {
+      row.permissions = JSON.stringify(permissions);
+      const saved = await repo.save(row);
+      res.json(saved);
+    } catch (e: any) {
+      res.status(500).json({ message: '更新权限失败', error: String(e) });
+    }
+  } catch (e: any) {
+    res.status(500).json({ message: '更新权限失败', error: String(e) });
+  }
+});
+
 // 删除角色（仅超级管理员或拥有 system.roles:write 权限）
 // 删除前会做安全检查：
 // - 是否仍被 RoleAssignment 引用

@@ -93,7 +93,7 @@ interface Props {
   vms: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: () => void;
+  onRefresh: (force?: boolean) => void;
   namespaces?: any[];
   volumes?: any[];
   images?: any[];
@@ -648,7 +648,7 @@ const RecycleBinSection: React.FC<Props> = ({
     try {
       await restoreHarvesterVm(cloudId, instanceId);
       message.success('恢复成功');
-      onRefresh();
+      onRefresh(true);
     } catch (e: any) {
       message.error(`恢复失败: ${e.message}`);
     }
@@ -812,7 +812,7 @@ const RecycleBinSection: React.FC<Props> = ({
         try {
           await forceDeleteHarvesterVm(cloudId, instanceId, shouldDeleteVolumes);
           message.success('删除成功');
-          onRefresh();
+          onRefresh(true);
         } catch (e: any) {
           message.error(`删除失败: ${e.message}`);
         }

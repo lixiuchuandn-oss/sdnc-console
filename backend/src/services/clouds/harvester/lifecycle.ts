@@ -356,6 +356,14 @@ export const harvesterAddVolumeToVM = async (
       lastErr = e;
       const s = Number(e?.status || 0);
       const m = String(e?.message || '').toLowerCase();
+
+      // [特殊处理] 422 Unprocessable Entity
+      // 如果错误信息包含 "already" (e.g. "Volume ... is already attached"), 则视为成功
+      if (s === 422 && (m.includes('already') || m.includes('exist'))) {
+          console.info('harvester addVolume 422 ignored (already attached)', { name: body.name, error: m });
+          return { status: 'AlreadyAttached', message: 'Volume is already attached' };
+      }
+
       const needContinue =
         s === 422 ||
         s === 500 ||

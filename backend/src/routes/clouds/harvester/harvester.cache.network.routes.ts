@@ -24,6 +24,7 @@ import {
 } from '../../../services/clouds/harvester/client';
 import { requestJson } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
+import { licenseService } from '../../../services/LicenseService';
 
 /**
  * ==============================================================================
@@ -135,6 +136,9 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
@@ -228,6 +232,9 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -251,6 +258,9 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id, name } = req.params;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -274,6 +284,9 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id, name } = req.params;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -298,6 +311,9 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { vpcId, force } = req.query as any;
         const cloud = await fetchCloudOr404(id, res);
@@ -521,9 +537,21 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
 
         const nsEncoded = encodeURIComponent(namespace);
 
+        // [Feature] 平台托管标记 (Platform Managed)
+        // 添加 tower.io/managed Finalizer 和 tower.io/creator 标签，与虚拟机保持一致
+        const nadPayload = JSON.parse(JSON.stringify(req.body)); // Clone to avoid side effects
+        if (!nadPayload.metadata) nadPayload.metadata = {};
+        if (!nadPayload.metadata.finalizers) nadPayload.metadata.finalizers = [];
+        const managedFinalizer = 'tower.io/managed';
+        if (!nadPayload.metadata.finalizers.includes(managedFinalizer)) {
+          nadPayload.metadata.finalizers.push(managedFinalizer);
+        }
+        if (!nadPayload.metadata.labels) nadPayload.metadata.labels = {};
+        nadPayload.metadata.labels['tower.io/creator'] = 'compute-tower';
+
         console.log(
           `[NAD Create] Payload for ${namespace}:`,
-          JSON.stringify(req.body, null, 2),
+          JSON.stringify(nadPayload, null, 2),
         );
 
         const candidates = [
@@ -545,7 +573,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
               url,
               cloud.secretKey || '',
               insecure,
-              req.body,
+              nadPayload,
             );
             res.json({ message: '创建成功', data });
             success = true;

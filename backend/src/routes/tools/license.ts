@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { licenseService } from '../../services/LicenseService';
+import { licenseService, getInstallId } from '../../services/LicenseService';
 import { authMiddleware } from '../../middleware/auth';
 
 const router = Router();
@@ -11,6 +11,16 @@ router.get('/', (req, res) => {
     res.json(status);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// 获取当前平台唯一安装 ID（用于离线授权绑定）
+router.get('/node-id', (req, res) => {
+  try {
+    const nodeId = getInstallId();
+    res.json({ nodeId });
+  } catch (e: any) {
+    res.status(500).json({ message: e?.message || 'Failed to get node id' });
   }
 });
 

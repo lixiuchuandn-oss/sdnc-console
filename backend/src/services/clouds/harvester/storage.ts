@@ -489,6 +489,13 @@ export const createHarvesterPVCVolume = async (
     const g = Number((payload as any)?.sizeGi || 0);
     return g > 0 ? `${g}Gi` : '10Gi';
   })();
+  // [Feature] 平台托管标记 (Platform Managed)
+  // 添加 tower.io/managed Finalizer 和 tower.io/creator 标签，与虚拟机保持一致
+  const finalizers = ['tower.io/managed'];
+  const labels: Record<string, string> = {
+    'tower.io/creator': 'compute-tower',
+  };
+  
   const body = {
     apiVersion: 'v1',
     kind: 'PersistentVolumeClaim',
@@ -496,6 +503,8 @@ export const createHarvesterPVCVolume = async (
       name: String(payload.name || ''),
       namespace: ns,
       annotations: payload.annotations,
+      finalizers,
+      labels,
     },
     spec: {
       accessModes:

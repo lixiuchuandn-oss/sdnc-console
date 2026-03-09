@@ -339,8 +339,8 @@ export const cloudProviders: CloudProvider[] = [
     description: '添加 Cloudmap 私有云',
     fields: [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-      { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入Cloudmap API端点：https://10.0.0.1/v3',help: '在Cloudmap控制台中，进入账号和API密钥页面，复制端点地址，并创建令牌'},
-      { key: 'apiToken', label: 'Cloudmap API 令牌', type: 'password', required: true, placeholder: '请输入 Cloudmap API 令牌', help: '创建令牌时，是唯一查看令牌的机会。如果丢失则需要重新创建API 密钥'},
+      { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入Cloudmap API端点：https://10.0.0.1/v3', help: '请输入端点'},
+      { key: 'apiToken', label: 'Cloudmap API 令牌', type: 'password', required: true, placeholder: '请输入 Cloudmap API 令牌', help: '请输入API令牌'},
       { key: 'region', label: 'Region', type: 'cascader', required: false, placeholder: '请选择省份/城市，默认为default' },
     ]
   },

@@ -214,17 +214,32 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    * @param cb 数据回调处理函数
    * @param force 是否强制刷新 (忽略缓存)
    */
+  // 请求超时时间（毫秒）- 防止单个请求阻塞整个页面
+  const REQUEST_TIMEOUT = 30000; // 30秒
+  
   const loadResource = async (key: string, fn: () => Promise<any>, cb: (json: any) => void, force = false) => {
       // 如果非强制刷新且已加载过，直接跳过
       if (!force && loadedRef.current.has(key)) return;
       
       setResourceLoading(prev => ({ ...prev, [key]: true }));
       try {
-          const json = await fn();
+          // 添加超时机制，防止请求长时间挂起
+          const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error(`请求超时: ${key} (${REQUEST_TIMEOUT}ms)`)), REQUEST_TIMEOUT);
+          });
+          
+          const json = await Promise.race([fn(), timeoutPromise]);
           cb(json);
           loadedRef.current.add(key);
-      } catch (e) {
-          console.warn(`Failed to load ${key}`, e);
+      } catch (e: any) {
+          console.warn(`Failed to load ${key}:`, e?.message || e);
+          // 不阻塞其他资源加载，只记录错误
+          // 如果回调函数支持错误处理，可以传递 null 或空数据
+          try {
+              cb(null);
+          } catch {
+              // 忽略回调错误
+          }
       } finally {
           setResourceLoading(prev => ({ ...prev, [key]: false }));
       }
@@ -1297,7 +1312,27 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             images={harvesterImages}
                             namespaces={harvesterNamespaces}
                           />
-                          <VmReconfigureModal open={vmReconfOpen} cloudId={cloudId} record={vmReconfTarget} onClose={()=>{ setVmReconfOpen(false); setVmReconfTarget(null); }} onOk={refreshVms} storageClasses={harvesterStorageClasses} images={harvesterImages} gpuResources={harvesterGpuResources} />
+                          <VmReconfigureModal 
+                            open={vmReconfOpen} 
+                            cloudId={cloudId} 
+                            record={vmReconfTarget} 
+                            onClose={()=>{ setVmReconfOpen(false); setVmReconfTarget(null); }} 
+                            onOk={() => {
+                              // 刷新列表
+                              refreshVms();
+                              // [改进] 如果详情页已打开且显示的是当前变配的VM，刷新详情页数据
+                              // 通过更新 vmReconfTarget 的引用，触发详情页的 useEffect 刷新
+                              if (vmReconfTarget) {
+                                // 延迟更新，确保后端数据已同步
+                                setTimeout(() => {
+                                  setVmReconfTarget({ ...vmReconfTarget, _refreshTrigger: Date.now() });
+                                }, 300);
+                              }
+                            }} 
+                            storageClasses={harvesterStorageClasses} 
+                            images={harvesterImages} 
+                            gpuResources={harvesterGpuResources} 
+                          />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawEcs, null, 2)}</pre>

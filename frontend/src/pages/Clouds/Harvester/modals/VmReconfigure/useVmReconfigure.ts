@@ -654,7 +654,7 @@ export const useVmReconfigure = (props: any) => {
         }
         case 'change_os': {
           const rootSize = values.newOsRootSize ? `${values.newOsRootSize}Gi` : '40Gi';
-          await patchHarvesterVm(cloudId, namespace, vmName, {
+          await updateHarvesterVmSpec(cloudId, namespace, vmName, {
              action: 'reinstall',
              image: values.newOsImage,
              rootSize: rootSize,
@@ -778,7 +778,7 @@ export const useVmReconfigure = (props: any) => {
                  payload.networkData = yaml.dump(networkDataObj);
               }
               
-              await patchHarvesterVm(cloudId, namespace, vmName, payload);
+              await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
               openRestartConfirm(namespace, vmName, false);
            }
            break;
@@ -885,7 +885,7 @@ export const useVmReconfigure = (props: any) => {
                payload.networkData = yaml.dump(networkDataObj);
            }
 
-           await patchHarvesterVm(cloudId, namespace, vmName, payload);
+           await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
            openRestartConfirm(namespace, vmName, false);
            break;
         }

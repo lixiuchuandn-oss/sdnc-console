@@ -68,6 +68,8 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
         try { form.setFieldsValue({ targetNode: '__AUTO__' }); } catch {}
       } catch {}
       if (!n && vm?.metadata?.namespace && vm?.metadata?.name) {
+        // Support Cold Migration: If nodeName is empty (Stopped), we don't need to fetch VMI for node.
+        // We still fetch it just in case, but won't block if not found.
         setVmiLoading(true);
         const path = `/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(vm.metadata.namespace)}/virtualmachineinstances/${encodeURIComponent(vm.metadata.name)}`;
         fetchHarvesterResourceByLink(cloudId, path)

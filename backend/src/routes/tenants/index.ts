@@ -6,6 +6,8 @@ import { Organization } from '../../entities/Organization';
 import { TenantUser } from '../../entities/TenantUser';
 import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
 import { UserSpace } from '../../entities/UserSpace';
+import { listKubevirtVMsRawWithMeta } from '../../services/clouds/harvester/client';
+import { listHarvesterPVCRaw } from '../../services/clouds/harvester/storage';
 import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
 import { Cloud } from '../../entities/Cloud';
 import { HarvesterNamespaceInventory } from '../../entities/harvester/HarvesterNamespaceInventory';
@@ -16,8 +18,7 @@ import { ServiceChain } from '../../entities/ServiceChain';
 import { SecurityZone } from '../../entities/SecurityZone';
 import { ProtectionObject } from '../../entities/ProtectionObject';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
-import { createHarvesterNamespace, deleteHarvesterNamespace, isProtectedNamespace } from '../../services/clouds/harvester/client';
-import { getJsonOnce } from '../../services/clouds/harvester/utils';
+import { createHarvesterNamespace } from '../../services/clouds/harvester/client';
 import bcrypt from 'bcryptjs';
 
 // 租户与组织/用户/资源池管理路由：
@@ -895,10 +896,9 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
         });
       }
 
-      if (withCloudPublic) {
-        if (!namespacesToCreate.includes('cloud-public')) {
-          namespacesToCreate.push('cloud-public');
-        }
+      // 模板空间固定分配：总是包含 cloud-public
+      if (!namespacesToCreate.includes('cloud-public')) {
+        namespacesToCreate.push('cloud-public');
       }
 
       if (withDefault) {
@@ -923,13 +923,22 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
           if (endpoint && token) {
             for (const ns of namespacesToCreate) {
               try {
-                const annotations = (ns !== 'default' && ns !== 'cloud-public') ? {
+                // 判断场景类型：cloud-public 是公共场景，其他是租户场景
+                const isPublic = ns === 'cloud-public';
+                const scenario: 'public' | 'tenant' = isPublic ? 'public' : 'tenant';
+                
+                const annotations = (!isPublic && ns !== 'default') ? {
                   'tower.io/tenant': tenantName,
                   'tower.io/organization': organization.name
                 } : undefined;
 
-                await createHarvesterNamespace({ endpoint, token, insecure }, ns, annotations);
-                console.log(`已在资源池 ${pool.name} 中自动创建/确认 Namespace: ${ns}`);
+                await createHarvesterNamespace(
+                  { endpoint, token, insecure }, 
+                  ns, 
+                  annotations,
+                  { scenario, addFinalizer: true }
+                );
+                console.log(`已在资源池 ${pool.name} 中自动创建/确认 Namespace: ${ns} (场景: ${scenario})`);
 
                 // Update Inventory immediately to ensure visibility without waiting for sync
                 try {
@@ -1096,7 +1105,7 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
     });
 
     if (userSpace) {
-      // 尝试删除远程 Harvester Namespace
+      // 检查该 UserSpace 下是否仍有 VM 存在
       if (userSpace.cloud && userSpace.name) {
         const isHarvesterLike = (pv: string) => {
           const p = String(pv || '').toLowerCase();
@@ -1104,73 +1113,123 @@ router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) =
         };
         const config = (userSpace.cloud as any).config || {};
         if (isHarvesterLike(config.provider)) {
-           // 优先使用 config.token，其次是 cloud.secretKey (Harvester 常用)，最后是 accessKey
-           const token = config.token || config.apiToken || (userSpace.cloud as any).secretKey || (userSpace.cloud as any).accessKey;
-           const endpoint = userSpace.cloud.endpoint || config.endpoint;
-           const insecure = config.insecure !== undefined ? config.insecure : (config.ignoreTls !== undefined ? config.ignoreTls : false);
-           
-           if (endpoint && token) {
-             const namespacesToDelete = userSpace.namespace 
-                ? userSpace.namespace.split(',').map(s => s.trim()).filter(Boolean)
-                : [userSpace.name];
-                
-                // 统一计算 origin，用于直连 Harvester API
-                const base = (endpoint || '').replace(/\/+$/, '');
-                let origin = base;
-                try {
-                  const u = new URL(base);
-                  origin = `${u.protocol}//${u.host}`;
-                } catch {
-                  origin = base.replace(/\/v[0-9].*$/, '');
+          const namespaces = userSpace.namespace
+            ? userSpace.namespace.split(',').map((s) => s.trim()).filter(Boolean)
+            : [userSpace.name];
+          
+          // 过滤掉公共空间（cloud-public）和默认空间（default），这些空间的资源不属于租户，无条件解绑
+          const publicNamespaces = ['cloud-public', 'default'];
+          const tenantNamespaces = namespaces.filter((ns: string) => !publicNamespaces.includes(ns));
+          const hasPublicNamespace = publicNamespaces.some((ns: string) => namespaces.includes(ns));
+          
+          // 如果没有租户专属命名空间，直接跳过检查，无条件解绑
+          if (tenantNamespaces.length === 0) {
+            console.log(`[Tenant-Unbind] Skipping resource check for userSpace ${userSpace.id}: only public namespaces (${namespaces.join(', ')}), allowing unbind`);
+          } else {
+            let activeVms: any[] = [];
+            let activeVolumes: any[] = [];
+            // 添加超时机制，防止云平台连接不好时一直卡住
+            const RESOURCE_CHECK_TIMEOUT = 15000; // 15秒超时
+            
+            try {
+              // 创建超时 Promise
+              const timeoutPromise = new Promise<[null, any[]]>((resolve) => {
+                setTimeout(() => {
+                  console.warn(`[Tenant-Unbind] Resource check timeout after ${RESOURCE_CHECK_TIMEOUT}ms for userSpace ${userSpace.id}`);
+                  resolve([null, []]);
+                }, RESOURCE_CHECK_TIMEOUT);
+              });
+              
+              // Check all associated namespaces for VMs and Volumes (excluding cloud-public)
+              // 使用 Promise.race 确保超时后不会一直等待
+              const [vmsResult, volumesResult] = await Promise.race([
+                Promise.all([
+                  listKubevirtVMsRawWithMeta({
+                    endpoint: userSpace.cloud.endpoint,
+                    token: userSpace.cloud.secretKey || '',
+                    insecure: !!config.ignoreTls,
+                  }).catch(() => null),
+                  listHarvesterPVCRaw({
+                    endpoint: userSpace.cloud.endpoint,
+                    token: userSpace.cloud.secretKey || '',
+                    insecure: !!config.ignoreTls,
+                  }).catch(() => [])
+                ]),
+                timeoutPromise
+              ]);
+              
+              if (vmsResult && vmsResult.items) {
+                // Filter VMs belonging to tenant namespaces (excluding cloud-public and default)
+                activeVms = vmsResult.items.filter((vm: any) => 
+                   vm.metadata?.namespace && tenantNamespaces.includes(vm.metadata.namespace)
+                );
+              }
+              
+              if (Array.isArray(volumesResult)) {
+                // Filter Volumes (PVCs) belonging to tenant namespaces (excluding cloud-public and default)
+                activeVolumes = volumesResult.filter((vol: any) => 
+                   vol.metadata?.namespace && tenantNamespaces.includes(vol.metadata.namespace)
+                );
+              }
+            } catch (e: any) {
+              console.error(`[Tenant-Unbind] Failed to check resources for userSpace ${userSpace.id}:`, e);
+              // 如果包含公共命名空间（cloud-public 或 default），检查失败时也允许解绑（因为这些空间的资源不属于租户）
+              if (hasPublicNamespace) {
+                console.log(`[Tenant-Unbind] Resource check failed but contains public namespace(s), allowing unbind for userSpace ${userSpace.id}`);
+                // 继续执行解绑逻辑，不阻止
+              } else {
+                // 检查失败时，区分超时和其他错误
+                const isTimeout = e?.message?.includes('timeout') || e?.message?.includes('超时');
+                if (isTimeout) {
+                  return res.status(504).json({ 
+                    message: '资源检查超时，请稍后重试',
+                    error: `系统在 ${RESOURCE_CHECK_TIMEOUT}ms 内无法完成资源检查，可能是资源池连接状态不佳。请检查资源池连接状态后重试，或联系管理员。`
+                  });
                 }
-                
-                // 在删除前做 VM 占用校验：如命名空间内存在 VM，则阻断解绑操作
-                try {
-                  const ecsList = await getJsonOnce(`${origin}/v1/harvester/kubevirt.io.virtualmachines`, token, insecure);
-                  const vms: any[] = Array.isArray(ecsList?.items) ? ecsList.items : Array.isArray(ecsList?.data) ? ecsList.data : [];
-                  for (const ns of namespacesToDelete) {
-                    // Skip check for protected namespaces as we won't delete them anyway
-                    if (isProtectedNamespace(ns)) continue;
-                    
-                    const inNs = vms.filter((vm: any) => (vm?.metadata?.namespace || vm?.namespace) === ns);
-                    if (inNs.length > 0) {
-                      const names = inNs
-                        .map((vm: any) => vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name || vm?.name)
-                        .filter((n: any) => typeof n === 'string' && n.trim().length > 0);
-                      return res.status(409).json({
-                        message: `不能解绑资源池：命名空间 ${ns} 内存在虚拟机 ${names.slice(0, 5).join('，')}${names.length > 5 ? ' 等' : ''}`,
-                      });
-                    }
-                  }
-                } catch (e: any) {
-                  console.warn('[Tenant-Unbind] VM usage check failed:', e?.message || e);
-                }
-                
-             for (const ns of namespacesToDelete) {
-               // 绝对禁止删除公共/系统命名空间
-               if (isProtectedNamespace(ns)) {
-                 console.log(`跳过删除受保护的 Namespace: ${ns}`);
-                 continue;
-               }
+                // 其他错误，为安全起见阻止解绑操作
+                return res.status(503).json({ 
+                  message: '无法验证资源池状态，请稍后重试',
+                  error: '系统无法验证命名空间内是否存在虚拟机或虚拟卷，为安全起见已终止解绑操作。请检查资源池连接状态后重试。'
+                });
+              }
+            }
 
-               try {
-                 await deleteHarvesterNamespace({ endpoint, token, insecure }, ns);
-                 console.log(`已在资源池 ${userSpace.cloud.name} 中删除 Namespace: ${ns}`);
-               } catch (err: any) {
-                 // 忽略 404 错误，视为已删除
-                 const isNotFound = 
-                   err?.response?.status === 404 || 
-                   String(err?.message || '').includes('Not Found') ||
-                   String(err?.message || '').includes('404');
-                   
-                 if (isNotFound) {
-                   console.warn(`Namespace ${ns} 在资源池中不存在，跳过删除`);
-                 } else {
-                   console.warn(`在资源池 ${userSpace.cloud.name} 删除 Namespace ${ns} 失败（但这不应阻止数据库记录删除）:`, err);
-                 }
-               }
-             }
-           }
+            // 如果存在虚拟机或虚拟卷，阻止解绑（但 cloud-public 中的资源不阻止）
+            if (activeVms.length > 0 || activeVolumes.length > 0) {
+              const vmList = activeVms.map((vm: any) => ({
+                name: vm.metadata?.name || '未知',
+                namespace: vm.metadata?.namespace || '未知',
+                status: vm.status?.printableStatus || vm.status?.phase || '未知',
+              }));
+              
+              const volumeList = activeVolumes.map((vol: any) => ({
+                name: vol.metadata?.name || '未知',
+                namespace: vol.metadata?.namespace || '未知',
+                status: vol.status?.phase || vol.status?.state || '未知',
+                size: vol.status?.capacity?.storage || vol.spec?.resources?.requests?.storage || '未知',
+              }));
+              
+              const resourceTypes: string[] = [];
+              if (activeVms.length > 0) resourceTypes.push(`虚拟机(${activeVms.length}个)`);
+              if (activeVolumes.length > 0) resourceTypes.push(`虚拟卷(${activeVolumes.length}个)`);
+              
+              return res.status(409).json({ 
+                message: `该资源池下仍有资源存在，无法解绑。请先删除或迁移相关资源。存在资源：${resourceTypes.join('、')}`,
+                vms: vmList,
+                vmCount: activeVms.length,
+                volumes: volumeList,
+                volumeCount: activeVolumes.length
+              });
+            }
+          }
+
+           // [策略变更] 解绑资源池时，不再自动删除底层的 Namespace
+           // 原因为防止误删重要数据，将清理工作留给运维人员手动处理
+           // 仅解除 Tower 侧的绑定关系
+           const namespacesToDelete = userSpace.namespace 
+              ? userSpace.namespace.split(',').map(s => s.trim()).filter(Boolean)
+              : [userSpace.name];
+           console.log(`[Tenant-Unbind] Skipping Harvester Namespace deletion for userSpace: ${userSpace.id}, namespaces: ${namespacesToDelete.join(', ')}. Please delete them manually if needed.`);
         }
       }
 

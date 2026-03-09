@@ -44,7 +44,7 @@ import {
   ReloadOutlined,
   SyncOutlined
 } from '@ant-design/icons';
-import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi, apiPost, apiDelete } from '../../services/api';
+import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi, apiPost, apiDelete, apiRequest } from '../../services/api';
 import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
 import { 
   getProviderLogo, getProviderName, cloudProviders,
@@ -173,7 +173,8 @@ const Clouds: React.FC = () => {
     const loadVpcStats = async () => {
       try {
         const ids = (clouds || []).map(c => c.id);
-        const results = await Promise.all(ids.map(async id => {
+        // 使用 Promise.allSettled 确保单个云平台连接失败不会阻塞其他
+        const results = await Promise.allSettled(ids.map(async id => {
           try {
             const prov = String((clouds.find(c => c.id === id)?.config?.provider) || '').toLowerCase();
             if (prov === 'harvester') {
@@ -184,11 +185,16 @@ const Clouds: React.FC = () => {
             const json: any = await fetchCloudProviderVpcs(id);
             const list: any[] = json?.data?.Vpcs?.Vpc || json?.data?.vpcs || json?.vpcs || [];
             return Array.isArray(list) ? list : [];
-          } catch {
+          } catch (e) {
+            console.warn(`Failed to load VPC stats for cloud ${id}:`, e);
             return [];
           }
         }));
-        const flat = results.flat();
+        // 提取成功的结果
+        const successfulResults = results
+          .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
+          .map(r => r.value);
+        const flat = successfulResults.flat();
         const total = flat.length;
         const online = flat.filter(r => {
           const s = r?.Status || r?.status;
@@ -214,10 +220,13 @@ const Clouds: React.FC = () => {
   // 1. 调用后端 API 获取所有云资源。
   // 2. 处理 loading 状态。
   // 3. 异常处理：显示错误提示。
-  const fetchClouds = useCallback(async () => {
+  const fetchClouds = useCallback(async (skipCache: boolean = false) => {
     setLoading(true);
     try {
-      const response = await fetchCloudsApi();
+      // fetchCloudsApi 内部使用 apiRequest，需要传递 skipCache 选项
+      const response = skipCache 
+        ? await apiRequest('/api/clouds', { skipCache: true })
+        : await fetchCloudsApi();
       setClouds(Array.isArray(response) ? response : (response?.data || []));
     } catch (error: any) {
       message.error('获取云资源列表失败：' + (error.response?.data?.message || error.message));
@@ -237,7 +246,7 @@ const Clouds: React.FC = () => {
     try {
       const response = await apiPost(`/api/clouds/${cloudId}/test`, {});
       message.success(response.message || '连接测试成功');
-      fetchClouds(); // 刷新列表以更新状态
+      fetchClouds(true); // 强制刷新列表以更新状态，跳过缓存
     } catch (error: any) {
       message.error('连接测试失败：' + (error?.message || '未知错误'));
     } finally {
@@ -291,7 +300,7 @@ const Clouds: React.FC = () => {
         try {
           await apiDelete(`/api/clouds/${cloudId}`);
           message.success('云资源删除成功');
-          fetchClouds();
+          fetchClouds(true); // 强制刷新，跳过缓存
         } catch (error: any) {
           message.error('删除失败：' + (error?.message || '未知错误'));
         }
@@ -550,7 +559,7 @@ const Clouds: React.FC = () => {
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
           <TableColumnSettingsButton allColumns={tableColumns} settingsKey="clouds-list" />
-          <Button icon={<ReloadOutlined />} onClick={fetchClouds} />
+          <Button icon={<ReloadOutlined />} onClick={() => fetchClouds(true)} />
         </div>
       )}
       actionsSize="middle"
@@ -580,7 +589,7 @@ const Clouds: React.FC = () => {
       <CloudWizard
         visible={wizardVisible}
         onCancel={() => setWizardVisible(false)}
-        onSuccess={fetchClouds}
+        onSuccess={() => fetchClouds(true)}
       />
 
       {/* 编辑云资源模态框（随云厂商动态） */}
@@ -593,7 +602,7 @@ const Clouds: React.FC = () => {
         onSuccess={() => {
           setEditModalVisible(false);
           setEditingCloud(null);
-          fetchClouds();
+          fetchClouds(true);
         }}
         cloud={editingCloud}
       />

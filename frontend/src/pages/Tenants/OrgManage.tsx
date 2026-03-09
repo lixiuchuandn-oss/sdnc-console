@@ -8,7 +8,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
 // 数据来源统一通过后端接口（axios）获取，并在切换组织/租户时刷新。
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Alert, List, Tag } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Alert, List, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -16,7 +16,7 @@ import PageDetailContainer from '../../components/PageDetailContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import PermissionTreeTransfer from '../../components/TreeTransfer';
 import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
-import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
 import { fetchVrCachePageList } from '../../services/virtualRouterApi';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
@@ -126,9 +126,9 @@ const OrgManagePage: React.FC = () => {
   };
 
   // 获取租户下组织树，并默认展开全部、选中根节点
-  const fetchOrganizations = async (id: string) => {
+  const fetchOrganizations = async (id: string, skipCache: boolean = false) => {
     try {
-      const data = await apiRequest(`/api/tenants/${id}/organizations`);
+      const data = await apiRequest(`/api/tenants/${id}/organizations`, skipCache ? { skipCache: true } : undefined);
       const orgs = Array.isArray(data) ? data : (data?.organizations || []);
       setOrganizations(orgs);
       const collectKeys = (orgs: Organization[]): string[] => {
@@ -172,19 +172,24 @@ const OrgManagePage: React.FC = () => {
   };
 
   // 获取指定组织下的用户列表
-  const fetchUsers = async (tid: string, orgId: string) => {
+  const fetchUsers = async (tid: string, orgId: string, skipCache: boolean = false) => {
     try {
-      const data = await apiRequest(`/api/tenants/${tid}/organizations/${orgId}/users`);
+      const data = await apiRequest(`/api/tenants/${tid}/organizations/${orgId}/users`, skipCache ? { skipCache: true } : undefined);
       setUsers(Array.isArray(data) ? data : (data?.users || []));
-    } catch {}
+    } catch (error) {
+      console.error('获取用户列表失败:', error);
+    }
   };
 
-  // 获取指定组织的资源池分配列表
+  // 获取指定组织的资源池分配列表（跳过缓存，确保最新）
   const fetchAssignments = async (orgId: string) => {
     try {
-      const data = await apiRequest(`/api/tenants/organizations/${orgId}/resource-pools`);
+      const data = await apiRequest(`/api/tenants/organizations/${orgId}/resource-pools`, { skipCache: true });
       setAssignments(Array.isArray(data) ? data : (data?.assignments || []));
-    } catch {}
+    } catch (error) {
+      // 避免“分配后列表没变化却无任何提示”的困惑，至少记录日志
+      console.error('获取资源池分配列表失败:', error);
+    }
   };
 
   // 获取可分配资源池（抽屉内选择用）
@@ -201,7 +206,7 @@ const OrgManagePage: React.FC = () => {
       await apiPatch(`/api/tenants/organizations/${orgId}`, { name });
       setRenameOrgId(null);
       setRenameName('');
-      if (tenantId) fetchOrganizations(tenantId);
+      if (tenantId) fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
       messageApi.success('重命名成功');
     } catch (e: any) {
       const msg = e?.message || '重命名失败';
@@ -218,7 +223,7 @@ const OrgManagePage: React.FC = () => {
       await apiPost(`/api/tenants/${tenantId}/organizations`, { name, parentId });
       setAddingForParentId(null);
       setNewChildName('');
-      fetchOrganizations(tenantId);
+      fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
       messageApi.success('创建组织成功');
     } catch (e: any) {
       const msg = e?.message || '创建组织失败';
@@ -233,7 +238,7 @@ const OrgManagePage: React.FC = () => {
       await apiPost(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users`, values);
       setUserDrawerOpen(false);
       userForm.resetFields();
-      fetchUsers(tenantId, selectedOrg.id);
+      fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，跳过缓存
       messageApi.success('创建用户成功');
     } catch (e: any) {
       const msg = e?.message || '创建用户失败';
@@ -318,7 +323,7 @@ const OrgManagePage: React.FC = () => {
       setRoleAssignExisting([]);
       setRoleAssignSelected([]);
       if (tenantId && selectedOrg) {
-        fetchUsers(tenantId, selectedOrg.id);
+        fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，确保角色信息更新
       }
     } catch (e: any) {
       const msg = e?.message || '保存角色赋权时发生错误';
@@ -330,7 +335,7 @@ const OrgManagePage: React.FC = () => {
     if (!tenantId || !selectedOrg) return;
     try {
       await apiDelete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${userId}`);
-      fetchUsers(tenantId, selectedOrg.id);
+      fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，跳过缓存
       messageApi.success('删除用户成功');
     } catch (e: any) {
       const msg = e?.response?.data?.message || '删除用户失败';
@@ -349,7 +354,7 @@ const OrgManagePage: React.FC = () => {
         resourcePoolIds, 
         permissions: ['use'], 
         namespace: values.namespace,
-        withCloudPublic: values.withCloudPublic,
+        withCloudPublic: true, // 模板空间固定分配
         withDefault: values.withDefault
       };
       // 分配资源池：
@@ -372,11 +377,79 @@ const OrgManagePage: React.FC = () => {
     if (!selectedOrg) return;
     try {
       await apiDelete(`/api/tenants/organizations/${selectedOrg.id}/resource-pools/${poolId}`);
-      fetchAssignments(selectedOrg.id);
+      fetchAssignments(selectedOrg.id); // fetchAssignments 已经默认 skipCache
       message.success('移除分配成功');
     } catch (e: any) {
-      const msg = e?.response?.data?.message || '移除分配失败';
-      message.error(msg);
+      // 优先使用 parseErrorResponse 处理后的完整错误消息（包含 message + error）
+      // 注意：requestManager 会将解析后的数据保存在 e.responseData 中
+      const responseData = e?.responseData || e?.response?.data || {};
+      const errorMsg = e?.message || responseData?.message || '移除分配失败';
+      const errorDetail = responseData?.error;
+      const status = e?.status || e?.response?.status;
+      const vms = responseData?.vms || [];
+      const vmCount = responseData?.vmCount || 0;
+      const volumes = responseData?.volumes || [];
+      const volumeCount = responseData?.volumeCount || 0;
+      
+      // 对于 409（冲突）和 503（服务不可用）错误，使用 Modal 显示详细错误信息
+      if (status === 409 || status === 503) {
+        modal.error({
+          title: '无法移除资源池分配',
+          width: 700,
+          content: (
+            <div style={{ marginTop: 16 }}>
+              <p style={{ marginBottom: 16, color: '#ff4d4f' }}>
+                {errorMsg}
+              </p>
+              {errorDetail && (
+                <p style={{ marginBottom: 16, color: '#8c8c8c', fontSize: 12 }}>
+                  {errorDetail}
+                </p>
+              )}
+              {vms.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>存在的虚拟机资源（{vmCount}个）：</div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <Table
+                      size="small"
+                      dataSource={vms}
+                      columns={[
+                        { title: '虚拟机名称', dataIndex: 'name', key: 'name', width: 200 },
+                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
+                        { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+                      ]}
+                      pagination={false}
+                      rowKey={(record: any) => `vm-${record.namespace}/${record.name}`}
+                    />
+                  </div>
+                </div>
+              )}
+              {volumes.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>存在的虚拟卷资源（{volumeCount}个）：</div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <Table
+                      size="small"
+                      dataSource={volumes}
+                      columns={[
+                        { title: '虚拟卷名称', dataIndex: 'name', key: 'name', width: 200 },
+                        { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
+                        { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+                        { title: '大小', dataIndex: 'size', key: 'size', width: 100 },
+                      ]}
+                      pagination={false}
+                      rowKey={(record: any) => `vol-${record.namespace}/${record.name}`}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ),
+        });
+      } else {
+        // 其他错误使用简单的 message 提示
+        message.error(errorMsg);
+      }
     }
   };
 
@@ -587,7 +660,7 @@ const OrgManagePage: React.FC = () => {
                         try {
                           await apiDelete(`/api/tenants/organizations/${org.id}`);
                           messageApi.success('删除组织成功');
-                          if (tenantId) fetchOrganizations(tenantId);
+                          if (tenantId) fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
                         } catch (error: any) {
                           const errorMessage = error?.message || '删除组织失败';
                           const resources = error?.response?.data?.resources || [];
@@ -861,7 +934,6 @@ const OrgManagePage: React.FC = () => {
                         onChange={(e)=> setUserKeyword(e.target.value)}
                       />
                       <div className="toolbar-actions" style={{ display: 'flex', gap: 8 }}>
-                        <TableColumnSettingsButton allColumns={userColumns} settingsKey="org_manage_users" />
                         <Button 
                           type="primary" 
                           onClick={() => {
@@ -871,6 +943,7 @@ const OrgManagePage: React.FC = () => {
                             setUserDrawerOpen(true);
                           }}
                         >添加用户</Button>
+                        <TableColumnSettingsButton allColumns={userColumns} settingsKey="org_manage_users" />
                         <Dropdown
                           menu={{
                             items: [
@@ -891,7 +964,7 @@ const OrgManagePage: React.FC = () => {
                                       ));
                                       messageApi.success('批量删除成功');
                                       setSelectedUserRowKeys([]);
-                                      fetchUsers(tenantId, selectedOrg.id);
+                                      fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，跳过缓存
                                     } catch (e: any) {
                                       messageApi.error(e?.message || '批量删除失败');
                                     }
@@ -903,6 +976,16 @@ const OrgManagePage: React.FC = () => {
                         >
                           <Button icon={<EllipsisOutlined />} />
                         </Dropdown>
+                        <Tooltip title="刷新列表">
+                          <Button 
+                            icon={<ReloadOutlined />} 
+                            onClick={() => {
+                              if (tenantId && selectedOrg) {
+                                fetchUsers(tenantId, selectedOrg.id, true);
+                              }
+                            }} 
+                          />
+                        </Tooltip>
                       </div>
                     </div>
                     <Table
@@ -939,13 +1022,14 @@ const OrgManagePage: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                         <Input
                           allowClear
-                          placeholder="搜索资源池关键字"
+                          placeholder="搜索资源池名称"
                           style={{ width: 240 }}
+                          suffix={<SearchOutlined />}
                           value={assignmentKeyword}
                           onChange={(e)=> setAssignmentKeyword(e.target.value)}
                         />
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <TableColumnSettingsButton allColumns={assignmentColumns} settingsKey="org_manage_assignments" />
+
                           <Button 
                             type="primary" 
                             onClick={() => {
@@ -955,6 +1039,17 @@ const OrgManagePage: React.FC = () => {
                               setResourcePoolDrawerOpen(true);
                             }}
                           >分配计算资源池</Button>
+                          <TableColumnSettingsButton allColumns={assignmentColumns} settingsKey="org_manage_assignments" />
+                          <Tooltip title="刷新列表">
+                            <Button 
+                              icon={<ReloadOutlined />} 
+                              onClick={() => {
+                                if (selectedOrg) {
+                                  fetchAssignments(selectedOrg.id);
+                                }
+                              }} 
+                            />
+                          </Tooltip>
                         </div>
                     </div>
                     <Table
@@ -1000,15 +1095,27 @@ const OrgManagePage: React.FC = () => {
                           value={storageKeyword}
                           onChange={(e)=> setStorageKeyword(e.target.value)}
                         />
-                        <Button 
-                          type="primary" 
-                          onClick={() => {
-                            fetchResourcePools();
-                            resourcePoolForm.resetFields();
-                            setAssignType('storage');
-                            setResourcePoolDrawerOpen(true);
-                          }}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <Tooltip title="刷新列表">
+                            <Button 
+                              icon={<ReloadOutlined />} 
+                              onClick={() => {
+                                if (selectedOrg) {
+                                  fetchAssignments(selectedOrg.id);
+                                }
+                              }} 
+                            />
+                          </Tooltip>
+                          <Button 
+                            type="primary" 
+                            onClick={() => {
+                              fetchResourcePools();
+                              resourcePoolForm.resetFields();
+                              setAssignType('storage');
+                              setResourcePoolDrawerOpen(true);
+                            }}
                          >分配存储资源池</Button>
+                        </div>
                     </div>
                     <Table
                       columns={assignmentColumns}
@@ -1051,15 +1158,27 @@ const OrgManagePage: React.FC = () => {
                           value={securityKeyword}
                           onChange={(e)=> setSecurityKeyword(e.target.value)}
                         />
-                        <Button
-                          type="primary"
-                          onClick={() => {
-                            fetchResourcePools();
-                            resourcePoolForm.resetFields();
-                            setAssignType('security');
-                            setResourcePoolDrawerOpen(true);
-                          }}
-                        >分配安全资源池</Button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <Tooltip title="刷新列表">
+                            <Button 
+                              icon={<ReloadOutlined />} 
+                              onClick={() => {
+                                if (selectedOrg) {
+                                  fetchAssignments(selectedOrg.id);
+                                }
+                              }} 
+                            />
+                          </Tooltip>
+                          <Button
+                            type="primary"
+                            onClick={() => {
+                              fetchResourcePools();
+                              resourcePoolForm.resetFields();
+                              setAssignType('security');
+                              setResourcePoolDrawerOpen(true);
+                            }}
+                          >分配安全资源池</Button>
+                        </div>
                     </div>
                     <Table
                       columns={assignmentColumns}
@@ -1383,10 +1502,8 @@ const OrgManagePage: React.FC = () => {
                   </Form.Item>
 
                   <Form.Item label="模板空间" style={{ marginBottom: 12 }}>
-                     <Form.Item name="withCloudPublic" valuePropName="checked" initialValue={true} noStyle>
-                       <Checkbox>cloud-public</Checkbox>
-                     </Form.Item>
-                     <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问公共模板和共享资源</div>
+                     <Checkbox checked disabled>cloud-public</Checkbox>
+                     <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问公共模板和共享资源（固定分配）</div>
                   </Form.Item>
 
                   <Form.Item label="镜像空间" style={{ marginBottom: 12 }}>
@@ -1396,14 +1513,15 @@ const OrgManagePage: React.FC = () => {
                      <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>用于访问系统默认镜像资源</div>
                   </Form.Item>
 
-                  <Form.Item label="额外命名空间" name="namespace">
+                  {/* 额外命名空间功能暂时禁用 */}
+                  {/* <Form.Item label="额外命名空间" name="namespace">
                     <Select mode="tags" placeholder="请选择或输入更多命名空间" loading={nsLoading} style={{ width: '100%' }}>
                       {(nsOptions || []).map((x:any) => {
                         const name = x?.metadata?.name || x?.name;
                         return <Select.Option key={name} value={name}>{name}</Select.Option>;
                       })}
                     </Select>
-                  </Form.Item>
+                  </Form.Item> */}
                 </>
               );
             }}

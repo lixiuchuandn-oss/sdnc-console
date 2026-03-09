@@ -12,6 +12,7 @@ import {
   ensureProvider,
   isNamespaceAllowed,
 } from './harvester.direct.helpers';
+import { licenseService } from '../../../services/LicenseService';
 
 /**
  * ==============================================================================
@@ -287,6 +288,9 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed } = await checkTenantAccess(req, id);
         if (!allowed)
@@ -324,6 +328,9 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed } = await checkTenantAccess(req, id);
         if (!allowed) return res.status(403).json({ message: 'Access denied' });
@@ -374,9 +381,13 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed } = await checkTenantAccess(req, id);
         if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
 
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -409,6 +420,9 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed } = await checkTenantAccess(req, id);
         if (!allowed) return res.status(403).json({ message: 'Access denied' });
@@ -649,12 +663,18 @@ export const registerHarvesterDirectNetworkRoutes = (
           `${origin}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions`,
         ];
 
+        // [Feature] 平台托管标记 (Platform Managed)
+        // 添加 tower.io/managed Finalizer 和 tower.io/creator 标签，与虚拟机保持一致
         const nadPayload = {
           apiVersion: 'k8s.cni.cncf.io/v1',
           kind: 'NetworkAttachmentDefinition',
           metadata: {
             name: nadName,
             namespace: nadNamespace,
+            finalizers: ['tower.io/managed'],
+            labels: {
+              'tower.io/creator': 'compute-tower',
+            },
           },
           spec: {
             config: JSON.stringify({
@@ -1151,6 +1171,9 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed, namespace: tenantNamespace, isTenant } =
           await checkTenantAccess(req, id);
@@ -1249,6 +1272,9 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed } = await checkTenantAccess(req, id);
         if (!allowed)
@@ -1359,6 +1385,9 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed, namespace: tenantNamespace, isTenant } =
           await checkTenantAccess(req, id);
@@ -1457,6 +1486,9 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed, namespace: tenantNamespace, isTenant } =
           await checkTenantAccess(req, id);
@@ -1555,6 +1587,9 @@ export const registerHarvesterDirectNetworkRoutes = (
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
         const { id } = req.params;
         const { allowed, namespace: tenantNamespace, isTenant } =
           await checkTenantAccess(req, id);

@@ -85,16 +85,21 @@ const AccessRolesPage: React.FC = () => {
   // 使用新的 hook 管理列设置
   const { displayColumns: displayedColumns } = useTableColumnSettings(fullColumns, 'access_roles_table');
 
-  // 获取角色列表
+  // 获取角色列表（支持跳过缓存，用于手动刷新）
   const fetchRoles = async () => {
     try {
-      const data = await apiRequest('/api/system/rbac/roles');
+      const data = await apiRequest('/api/system/rbac/roles', { skipCache: true });
       if (Array.isArray(data)) {
         setRoles(data);
       } else {
         setRoles(data.roles || []);
       }
-    } catch {}
+    } catch (error: any) {
+      // 避免“刷新无反应”的体验，至少在控制台打印错误
+      // 这里不直接弹出 message，防止频繁刷新时打扰用户
+      // 如需更明显提示，可改为：message.error(error?.message || '获取角色列表失败');
+      console.error('获取角色列表失败:', error);
+    }
   };
 
   // 初始化加载

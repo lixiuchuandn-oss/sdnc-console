@@ -210,6 +210,24 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     fetchAggregated();
   }, [fetchAggregated]);
 
+  // [改进] 监听 record 的变化（包括变配后的刷新触发），如果详情页已打开，自动刷新详情数据
+  // 这样可以确保变配操作完成后，详情页能够及时显示最新的配置
+  const refreshTriggerRef = React.useRef<number>(0);
+  React.useEffect(() => {
+    if (open && record) {
+      // 检查是否有刷新触发标记（变配完成后会设置 _refreshTrigger）
+      const currentTrigger = (record as any)?._refreshTrigger;
+      if (currentTrigger && currentTrigger !== refreshTriggerRef.current) {
+        refreshTriggerRef.current = currentTrigger;
+        // 延迟一小段时间，确保后端数据已更新
+        const timer = setTimeout(() => {
+          fetchAggregated(false);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [record, open, fetchAggregated]);
+
   // ==============================================================================
   // 5. 实时状态 (SSE)
   // ==============================================================================
@@ -1008,7 +1026,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       { type: 'divider' },
 
       // 运行态操作（变配/迁移/介质卸载）
-      { key: 'reconfigure', label: '资源变配', icon: <HddOutlined />, onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) },
+      { 
+        key: 'reconfigure', 
+        label: '资源变配', 
+        icon: <HddOutlined />, 
+        disabled: !isStopped && !isRunning,
+        title: (!isStopped && !isRunning) ? '仅在运行中或停止状态下支持变配' : undefined,
+        onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) 
+      },
       { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(vmData) },
       ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
 

@@ -42,10 +42,49 @@ export const isProtectedNamespace = (name: string): boolean => {
   return prefixBlacklist.some(p => lower.startsWith(p));
 };
 
+/**
+ * 判断命名空间是否由 Tower 平台创建和管理
+ * @param namespace 命名空间对象（包含 metadata.labels）
+ * @returns 如果是平台创建的返回 true，否则返回 false
+ */
+export const isTowerManagedNamespace = (namespace: any): boolean => {
+  if (!namespace || !namespace.metadata) return false;
+  const labels = namespace.metadata.labels || {};
+  return labels['tower.io/managed'] === 'true';
+};
+
+/**
+ * 获取命名空间的场景类型
+ * @param namespace 命名空间对象（包含 metadata.labels）
+ * @returns 'public' | 'tenant' | null
+ */
+export const getNamespaceScenario = (namespace: any): 'public' | 'tenant' | null => {
+  if (!namespace || !namespace.metadata) return null;
+  const labels = namespace.metadata.labels || {};
+  const scenario = labels['tower.io/scenario'];
+  if (scenario === 'public' || scenario === 'tenant') {
+    return scenario;
+  }
+  return null;
+};
+
+/**
+ * 创建 Harvester 命名空间
+ * @param params 连接参数
+ * @param name 命名空间名称
+ * @param annotations 注解（可选）
+ * @param options 选项（可选）
+ * @param options.scenario 场景类型：'public' | 'tenant'，用于标识是公共空间还是租户空间
+ * @param options.addFinalizer 是否添加终结器，默认为 true
+ */
 export const createHarvesterNamespace = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   name: string,
   annotations?: Record<string, string>,
+  options?: {
+    scenario?: 'public' | 'tenant';
+    addFinalizer?: boolean;
+  },
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -56,12 +95,47 @@ export const createHarvesterNamespace = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const url = `${origin}/api/v1/namespaces`;
+  
+  // 构建标签：标识是平台创建的命名空间（与虚拟机统一）
+  const labels: Record<string, string> = {
+    'kubernetes.io/metadata.name': name,
+    'tower.io/managed': 'true', // 标识是 Tower 平台管理的命名空间
+    'tower.io/creator': 'compute-tower', // 标识资源归属（与虚拟机统一）
+  };
+  
+  // 根据场景添加标签
+  if (options?.scenario === 'public') {
+    labels['tower.io/scenario'] = 'public';
+  } else if (options?.scenario === 'tenant') {
+    labels['tower.io/scenario'] = 'tenant';
+  }
+  
+  // 构建注解：合并用户提供的注解
+  const finalAnnotations: Record<string, string> = {
+    ...annotations,
+  };
+  
+  // 如果没有提供场景信息，尝试从注解中推断
+  if (!options?.scenario && annotations) {
+    if (name === 'cloud-public' || annotations['tower.io/public']) {
+      labels['tower.io/scenario'] = 'public';
+    } else if (annotations['tower.io/tenant'] || annotations['tower.io/organization']) {
+      labels['tower.io/scenario'] = 'tenant';
+    }
+  }
+  
   const body = {
     apiVersion: 'v1',
     kind: 'Namespace',
     metadata: {
       name,
-      annotations,
+      labels,
+      annotations: finalAnnotations,
+      // 添加终结器，防止命名空间被意外删除（与虚拟机统一）
+      // 终结器会在命名空间删除时被调用，可以用于清理资源
+      ...(options?.addFinalizer !== false ? {
+        finalizers: ['tower.io/managed'],
+      } : {}),
     },
   } as any;
   return requestJson('POST', url, token, insecure, body);

@@ -173,11 +173,16 @@ const VmBackupCreateModal: React.FC<Props> = ({
             optionFilterProp="children"
             disabled={!selectedNamespace}
           >
-            {filteredVms.map(vm => (
-              <Select.Option key={vm.id || vm.metadata.uid} value={vm.name || vm.metadata.name}>
-                {vm.name || vm.metadata.name}
-              </Select.Option>
-            ))}
+            {filteredVms.map(vm => {
+              const alias = vm.metadata?.annotations?.['tower.io/alias'];
+              const name = vm.name || vm.metadata.name;
+              const displayName = alias ? `${alias} (${name})` : name;
+              return (
+                <Select.Option key={vm.id || vm.metadata.uid} value={name}>
+                  {displayName}
+                </Select.Option>
+              );
+            })}
           </Select>
         </Form.Item>
       </Form>

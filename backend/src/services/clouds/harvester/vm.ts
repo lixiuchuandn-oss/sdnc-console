@@ -545,6 +545,43 @@ export const createHarvesterVM = async (
   // Clone payload to avoid side effects
   const vmPayload = JSON.parse(JSON.stringify(payload));
 
+  // --- [Fix] SSH Key Injection ---
+  // Harvester uses a MutatingWebhook to inject SSH keys from spec.sshKeys into CloudInit.
+  // However, when using direct Kubevirt API or if the webhook is bypassed/fails, we need to manually inject them.
+  // The frontend sends `sshNames` (list of KeyPair names). We fetch them and append to userData.
+  if (vmPayload.sshNames && Array.isArray(vmPayload.sshNames) && vmPayload.sshNames.length > 0) {
+      try {
+          const kpUrl = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/keypairs`;
+          const kpRes = await getJsonOnce(kpUrl, token, insecure);
+          const keypairs = kpRes?.items || [];
+          
+          const publicKeys: string[] = [];
+          for (const name of vmPayload.sshNames) {
+              const kp = keypairs.find((k: any) => k.metadata.name === name);
+              if (kp && kp.spec && kp.spec.publicKey) {
+                  publicKeys.push(kp.spec.publicKey);
+              }
+          }
+          
+          if (publicKeys.length > 0) {
+              let currentUserData = vmPayload.userData || '';
+              if (!currentUserData) currentUserData = '#cloud-config\n';
+              
+              // Robust append: ensure newline before appending keys
+              if (!currentUserData.endsWith('\n')) currentUserData += '\n';
+              
+              const keysBlock = `ssh_authorized_keys:\n${publicKeys.map(k => `  - ${k}`).join('\n')}\n`;
+              currentUserData += keysBlock;
+              
+              vmPayload.userData = currentUserData;
+          }
+      } catch (e) {
+          console.warn(`[Harvester] Failed to inject SSH keys: ${e}`);
+      }
+      // Cleanup custom field to avoid API error
+      delete vmPayload.sshNames;
+  }
+
   // [Feature] 平台托管标记 (Platform Managed)
   // 1. 添加 tower.io/managed Finalizer：防止在 Tower 平台之外（如 Harvester UI）误删。
   //    除非 Tower 主动移除此 Finalizer，否则 K8s 不会物理删除 VM。

@@ -391,6 +391,15 @@ export const registerHarvesterNamespaceRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id, name } = req.params;
+        
+        // [安全检查] 禁止删除系统或公共命名空间
+        if (isProtectedNamespace(name)) {
+          return res.status(403).json({
+            message: '禁止删除系统或公共命名空间',
+            error: `命名空间 "${name}" 是系统命名空间，受保护无法删除`,
+          });
+        }
+        
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源删除')) return;
@@ -403,6 +412,8 @@ export const registerHarvesterNamespaceRoutes = (
         } catch {
           origin = base.replace(/\/v[0-9].*$/, '');
         }
+        // [安全检查] 删除命名空间前必须检查是否有虚拟机占用
+        // Fail-Safe 策略：如果检查失败，直接终止操作，防止误删
         try {
           const ecsList = await getJsonOnce(
             `${origin}/v1/harvester/kubevirt.io.virtualmachines`,
@@ -427,17 +438,23 @@ export const registerHarvesterNamespaceRoutes = (
                   vm?.name,
               )
               .filter((n: any) => typeof n === 'string' && n.trim().length > 0);
-            res
+            return res
               .status(409)
-              .send(
-                `不能删除此命名空间，因为存在虚拟机 ${names
+              .json({
+                message: `不能删除此命名空间，因为存在虚拟机 ${names
                   .slice(0, 5)
                   .join('，')}${names.length > 5 ? ' 等' : ''}`,
-              );
-            return;
+                error: '命名空间内存在虚拟机，请先删除或迁移虚拟机后再删除命名空间',
+              });
           }
         } catch (e: any) {
-          console.warn('[DeleteNamespace] VM usage check failed:', e?.message || e);
+          // [Fail-Safe] VM 占用检查失败时，直接终止删除操作，防止误删
+          console.error('[DeleteNamespace] VM usage check failed:', e?.message || e);
+          return res.status(503).json({
+            message: '无法完成命名空间删除操作：虚拟机占用检查失败',
+            error: '系统无法验证命名空间内是否存在虚拟机，为安全起见已终止删除操作。请检查资源池连接状态后重试。',
+            details: e?.message || String(e),
+          });
         }
         const candidates = [
           `${origin}/api/v1/namespaces/${name}`,

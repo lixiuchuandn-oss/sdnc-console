@@ -699,12 +699,22 @@ export const createKubeOvnVpc = async (
 
   const url = `${origin}/apis/kubeovn.io/v1/vpcs`;
   
+  // [Feature] 平台托管标记 (Platform Managed)
+  // 添加 tower.io/managed Finalizer 和 tower.io/creator 标签，与虚拟机保持一致
+  const finalizers = ['tower.io/managed'];
+  const labels: Record<string, string> = {
+    'tower.io/creator': 'compute-tower',
+    ...(payload.labels || {}),
+  };
+  
   const body = {
     apiVersion: 'kubeovn.io/v1',
     kind: 'Vpc',
     metadata: {
       name: payload.name,
       annotations: payload.annotations,
+      finalizers,
+      labels,
     },
     spec: {
       namespaces: payload.namespaces || [],

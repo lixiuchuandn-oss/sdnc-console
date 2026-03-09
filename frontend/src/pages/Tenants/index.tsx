@@ -55,9 +55,11 @@ const TenantsPage: React.FC = () => {
   const navigate = useNavigate();
 
   // 获取租户列表
-  const fetchTenants = async () => {
+  const fetchTenants = async (force: boolean = false) => {
     try {
-      const data = await apiRequest('/api/tenants');
+      const url = force ? '/api/tenants?force=true' : '/api/tenants';
+      // 强制刷新时跳过缓存，确保获取最新数据
+      const data = await apiRequest(url, force ? { skipCache: true } : undefined);
       const tenantsList = Array.isArray(data) ? data : (data?.tenants || []);
       setTenants(tenantsList);
       // 异步刷新组织数量
@@ -159,7 +161,7 @@ const TenantsPage: React.FC = () => {
       setTenantDrawerOpen(false);
       setEditingTenant(null);
       tenantForm.resetFields();
-      fetchTenants();
+      fetchTenants(true);
     } catch (error: any) {
       message.error(error?.message || '操作失败');
     }
@@ -170,7 +172,7 @@ const TenantsPage: React.FC = () => {
     try {
       await apiDelete(`/api/tenants/${id}`);
       message.success('租户删除成功');
-      fetchTenants();
+      fetchTenants(true);
       if (selectedTenant?.id === id) {
         setSelectedTenant(null);
       }
@@ -191,7 +193,7 @@ const TenantsPage: React.FC = () => {
           await Promise.all(selectedTenantRowKeys.map(id => apiDelete(`/api/tenants/${id}`)));
           message.success('批量删除成功');
           setSelectedTenantRowKeys([]);
-          fetchTenants();
+          fetchTenants(true);
         } catch (error: any) {
           message.error(error.response?.data?.message || '批量删除失败');
         }
@@ -374,7 +376,7 @@ const TenantsPage: React.FC = () => {
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
           <Button icon={<SettingOutlined />} />
-          <Button icon={<ReloadOutlined />} onClick={fetchTenants} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => fetchTenants(true)} loading={loading} />
         </div>
       </div>
 

@@ -61,7 +61,7 @@ export const routeSpecs: RouteSpec[] = [
     title: 'SDN总览',
     icon: 'SafetyCertificateOutlined',
     order: 0,
-    requiredFeature: 'platform.sdn'
+    requiredFeature: 'sdn.interconnect'
   },
   {
     id: 'clouds-list',

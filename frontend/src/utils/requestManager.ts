@@ -98,15 +98,18 @@ if (typeof window !== 'undefined') {
  */
 async function parseErrorResponse(response: Response): Promise<never> {
   let errorMsg = `HTTP error! status: ${response.status}`;
+  let responseData: any = null;
   try {
-    const data = await response.json();
-    if (data && typeof data === 'object') {
+    // 克隆响应以便多次读取（因为 response.json() 会消费响应体）
+    const clonedResponse = response.clone();
+    responseData = await clonedResponse.json();
+    if (responseData && typeof responseData === 'object') {
       // 1. Prefer 'message' field
-      if (data.message) {
-        errorMsg = data.message;
+      if (responseData.message) {
+        errorMsg = responseData.message;
         // Append 'error' detail if exists
-        if (data.error) {
-          const detail = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+        if (responseData.error) {
+          const detail = typeof responseData.error === 'string' ? responseData.error : JSON.stringify(responseData.error);
           // Avoid duplication
           if (!errorMsg.includes(detail)) {
             errorMsg += `: ${detail}`;
@@ -114,8 +117,8 @@ async function parseErrorResponse(response: Response): Promise<never> {
         }
       }
       // 2. Fallback to 'error' field
-      else if (data.error) {
-        errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+      else if (responseData.error) {
+        errorMsg = typeof responseData.error === 'string' ? responseData.error : JSON.stringify(responseData.error);
       }
     }
   } catch (e) {
@@ -124,6 +127,8 @@ async function parseErrorResponse(response: Response): Promise<never> {
   const err: any = new Error(errorMsg);
   err.status = response.status;
   err.response = response;
+  // 保存解析后的响应数据，方便前端访问 e?.response?.data
+  err.responseData = responseData;
   throw err;
 }
 

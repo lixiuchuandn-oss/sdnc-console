@@ -95,7 +95,7 @@ const AccessUsersPage: React.FC = () => {
             try {
               await apiDelete(`/api/users/${row.id}`);
               message.success('已删除');
-              fetchUsers();
+              fetchUsers(true); // 强制刷新，跳过缓存
             } catch (error: any) {
               message.error(error?.message || '删除失败');
             }
@@ -124,7 +124,7 @@ const AccessUsersPage: React.FC = () => {
           ));
           message.success('批量删除成功');
           setSelectedRowKeys([]);
-          fetchUsers();
+          fetchUsers(true); // 强制刷新，跳过缓存
         } catch (e) {
           message.error('部分或全部删除失败');
         } finally {
@@ -140,10 +140,10 @@ const AccessUsersPage: React.FC = () => {
     ]
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (skipCache: boolean = false) => {
     try {
       setLoading(true);
-      const json = await apiRequest('/api/users');
+      const json = await apiRequest('/api/users', skipCache ? { skipCache: true } : undefined);
       setUsers(Array.isArray(json) ? json : Array.isArray(json?.users) ? json.users : []);
     } catch {
       message.error('获取系统用户失败');
@@ -200,7 +200,7 @@ const AccessUsersPage: React.FC = () => {
       }
       message.success('角色赋权已保存');
       setAssignOpen(false); setAssignUser(null); setAssignExisting([]); setAssignSelected([]);
-      fetchUsers();
+      fetchUsers(true); // 强制刷新，跳过缓存
     } catch { message.error('保存失败'); }
   }, [assignUser, assignExisting, assignSelected]);
 
@@ -210,7 +210,7 @@ const AccessUsersPage: React.FC = () => {
       message.success('系统用户创建成功');
       setCreateOpen(false);
       createForm.resetFields();
-      fetchUsers();
+      fetchUsers(true); // 强制刷新，跳过缓存
     } catch (error: any) {
       message.error(error?.message || '创建失败');
     }
@@ -243,7 +243,7 @@ const AccessUsersPage: React.FC = () => {
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
           <TableColumnSettingsButton allColumns={defaultColumns} settingsKey="sys_users_v1" />
-          <Button icon={<ReloadOutlined />} onClick={fetchUsers} />
+          <Button icon={<ReloadOutlined />} onClick={() => fetchUsers(true)} />
         </div>
       </div>
 
@@ -297,7 +297,7 @@ const AccessUsersPage: React.FC = () => {
           setEditOpen(false);
           setEditingUser(null);
           setIsEditingAdmin(false);
-          fetchUsers();
+          fetchUsers(true); // 强制刷新，跳过缓存
         } catch (error: any) {
           message.error(error?.message || '更新失败');
         }
