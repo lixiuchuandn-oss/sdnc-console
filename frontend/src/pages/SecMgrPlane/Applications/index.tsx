@@ -15,7 +15,7 @@ import PageContainer from '../../../components/PageContainer';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { listSecurityDomains } from '../../../services/securityDomainApi';
 import { fetchServices, deleteService, createService, updateService, fetchAllInstances, fetchCloudProviderEcs } from '../../../services/api';
-import { createACLRule } from '../../../services/networkApi';
+import { createACLRule } from '../../../services/virtualRouterApi';
 import { AppWizard } from './AppWizard';
 import DiscoveredAssets from './DiscoveredAssets';
 import { useNavigate } from 'react-router-dom';

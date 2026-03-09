@@ -4,7 +4,7 @@ import { ArrowLeftOutlined, ExportOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, upsertVrCache, getVR2Config } from '../../../services/virtualRouterApi';
-import { API_BASE_URL } from '../../../services/api';
+import { API_BASE_URL, proxyApiRequest } from '../../../services/api';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回
 const safeJsonParse = (text: string): any => {
@@ -763,37 +763,10 @@ const SRv6CreatePage: React.FC = () => {
       // 与 Postman 的 Pre-request Script 一致：POST 的签名 other 为空，签名计算使用 body 原文
       const other = '';
 
-    const authUrl = `/api-proxy/api/sign?` +
-      `url=${encodeURIComponent(path)}&` +
-      `method=${method}&` +
-      `other=${encodeURIComponent(other)}&` +
-      `accessKey=${accesskey}&` +
-      `secretKey=${secretkey}`;
-
-    const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uuid, ...cfg }) });
-    const signJson = await signResp.json();
-    const info = (signJson && signJson.data) ? signJson.data : signJson;
-    if (!info || !info.Authorization || !info.tonce) {
-      throw new Error('认证响应数据缺少 Authorization 或 tonce');
-    }
-
-      // UUID 放在 body 中，URL 不携带查询参数
-      const postUrl = `/api-proxy${path}`;
-    const resp = await fetch(postUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': info.Authorization,
-        // 仅发送小写 tonce，避免重复头可能引发的后端解析问题
-        'tonce': String(info.tonce)
-      },
-      body: JSON.stringify({ uuid, ...cfg })
-    });
-
-    const data = await resp.json().catch(async () => ({ raw: await resp.text() }));
-    if (!resp.ok) {
-      throw new Error(data?.msg || `设备返回错误: ${resp.status}`);
-    }
+      const data = await proxyApiRequest(path, method, other, { uuid, ...cfg }, accesskey, secretkey);
+      if (!data || (data && typeof data.code === 'number' && data.code !== 200)) {
+        throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
+      }
     return data;
   };
 

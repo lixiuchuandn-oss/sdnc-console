@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Row, Col, Select, Switch, Space, Button, message } from 'antd';
 import { CodepenOutlined, EyeOutlined } from '@ant-design/icons';
-import axios from 'axios';
+import { apiPost, apiPatch } from '../../../../services/api';
 import { 
   Cloud, 
   getProviderName, 
@@ -42,16 +42,13 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
     }
     setRevealLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(`/api/clouds/${cloud?.id}/reveal`, {
+      const res = await apiPost(`/api/clouds/${cloud?.id}/reveal`, {
         password: adminPassword,
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
       });
 
       form.setFieldsValue({
-        accessKey: res.data.accessKey,
-        secretKey: res.data.secretKey,
+        accessKey: res.accessKey,
+        secretKey: res.secretKey,
       });
 
       // Automatically show the revealed keys
@@ -86,8 +83,6 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
 
   const handleEditSubmit = async (values: any) => {
     try {
-      const token = localStorage.getItem('token');
-      
       // 过滤掉空的或未修改的accessKey和secretKey
       const submitData: any = {
         name: values.name,
@@ -116,14 +111,12 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         provider: prevCfg.provider
       };
       
-      await axios.put(`/api/clouds/${cloud?.id}`, submitData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await apiPatch(`/api/clouds/${cloud?.id}`, submitData);
       
       message.success('云资源更新成功');
       onSuccess();
     } catch (error: any) {
-      message.error('更新失败：' + (error.response?.data?.message || error.message));
+      message.error('更新失败：' + (error?.message || '未知错误'));
     }
   };
 

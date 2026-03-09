@@ -58,6 +58,7 @@ import HarvesterEventsTab from './HarvesterEventsTab';
 import HarvesterVmLogsTab from './HarvesterVmLogsTab';
 import { OsIcon } from '../../../../components/OsIcon';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
+import { getToken } from '../../../../utils/tokenStorage';
 
 /**
  * HarvesterVmDetailDrawer 组件入参定义
@@ -222,7 +223,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
 
     let eventSource: EventSource | null = null;
     const connectSSE = () => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         if (!token) {
            console.warn('[VmDetail] No auth token found, skipping SSE');
            return;

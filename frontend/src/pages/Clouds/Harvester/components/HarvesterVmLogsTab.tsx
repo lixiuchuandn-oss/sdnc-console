@@ -3,6 +3,7 @@ import { Typography, Button, Select, Space, Empty, Spin, Checkbox } from 'antd';
 import { ReloadOutlined, VerticalAlignBottomOutlined, DeleteOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '../../../../services/api';
 import { fetchHarvesterVmPod } from '../../../../services/loggingApi';
+import { getToken } from '../../../../utils/tokenStorage';
 
 const { Text } = Typography;
 
@@ -132,6 +133,10 @@ const TRANSLATION_RULES = [
   { re: /Volume mount failed/i, repl: '卷挂载失败' },
   { re: /MountVolume.SetUp failed for volume/i, repl: '执行卷挂载 SetUp 失败' },
   { re: /failed to add (.+?) to snapshot set/i, repl: '无法将卷 $1 添加到快照集 (VSS 快照失败，请检查 Windows 客户机内的 VSS 服务状态)' },
+  // GPU 设备相关
+  { re: /MDEV_PCI_RESOURCE_(.+) not set for resource (.+)/i, repl: 'MDEV PCI 资源 $1 未为 GPU 资源 $2 设置 (这是正常的警告，不影响 GPU 设备使用)' },
+  { re: /USB_RESOURCE_(.+) not set for resource (.+)/i, repl: 'USB 资源 $1 未为 GPU 资源 $2 设置 (这是正常的警告，不影响 GPU 设备使用)' },
+  { re: /host-devices created: \[(.+?)\]/i, repl: '主机设备已创建: [$1]' },
 ];
 
 function translateLogMessage(msg: string): string {
@@ -249,7 +254,7 @@ const HarvesterVmLogsTab: React.FC<HarvesterVmLogsTabProps> = ({
   const connect = useCallback(() => {
     if (!active || !cloudId || !ns || !vmName || !running) return;
 
-    const token = localStorage.getItem('token') || '';
+    const token = getToken() || '';
     if (!token) {
       setError('未登录');
       return;

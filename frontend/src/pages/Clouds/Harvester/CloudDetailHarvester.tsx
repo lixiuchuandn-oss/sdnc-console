@@ -23,11 +23,12 @@ import IPPoolsSection from './sections/IPPoolsSection';
 import ClusterNetworksSection from './sections/ClusterNetworksSection';
 // 重新编译触发引入
 import NamespacesTab from './sections/NamespacesTab';
-import { CloudUploadOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, ArrowLeftOutlined, ReloadOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { getToken } from '../../../utils/tokenStorage';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
 import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm } from '../../../services/harvesterApi';
@@ -613,7 +614,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   useEffect(() => {
     let es: EventSource | null = null;
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken();
       if (!token) {
         console.warn('[SSE] No auth token found, skipping connection.');
         return;
@@ -699,8 +700,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       });
       
       // 网络连接错误 (浏览器原生触发，无 data 负载)
-      es.onerror = (err) => {
-        // console.debug('[SSE] Connection lost/refused. Browser will auto-reconnect.');
+      es.onerror = () => {
+        // SSE 连接丢失，浏览器会自动重连
       };
       
     } catch (e) {
@@ -855,21 +856,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       extra={
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/admin/clouds')}></Button>
-          <Dropdown
-          menu={{
-            items: [
-              { key: 'refresh', label: '资源刷新' },
-              { key: 'toggleLog', label: (showLog ? '隐藏日志' : '显示日志') },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'refresh') { loadAll(true); return; }
-              if (key === 'toggleLog') { setShowLog(v => !v); return; }
-            },
-          }}
-        >
-          <Button icon={<UnorderedListOutlined />} />
-        </Dropdown>
-      </Space>
+          <Button icon={<ReloadOutlined />} onClick={() => loadAll(true)}></Button>
+        </Space>
       }
       asCard={false}
       subtitle="集中展示云资源池信息，提供多种资源类型的生命周期管理能力"

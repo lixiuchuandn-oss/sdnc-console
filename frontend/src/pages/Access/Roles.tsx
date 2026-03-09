@@ -4,10 +4,11 @@ import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import StdFormModal from '../../components/StdFormModal';
 import PageContainer from '../../components/PageContainer';
-import { featureLabelOf } from '../../constants/navCatalog';
+import { featureLabelOf } from '../../constants/permissionCatalog';
 import PermissionTreeTransfer from '../../components/TreeTransfer';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
+import { apiRequest, apiPost, apiDelete, apiPatch } from '../../services/api';
 
 const { Text } = Typography;
 
@@ -32,20 +33,7 @@ const featureNameOf = (resource: string): string => featureLabelOf(resource);
 const describeAction = (action: string): string => {
   const [resource, op] = String(action).split(':');
   const f = featureNameOf(resource || action);
-  // 特殊资源的自定义描述
-  if (resource?.startsWith('tenants.leased-lines.list')) {
-    if (op === 'read') return '查看专线列表与详情';
-  }
-  if (resource?.startsWith('tenants.leased-lines.manage')) {
-    if (op === 'write') return '创建、修改、删除租户专线记录';
-  }
-  if (resource?.startsWith('tenants.leased-lines.reports')) {
-    if (op === 'read') return '查看任务进度、下载安全报告';
-    if (op === 'write') return '创建、取消、删除安全报告任务';
-  }
-  if (resource?.startsWith('tenants.leased-lines.alert-logs')) {
-    if (op === 'read') return '查看告警日志文件和分析输入';
-  }
+  // 租户专线管理功能已迁移到 AISOC 平台，相关权限描述已移除
   // 通用描述生成
   if (op === 'read') return `查看${f}列表与详情`;
   if (op === 'write') return `创建、修改、删除${f}`;
@@ -100,9 +88,7 @@ const AccessRolesPage: React.FC = () => {
   // 获取角色列表
   const fetchRoles = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/system/rbac/roles', { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-      const data = await res.json();
+      const data = await apiRequest('/api/system/rbac/roles');
       if (Array.isArray(data)) {
         setRoles(data);
       } else {
@@ -118,10 +104,8 @@ const AccessRolesPage: React.FC = () => {
   useEffect(() => {
     const loadActions = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const resp = await fetch('/api/system/rbac/actions', { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-        let arr: string[] = [];
-        try { const json = await resp.json(); arr = Array.isArray(json?.actions) ? json.actions : []; } catch {}
+        const json = await apiRequest('/api/system/rbac/actions');
+        const arr: string[] = Array.isArray(json?.actions) ? json.actions : [];
         setActionAtoms(arr);
       } catch {
         setActionAtoms([]);
@@ -132,12 +116,10 @@ const AccessRolesPage: React.FC = () => {
 
   // 处理角色创建
   const handleCreate = React.useCallback(async () => {
-    const vals = await createForm.validateFields();
-    const payload = { name: vals.name, description: vals.description || '', scope: vals.scope };
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/system/rbac/roles', { method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(payload) });
-    if (res.ok) {
-      const role = await res.json();
+    try {
+      const vals = await createForm.validateFields();
+      const payload = { name: vals.name, description: vals.description || '', scope: vals.scope };
+      const role = await apiPost('/api/system/rbac/roles', payload);
       message.success('角色创建成功');
       setCreateOpen(false);
       createForm.resetFields();
@@ -147,30 +129,22 @@ const AccessRolesPage: React.FC = () => {
       const permArr: string[] = (()=>{ try{ return Array.isArray(JSON.parse(String(role?.permissions||'[]'))) ? JSON.parse(String(role?.permissions||'[]')) : []; }catch{ return []; } })();
       setGrantSelectedIds(permArr);
       setGrantOpen(true);
-    } else {
-      try {
-        const err = await res.json();
-        message.error(err.message || '创建角色失败');
-      } catch {
-        message.error('创建角色失败');
-      }
+    } catch (error: any) {
+      message.error(error?.message || '创建角色失败');
     }
   }, [createForm]);
 
   // 提交授权
   const handleGrantSave = React.useCallback(async (targetKeys: string[]) => {
     if (!grantTarget) return;
-    const res = await fetch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-      body: JSON.stringify({ permissions: targetKeys })
-    });
-    if (res.ok) {
+    try {
+      await apiPatch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, { permissions: targetKeys });
       message.success('授权成功');
       setGrantOpen(false);
       fetchRoles();
+    } catch (error: any) {
+      message.error(error?.message || '保存失败');
     }
-    else { try { message.error(await res.text()); } catch { message.error('保存失败'); } }
   }, [grantTarget]);
 
   const openAuthorize = React.useCallback((role: RBACRole) => {
@@ -180,12 +154,13 @@ const AccessRolesPage: React.FC = () => {
   }, []);
 
   const handleDelete = React.useCallback(async (role: RBACRole) => {
-    const res = await fetch(`/api/system/rbac/roles/${role.id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    });
-    if (res.ok) { message.success('删除成功'); fetchRoles(); }
-    else { message.error('删除失败'); }
+    try {
+      await apiDelete(`/api/system/rbac/roles/${role.id}`);
+      message.success('删除成功');
+      fetchRoles();
+    } catch (error: any) {
+      message.error(error?.message || '删除失败');
+    }
   }, []);
 
   return (

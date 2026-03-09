@@ -12,7 +12,6 @@ import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Ta
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
-import axios from 'axios';
 import PageDetailContainer from '../../components/PageDetailContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import PermissionTreeTransfer from '../../components/TreeTransfer';
@@ -22,6 +21,7 @@ import { fetchProtectionObjects, fetchServiceChains } from '../../services/traff
 import { fetchVrCachePageList } from '../../services/virtualRouterApi';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
+import { apiRequest, apiPost, apiPatch, apiDelete } from '../../services/api';
 
 // RBAC 角色模型：名称、范围（system/tenant）、状态等
 type RBACRole = { id: string; name: string; description?: string; scope: 'system' | 'tenant'; status?: 'active' | 'inactive' };
@@ -120,18 +120,17 @@ const OrgManagePage: React.FC = () => {
   // 获取租户详情
   const fetchTenant = async (id: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(`/api/tenants/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setTenant(res.data);
+      const data = await apiRequest(`/api/tenants/${id}`);
+      setTenant(data);
     } catch {}
   };
 
   // 获取租户下组织树，并默认展开全部、选中根节点
   const fetchOrganizations = async (id: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/tenants/${id}/organizations`, { headers: { Authorization: `Bearer ${token}` } });
-      setOrganizations(response.data);
+      const data = await apiRequest(`/api/tenants/${id}/organizations`);
+      const orgs = Array.isArray(data) ? data : (data?.organizations || []);
+      setOrganizations(orgs);
       const collectKeys = (orgs: Organization[]): string[] => {
         const out: string[] = [];
         const visited = new Set<string>();
@@ -149,8 +148,8 @@ const OrgManagePage: React.FC = () => {
       // 默认展开策略：
       // - 通过递归收集所有节点 id 作为 expandedKeys
       // - visited 集避免重复，保证整棵树被展开
-      setExpandedKeys(collectKeys(response.data));
-      const root = response.data.find((o: any) => o.level === 1) || response.data[0];
+      setExpandedKeys(collectKeys(orgs));
+      const root = orgs.find((o: any) => o.level === 1) || orgs[0];
       if (root) {
         setSelectedKeys([root.id]);
         setSelectedOrg(root);
@@ -161,13 +160,8 @@ const OrgManagePage: React.FC = () => {
   // 获取角色库（过滤掉非活跃角色）
   const fetchTenantRoles = async () => {
     try {
-      const token = localStorage.getItem('token');
       // 显式请求更多记录以防止分页截断
-      const res = await axios.get('/api/system/rbac/roles', { 
-        params: { limit: 1000 },
-        headers: { Authorization: `Bearer ${token}` } 
-      });
-      const raw = res.data;
+      const raw = await apiRequest('/api/system/rbac/roles?limit=1000');
       const list: RBACRole[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.roles) ? raw.roles : []);
       // 允许分配租户自定义角色和系统预置角色
       setTenantRoles(list.filter(r => String(r.status || 'active') === 'active'));
@@ -180,41 +174,37 @@ const OrgManagePage: React.FC = () => {
   // 获取指定组织下的用户列表
   const fetchUsers = async (tid: string, orgId: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/tenants/${tid}/organizations/${orgId}/users`, { headers: { Authorization: `Bearer ${token}` } });
-      setUsers(response.data);
+      const data = await apiRequest(`/api/tenants/${tid}/organizations/${orgId}/users`);
+      setUsers(Array.isArray(data) ? data : (data?.users || []));
     } catch {}
   };
 
   // 获取指定组织的资源池分配列表
   const fetchAssignments = async (orgId: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/tenants/organizations/${orgId}/resource-pools`, { headers: { Authorization: `Bearer ${token}` } });
-      setAssignments(response.data);
+      const data = await apiRequest(`/api/tenants/organizations/${orgId}/resource-pools`);
+      setAssignments(Array.isArray(data) ? data : (data?.assignments || []));
     } catch {}
   };
 
   // 获取可分配资源池（抽屉内选择用）
   const fetchResourcePools = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/tenants/available-resource-pools', { headers: { Authorization: `Bearer ${token}` } });
-      setResourcePools(response.data);
+      const data = await apiRequest('/api/tenants/available-resource-pools');
+      setResourcePools(Array.isArray(data) ? data : (data?.pools || []));
     } catch {}
   };
 
   // 保存组织重命名，并刷新组织树
   const handleOrgRename = async (orgId: string, name: string) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.put(`/api/tenants/organizations/${orgId}`, { name }, { headers: { Authorization: `Bearer ${token}` } });
+      await apiPatch(`/api/tenants/organizations/${orgId}`, { name });
       setRenameOrgId(null);
       setRenameName('');
       if (tenantId) fetchOrganizations(tenantId);
       messageApi.success('重命名成功');
     } catch (e: any) {
-      const msg = e?.response?.data?.message || '重命名失败';
+      const msg = e?.message || '重命名失败';
       messageApi.error(msg);
     }
   };
@@ -225,14 +215,13 @@ const OrgManagePage: React.FC = () => {
     const name = newChildName.trim();
     if (!name) return;
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(`/api/tenants/${tenantId}/organizations`, { name, parentId }, { headers: { Authorization: `Bearer ${token}` } });
+      await apiPost(`/api/tenants/${tenantId}/organizations`, { name, parentId });
       setAddingForParentId(null);
       setNewChildName('');
       fetchOrganizations(tenantId);
       messageApi.success('创建组织成功');
     } catch (e: any) {
-      const msg = e?.response?.data?.message || '创建组织失败';
+      const msg = e?.message || '创建组织失败';
       messageApi.error(msg);
     }
   };
@@ -241,26 +230,20 @@ const OrgManagePage: React.FC = () => {
   const handleUserSubmit = async (values: CreateTenantUserRequest) => {
     if (!tenantId || !selectedOrg) return;
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users`, values, { headers: { Authorization: `Bearer ${token}` } });
+      await apiPost(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users`, values);
       setUserDrawerOpen(false);
       userForm.resetFields();
       fetchUsers(tenantId, selectedOrg.id);
       messageApi.success('创建用户成功');
     } catch (e: any) {
-      const msg = e?.response?.data?.message || '创建用户失败';
+      const msg = e?.message || '创建用户失败';
       messageApi.error(msg);
     }
   };
 
   const openRoleAssign = async (user: TenantUser) => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get('/api/system/rbac/assignments', {
-        params: { userType: 'tenant', userId: user.id },
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const rawData = res.data;
+      const rawData = await apiRequest(`/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(user.id)}`);
       const rawList = Array.isArray(rawData) 
         ? rawData 
         : (Array.isArray((rawData as any)?.assignments) ? (rawData as any).assignments : []);
@@ -283,14 +266,12 @@ const OrgManagePage: React.FC = () => {
     const run = async () => {
       if (!users.length) return;
       try {
-        const token = localStorage.getItem('token');
-        const resps = await Promise.all(users.map(u => axios.get('/api/system/rbac/assignments', {
-          params: { userType: 'tenant', userId: u.id },
-          headers: { Authorization: `Bearer ${token}` }
-        })));
+        const resps = await Promise.all(users.map(u => 
+          apiRequest(`/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(u.id)}`).catch(() => ({ assignments: [] }))
+        ));
         const next: Record<string, Array<{ id: string; name: string }>> = {};
         users.forEach((u, i) => {
-          const rawData = resps[i].data;
+          const rawData = resps[i];
           const rawList = Array.isArray(rawData) 
             ? rawData 
             : (Array.isArray((rawData as any)?.assignments) ? (rawData as any).assignments : []);
@@ -318,7 +299,6 @@ const OrgManagePage: React.FC = () => {
 
   const saveRoleAssign = async () => {
     if (!roleAssignUser) return;
-    const token = localStorage.getItem('token');
     const current = new Set(roleAssignExisting.map(x => x.roleId));
     const needAdd = roleAssignSelected.filter(id => !current.has(id));
     const needRemove = roleAssignExisting.filter(x => !roleAssignSelected.includes(x.roleId));
@@ -327,10 +307,10 @@ const OrgManagePage: React.FC = () => {
     // - needRemove：移除的记录（通过 assignmentId）→ DELETE /assignments/{id}
     try {
       for (const roleId of needAdd) {
-        await axios.post('/api/system/rbac/assignments', { roleId, userType: 'tenant', userId: roleAssignUser.id }, { headers: { Authorization: `Bearer ${token}` } });
+        await apiPost('/api/system/rbac/assignments', { roleId, userType: 'tenant', userId: roleAssignUser.id });
       }
       for (const it of needRemove) {
-        await axios.delete(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`, { headers: { Authorization: `Bearer ${token}` } });
+        await apiDelete(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`);
       }
       modal.success({ title: '角色赋权已保存' });
       setRoleAssignOpen(false);
@@ -341,7 +321,7 @@ const OrgManagePage: React.FC = () => {
         fetchUsers(tenantId, selectedOrg.id);
       }
     } catch (e: any) {
-      const msg = e?.response?.data?.message || '保存角色赋权时发生错误';
+      const msg = e?.message || '保存角色赋权时发生错误';
       modal.error({ title: '保存失败', content: msg });
     }
   };
@@ -349,8 +329,7 @@ const OrgManagePage: React.FC = () => {
   const handleDeleteUser = async (userId: string) => {
     if (!tenantId || !selectedOrg) return;
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
+      await apiDelete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${userId}`);
       fetchUsers(tenantId, selectedOrg.id);
       messageApi.success('删除用户成功');
     } catch (e: any) {
@@ -364,7 +343,6 @@ const OrgManagePage: React.FC = () => {
   const handleResourcePoolAssign = async (values: any) => {
     if (!selectedOrg) return;
     try {
-      const token = localStorage.getItem('token');
       const idsRaw = values.resourcePoolIds;
       const resourcePoolIds = Array.isArray(idsRaw) ? idsRaw.filter(Boolean) : (idsRaw ? [idsRaw] : []);
       const payload = { 
@@ -379,7 +357,7 @@ const OrgManagePage: React.FC = () => {
       // - permissions 固定为 ['use']（表示可用权限）
       // - namespace：仅在 Harvester/CloudMap 私有/边缘 provider 下需要
       // - withCloudPublic：自动命名空间策略下，是否同时分配 cloud-public
-      await axios.post(`/api/tenants/organizations/${selectedOrg.id}/resource-pools`, payload, { headers: { Authorization: `Bearer ${token}` } });
+      await apiPost(`/api/tenants/organizations/${selectedOrg.id}/resource-pools`, payload);
       setResourcePoolDrawerOpen(false);
       resourcePoolForm.resetFields();
       fetchAssignments(selectedOrg.id);
@@ -393,8 +371,7 @@ const OrgManagePage: React.FC = () => {
   const handleRemoveAssignment = async (poolId: string) => {
     if (!selectedOrg) return;
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/api/tenants/organizations/${selectedOrg.id}/resource-pools/${poolId}`, { headers: { Authorization: `Bearer ${token}` } });
+      await apiDelete(`/api/tenants/organizations/${selectedOrg.id}/resource-pools/${poolId}`);
       fetchAssignments(selectedOrg.id);
       message.success('移除分配成功');
     } catch (e: any) {
@@ -608,12 +585,11 @@ const OrgManagePage: React.FC = () => {
                       cancelText: '取消',
                       onOk: async () => {
                         try {
-                          const token = localStorage.getItem('token');
-                          await axios.delete(`/api/tenants/organizations/${org.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                          await apiDelete(`/api/tenants/organizations/${org.id}`);
                           messageApi.success('删除组织成功');
                           if (tenantId) fetchOrganizations(tenantId);
                         } catch (error: any) {
-                          const errorMessage = error?.response?.data?.message || '删除组织失败';
+                          const errorMessage = error?.message || '删除组织失败';
                           const resources = error?.response?.data?.resources || [];
                           
                           // 关闭确认框
@@ -910,15 +886,14 @@ const OrgManagePage: React.FC = () => {
                                   onOk: async () => { 
                                     if (!tenantId || !selectedOrg) return;
                                     try {
-                                      const token = localStorage.getItem('token');
                                       await Promise.all(selectedUserRowKeys.map(id => 
-                                        axios.delete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+                                        apiDelete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${id}`)
                                       ));
                                       messageApi.success('批量删除成功');
                                       setSelectedUserRowKeys([]);
                                       fetchUsers(tenantId, selectedOrg.id);
                                     } catch (e: any) {
-                                      messageApi.error(e?.response?.data?.message || '批量删除失败');
+                                      messageApi.error(e?.message || '批量删除失败');
                                     }
                                   },
                                 });
@@ -1223,8 +1198,7 @@ const OrgManagePage: React.FC = () => {
                                     content: '确定要删除该VR绑定记录吗？',
                                     onOk: async () => {
                                       try {
-                                        const token = localStorage.getItem('token');
-                                        await axios.delete(`/api/vr-config/${r.uuid}`, { headers: { Authorization: `Bearer ${token}` } });
+                                        await apiDelete(`/api/vr-config/${r.uuid}`);
                                         messageApi.success('删除成功');
                                         fetchSdnVrs();
                                       } catch (e) {
@@ -1366,9 +1340,8 @@ const OrgManagePage: React.FC = () => {
                 const pvRaw = String(pool?.config?.provider || pool?.type || '').trim().toLowerCase();
                 if (pvRaw === 'harvester' || pvRaw === 'cloudmap.private' || pvRaw === 'cloudmap.edge') {
                   setNsLoading(true);
-                  const token = localStorage.getItem('token');
-                  const resp = await axios.get(`/api/clouds/${poolId}/resources/harvester/namespaces`, { headers: { Authorization: `Bearer ${token}` } });
-                  const items: any[] = resp?.data?.data?.items || resp?.data?.items || [];
+                  const resp = await apiRequest(`/api/clouds/${poolId}/resources/harvester/namespaces`);
+                  const items: any[] = resp?.data?.data?.items || resp?.data?.items || (Array.isArray(resp) ? resp : []);
                   setNsOptions(items);
                 }
               } catch { setNsOptions([]); } finally { setNsLoading(false); }

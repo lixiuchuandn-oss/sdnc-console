@@ -4,6 +4,8 @@
 
 // 导入请求管理器（提供去重、缓存、重试功能）
 import { requestManager } from '../utils/requestManager';
+// 导入统一的 token 存储工具
+import { getToken } from '../utils/tokenStorage';
 
 const defaultApiBase = (() => {
   const envUrl = process.env.REACT_APP_API_URL;
@@ -27,7 +29,7 @@ export const API_BASE_URL = defaultApiBase;
 
 // 获取认证token
 export const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   return {
     'Content-Type': 'application/json',
     'Authorization': token ? `Bearer ${token}` : '',
@@ -136,12 +138,14 @@ export const apiPost = async (endpoint: string, body: any = {}) => {
 
 // 通用 DELETE 请求（带重试，不缓存，不去重）
 // 注意：删除操作禁用去重，确保每次删除都能真正执行
-export const apiDelete = async (endpoint: string) => {
+// body: 可选的请求体（某些 DELETE 请求需要 body，如删除安全组规则）
+export const apiDelete = async (endpoint: string, body?: any) => {
   try {
     return await requestManager(
       {
         method: 'DELETE',
         endpoint,
+        body,
         headers: getAuthHeaders(),
         options: {
           enableDeduplication: false, // 删除操作不去重，允许重复删除
@@ -157,16 +161,45 @@ export const apiDelete = async (endpoint: string) => {
   }
 };
 
+// 通用文件上传请求（支持 FormData，带重试，不缓存，不去重）
+// 注意：文件上传操作禁用去重，确保每次上传都能真正执行
+export const apiUpload = async (endpoint: string, formData: FormData, options?: { timeout?: number }) => {
+  try {
+    return await requestManager(
+      {
+        method: 'POST',
+        endpoint,
+        body: formData,
+        headers: getAuthHeaders(),
+        options: {
+          enableDeduplication: false, // 文件上传不去重
+          enableCache: false, // 文件上传不缓存
+          enableRetry: true, // 保留重试功能
+        },
+      },
+      API_BASE_URL
+    );
+  } catch (error) {
+    console.error(`文件上传失败 ${endpoint}:`, error);
+    throw error;
+  }
+};
+
 // 通用 PATCH 请求（带重试，不缓存，不去重）
 // 注意：更新操作禁用去重，确保每次更新都能真正执行
-export const apiPatch = async (endpoint: string, body: any = {}) => {
+export const apiPatch = async (endpoint: string, body: any = {}, options?: { contentType?: string }) => {
   try {
+    const headers = { ...getAuthHeaders() };
+    // 如果指定了自定义 Content-Type，使用它（例如 application/merge-patch+json）
+    if (options?.contentType) {
+      headers['Content-Type'] = options.contentType;
+    }
     return await requestManager(
       {
         method: 'PATCH',
         endpoint,
         body,
-        headers: getAuthHeaders(),
+        headers,
         options: {
           enableDeduplication: false, // 更新操作不去重，允许重复更新
           enableCache: false, // PATCH 请求不缓存
@@ -230,7 +263,7 @@ export const fetchOrganizationResourcePools = async (organizationId: string) => 
 };
 
 export const fetchCloudQuotas = async (cloudId:string)=>{
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/quotas`, {
     method: 'GET',
     headers: {
@@ -248,7 +281,7 @@ export const fetchCloudQuotas = async (cloudId:string)=>{
 };
 
 export const createUserSpaceV2 = async (payload:any)=>{
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/user-spaces`,{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':token?`Bearer ${token}`:''},
@@ -261,7 +294,7 @@ export const createUserSpaceV2 = async (payload:any)=>{
 
 // 云资源池：查询云端 VPC（当前支持阿里云）
 export const fetchCloudProviderVpcs = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
     method: 'GET',
     headers: {
@@ -278,7 +311,7 @@ export const fetchCloudProviderVpcs = async (cloudId: string) => {
 
 // 云资源池：创建云端 VPC（当前支持阿里云）
 export const createCloudProviderVpc = async (cloudId: string, payload: { VpcName?: string; CidrBlock: string; Description?: string; EnableIpv6?: boolean; Ipv6CidrBlock?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
     method: 'POST',
     headers: {
@@ -321,7 +354,7 @@ export const fetchSaseDiscoveredAssets = async (params?: any) => {
 };
 
 export const fetchCloudVpcs = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/vpcs`, {
     method: 'GET',
     headers: {
@@ -337,7 +370,7 @@ export const fetchCloudVpcs = async (cloudId: string) => {
 };
 
 export const fetchCloudProviderEcs = async (cloudId: string, force: boolean = false) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const qs = force ? '?force=true' : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs${qs}`, {
     method: 'GET',
@@ -355,7 +388,7 @@ export const fetchCloudProviderEcs = async (cloudId: string, force: boolean = fa
 
 // 云资源池：ECS 管理操作（启动/停止/重启/删除）
 export const startCloudProviderEcs = async (cloudId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/start`, {
     method: 'POST',
     headers: {
@@ -371,7 +404,7 @@ export const startCloudProviderEcs = async (cloudId: string, instanceId: string)
 };
 
 export const stopCloudProviderEcs = async (cloudId: string, instanceId: string, force: boolean = false) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/stop`, {
     method: 'POST',
     headers: {
@@ -388,7 +421,7 @@ export const stopCloudProviderEcs = async (cloudId: string, instanceId: string, 
 };
 
 export const rebootCloudProviderEcs = async (cloudId: string, instanceId: string, force: boolean = false) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/reboot`, {
     method: 'POST',
     headers: {
@@ -405,7 +438,7 @@ export const rebootCloudProviderEcs = async (cloudId: string, instanceId: string
 };
 
 export const softRebootCloudProviderEcs = async (cloudId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/softreboot`, {
     method: 'POST',
     headers: {
@@ -421,7 +454,7 @@ export const softRebootCloudProviderEcs = async (cloudId: string, instanceId: st
 };
 
 export const pauseCloudProviderEcs = async (cloudId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/pause`, {
     method: 'POST',
     headers: {
@@ -437,7 +470,7 @@ export const pauseCloudProviderEcs = async (cloudId: string, instanceId: string)
 };
 
 export const unpauseCloudProviderEcs = async (cloudId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/unpause`, {
     method: 'POST',
     headers: {
@@ -453,7 +486,7 @@ export const unpauseCloudProviderEcs = async (cloudId: string, instanceId: strin
 };
 
 export const fetchCloudProviderEcsVncUrl = async (cloudId: string, instanceId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/vnc-url`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
@@ -469,7 +502,7 @@ export const fetchCloudProviderEcsVncUrl = async (cloudId: string, instanceId: s
 
 
 export const fetchCloudProviderEips = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/eips`, {
     method: 'GET',
     headers: {
@@ -485,7 +518,7 @@ export const fetchCloudProviderEips = async (cloudId: string) => {
 };
 
 export const fetchCloudProviderLoadBalancers = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/loadbalancers`, {
     method: 'GET',
     headers: {
@@ -501,7 +534,7 @@ export const fetchCloudProviderLoadBalancers = async (cloudId: string) => {
 };
 
 export const fetchCloudProviderNatGateways = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/nat-gateways`, {
     method: 'GET',
     headers: {
@@ -517,7 +550,7 @@ export const fetchCloudProviderNatGateways = async (cloudId: string) => {
 };
 
 export const fetchCloudProviderRouteTables = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables`, {
     method: 'GET',
     headers: {
@@ -533,7 +566,7 @@ export const fetchCloudProviderRouteTables = async (cloudId: string) => {
 };
 
 export const fetchCloudProviderRouteEntries = async (cloudId: string, routeTableId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries?routeTableId=${encodeURIComponent(routeTableId)}`, {
     method: 'GET',
     headers: {
@@ -549,7 +582,7 @@ export const fetchCloudProviderRouteEntries = async (cloudId: string, routeTable
 };
 
 export const addCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { type: string; destination: string; nexthop: string; description?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
   });
@@ -558,7 +591,7 @@ export const addCloudProviderRouteEntry = async (cloudId: string, routeTableId: 
 };
 
 export const updateCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, oldRoute: { destination: string; nexthop: string }, newRoute: { type: string; destination: string; nexthop: string; description?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, oldRoute, newRoute }), credentials: 'include'
   });
@@ -567,7 +600,7 @@ export const updateCloudProviderRouteEntry = async (cloudId: string, routeTableI
 };
 
 export const modCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { type: string; destination: string; nexthop: string; description?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
   });
@@ -576,7 +609,7 @@ export const modCloudProviderRouteEntry = async (cloudId: string, routeTableId: 
 };
 
 export const deleteCloudProviderRouteEntry = async (cloudId: string, routeTableId: string, route: { destination: string; nexthop: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-entries`, {
     method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ routeTableId, route }), credentials: 'include'
   });
@@ -588,7 +621,7 @@ export const createCloudProviderRouteTable = async (
   cloudId: string,
   payload: { vpcId: string; name?: string; description?: string; routes?: Array<{ type: string; destination: string; nexthop: string; description?: string }> }
 ) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload), credentials: 'include'
   });
@@ -601,7 +634,7 @@ export const updateCloudProviderRouteTable = async (
   routeTableId: string,
   payload: { name?: string; description?: string; routes?: Array<{ type: string; destination: string; nexthop: string; description?: string }> }
 ) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify(payload), credentials: 'include'
   });
@@ -610,7 +643,7 @@ export const updateCloudProviderRouteTable = async (
 };
 
 export const associateCloudProviderRouteTable = async (cloudId: string, routeTableId: string, subnetIds: string[]) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}/associate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ subnetIds }), credentials: 'include'
   });
@@ -619,7 +652,7 @@ export const associateCloudProviderRouteTable = async (cloudId: string, routeTab
 };
 
 export const disassociateCloudProviderRouteTable = async (cloudId: string, routeTableId: string, subnetIds: string[]) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}/disassociate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ subnetIds }), credentials: 'include'
   });
@@ -628,7 +661,7 @@ export const disassociateCloudProviderRouteTable = async (cloudId: string, route
 };
 
 export const deleteCloudProviderRouteTable = async (cloudId: string, routeTableId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/route-tables/${encodeURIComponent(routeTableId)}`, {
     method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
   });
@@ -638,7 +671,7 @@ export const deleteCloudProviderRouteTable = async (cloudId: string, routeTableI
 
 export const fetchCloudProviderNetworkAcls = async (cloudId: string, params?: { vpcId?: string }) => {
   const qs = params?.vpcId ? `?vpcId=${encodeURIComponent(params.vpcId)}` : '';
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/network-acls${qs}`, {
     method: 'GET',
     headers: {
@@ -657,7 +690,7 @@ export const createCloudProviderNetworkAcl = async (
   cloudId: string,
   payload: { vpcId: string; name: string; description?: string }
 ) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/network-acls`, {
     method: 'POST',
     headers: {
@@ -695,7 +728,7 @@ export const deleteCloudProviderEcs = async (cloudId: string, instanceId: string
 };
 
 export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const qs: string[] = [];
   if (params?.vpcId) qs.push(`vpcId=${encodeURIComponent(params.vpcId)}`);
   const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/enis${qs.length ? ('?' + qs.join('&')) : ''}`;
@@ -712,7 +745,7 @@ export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?:
 
 
 export const fetchCsmVirtualElements = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/virtual-elements`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
@@ -725,7 +758,7 @@ export const fetchCloudmapVirtualElements = fetchCsmVirtualElements;
 
 // CSM：物理安全网元
 export const fetchCsmPhysicalElements = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/physical-elements`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
@@ -738,7 +771,7 @@ export const fetchCloudmapPhysicalElements = fetchCsmPhysicalElements;
 
 // CSM：安全网元组
 export const fetchCsmElementGroups = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/element-groups`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
@@ -751,7 +784,7 @@ export const fetchCsmElementGroups = async (cloudId: string) => {
 export const fetchCloudmapElementGroups = fetchCsmElementGroups;
 
 export const fetchCsmServiceChains = async (cloudId: string, params?: { pool_id?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains${qs}`, {
     method: 'GET',
@@ -763,7 +796,7 @@ export const fetchCsmServiceChains = async (cloudId: string, params?: { pool_id?
 };
 
 export const fetchCsmVRouters = async (cloudId: string, params?: { pool_id?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/vrouters${qs}`, {
     method: 'GET',
@@ -775,7 +808,7 @@ export const fetchCsmVRouters = async (cloudId: string, params?: { pool_id?: str
 };
 
 export const fetchCsmVRPageList = async (cloudId: string, params?: any) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const search = new URLSearchParams();
   if (params) {
     Object.keys(params).forEach(key => {
@@ -797,7 +830,7 @@ export const fetchCsmVRPageList = async (cloudId: string, params?: any) => {
 };
 
 export const fetchTenantVRs = async (params: { tenantId?: string; organizationId?: string } = {}) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const search = new URLSearchParams();
   if (params.tenantId) search.set('tenantId', params.tenantId);
   if (params.organizationId) search.set('organizationId', params.organizationId);
@@ -815,7 +848,7 @@ export const fetchTenantVRs = async (params: { tenantId?: string; organizationId
 export const fetchSaseGateways = fetchTenantVRs;
 
 export const bindTenantVR = async (payload: { vm_id?: string; vr_uuid: string; tenant_id: string; org_id?: string; device_fingerprint?: string; display_name?: string; vr_type?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   // 改为调用通用的 VR 绑定接口
   const res = await fetch(`${API_BASE_URL}/api/vr-config/bind`, {
     method: 'POST',
@@ -838,7 +871,7 @@ export const bindTenantVR = async (payload: { vm_id?: string; vr_uuid: string; t
 export const bindSaseGateway = bindTenantVR;
 
 export const detectCsmPoolId = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/pool-id`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
@@ -849,7 +882,7 @@ export const detectCsmPoolId = async (cloudId: string) => {
 };
 
 export const fetchCsmPoolId = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/pool-id`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
@@ -860,7 +893,7 @@ export const fetchCsmPoolId = async (cloudId: string) => {
 };
 
 export const fetchCsmAssets = async (cloudId: string, params: any = {}) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const query = new URLSearchParams();
   Object.keys(params).forEach(key => {
     if (params[key] !== undefined && params[key] !== null) {
@@ -878,7 +911,7 @@ export const fetchCsmAssets = async (cloudId: string, params: any = {}) => {
 };
 
 export const createCsmAsset = async (cloudId: string, payload: any, params?: { pool_id?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/assets${qs}`, {
     method: 'POST',
@@ -899,7 +932,7 @@ export const createCsmAsset = async (cloudId: string, payload: any, params?: { p
 };
 
 export const deleteCsmAsset = async (cloudId: string, assetId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/network/assets/${assetId}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
@@ -910,7 +943,7 @@ export const deleteCsmAsset = async (cloudId: string, assetId: string) => {
 };
 
 export const deleteCsmServiceChain = async (cloudId: string, chainId: string, params?: { pool_id?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains/${encodeURIComponent(chainId)}${qs}`, {
     method: 'DELETE',
@@ -922,7 +955,7 @@ export const deleteCsmServiceChain = async (cloudId: string, chainId: string, pa
 };
 
 export const createCsmServiceChain = async (cloudId: string, payload: any, params?: { pool_id?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/service-chains${qs}`, {
     method: 'POST',
@@ -943,7 +976,7 @@ export const createCsmServiceChain = async (cloudId: string, payload: any, param
 };
 
 export const createCsmServiceChainRaw = async (cloudId: string, payload: any, params?: { pool_id?: string }) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const search = new URLSearchParams();
   if (params?.pool_id) search.set('pool_id', String(params.pool_id));
   search.set('raw', '1');
@@ -963,7 +996,7 @@ export const createCsmServiceChainRaw = async (cloudId: string, payload: any, pa
 
 // 华为云：子网（与阿里云 vswitches 对应）
 export const fetchCloudProviderSubnets = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets`, {
     method: 'GET',
     headers: {
@@ -980,7 +1013,7 @@ export const fetchCloudProviderSubnets = async (cloudId: string) => {
 
 // 统一子网查询（支持按 VPC 过滤）：阿里云兼容 vswitches，华为云为 subnets
 export const fetchCloudProviderSubnetsByVpc = async (cloudId: string, vpcId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets?vpcId=${encodeURIComponent(vpcId)}`, {
     method: 'GET',
     headers: {
@@ -1001,7 +1034,7 @@ export const createHuaweiCloudSubnet = async (
   cloudId: string,
   payload: { vpc_id: string; cidr: string; ipv6_cidr?: string; name?: string; description?: string; gateway_ip?: string; dhcp_enable?: boolean; primary_dns?: string; secondary_dns?: string; dnsList?: string[]; availability_zone?: string }
 ) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ subnet: payload }), credentials: 'include'
   });
@@ -1015,7 +1048,7 @@ export const updateHuaweiCloudSubnet = async (
   subnetId: string,
   payload: { name?: string; description?: string; dhcp_enable?: boolean; primary_dns?: string; secondary_dns?: string; dnsList?: string[] }
 ) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/subnets/${encodeURIComponent(subnetId)}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, body: JSON.stringify({ subnet: payload }), credentials: 'include'
   });
@@ -1029,7 +1062,7 @@ export const deleteCloudProviderSubnet = async (cloudId: string, subnetId: strin
 };
 
 export const fetchCloudProviderSecurityGroups = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups`, {
     method: 'GET',
     headers: {
@@ -1045,7 +1078,7 @@ export const fetchCloudProviderSecurityGroups = async (cloudId: string) => {
 };
 
 export const fetchCloudProviderSecurityGroupDetail = async (cloudId: string, sgId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/security-groups/${encodeURIComponent(sgId)}`, {
     method: 'GET',
     headers: {
@@ -1066,7 +1099,7 @@ export const fetchCloudProviderSecurityGroupDetail = async (cloudId: string, sgI
 
 // 全部资源池云主机聚合
 export const fetchAllInstances = async () => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/inventory/instances`, {
     method: 'GET',
     headers: {
@@ -1083,7 +1116,7 @@ export const fetchAllInstances = async () => {
 
 // 根据云ID获取聚合库存（不刷新，仅筛选）
 export const fetchInventoryInstancesByCloud = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/inventory/instances?cloudId=${encodeURIComponent(cloudId)}`, {
     method: 'GET',
     headers: {
@@ -1100,7 +1133,7 @@ export const fetchInventoryInstancesByCloud = async (cloudId: string) => {
 
 // 刷新库存（支持按云ID定向刷新）
 export const refreshInventoryInstances = async (cloudId?: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const qs = cloudId ? `&cloudId=${encodeURIComponent(cloudId)}` : '';
   const res = await fetch(`${API_BASE_URL}/api/clouds/inventory/instances?refresh=true${qs}`, {
     method: 'GET',
@@ -1118,7 +1151,7 @@ export const refreshInventoryInstances = async (cloudId?: string) => {
 
 // 慢速全局库存刷新（不传 cloudId，串行且慢速）
 export const refreshInventoryInstancesSlow = async () => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/inventory/instances?refresh=true&slow=true`, {
     method: 'GET',
     headers: {
@@ -1136,7 +1169,7 @@ export const refreshInventoryInstancesSlow = async () => {
 
 
 export const fetchCloudProviderDisks = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/disks`, {
     method: 'GET',
     headers: {
@@ -1152,7 +1185,7 @@ export const fetchCloudProviderDisks = async (cloudId: string) => {
 };
 
 export const fetchCloudProviderSnapshots = async (cloudId: string) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/resources/snapshots`, {
     method: 'GET',
     headers: {
@@ -1290,6 +1323,98 @@ export const csmSsoLogin = async (cloudId: string, vmId: string, currentLoginWeb
     id: webId,
     currentLoginWebPort: port,
   });
+};
+
+// ============================================================================
+// 代理 API 服务函数（用于 CSM CTL 通信）
+// ============================================================================
+
+/**
+ * 获取 CSM CTL 签名信息
+ * @param path CSM CTL API 路径
+ * @param method HTTP 方法
+ * @param other 其他查询参数
+ * @param bodyRaw 请求体（字符串）
+ * @returns 包含 Authorization 和 tonce 的认证信息
+ */
+export const getProxyAuthInfo = async (
+  path: string,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+  other: string = '',
+  bodyRaw: string = '',
+  accessKey: string = 'Cloudmap%23123',
+  secretKey: string = 'Cloudmap%23123'
+): Promise<{ Authorization: string; tonce: string }> => {
+  const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;
+  // 对于签名请求，bodyRaw 可能是字符串，需要直接传递
+  const response = await requestManager(
+    {
+      method: 'POST',
+      endpoint: authUrl,
+      body: bodyRaw || '',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      options: {
+        enableDeduplication: false,
+        enableCache: false,
+        enableRetry: true,
+      },
+    },
+    API_BASE_URL
+  );
+  const info = (response && response.data) ? response.data : response;
+  if (!info?.Authorization || !info?.tonce) throw new Error('签名失败');
+  return { Authorization: info.Authorization, tonce: String(info.tonce) };
+};
+
+/**
+ * 通过代理调用 CSM CTL API
+ * @param path CSM CTL API 路径（如 /V2/ctcontrol/VR3/VRConfig/list）
+ * @param method HTTP 方法
+ * @param other 查询参数（如 uuid=xxx）
+ * @param body 请求体（对象，会自动序列化为 JSON）
+ * @returns API 响应数据
+ */
+export const proxyApiRequest = async (
+  path: string,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+  other: string = '',
+  body?: any,
+  accessKey?: string,
+  secretKey?: string
+): Promise<any> => {
+  // 1. 获取签名信息
+  const bodyRaw = body ? JSON.stringify(body) : '';
+  const authInfo = await getProxyAuthInfo(path, method, other, bodyRaw, accessKey, secretKey);
+  
+  // 2. 构建请求 URL
+  const queryUrl = `/api-proxy${path}${other ? `?${other}` : ''}`;
+  
+  // 3. 发送请求（使用统一的 API 服务，但需要自定义 headers）
+  try {
+    return await requestManager(
+      {
+        method,
+        endpoint: queryUrl,
+        body: body,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': authInfo.Authorization,
+          'tonce': authInfo.tonce,
+        },
+        options: {
+          enableDeduplication: false, // 代理 API 不去重
+          enableCache: false, // 代理 API 不缓存
+          enableRetry: true, // 保留重试功能
+        },
+      },
+      API_BASE_URL
+    );
+  } catch (error) {
+    console.error(`代理 API 请求失败 ${path}:`, error);
+    throw error;
+  }
 };
 
 // Harvester Events

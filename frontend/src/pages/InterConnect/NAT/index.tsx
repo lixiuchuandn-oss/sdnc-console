@@ -5,8 +5,9 @@ import { DeleteOutlined, EllipsisOutlined, SettingOutlined } from '@ant-design/i
 import PageContainer from '../../../components/PageContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import type { ColumnsType } from 'antd/es/table';
-import { getNATRules, createNATRule, deleteNATRule, NATRule } from '../../../services/networkApi';
+import { getNATRules, createNATRule, deleteNATRule, NATRule } from '../../../services/virtualRouterApi';
 import { vrApi } from '../../../services/virtualRouterApi';
+import { apiRequest } from '../../../services/api';
 
 const { Option } = Select;
 const { Text } = Typography;
@@ -41,20 +42,12 @@ const NATPage: React.FC = () => {
                 Array.isArray(dataObj?.rows) ? dataObj.rows :
                 Array.isArray(dataObj) ? dataObj : [];
       if (!Array.isArray(vrs) || vrs.length === 0) {
-        const fallback = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/vr-cache/pagelist?page_num=1&page_size=1000`, {
-          credentials: 'include'
-        });
-        const json = await fallback.json();
+        const json = await apiRequest('/api/vr-cache/pagelist?page_num=1&page_size=1000');
         const d = json?.data ?? json;
         vrs = Array.isArray(d?.page) ? d.page : [];
       }
       if ((!Array.isArray(vrs) || vrs.length === 0)) {
-        const token = localStorage.getItem('token') || '';
-        const resRoles = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/vr-config/roles`, {
-          headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-          credentials: 'include'
-        });
-        const jsonRoles = await resRoles.json();
+        const jsonRoles = await apiRequest('/api/vr-config/roles');
         const roles = jsonRoles?.data?.roles || {};
         const uuids = Object.keys(roles || {});
         vrs = uuids.map(u => ({ uuid: u, name: u }));

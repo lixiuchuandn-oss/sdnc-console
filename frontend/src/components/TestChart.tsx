@@ -7,7 +7,6 @@ const TestChart: React.FC = () => {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    console.log('创建测试图表...');
     const chart = echarts.init(containerRef.current);
 
     const option = {

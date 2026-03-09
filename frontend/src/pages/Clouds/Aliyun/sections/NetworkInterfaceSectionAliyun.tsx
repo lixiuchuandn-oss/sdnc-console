@@ -73,9 +73,6 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
     });
   };
 
-  console.log('[DEBUG] NetworkInterfaceSectionAliyun eniList:', eniList);
-  console.log('[DEBUG] NetworkInterfaceSectionAliyun filteredEniList:', filteredEniList);
-  console.log('[DEBUG] NetworkInterfaceSectionAliyun raw instance:', instance);
 
   const cols: any[] = [];
   if (hasAny(r => r?.NetworkInterfaceId || r?.id || r?.Id)) {

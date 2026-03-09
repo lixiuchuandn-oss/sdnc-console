@@ -795,18 +795,32 @@ export const harvesterForceDeleteVM = async (
       pvcNames = Array.from(new Set(pvcNames));
     }
     
-    // 1.2 移除回收站Finalizer，允许真正删除
+    // 1.2 移除 Tower 相关的 Finalizers (Recycle Bin + Managed)，允许真正删除
+    // 如果不移除 tower.io/managed，VM 会一直卡在 Terminating 状态
     const finalizers = vm?.metadata?.finalizers || [];
-    const recycleBinFinalizer = 'tower.io/recycle-bin';
+    const targetFinalizers = ['tower.io/recycle-bin', 'tower.io/managed'];
     
-    if (finalizers.includes(recycleBinFinalizer)) {
-      const finalizerIndex = finalizers.indexOf(recycleBinFinalizer);
+    // 找出所有需要移除的索引
+    const indicesToRemove: number[] = [];
+    finalizers.forEach((f: string, index: number) => {
+      if (targetFinalizers.includes(f)) {
+        indicesToRemove.push(index);
+      }
+    });
+
+    if (indicesToRemove.length > 0) {
+      // 倒序排列索引，防止因删除导致后续索引偏移
+      indicesToRemove.sort((a, b) => b - a);
+      
+      const patchOps = indicesToRemove.map(index => ({
+        op: 'remove',
+        path: `/metadata/finalizers/${index}`
+      }));
+
       const patchUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachines/${encodeURIComponent(path.name)}`;
       
-      // 移除Finalizer
-      await requestJson('PATCH', patchUrl, token, insecure, [
-        { op: 'remove', path: `/metadata/finalizers/${finalizerIndex}` }
-      ], {
+      // 移除Finalizers
+      await requestJson('PATCH', patchUrl, token, insecure, patchOps, {
         'Content-Type': 'application/json-patch+json'
       });
     }

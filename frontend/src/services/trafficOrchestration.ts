@@ -1,133 +1,62 @@
-import { API_BASE_URL } from './api';
-
-const getHeaders = () => {
-  const token = localStorage.getItem('token');
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': token ? `Bearer ${token}` : ''
-  };
-};
+import { apiRequest, apiPost, apiPatch, apiDelete } from './api';
 
 // --- Security Zones ---
 
 export const fetchSecurityZones = async (params?: any) => {
   const query = new URLSearchParams(params).toString();
   // Call the Security Domain API instead of security-zones
-  const res = await fetch(`${API_BASE_URL}/api/security-domains?${query}`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  const endpoint = query ? `/api/security-domains?${query}` : '/api/security-domains';
+  return await apiRequest(endpoint);
 };
 
 export const createSecurityZone = async (data: any) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/security-zones`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiPost('/api/security/traffic/security-zones', data);
 };
 
 export const updateSecurityZone = async (id: string, data: any) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/security-zones/${id}`, {
-    method: 'PATCH',
-    headers: getHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiPatch(`/api/security/traffic/security-zones/${id}`, data);
 };
 
 export const deleteSecurityZone = async (id: string) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/security-zones/${id}`, {
-    method: 'DELETE',
-    headers: getHeaders(),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiDelete(`/api/security/traffic/security-zones/${id}`);
 };
 
 // --- Protection Objects ---
 
 export const fetchProtectionObjects = async (params?: any) => {
   const query = new URLSearchParams(params).toString();
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/protection-objects?${query}`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  const endpoint = query ? `/api/security/traffic/protection-objects?${query}` : '/api/security/traffic/protection-objects';
+  return await apiRequest(endpoint);
 };
 
 export const createProtectionObject = async (data: any) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/protection-objects`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiPost('/api/security/traffic/protection-objects', data);
 };
 
 export const updateProtectionObject = async (id: string, data: any) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/protection-objects/${id}`, {
-    method: 'PATCH',
-    headers: getHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiPatch(`/api/security/traffic/protection-objects/${id}`, data);
 };
 
 export const deleteProtectionObject = async (id: string) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/protection-objects/${id}`, {
-    method: 'DELETE',
-    headers: getHeaders(),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiDelete(`/api/security/traffic/protection-objects/${id}`);
 };
 
 // --- Service Chains ---
 
 export const fetchServiceChains = async (params?: any) => {
   const query = new URLSearchParams(params).toString();
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/service-chains?${query}`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  const endpoint = query ? `/api/security/traffic/service-chains?${query}` : '/api/security/traffic/service-chains';
+  return await apiRequest(endpoint);
 };
 
 export const createServiceChain = async (data: any) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/service-chains`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiPost('/api/security/traffic/service-chains', data);
 };
 
 export const updateServiceChain = async (id: string, data: any) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/service-chains/${id}`, {
-    method: 'PATCH',
-    headers: getHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiPatch(`/api/security/traffic/service-chains/${id}`, data);
 };
 
 export const deleteServiceChain = async (id: string) => {
-  const res = await fetch(`${API_BASE_URL}/api/security/traffic/service-chains/${id}`, {
-    method: 'DELETE',
-    headers: getHeaders(),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  return await apiDelete(`/api/security/traffic/service-chains/${id}`);
 };

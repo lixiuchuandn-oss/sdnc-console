@@ -2,9 +2,7 @@ export const PATH_PERMISSION_MAPPING = [
   { path: '/admin/dashboard', action: 'ops.dashboard:read' },
   { path: '/admin/clouds/console', action: 'clouds.console:read' },
   { path: '/admin/clouds', action: 'clouds:read' },
-  { path: '/admin/aisoc/leased-lines/tasks', action: 'tenants.leased-lines.reports:read' },
-  { path: '/admin/aisoc/leased-lines/logs', action: 'tenants.leased-lines.alert-logs:read' },
-  { path: '/admin/aisoc/leased-lines', action: 'tenants.leased-lines.list:read' },
+  // 租户专线管理功能已迁移到 AISOC 平台，相关权限映射已移除
   { path: '/admin/tenants/users', action: 'tenants.users:read' },
   { path: '/admin/tenants', action: 'tenants:read' },
   { path: '/admin/interconnect/nat', action: 'networks.nat:read' },
@@ -20,7 +18,8 @@ export const PATH_PERMISSION_MAPPING = [
   { path: '/admin/coming-soon', action: 'ops:read' },
   { path: '/admin/soc/overview', action: 'secops.dashboard:read' },
   { path: '/admin/soc/threat/events', action: 'secops.alerts:read' },
-  { path: '/admin/soc/threat/offline-logs', action: 'tenants.leased-lines.alert-logs:read' },
+  // 租户专线管理功能已迁移到 AISOC 平台，相关权限映射已移除
+  // { path: '/admin/soc/threat/offline-logs', action: 'tenants.leased-lines.alert-logs:read' },
   { path: '/admin/soc/threat/rules', action: 'secops.rules:read' },
 ];
 
@@ -49,9 +48,7 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
 export const getDefaultAdminPath = (perms: string[] = []): string => {
   const candidates = [
     '/admin/clouds/console',
-    '/admin/aisoc/leased-lines',
-    '/admin/aisoc/leased-lines/tasks',
-    '/admin/aisoc/leased-lines/logs',
+    // 租户专线管理功能已迁移到 AISOC 平台，相关路径已移除
     '/admin/dashboard',
     '/admin/clouds',
     '/admin/tenants',

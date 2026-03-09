@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { theme as antdTheme } from 'antd';
+import { getSystemSetting, updateSystemSetting } from '../services/systemApi';
 
 export type ThemeType = 'light' | 'dark';
 export type LanguageType = 'zh' | 'en';
@@ -102,21 +103,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const fetchRemoteSettings = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem('token');
-        const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
         
-        // Fetch each setting key from backend
-        // Note: Backend supports /api/system/settings/:key
+        // Fetch each setting key from backend using unified API
         const keys = ['emailNotify', 'smsNotify', 'network.apiBaseUrl', 'network.enableProxy', 'network.timeout'];
         const values: any = {};
         
         for (const key of keys) {
           try {
-            const res = await fetch(`/api/system/settings/${key}`, { headers });
-            if (res.ok) {
-              const json = await res.json();
-              values[key] = json.data?.value;
-            }
+            const data = await getSystemSetting(key);
+            values[key] = data?.value;
           } catch (e) {
             console.warn(`Failed to fetch setting ${key}`, e);
           }
@@ -191,17 +186,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Remote persistence for others
     if (['emailNotify', 'smsNotify'].includes(key)) {
       try {
-        const token = localStorage.getItem('token');
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json'
-        };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        
-        await fetch(`/api/system/settings/${key}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ value: String(value) })
-        });
+        await updateSystemSetting(key, String(value));
       } catch (e) {
         console.error(`Failed to save setting ${key}`, e);
         // Revert local state if needed, but for now we optimistically update
@@ -214,22 +199,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateNetwork = async (network: Partial<Settings['network']>) => {
     const newNetwork = { ...settings.network, ...network };
     
-    // Save each network field to backend
+    // Save each network field to backend using unified API
     try {
-      const token = localStorage.getItem('token');
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-      };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
       if (network.apiBaseUrl !== undefined) {
-        await fetch('/api/system/settings/network.apiBaseUrl', { method: 'PATCH', headers, body: JSON.stringify({ value: network.apiBaseUrl }) });
+        await updateSystemSetting('network.apiBaseUrl', network.apiBaseUrl);
       }
       if (network.enableProxy !== undefined) {
-        await fetch('/api/system/settings/network.enableProxy', { method: 'PATCH', headers, body: JSON.stringify({ value: String(network.enableProxy) }) });
+        await updateSystemSetting('network.enableProxy', String(network.enableProxy));
       }
       if (network.timeout !== undefined) {
-        await fetch('/api/system/settings/network.timeout', { method: 'PATCH', headers, body: JSON.stringify({ value: String(network.timeout) }) });
+        await updateSystemSetting('network.timeout', String(network.timeout));
       }
     } catch (e) {
       console.error('Failed to save network settings', e);

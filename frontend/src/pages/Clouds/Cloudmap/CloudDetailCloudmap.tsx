@@ -49,6 +49,7 @@ import MonitoringAlertSecrets from '../Harvester/Monitoring/MonitoringAlertSecre
 import { MonitoringProvider } from '../Harvester/Monitoring/context/MonitoringContext';
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
+import { getToken } from '../../../utils/tokenStorage';
 
 /**
  * 调试用的 JSON 展示组件
@@ -585,7 +586,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   // 建立 EventSource 连接，监听 VM 状态变化
   useEffect(() => {
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getToken() || '';
       const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       const es = new EventSource(url);
       
@@ -662,8 +663,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       });
       
       // 网络连接错误 (浏览器原生触发，无 data 负载)
-      es.onerror = (err) => {
-        // console.debug('[SSE] Connection lost/refused. Browser will auto-reconnect.');
+      es.onerror = () => {
+        // SSE 连接丢失，浏览器会自动重连
       };
       
       return () => { try { es.close(); } catch {} };

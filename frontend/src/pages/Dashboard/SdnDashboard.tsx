@@ -21,7 +21,7 @@ import {
   fetchIPsecVPNs,
   fetchCenAttachments
 } from '../../services/api';
-import { getACLRules, getNATRules } from '../../services/networkApi';
+import { getACLRules, getNATRules } from '../../services/virtualRouterApi';
 import { fetchServiceChains } from '../../services/trafficOrchestration';
 import { fetchVrRealtimeList } from '../../services/virtualRouterApi';
 import './Dashboard.css';

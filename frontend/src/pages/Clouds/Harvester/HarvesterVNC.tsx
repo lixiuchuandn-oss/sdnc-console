@@ -12,6 +12,7 @@ import PageContainer from '../../../components/PageContainer';
 import { API_BASE_URL } from '../../../services/api';
 import { fetchHarvesterVmDetail, fetchHarvesterVMAggregated, fetchHarvesterResourceByLink } from '../../../services/harvesterApi';
 import { fetchMetricRange } from '../../../services/monitoringApi';
+import { getToken } from '../../../utils/tokenStorage';
 // Try to use the newer library if available, otherwise fall back to what was working or common
 // Kubevirt uses @novnc/novnc
 import RFB from '@novnc/novnc/lib/rfb'; 
@@ -121,14 +122,10 @@ const HarvesterVNCPage: React.FC = () => {
         const memQuery = `sum((kubevirt_vmi_memory_available_bytes{namespace="${namespace}", name="${name}"} - kubevirt_vmi_memory_unused_bytes{namespace="${namespace}", name="${name}"}) / kubevirt_vmi_memory_available_bytes{namespace="${namespace}", name="${name}"})`;
 
         try {
-            // console.log('Fetching VNC metrics (Strict VMPerformance)...', { cpuQuery, memQuery });
-            
             const [cpuRes, memRes] = await Promise.all([
                 fetchMetricRange(cloudId, { query: cpuQuery, start, end, step }),
                 fetchMetricRange(cloudId, { query: memQuery, start, end, step })
             ]);
-            
-            // console.log('VNC metrics response:', { cpuRes, memRes });
 
             // Extract the latest value from result
             // result structure: data.data.result[0].values[[timestamp, "value"], ...]
@@ -292,7 +289,7 @@ const HarvesterVNCPage: React.FC = () => {
       return; 
     }
 
-    const token = localStorage.getItem('token') || '';
+    const token = getToken() || '';
     if (!token) {
       setError('未登录');
       return;
@@ -327,7 +324,6 @@ const HarvesterVNCPage: React.FC = () => {
       rfb.compressionLevel = 2;
 
       rfb.addEventListener('connect', () => {
-        console.log('[VNC] Connected');
         setConnected(true);
         setConnecting(false);
         setError(null);
@@ -338,7 +334,6 @@ const HarvesterVNCPage: React.FC = () => {
       });
 
       rfb.addEventListener('disconnect', (e: any) => {
-        console.log('[VNC] Disconnected', e);
         setConnected(false);
         setConnecting(false);
         const reason = e?.detail?.reason || '连接已断开';

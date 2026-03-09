@@ -9,9 +9,9 @@ import type { ColumnsType } from 'antd/es/table';
 import { 
   getACLRules, createACLRule, deleteACLRule, ACLRule,
   getACLGroups, createACLGroup, deleteACLGroup, addACLRuleToGroup, pushACLConfig, ACLGroup,
-  bindACLGroupToVR, unbindACLGroupFromVR
-} from '../../../services/networkApi';
-import type { ACLGroupBinding } from '../../../services/networkApi';
+  bindACLGroupToVR, unbindACLGroupFromVR,
+  type ACLGroupBinding
+} from '../../../services/virtualRouterApi';
 import { vrApi, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 
 const { Option } = Select;

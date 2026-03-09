@@ -177,7 +177,6 @@ const SecurityDomainWizardPage: React.FC = () => {
            // Default to Aliyun structure or generic array
            list = (res?.data?.VSwitches?.VSwitch) || (Array.isArray(res) ? res : []) || [];
         }
-        console.log('Wizard loaded subnets:', list);
         setSubnets(Array.isArray(list) ? list : []);
       } catch (e) {
         console.warn('Wizard failed to load subnets:', e);
@@ -625,7 +624,6 @@ const SecurityDomainWizardPage: React.FC = () => {
       const vrPrivateEniIds = associations.map((a: any) => a.privateEniId).filter(Boolean);
 
       // Extract IPs
-      console.log('[Wizard Debug] onCreate rawEnis count:', rawEnis.length, 'First few IDs:', rawEnis.slice(0, 3).map(e => e.NetworkInterfaceId || e.id));
 
       const findEniIp = (eniId: string, type: 'public' | 'private') => {
         if (!eniId) return undefined;
@@ -657,13 +655,10 @@ const SecurityDomainWizardPage: React.FC = () => {
       const vrPublicIp = associations.map((a: any) => findEniIp(a.publicEniId, 'public')).filter(Boolean);
       const vrPrivateIp = associations.map((a: any) => findEniIp(a.privateEniId, 'private')).filter(Boolean);
 
-      console.log('[Wizard Debug] Extracted IPs:', { vrPublicIp, vrPrivateIp, associations });
-
       // Ensure subnets are loaded (safety net)
       let currentSubnets = subnets;
       if ((!currentSubnets || currentSubnets.length === 0) && isVpc && values.vpcId && values.cloudId) {
         try {
-          console.log('Wizard: Subnets empty, fetching again...');
           const cloud = clouds.find((c) => String(c.id) === String(values.cloudId));
           const provider = (cloud?.config?.provider || cloud?.type || '').toLowerCase();
           const res: any = await fetchCloudProviderSubnetsByVpc(values.cloudId, values.vpcId);
@@ -676,7 +671,6 @@ const SecurityDomainWizardPage: React.FC = () => {
              list = (res?.data?.VSwitches?.VSwitch) || (Array.isArray(res) ? res : []) || [];
           }
           currentSubnets = Array.isArray(list) ? list : [];
-          console.log('Wizard: Refetched subnets:', currentSubnets.length);
           // setSubnets(currentSubnets); // Update state for future, though we use local var now
         } catch (e) {
           console.warn('Wizard: Failed to refetch subnets:', e);
@@ -709,7 +703,6 @@ const SecurityDomainWizardPage: React.FC = () => {
       const vrPublicSubnetCidr = associations.map((a: any) => findEniSubnetCidr(a.publicEniId)).filter(Boolean);
       const vrPrivateSubnetCidr = associations.map((a: any) => findEniSubnetCidr(a.privateEniId)).filter(Boolean);
       
-      console.log('[Wizard Debug] Extracted CIDRs:', { vrPublicSubnetCidr, vrPrivateSubnetCidr });
 
       const payload: SecurityDomainPayload = {
         name: values.name,

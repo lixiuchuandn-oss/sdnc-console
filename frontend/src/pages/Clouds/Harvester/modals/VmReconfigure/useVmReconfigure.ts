@@ -89,7 +89,7 @@ export const useVmReconfigure = (props: any) => {
     if (!bootDisk && disks.length > 0) bootDisk = disks.find((d: any) => !d.cdrom);
     
     // Debug log for troubleshooting
-    console.debug('VM Reconfigure - Disk Detection:', { bootDisk, disks, volumes });
+    // 磁盘检测逻辑
     
     if (bootDisk) {
        const volume = volumes.find((v: any) => v.name === bootDisk.name);

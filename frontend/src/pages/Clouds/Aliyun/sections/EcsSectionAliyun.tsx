@@ -7,6 +7,7 @@ import PageDetailSection, { LiveSwitch, RowActionsButton } from '../../../../com
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import EcsDetailModal from '../modals/EcsDetailModal';
 import { statusTag, collectIpv4FromAddresses } from '../../Hw/components/Common';
+import { getToken } from '../../../../utils/tokenStorage';
 
 type EcsSectionAliyunProps = {
   cloudId: string;
@@ -41,7 +42,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
         setLive(false);
         setEcsLocal(Array.isArray(ecs) ? ecs : []);
       } else {
-        const token = localStorage.getItem('token') || '';
+        const token = getToken() || '';
         const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
         const es = new EventSource(url);
         esRef.current = es;

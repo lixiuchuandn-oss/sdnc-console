@@ -4,6 +4,7 @@ import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, getVR2Config } from '../../../services/virtualRouterApi';
+import { proxyApiRequest } from '../../../services/api';
 
 const CEWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -19,14 +20,6 @@ const CEWizard: React.FC = () => {
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
 
-  const requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
-    const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123`;
-    const resp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyRaw });
-    const json = await resp.json();
-    const info = (json && json.data) ? json.data : json;
-    if (!resp.ok || !info?.Authorization || !info?.tonce) throw new Error('签名失败');
-    return { Authorization: info.Authorization, tonce: String(info.tonce) };
-  };
 
   useEffect(() => {
     if (!uuid) return;
@@ -66,13 +59,7 @@ const CEWizard: React.FC = () => {
       const method = 'GET';
       const other = `uuid=${uuid}`;
       const path = '/V2/ctcontrol/VR3/VRConfig/list';
-      const info = await requestSign(path, method, other, '');
-      const queryUrl = `/api-proxy${path}?${other}`;
-      const resp = await fetch(queryUrl, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json', 'Authorization': info.Authorization, 'tonce': String(info.tonce) },
-      });
-      const raw = await resp.json().catch(async () => ({ raw: await resp.text() }));
+      const raw = await proxyApiRequest(path, method, other);
       const unwrapData = (obj: any) => {
         let cur = obj;
         while (cur && typeof cur === 'object' && 'data' in cur) cur = (cur as any).data;
@@ -354,25 +341,11 @@ const CEWizard: React.FC = () => {
       const method = 'POST';
       const other = '';
       const bodyRaw = JSON.stringify({ uuid, ...cfg });
-      const info = await requestSign(path, method, other, bodyRaw);
-      const postUrl = `/api-proxy${path}`;
-      const resp = await fetch(postUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': info.Authorization,
-          'tonce': String(info.tonce),
-        },
-        body: bodyRaw,
-      });
-      const text = await resp.text();
-      let data: any;
-      try { data = JSON.parse(text); } catch { data = { msg: text }; }
-      if (resp.ok) {
-        message.success(data?.msg || '配置已下发');
-      } else {
-        throw new Error(data?.msg || `设备返回错误: ${resp.status}`);
+      const data = await proxyApiRequest(path, method, other, JSON.parse(bodyRaw));
+      if (data && typeof data.code === 'number' && data.code !== 200) {
+        throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
+      message.success(data?.msg || '配置已下发');
     } catch (err: any) {
       message.error(`下发失败：${err?.message || '请稍后重试'}`);
     } finally {

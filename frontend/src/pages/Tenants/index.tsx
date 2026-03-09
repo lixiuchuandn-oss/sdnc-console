@@ -21,12 +21,12 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { Tenant, Organization, CreateTenantRequest } from '../../types/tenant';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../components/PageContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
 // import SharedToolbar from '../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
+import { apiRequest, apiPost, apiPatch, apiDelete } from '../../services/api';
 
 const { TextArea } = Input;
 
@@ -57,15 +57,13 @@ const TenantsPage: React.FC = () => {
   // 获取租户列表
   const fetchTenants = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/tenants', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setTenants(response.data);
+      const data = await apiRequest('/api/tenants');
+      const tenantsList = Array.isArray(data) ? data : (data?.tenants || []);
+      setTenants(tenantsList);
       // 异步刷新组织数量
-      refreshOrgCounts(response.data);
+      refreshOrgCounts(tenantsList);
       // 异步刷新用户数量
-      refreshUserCounts(response.data);
+      refreshUserCounts(tenantsList);
     } catch (error) {
       message.error('获取租户列表失败');
     }
@@ -74,7 +72,6 @@ const TenantsPage: React.FC = () => {
   // 批量刷新所有租户的用户数量
   const refreshUserCounts = async (list: Tenant[]) => {
     try {
-      const token = localStorage.getItem('token');
       const pairs: [string, number][] = [];
       
       const chunkSize = 5;
@@ -82,10 +79,8 @@ const TenantsPage: React.FC = () => {
         const chunk = list.slice(i, i + chunkSize);
         const chunkResults = await Promise.all(chunk.map(async (t) => {
           try {
-            const res = await axios.get(`/api/tenants/${t.id}/users`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-            const users = Array.isArray(res.data) ? res.data : (res.data?.users || []);
+            const res = await apiRequest(`/api/tenants/${t.id}/users`);
+            const users = Array.isArray(res) ? res : (res?.users || []);
             return [t.id, users.length] as const;
           } catch {
             return [t.id, 0] as const;
@@ -108,7 +103,6 @@ const TenantsPage: React.FC = () => {
   // 批量刷新所有租户的组织数量
   const refreshOrgCounts = async (list: Tenant[]) => {
     try {
-      const token = localStorage.getItem('token');
       const pairs: [string, number][] = [];
       
       // 分批处理，避免并发过高
@@ -117,9 +111,7 @@ const TenantsPage: React.FC = () => {
         const chunk = list.slice(i, i + chunkSize);
         const chunkResults = await Promise.all(chunk.map(async (t) => {
           try {
-            const res = await axios.get(`/api/tenants/${t.id}/organizations`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await apiRequest(`/api/tenants/${t.id}/organizations`);
             const countAll = (orgs: Organization[]): number => {
               let c = 0;
               const visited = new Set<string>();
@@ -134,7 +126,8 @@ const TenantsPage: React.FC = () => {
               recur(orgs);
               return c;
             };
-            return [t.id, countAll(res.data)] as const;
+            const orgs = Array.isArray(res) ? res : (res?.organizations || []);
+            return [t.id, countAll(orgs)] as const;
           } catch {
             return [t.id, 0] as const;
           }
@@ -156,16 +149,11 @@ const TenantsPage: React.FC = () => {
   // 创建/更新租户
   const handleTenantSubmit = async (values: CreateTenantRequest) => {
     try {
-      const token = localStorage.getItem('token');
       if (editingTenant) {
-        await axios.put(`/api/tenants/${editingTenant.id}`, values, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        await apiPatch(`/api/tenants/${editingTenant.id}`, values);
         message.success('租户更新成功');
       } else {
-        await axios.post('/api/tenants', values, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        await apiPost('/api/tenants', values);
         message.success('租户创建成功');
       }
       setTenantDrawerOpen(false);
@@ -173,20 +161,21 @@ const TenantsPage: React.FC = () => {
       tenantForm.resetFields();
       fetchTenants();
     } catch (error: any) {
-      message.error(error.response?.data?.message || '操作失败');
+      message.error(error?.message || '操作失败');
     }
   };
 
   // 删除租户
   const handleDeleteTenant = async (id: string) => {
-    const token = localStorage.getItem('token');
-    await axios.delete(`/api/tenants/${id}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    message.success('租户删除成功');
-    fetchTenants();
-    if (selectedTenant?.id === id) {
-      setSelectedTenant(null);
+    try {
+      await apiDelete(`/api/tenants/${id}`);
+      message.success('租户删除成功');
+      fetchTenants();
+      if (selectedTenant?.id === id) {
+        setSelectedTenant(null);
+      }
+    } catch (error: any) {
+      message.error(error?.message || '删除租户失败');
     }
   };
 
@@ -199,8 +188,7 @@ const TenantsPage: React.FC = () => {
       cancelText: '取消',
       onOk: async () => {
         try {
-          const token = localStorage.getItem('token');
-          await Promise.all(selectedTenantRowKeys.map(id => axios.delete(`/api/tenants/${id}`, { headers: { Authorization: `Bearer ${token}` } })));
+          await Promise.all(selectedTenantRowKeys.map(id => apiDelete(`/api/tenants/${id}`)));
           message.success('批量删除成功');
           setSelectedTenantRowKeys([]);
           fetchTenants();

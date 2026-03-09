@@ -3,7 +3,8 @@ import { Modal, Form, Input, Select, message, Button, Alert, Space, Typography, 
 import { KeyOutlined, DownloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { createHarvesterSshKey, fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
-import { API_BASE_URL, getAuthHeaders } from '../../../../services/api';
+import { API_BASE_URL } from '../../../../services/api';
+import { apiRequest } from '../../../../services/api';
 // @ts-ignore
 import { generateKeyPair } from 'web-ssh-keygen';
 
@@ -63,11 +64,7 @@ const SshKeyCreateModal: React.FC<Props> = ({ visible, cloudId, onCancel, onSucc
   const handleGenerateKey = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE_URL}/api/tools/ssh-keygen`, {
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error('生成失败');
-      const data = await res.json();
+      const data = await apiRequest('/api/tools/ssh-keygen');
       setGeneratedKey(data);
       form.setFieldsValue({ publicKey: data.publicKey });
       message.success('密钥对生成成功，请务必保存私钥！');

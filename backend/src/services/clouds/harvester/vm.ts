@@ -544,15 +544,20 @@ export const createHarvesterVM = async (
   
   // Clone payload to avoid side effects
   const vmPayload = JSON.parse(JSON.stringify(payload));
-  
-  // [Feature] 强制添加不可删除标记 (Deletion Protection)
-  // 通过 Finalizer 阻止级联删除
+
+  // [Feature] 平台托管标记 (Platform Managed)
+  // 1. 添加 tower.io/managed Finalizer：防止在 Tower 平台之外（如 Harvester UI）误删。
+  //    除非 Tower 主动移除此 Finalizer，否则 K8s 不会物理删除 VM。
   if (!vmPayload.metadata) vmPayload.metadata = {};
   if (!vmPayload.metadata.finalizers) vmPayload.metadata.finalizers = [];
-  const protectionFinalizer = 'tower.io/deletion-protection';
-  if (!vmPayload.metadata.finalizers.includes(protectionFinalizer)) {
-    vmPayload.metadata.finalizers.push(protectionFinalizer);
+  const managedFinalizer = 'tower.io/managed';
+  if (!vmPayload.metadata.finalizers.includes(managedFinalizer)) {
+    vmPayload.metadata.finalizers.push(managedFinalizer);
   }
+
+  // 2. 添加 tower.io/creator 标签：标识资源归属
+  if (!vmPayload.metadata.labels) vmPayload.metadata.labels = {};
+  vmPayload.metadata.labels['tower.io/creator'] = 'compute-tower';
 
   const vmName = vmPayload.metadata?.name;
 
@@ -618,10 +623,10 @@ export const createHarvesterVM = async (
   const vm = await requestJson('POST', url, token, insecure, vmPayload);
 
   // [Feature] 防删保护再次确认
-  // 由于 K8s ValidatingWebhook 可能会清洗非标准 Finalizers，导致创建时的 protectionFinalizer 丢失。
+  // 由于 K8s ValidatingWebhook 可能会清洗非标准 Finalizers，导致创建时的 managedFinalizer 丢失。
   // 因此在创建成功后，再次检查返回对象。如果丢失，则通过 Patch 强行加回。
   const createdFinalizers = vm?.metadata?.finalizers || [];
-  if (!createdFinalizers.includes(protectionFinalizer)) {
+  if (!createdFinalizers.includes(managedFinalizer)) {
       try {
           const patchUrl = `${url}/${encodeURIComponent(vm.metadata.name)}`;
           // 使用 JSON Patch 添加 finalizer
@@ -629,7 +634,7 @@ export const createHarvesterVM = async (
               {
                   op: createdFinalizers.length > 0 ? "add" : "add", 
                   path: "/metadata/finalizers/-", // append
-                  value: protectionFinalizer
+                  value: managedFinalizer
               }
           ];
           // 如果原 finalizers 为空，路径可能是 "/metadata/finalizers" (需初始化数组) 
@@ -637,7 +642,7 @@ export const createHarvesterVM = async (
           // 更稳健的方式是使用 Merge Patch (application/merge-patch+json)
           const mergePatchBody = {
               metadata: {
-                  finalizers: [...createdFinalizers, protectionFinalizer]
+                  finalizers: [...createdFinalizers, managedFinalizer]
               }
           };
           
@@ -647,10 +652,10 @@ export const createHarvesterVM = async (
           
           // 更新本地 vm 对象以反映变更
           if (!vm.metadata.finalizers) vm.metadata.finalizers = [];
-          vm.metadata.finalizers.push(protectionFinalizer);
+          vm.metadata.finalizers.push(managedFinalizer);
           
       } catch (e: any) {
-          console.warn(`[Harvester] Failed to apply deletion-protection finalizer for VM ${vmName}:`, e.message);
+          console.warn(`[Harvester] Failed to apply managed finalizer for VM ${vmName}:`, e.message);
           // 不阻断创建流程，仅记录警告
       }
   }

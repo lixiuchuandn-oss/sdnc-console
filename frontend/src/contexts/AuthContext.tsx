@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { API_BASE_URL } from '../services/api';
+import { getToken, setToken as saveToken, removeToken } from '../utils/tokenStorage';
 
 /**
  * 用户对象
@@ -61,12 +62,12 @@ interface AuthProviderProps {
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(getToken());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const initAuth = async () => {
-      const storedToken = localStorage.getItem('token');
+      const storedToken = getToken();
       if (storedToken) {
         try {
           // 1) 验证 token 有效性，并获取基础用户信息
@@ -135,12 +136,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             setToken(storedToken);
           } else {
             // token 失效：清理本地态
-            localStorage.removeItem('token');
+            removeToken();
             setToken(null);
           }
         } catch (error) {
           // 网络或解析异常：同样清理本地态
-          localStorage.removeItem('token');
+          removeToken();
           setToken(null);
         }
       }
@@ -171,7 +172,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
 
       const data = await response.json();
-      localStorage.setItem('token', data.token);
+      saveToken(data.token);
       setToken(data.token);
       
       // 优先使用后端返回的计算好的权限
@@ -236,7 +237,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = () => {
     setUser(null);
     setToken(null);
-    localStorage.removeItem('token');
+    removeToken();
   };
 
   const value = {

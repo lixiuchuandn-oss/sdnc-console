@@ -12,11 +12,6 @@ const CURATED_PERMISSIONS = [
     // 租户与租户资源
     'tenants:read',
     'tenants:write',
-    'tenants.leased-lines.list:read',
-    'tenants.leased-lines.manage:write',
-    'tenants.leased-lines.reports:read',
-    'tenants.leased-lines.reports:write',
-    'tenants.leased-lines.alert-logs:read',
     // 云与资源（统一命名：domain.feature:verb）
     'clouds:read',
     'clouds:write',
@@ -84,11 +79,6 @@ const CURATED_PERMISSIONS = [
     'secops.alerts:write',
     'secops.rules:read',
     'secops.rules:write',
-    // 可信数据空间
-    'trust.spaces:read',
-    'trust.spaces:write',
-    'trust.datasets:read',
-    'trust.datasets:write',
     // 系统管理
     'system.roles:read',
     'system.roles:write'
@@ -200,7 +190,6 @@ export async function initializeRoles() {
                 p.startsWith('tenants') || 
                 p.startsWith('users') || 
                 p.startsWith('user-spaces') || 
-                p.startsWith('trust.') ||
                 p.startsWith('system.')
             )
         );

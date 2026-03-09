@@ -1260,7 +1260,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const s = String(SafeRead.status(r));
       const k = s.toLowerCase();
       // [Feature] 检查重要实例标记
-      const isImportant = r?.metadata?.labels?.['tower.io/important'] === 'true';
+      const finalizers = r?.metadata?.finalizers || [];
+      const isImportant = finalizers.includes('tower.io/deletion-protection') || r?.metadata?.labels?.['tower.io/important'] === 'true';
 
       // [逻辑] 状态颜色映射
       const status = (function(){
@@ -1380,7 +1381,8 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const { isResizing, pvcName } = checkResizeStatus(r);
 
       // [Feature] 检查重要实例标记
-      const isImportant = r?.metadata?.labels?.['tower.io/important'] === 'true';
+      const finalizers = r?.metadata?.finalizers || [];
+      const isImportant = finalizers.includes('tower.io/deletion-protection') || r?.metadata?.labels?.['tower.io/important'] === 'true';
 
       const items: any[] = [
         // ----------------------------------------------------------------
@@ -1589,7 +1591,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         columns={disableColumnSettings ? allColumns : (tableColumns.length > 0 ? tableColumns : allColumns)}
         dataSource={filtered}
         loading={loading}
-        scroll={{ x: 'max-content' }}
+        scroll={{ 
+          x: 'max-content',
+          // 只有当数据量超过15条时才启用虚拟滚动，避免显示不可滚动的滚动条
+          ...(filtered.length > 15 ? { y: 600 } : {})
+        }}
         pagination={{
           size: 'small',
           showQuickJumper: false,

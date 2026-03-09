@@ -1180,19 +1180,17 @@ const RecycleBinSection: React.FC<Props> = ({
               options={[{ value: '', label: '全部' }, ...statusOptions]}
             />
           )}
-          {(keyword || namespaceFilter || statusFilter) && (
-            <button
-              type="button"
-              className="toolbar-reset-btn"
-              onClick={() => {
-                setKeyword('');
-                setNamespaceFilter('');
-                setStatusFilter('');
-              }}
-            >
-              重置
-            </button>
-          )}
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setNamespaceFilter('');
+              setStatusFilter('');
+            }}
+          >
+            重置
+          </button>
         </>
       }
       toolbarRight={

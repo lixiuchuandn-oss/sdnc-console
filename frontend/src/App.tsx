@@ -27,7 +27,9 @@ const CloudDetail = lazy(() => import('./pages/Clouds/CloudDetail'));
 const InstanceDetail = lazy(() => import('./pages/Clouds/InstanceDetail'));
 const Tenants = lazy(() => import('./pages/Tenants'));
 const GeneralSettings = lazy(() => import('./pages/Settings/GeneralSettings'));
+const AuditLogs = lazy(() => import('./pages/Settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/Settings/AdvancedSettings'));
+
 const LicenseSettingsPage = lazy(() => import('./pages/Settings/LicenseSettings'));
 const Alarms = lazy(() => import('./pages/Alarms/index'));
 const SRv6Page = lazy(() => import('./pages/InterConnect/SRv6/index'));
@@ -61,7 +63,6 @@ const Policies = lazy(() => import('./pages/Security/TrafficOrchestration/Polici
 const WebSSHPage = lazy(() => import('./pages/Clouds/WebSSH'));
 const CloudConsolePage = lazy(() => import('./pages/Clouds/Console/CloudConsole'));
 const HarvesterVNCPage = lazy(() => import('./pages/Clouds/Harvester/HarvesterVNC'));
-const TenantLeasedLinesPage = lazy(() => import('./pages/Tenants/LeasedLines'));
 const OrgManagePage = lazy(() => import('./pages/Tenants/OrgManage'));
 const ApiDocs = lazy(() => import('./pages/ApiDocs'));
 const VmCreateWizardModal = lazy(() => import('./pages/Clouds/Harvester/modals/VmCreateWizardModal'));
@@ -131,11 +132,7 @@ const AppRoutes: React.FC = () => {
           <Route path="tenants" element={<Tenants />} />
           <Route path="tenants/:tenantId/organizations" element={<OrgManagePage />} />
           
-          {/* Moved to AI SOC -> Report Management */}
-          <Route path="aisoc/leased-lines" element={<TenantLeasedLinesPage />} />
-          <Route path="aisoc/leased-lines/list" element={<TenantLeasedLinesPage />} />
-          <Route path="aisoc/leased-lines/tasks" element={<TenantLeasedLinesPage />} />
-          <Route path="aisoc/leased-lines/logs" element={<TenantLeasedLinesPage />} />
+          {/* 租户专线管理功能已迁移到 AISOC 平台，相关路由已移除 */}
 
           <Route path="tenants/users" element={<Users />} />
           <Route path="interconnect/srv6" element={<SRv6Page />} />
@@ -175,7 +172,9 @@ const AppRoutes: React.FC = () => {
 
           <Route path="settings" element={<Navigate to="settings/general" replace />} />
           <Route path="settings/general" element={<GeneralSettings />} />
+          <Route path="settings/audit-logs" element={<AuditLogs />} />
           <Route path="settings/advanced" element={<AdvancedSettings />} />
+
           <Route path="settings/license" element={<LicenseSettingsPage />} />
           
           <Route path="coming-soon" element={<ComingSoon />} />

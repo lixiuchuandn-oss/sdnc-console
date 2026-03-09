@@ -27,7 +27,6 @@ const AddVRInstance: React.FC = () => {
     setLoading(true);
     // 模拟保存操作
     setTimeout(() => {
-      console.log('Saving VR Instance:', values);
       setLoading(false);
       message.success('VR实例保存成功');
       navigate('/admin/interconnect/vr');
@@ -35,14 +34,12 @@ const AddVRInstance: React.FC = () => {
   };
 
   const onFinishFailed = (errorInfo: any) => {
-    console.log('Failed:', errorInfo);
     message.error('请检查表单填写是否正确');
   };
 
   const previewConfiguration = () => {
     form.validateFields()
-      .then(values => {
-        console.log('Preview Configuration:', values);
+      .then(() => {
         message.info('配置预览功能已触发');
       })
       .catch(() => {

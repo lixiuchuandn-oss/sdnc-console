@@ -8,9 +8,11 @@ import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchHarvesterLoadBalancers, fetchHarvesterStorageClasses, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, fetchHarvesterVolumes, fetchHarvesterImages } from '../../../services/harvesterApi';
 import { 
-  fetchClouds, fetchCloudProviderEcs, API_BASE_URL, getAuthHeaders,
-  startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs
+  fetchClouds, fetchCloudProviderEcs, API_BASE_URL,
+  startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs,
+  apiRequest
 } from '../../../services/api';
+import { getToken } from '../../../utils/tokenStorage';
 import './CloudConsole.css';
 import CloudConsoleHarvester from './CloudConsoleHarvester';
 import VmSection from '../Harvester/sections/VmSection';
@@ -183,13 +185,13 @@ const CloudConsolePage: React.FC = () => {
     
     let eventSource: EventSource | null = null;
     const connectSSE = () => {
-      const token = localStorage.getItem('token') || '';
+      const token = getToken() || '';
       const sseUrl = `${API_BASE_URL}/api/clouds/${currentCloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
       
       eventSource = new EventSource(sseUrl);
       
       eventSource.onopen = () => {
-        // console.log('[SSE] Connected');
+        // SSE 连接已建立
       };
 
       // Full list update (optional, usually initial load handles it)
@@ -690,10 +692,7 @@ const CloudConsolePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/nads`, {
-        headers: getAuthHeaders()
-      });
-      const json = await res.json();
+      const json = await apiRequest(`/api/clouds/${cid}/resources/nads`);
       if (json?.data?.items) {
           setNads(json.data.items);
       } else {
@@ -714,12 +713,10 @@ const CloudConsolePage: React.FC = () => {
     setVpcLoading(true);
     try {
       const query = force ? '?force=true' : '';
-      const [vpcsRes, subnetsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/vpcs${query}`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE_URL}/api/clouds/${cid}/resources/subnets${query}`, { headers: getAuthHeaders() })
+      const [vpcsJson, subnetsJson] = await Promise.all([
+        apiRequest(`/api/clouds/${cid}/resources/vpcs${query}`),
+        apiRequest(`/api/clouds/${cid}/resources/subnets${query}`)
       ]);
-      const vpcsJson = await vpcsRes.json();
-      const subnetsJson = await subnetsRes.json();
       setVpcs(vpcsJson?.data?.items || []);
       setSubnets(subnetsJson?.data?.items || []);
     } catch (e: any) {

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../services/api';
+import { getToken } from '../utils/tokenStorage';
 
 export interface LicensePayload {
   iss: string;
@@ -70,7 +71,7 @@ export const LicenseProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const activate = async (key: string) => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (!token) {
       throw new Error('Please login first to activate license');
     }

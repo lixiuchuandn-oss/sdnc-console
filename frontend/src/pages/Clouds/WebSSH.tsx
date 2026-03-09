@@ -6,6 +6,7 @@ import PageContainer from '../../components/PageContainer';
 import { API_BASE_URL } from '../../services/api';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { getToken } from '../../utils/tokenStorage';
 import 'xterm/css/xterm.css';
 
 /**
@@ -46,7 +47,7 @@ import 'xterm/css/xterm.css';
 // [辅助函数] 构建 WebSocket URL
 // 将 HTTP/HTTPS 基础路径转换为 WS/WSS 协议，并附加认证 Token。
 function wsUrlFromBase(baseHttp: string): string {
-  const token = localStorage.getItem('token') || '';
+  const token = getToken() || '';
   const base = baseHttp.replace(/^http/, 'ws');
   const sep = base.endsWith('/') ? '' : '/';
   return `${base}${sep}ws/ssh?token=${encodeURIComponent(token)}`;

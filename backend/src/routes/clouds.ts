@@ -13,6 +13,7 @@ import { AuthRequest } from '../middleware/auth';
 import { User, UserRole } from '../entities/User';
 import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
 import { licenseService } from '../services/LicenseService';
+import { hasAnyPermission } from '../utils/permission';
 
 // 多云接入与资源池路由：
 // - 管理云资源池（Cloud）对象的增删改查与连通性测试
@@ -163,10 +164,11 @@ const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
 };
 
 // 权限检查中间件：
-// - 先区分请求是“读操作”(GET/HEAD) 还是“写操作”(其它方法)
+// - 先区分请求是"读操作"(GET/HEAD) 还是"写操作"(其它方法)
 // - 根据路径识别访问的是哪个子资源（实例/VPC/控制台等），拼装成 clouds.instances / clouds.console 等 action 基础名
 // - 读操作需要 {actionBase}:read 或 clouds:read 权限；写操作需要 {actionBase}:write 或 clouds:write 权限
 // - 控制台/VNC 链接虽然是 GET，但属于建立会话的敏感行为，按 Write 权限处理
+// - 使用统一的权限检查函数，支持通配符匹配（如 clouds:read 包含 clouds.instances:read）
 const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
   try {
     const role: any = (req.user as any)?.role;
@@ -224,41 +226,12 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
       need.push('clouds.instances:read');
     }
 
-    const ok = need.some((a) => perms.includes(a));
+    // 使用统一的权限检查函数，支持通配符匹配
+    const ok = hasAnyPermission(perms, need);
     if (!ok) {
       const required = need[0];
       return res.status(403).json({ message: `权限不足：需要 ${required}` });
     }
-    perms.includes('clouds:read') ||
-      perms.includes('clouds:write') ||
-      perms.includes('clouds.instances:read') ||
-      perms.includes('clouds.instances:write') ||
-      perms.includes('clouds.vpcs:read') ||
-      perms.includes('clouds.vpcs:write') ||
-      perms.includes('clouds.vswitches:read') ||
-      perms.includes('clouds.vswitches:write') ||
-      perms.includes('clouds.security-groups:read') ||
-      perms.includes('clouds.security-groups:write') ||
-      perms.includes('clouds.enis:read') ||
-      perms.includes('clouds.enis:write') ||
-      perms.includes('clouds.network-acls:read') ||
-      perms.includes('clouds.network-acls:write') ||
-      perms.includes('clouds.eips:read') ||
-      perms.includes('clouds.eips:write') ||
-      perms.includes('clouds.load-balancers:read') ||
-      perms.includes('clouds.load-balancers:write') ||
-      perms.includes('clouds.nat-gateways:read') ||
-      perms.includes('clouds.nat-gateways:write') ||
-      perms.includes('clouds.route-tables:read') ||
-      perms.includes('clouds.route-tables:write') ||
-      perms.includes('clouds.route-entries:read') ||
-      perms.includes('clouds.route-entries:write') ||
-      perms.includes('clouds.disks:read') ||
-      perms.includes('clouds.disks:write') ||
-      perms.includes('clouds.snapshots:read') ||
-      perms.includes('clouds.snapshots:write') ||
-      perms.includes('clouds.console:read') ||
-      perms.includes('clouds.console:write');
     next();
   } catch {
     return res.status(403).json({ message: '权限不足' });

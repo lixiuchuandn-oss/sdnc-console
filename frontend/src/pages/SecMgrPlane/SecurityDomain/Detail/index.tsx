@@ -339,7 +339,9 @@ const SecurityDomainDetail: React.FC = () => {
             { label: '区域', value: 'region' },
             { label: '云提供商', value: 'provider' },
         ],
-        onChange: (vals: string[]) => console.log('Columns changed:', vals)
+        onChange: () => {
+          // 列配置变化，无需处理
+        }
     }
   });
 

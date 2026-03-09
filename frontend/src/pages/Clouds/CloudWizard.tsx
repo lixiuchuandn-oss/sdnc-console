@@ -46,6 +46,7 @@ import { useLicense } from '../../contexts/LicenseContext';
 import cloudmapKeyImage from '../../assets/clouds/cloudmapkey.png';
 import cloudmapApiImage from '../../assets/clouds/cloudmapapi.png';
 import { provinces, cityOptionsByProvince } from '../../constants/chinaRegions';
+import { apiPost } from '../../services/api';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -199,13 +200,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
         config: cfgBase
       };
 
-      const token = localStorage.getItem('token');
-      const resp = await fetch('/api/clouds/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-        body: JSON.stringify(payload)
-      });
-      const json = await resp.json();
+      const json = await apiPost('/api/clouds/test-connection', payload);
       let msg = json?.message || (json?.ok ? '连接成功' : '连接失败');
       
       // [智能提示] 针对 SSL 证书错误提供操作建议
@@ -305,28 +300,10 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
 
 
       // 调用API创建云资源
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/clouds', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(cloudData)
-      });
-
-      if (response.ok) {
-        message.success('云资源创建成功！');
-        onSuccess();
-        handleCancel();
-      } else {
-        // 使用统一错误处理
-        const errorData = await response.json();
-        const error = new Error(errorData.message || '创建失败');
-        (error as any).response = response;
-        (error as any).status = response.status;
-        throw error;
-      }
+      await apiPost('/api/clouds', cloudData);
+      message.success('云资源创建成功！');
+      onSuccess();
+      handleCancel();
     } catch (error: any) {
       // 使用统一错误处理工具
       const { handleApiError } = require('../../utils/errorHandler');

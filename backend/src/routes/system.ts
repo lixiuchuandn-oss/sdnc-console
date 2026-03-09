@@ -20,7 +20,7 @@ import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
 import { TenantUser } from '../entities/TenantUser';
-import { UserRole } from '../entities/User';
+import { User, UserRole } from '../entities/User';
 
 // 全局系统路由实例，后续所有 /system 相关子路径都挂在该 Router 上
 const router = Router();
@@ -150,11 +150,6 @@ router.get('/rbac/actions', async (_req, res) => {
     // 租户与租户资源
     'tenants:read',
     'tenants:write',
-    'tenants.leased-lines.list:read',
-    'tenants.leased-lines.manage:write',
-    'tenants.leased-lines.reports:read',
-    'tenants.leased-lines.reports:write',
-    'tenants.leased-lines.alert-logs:read',
     // 云与资源（统一命名：domain.feature:verb）
     'clouds:read',
     'clouds:write',
@@ -222,11 +217,6 @@ router.get('/rbac/actions', async (_req, res) => {
     'secops.alerts:write',
     'secops.rules:read',
     'secops.rules:write',
-    // 可信数据空间
-    'trust.spaces:read',
-    'trust.spaces:write',
-    'trust.datasets:read',
-    'trust.datasets:write',
   ];
   curated.forEach(addScanned);
 
@@ -580,16 +570,58 @@ router.delete('/rbac/roles/:id', async (req: any, res) => {
 });
 
 // 为用户分配角色（仅超级管理员）
-// 支持多种 userType（如 'tenant' / 'admin' 等），具体含义由业务约定
+// 支持多种 userType（如 'tenant' / 'system' 等），具体含义由业务约定
 router.post('/rbac/assignments', async (req: any, res) => {
   try {
     if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
       return res.status(403).json({ message: '权限不足' });
     const { roleId, userType, userId } = req.body as any;
     if (!roleId || !userType || !userId) return res.status(400).json({ message: '缺少必要参数' });
+
+    // 验证用户类型
+    if (userType !== 'system' && userType !== 'tenant') {
+      return res.status(400).json({ message: '无效的用户类型，必须是 system 或 tenant' });
+    }
+
+    // 验证角色存在
+    const roleRepo = AppDataSource.getRepository(RBACRole);
+    const role = await roleRepo.findOne({ where: { id: roleId } });
+    if (!role) {
+      return res.status(404).json({ message: '角色不存在' });
+    }
+
+    // 验证角色作用域是否与用户类型匹配
+    if (role.scope !== userType) {
+      return res.status(400).json({ 
+        message: `角色作用域不匹配：角色作用域为 ${role.scope}，用户类型为 ${userType}` 
+      });
+    }
+
+    // 验证角色状态
+    if (role.status !== 'active') {
+      return res.status(400).json({ message: '无法分配非活跃状态的角色' });
+    }
+
+    // 验证用户存在
+    const userRepo = userType === 'tenant' 
+      ? AppDataSource.getRepository(TenantUser)
+      : AppDataSource.getRepository(User);
+    const user = await userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
+
+    // 验证用户状态
+    if (user.status && user.status !== 'active') {
+      return res.status(400).json({ message: '无法为非活跃用户分配角色' });
+    }
+
+    // 检查是否已存在分配
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
     const existed = await assignRepo.findOne({ where: { roleId, userType, userId } });
     if (existed) return res.status(200).json(existed);
+
+    // 创建分配
     const row = assignRepo.create({ roleId, userType, userId });
     const saved = await assignRepo.save(row);
     res.status(201).json(saved);

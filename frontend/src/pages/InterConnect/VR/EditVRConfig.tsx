@@ -8,6 +8,7 @@ import { getVRConfig, saveVRConfig } from '../../../services/virtualRouterApi';
 import LinedTextArea from '../../../components/LinedTextArea';
 
 import { getVR2ConfigRaw } from '../../../services/virtualRouterApi';
+import { proxyApiRequest } from '../../../services/api';
 
 const EditVRConfig: React.FC = () => {
   const navigate = useNavigate();
@@ -711,44 +712,11 @@ const EditVRConfig: React.FC = () => {
       // POST 的签名 other 为空；签名服务以 body 原文参与计算
       const other = '';
 
-      const authUrl = `/api-proxy/api/sign?` +
-        `url=${encodeURIComponent(path)}&` +
-        `method=${method}&` +
-        `other=${encodeURIComponent(other)}&` +
-        `accessKey=${accesskey}&` +
-        `secretKey=${secretkey}`;
-
-      const signResp = await fetch(authUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // 保证签名体与实际下发体一致（包含 uuid）
-        body: JSON.stringify({ uuid, ...obj })
-      });
-      const signJson = await signResp.json();
-      const info = (signJson && signJson.data) ? signJson.data : signJson;
-      if (!info || !info.Authorization || !info.tonce) {
-        throw new Error('认证响应数据缺少 Authorization 或 tonce');
+      const data = await proxyApiRequest(path, method, other, { uuid, ...obj }, accesskey, secretkey);
+      if (data && typeof data.code === 'number' && data.code !== 200) {
+        throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
-
-      const postUrl = `/api-proxy${path}`;
-      const resp = await fetch(postUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': info.Authorization,
-          // 仅使用小写 tonce 与 Postman 一致，避免重复头导致后端解析异常
-          'tonce': String(info.tonce)
-        },
-        // 按模板合并后的 JSON 进行下发
-        body: JSON.stringify({ uuid, ...obj })
-      });
-
-      const data = await resp.json().catch(async () => ({ raw: await resp.text() }));
-      if (resp.ok) {
-        message.success(data?.msg || '配置已下发');
-      } else {
-        throw new Error(data?.msg || `设备返回错误: ${resp.status}`);
-      }
+      message.success(data?.msg || '配置已下发');
     } catch (err: any) {
       message.error(`下发失败: ${err.message}`);
     } finally {

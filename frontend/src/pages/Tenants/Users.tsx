@@ -8,6 +8,7 @@ import StdFormModal from '../../components/StdFormModal';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
+import { getToken } from '../../utils/tokenStorage';
 const { Option } = Select;
 
 interface TenantUser {
@@ -85,7 +86,7 @@ const UserManagement: React.FC = () => {
 
   // Fetch Helper
   const apiCall = async (method: string, url: string, data?: any) => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     return axios({
       method,
       url,
@@ -440,7 +441,10 @@ const UserManagement: React.FC = () => {
           showTotal:(total,range)=>`第 ${range[0]}-${range[1]} 条，共 ${total} 条记录`
         }}
         bordered
-        scroll={{ x:'max-content' }}
+        scroll={{ 
+          x: 'max-content',
+          y: 600  // 启用虚拟滚动，设置固定高度
+        }}
       />
 
       <StdFormModal

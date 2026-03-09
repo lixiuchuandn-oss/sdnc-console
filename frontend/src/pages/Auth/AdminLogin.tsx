@@ -35,7 +35,7 @@ const AdminLogin: React.FC = () => {
   };
 
   const onFinishFailed = (errorInfo: any) => {
-    console.log('表单验证失败:', errorInfo);
+    // 表单验证失败，由 Ant Design Form 自动处理错误提示
   };
 
   useEffect(() => {
@@ -147,8 +147,8 @@ const AdminLogin: React.FC = () => {
             name="login"
             onFinish={onFinish}
             onFinishFailed={onFinishFailed}
-            onValuesChange={(changed, all)=>{
-              console.log('值变化', changed, all, 'get', form.getFieldValue('username'), form.getFieldValue('password'));
+            onValuesChange={() => {
+              // 表单值变化，无需处理
             }}
             autoComplete="off"
             size="large"

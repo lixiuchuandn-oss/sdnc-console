@@ -1,13 +1,55 @@
 import fs from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
+import crypto from 'crypto';
 
 // 存储 License 的文件路径
 const DATA_DIR = path.join(process.cwd(), 'data');
-const LICENSE_FILE = path.join(DATA_DIR, 'license.key');
+const PREFERRED_LICENSE_FILE = process.env.LICENSE_FILE_PATH
+  ? (path.isAbsolute(process.env.LICENSE_FILE_PATH)
+      ? process.env.LICENSE_FILE_PATH
+      : path.join(process.cwd(), process.env.LICENSE_FILE_PATH))
+  : path.join(DATA_DIR, 'license.key');
 
-// 密钥 (生产环境应从环境变量获取)
-const LICENSE_SECRET = process.env.LICENSE_SECRET || 'compute-tower-license-secret-key-2024-change-me-in-production';
+const LICENSE_READ_CANDIDATES = process.env.LICENSE_FILE_PATH
+  ? [PREFERRED_LICENSE_FILE]
+  : [path.join(DATA_DIR, 'license.key')];
+
+const dotenvCandidates = [
+  path.join(process.cwd(), '.env'),
+  path.resolve(__dirname, '../../.env'),
+  path.resolve(__dirname, '../../../.env'),
+];
+
+const dotenvPath = dotenvCandidates.find((p) => fs.existsSync(p));
+if (dotenvPath) {
+  dotenv.config({ path: dotenvPath });
+} else {
+  dotenv.config();
+}
+
+const LICENSE_SECRET_FILE = process.env.LICENSE_SECRET_FILE_PATH
+  ? (path.isAbsolute(process.env.LICENSE_SECRET_FILE_PATH)
+      ? process.env.LICENSE_SECRET_FILE_PATH
+      : path.join(process.cwd(), process.env.LICENSE_SECRET_FILE_PATH))
+  : path.join(DATA_DIR, 'license.secret');
+
+const getLicenseSecret = (): string | undefined => {
+  if (process.env.LICENSE_SECRET) return process.env.LICENSE_SECRET;
+  try {
+    if (fs.existsSync(LICENSE_SECRET_FILE)) {
+      const s = fs.readFileSync(LICENSE_SECRET_FILE, 'utf-8').trim();
+      if (s) return s;
+    }
+    fs.mkdirSync(path.dirname(LICENSE_SECRET_FILE), { recursive: true });
+    const s = crypto.randomBytes(32).toString('base64url');
+    fs.writeFileSync(LICENSE_SECRET_FILE, s, 'utf-8');
+    return s;
+  } catch {
+    return undefined;
+  }
+};
 
 export interface LicensePayload {
   iss: string;       // Issuer
@@ -50,7 +92,9 @@ class LicenseService {
    */
   private loadLicense() {
     try {
-      if (!fs.existsSync(LICENSE_FILE)) {
+      const existingLicenseFile = LICENSE_READ_CANDIDATES.find((p) => fs.existsSync(p));
+
+      if (!existingLicenseFile) {
         // 默认授权模式 (Default License)
         // 当没有导入 License 时，系统以默认受限模式运行
         const defaultPayload: LicensePayload = {
@@ -77,7 +121,27 @@ class LicenseService {
         return;
       }
 
-      this.currentLicense = fs.readFileSync(LICENSE_FILE, 'utf-8').trim();
+      const content = fs.readFileSync(existingLicenseFile, 'utf-8').trim();
+      if (!content) {
+        this.currentLicense = null;
+        this.currentStatus = {
+          status: 'valid',
+          active: true,
+          message: '默认授权 (Default License)',
+          payload: {
+            iss: 'ComputeTower System',
+            sub: 'Default User',
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60),
+            type: 'trial',
+            features: ['platform.default'],
+            limits: { maxNodes: 10, maxVms: 50, maxCloudAccounts: 1 },
+          },
+          daysRemaining: 365,
+        };
+        return;
+      }
+      this.currentLicense = content;
       this.verifyLicense();
     } catch (error) {
       console.error('Failed to load license:', error);
@@ -94,8 +158,14 @@ class LicenseService {
       return;
     }
 
+    const licenseSecret = getLicenseSecret();
+    if (!licenseSecret) {
+      this.currentStatus = { status: 'invalid', active: false, message: 'LICENSE_SECRET is not configured' };
+      return;
+    }
+
     try {
-      const payload = jwt.verify(this.currentLicense, LICENSE_SECRET) as LicensePayload;
+      const payload = jwt.verify(this.currentLicense, licenseSecret) as LicensePayload;
       const now = Math.floor(Date.now() / 1000);
       const daysRemaining = Math.ceil((payload.exp - now) / (24 * 60 * 60));
 
@@ -145,8 +215,13 @@ class LicenseService {
    */
   public activate(licenseKey: string): LicenseStatus {
     try {
+      const licenseSecret = getLicenseSecret();
+      if (!licenseSecret) {
+        throw new Error('LICENSE_SECRET is not configured');
+      }
+
       // 1. 预验证
-      const payload = jwt.verify(licenseKey, LICENSE_SECRET) as LicensePayload;
+      const payload = jwt.verify(licenseKey, licenseSecret) as LicensePayload;
       
       // 2. 检查是否过期（防止导入已过期的 License）
       const now = Math.floor(Date.now() / 1000);
@@ -158,7 +233,7 @@ class LicenseService {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      fs.writeFileSync(LICENSE_FILE, licenseKey);
+      fs.writeFileSync(PREFERRED_LICENSE_FILE, licenseKey);
       
       // 4. 更新内存状态
       this.currentLicense = licenseKey;
@@ -178,26 +253,6 @@ class LicenseService {
       return false;
     }
     return this.currentStatus.payload.features.includes(feature);
-  }
-
-  /**
-   * 开发测试用：生成 License
-   */
-  public generateTestLicense(customerName: string, days: number = 30, type: 'trial' | 'standard' | 'enterprise' = 'enterprise'): string {
-    const payload: LicensePayload = {
-      iss: 'ComputeTower Inc.',
-      sub: customerName,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (days * 24 * 60 * 60),
-      type,
-      features: ['platform.default', 'platform.multi-cloud', 'platform.sdn', 'platform.aisoc', 'sys.tenant-mgmt', 'sys.rbac-advanced', 'sys.dashboard'],
-      limits: {
-        maxNodes: 100,
-        maxVms: 1000,
-        maxCloudAccounts: 10
-      }
-    };
-    return jwt.sign(payload, LICENSE_SECRET);
   }
 }
 

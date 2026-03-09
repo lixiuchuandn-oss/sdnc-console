@@ -1,22 +1,45 @@
-import React from 'react';
-import { Tag, Typography, Space, Divider } from 'antd';
-import { MethodBadge } from './MethodBadge';
+/**
+ * API 文档数据结构定义
+ * 使用纯数据格式，不包含 React 组件
+ */
 
-const { Text, Paragraph } = Typography;
+// 示例数据定义
+export interface ExampleData {
+  title?: string;
+  data: any;
+}
+
+// 额外内容定义（支持多种格式）
+export interface ExtraContent {
+  type: 'text' | 'json' | 'code' | 'list' | 'endpoints';
+  title?: string;
+  content?: string; // 文本内容
+  json?: any; // JSON 对象
+  code?: string; // 代码块
+  items?: string[]; // 列表项
+  endpoints?: Array<{ // 多个端点
+    method: string;
+    path: string;
+    desc: string;
+  }>;
+}
 
 export interface Endpoint {
   title: string;
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   path?: string;
-  desc: React.ReactNode;
+  desc: string; // 改为纯字符串
   params?: string; // JSON string or text for pre block
-  extra?: React.ReactNode; // Custom content
+  paramsObj?: any; // 或者使用对象格式
+  examples?: ExampleData[]; // 示例数据
+  extra?: ExtraContent[]; // 改为结构化数据
 }
 
 export interface Section {
   id: string;
   title: string;
-  intro?: React.ReactNode;
+  intro?: string; // 改为纯字符串
+  introItems?: string[]; // 如果需要列表，使用数组
   endpoints?: Endpoint[];
   children?: Section[];
 }
@@ -75,23 +98,19 @@ export const docData: Record<string, PageData> = {
             id: 'cloud-mgmt-ops',
             title: '1.3 资源操作',
             endpoints: [
-               {
+              {
                 title: '云资源操作',
-                desc: (
-                  <>
-                    <Paragraph>
-                      <MethodBadge method="PUT" /> <Text code>/api/clouds/:id</Text> <span style={{ marginLeft: 8 }}>更新云资源配置</span>
-                    </Paragraph>
-                    <Divider style={{ margin: '8px 0' }} />
-                    <Paragraph>
-                      <MethodBadge method="DELETE" /> <Text code>/api/clouds/:id</Text> <span style={{ marginLeft: 8 }}>移除云资源</span>
-                    </Paragraph>
-                    <Divider style={{ margin: '8px 0' }} />
-                    <Paragraph>
-                      <MethodBadge method="POST" /> <Text code>/api/clouds/:id/test</Text> <span style={{ marginLeft: 8 }}>测试连接状态</span>
-                    </Paragraph>
-                  </>
-                )
+                desc: '提供更新、删除和测试云资源的操作接口。',
+                extra: [
+                  {
+                    type: 'endpoints',
+                    endpoints: [
+                      { method: 'PUT', path: '/api/clouds/:id', desc: '更新云资源配置' },
+                      { method: 'DELETE', path: '/api/clouds/:id', desc: '移除云资源' },
+                      { method: 'POST', path: '/api/clouds/:id/test', desc: '测试连接状态' }
+                    ]
+                  }
+                ]
               }
             ]
           }
@@ -100,11 +119,7 @@ export const docData: Record<string, PageData> = {
       {
         id: 'standard-query',
         title: '2. 标准查询接口 (Standard Query)',
-        intro: (
-          <Paragraph>
-            标准资源接口旨在屏蔽底层多云差异，为上层应用提供统一的资源池查询与操作指令集。客户端通过获取标准化的 <Text code>QueryCommand</Text>，即可在不知道具体 URL 规则的情况下查询 VPC、VM 等资源。
-          </Paragraph>
-        ),
+        intro: '标准资源接口旨在屏蔽底层多云差异，为上层应用提供统一的资源池查询与操作指令集。客户端通过获取标准化的 QueryCommand，即可在不知道具体 URL 规则的情况下查询 VPC、VM 等资源。',
         endpoints: [
           {
             title: '获取查询指令',
@@ -114,68 +129,57 @@ export const docData: Record<string, PageData> = {
             params: JSON.stringify({
               "types": ["vpc", "vm"] // 可选 query param: types=vpc,vm
             }, null, 2),
-            extra: (
-               <>
-                 <Paragraph><Text strong>响应示例：</Text></Paragraph>
-                 <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({
-  "message": "Success",
-  "data": {
-    "resourcePoolId": "cloud-1",
-    "vpcQuery": {
-      "description": "Query VPCs for cloud 阿里云华东1 (aliyun)",
-      "type": "http_request",
-      "payload": {
-        "url": "/api/clouds/cloud-1/resources/vpcs",
-        "method": "GET",
-        "headers": { "Content-Type": "application/json" }
-      }
-    },
-    "vmQuery": {
-      "description": "Query VMs for cloud 阿里云华东1 (aliyun)",
-      "type": "http_request",
-      "payload": {
-        "url": "/api/clouds/cloud-1/resources/ecs-all",
-        "method": "GET",
-        "headers": { "Content-Type": "application/json" }
-      }
-    }
-  }
-}, null, 2)}
-                 </pre>
-               </>
-            )
+            extra: [
+              {
+                type: 'json',
+                title: '响应示例',
+                json: {
+                  "message": "Success",
+                  "data": {
+                    "resourcePoolId": "cloud-1",
+                    "vpcQuery": {
+                      "description": "Query VPCs for cloud 阿里云华东1 (aliyun)",
+                      "type": "http_request",
+                      "payload": {
+                        "url": "/api/clouds/cloud-1/resources/vpcs",
+                        "method": "GET",
+                        "headers": { "Content-Type": "application/json" }
+                      }
+                    },
+                    "vmQuery": {
+                      "description": "Query VMs for cloud 阿里云华东1 (aliyun)",
+                      "type": "http_request",
+                      "payload": {
+                        "url": "/api/clouds/cloud-1/resources/ecs-all",
+                        "method": "GET",
+                        "headers": { "Content-Type": "application/json" }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
           }
         ]
       },
       {
         id: 'native-proxy',
         title: '3. 原生资源代理 (Native Proxy)',
-        intro: (
-          <>
-            <Paragraph>平台提供透传代理接口，直接调用云厂商 API 获取资源详情。</Paragraph>
-            <Paragraph><Text strong>URL 模式：</Text> <Text code>/api/clouds/:id/resources/:resourceType</Text></Paragraph>
-            <Paragraph>
-              <Text strong>支持的资源类型 (resourceType)：</Text>
-              <ul>
-                <li><Text code>ecs</Text> - 云服务器实例</li>
-                <li><Text code>vpcs</Text> - 专有网络 (VPC)</li>
-                <li><Text code>vswitches</Text> - 交换机/子网</li>
-                <li><Text code>security_groups</Text> - 安全组</li>
-                <li><Text code>images</Text> - 镜像列表</li>
-              </ul>
-            </Paragraph>
-          </>
-        )
+        intro: '平台提供透传代理接口，直接调用云厂商 API 获取资源详情。',
+        introItems: [
+          'URL 模式：/api/clouds/:id/resources/:resourceType',
+          '支持的资源类型 (resourceType)：',
+          '  - ecs: 云服务器实例',
+          '  - vpcs: 专有网络 (VPC)',
+          '  - vswitches: 交换机/子网',
+          '  - security_groups: 安全组',
+          '  - images: 镜像列表'
+        ]
       },
       {
         id: 'csm-vr-ctl-interfaces',
         title: '4. CSM_VR_CTL 服务接口',
-        intro: (
-          <>
-            <Paragraph>本节列出了 CSM_VR_CTL (VR Controller) 服务的核心接口，用于管理 VR 实例的生命周期与网络配置。</Paragraph>
-          </>
-        ),
+        intro: '本节列出了 CSM_VR_CTL (VR Controller) 服务的核心接口，用于管理 VR 实例的生命周期与网络配置。',
         endpoints: [
           { title: 'VR基本信息 (VR1)', method: 'GET', path: '/V2/ctcontrol/VR1/pagelist', desc: '获取 VR 实例的基础信息列表（如 UUID、名称、状态）。' },
           { title: 'VR扩展配置 (VR3)', method: 'GET', path: '/V2/ctcontrol/VR3/VRConfig/list', desc: '获取 VR 实例的详细扩展配置列表（包含更多运行时参数）。' },
@@ -301,29 +305,38 @@ export const docData: Record<string, PageData> = {
           },
           {
             title: 'VR列表缓存操作',
-            desc: (
-              <>
-                <Paragraph>
-                  <MethodBadge method="GET" /> <Text code>/api/vr-cache/pagelist</Text>
-                </Paragraph>
-                <Paragraph>读取本地缓存的VR列表。用于在控制器不可用或网络异常时的降级兜底展示。</Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({ "page_num": 1, "page_size": 50 }, null, 2)}
-                </pre>
-                <Divider style={{ margin: '8px 0' }} />
-                <Paragraph>
-                  <MethodBadge method="POST" /> <Text code>/api/vr-cache/upsert</Text>
-                </Paragraph>
-                <Paragraph>将获取到的最新VR列表写入本地缓存。通常在成功调用实时列表接口后触发。</Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({
-  "page_num": 1,
-  "page_size": 50,
-  "data": { "page": [/* VR List Array */], "total": 100 }
-}, null, 2)}
-                </pre>
-              </>
-            )
+            desc: '提供VR列表的缓存读取和更新接口，用于在控制器不可用或网络异常时的降级兜底展示。',
+            extra: [
+              {
+                type: 'endpoints',
+                endpoints: [
+                  {
+                    method: 'GET',
+                    path: '/api/vr-cache/pagelist',
+                    desc: '读取本地缓存的VR列表。用于在控制器不可用或网络异常时的降级兜底展示。'
+                  },
+                  {
+                    method: 'POST',
+                    path: '/api/vr-cache/upsert',
+                    desc: '将获取到的最新VR列表写入本地缓存。通常在成功调用实时列表接口后触发。'
+                  }
+                ]
+              },
+              {
+                type: 'json',
+                title: 'GET 请求参数示例',
+                json: { "page_num": 1, "page_size": 50 }
+              },
+              {
+                type: 'json',
+                title: 'POST 请求参数示例',
+                json: {
+                  "page_num": 1,
+                  "page_size": 50,
+                  "data": { "page": [], "total": 100 }
+                }
+              }
+            ]
           }
 
         ]
@@ -331,11 +344,7 @@ export const docData: Record<string, PageData> = {
       {
         id: 'csm-vr-ctl-interfaces',
         title: '2. CSM_VR_CTL 服务接口',
-        intro: (
-          <>
-             <Paragraph>本节列出了 CSM_VR_CTL (VR Controller) 服务的核心接口，用于管理 VR 实例的生命周期与网络配置。</Paragraph>
-          </>
-        ),
+        intro: '本节列出了 CSM_VR_CTL (VR Controller) 服务的核心接口，用于管理 VR 实例的生命周期与网络配置。',
         endpoints: [
           { title: 'VR基本信息 (VR1)', method: 'GET', path: '/V2/ctcontrol/VR1/pagelist', desc: '获取 VR 实例的基础信息列表（如 UUID、名称、状态）。' },
           { title: 'VR扩展配置 (VR3)', method: 'GET', path: '/V2/ctcontrol/VR3/VRConfig/list', desc: '获取 VR 实例的详细扩展配置列表（包含更多运行时参数）。' },
@@ -346,11 +355,7 @@ export const docData: Record<string, PageData> = {
       {
         id: 'csm-pool-interfaces',
         title: '3. CSM 安全资源池接口',
-        intro: (
-          <>
-             <Paragraph>本节列出了 CSM 安全资源池服务的接口，用于查询和管理底层的计算、网络与安全资源。</Paragraph>
-          </>
-        ),
+        intro: '本节列出了 CSM 安全资源池服务的接口，用于查询和管理底层的计算、网络与安全资源。',
         endpoints: [
           { title: '虚拟机列表 (VM04)', method: 'GET', path: '/V2/ctcontrol/VM04/vms', desc: '获取虚拟机资源列表。' },
           { title: '虚拟机操作', method: 'POST', path: '/V2/ctcontrol/VM04/vms/:id/:action', desc: '执行虚拟机电源操作 (start/stop/restart)。' },
@@ -537,30 +542,29 @@ export const docData: Record<string, PageData> = {
             method: 'GET', 
             path: '/api/clouds/:id/resources/ecs', 
             desc: '【封装模式】默认行为。底层循环调用阿里云 DescribeInstances 接口自动轮询所有分页，返回该地域下所有 ECS 实例的聚合列表。',
-            extra: (
-              <>
-                <Paragraph><Text strong>封装模式响应 (全量聚合)：</Text></Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({
-  "message": "查询成功",
-  "data": {
-    "TotalCount": 2,
-    "Instances": {
-      "Instance": [
-        {
-          "InstanceId": "i-bp123456",
-          "InstanceName": "MyServer",
-          "Status": "Running",
-          "ExpiredTime": "2025-12-31T23:59:59Z"
-        }
-      ]
-    }
-  },
-  "capabilities": { "supportsInstanceType": true, "supportsVpc": true }
-}, null, 2)}
-                </pre>
-              </>
-            )
+            extra: [
+              {
+                type: 'json',
+                title: '封装模式响应 (全量聚合)',
+                json: {
+                  "message": "查询成功",
+                  "data": {
+                    "TotalCount": 2,
+                    "Instances": {
+                      "Instance": [
+                        {
+                          "InstanceId": "i-bp123456",
+                          "InstanceName": "MyServer",
+                          "Status": "Running",
+                          "ExpiredTime": "2025-12-31T23:59:59Z"
+                        }
+                      ]
+                    }
+                  },
+                  "capabilities": { "supportsInstanceType": true, "supportsVpc": true }
+                }
+              }
+            ]
           },
           { 
             title: '实例列表 (原生/分页)', 
@@ -571,26 +575,25 @@ export const docData: Record<string, PageData> = {
               "PageNumber": 1,
               "PageSize": 10
             }, null, 2),
-            extra: (
-              <>
-                <Paragraph><Text strong>原生模式响应 (单页数据)：</Text></Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({
-  "message": "查询成功",
-  "data": {
-    "TotalCount": 100,
-    "PageNumber": 1,
-    "PageSize": 10,
-    "Instances": {
-      "Instance": [
-        { "InstanceId": "i-bp1...", "InstanceName": "Page1-Item1", "ExpiredTime": "2025-12-31T23:59:59Z" }
-      ]
-    }
-  }
-}, null, 2)}
-                </pre>
-              </>
-            )
+            extra: [
+              {
+                type: 'json',
+                title: '原生模式响应 (单页数据)',
+                json: {
+                  "message": "查询成功",
+                  "data": {
+                    "TotalCount": 100,
+                    "PageNumber": 1,
+                    "PageSize": 10,
+                    "Instances": {
+                      "Instance": [
+                        { "InstanceId": "i-bp1...", "InstanceName": "Page1-Item1", "ExpiredTime": "2025-12-31T23:59:59Z" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
           },
           {
             title: '实例监控指标 (DescribeMetricData)',
@@ -627,29 +630,28 @@ export const docData: Record<string, PageData> = {
             method: 'GET', 
             path: '/api/clouds/:id/resources/vpcs', 
             desc: '【封装模式】默认行为。底层循环调用阿里云 DescribeVpcs 接口自动轮询所有分页，返回该地域下所有 VPC 的聚合列表。',
-            extra: (
-              <>
-                <Paragraph><Text strong>封装模式响应 (全量聚合)：</Text></Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({
-  "message": "查询成功",
-  "data": {
-    "TotalCount": 1,
-    "Vpcs": {
-      "Vpc": [
-        {
-          "VpcId": "vpc-bp12345",
-          "VpcName": "MyVPC",
-          "CidrBlock": "172.16.0.0/12",
-          "Status": "Available"
-        }
-      ]
-    }
-  }
-}, null, 2)}
-                </pre>
-              </>
-            )
+            extra: [
+              {
+                type: 'json',
+                title: '封装模式响应 (全量聚合)',
+                json: {
+                  "message": "查询成功",
+                  "data": {
+                    "TotalCount": 1,
+                    "Vpcs": {
+                      "Vpc": [
+                        {
+                          "VpcId": "vpc-bp12345",
+                          "VpcName": "MyVPC",
+                          "CidrBlock": "172.16.0.0/12",
+                          "Status": "Available"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
           },
           { 
             title: 'VPC 列表 (原生/分页)', 
@@ -660,26 +662,25 @@ export const docData: Record<string, PageData> = {
               "PageNumber": 1,
               "PageSize": 10
             }, null, 2),
-            extra: (
-              <>
-                <Paragraph><Text strong>原生模式响应 (单页数据)：</Text></Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({
-  "message": "查询成功",
-  "data": {
-    "TotalCount": 100,
-    "PageNumber": 1,
-    "PageSize": 10,
-    "Vpcs": {
-      "Vpc": [
-        { "VpcId": "vpc-bp1...", "VpcName": "Page1-Item1" }
-      ]
-    }
-  }
-}, null, 2)}
-                </pre>
-              </>
-            )
+            extra: [
+              {
+                type: 'json',
+                title: '原生模式响应 (单页数据)',
+                json: {
+                  "message": "查询成功",
+                  "data": {
+                    "TotalCount": 100,
+                    "PageNumber": 1,
+                    "PageSize": 10,
+                    "Vpcs": {
+                      "Vpc": [
+                        { "VpcId": "vpc-bp1...", "VpcName": "Page1-Item1" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
           },
           {
             title: '创建 VPC (CreateVpc)',
@@ -1058,24 +1059,23 @@ export const docData: Record<string, PageData> = {
             method: 'GET', 
             path: '/api/clouds/:id/resources/ecs?raw=true', 
             desc: '获取 ECS 实例列表。支持 raw=true 参数返回华为云 ListServersDetails 接口的原生 JSON 响应。',
-            extra: (
-              <>
-                <Paragraph><Text strong>原生响应示例 (raw=true)：</Text></Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({
-  "count": 1,
-  "servers": [
-    {
-      "id": "e6b9...",
-      "name": "ecs-test",
-      "status": "ACTIVE",
-      "addresses": { "vpc-id": [{ "addr": "192.168.1.1", "version": 4 }] }
-    }
-  ]
-}, null, 2)}
-                </pre>
-              </>
-            )
+            extra: [
+              {
+                type: 'json',
+                title: '原生响应示例 (raw=true)',
+                json: {
+                  "count": 1,
+                  "servers": [
+                    {
+                      "id": "e6b9...",
+                      "name": "ecs-test",
+                      "status": "ACTIVE",
+                      "addresses": { "vpc-id": [{ "addr": "192.168.1.1", "version": 4 }] }
+                    }
+                  ]
+                }
+              }
+            ]
           }
         ]
       },
@@ -1088,23 +1088,22 @@ export const docData: Record<string, PageData> = {
             method: 'GET', 
             path: '/api/clouds/:id/resources/vpc?raw=true', 
             desc: '获取 VPC 列表。支持 raw=true 参数返回华为云 ListVpcs 接口的原生 JSON 响应。',
-            extra: (
-              <>
-                <Paragraph><Text strong>原生响应示例 (raw=true)：</Text></Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify({
-  "vpcs": [
-    {
-      "id": "3ec3...",
-      "name": "vpc-test",
-      "cidr": "192.168.0.0/16",
-      "status": "OK"
-    }
-  ]
-}, null, 2)}
-                </pre>
-              </>
-            )
+            extra: [
+              {
+                type: 'json',
+                title: '原生响应示例 (raw=true)',
+                json: {
+                  "vpcs": [
+                    {
+                      "id": "3ec3...",
+                      "name": "vpc-test",
+                      "cidr": "192.168.0.0/16",
+                      "status": "OK"
+                    }
+                  ]
+                }
+              }
+            ]
           },
           { title: '子网列表', method: 'GET', path: '/api/clouds/:id/resources/subnet', desc: '获取子网列表。映射华为云 ListSubnets 接口。' }
         ]
@@ -1125,20 +1124,19 @@ export const docData: Record<string, PageData> = {
             method: 'GET', 
             path: '/api/clouds/:id/resources/vm?raw=true', 
             desc: '获取虚拟机列表。支持 raw=true 参数返回 Cloudmap/Harvester 原生资源清单接口的完整 JSON 响应。',
-            extra: (
-              <>
-                <Paragraph><Text strong>原生响应示例 (raw=true)：</Text></Paragraph>
-                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12 }}>
-{JSON.stringify([
-  {
-    "metadata": { "name": "vm-1", "namespace": "default" },
-    "spec": { "template": { "spec": { "domain": { "cpu": { "cores": 2 } } } } },
-    "status": { "phase": "Running" }
-  }
-], null, 2)}
-                </pre>
-              </>
-            )
+            extra: [
+              {
+                type: 'json',
+                title: '原生响应示例 (raw=true)',
+                json: [
+                  {
+                    "metadata": { "name": "vm-1", "namespace": "default" },
+                    "spec": { "template": { "spec": { "domain": { "cpu": { "cores": 2 } } } } },
+                    "status": { "phase": "Running" }
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1330,27 +1328,7 @@ export const docData: Record<string, PageData> = {
       }
     ]
   },
-  'leased-lines': {
-    title: '租户专线 (Leased Lines)',
-    desc: '租户专线模块用于管理租户的物理专线接入及相关安全报告生成。',
-    sections: [
-      {
-        id: 'line-mgmt',
-        title: '1. 专线管理',
-        endpoints: [
-          { title: '获取专线列表', method: 'GET', path: '/api/v1/leased-lines', desc: '获取所有租户专线记录，支持按关键字过滤。' },
-          { 
-            title: '录入专线信息', 
-            method: 'POST', 
-            path: '/api/v1/leased-lines', 
-            desc: '录入新的租户专线信息。',
-            extra: <Paragraph><Text strong>请求参数：</Text> <Text code>tenantName, operator, ips, province, city</Text></Paragraph>
-          },
-          { title: '更新专线信息', method: 'PATCH', path: '/api/v1/leased-lines/:id', desc: '更新现有专线信息。' }
-        ]
-      }
-    ]
-  },
+  // 租户专线管理功能已迁移到 AISOC 平台，相关 API 文档已移除
   'tenant-users': {
     title: '租户用户 (Tenant Users)',
     desc: '租户用户模块提供对租户下属用户的查询与管理。',
@@ -1377,7 +1355,13 @@ export const docData: Record<string, PageData> = {
             method: 'POST', 
             path: '/api/auth/login', 
             desc: '用户凭证验证，成功后返回 JWT Token 及用户信息。',
-            extra: <Paragraph><Text strong>请求参数：</Text> <Text code>username, password</Text></Paragraph>
+            extra: [
+              {
+                type: 'text',
+                title: '请求参数：',
+                content: 'username, password'
+              }
+            ]
           },
           { title: '用户注册', method: 'POST', path: '/api/auth/register', desc: '注册新用户。' }
         ]

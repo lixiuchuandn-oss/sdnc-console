@@ -44,8 +44,7 @@ import {
   ReloadOutlined,
   SyncOutlined
 } from '@ant-design/icons';
-import axios from 'axios';
-import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi } from '../../services/api';
+import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi, apiPost, apiDelete } from '../../services/api';
 import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
 import { 
   getProviderLogo, getProviderName, cloudProviders,
@@ -236,14 +235,11 @@ const Clouds: React.FC = () => {
   const testConnection = useCallback(async (cloudId: string) => {
     setTestingConnection(cloudId);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(`/api/clouds/${cloudId}/test`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      message.success(response.data.message);
+      const response = await apiPost(`/api/clouds/${cloudId}/test`, {});
+      message.success(response.message || '连接测试成功');
       fetchClouds(); // 刷新列表以更新状态
     } catch (error: any) {
-      message.error('连接测试失败：' + (error.response?.data?.message || error.message));
+      message.error('连接测试失败：' + (error?.message || '未知错误'));
     } finally {
       setTestingConnection(null);
     }
@@ -293,14 +289,11 @@ const Clouds: React.FC = () => {
       cancelText: '取消',
       onOk: async () => {
         try {
-          const token = localStorage.getItem('token');
-          await axios.delete(`/api/clouds/${cloudId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
+          await apiDelete(`/api/clouds/${cloudId}`);
           message.success('云资源删除成功');
           fetchClouds();
         } catch (error: any) {
-          message.error('删除失败：' + (error.response?.data?.message || error.message));
+          message.error('删除失败：' + (error?.message || '未知错误'));
         }
       },
     });
@@ -469,11 +462,10 @@ const Clouds: React.FC = () => {
       cancelText: '取消',
       onOk: async () => {
         try {
-          const token = localStorage.getItem('token');
           let ok = 0, fail = 0;
           for (const id of selectedRowKeys) {
             try {
-              await axios.delete(`/api/clouds/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+              await apiDelete(`/api/clouds/${id}`);
               ok++;
             } catch {
               fail++;

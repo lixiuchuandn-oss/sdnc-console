@@ -2,81 +2,41 @@
  * 监控 API：概览 + 监控告警，按 cloudId 请求 /api/clouds/:id/monitoring/*
  * 设计文档：plan/设计-监控服务-概览.md、设计-监控服务-监控告警.md
  */
-import { API_BASE_URL, getAuthHeaders } from './api';
+import { apiRequest, apiPost, apiPatch, apiDelete as apiDeleteUnified } from './api';
 
-const base = (cloudId: string) => `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/monitoring`;
+const base = (cloudId: string) => `/api/clouds/${encodeURIComponent(cloudId)}/monitoring`;
 
+// 包装统一 API 函数，保持向后兼容的返回格式 { data, ok, error }
 async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal }): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: getAuthHeaders(),
-      credentials: 'include',
-      signal: options?.signal,
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      let msg = res.statusText;
-      try {
-        const j = JSON.parse(text);
-        msg = j?.message || msg;
-      } catch {
-        if (text) msg = text.slice(0, 200);
-      }
-      return { data: null, ok: false, error: msg };
-    }
-    const data = await res.json();
+    // 注意：统一 API 函数目前不支持 signal，但保留参数以保持接口兼容
+    const data = await apiRequest(url, { skipCache: false });
     return { data, ok: true };
   } catch (e: any) {
-    return { data: null, ok: false, error: e?.message || '请求失败' };
+    const errorMsg = e?.message || e?.error || '请求失败';
+    return { data: null, ok: false, error: errorMsg };
   }
 }
 
 async function apiPostPut<T = unknown>(url: string, method: 'POST' | 'PUT', body: unknown): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
-    const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
-    const res = await fetch(url, {
-      method,
-      headers,
-      credentials: 'include',
-      body: body != null ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      let msg = res.statusText;
-      try {
-        const j = JSON.parse(text);
-        msg = j?.message || msg;
-      } catch {
-        if (text) msg = text.slice(0, 200);
-      }
-      return { data: null, ok: false, error: msg };
-    }
-    if (res.status === 204) return { data: null as any, ok: true };
-    const data = await res.json();
+    const data = method === 'POST' 
+      ? await apiPost(url, body)
+      : await apiPatch(url, body);
     return { data, ok: true };
   } catch (e: any) {
-    return { data: null, ok: false, error: e?.message || '请求失败' };
+    const errorMsg = e?.message || e?.error || '请求失败';
+    return { data: null, ok: false, error: errorMsg };
   }
 }
 
 async function apiDelete(url: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders(), credentials: 'include' });
-    if (!res.ok) {
-      const text = await res.text();
-      let msg = res.statusText;
-      try {
-        const j = JSON.parse(text);
-        msg = j?.message || msg;
-      } catch {
-        if (text) msg = text.slice(0, 200);
-      }
-      return { ok: false, error: msg };
-    }
+    await apiDeleteUnified(url);
     return { ok: true };
   } catch (e: any) {
-    return { ok: false, error: e?.message || '请求失败' };
+    const errorMsg = e?.message || e?.error || '请求失败';
+    return { ok: false, error: errorMsg };
   }
 }
 

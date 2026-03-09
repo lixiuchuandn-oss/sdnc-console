@@ -1,3 +1,5 @@
+import { apiRequest } from './api';
+
 export const getAiSocBaseUrl = () => {
   return '/api/threats/proxy';
 };
@@ -31,18 +33,9 @@ export const fetchAiThreatEvents = async (tenantCode: string): Promise<AiThreatE
   const url = `${baseUrl}/api/v1/report-tasks/search/by-tenant?tenant_code=${encodeURIComponent(tenantCode)}`;
 
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`AI SOC API error: ${response.status}`);
-    }
-
-    const data = await response.json();
+    const data = await apiRequest(url);
+    
+    // 处理不同的响应格式
     if (Array.isArray(data)) {
       return data;
     } else if (data && Array.isArray(data.data)) {

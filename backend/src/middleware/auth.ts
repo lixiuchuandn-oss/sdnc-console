@@ -78,6 +78,10 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
         // console.log('[AuthMiddleware] Fetching roles:', roleIds);
         const roles = await roleRepo.find({ where: { id: In(roleIds) } });
         for (const r of roles) {
+          // 只聚合活跃角色的权限，过滤掉禁用角色
+          if (r.status !== 'active') {
+            continue;
+          }
           try {
             const arr = JSON.parse(String(r.permissions || '[]')) as string[];
             // console.log(`[AuthMiddleware] Role ${r.name} permissions:`, arr);

@@ -134,14 +134,14 @@ const CloudInitsSection: React.FC<Props> = ({
       asCard={false}
       toolbarLeft={(
         <>
-          <Input 
-              allowClear 
-              placeholder="关键字" 
-              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-              className="toolbar-search" 
-              value={keyword} 
-              onChange={(e)=> setKeyword(e.target.value)} 
-          />
+        <Input 
+            allowClear 
+            placeholder="关键字" 
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            className="toolbar-search" 
+            value={keyword} 
+            onChange={(e)=> setKeyword(e.target.value)} 
+        />
           <button
             type="button"
             className="toolbar-reset-btn"

@@ -3,7 +3,7 @@ import { Button, Card, Col, Descriptions, Divider, Form, Input, Radio, Row, Sele
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
-import { createIPsecVPN, API_BASE_URL } from '../../../services/api';
+import { createIPsecVPN, API_BASE_URL, apiRequest, apiPost, apiPatch, getAuthHeaders } from '../../../services/api';
 import { ReloadOutlined, CheckCircleOutlined, LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
@@ -66,16 +66,12 @@ const IPsecVPNWizard: React.FC = () => {
 
       switch (stepIndex) {
         case 0: // Preview Local
-          res = await fetch(`${API_BASE_URL}/api/networks/ipsec/deploy/preview?vrId=${vrId}`, { headers: getAuthHeaders() }).then(r => r.json());
+          res = await apiRequest(`/api/networks/ipsec/deploy/preview?vrId=${vrId}`);
           logMsg = `[Local Config Preview]\n${JSON.stringify(res.config, null, 2)}`;
           break;
         
         case 1: // Push Local
-          res = await fetch(`${API_BASE_URL}/api/networks/ipsec/deploy/push`, {
-            method: 'POST',
-            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ vrId })
-          }).then(r => r.json());
+          res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId });
           
           if (res.error) throw new Error(res.error);
           logMsg = `[Local Push Response]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
@@ -84,7 +80,7 @@ const IPsecVPNWizard: React.FC = () => {
           break;
 
         case 2: // Verify Local
-          res = await fetch(`${API_BASE_URL}/api/networks/ipsec/deploy/verify?vrId=${vrId}`, { headers: getAuthHeaders() }).then(r => r.json());
+          res = await apiRequest(`/api/networks/ipsec/deploy/verify?vrId=${vrId}`);
           if (res.error) throw new Error(res.error);
           logMsg = `[Local Verify]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
           if (res.ipsecCount === 0) throw new Error('Verification failed: No IPsec connections found on device.');
@@ -95,7 +91,7 @@ const IPsecVPNWizard: React.FC = () => {
              logMsg = 'No Peer VR selected, skipping.';
              break;
           }
-          res = await fetch(`${API_BASE_URL}/api/networks/ipsec/deploy/preview?vrId=${peerVrId}`, { headers: getAuthHeaders() }).then(r => r.json());
+          res = await apiRequest(`/api/networks/ipsec/deploy/preview?vrId=${peerVrId}`);
           logMsg = `[Peer Config Preview]\n${JSON.stringify(res.config, null, 2)}`;
           break;
 
@@ -104,11 +100,7 @@ const IPsecVPNWizard: React.FC = () => {
              logMsg = 'No Peer VR selected, skipping.';
              break;
           }
-          res = await fetch(`${API_BASE_URL}/api/networks/ipsec/deploy/push`, {
-            method: 'POST',
-            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ vrId: peerVrId })
-          }).then(r => r.json());
+          res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId: peerVrId });
           
           if (res.error) throw new Error(res.error);
           logMsg = `[Peer Push Response]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
@@ -120,7 +112,7 @@ const IPsecVPNWizard: React.FC = () => {
              logMsg = 'No Peer VR selected, skipping.';
              break;
           }
-          res = await fetch(`${API_BASE_URL}/api/networks/ipsec/deploy/verify?vrId=${peerVrId}`, { headers: getAuthHeaders() }).then(r => r.json());
+          res = await apiRequest(`/api/networks/ipsec/deploy/verify?vrId=${peerVrId}`);
           if (res.error) throw new Error(res.error);
           logMsg = `[Peer Verify]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
           if (res.ipsecCount === 0) throw new Error('Verification failed: No IPsec connections found on peer device.');
@@ -164,13 +156,6 @@ const IPsecVPNWizard: React.FC = () => {
   const enableLocalEip = Form.useWatch('enableLocalEip', form);
   const enableRemoteEip = Form.useWatch('enableRemoteEip', form);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
-    };
-  };
 
   const ipv4ToInt = (ip: string): number => {
     const parts = ip.split('.').map(p => parseInt(p, 10));
@@ -202,7 +187,7 @@ const IPsecVPNWizard: React.FC = () => {
   const fetchVPN = async (vpnId: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/networks/ipsec/${vpnId}`, { headers: getAuthHeaders() }).then(r => r.json());
+      const res = await apiRequest(`/api/networks/ipsec/${vpnId}`);
       if (res.error) throw new Error(res.error);
       if (!res.id) throw new Error('VPN not found');
       
@@ -423,13 +408,7 @@ const IPsecVPNWizard: React.FC = () => {
       const vrName = cachedVr?.name || '';
       if (cachedVr) {
           // 直接使用 vrcache 聚合后的数据，不再进行多字段探测 (No Patch Logic)
-          console.log('[VR Preset] Using cached VR info for', vrUuid);
           vr3Info = parseVrInterfaces(cachedVr);
-      }
-
-      // 2. 如果缓存没有有效信息，不再回退到远程获取 (Strict Cache Policy)
-      if (!vr3Info || (!vr3Info.wanIp && !vr3Info.lanSubnet)) {
-        console.log('Cache miss or parse failed for', vrUuid, 'Remote fetch disabled by policy.');
       }
       
       const lanIp = vr3Info?.lanIpCidr;       // 例如 192.168.1.1/24 (保留原始IP)
@@ -440,10 +419,6 @@ const IPsecVPNWizard: React.FC = () => {
       const wanIp = vr3Info?.wanIp;
       const wanName = vr3Info?.wanName;
       const lanName = vr3Info?.lanName;
-      
-      if (eip) {
-        console.log(`[VR Preset] Detected EIP for ${vrUuid}: ${eip}`);
-      }
   
       if (which === 'local') {
         if (lanSubnet || wanIp) {
@@ -523,17 +498,16 @@ const IPsecVPNWizard: React.FC = () => {
         localVrLanIP: values?.localVrLanIP,
         peerVrLanIP: values?.peerVrLanIP,
       };
-      
-      console.log('Creating IPsec VPN with payload:', payload);
 
       // Do NOT change step. Just save.
       
+      // 流式响应需要直接使用 fetch，但使用统一的认证头
       const method = id ? 'PUT' : 'POST';
       const url = id 
-        ? `${API_BASE_URL}/api/networks/ipsec/${id}?stream=1`
-        : `${API_BASE_URL}/api/networks/ipsec?stream=1`;
+        ? `/api/networks/ipsec/${id}?stream=1`
+        : `/api/networks/ipsec?stream=1`;
 
-      const response = await fetch(url, {
+      const response = await fetch(`${API_BASE_URL}${url}`, {
         method,
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
@@ -747,10 +721,7 @@ const IPsecVPNWizard: React.FC = () => {
                       validator: async (_, value) => {
                         if (!value) return Promise.resolve();
                         try {
-                          const resp = await fetch(`${API_BASE_URL}/api/networks/ipsec/check-name?name=${value}`, {
-                             headers: getAuthHeaders(),
-                          });
-                          const json = await resp.json();
+                          const json = await apiRequest(`/api/networks/ipsec/check-name?name=${encodeURIComponent(value)}`);
                           if (json.exists) {
                             return Promise.reject(new Error('该名称已存在'));
                           }

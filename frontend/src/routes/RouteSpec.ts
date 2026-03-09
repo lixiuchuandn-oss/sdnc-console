@@ -17,6 +17,8 @@ export interface RouteSpec {
   parentId?: string;
   subtitle?: string;
   requiredFeature?: string;
+  /** @deprecated 标记为废弃的路由 */
+  deprecated?: boolean;
 }
 
 export const routeSpecs: RouteSpec[] = [
@@ -47,8 +49,7 @@ export const routeSpecs: RouteSpec[] = [
     group: '资源控制台',
     title: '仪表板',
     icon: 'DashboardOutlined',
-    order: 1,
-    requiredFeature: 'sys.dashboard'
+    order: 1
   },
   {
     id: 'sdn-dashboard',
@@ -603,18 +604,7 @@ export const routeSpecs: RouteSpec[] = [
     icon: 'CloudDownloadOutlined',
     order: 10
   },
-  {
-    id: 'leased-lines',
-    path: '/admin/aisoc/leased-lines',
-    element: 'TenantLeasedLinesPage',
-    layout: 'admin',
-    platform: 'CNSOC',
-    group: '报告管理',
-    title: '租户专线报告',
-    subtitle: '一站式管理租户专线IP；支持多维筛选/全列排序与批量操作；联动安全报告任务（进度跟踪、下载/取消/删除）；提供CSV导入与日志文件管理。',
-    icon: 'BarChartOutlined',
-    order: 20
-  },
+  // 租户专线管理功能已迁移到 AISOC 平台，相关路由已移除
 
   // Settings Platform Routes
   {
@@ -628,6 +618,18 @@ export const routeSpecs: RouteSpec[] = [
     subtitle: '配置系统外观、通知偏好、网络连接等基础选项。',
     icon: 'SettingOutlined',
     order: 10
+  },
+  {
+    id: 'settings-audit-logs',
+    path: '/admin/settings/audit-logs',
+    element: 'AuditLogs',
+    layout: 'admin',
+    platform: 'SETTINGS',
+    group: '通用设置',
+    title: '操作审计',
+    subtitle: '查看系统操作审计日志，追踪用户行为与资源变更。',
+    icon: 'AuditOutlined',
+    order: 15
   },
   {
     id: 'settings-advanced',

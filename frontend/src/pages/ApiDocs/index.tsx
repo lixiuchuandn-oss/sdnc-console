@@ -13,7 +13,7 @@ import {
   FileTextOutlined,
   MenuUnfoldOutlined
 } from '@ant-design/icons';
-import { docData, PageData, Section, Endpoint } from './data';
+import { docData, PageData, Section, Endpoint, ExtraContent } from './data';
 import { MethodBadge } from './MethodBadge';
 
 const { Sider, Content } = Layout;
@@ -362,7 +362,27 @@ const DocRenderer: React.FC<{ data: PageData }> = ({ data }) => {
   const renderSection = (section: Section, level: 3 | 4 | 5 = 3) => (
     <div key={section.id} id={section.id} style={{ marginBottom: level === 3 ? 48 : 24 }}>
       <Title level={level}>{section.title}</Title>
-      {section.intro && <div style={{ marginBottom: 16 }}>{section.intro}</div>}
+      {section.intro && (
+        <Paragraph style={{ marginBottom: 16 }}>{section.intro}</Paragraph>
+      )}
+      {section.introItems && (
+        <div style={{ marginBottom: 16 }}>
+          {section.introItems.map((item, idx) => (
+            <Paragraph key={idx}>
+              {item.startsWith('  -') ? (
+                <Text code style={{ marginLeft: 16 }}>{item.replace(/^  - /, '')}</Text>
+              ) : item.includes(':') ? (
+                <>
+                  <Text strong>{item.split(':')[0]}:</Text>
+                  <Text code style={{ marginLeft: 8 }}>{item.split(':')[1]}</Text>
+                </>
+              ) : (
+                item
+              )}
+            </Paragraph>
+          ))}
+        </div>
+      )}
       
       {section.endpoints && (
         <Space direction="vertical" style={{ width: '100%' }}>
@@ -392,6 +412,94 @@ const DocRenderer: React.FC<{ data: PageData }> = ({ data }) => {
 };
 
 const EndpointCard: React.FC<{ endpoint: Endpoint }> = ({ endpoint }) => {
+  const renderExtra = (extra: ExtraContent[]) => {
+    return extra.map((item, idx) => {
+      switch (item.type) {
+        case 'text':
+          return (
+            <Paragraph key={idx}>
+              {item.title && <Text strong>{item.title}</Text>}
+              {item.content && <span style={{ marginLeft: item.title ? 8 : 0 }}>{item.content}</span>}
+            </Paragraph>
+          );
+        
+        case 'json':
+          return (
+            <div key={idx}>
+              {item.title && (
+                <Paragraph>
+                  <Text strong>{item.title}</Text>
+                </Paragraph>
+              )}
+              <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12, overflow: 'auto' }}>
+                {JSON.stringify(item.json, null, 2)}
+              </pre>
+            </div>
+          );
+        
+        case 'code':
+          return (
+            <div key={idx}>
+              {item.title && (
+                <Paragraph>
+                  <Text strong>{item.title}</Text>
+                </Paragraph>
+              )}
+              <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12, overflow: 'auto' }}>
+                {item.code}
+              </pre>
+            </div>
+          );
+        
+        case 'list':
+          return (
+            <div key={idx}>
+              {item.title && (
+                <Paragraph>
+                  <Text strong>{item.title}</Text>
+                </Paragraph>
+              )}
+              {item.items && (
+                <ul style={{ marginLeft: 24 }}>
+                  {item.items.map((listItem, listIdx) => (
+                    <li key={listIdx}>
+                      {listItem.includes(':') ? (
+                        <>
+                          <Text code>{listItem.split(':')[0]}</Text>
+                          <span style={{ marginLeft: 8 }}>{listItem.split(':')[1]}</span>
+                        </>
+                      ) : (
+                        listItem
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        
+        case 'endpoints':
+          return (
+            <div key={idx}>
+              {item.endpoints && item.endpoints.map((ep, epIdx) => (
+                <div key={epIdx}>
+                  <Paragraph>
+                    <MethodBadge method={ep.method} />
+                    <Text code>{ep.path}</Text>
+                    <span style={{ marginLeft: 8 }}>{ep.desc}</span>
+                  </Paragraph>
+                  {epIdx < item.endpoints!.length - 1 && <Divider style={{ margin: '8px 0' }} />}
+                </div>
+              ))}
+            </div>
+          );
+        
+        default:
+          return null;
+      }
+    });
+  };
+
   return (
     <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 16, marginBottom: 16 }}>
       <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 12 }}>{endpoint.title}</Text>
@@ -415,8 +523,30 @@ const EndpointCard: React.FC<{ endpoint: Endpoint }> = ({ endpoint }) => {
           </pre>
         </Paragraph>
       )}
+
+      {endpoint.paramsObj && (
+        <Paragraph>
+          <Text strong>请求参数示例：</Text>
+          <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12, overflow: 'auto' }}>
+            {JSON.stringify(endpoint.paramsObj, null, 2)}
+          </pre>
+        </Paragraph>
+      )}
+
+      {endpoint.examples && endpoint.examples.map((example, idx) => (
+        <div key={idx} style={{ marginTop: 16 }}>
+          {example.title && (
+            <Paragraph>
+              <Text strong>{example.title}</Text>
+            </Paragraph>
+          )}
+          <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12, overflow: 'auto' }}>
+            {JSON.stringify(example.data, null, 2)}
+          </pre>
+        </div>
+      ))}
       
-      {endpoint.extra}
+      {endpoint.extra && renderExtra(endpoint.extra)}
     </div>
   );
 };

@@ -140,14 +140,33 @@ async function executeRequest(
   const fetchOptions: RequestInit = {
     method,
     headers: {
-      'Content-Type': 'application/json',
       ...headers,
     },
     credentials: 'include',
   };
 
-  if (body && ['POST', 'PATCH', 'PUT'].includes(method)) {
-    fetchOptions.body = JSON.stringify(body);
+  // 如果是 FormData，不设置 Content-Type（让浏览器自动设置，包括 boundary）
+  // 如果不是 FormData，只有在 headers 中没有 Content-Type 时才设置默认值
+  if (!(body instanceof FormData)) {
+    // 如果 headers 中已经指定了 Content-Type，使用它（例如 application/merge-patch+json）
+    // 否则使用默认的 application/json
+    if (!headers['Content-Type']) {
+      fetchOptions.headers = {
+        'Content-Type': 'application/json',
+        ...headers,
+      };
+    } else {
+      fetchOptions.headers = headers;
+    }
+  } else {
+    // FormData 情况下，只保留用户自定义的 headers（但不包括 Content-Type）
+    const { 'Content-Type': _, ...otherHeaders } = headers;
+    fetchOptions.headers = otherHeaders;
+  }
+
+  if (body && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
+    // FormData 直接传递，其他情况序列化为 JSON
+    fetchOptions.body = body instanceof FormData ? body : JSON.stringify(body);
   }
 
   const response = await fetch(url, fetchOptions);

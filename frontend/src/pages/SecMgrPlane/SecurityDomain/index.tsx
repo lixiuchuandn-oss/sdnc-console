@@ -5,7 +5,7 @@ import type { MenuProps } from 'antd';
 import { EllipsisOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import { vrApi, fetchVrCachePageList, getVRRoles } from '../../../services/virtualRouterApi';
-import { fetchCloudProviderVpcs, fetchTenants, fetchOrganizationsByTenant } from '../../../services/api';
+import { fetchCloudProviderVpcs, fetchTenants, fetchOrganizationsByTenant, apiRequest } from '../../../services/api';
 import { listSecurityDomains, createSecurityDomain, updateSecurityDomain, deleteSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 import { getDomainClass, netClassLabel, netClassColor } from '../../../utils/netClass';
 
@@ -161,21 +161,14 @@ const SecurityDomainPage: React.FC = () => {
 
   const fetchResourcePools = async () => {
     try {
-      const res = await fetch('/api/clouds', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const map: Record<string, string> = {};
-        if (Array.isArray(data)) {
-          data.forEach((c: any) => {
-            map[c.id] = c.name;
-          });
-        }
-        setResourcePoolMap(map);
+      const data = await apiRequest('/api/clouds');
+      const map: Record<string, string> = {};
+      if (Array.isArray(data)) {
+        data.forEach((c: any) => {
+          map[c.id] = c.name;
+        });
       }
+      setResourcePoolMap(map);
     } catch (e) {
       console.error('Failed to load resource pools', e);
     }

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Descriptions, Divider, Empty, message, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import PageContainer from '../../components/PageContainer';
 import { useNavigate, useParams } from 'react-router-dom';
-import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud } from '../../services/api';
+import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, apiRequest } from '../../services/api';
 import { fetchCloudProviderEnis } from '../../services/aliyunApi';
 import { cnVmStatus } from '../../utils/harvesterUtils';
 
@@ -127,12 +127,8 @@ const InstanceDetail: React.FC = () => {
         if (!cloudId || !nsName.includes('/')) return;
         setLoading2(true);
         try {
-          const token = localStorage.getItem('token');
           const [ns, name] = nsName.split('/');
-          const res = await fetch(`/api/clouds/${encodeURIComponent(cloudId)}/resources/harvester/vms/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`, {
-            method: 'GET', headers: { 'Content-Type':'application/json', 'Authorization': token ? `Bearer ${token}` : '' }, credentials: 'include'
-          });
-          const json = await res.json();
+          const json = await apiRequest(`/api/clouds/${encodeURIComponent(cloudId)}/resources/harvester/vms/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`);
           setDetail(json?.data || json || null);
         } catch (e:any) {
           message.warning(e?.message || 'Harvester 详情查询失败');

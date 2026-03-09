@@ -4,6 +4,7 @@ import { SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, getVR2Config } from '../../../services/virtualRouterApi';
+import { proxyApiRequest } from '../../../services/api';
 
 const SASEWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -116,15 +117,6 @@ const SASEWizard: React.FC = () => {
 
   }, [deviceCfg, mirrorForm, form]);
 
-  const requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
-    const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123`;
-    const resp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyRaw });
-    const json = await resp.json();
-    const info = (json && json.data) ? json.data : json;
-    if (!resp.ok || !info?.Authorization || !info?.tonce) throw new Error('签名失败');
-    return { Authorization: info.Authorization, tonce: String(info.tonce) };
-  };
-
   const fetchInterfaces = async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
@@ -133,13 +125,7 @@ const SASEWizard: React.FC = () => {
       const method = 'GET';
       const other = `uuid=${uuid}`;
       const path = '/V2/ctcontrol/VR3/VRConfig/list';
-      const info = await requestSign(path, method, other, '');
-      const queryUrl = `/api-proxy${path}?${other}`;
-      const resp = await fetch(queryUrl, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json', 'Authorization': info.Authorization, 'tonce': String(info.tonce) },
-      });
-      const raw = await resp.json().catch(async () => ({ raw: await resp.text() }));
+      const raw = await proxyApiRequest(path, method, other);
       const unwrapData = (obj: any) => {
         let cur = obj;
         while (cur && typeof cur === 'object' && 'data' in cur) cur = (cur as any).data;
@@ -389,16 +375,8 @@ const SASEWizard: React.FC = () => {
       const path = '/V2/ctcontrol/VR2/VRConfig';
       const bodyStr = JSON.stringify(deviceCfg);
       
-      const info = await requestSign(path, method, other, bodyStr);
-      const queryUrl = `/api-proxy${path}?${other}`;
-      const resp = await fetch(queryUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': info.Authorization, 'tonce': String(info.tonce) },
-        body: bodyStr,
-      });
-      
-      const data = await resp.json().catch(async () => ({ raw: await resp.text() }));
-      if (!resp.ok || (data && typeof data.code === 'number' && data.code !== 200)) {
+      const data = await proxyApiRequest(path, method, other, deviceCfg);
+      if (data && typeof data.code === 'number' && data.code !== 200) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
       

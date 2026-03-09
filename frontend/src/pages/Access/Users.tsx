@@ -8,6 +8,7 @@ import PageContainer from '../../components/PageContainer';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
+import { apiRequest, apiPost, apiDelete, apiPatch } from '../../services/api';
 
 const { Text } = Typography;
 type SysUser = {
@@ -51,9 +52,7 @@ const AccessUsersPage: React.FC = () => {
     if (u.username === 'admin') { message.warning('系统管理员不支持修改权限'); return; }
     try {
       setAssignUser(u);
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-      const json = await res.json();
+      const json = await apiRequest(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`);
       const list: Assignment[] = Array.isArray(json?.assignments) ? json.assignments : [];
       setAssignExisting(list);
       const selected = list.map(it => it.roleId);
@@ -93,10 +92,13 @@ const AccessUsersPage: React.FC = () => {
         { key:'edit', label:'编辑', onClick: () => { setEditingUser(row); setIsEditingAdmin(false); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, status: row.status }); setEditOpen(true); } },
         { type:'divider' },
         { key:'del', label:'删除用户', danger: true, onClick: async () => {
-            const token = localStorage.getItem('token');
-            const res = await fetch(`/api/users/${row.id}`, { method:'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-            if (res.ok) { message.success('已删除'); fetchUsers(); }
-            else { try { message.error(await res.text()); } catch {} }
+            try {
+              await apiDelete(`/api/users/${row.id}`);
+              message.success('已删除');
+              fetchUsers();
+            } catch (error: any) {
+              message.error(error?.message || '删除失败');
+            }
           } },
       ];
       // Filter out invalid items or dividers if needed
@@ -117,9 +119,8 @@ const AccessUsersPage: React.FC = () => {
       onOk: async () => {
         try {
           setLoading(true);
-          const token = localStorage.getItem('token');
           await Promise.all(selectedRowKeys.map(id => 
-            fetch(`/api/users/${id}`, { method:'DELETE', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+            apiDelete(`/api/users/${id}`)
           ));
           message.success('批量删除成功');
           setSelectedRowKeys([]);
@@ -142,9 +143,7 @@ const AccessUsersPage: React.FC = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/users', { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-      const json = await res.json();
+      const json = await apiRequest('/api/users');
       setUsers(Array.isArray(json) ? json : Array.isArray(json?.users) ? json.users : []);
     } catch {
       message.error('获取系统用户失败');
@@ -153,9 +152,7 @@ const AccessUsersPage: React.FC = () => {
 
   const fetchRoles = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/system/rbac/roles', { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-      const json = await res.json();
+      const json = await apiRequest('/api/system/rbac/roles');
       setRoles(Array.isArray(json?.roles) ? json.roles : []);
     } catch {}
   };
@@ -166,9 +163,9 @@ const AccessUsersPage: React.FC = () => {
     const run = async () => {
       if (!users.length || !roles.length) return;
       try {
-        const token = localStorage.getItem('token');
-        const resps = await Promise.all(users.map(u => fetch(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })));
-        const jsons = await Promise.all(resps.map(r => r.json().catch(() => ({ assignments: [] }))));
+        const jsons = await Promise.all(users.map(u => 
+          apiRequest(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`).catch(() => ({ assignments: [] }))
+        ));
         const next: Record<string, RBACRole[]> = {};
         users.forEach((u, i) => {
           const list: Assignment[] = Array.isArray(jsons[i]?.assignments) ? jsons[i].assignments : [];
@@ -191,16 +188,15 @@ const AccessUsersPage: React.FC = () => {
 
   const saveAssign = React.useCallback(async () => {
     if (!assignUser) return;
-    const token = localStorage.getItem('token');
     const current = new Set(assignExisting.map(x => x.roleId));
     const needAdd = assignSelected.filter(id => !current.has(id));
     const needRemove = assignExisting.filter(x => !assignSelected.includes(x.roleId));
     try {
       for (const roleId of needAdd) {
-        await fetch('/api/system/rbac/assignments', { method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ roleId, userType:'system', userId: assignUser.id }) });
+        await apiPost('/api/system/rbac/assignments', { roleId, userType:'system', userId: assignUser.id });
       }
       for (const it of needRemove) {
-        await fetch(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`, { method:'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+        await apiDelete(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`);
       }
       message.success('角色赋权已保存');
       setAssignOpen(false); setAssignUser(null); setAssignExisting([]); setAssignSelected([]);
@@ -209,10 +205,15 @@ const AccessUsersPage: React.FC = () => {
   }, [assignUser, assignExisting, assignSelected]);
 
   const handleCreate = React.useCallback(async (values: any) => {
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/users', { method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(values) });
-    if (res.ok) { message.success('系统用户创建成功'); setCreateOpen(false); createForm.resetFields(); fetchUsers(); }
-    else { try { message.error(await res.text()); } catch { message.error('创建失败'); } }
+    try {
+      await apiPost('/api/users', values);
+      message.success('系统用户创建成功');
+      setCreateOpen(false);
+      createForm.resetFields();
+      fetchUsers();
+    } catch (error: any) {
+      message.error(error?.message || '创建失败');
+    }
   }, [createForm]);
 
   return (
@@ -252,6 +253,10 @@ const AccessUsersPage: React.FC = () => {
         loading={loading}
         dataSource={filteredUsers}
         columns={visibleColumns}
+        scroll={{ 
+          x: 'max-content',
+          y: 600  // 启用虚拟滚动，设置固定高度
+        }}
         rowSelection={{
           selectedRowKeys,
           onChange: setSelectedRowKeys,
@@ -260,7 +265,6 @@ const AccessUsersPage: React.FC = () => {
           }),
         }}
         pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], size: 'small', showQuickJumper: false }}
-        scroll={{ x: 'max-content' }}
         bordered
       />
 
@@ -284,13 +288,19 @@ const AccessUsersPage: React.FC = () => {
 
       <StdFormModal title="编辑用户" open={editOpen} onCancel={()=> { setEditOpen(false); setEditingUser(null); setIsEditingAdmin(false); }} okText="保存" width={600} form={editForm} onFinish={async (vals)=> {
         if (!editingUser) return;
-        const token = localStorage.getItem('token');
-        const body = isEditingAdmin
-          ? { email: vals.email, password: vals.password }
-          : { fullName: vals.fullName, username: vals.username, email: vals.email, status: vals.status, password: vals.password };
-        const res = await fetch(`/api/users/${editingUser.id}`, { method:'PUT', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
-        if (res.ok) { message.success('用户更新成功'); setEditOpen(false); setEditingUser(null); setIsEditingAdmin(false); fetchUsers(); }
-        else { try { message.error(await res.text()); } catch { message.error('更新失败'); } }
+        try {
+          const body = isEditingAdmin
+            ? { email: vals.email, password: vals.password }
+            : { fullName: vals.fullName, username: vals.username, email: vals.email, status: vals.status, password: vals.password };
+          await apiPatch(`/api/users/${editingUser.id}`, body);
+          message.success('用户更新成功');
+          setEditOpen(false);
+          setEditingUser(null);
+          setIsEditingAdmin(false);
+          fetchUsers();
+        } catch (error: any) {
+          message.error(error?.message || '更新失败');
+        }
       }}>
         {isEditingAdmin ? (
           <>

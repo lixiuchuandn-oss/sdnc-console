@@ -33,7 +33,7 @@ const Login: React.FC = () => {
   };
 
   const onFinishFailed = (errorInfo: any) => {
-    console.log('表单验证失败:', errorInfo);
+    // 表单验证失败，由 Ant Design Form 自动处理错误提示
   };
 
   return (

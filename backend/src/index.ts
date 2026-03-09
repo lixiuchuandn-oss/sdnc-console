@@ -21,7 +21,10 @@ import { userRoutes } from './routes/sysuser';
 import { cloudRoutes } from './routes/clouds';
 import { tenantRoutes } from './routes/tenants';
 import { errorHandler } from './middleware/errorHandler';
+import { auditLogRoutes } from './routes/auditLogs';
+import { auditMiddleware } from './middleware/audit';
 import { authMiddleware } from './middleware/auth';
+
 import { initializeAdmin } from './seeders/initAdmin';
 import { initializeRoles } from './seeders/initRoles';
 // SDN / 安全相关路由：
@@ -49,10 +52,8 @@ import { saseAuthRoutes } from './routes/auth/saseAuth';
 // - trafficOrchestrationRoutes：流量编排（安全链路编排）
 // 系统与 AISOC 相关：
 // - systemRoutes：系统设置、运行参数等平台级配置
-// - leasedLineRoutes：租户专线及其安全报告能力（对接 AISOC/Dify）
 // - threatRoutes：AISOC 威胁事件导入与报表查询
 import securityDomainRoutes from './routes/sdn/securityDomains';
-import leasedLineRoutes from './routes/aisoc/leasedLines';
 import serviceRoutes from './routes/sdn/services';
 import trafficOrchestrationRoutes from './routes/sdn/trafficOrchestration';
 import systemRoutes from './routes/system';
@@ -109,6 +110,8 @@ app.use(
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(auditMiddleware);
+
 
 // 静态文件托管：
 // - 只要检测到 public 目录存在，就对外提供静态文件访问（前端构建产物）
@@ -220,9 +223,10 @@ app.use('/api/networks/nat', authMiddleware, natRoutes);
 app.use('/api/security-domains', authMiddleware, securityDomainRoutes);
 app.use('/api/services', authMiddleware, serviceRoutes);
 app.use('/api/security/traffic', authMiddleware, trafficOrchestrationRoutes);
-app.use('/api/leased-lines', authMiddleware, leasedLineRoutes);
 app.use('/api/system/license', licenseRoutes);
+app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/system', authMiddleware, systemRoutes);
+
 app.use('/api/threats', threatRoutes);
 // app.use('/api/standard', authMiddleware, standardResourceRoutes);
 

@@ -7,7 +7,6 @@ import { TenantUser } from '../../entities/TenantUser';
 import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
 import { UserSpace } from '../../entities/UserSpace';
 import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
-import { TenantLeasedLine } from '../../entities/TenantLeasedLine';
 import { Cloud } from '../../entities/Cloud';
 import { HarvesterNamespaceInventory } from '../../entities/harvester/HarvesterNamespaceInventory';
 import { VpcNetwork } from '../../entities/VpcNetwork';
@@ -112,48 +111,6 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('创建租户失败:', error);
     res.status(500).json({ message: '创建租户失败' });
-  }
-});
-
-// 获取租户列表及其专线 IP 信息：
-// - 用于下拉框等场景，将租户与其所有专线 IP 一并返回，便于 AI/SOC 等模块选择
-router.get('/with-leased-lines', async (req, res) => {
-  try {
-    const tenantRepository = AppDataSource.getRepository(Tenant);
-    const leasedLineRepository = AppDataSource.getRepository(TenantLeasedLine);
-
-    // 获取所有租户
-    const tenants = await tenantRepository.find({
-      order: { createdAt: 'DESC' },
-      select: ['id', 'name'],
-    });
-
-    // 获取所有专线
-    const leasedLines = await leasedLineRepository.find();
-
-    // 构建 tenantId -> ips 映射
-    const leasedLineMap = new Map<string, string[]>();
-
-    leasedLines.forEach((line) => {
-      if (line.tenantId) {
-        const currentIps = leasedLineMap.get(line.tenantId) || [];
-        if (line.ips) {
-          currentIps.push(line.ips);
-        }
-        leasedLineMap.set(line.tenantId, currentIps);
-      }
-    });
-
-    const result = tenants.map((tenant) => ({
-      id: tenant.id,
-      name: tenant.name,
-      leasedLineIps: leasedLineMap.get(tenant.id) || [],
-    }));
-
-    res.json(result);
-  } catch (error) {
-    console.error('获取租户专线IP信息失败:', error);
-    res.status(500).json({ message: '获取租户专线IP信息失败' });
   }
 });
 

@@ -12,7 +12,7 @@ import { listSecurityDomains, updateSecurityDomain } from '../../../services/sec
 import { netClassLabel, netClassColor, getDomainClass } from '../../../utils/netClass';
 import { getSystemSetting, updateSystemSetting } from '../../../services/systemApi';
 import StdFormModal from '../../../components/StdFormModal';
-import { fetchTenants, fetchOrganizationsByTenant, bindTenantVR, fetchOrganizationResourcePools, fetchAvailableResourcePools, fetchCloudProviderEcs, fetchCloudVpcs } from '../../../services/api';
+import { fetchTenants, fetchOrganizationsByTenant, bindTenantVR, fetchOrganizationResourcePools, fetchAvailableResourcePools, fetchCloudProviderEcs, fetchCloudVpcs, apiPost } from '../../../services/api';
 import { commonTableStyles, commonBadgeStyles, commonTagStyles } from '../../../utils/tableStyles';
 
 interface VRRow {
@@ -548,8 +548,7 @@ const VRPage: React.FC = () => {
     setLoading(true);
     message.loading({ content: '正在同步 VR 数据...', key: 'vr_sync' });
     try {
-      const res = await fetch('/api/vr-cache/refresh', { method: 'POST' });
-      if (!res.ok) throw new Error('同步失败');
+      await apiPost('/api/vr-cache/refresh', {});
       await fetchVRInstances();
       message.success({ content: '同步完成', key: 'vr_sync' });
     } catch (e) {
@@ -565,7 +564,6 @@ const VRPage: React.FC = () => {
       const cacheData = cacheRes?.data || cacheRes;
       const mergedList = Array.isArray(cacheData?.page) ? cacheData.page : Array.isArray(cacheData?.list) ? cacheData.list : [];
       
-      console.log('[VR_DEBUG] 读取缓存返回', mergedList.length, '条记录');
       setVrs(mergedList);
 
       // 尝试从缓存恢复 rolesMap
@@ -794,12 +792,6 @@ const VRPage: React.FC = () => {
           title: '接收（总）',
           key: 'rx_total',
           render: (_: any, row: any, index: number) => {
-            // Debug log for first row to verify data presence in browser console
-            if (index === 0) {
-               console.log('[VR_DEBUG] Row 0 interfaces raw:', row.interfaces);
-               console.log('[VR_DEBUG] Row 0 parsed:', safeParse(row.interfaces));
-            }
-
             const interfaces = safeParse(row.interfaces);
             let rx_pps = 0;
             let rx_bps = 0;
@@ -1030,13 +1022,10 @@ const VRPage: React.FC = () => {
 
   // 新增：远端拉取并入库，再刷新缓存显示
   const syncRemoteToCache = async (pageNum: number = 1, pageSize: number = 10) => {
-    console.log('========== 远端拉取并入库 ==========');
-    console.log(`使用分页参数: pageSize=${pageSize}, pageNum=${pageNum}`);
     setLoading(true);
     try {
       // 通过前端代理调用远端接口获取列表
       const remoteResponse = await vrApi.getVRInstances(pageSize, pageNum);
-      console.log('[VR_DEBUG] 远端响应:', remoteResponse);
 
       // 写入数据库缓存
       await upsertVrCache(pageNum, pageSize, remoteResponse);
@@ -1081,14 +1070,9 @@ const VRPage: React.FC = () => {
     })();
   }, []);
 
-  // 页面组件挂载时直接输出调试信息
-  console.log('VR页面组件已加载');
-  console.log('vrApi服务:', typeof vrApi);
-  console.log('vrApi.getVRInstances方法:', typeof vrApi.getVRInstances);
-
   // 处理分页变化（远端直连）- 已切换为前端分页，此函数不再需要，保留空实现以防引用报错
   const handleTableChange = (newPagination: any) => {
-    // console.log('========== 处理分页变化（前端分页） ==========');
+    // 前端分页，无需处理
   };
 
   // 刷新（触发后端同步 + 刷新缓存）
@@ -1163,7 +1147,6 @@ const VRPage: React.FC = () => {
         pe: [values.peA, values.peB],
         ce: [values.ceA, values.ceB],
       };
-      console.log('SRv6 tunnel create payload:', payload);
       message.success('SRv6 隧道已创建（前端校验与占位，后续可接后端）');
       setTunnelModalOpen(false);
       tunnelForm.resetFields();
@@ -1242,7 +1225,10 @@ const VRPage: React.FC = () => {
           showTotal: (total: number) => `共 ${total} 条`,
         },
         loading: loading,
-        scroll: { x: 'max-content' },
+        scroll: { 
+          x: 'max-content',
+          y: 600  // 启用虚拟滚动，设置固定高度
+        },
         bordered: true
       }}
     >
