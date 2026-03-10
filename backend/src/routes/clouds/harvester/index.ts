@@ -9,4 +9,5 @@ export { registerHarvesterClusterRoutes } from './harvester.cache.cluster.routes
 export { registerHarvesterNamespaceRoutes } from './harvester.cache.namespace.routes';
 export { registerHarvesterPeripheralsRoutes } from './harvester.cache.peripherals.routes';
 export { registerHarvesterMetaRoutes } from './harvester.cache.meta.routes';
+export { registerHarvesterContainerRoutes } from './harvester.cache.container.routes';
 

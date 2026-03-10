@@ -44,6 +44,7 @@ import { registerHarvesterClusterRoutes } from './harvester.cache.cluster.routes
 import { registerHarvesterNamespaceRoutes } from './harvester.cache.namespace.routes';
 import { registerHarvesterPeripheralsRoutes } from './harvester.cache.peripherals.routes';
 import { registerHarvesterMetaRoutes } from './harvester.cache.meta.routes';
+import { registerHarvesterContainerRoutes } from './harvester.cache.container.routes';
 
 /**
  * [初始化] 注册所有 Harvester 相关路由
@@ -172,4 +173,5 @@ export const registerHarvesterRoutes = (
   registerHarvesterNamespaceRoutes(router, checkAdminPermission);
   registerHarvesterPeripheralsRoutes(router, checkAdminPermission);
   registerHarvesterMetaRoutes(router, checkAdminPermission);
+  registerHarvesterContainerRoutes(router, checkAdminPermission);
 };

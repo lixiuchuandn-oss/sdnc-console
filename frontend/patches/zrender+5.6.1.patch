@@ -1,35 +1,9 @@
 diff --git a/node_modules/zrender/lib/dom/HandlerProxy.js b/node_modules/zrender/lib/dom/HandlerProxy.js
-index 1111111..2222222 100644
+index 4552b96..e1e4799 100644
 --- a/node_modules/zrender/lib/dom/HandlerProxy.js
 +++ b/node_modules/zrender/lib/dom/HandlerProxy.js
-@@
+@@ -233,5 +233,15 @@ function mountSingleDOMEventListener(scope, nativeEventName, listener, opt) {
  function mountSingleDOMEventListener(scope, nativeEventName, listener, opt) {
-+    if (nativeEventName === 'wheel' || nativeEventName === 'mousewheel') {
-+        if (opt == null) {
-+            opt = { passive: false };
-+        }
-+        else if (typeof opt === 'boolean') {
-+            opt = { capture: opt, passive: false };
-+        }
-+        else if (opt.passive == null) {
-+            opt = Object.assign({ passive: false }, opt);
-+        }
-+    }
-     scope.mounted[nativeEventName] = listener;
-     scope.listenerOpts[nativeEventName] = opt;
-     addEventListener(scope.domTarget, nativeEventName, listener, opt);
- }
-diff --git a/node_modules/zrender/src/dom/HandlerProxy.ts b/node_modules/zrender/src/dom/HandlerProxy.ts
-index 3333333..4444444 100644
---- a/node_modules/zrender/src/dom/HandlerProxy.ts
-+++ b/node_modules/zrender/src/dom/HandlerProxy.ts
-@@
- function mountSingleDOMEventListener(
-     scope: DOMHandlerScope,
-     nativeEventName: string,
-     listener: EventListener,
-     opt?: boolean | AddEventListenerOptions
- ) {
 +    if (nativeEventName === 'wheel' || nativeEventName === 'mousewheel') {
 +        if (opt == null) {
 +            opt = { passive: false };
