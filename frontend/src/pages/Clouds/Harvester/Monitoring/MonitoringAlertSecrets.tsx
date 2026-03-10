@@ -1,6 +1,10 @@
 /**
- * 告警密钥：按命名空间、数据源检索 labels 为 monitoring-receiver-secret=true 的 Secrets
- * 支持新增、修改、删除
+ * 告警密钥：与后端 /monitoring/secrets 增删改查一致
+ * - 查列表：GET /monitoring/secrets?namespace=&datasource= （labelSelector: monitoring-receiver-secret=true）
+ * - 查详情：GET /monitoring/secrets/:namespace/:name（编辑时拉取并 Base64 解码填充表单）
+ * - 增：POST /monitoring/secrets（metadata.namespace/name + data 键值对 Base64）
+ * - 改：PUT /monitoring/secrets/:namespace/:name（data 键值对 Base64）
+ * - 删：DELETE /monitoring/secrets/:namespace/:name
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Descriptions, Form, Input, message, Modal, Select, Space, Table } from 'antd';
@@ -55,7 +59,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState<SecretRow | null>(null);
   const [detailRecord, setDetailRecord] = useState<SecretRow | null>(null);
-  /** 编辑时从后端拉取的表单初始值，用于 Modal 打开后正确填充（destroyOnHidden 时 setFieldsValue 可能失效） */
+  /** 编辑时从后端拉取的表单初始值，用于 Modal 打开后正确填充（destroyOnClose 时 setFieldsValue 可能失效） */
   const [editFormInitialValues, setEditFormInitialValues] = useState<{
     namespace: string;
     name: string;
@@ -67,7 +71,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   const loadSecrets = useCallback(async () => {
     if (!cloudId || !namespaceFilter) return;
     setLoading(true);
-    const { data, ok } = await fetchSecrets(cloudId, {
+    const { data, ok, error } = await fetchSecrets(cloudId, {
       namespace: namespaceFilter,
       datasource: dataSourceFilter,
     });
@@ -76,6 +80,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
       setSecrets(data.map((s) => ({ ...s, namespace: namespaceFilter, key: s.name })));
     } else {
       setSecrets([]);
+      if (error) message.error(error);
     }
   }, [cloudId, namespaceFilter, dataSourceFilter]);
 
@@ -114,7 +119,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
       try {
         const { data, ok, error } = await fetchSecretDetail(cloudId, ns, nm);
         if (!ok || !data) {
-          message.error(error || '获取密钥详情失败');
+          message.error(error ?? '获取密钥详情失败');
           return;
         }
         const dataKeys = data.data && typeof data.data === 'object' ? Object.keys(data.data) : [];
@@ -163,7 +168,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
           setEditFormInitialValues(null);
           loadSecrets();
         } else {
-          message.error(error || '修改失败');
+          message.error(error ?? '修改失败');
         }
       } else {
         const { ok, error } = await createSecret(cloudId, {
@@ -177,7 +182,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
           setEditFormInitialValues(null);
           loadSecrets();
         } else {
-          message.error(error || '新增失败');
+          message.error(error ?? '新增失败');
         }
       }
     } finally {
@@ -216,7 +221,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
             message.success('已删除');
             loadSecrets();
           } else {
-            message.error(error || '删除失败');
+            message.error(error ?? '删除失败');
           }
         },
       });
@@ -276,16 +281,6 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
               onChange={(e) => setKeyword(e.target.value)}
               style={{ width: 200 }}
             />
-            <button
-              type="button"
-              className="toolbar-reset-btn"
-              onClick={() => {
-                setKeyword('');
-                setNamespaceFilter('cattle-monitoring-system');
-              }}
-            >
-              重置
-            </button>
           </Space>
         }
         toolbarRight={
@@ -320,7 +315,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         okText="确定"
         cancelText="取消"
         confirmLoading={modalLoading}
-        destroyOnHidden
+        destroyOnClose
         width={480}
       >
         <Form

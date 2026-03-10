@@ -19,6 +19,7 @@
   import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
   import {
     checkReceiverNameExists,
+    deleteAlertmanagerconfig,
     deleteAlertmanagerconfigReceiver,
     fetchAlertPolicyReceivers,
     fetchAllowedNamespaces,
@@ -32,6 +33,7 @@
   } from '../../../../services/monitoringApi';
   import {
     buildReceiverSpec,
+    fetchDingtalkWebhookConfig,
     normalizeDingtalkReceiverSpec,
     type ReceiverName,
     type ReceiverSpec,
@@ -189,7 +191,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
       }
     }, [cloudId, isAdmin]);
 
-    /** 根据 configNsFilter 决定请求的命名空间：选中具体命名空间则只请求该命名空间，选「全部」则请求当前角色下全部命名空间；数据从数据库读取，不再调用 Harvester ConfigMap */
+    /** 根据 configNsFilter 决定请求的命名空间；钉钉的 robotUrl/robotAccessToken 从 dingtalkWebhookConfig（ConfigMap targets）同步读取 */
     const loadReceivers = useCallback(async () => {
       if (!cloudId) return;
       const namespaces =
@@ -201,7 +203,10 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
         return;
       }
       setLoading(true);
-      const targetsRes = await fetchNotificationTargetsList(cloudId, { namespaces, receiverName: [...receiverNames] });
+      const [targetsRes, dingtalkConfigRes] = await Promise.all([
+        fetchNotificationTargetsList(cloudId, { namespaces, receiverName: [...receiverNames] }),
+        fetchDingtalkWebhookConfig(cloudId),
+      ]);
       setLoading(false);
       const { data, ok, error } = targetsRes;
       if (!ok) {
@@ -209,13 +214,15 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
         setReceiverSpecs([]);
         return;
       }
+      /** 钉钉的 robotUrl/robotAccessToken 从 ConfigMap targets[robotAccount].url 解析补全 */
+      const dingtalkConfig = dingtalkConfigRes.ok ? dingtalkConfigRes.config : undefined;
       let receivers = data?.receivers && Array.isArray(data.receivers) ? data.receivers : [];
       receivers = receivers.map((r: NotificationTargetReceiver) => {
         if ((r.receiverName ?? '').toString().trim() !== DINGTALK_RECEIVER) return r;
         const ns = (r.namespace ?? '').toString().trim();
         const specReceivers = Array.isArray((r as any).specReceivers)
           ? (r as any).specReceivers.map((s: any) =>
-              normalizeDingtalkReceiverSpec(s as ReceiverSpec, ns, (s?.name ?? '').toString().trim(), undefined)
+              normalizeDingtalkReceiverSpec(s as ReceiverSpec, ns, (s?.name ?? '').toString().trim(), dingtalkConfig)
             )
           : [];
         return { ...r, specReceivers };
@@ -551,24 +558,20 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           onOk: async () => {
             const rn = record.receiverName;
             if (rn === EMAIL_RECEIVER || rn === DINGTALK_RECEIVER || rn === WEBSITE_RECEIVER) {
-              const receiverId = record.emailReceiverId || record.dingtalkReceiverId || record.websiteReceiverId;
-              if (receiverId) {
-                const { data: policyReceivers, ok: checkOk } = await fetchAlertPolicyReceivers(cloudId!, {
-                  ...(record.emailReceiverId ? { emailReceiverId: record.emailReceiverId }
-                    : record.dingtalkReceiverId ? { dingtalkReceiverId: record.dingtalkReceiverId }
-                    : record.websiteReceiverId ? { websiteReceiverId: record.websiteReceiverId } : {}),
-                });
-                const list = (policyReceivers as any)?.data?.data ?? (policyReceivers as any)?.data ?? [];
-                if (checkOk && Array.isArray(list) && list.length > 0) {
-                  const policyNames = [...new Set(list.map((p: any) => p.policyName))].join('、');
-                  message.warning(`该通知对象已被以下告警通知策略引用，请先解除关联后再删除：${policyNames}`);
-                  return;
-                }
+              const { data: policyReceivers, ok: checkOk } = await fetchAlertPolicyReceivers(cloudId!, {
+                namespace: record.namespace,
+                specReceiverName: record.specReceiverName,
+              });
+              const list = (policyReceivers as any)?.data?.data ?? (policyReceivers as any)?.data ?? [];
+              if (checkOk && Array.isArray(list) && list.length > 0) {
+                const policyNames = [...new Set(list.map((p: any) => p.policyName))].join('、');
+                message.warning(`该通知对象已被以下告警通知策略引用，请先解除关联后再删除：${policyNames}`);
+                return;
               }
             }
             const deleteFn =
               rn === WEBSITE_RECEIVER
-                ? () => deleteAlertmanagerconfigReceiver(cloudId!, record.namespace!, rn!, record.specReceiverName || rn)
+                ? () => deleteAlertmanagerconfig(cloudId!, record.namespace!, rn!)
                 : () => deleteAlertmanagerconfigReceiver(cloudId!, record.namespace!, rn!, record.specReceiverName);
             const { ok, error } = await deleteFn();
             if (ok) {
@@ -933,16 +936,6 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
                 options={formNamespaceOptions}
                 style={{ width: 250 }}
               />
-              <button
-                type="button"
-                className="toolbar-reset-btn"
-                onClick={() => {
-                  setReceiverNameFilter(EMAIL_RECEIVER);
-                  setConfigNsFilter(undefined);
-                }}
-              >
-                重置
-              </button>
             </>
           }
           toolbarRight={
@@ -1046,7 +1039,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title={editingRecord ? '编辑邮件通知对象' : '新增邮件通知对象'}
           open={addEmailModalOpen}
           onCancel={handleCloseAddEmailModal}
-          destroyOnHidden
+          destroyOnClose
           width={800}
           footer={[
             <Button key="cancel" onClick={handleCloseAddEmailModal}>取消</Button>,
@@ -1161,7 +1154,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title={editingRecord ? '编辑钉钉通知对象' : '新增钉钉通知对象'}
           open={addDingtalkModalOpen}
           onCancel={handleCloseAddDingtalkModal}
-          destroyOnHidden
+          destroyOnClose
           width={800}
           footer={[
             <Button key="cancel" onClick={handleCloseAddDingtalkModal}>取消</Button>,
@@ -1220,7 +1213,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title="开通站内信"
           open={addWebsiteModalOpen}
           onCancel={handleCloseAddWebsiteModal}
-          destroyOnHidden
+          destroyOnClose
           width={520}
           footer={[
             <Button key="cancel" onClick={handleCloseAddWebsiteModal}>取消</Button>,

@@ -3,16 +3,10 @@
  * 仅使用 cloudId；租户按 UserSpace 解析 namespace 过滤。设计文档：plan/设计-监控服务-概览.md、设计-监控服务-监控告警.md
  */
 import { Router, Response } from 'express';
-import { In } from 'typeorm';
 import yaml from 'js-yaml';
 import { AppDataSource } from '../../../config/database';
 import { Cloud } from '../../../entities/Cloud';
 import { PrometheusRulesGroup } from '../../../entities/monitoring/PrometheusRulesGroupEntity';
-import { EmailReceiver } from '../../../entities/monitoring/EmailReceiver';
-import { DingtalkReceiver } from '../../../entities/monitoring/DingtalkReceiver';
-import { WebsiteReceiver } from '../../../entities/monitoring/WebsiteReceiver';
-import { AlertPolicyReceiver } from '../../../entities/monitoring/AlertPolicyReceiver';
-import { AlertPolicy } from '../../../entities/monitoring/AlertPolicy';
 import { UserSpace } from '../../../entities/UserSpace';
 import { getJsonOnce, requestJson } from '../../../services/clouds/harvester/utils';
 
@@ -126,6 +120,9 @@ const PROMETHEUS_QUERY_RANGE_PATH =
 const DINGTALK_CONFIGMAP_NS = 'cattle-monitoring-system';
 const DINGTALK_CONFIGMAP_NAME = 'alertmanager-webhook-dingtalk';
 const DINGTALK_CONFIG_KEY = 'config.yaml';
+
+const MONITORING_RECEIVER_SECRET_LABEL = 'monitoring-receiver-secret';
+
 
 /** 是否为资源池不可达（网络/超时），此时可返回空数据避免前端反复 500 */
 function isUnreachableError(e: any): boolean {
@@ -458,6 +455,8 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
   }
 
   const ALERTMANAGERCONFIG_BASE = 'v1/harvester/monitoring.coreos.com.alertmanagerconfigs';
+  /** 告警通知对象列表：仅拉取带此 label 的 AlertmanagerConfig（labels: monitoring-receiver: "true"） */
+  const MONITORING_RECEIVER_LABEL_SELECTOR = 'monitoring-receiver=true';
   const PROMETHEUSRULE_VM = 'v1/harvester/monitoring.coreos.com.prometheusrules/cattle-monitoring-system/virtual-machine-custom-rules';
 
   /** 从 route 中收集所有 receiver 名称 */
@@ -483,140 +482,60 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     return EMAIL_RECEIVER;
   }
 
+  /** 与前端 receivers.ts getDingtalkWebhookUrl(robotAccount) 一致：内部代理地址，Alertmanager 请求此 URL，由 webhook 服务根据 ConfigMap targets[robotAccount] 转发到钉钉 */
   const DINGTALK_WEBHOOK_BASE = `http://${DINGTALK_CONFIGMAP_NAME}:8060/dingtalk`;
 
-  /** 从数据库构建 receiver spec（用于策略 YAML 重新生成） */
-  function buildReceiverSpecFromDb(
-    cloudId: string,
+  /**
+   * 通知对象（email/dingtalk/website-receiver）更新后，将最新 receiver 定义同步到所有引用该 receiver 的策略 AlertmanagerConfig。
+   * 策略创建时会把通知对象的配置内联到 spec.receivers，修改通知对象后需刷新这些策略中的副本。
+   */
+  async function syncPoliciesReceiverSpecsAfterReceiverConfigUpdate(
+    conn: { origin: string; token: string; insecure: boolean },
     namespace: string,
-    receiverName: string,
-    emailRows: EmailReceiver[],
-    dingtalkRows: DingtalkReceiver[]
-  ): any {
-    if (receiverName === WEBSITE_RECEIVER) {
-      return { name: WEBSITE_RECEIVER };
-    }
-    const emailRow = emailRows.find((r) => r.specReceiverName === receiverName);
-    if (emailRow) {
-      const ec = {
-        to: emailRow.emailTo,
-        from: emailRow.emailFrom,
-        smarthost: emailRow.smarthost || undefined,
-        authUsername: emailRow.smtpAuthUsername || undefined,
-        authPassword: emailRow.smtpAuthPasswordSecretName
-          ? { name: emailRow.smtpAuthPasswordSecretName, key: emailRow.smtpAuthPasswordSecretKey || 'password' }
-          : undefined,
-        requireTLS: emailRow.smtpRequireTls,
-        sendResolved: emailRow.sendResolved,
-      };
-      return { name: receiverName, emailConfigs: [ec] };
-    }
-    const dingtalkRow = dingtalkRows.find((r) => r.specReceiverName === receiverName);
-    if (dingtalkRow) {
-      const robotAccount = dingtalkRow.robotAccount || `${namespace}_${dingtalkRow.specReceiverName}`;
-      const webhookUrl = dingtalkRow.url || `${DINGTALK_WEBHOOK_BASE}/${robotAccount}/send`;
-      return {
-        name: receiverName,
-        webhookConfigs: [{
-          url: webhookUrl,
-          robotUrl: dingtalkRow.robotUrl,
-          robotAccount,
-          robotAccessToken: dingtalkRow.robotAccessToken,
-          sendResolved: dingtalkRow.sendResolved,
-        }],
-      };
-    }
-    return null;
-  }
-
-  /** 通知对象修改后，重新生成引用该命名空间下 email/dingtalk/website 的告警策略的 AlertmanagerConfig YAML 并同步到 Harvester */
-  async function regenerateAffectedPolicies(
-    cloudId: string,
-    namespace: string,
-    receiverType: 'email-receiver' | 'dingtalk-receiver' | 'website-receiver'
+    updatedReceivers: any[]
   ): Promise<void> {
-    const policyRepo = AppDataSource.getRepository(AlertPolicyReceiver);
-    const policyReceivers = await policyRepo.find({
-      where: { cloudId, namespace, receiverType },
-      select: ['policyName'],
-    });
-    const policyNames = [...new Set(policyReceivers.map((p) => p.policyName))];
-    if (policyNames.length === 0) return;
-
-    const conn = await getCloudConnOnly(cloudId);
-    if (!conn) return;
-
-    const emailRepo = AppDataSource.getRepository(EmailReceiver);
-    const dingtalkRepo = AppDataSource.getRepository(DingtalkReceiver);
-    const emailRows = await emailRepo.find({ where: { cloudId, namespace } });
-    const dingtalkRows = await dingtalkRepo.find({ where: { cloudId, namespace } });
-
+    if (!Array.isArray(updatedReceivers) || updatedReceivers.length === 0) return;
+    const namesToSync = new Set(updatedReceivers.map((r: any) => (r?.name ?? '').toString().trim()).filter(Boolean));
+    if (namesToSync.size === 0) return;
+    const listUrl = `${conn.origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
+    let raw: any;
+    try {
+      raw = await getJsonOnce(listUrl, conn.token, conn.insecure, true);
+    } catch (e) {
+      console.warn('[syncPoliciesReceiverSpecs] list configs failed:', e);
+      return;
+    }
+    const items: any[] = Array.isArray(raw?.data) ? raw.data : [];
+    const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
+    const policiesToUpdate: Array<{ namespace: string; policyName: string }> = [];
+    for (const item of items) {
+      const inner = item?.data ?? item;
+      const policyName = (inner?.metadata?.name ?? '').toString().trim();
+      const ns = (inner?.metadata?.namespace ?? '').toString().trim();
+      if (receiverConfigNames.has(policyName) || ns !== namespace) continue;
+      const route = inner?.spec?.route ?? {};
+      const refs = collectReceiverNamesFromRoute(route);
+      if (refs.some((rn: string) => namesToSync.has(rn))) policiesToUpdate.push({ namespace: ns, policyName });
+    }
     const pathBase = ALERTMANAGERCONFIG_BASE;
-    for (const policyName of policyNames) {
+    for (const { namespace: ns, policyName } of policiesToUpdate) {
       try {
-        const getPath = `${pathBase}/${encodeURIComponent(namespace)}/${encodeURIComponent(policyName)}`;
-        const raw = await getJsonOnce(`${conn.origin}/${getPath}`, conn.token, conn.insecure, true);
-        const existing = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
-        if (!existing?.spec?.route) continue;
-
-        const route = existing.spec.route;
-        const receiverNames = (collectReceiverNamesFromRoute(route) ?? []).filter((n: string) => n !== 'null-receiver');
-        const newReceivers: any[] = [{ name: 'null-receiver' }];
-        for (const rn of receiverNames) {
-          const spec = buildReceiverSpecFromDb(cloudId, namespace, rn, emailRows, dingtalkRows);
-          if (spec) newReceivers.push(spec);
-        }
-        if (newReceivers.length <= 1) continue;
-
-        const payload = {
-          ...existing,
-          spec: { ...existing.spec, receivers: newReceivers, route: { ...route, receiver: 'null-receiver' } },
-        };
+        const getPath = `${pathBase}/${encodeURIComponent(ns)}/${encodeURIComponent(policyName)}`;
+        const policyRaw = await getJsonOnce(`${conn.origin}/${getPath}`, conn.token, conn.insecure, true);
+        const policy = (policyRaw as any)?.data != null && typeof (policyRaw as any).data === 'object' ? (policyRaw as any).data : policyRaw;
+        if (!policy?.spec?.receivers) continue;
+        const receivers = Array.isArray(policy.spec.receivers) ? policy.spec.receivers : [];
+        const nextReceivers = receivers.map((r: any) => {
+          const rn = (r?.name ?? '').toString().trim();
+          const updated = updatedReceivers.find((u: any) => (u?.name ?? '').toString().trim() === rn);
+          return updated ?? r;
+        });
+        const payload = { ...policy, spec: { ...policy.spec, receivers: nextReceivers } };
         await requestJson('PUT', `${conn.origin}/${getPath}`, conn.token, conn.insecure, payload);
       } catch (e) {
-        console.warn(`[regenerateAffectedPolicies] policy ${namespace}/${policyName} failed:`, e);
+        console.warn(`[syncPoliciesReceiverSpecs] policy ${ns}/${policyName} failed:`, e);
       }
     }
-  }
-
-  /** 同步告警策略与通知对象关联到本地表（使用 email_receivers.id / dingtalk_receivers.id / website_receivers.id 关联） */
-  async function syncAlertPolicyReceivers(
-    cloudId: string,
-    namespace: string,
-    policyName: string,
-    body: any
-  ): Promise<void> {
-    const repo = AppDataSource.getRepository(AlertPolicyReceiver);
-    await repo.delete({ cloudId, namespace, policyName });
-    const spec = body?.spec ?? body?.data?.spec;
-    const route = spec?.route;
-    const receivers = Array.isArray(spec?.receivers) ? spec.receivers : [];
-    const receiverNames = (collectReceiverNamesFromRoute(route) ?? []).filter((n: string) => n !== 'null-receiver');
-    if (receiverNames.length === 0) return;
-    const emailRepo = AppDataSource.getRepository(EmailReceiver);
-    const dingtalkRepo = AppDataSource.getRepository(DingtalkReceiver);
-    const websiteRepo = AppDataSource.getRepository(WebsiteReceiver);
-    const entities: AlertPolicyReceiver[] = [];
-    for (const receiverName of receiverNames) {
-      const receiverType = inferReceiverType(receiverName, receivers);
-      const e = new AlertPolicyReceiver();
-      e.cloudId = cloudId;
-      e.namespace = namespace;
-      e.policyName = policyName;
-      e.receiverType = receiverType;
-      if (receiverType === EMAIL_RECEIVER) {
-        const emailRow = await emailRepo.findOne({ where: { cloudId, namespace, specReceiverName: receiverName } });
-        if (emailRow) e.emailReceiverId = emailRow.id;
-      } else if (receiverType === DINGTALK_RECEIVER) {
-        const dingtalkRow = await dingtalkRepo.findOne({ where: { cloudId, namespace, specReceiverName: receiverName } });
-        if (dingtalkRow) e.dingtalkReceiverId = dingtalkRow.id;
-      } else if (receiverType === WEBSITE_RECEIVER) {
-        const websiteRow = await websiteRepo.findOne({ where: { cloudId, namespace, specReceiverName: receiverName } });
-        if (websiteRow) e.websiteReceiverId = websiteRow.id;
-      }
-      entities.push(e);
-    }
-    await repo.save(entities);
   }
 
   /** 从 spec（route.matchers / route.routes[].matchers / matchRe / match / annotations.matchers）解析告警规则名称列表 */
@@ -667,29 +586,8 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     return [];
   }
 
-  /** 仅在同步到 Harvester 时注入 null-receiver、annotations[cloudhci.io/creator]、labels[cloudhci.io/create-by] */
-  function toHarvesterAlertmanagerConfigPayload(body: any, options?: { creator?: string }): any {
-    const spec = body?.spec ?? {};
-    const route = spec?.route ?? {};
-    const receivers = Array.isArray(spec?.receivers) ? spec.receivers : [];
-    const hasNullReceiver = receivers.some((r: any) => (r?.name ?? '').toString().trim() === 'null-receiver');
-    const nextReceivers = hasNullReceiver ? receivers : [{ name: 'null-receiver' }, ...receivers];
-    const nextRoute = { ...route, receiver: 'null-receiver' };
-    const meta = body?.metadata && typeof body.metadata === 'object' ? { ...body.metadata } : {};
-    const annotations = meta?.annotations && typeof meta.annotations === 'object' ? { ...meta.annotations } : {};
-    const labels = meta?.labels && typeof meta.labels === 'object' ? { ...meta.labels } : {};
-    if (options?.creator != null && options.creator !== '') {
-      annotations['cloudhci.io/creator'] = options.creator;
-    }
-    labels['cloudhci.io/create-by'] = 'platform';
-    const metadata = { ...meta, annotations, labels };
-    return { ...body, metadata, spec: { ...spec, receivers: nextReceivers, route: nextRoute } };
-  }
-
   const SECRETS_BASE = 'v1/harvester/secrets';
   const CONFIGMAPS_BASE = 'v1/harvester/configmaps';
-
-  const MONITORING_RECEIVER_SECRET_LABEL = 'monitoring-receiver-secret';
 
   const DINGTALK_MESSAGE_TEMPLATE = {
     title: '{{ template "ding.link.title" . }}',
@@ -858,6 +756,40 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
         throw e;
       }
     }
+  }
+
+  /** 从 ConfigMap 移除单个钉钉 target（封装 syncDingtalkWebhookConfig） */
+  async function removeDingtalkConfigMapTarget(
+    conn: { origin: string; token: string; insecure: boolean },
+    robotAccount: string
+  ): Promise<void> {
+    await syncDingtalkWebhookConfig(conn, [robotAccount], []);
+  }
+
+  /**
+   * 更新 ConfigMap 钉钉 targets（与 alertmanager-webhook-dingtalk config.yaml 中 targets 对应）。
+   * target 键为 robotAccount，约定为 namespace_specReceiverName（如 cattle-monitoring-system_ops-dingtalk）。
+   */
+  async function updateDingtalkConfigMapTargets(
+    conn: { origin: string; token: string; insecure: boolean },
+    namespace: string,
+    rawReceivers: any[]
+  ): Promise<void> {
+    const newTargets: Array<{ robotAccount: string; robotUrl?: string; robotAccessToken?: string }> = [];
+    for (const r of rawReceivers || []) {
+      const webhookConfigs = Array.isArray(r.webhookConfigs) ? r.webhookConfigs : [];
+      const specReceiverName = (r?.name ?? '').toString().trim();
+      for (const wc of webhookConfigs) {
+        const robotAccount =
+          (wc as any)?.robotAccount ?? (r as any)?.robotAccount ?? `${namespace}_${specReceiverName}`;
+        newTargets.push({
+          robotAccount,
+          robotUrl: (wc as any)?.robotUrl ?? (r as any)?.robotUrl,
+          robotAccessToken: (wc as any)?.robotAccessToken ?? (r as any)?.robotAccessToken,
+        });
+      }
+    }
+    await syncDingtalkWebhookConfig(conn, [], newTargets);
   }
 
   router.get('/:id/monitoring/secrets', async (req: any, res: Response) => {
@@ -1109,91 +1041,58 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     }
   });
 
-  /** 告警通知策略：从数据库读取列表；若 DB 为空且可连 Harvester，则从 Harvester 同步到 DB */
+  /** 告警通知策略：直接从 Harvester API 获取列表（不读写 DB），排除 email/dingtalk/website-receiver */
   router.get('/:id/monitoring/alertmanagerconfigs', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
       const tenant = await getTenantAccess(req, cloudId);
       if (!tenant.allowed) return res.status(403).json({ message: '您没有该资源池的访问权限' });
-      const policyRepo = AppDataSource.getRepository(AlertPolicy);
-      const where: any = { cloudId };
+      const conn = await getCloudAndConn(cloudId, res);
+      if (!conn) return;
+      const url = `${conn.origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
+      const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
+      let list: any[] = Array.isArray(raw?.data) ? raw.data : (Array.isArray(raw) ? raw : []);
+      const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
+      list = list.filter((item: any) => {
+        const inner = item?.data ?? item;
+        const name = (inner?.metadata?.name ?? item?.name ?? '').toString().trim();
+        if (receiverConfigNames.has(name)) return false;
+        return true;
+      });
       if (!tenant.isAdmin && tenant.namespaces.length > 0) {
-        where.namespace = In(tenant.namespaces);
-      }
-      let rows = await policyRepo.find({ where, order: { namespace: 'ASC', policyName: 'ASC' } });
-      if (rows.length === 0) {
-        const conn = await getCloudConnOnly(cloudId);
-        if (conn) {
-          try {
-            const raw = await getJsonOnce(`${conn.origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}`, conn.token, conn.insecure, true);
-            const harvesterList: any[] = Array.isArray(raw?.data) ? raw.data : [];
-            const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
-            for (const item of harvesterList) {
-              const inner = item?.data ?? item;
-              const name = (inner?.metadata?.name ?? '').toString().trim();
-              if (receiverConfigNames.has(name)) continue;
-              const ns = (inner?.metadata?.namespace ?? '').toString().trim();
-              if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) continue;
-              const meta = inner?.metadata ?? {};
-              const spec = inner?.spec ?? {};
-              await policyRepo.upsert(
-                {
-                  cloudId,
-                  namespace: ns,
-                  policyName: name,
-                  description: (meta?.annotations?.description ?? '').toString().trim(),
-                  specJson: JSON.stringify(spec),
-                  metadataJson: JSON.stringify(meta),
-                  resourceVersion: meta?.resourceVersion,
-                },
-                { conflictPaths: ['cloudId', 'namespace', 'policyName'] }
-              );
-            }
-            rows = await policyRepo.find({ where, order: { namespace: 'ASC', policyName: 'ASC' } });
-          } catch {
-            /* ignore sync error */
-          }
-        }
+        const allowedSet = new Set(tenant.namespaces);
+        list = list.filter((item: any) => {
+          const inner = item?.data ?? item;
+          const ns = (inner?.metadata?.namespace ?? item?.namespace ?? '').toString().trim();
+          return allowedSet.has(ns);
+        });
       }
       const alertNameFilter = (req.query?.alertName ?? '').toString().trim();
       if (alertNameFilter) {
-        rows = rows.filter((r) => {
-          let spec: any = {};
-          let meta: any = {};
-          try {
-            spec = JSON.parse(r.specJson || '{}');
-            meta = JSON.parse(r.metadataJson || '{}');
-          } catch {
-            return false;
-          }
+        list = list.filter((item: any) => {
+          const inner = item?.data ?? item;
+          const spec = inner?.spec ?? {};
+          const meta = inner?.metadata ?? {};
           const annotations = meta?.annotations && typeof meta.annotations === 'object' ? meta.annotations : {};
           const names = extractAlertNamesFromSpec(spec, annotations);
           return names.includes(alertNameFilter);
         });
       }
-      const list = rows.map((r) => {
-        let meta: any = {};
-        let spec: any = {};
-        try {
-          meta = JSON.parse(r.metadataJson || '{}');
-          spec = JSON.parse(r.specJson || '{}');
-        } catch {
-          /* ignore */
-        }
+      const normalized = list.map((item: any) => {
+        const inner = item?.data ?? item;
+        const meta = inner?.metadata ?? {};
+        const name = (meta?.name ?? inner?.name ?? '').toString().trim();
+        const ns = (meta?.namespace ?? '').toString().trim();
         return {
-          id: `${r.namespace}/${r.policyName}`,
-          metadata: {
-            name: r.policyName,
-            namespace: r.namespace,
-            ...meta,
-            creator: r.creator ?? undefined,
-            creationTimestamp: r.createdAt ? (r.createdAt as Date).toISOString?.() ?? String(r.createdAt) : undefined,
-          },
-          spec,
+          id: `${ns}/${name}`,
+          metadata: { ...meta, name, namespace: ns },
+          spec: inner?.spec ?? {},
         };
       });
-      res.json({ data: list });
+      res.json({ data: normalized });
     } catch (e: any) {
+      if (isUnreachableError(e)) return res.status(200).json({ data: [] });
+      if (Number((e as any)?.status) === 502) return res.status(200).json({ data: [] });
       const status = (e as any).status || 500;
       res.status(status).json({ message: e?.message || '请求告警通知策略失败' });
     }
@@ -1212,7 +1111,7 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
 
   const DEFAULT_RECEIVER_NAMES = [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER];
 
-  /** 告警通知对象：从本地数据库读取，不再请求 Harvester */
+  /** 告警通知对象：直接从 Harvester API 获取，仅拉取 labels 为 monitoring-receiver=true 的 AlertmanagerConfig */
   router.get('/:id/monitoring/alertmanagerconfigs/receivers', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
@@ -1221,89 +1120,42 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       if (receiverNames.length === 0) receiverNames = [...DEFAULT_RECEIVER_NAMES];
       const tenant = await requireTenantAccess(req, res, cloudId, { namespaces });
       if (!tenant) return;
+      const conn = await getCloudConnOnly(cloudId);
       const receivers: any[] = [];
       const nsFilter = namespaces.length > 0 ? namespaces : null;
 
-      if (receiverNames.includes(EMAIL_RECEIVER)) {
-        const emailRepo = AppDataSource.getRepository(EmailReceiver);
-        const emailWhere: any = { cloudId };
-        if (nsFilter?.length) emailWhere.namespace = In(nsFilter);
-        const emailRows = await emailRepo.find({ where: emailWhere });
-        const byNs: Record<string, any[]> = {};
-        for (const r of emailRows) {
-          if (nsFilter?.length && !nsFilter.includes(r.namespace)) continue;
-          if (!byNs[r.namespace]) byNs[r.namespace] = [];
-          const ec = {
-            to: r.emailTo,
-            from: r.emailFrom,
-            smarthost: r.smarthost,
-            authUsername: r.smtpAuthUsername,
-            authPassword: r.smtpAuthPasswordSecretName
-              ? { name: r.smtpAuthPasswordSecretName, key: r.smtpAuthPasswordSecretKey || 'password' }
-              : undefined,
-            requireTLS: r.smtpRequireTls,
-            sendResolved: r.sendResolved,
-          };
-          byNs[r.namespace].push({
-            id: r.id,
-            name: r.specReceiverName,
-            emailConfigs: [ec],
-            creator: r.creator ?? undefined,
-            createdAt: r.createdAt ? (r.createdAt as Date).toISOString?.() ?? String(r.createdAt) : undefined,
-          });
-        }
-        for (const [ns, specReceivers] of Object.entries(byNs)) {
-          receivers.push({ namespace: ns, receiverName: EMAIL_RECEIVER, specReceivers });
-        }
+      if (!conn) {
+        return res.json({ receivers });
       }
 
-      if (receiverNames.includes(DINGTALK_RECEIVER)) {
-        const dingtalkRepo = AppDataSource.getRepository(DingtalkReceiver);
-        const dingtalkWhere: any = { cloudId };
-        if (nsFilter?.length) dingtalkWhere.namespace = In(nsFilter);
-        const dingtalkRows = await dingtalkRepo.find({ where: dingtalkWhere });
-        const byNs: Record<string, any[]> = {};
-        for (const r of dingtalkRows) {
-          if (nsFilter?.length && !nsFilter.includes(r.namespace)) continue;
-          if (!byNs[r.namespace]) byNs[r.namespace] = [];
-          const robotAccount = r.robotAccount || `${r.namespace}_${r.specReceiverName}`;
-          byNs[r.namespace].push({
-            id: r.id,
-            name: r.specReceiverName,
-            webhookConfigs: [{
-              url: r.url,
-              robotUrl: r.robotUrl,
-              robotAccount,
-              robotAccessToken: r.robotAccessToken,
-              sendResolved: r.sendResolved,
-            }],
-            creator: r.creator ?? undefined,
-            createdAt: r.createdAt ? (r.createdAt as Date).toISOString?.() ?? String(r.createdAt) : undefined,
-          });
-        }
-        for (const [ns, specReceivers] of Object.entries(byNs)) {
-          receivers.push({ namespace: ns, receiverName: DINGTALK_RECEIVER, specReceivers });
-        }
-      }
+      const labelQs = `&labelSelector=${encodeURIComponent(MONITORING_RECEIVER_LABEL_SELECTOR)}`;
+      const url = `${conn.origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}${labelQs}`;
+      const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
+      const harvesterList: any[] = Array.isArray(raw?.data) ? raw.data : [];
 
-      if (receiverNames.includes(WEBSITE_RECEIVER)) {
-        const websiteRepo = AppDataSource.getRepository(WebsiteReceiver);
-        const websiteWhere: any = { cloudId };
-        if (nsFilter?.length) websiteWhere.namespace = In(nsFilter);
-        const websiteRows = await websiteRepo.find({ where: websiteWhere });
-        const byNs: Record<string, any[]> = {};
-        for (const r of websiteRows) {
-          if (nsFilter?.length && !nsFilter.includes(r.namespace)) continue;
-          if (!byNs[r.namespace]) byNs[r.namespace] = [];
-          byNs[r.namespace].push({
-            id: r.id,
-            name: r.specReceiverName,
-            creator: r.creator ?? undefined,
-            createdAt: r.createdAt ? (r.createdAt as Date).toISOString?.() ?? String(r.createdAt) : undefined,
-          });
-        }
-        for (const [ns, specReceivers] of Object.entries(byNs)) {
-          if (specReceivers.length > 0) receivers.push({ namespace: ns, receiverName: WEBSITE_RECEIVER, specReceivers });
+      for (const item of harvesterList) {
+        const inner = item?.data ?? item;
+        const ns = (inner?.metadata?.namespace ?? '').toString().trim();
+        const name = (inner?.metadata?.name ?? '').toString().trim();
+        if (!ns || !name) continue;
+        if (nsFilter?.length && !nsFilter.includes(ns)) continue;
+        if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) continue;
+        if (!receiverNames.includes(name)) continue;
+
+        const spec = inner?.spec ?? {};
+        const meta = inner?.metadata ?? {};
+        const rawReceivers = Array.isArray(spec.receivers) ? spec.receivers : [];
+        const creator = meta?.annotations?.['cloudhci.io/creator'];
+        const createdAt = meta?.creationTimestamp ? String(meta.creationTimestamp) : undefined;
+
+        const specReceivers = rawReceivers.map((r: any) => ({
+          ...r,
+          creator: creator ?? undefined,
+          createdAt: createdAt ?? undefined,
+        }));
+
+        if (specReceivers.length > 0) {
+          receivers.push({ namespace: ns, receiverName: name, specReceivers });
         }
       }
 
@@ -1314,7 +1166,7 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     }
   });
 
-  // GET /:id/monitoring/alertmanagerconfigs/receivers/check — 通过数据库验证通知对象名称是否已存在（不调用 Harvester）
+  // GET /:id/monitoring/alertmanagerconfigs/receivers/check — 从 Harvester 校验通知对象名称是否已存在
   router.get('/:id/monitoring/alertmanagerconfigs/receivers/check', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
@@ -1326,15 +1178,19 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       }
       const tenant = await requireTenantAccess(req, res, cloudId, { namespaces: [namespace] });
       if (!tenant) return;
+      const configName = receiverType && isValidReceiverConfigName(receiverType) ? receiverType : EMAIL_RECEIVER;
+      const conn = await getCloudConnOnly(cloudId);
       let exists = false;
-      if (receiverType === EMAIL_RECEIVER) {
-        const emailRepo = AppDataSource.getRepository(EmailReceiver);
-        const found = await emailRepo.findOne({ where: { cloudId, namespace, specReceiverName } });
-        exists = !!found;
-      } else if (receiverType === DINGTALK_RECEIVER) {
-        const dingtalkRepo = AppDataSource.getRepository(DingtalkReceiver);
-        const found = await dingtalkRepo.findOne({ where: { cloudId, namespace, specReceiverName } });
-        exists = !!found;
+      if (conn) {
+        try {
+          const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(configName)}`;
+          const raw = await getJsonOnce(`${conn.origin}/${path}`, conn.token, conn.insecure, true);
+          const item = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+          const receivers = Array.isArray(item?.spec?.receivers) ? item.spec.receivers : [];
+          exists = receivers.some((r: any) => (r?.name ?? '').toString().trim() === specReceiverName);
+        } catch {
+          /* 404 or error => exists false */
+        }
       }
       res.json({ exists });
     } catch (e: any) {
@@ -1343,36 +1199,36 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     }
   });
 
-  // GET /:id/monitoring/alertmanagerconfigs/policy-receivers — 查询 policy 与 receiver 关联（支持 emailReceiverId/dingtalkReceiverId/websiteReceiverId 按 ID 查询）
+  // GET /:id/monitoring/alertmanagerconfigs/policy-receivers — 从 Harvester 查询引用某 receiver 的策略（namespace + specReceiverName）
   router.get('/:id/monitoring/alertmanagerconfigs/policy-receivers', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
-      const policyName = req.query?.policyName as string | undefined;
-      const receiverType = req.query?.receiverType as string | undefined;
-      const namespace = req.query?.namespace as string | undefined;
-      const emailReceiverId = req.query?.emailReceiverId as string | undefined;
-      const dingtalkReceiverId = req.query?.dingtalkReceiverId as string | undefined;
-      const websiteReceiverId = req.query?.websiteReceiverId as string | undefined;
+      const namespace = (req.query?.namespace ?? '').toString().trim();
+      const specReceiverName = (req.query?.specReceiverName ?? '').toString().trim();
       const tenant = await requireTenantAccess(req, res, cloudId);
       if (!tenant) return;
-      const repo = AppDataSource.getRepository(AlertPolicyReceiver);
-      const where: any = { cloudId };
-      if (namespace && String(namespace).trim()) where.namespace = String(namespace).trim();
-      if (policyName && String(policyName).trim()) where.policyName = String(policyName).trim();
-      if (receiverType && String(receiverType).trim()) where.receiverType = String(receiverType).trim();
-      if (emailReceiverId && String(emailReceiverId).trim()) where.emailReceiverId = String(emailReceiverId).trim();
-      if (dingtalkReceiverId && String(dingtalkReceiverId).trim()) where.dingtalkReceiverId = String(dingtalkReceiverId).trim();
-      if (websiteReceiverId && String(websiteReceiverId).trim()) where.websiteReceiverId = String(websiteReceiverId).trim();
-      if (!tenant.isAdmin && tenant.namespaces.length > 0) {
-        const allowedNs = new Set(tenant.namespaces);
-        if (namespace && String(namespace).trim()) {
-          if (!allowedNs.has(String(namespace).trim())) return res.json({ data: [] });
-          where.namespace = String(namespace).trim();
-        } else {
-          where.namespace = In(tenant.namespaces);
+      const list: Array<{ namespace: string; policyName: string; receiverType?: string }> = [];
+      const conn = await getCloudConnOnly(cloudId);
+      if (!conn || !specReceiverName) {
+        return res.json({ data: list });
+      }
+      const url = `${conn.origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
+      const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
+      const items: any[] = Array.isArray(raw?.data) ? raw.data : [];
+      const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
+      for (const item of items) {
+        const inner = item?.data ?? item;
+        const policyName = (inner?.metadata?.name ?? '').toString().trim();
+        const ns = (inner?.metadata?.namespace ?? '').toString().trim();
+        if (receiverConfigNames.has(policyName)) continue;
+        if (namespace && ns !== namespace) continue;
+        if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) continue;
+        const route = inner?.spec?.route ?? {};
+        const refs = collectReceiverNamesFromRoute(route);
+        if (refs.includes(specReceiverName)) {
+          list.push({ namespace: ns, policyName });
         }
       }
-      const list = await repo.find({ where, order: { namespace: 'ASC', policyName: 'ASC' } });
       res.json({ data: list });
     } catch (e: any) {
       const status = (e as any).status || 500;
@@ -1380,279 +1236,28 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     }
   });
 
-  /** 告警通知策略：从数据库读取详情；若 DB 无则尝试从 Harvester 拉取并写入 DB */
+  /** 告警通知策略：直接从 Harvester API 获取详情（不读写 DB） */
   router.get('/:id/monitoring/alertmanagerconfigs/:namespace/:name', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
       const { namespace, name } = req.params;
       const tenant = await requireTenantAccess(req, res, cloudId, { namespaces: [namespace] });
       if (!tenant) return;
-      const policyRepo = AppDataSource.getRepository(AlertPolicy);
-      let row = await policyRepo.findOne({ where: { cloudId, namespace, policyName: name } });
-      if (!row) {
-        const conn = await getCloudAndConn(cloudId, res);
-        if (!conn) return;
-        const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-        try {
-          const raw = await getJsonOnce(`${conn.origin}/${path}`, conn.token, conn.insecure, true);
-          const inner = (raw as any)?.data ?? raw;
-          if (inner?.metadata) {
-            const meta = inner.metadata ?? {};
-            const spec = inner.spec ?? {};
-            await policyRepo.upsert(
-              {
-                cloudId,
-                namespace,
-                policyName: name,
-                description: (meta?.annotations?.description ?? '').toString().trim(),
-                specJson: JSON.stringify(spec),
-                metadataJson: JSON.stringify(meta),
-                resourceVersion: meta?.resourceVersion,
-              },
-              { conflictPaths: ['cloudId', 'namespace', 'policyName'] }
-            );
-            row = await policyRepo.findOne({ where: { cloudId, namespace, policyName: name } });
-          }
-        } catch {
-          /* ignore */
-        }
-        if (!row) {
-          return res.status(404).json({ message: '告警通知策略不存在' });
-        }
-      }
-      let meta: any = {};
-      let spec: any = {};
-      try {
-        meta = JSON.parse(row.metadataJson || '{}');
-        spec = JSON.parse(row.specJson || '{}');
-      } catch {
-        /* ignore */
-      }
-      const annotations = meta?.annotations && typeof meta.annotations === 'object' ? { ...meta.annotations } : {};
-      if (annotations.description == null || annotations.description === '') {
-        annotations.description = (row.description ?? '').toString().trim();
-      }
-      const creationTimestamp = row.createdAt ? (row.createdAt as Date).toISOString?.() ?? String(row.createdAt) : undefined;
-      const data = {
-        apiVersion: 'monitoring.coreos.com/v1alpha1',
-        kind: 'AlertmanagerConfig',
-        metadata: {
-          name: row.policyName,
-          namespace: row.namespace,
-          resourceVersion: row.resourceVersion,
-          creator: row.creator ?? undefined,
-          creationTimestamp,
-          ...meta,
-          annotations,
-        },
-        spec,
-      };
-      res.json({ data });
+      const conn = await getCloudAndConn(cloudId, res);
+      if (!conn) return;
+      const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+      const excludeQs = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.annotations';
+      const url = `${conn.origin}/${path}?${excludeQs}`;
+      const data = await getJsonOnce(url, conn.token, conn.insecure, true);
+      res.json(data);
     } catch (e: any) {
+      if (isUnreachableError(e)) return res.status(200).json({});
       const status = (e as any).status || 500;
       res.status(status).json({ message: e?.message || '请求配置详情失败' });
     }
   });
 
-  /** 删除通知对象：从本地数据库删除，不再请求 Harvester */
-  router.delete('/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name', async (req: any, res: Response) => {
-    try {
-      const cloudId = req.params.id;
-      const { namespace, name } = req.params;
-      const specReceiverName = (req.query.specReceiverName ?? '').toString().trim();
-      if (!specReceiverName) {
-        return res.status(400).json({ message: '需要删除的通知对象名称不能为空' });
-      }
-      const tenant = await requireTenantAccess(req, res, cloudId, { namespaces: [namespace] });
-      if (!tenant) return;
-      if (!isValidReceiverConfigName(name)) {
-        return res.status(400).json({ message: '通知方式必须是邮件、钉钉或站内信之一' });
-      }
-      if (name === WEBSITE_RECEIVER) {
-        const websiteRepo = AppDataSource.getRepository(WebsiteReceiver);
-        const policyReceiverRepo = AppDataSource.getRepository(AlertPolicyReceiver);
-        const specReceiverName = (req.query.specReceiverName ?? '').toString().trim() || WEBSITE_RECEIVER;
-        const row = await websiteRepo.findOne({ where: { cloudId, namespace, specReceiverName } });
-        if (!row) {
-          return res.status(404).json({ message: '未找到该通知对象名称' });
-        }
-        const associations = await policyReceiverRepo.find({ where: { websiteReceiverId: row.id }, select: ['policyName'] });
-        if (associations.length > 0) {
-          const policyNames = [...new Set(associations.map((a) => a.policyName))].join('、');
-          return res.status(400).json({
-            message: `该通知对象已被以下告警通知策略引用，请先解除关联后再关闭：${policyNames}`,
-          });
-        }
-        await websiteRepo.delete({ id: row.id });
-        res.status(204).send();
-        return;
-      }
-      if (name === EMAIL_RECEIVER) {
-        const emailRepo = AppDataSource.getRepository(EmailReceiver);
-        const result = await emailRepo.delete({ cloudId, namespace, specReceiverName });
-        if (result.affected === 0) {
-          return res.status(404).json({ message: '未找到该通知对象名称' });
-        }
-      } else if (name === DINGTALK_RECEIVER) {
-        const dingtalkRepo = AppDataSource.getRepository(DingtalkReceiver);
-        const row = await dingtalkRepo.findOne({ where: { cloudId, namespace, specReceiverName } });
-        if (!row) {
-          return res.status(404).json({ message: '未找到该通知对象名称' });
-        }
-        const robotAccount = (row.robotAccount || `${namespace}_${row.specReceiverName}`).trim();
-        const conn = await getCloudConnOnly(cloudId);
-        if (!conn) {
-          return res.status(503).json({ message: '无法连接到 Harvester，已阻止删除以避免与 dingtalkWebhookConfig 不一致' });
-        }
-        // 强一致：先删 dingtalkWebhookConfig.targets 中对应 robotAccount，成功后再删 DB
-        await syncDingtalkWebhookConfig(conn, [robotAccount], []);
-        await dingtalkRepo.delete({ cloudId, namespace, specReceiverName });
-      }
-      res.status(204).send();
-    } catch (e: any) {
-      if (Number((e as any)?.status) === 404) {
-        return res.status(404).json({ message: e?.message || '未找到该通知对象名称' });
-      }
-      const status = (e as any).status || 500;
-      res.status(status).json({ message: e?.message || '删除通知对象失败' });
-    }
-  });
-
-  /** 新增/更新通知对象：保存到本地数据库，不再写入 Harvester */
-  router.post('/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name', async (req: any, res: Response) => {
-    try {
-      const cloudId = req.params.id;
-      const ns = (req.params.namespace ?? '').toString().trim();
-      const name = (req.params.name ?? '').toString().trim();
-      if (!ns) return res.status(400).json({ message: '命名空间不能为空' });
-      if (!isValidReceiverConfigName(name)) {
-        return res.status(400).json({ message: '通知方式必须是邮件、钉钉或站内信之一' });
-      }
-      const tenant = await requireTenantAccess(req, res, cloudId, {
-        namespaces: [ns],
-        forbiddenMessage: '仅能在您有权限的命名空间下操作告警通知对象',
-      });
-      if (!tenant) return;
-      const body = req.body || {};
-      const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : [];
-
-      const specNames = rawReceivers.map((r: any) => (r?.name ?? '').toString().trim()).filter(Boolean);
-      const uniqueNames = new Set(specNames);
-      if (specNames.length !== uniqueNames.size) {
-        return res.status(400).json({ message: '存在重复的通知对象名称，请使用不同名称' });
-      }
-
-      if (name === EMAIL_RECEIVER) {
-        const emailRepo = AppDataSource.getRepository(EmailReceiver);
-        await emailRepo.delete({ cloudId, namespace: ns });
-        const creator = getCreatorFromReq(req);
-        for (const r of rawReceivers) {
-          const specName = (r?.name ?? '').toString().trim();
-          if (!specName) continue;
-          const ec = Array.isArray(r?.emailConfigs) ? r.emailConfigs[0] : undefined;
-          const row = emailRepo.create({
-            cloudId,
-            namespace: ns,
-            specReceiverName: specName,
-            emailTo: (ec?.to ?? '').toString().trim(),
-            emailFrom: (ec?.from ?? '').toString().trim(),
-            smarthost: (ec?.smarthost ?? '').toString().trim() || undefined,
-            smtpAuthUsername: (ec?.authUsername ?? '').toString().trim() || undefined,
-            smtpAuthPasswordSecretName: (ec?.authPassword as any)?.name,
-            smtpAuthPasswordSecretKey: (ec?.authPassword as any)?.key,
-            smtpRequireTls: (ec?.requireTLS ?? true) !== false,
-            sendResolved: (ec?.sendResolved ?? true) !== false,
-          });
-          await emailRepo.save(row);
-        }
-        try {
-          await regenerateAffectedPolicies(cloudId, ns, EMAIL_RECEIVER);
-        } catch (regenErr) {
-          console.warn('[alertmanagerconfigs/receivers] regenerate affected policies failed:', regenErr);
-        }
-        return res.status(201).json({ message: '创建成功' });
-      }
-
-      if (name === DINGTALK_RECEIVER) {
-        const dingtalkRepo = AppDataSource.getRepository(DingtalkReceiver);
-        const conn = await getCloudAndConn(cloudId, res);
-        if (!conn) return;
-
-        const oldRows = await dingtalkRepo.find({ where: { cloudId, namespace: ns } });
-        const oldRobotAccounts = oldRows.map((r) => (r.robotAccount || `${ns}_${r.specReceiverName}`).trim()).filter(Boolean);
-
-        const newTargets: Array<{ robotAccount: string; robotUrl?: string; robotAccessToken?: string }> = [];
-        const rowsToSave: Partial<DingtalkReceiver>[] = [];
-        for (const r of rawReceivers) {
-          const specName = (r?.name ?? '').toString().trim();
-          if (!specName) continue;
-          const wc = Array.isArray(r?.webhookConfigs) ? r.webhookConfigs[0] : undefined;
-          const robotAccount = (wc?.robotAccount ?? `${ns}_${specName}`).toString().trim();
-          const urlVal = (wc?.url ?? '').toString().trim();
-          if (!urlVal) {
-            return res.status(400).json({ message: `钉钉通知对象「${specName}」的 webhook 地址(url)不能为空` });
-          }
-          const robotUrl = (wc?.robotUrl ?? '').toString().trim() || undefined;
-          const robotAccessToken = (wc?.robotAccessToken ?? '').toString().trim() || undefined;
-          newTargets.push({ robotAccount: robotAccount || `${ns}_${specName}`, robotUrl, robotAccessToken });
-          rowsToSave.push({
-            cloudId,
-            namespace: ns,
-            specReceiverName: specName,
-            url: urlVal,
-            robotUrl,
-            robotAccount: robotAccount || undefined,
-            robotAccessToken,
-            sendResolved: (wc?.sendResolved ?? true) !== false,
-            creator: getCreatorFromReq(req) || undefined,
-          });
-        }
-
-        try {
-          await syncDingtalkWebhookConfig(conn, oldRobotAccounts, newTargets);
-        } catch (syncErr: any) {
-          console.error('[alertmanagerconfigs/receivers] sync dingtalkWebhookConfig failed:', syncErr);
-          return res.status(500).json({ message: syncErr?.message || '同步钉钉 Webhook 配置失败' });
-        }
-
-        await dingtalkRepo.delete({ cloudId, namespace: ns });
-        for (const row of rowsToSave) {
-          const entity = dingtalkRepo.create(row as DingtalkReceiver);
-          await dingtalkRepo.save(entity);
-        }
-        try {
-          await regenerateAffectedPolicies(cloudId, ns, DINGTALK_RECEIVER);
-        } catch (regenErr) {
-          console.warn('[alertmanagerconfigs/receivers] regenerate affected policies failed:', regenErr);
-        }
-        return res.status(201).json({ message: '创建成功' });
-      }
-
-      if (name === WEBSITE_RECEIVER) {
-        const websiteRepo = AppDataSource.getRepository(WebsiteReceiver);
-        const creator = getCreatorFromReq(req);
-        const specName = (rawReceivers[0]?.name ?? WEBSITE_RECEIVER).toString().trim() || WEBSITE_RECEIVER;
-        await websiteRepo.upsert(
-          {
-            cloudId,
-            namespace: ns,
-            specReceiverName: specName,
-            creator: creator || undefined,
-          },
-          { conflictPaths: ['cloudId', 'namespace'] }
-        );
-        return res.status(201).json({ message: '创建成功' });
-      }
-      return res.status(400).json({ message: '不支持的通知方式' });
-    } catch (e: any) {
-      const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
-      const msg = e?.message || '创建或更新告警通知对象失败';
-      if (status >= 500) console.error('[alertmanagerconfigs/receivers]', e);
-      res.status(status).json({ message: msg });
-    }
-  });
-
-  /** 告警通知策略：新增时先存 DB，再全量同步到 Harvester */
+  /** 告警通知策略：直接调用 Harvester API 创建（不读写 DB） */
   router.post('/:id/monitoring/alertmanagerconfigs', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
@@ -1667,59 +1272,17 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
         forbiddenMessage: '仅能在您有权限的命名空间下创建告警配置',
       });
       if (!tenant) return;
-      const meta = body?.metadata ?? {};
-      const annotations = meta?.annotations && typeof meta.annotations === 'object' ? { ...meta.annotations } : {};
-      if (!('description' in annotations)) annotations.description = '';
-      const payload = { ...body, metadata: { ...meta, annotations } };
-
-      const policyRepo = AppDataSource.getRepository(AlertPolicy);
-      const desc = (payload?.metadata?.annotations?.description ?? '').toString().trim();
-      const creator = getCreatorFromReq(req);
-      const existingPolicy = await policyRepo.findOne({ where: { cloudId, namespace: ns, policyName: name } });
-      if (!existingPolicy) {
-        await policyRepo.insert({
-          cloudId,
-          namespace: ns,
-          policyName: name,
-          description: desc,
-          specJson: JSON.stringify(payload?.spec ?? {}),
-          metadataJson: JSON.stringify(payload?.metadata ?? {}),
-          creator: creator || undefined,
-        });
-      } else {
-        await policyRepo.update(
-          { cloudId, namespace: ns, policyName: name },
-          { description: desc, specJson: JSON.stringify(payload?.spec ?? {}), metadataJson: JSON.stringify(payload?.metadata ?? {}) }
-        );
-      }
-
       const conn = await getCloudAndConn(cloudId, res);
       if (!conn) return;
-      try {
-        const harvesterPayload = toHarvesterAlertmanagerConfigPayload(payload, { creator: creator || undefined });
-        const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, harvesterPayload);
-        try {
-          await syncAlertPolicyReceivers(cloudId, ns, name, payload);
-        } catch (syncErr) {
-          console.warn('[alertmanagerconfigs] sync policy-receivers failed:', syncErr);
-        }
-        const created = (data as any)?.data ?? data;
-        await policyRepo.update(
-          { cloudId, namespace: ns, policyName: name },
-          { resourceVersion: created?.metadata?.resourceVersion }
-        );
-        return res.status(201).json(data);
-      } catch (harvesterErr: any) {
-        await policyRepo.delete({ cloudId, namespace: ns, policyName: name });
-        throw harvesterErr;
-      }
+      const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, body);
+      res.status(201).json(data);
     } catch (e: any) {
       const status = (e as any).status || 500;
       res.status(status).json({ message: e?.message || '创建告警配置失败' });
     }
   });
 
-  /** 告警通知策略：修改时先更新 DB，再全量同步到 Harvester */
+  /** 告警通知策略：直接调用 Harvester API 更新（不读写 DB） */
   router.put('/:id/monitoring/alertmanagerconfigs/:namespace/:name', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
@@ -1729,76 +1292,293 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
         forbiddenMessage: '无权修改该命名空间下的告警通知策略',
       });
       if (!tenant) return;
-      const policyRepo = AppDataSource.getRepository(AlertPolicy);
-      const oldRow = await policyRepo.findOne({ where: { cloudId, namespace, policyName: name } });
-      if (!oldRow) {
-        return res.status(404).json({ message: '告警通知策略不存在' });
-      }
-      const meta = req.body?.metadata ?? {};
-      const annotations = meta?.annotations && typeof meta.annotations === 'object' ? { ...meta.annotations } : {};
-      if (!('description' in annotations)) annotations.description = '';
-      const payload = { ...req.body, metadata: { ...meta, annotations } };
-      const desc = (payload?.metadata?.annotations?.description ?? '').toString().trim();
-
-      await policyRepo.update(
-        { cloudId, namespace, policyName: name },
-        {
-          description: desc,
-          specJson: JSON.stringify(payload?.spec ?? {}),
-          metadataJson: JSON.stringify(payload?.metadata ?? {}),
-        }
-      );
-
       const conn = await getCloudAndConn(cloudId, res);
       if (!conn) return;
       const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-      let resourceVersion = oldRow.resourceVersion;
-      if (!resourceVersion) {
-        try {
-          const raw = await getJsonOnce(`${conn.origin}/${path}`, conn.token, conn.insecure, true);
-          const existing = (raw as any)?.data ?? raw;
-          resourceVersion = existing?.metadata?.resourceVersion;
-        } catch {
-          /* Harvester 可能不存在，用 POST 创建 */
-        }
-      }
-      try {
-        const creatorForSync = oldRow.creator ?? undefined;
-        const payloadWithVersion = { ...payload, metadata: { ...payload.metadata, resourceVersion } };
-        const payloadForPut = toHarvesterAlertmanagerConfigPayload(payloadWithVersion, { creator: creatorForSync });
-        const payloadForPost = toHarvesterAlertmanagerConfigPayload(payload, { creator: creatorForSync });
-        const data = resourceVersion
-          ? await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, payloadForPut)
-          : await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, payloadForPost);
-        try {
-          await syncAlertPolicyReceivers(cloudId, namespace, name, payload);
-        } catch (syncErr) {
-          console.warn('[alertmanagerconfigs] sync policy-receivers failed:', syncErr);
-        }
-        const updated = (data as any)?.data ?? data;
-        await policyRepo.update(
-          { cloudId, namespace, policyName: name },
-          { resourceVersion: updated?.metadata?.resourceVersion }
-        );
-        return res.json(data);
-      } catch (harvesterErr: any) {
-        await policyRepo.update(
-          { cloudId, namespace, policyName: name },
-          {
-            description: oldRow.description,
-            specJson: oldRow.specJson,
-            metadataJson: oldRow.metadataJson,
-          }
-        );
-        throw harvesterErr;
-      }
+      const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, req.body);
+      res.json(data);
     } catch (e: any) {
       const status = (e as any).status || 500;
       res.status(status).json({ message: e?.message || '更新告警通知策略失败' });
     }
   });
 
-  /** 告警通知策略：删除时先删除 Harvester AlertmanagerConfig，再删除 DB */
+  router.delete('/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name', async (req: any, res: Response) => {
+    try {
+      const cloudId = req.params.id;
+      const { namespace, name } = req.params;
+      const specReceiverName = (req.query.specReceiverName ?? '').toString().trim();
+      if (!specReceiverName) {
+        return res.status(400).json({ message: '需要删除的通知对象名称不能为空' });
+      }
+      const tenant = await requireTenantAccess(req, res, cloudId, { namespaces: [namespace] });
+      if (!tenant) return;
+      const conn = await getCloudAndConn(cloudId, res);
+      if (!conn) return;
+      if (!isValidReceiverConfigName(name)) {
+        return res.status(400).json({ message: '通知方式必须是邮件、钉钉或站内信之一' });
+      }
+      // 删除前检查是否被告警策略引用
+      try {
+        const listUrl = `${conn.origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
+        const listRaw = await getJsonOnce(listUrl, conn.token, conn.insecure, true);
+        const listItems: any[] = Array.isArray(listRaw?.data) ? listRaw.data : [];
+        const receiverConfigNames = new Set([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
+        const referencedPolicies: string[] = [];
+        for (const item of listItems) {
+          const inner = item?.data ?? item;
+          const policyName = (inner?.metadata?.name ?? '').toString().trim();
+          const ns = (inner?.metadata?.namespace ?? '').toString().trim();
+          if (ns !== namespace || receiverConfigNames.has(policyName)) continue;
+          const route = inner?.spec?.route ?? {};
+          const refs = collectReceiverNamesFromRoute(route);
+          if (refs.includes(specReceiverName)) referencedPolicies.push(policyName);
+        }
+        if (referencedPolicies.length > 0) {
+          return res.status(400).json({
+            message: '该通知对象已被以下策略引用，请先解除关联',
+            policies: referencedPolicies,
+          });
+        }
+      } catch (e: any) {
+        const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+        if (status >= 500) console.warn('[DELETE receivers] policy-references check failed:', e);
+      }
+      const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+      const getUrl = `${conn.origin}/${path}`;
+      const raw = await getJsonOnce(getUrl, conn.token, conn.insecure, true);
+      const existing = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+      if (!existing?.spec) {
+        return res.status(404).json({ message: '未找到该通知对象名称' });
+      }
+      const receivers = Array.isArray(existing.spec.receivers) ? existing.spec.receivers : [];
+      const toRemove = receivers.find((r: any) => (r?.name ?? '').toString().trim() === specReceiverName);
+      const nextReceivers = receivers.filter((r: any) => (r?.name ?? '').toString().trim() !== specReceiverName);
+      if (nextReceivers.length === receivers.length) {
+        return res.status(404).json({ message: '未找到该通知对象名称' });
+      }
+      if (name === DINGTALK_RECEIVER && toRemove) {
+        const robotAccount =
+          ((toRemove as any)?.webhookConfigs?.[0] as any)?.robotAccount ??
+          (toRemove as any)?.robotAccount ??
+          `${namespace}_${specReceiverName}`;
+        try {
+          await removeDingtalkConfigMapTarget(conn, robotAccount);
+        } catch (e: any) {
+          const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+          const msg = e?.message || '移除钉钉 Webhook ConfigMap target 失败';
+          if (status >= 500) console.error('[dingtalk-receiver] removeDingtalkConfigMapTarget:', e);
+          return res.status(status).json({ message: msg });
+        }
+      }
+      existing.spec.receivers = nextReceivers;
+      await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, existing);
+      res.status(204).send();
+    } catch (e: any) {
+      if (Number((e as any)?.status) === 404) {
+        return res.status(404).json({ message: e?.message || '未找到该通知对象名称' });
+      }
+      const status = (e as any).status || 500;
+      res.status(status).json({ message: e?.message || '删除通知对象失败' });
+    }
+  });
+
+  /** 邮件/站内信：receivers 原样透传，创建或更新 AlertmanagerConfig */
+  async function processEmailReceivers(
+    conn: { origin: string; token: string; insecure: boolean },
+    ns: string,
+    name: string,
+    body: any,
+    res: Response,
+    path: string,
+    getUrl: string
+  ): Promise<Response | void> {
+    const normalizeReceivers = (receivers: any[]) => (Array.isArray(receivers) ? receivers : []);
+    let existingRaw: any = null;
+    const exists = await getJsonOnce(getUrl, conn.token, conn.insecure, true)
+      .then((data) => {
+        existingRaw = data;
+        return true;
+      })
+      .catch((err: any) => (err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err)));
+    if (!exists) {
+      const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : [];
+      const createPayload = {
+        ...body,
+        spec: { ...(body?.spec || {}), receivers: normalizeReceivers(rawReceivers) },
+        metadata: {
+          ...(body?.metadata || {}),
+          namespace: ns,
+          name,
+          labels: { ...(body?.metadata?.labels || {}), 'monitoring-receiver': 'true' },
+        },
+      };
+      const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, createPayload);
+      return res.status(201).json(data);
+    }
+    const existing = (existingRaw as any)?.data != null && typeof (existingRaw as any).data === 'object' ? (existingRaw as any).data : existingRaw;
+    if (!existing?.spec) {
+      return res.status(500).json({ message: '通知对象配置异常' });
+    }
+    const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : (existing.spec.receivers || []);
+    existing.spec.receivers = normalizeReceivers(rawReceivers);
+    if (!existing.metadata) existing.metadata = {};
+    if (existing.metadata.labels?.['monitoring-receiver'] !== 'true') {
+      existing.metadata.labels = { ...(existing.metadata.labels || {}), 'monitoring-receiver': 'true' };
+    }
+    const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, existing);
+    try {
+      await syncPoliciesReceiverSpecsAfterReceiverConfigUpdate(conn, ns, existing.spec.receivers);
+    } catch (e) {
+      console.warn('[processEmailReceivers] syncPoliciesReceiverSpecs failed:', e);
+    }
+    return res.json(data);
+  }
+
+  /**
+   * 钉钉：normalize webhookConfigs + 更新 ConfigMap targets，再创建或更新 AlertmanagerConfig。
+   * 与 alertmanager-webhook-dingtalk (cattle-monitoring-system) 的 config.yaml.targets 对应：
+   * - 新增：POST 前若有 receivers 则 updateDingtalkConfigMapTargets(conn, ns, rawReceivers)，target 键为 namespace_specReceiverName 或 payload 中的 robotAccount。
+   * - 修改：PUT 前若有 receivers 则 updateDingtalkConfigMapTargets(conn, ns, rawReceivers)，合并/覆盖对应 target。
+   * - 删除：DELETE 某条 receiver 时 removeDingtalkConfigMapTarget(conn, robotAccount)，robotAccount 取自 webhookConfigs[0].robotAccount ?? receiver.robotAccount ?? namespace_specReceiverName。
+   */
+  async function processDingtalkReceivers(
+    conn: { origin: string; token: string; insecure: boolean },
+    ns: string,
+    name: string,
+    body: any,
+    res: Response,
+    path: string,
+    getUrl: string
+  ): Promise<Response | void> {
+    /** 与前端 receivers.ts 一致：robotAccount = namespace_specReceiverName；url 优先用请求体，否则用内部代理地址 getDingtalkWebhookUrl(robotAccount)；仅持久化 url/sendResolved（robotUrl/robotAccessToken 在 ConfigMap） */
+    const normalizeReceiversForDingtalk = (receivers: any[]): any[] => {
+      if (!Array.isArray(receivers)) return receivers;
+      return receivers.map((r: any) => {
+        const specReceiverName = (r?.name ?? '').toString().trim();
+        const webhookConfigs = Array.isArray(r.webhookConfigs) ? r.webhookConfigs : [];
+        let normalized = webhookConfigs.map((wc: any) => {
+          const robotAccount =
+            (wc as any)?.robotAccount ?? (r as any)?.robotAccount ?? `${ns}_${specReceiverName}`;
+          const explicitUrl = (r?.url ?? (wc as any)?.url ?? '').toString().trim();
+          const url = explicitUrl || `${DINGTALK_WEBHOOK_BASE}/${robotAccount}/send`;
+          return {
+            url,
+            sendResolved: (wc as any)?.sendResolved !== false,
+          };
+        });
+        if (normalized.length === 0 && specReceiverName) {
+          const robotAccount = `${ns}_${specReceiverName}`;
+          normalized = [{ url: `${DINGTALK_WEBHOOK_BASE}/${robotAccount}/send`, sendResolved: true }];
+        }
+        return { ...r, webhookConfigs: normalized };
+      });
+    };
+    let existingRaw: any = null;
+    const exists = await getJsonOnce(getUrl, conn.token, conn.insecure, true)
+      .then((data) => {
+        existingRaw = data;
+        return true;
+      })
+      .catch((err: any) => (err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err)));
+    if (!exists) {
+      const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : [];
+      if (rawReceivers.length > 0) {
+        try {
+          await updateDingtalkConfigMapTargets(conn, ns, rawReceivers);
+        } catch (e: any) {
+          const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+          const msg = e?.message || '更新钉钉Webhook配置文件失败';
+          if (status >= 500) console.error('[dingtalk-receiver] updateDingtalkWebhookConfig:', e);
+          return res.status(status).json({ message: msg });
+        }
+      }
+      const createPayload = {
+        ...body,
+        spec: { ...(body?.spec || {}), receivers: normalizeReceiversForDingtalk(rawReceivers) },
+        metadata: {
+          ...(body?.metadata || {}),
+          namespace: ns,
+          name,
+          labels: { ...(body?.metadata?.labels || {}), 'monitoring-receiver': 'true' },
+        },
+      };
+      const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, createPayload);
+      return res.status(201).json(data);
+    }
+    const existing = (existingRaw as any)?.data != null && typeof (existingRaw as any).data === 'object' ? (existingRaw as any).data : existingRaw;
+    if (!existing?.spec) {
+      return res.status(500).json({ message: '通知对象配置异常' });
+    }
+    const rawReceivers = Array.isArray(body?.spec?.receivers) ? body.spec.receivers : (existing.spec.receivers || []);
+    if (rawReceivers.length > 0) {
+      try {
+        await updateDingtalkConfigMapTargets(conn, ns, rawReceivers);
+      } catch (e: any) {
+        const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+        const msg = e?.message || '更新钉钉 Webhook ConfigMap 失败';
+        if (status >= 500) console.error('[dingtalk-receiver] updateDingtalkConfigMapTargets:', e);
+        return res.status(status).json({ message: msg });
+      }
+    }
+    existing.spec.receivers = normalizeReceiversForDingtalk(rawReceivers);
+    if (!existing.metadata) existing.metadata = {};
+    if (existing.metadata.labels?.['monitoring-receiver'] !== 'true') {
+      existing.metadata.labels = { ...(existing.metadata.labels || {}), 'monitoring-receiver': 'true' };
+    }
+    const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, existing);
+    try {
+      await syncPoliciesReceiverSpecsAfterReceiverConfigUpdate(conn, ns, existing.spec.receivers);
+    } catch (e) {
+      console.warn('[processDingtalkReceivers] syncPoliciesReceiverSpecs failed:', e);
+    }
+    return res.json(data);
+  }
+
+  router.post('/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name', async (req: any, res: Response) => {
+    try {
+      const cloudId = req.params.id;
+      const ns = (req.params.namespace ?? '').toString().trim();
+      const name = (req.params.name ?? '').toString().trim();
+      if (!ns) return res.status(400).json({ message: '命名空间不能为空' });
+      if (!isValidReceiverConfigName(name)) {
+        return res.status(400).json({ message: '通知方式必须是邮件、钉钉或站内信之一' });
+      }
+      const tenant = await requireTenantAccess(req, res, cloudId, {
+        namespaces: [ns],
+        forbiddenMessage: '仅能在您有权限的命名空间下操作告警通知对象',
+      });
+      if (!tenant) return;
+      const conn = await getCloudAndConn(cloudId, res);
+      if (!conn) return;
+      const body = req.body || {};
+      const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`;
+      const getUrl = `${conn.origin}/${path}`;
+      if (name === EMAIL_RECEIVER) {
+        return await processEmailReceivers(conn, ns, name, body, res, path, getUrl);
+      }
+      if (name === DINGTALK_RECEIVER) {
+        return await processDingtalkReceivers(conn, ns, name, body, res, path, getUrl);
+      }
+      if (name === WEBSITE_RECEIVER) {
+        const websitePayload = {
+          apiVersion: 'monitoring.coreos.com/v1alpha1',
+          kind: 'AlertmanagerConfig',
+          metadata: { name: WEBSITE_RECEIVER, namespace: ns, labels: { 'monitoring-receiver': 'true' } },
+          spec: { receivers: [{ name: WEBSITE_RECEIVER }] },
+        };
+        return await processEmailReceivers(conn, ns, name, websitePayload, res, path, getUrl);
+      }
+      return res.status(400).json({ message: '不支持的通知方式' });
+    } catch (e: any) {
+      const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
+      const msg = e?.message || '创建或更新告警通知对象失败';
+      if (status >= 500) console.error('[alertmanagerconfigs/receivers]', e);
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  /** 告警通知策略：直接调用 Harvester API 删除（不读写 DB） */
   router.delete('/:id/monitoring/alertmanagerconfigs/:namespace/:name', async (req: any, res: Response) => {
     try {
       const cloudId = req.params.id;
@@ -1808,21 +1588,10 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
         forbiddenMessage: '无权删除该命名空间下的告警通知策略',
       });
       if (!tenant) return;
-      const policyRepo = AppDataSource.getRepository(AlertPolicy);
-      const row = await policyRepo.findOne({ where: { cloudId, namespace, policyName: name } });
-      if (!row) {
-        return res.status(404).json({ message: '告警通知策略不存在' });
-      }
       const conn = await getCloudAndConn(cloudId, res);
       if (!conn) return;
       const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-      try {
-        await requestJson('DELETE', `${conn.origin}/${path}`, conn.token, conn.insecure);
-      } catch (delErr: any) {
-        if (Number((delErr as any)?.status) !== 404) throw delErr;
-      }
-      await AppDataSource.getRepository(AlertPolicyReceiver).delete({ cloudId, namespace, policyName: name });
-      await policyRepo.delete({ cloudId, namespace, policyName: name });
+      await requestJson('DELETE', `${conn.origin}/${path}`, conn.token, conn.insecure);
       res.status(204).send();
     } catch (e: any) {
       const status = (e as any).status || 500;
@@ -1830,3 +1599,4 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     }
   });
 }
+

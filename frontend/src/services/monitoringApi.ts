@@ -2,41 +2,81 @@
  * 监控 API：概览 + 监控告警，按 cloudId 请求 /api/clouds/:id/monitoring/*
  * 设计文档：plan/设计-监控服务-概览.md、设计-监控服务-监控告警.md
  */
-import { apiRequest, apiPost, apiPatch, apiDelete as apiDeleteUnified } from './api';
+import { API_BASE_URL, getAuthHeaders } from './api';
 
-const base = (cloudId: string) => `/api/clouds/${encodeURIComponent(cloudId)}/monitoring`;
+const base = (cloudId: string) => `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/monitoring`;
 
-// 包装统一 API 函数，保持向后兼容的返回格式 { data, ok, error }
 async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal }): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
-    // 注意：统一 API 函数目前不支持 signal，但保留参数以保持接口兼容
-    const data = await apiRequest(url, { skipCache: false });
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      signal: options?.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = res.statusText;
+      try {
+        const j = JSON.parse(text);
+        msg = j?.message || msg;
+      } catch {
+        if (text) msg = text.slice(0, 200);
+      }
+      return { data: null, ok: false, error: msg };
+    }
+    const data = await res.json();
     return { data, ok: true };
   } catch (e: any) {
-    const errorMsg = e?.message || e?.error || '请求失败';
-    return { data: null, ok: false, error: errorMsg };
+    return { data: null, ok: false, error: e?.message || '请求失败' };
   }
 }
 
 async function apiPostPut<T = unknown>(url: string, method: 'POST' | 'PUT', body: unknown): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
-    const data = method === 'POST' 
-      ? await apiPost(url, body)
-      : await apiPatch(url, body);
+    const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+    const res = await fetch(url, {
+      method,
+      headers,
+      credentials: 'include',
+      body: body != null ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = res.statusText;
+      try {
+        const j = JSON.parse(text);
+        msg = j?.message || msg;
+      } catch {
+        if (text) msg = text.slice(0, 200);
+      }
+      return { data: null, ok: false, error: msg };
+    }
+    if (res.status === 204) return { data: null as any, ok: true };
+    const data = await res.json();
     return { data, ok: true };
   } catch (e: any) {
-    const errorMsg = e?.message || e?.error || '请求失败';
-    return { data: null, ok: false, error: errorMsg };
+    return { data: null, ok: false, error: e?.message || '请求失败' };
   }
 }
 
 async function apiDelete(url: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    await apiDeleteUnified(url);
+    const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders(), credentials: 'include' });
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = res.statusText;
+      try {
+        const j = JSON.parse(text);
+        msg = j?.message || msg;
+      } catch {
+        if (text) msg = text.slice(0, 200);
+      }
+      return { ok: false, error: msg };
+    }
     return { ok: true };
   } catch (e: any) {
-    const errorMsg = e?.message || e?.error || '请求失败';
-    return { ok: false, error: errorMsg };
+    return { ok: false, error: e?.message || '请求失败' };
   }
 }
 
@@ -196,7 +236,7 @@ export function checkReceiverNameExists(
   );
 }
 
-/** 告警通知对象：从数据库读取（GET .../alertmanagerconfigs/receivers，不调用 Harvester），按 namespaces/receiverName 过滤聚合 */
+/** 告警通知对象：从 Harvester API 获取（GET .../alertmanagerconfigs/receivers，labelSelector: monitoring-receiver=true），按 namespaces/receiverName 过滤 */
 export function fetchNotificationTargetsList(
   cloudId: string,
   options?: { signal?: AbortSignal; namespaces?: string[]; receiverName?: string[] }
@@ -246,31 +286,20 @@ export function deleteAlertmanagerconfig(cloudId: string, namespace: string, nam
   return apiDelete(`${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 }
 
-/** 告警策略与通知对象关联：查询 policy-receivers 表 */
+/** 告警策略与通知对象关联：从 Harvester 查询引用某 receiver 的策略（namespace + specReceiverName） */
 export interface AlertPolicyReceiverItem {
-  id: string;
-  cloudId: string;
   namespace: string;
   policyName: string;
-  emailReceiverId?: string;
-  dingtalkReceiverId?: string;
-  receiverType: string;
-  createdAt?: string;
-  updatedAt?: string;
 }
 
 export function fetchAlertPolicyReceivers(
   cloudId: string,
-  options?: { policyName?: string; receiverType?: string; namespace?: string; emailReceiverId?: string; dingtalkReceiverId?: string; websiteReceiverId?: string; signal?: AbortSignal }
+  options?: { namespace?: string; specReceiverName?: string; signal?: AbortSignal }
 ) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   const params = new URLSearchParams();
-  if (options?.policyName) params.set('policyName', options.policyName);
-  if (options?.receiverType) params.set('receiverType', options.receiverType);
   if (options?.namespace) params.set('namespace', options.namespace);
-  if (options?.emailReceiverId) params.set('emailReceiverId', options.emailReceiverId);
-  if (options?.dingtalkReceiverId) params.set('dingtalkReceiverId', options.dingtalkReceiverId);
-  if (options?.websiteReceiverId) params.set('websiteReceiverId', options.websiteReceiverId);
+  if (options?.specReceiverName) params.set('specReceiverName', options.specReceiverName);
   const q = params.toString();
   return apiGet<{ data: AlertPolicyReceiverItem[] }>(
     `${base(cloudId)}/alertmanagerconfigs/policy-receivers${q ? `?${q}` : ''}`,
@@ -309,14 +338,14 @@ export function fetchPrometheusRuleVmCustomRules(cloudId: string, options?: { si
   return apiGet(`${base(cloudId)}/prometheusrules/vm-custom-rules`, options);
 }
 
-/** Opaque Secret 项（后端 /monitoring/secrets 返回的数组元素） */
+/** 告警密钥项：与后端 GET /monitoring/secrets 列表元素、GET /monitoring/secrets/:namespace/:name 详情一致。data 的值为 Base64 编码。 */
 export interface OpaqueSecretItem {
   name: string;
   type?: string;
   data: Record<string, string>;
 }
 
-/** 认证密钥列表（labels: monitoring-receiver-secret=true）。请求 GET /monitoring/secrets，支持 namespace、datasource（默认 prometheus）。 */
+/** 查-列表：告警密钥（labels: monitoring-receiver-secret=true）。GET /monitoring/secrets?namespace=&datasource=，返回 { name, data, type }[] */
 export function fetchSecrets(
   cloudId: string,
   options?: { signal?: AbortSignal; namespace?: string; datasource?: string }
@@ -324,12 +353,12 @@ export function fetchSecrets(
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   const params = new URLSearchParams();
   if (options?.namespace) params.set('namespace', options.namespace);
-  if (options?.datasource) params.set('datasource', options.datasource);
+  if (options?.datasource) params.set('datasource', options.datasource ?? 'prometheus');
   const q = params.toString();
   return apiGet<OpaqueSecretItem[]>(`${base(cloudId)}/secrets${q ? `?${q}` : ''}`, options);
 }
 
-/** 获取单个告警密钥（GET /monitoring/secrets/:namespace/:name） */
+/** 查-详情：单个告警密钥。GET /monitoring/secrets/:namespace/:name，返回 { name, namespace, data, type }，data 为 Base64 键值对 */
 export function fetchSecretDetail(
   cloudId: string,
   namespace: string,
@@ -343,15 +372,15 @@ export function fetchSecretDetail(
   );
 }
 
-/** 新增告警密钥（POST /monitoring/secrets），body 需含 metadata.namespace、metadata.name、data */
+/** 增：新增告警密钥。POST /monitoring/secrets，body.metadata.namespace/name 必填，body.data 为键值对且值需已 Base64 编码 */
 export function createSecret(cloudId: string, body: { metadata: { namespace: string; name: string; labels?: Record<string, string> }; data: Record<string, string>; type?: string }) {
-  if (!cloudId) return Promise.resolve({ ok: false, error: '缺少 cloudId' });
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiPostPut(`${base(cloudId)}/secrets`, 'POST', body);
 }
 
-/** 修改告警密钥（PUT /monitoring/secrets/:namespace/:name） */
+/** 改：修改告警密钥。PUT /monitoring/secrets/:namespace/:name，body.data 为键值对且值需已 Base64 编码 */
 export function updateSecret(cloudId: string, namespace: string, name: string, body: { data: Record<string, string>; type?: string }) {
-  if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
+  if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
   return apiPostPut(
     `${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
     'PUT',
@@ -359,7 +388,7 @@ export function updateSecret(cloudId: string, namespace: string, name: string, b
   );
 }
 
-/** 删除告警密钥（DELETE /monitoring/secrets/:namespace/:name） */
+/** 删：删除告警密钥。DELETE /monitoring/secrets/:namespace/:name，仅允许带 monitoring-receiver-secret=true 的密钥 */
 export function deleteSecret(cloudId: string, namespace: string, name: string) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ ok: false, error: '缺少 cloudId/namespace/name' });
   return apiDelete(`${base(cloudId)}/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
