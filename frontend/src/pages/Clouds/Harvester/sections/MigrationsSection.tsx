@@ -286,7 +286,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         rowKey={(r) => SafeMig.uidOrKey(r)}
         columns={tableColumns}
         dataSource={filteredData}

@@ -584,7 +584,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       </StdFormModal>
       <Table
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         rowKey={(r:any)=> getId(r)}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
         columns={tableColumns}

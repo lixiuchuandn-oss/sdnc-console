@@ -224,7 +224,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
     >
       <Table
         className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        bordered={false}
         rowKey={(r: any) => r?.metadata?.name || r?.name}
         columns={tableColumns}
         dataSource={filtered}

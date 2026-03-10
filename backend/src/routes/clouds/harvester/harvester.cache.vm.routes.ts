@@ -42,6 +42,7 @@ import { AppDataSource } from '../../../config/database';
 import { UserSpace } from '../../../entities/UserSpace';
 import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory';
 import { HarvesterVmiInventory } from '../../../entities/harvester/HarvesterVmiInventory';
+import { HarvesterTemplateInventory } from '../../../entities/harvester/HarvesterTemplateInventory';
 import {
   createHarvesterVM,
   getHarvesterVM,
@@ -56,6 +57,7 @@ import {
   listKubevirtVMsRawWithMeta,
   listKubevirtVMIsRawWithMeta,
 } from '../../../services/clouds/harvester/client';
+import { createHarvesterPVCVolume } from '../../../services/clouds/harvester/storage';
 import { syncKubevirtVms, syncKubevirtVmis } from '../../../services/clouds/harvester/inventory';
 import { getJsonOnce, requestJson, watchJsonStream } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
@@ -559,6 +561,275 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
     },
   );
 
+  router.post(
+    '/:id/resources/harvester/templates/:namespace/:name/create-vm',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const body = req.body || {};
+        const newVmName: string = String(body?.name || '').trim();
+        const targetNamespace: string = String(body?.namespace || '').trim() || namespace;
+        if (!newVmName) return res.status(400).json({ message: '缺少虚拟机名称' });
+
+        let tenantNamespace: string | undefined;
+        const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req.user as any)?.role === 'tenant';
+        const isTenant = isTenantUser || isTenantRole;
+
+        if (isTenant) {
+          const p = (req.user as any)?.permissions || [];
+          if (!p.includes('clouds.console:write'))
+            return res.status(403).json({ message: 'Permission denied: Requires clouds.console:write' });
+
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+            where.organizationId = (req.user as any).organizationId;
+          }
+          const us = await userSpaceRepo.findOne({ where });
+          if (!us) return res.status(403).json({ message: 'Access denied to this resource pool' });
+          tenantNamespace = us.namespace;
+        }
+
+        if (isTenant) {
+          const allowed = tenantNamespace ? tenantNamespace.split(',').map((s) => s.trim()) : [];
+          if (!allowed.includes(targetNamespace)) {
+            return res.status(403).json({
+              message: `无权访问命名空间 '${targetNamespace}'。允许的范围: ${allowed.join(', ')}`,
+            });
+          }
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 操作', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const tplUrl = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
+          namespace,
+        )}/virtualmachinetemplates/${encodeURIComponent(name)}`;
+        const template = await getJsonOnce(tplUrl, cloud.secretKey || '', insecure);
+
+        let defaultVersionId: string | undefined =
+          template?.spec?.defaultVersionId || template?.status?.defaultVersionId || template?.status?.defaultVersion;
+        if (!defaultVersionId) return res.status(400).json({ message: '模板缺少默认版本信息' });
+
+        let versionNs = namespace;
+        let versionName = String(defaultVersionId);
+        const parts = String(defaultVersionId).split('/').filter(Boolean);
+        if (parts.length >= 2) {
+          versionNs = parts[parts.length - 2];
+          versionName = parts[parts.length - 1];
+        }
+
+        const verUrl = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
+          versionNs,
+        )}/virtualmachinetemplateversions/${encodeURIComponent(versionName)}`;
+        const version = await getJsonOnce(verUrl, cloud.secretKey || '', insecure);
+
+        const vmSpec = version?.spec?.vm?.spec;
+        const vmTemplateSpec = vmSpec?.template?.spec;
+        const vmTemplateMeta = vmSpec?.template?.metadata || {};
+        const vct = vmSpec?.volumeClaimTemplates || [];
+        if (!vmTemplateSpec) return res.status(400).json({ message: '模板版本缺少 VM 模板规范' });
+
+        const cleanSpec = JSON.parse(JSON.stringify(vmTemplateSpec));
+        if (cleanSpec.hostname) delete cleanSpec.hostname;
+        if (cleanSpec.domain?.firmware?.uuid) delete cleanSpec.domain.firmware.uuid;
+        if (Array.isArray(cleanSpec.domain?.devices?.interfaces)) {
+          cleanSpec.domain.devices.interfaces.forEach((iface: any) => {
+            if (iface.macAddress) delete iface.macAddress;
+          });
+        }
+        if (
+          cleanSpec.domain?.cpu?.dedicatedCpuPlacement === true &&
+          (cleanSpec.domain?.cpu?.cores || cleanSpec.domain?.cpu?.sockets || cleanSpec.domain?.cpu?.threads)
+        ) {
+          if (cleanSpec.domain?.resources?.requests && (cleanSpec.domain.resources.requests as any).cpu != null) {
+            delete (cleanSpec.domain.resources.requests as any).cpu;
+          }
+          if (cleanSpec.domain?.resources?.limits && (cleanSpec.domain.resources.limits as any).cpu != null) {
+            delete (cleanSpec.domain.resources.limits as any).cpu;
+          }
+        }
+
+        let vctArray = Array.isArray(vct) ? JSON.parse(JSON.stringify(vct)) : [];
+        try {
+          const annVctStr = vmTemplateMeta?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+          if ((!vctArray || vctArray.length === 0) && annVctStr) {
+            const annVcts = JSON.parse(annVctStr);
+            if (Array.isArray(annVcts) && annVcts.length > 0) vctArray = JSON.parse(JSON.stringify(annVcts));
+          }
+        } catch {}
+
+        let primaryImageId: string | undefined = undefined;
+        let primaryImageName: string | undefined = undefined;
+
+        if (Array.isArray(cleanSpec?.volumes)) {
+          const waitForPvcCreated = async (ns: string, pvcName: string, timeoutMs = 20000) => {
+            const start = Date.now();
+            while (Date.now() - start < timeoutMs) {
+              try {
+                const pvcUrl = `${origin}/api/v1/namespaces/${encodeURIComponent(
+                  ns,
+                )}/persistentvolumeclaims/${encodeURIComponent(pvcName)}`;
+                const j = await getJsonOnce(pvcUrl, cloud.secretKey || '', insecure);
+                if (j) return j;
+              } catch {}
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+            throw new Error(`PVC创建后未找到：${ns}/${pvcName}`);
+          };
+
+          cleanSpec.volumes = await Promise.all(
+            cleanSpec.volumes.map(async (vol: any, idx: number) => {
+              if (vol?.persistentVolumeClaim?.claimName) {
+                const oldClaim = String(vol.persistentVolumeClaim.claimName).trim();
+                const volName = String(vol?.name || `disk-${idx}`).trim();
+                const suffix = Math.random().toString(36).substring(2, 7);
+                const newPvcName = `${newVmName}-${volName}-${suffix}`;
+
+                const pvcNamespacesToTry = Array.from(
+                  new Set([String(namespace).trim(), String(versionNs).trim(), String(targetNamespace).trim()]),
+                ).filter(Boolean);
+                let pvc: any = null;
+                for (const nsTry of pvcNamespacesToTry) {
+                  try {
+                    const pvcUrl = `${origin}/api/v1/namespaces/${encodeURIComponent(
+                      nsTry,
+                    )}/persistentvolumeclaims/${encodeURIComponent(oldClaim)}`;
+                    pvc = await getJsonOnce(pvcUrl, cloud.secretKey || '', insecure);
+                    if (pvc) break;
+                  } catch {}
+                }
+
+                const pvcSpec = pvc?.spec || {};
+                const pvcAnn = pvc?.metadata?.annotations || {};
+                const imageId = pvcAnn['harvesterhci.io/imageId'];
+                const imageName = pvcAnn['harvesterhci.io/image-name'] || pvcAnn['harvesterhci.io/imageName'];
+
+                if (!primaryImageId && imageId) primaryImageId = String(imageId);
+                if (!primaryImageName && imageName) primaryImageName = String(imageName);
+
+                await createHarvesterPVCVolume(
+                  { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+                  {
+                    namespace: targetNamespace,
+                    name: newPvcName,
+                    size: (pvcSpec?.resources?.requests?.storage as any) || '10Gi',
+                    accessModes:
+                      Array.isArray(pvcSpec?.accessModes) && pvcSpec.accessModes.length > 0
+                        ? pvcSpec.accessModes
+                        : ['ReadWriteOnce'],
+                    volumeMode: pvcSpec?.volumeMode,
+                    storageClassName: pvcSpec?.storageClassName,
+                    annotations:
+                      imageId || imageName
+                        ? {
+                            ...(imageId ? { 'harvesterhci.io/imageId': String(imageId) } : {}),
+                            ...(imageName ? { 'harvesterhci.io/image-name': String(imageName) } : {}),
+                          }
+                        : undefined,
+                  } as any,
+                );
+                await waitForPvcCreated(targetNamespace, newPvcName);
+
+                return { ...vol, persistentVolumeClaim: { claimName: newPvcName }, dataVolume: undefined };
+              }
+
+              return vol;
+            }),
+          );
+
+          vctArray = [];
+        }
+
+        const metaClean = JSON.parse(JSON.stringify(vmTemplateMeta || {}));
+        try {
+          if (metaClean.annotations && metaClean.annotations['harvesterhci.io/volumeClaimTemplates']) {
+            try {
+              metaClean.annotations['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify(vctArray || []);
+            } catch {
+              delete metaClean.annotations['harvesterhci.io/volumeClaimTemplates'];
+            }
+          }
+          if (metaClean.annotations) {
+            delete metaClean.annotations['harvesterhci.io/dataVolumeTemplates'];
+          }
+        } catch {
+          if (metaClean.annotations) {
+            delete metaClean.annotations['harvesterhci.io/volumeClaimTemplates'];
+            delete metaClean.annotations['harvesterhci.io/dataVolumeTemplates'];
+          }
+        }
+
+        if (primaryImageId || primaryImageName) {
+          if (!metaClean.annotations) metaClean.annotations = {};
+          if (primaryImageId && !metaClean.annotations['harvesterhci.io/imageId']) {
+            metaClean.annotations['harvesterhci.io/imageId'] = String(primaryImageId);
+          }
+          if (primaryImageName && !metaClean.annotations['harvesterhci.io/image-name']) {
+            metaClean.annotations['harvesterhci.io/image-name'] = String(primaryImageName);
+          }
+        }
+
+        const autoStart = Boolean(body?.autoStart ?? true);
+        const desiredRunStrategy = autoStart ? 'Always' : 'Manual';
+        const payload: any = {
+          apiVersion: 'kubevirt.io/v1',
+          kind: 'VirtualMachine',
+          metadata: {
+            name: newVmName,
+            namespace: targetNamespace,
+            labels: metaClean.labels || {},
+            annotations: metaClean.annotations || {},
+          },
+          spec: {
+            runStrategy: desiredRunStrategy,
+            template: { metadata: metaClean, spec: cleanSpec },
+          },
+        };
+
+        if (Array.isArray(vctArray) && vctArray.length > 0) payload.spec.volumeClaimTemplates = vctArray;
+
+        const created = await createHarvesterVM(
+          { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          targetNamespace,
+          payload,
+        );
+        res.json({ message: '创建成功', data: created });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        const status = Number(error?.status || 500);
+        const body = error?.body ?? error;
+        const reason = String(body?.reason || '').trim();
+        const msg = String(body?.message || '').toLowerCase();
+
+        if (status === 409 && (reason === 'AlreadyExists' || msg.includes('already exists'))) {
+          const attemptedName = String((req as any)?.body?.name || '').trim();
+          const attemptedNs =
+            String((req as any)?.body?.namespace || '').trim() || String((req as any)?.params?.namespace || '').trim();
+          return res.status(409).json({
+            message: `虚拟机已存在：${attemptedNs}/${attemptedName}，请更换名称后重试`,
+            error: body,
+          });
+        }
+
+        res.status(status).json({ message: error?.message || '创建失败', error: body });
+      }
+    },
+  );
+
   /**
    * [GET] /:id/resources/harvester/vms/:namespace/:name
    * 获取单个 VM 的原始 Manifest（直连 Harvester）
@@ -767,19 +1038,8 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           targetNamespace,
         )}/virtualmachinetemplateversions`;
 
-        // Extract SSH Key IDs from annotations
-        let keyPairIds: string[] = [];
-        try {
-            const sshNames = vmAnnotations['harvesterhci.io/sshNames'];
-            if (sshNames) {
-                const parsed = JSON.parse(sshNames);
-                if (Array.isArray(parsed)) {
-                    keyPairIds = parsed;
-                }
-            }
-        } catch (e) {
-            console.warn('Failed to parse sshNames annotation', e);
-        }
+        const vmTemplateSpec = JSON.parse(JSON.stringify(vm.spec?.template?.spec || {}));
+        const vmTemplateMeta = JSON.parse(JSON.stringify(vm.spec?.template?.metadata || {}));
 
         const versionPayload: any = {
           apiVersion: 'harvesterhci.io/v1beta1',
@@ -800,25 +1060,23 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           },
           spec: {
             templateId: `${targetNamespace}/${resourceName}`,
-            keyPairIds: keyPairIds.length > 0 ? keyPairIds : undefined,
             vm: {
-              // VirtualMachine structure (metadata + spec)
+              apiVersion: 'kubevirt.io/v1',
+              kind: 'VirtualMachine',
               metadata: {
-                  annotations: {
-                      // 保留必要的注解
-                      'harvesterhci.io/volumeClaimTemplates': templateAnnotations['harvesterhci.io/volumeClaimTemplates'],
-                  }
+                name: vmName,
+                namespace: targetNamespace,
+                labels: vmTemplateMeta?.labels || undefined,
+                annotations: vmTemplateMeta?.annotations || undefined,
               },
               spec: {
-                  template: {
-                    metadata: {
-                      labels: vm.spec?.template?.metadata?.labels || undefined,
-                      annotations: vm.spec?.template?.metadata?.annotations || undefined,
-                    },
-                    spec: {
-                        ...vm.spec?.template?.spec,
-                    }
-                  }
+                template: {
+                  metadata: {
+                    labels: vmTemplateMeta?.labels || undefined,
+                    annotations: vmTemplateMeta?.annotations || undefined,
+                  },
+                  spec: vmTemplateSpec,
+                },
               }
             },
           },
@@ -849,6 +1107,19 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
             });
         }
 
+        if (!templateSpec.domain) templateSpec.domain = {};
+        if (!templateSpec.domain.resources) templateSpec.domain.resources = {};
+        if (!templateSpec.domain.resources.limits) templateSpec.domain.resources.limits = {};
+        const existingCpuLimit = (templateSpec.domain.resources.limits as any)?.cpu;
+        if (!existingCpuLimit) {
+          const cpuFromRequests =
+            (templateSpec.domain.resources.requests as any)?.cpu ||
+            (vm.spec?.template?.spec?.domain?.resources?.requests as any)?.cpu;
+          const cpuFromCores = vm.spec?.template?.spec?.domain?.cpu?.cores;
+          (templateSpec.domain.resources.limits as any).cpu =
+            cpuFromRequests || (cpuFromCores ? String(cpuFromCores) : '1');
+        }
+
         await requestJson(
           'POST',
           versionUrl,
@@ -857,29 +1128,94 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           versionPayload,
         );
 
-        // 3. Update Template with defaultVersionId
-        // Fetch the latest template first to avoid 409 Conflict (resourceVersion mismatch)
-        const latestTemplate = await requestJson(
-            'GET',
-            `${url}/${resourceName}`,
-            cloud.secretKey || '',
-            insecure
-        );
+        const templateUrl = `${url}/${resourceName}`;
+        const defaultVersionId = `${targetNamespace}/${versionName}`;
 
-        latestTemplate.spec.defaultVersionId = versionName;
-        
-        await requestJson(
-            'PUT',
-            `${url}/${resourceName}`,
-            cloud.secretKey || '',
-            insecure,
-            latestTemplate
-        );
+        const patchTemplateDefaultVersion = async () => {
+          const body = { spec: { defaultVersionId } };
+          for (let i = 0; i < 5; i++) {
+            try {
+              await requestJson('PATCH', templateUrl, cloud.secretKey || '', insecure, body, {
+                'Content-Type': 'application/merge-patch+json',
+              });
+              return;
+            } catch (e: any) {
+              const st = Number(e?.status || 0);
+              if (st === 409 && i < 4) {
+                await new Promise((r) => setTimeout(r, 250));
+                continue;
+              }
+              throw e;
+            }
+          }
+        };
+
+        const putTemplateDefaultVersion = async () => {
+          for (let i = 0; i < 5; i++) {
+            const latest = await requestJson('GET', templateUrl, cloud.secretKey || '', insecure);
+            latest.spec = latest.spec || {};
+            latest.spec.defaultVersionId = defaultVersionId;
+            try {
+              await requestJson('PUT', templateUrl, cloud.secretKey || '', insecure, latest);
+              return;
+            } catch (e: any) {
+              const st = Number(e?.status || 0);
+              if (st === 409 && i < 4) {
+                await new Promise((r) => setTimeout(r, 250));
+                continue;
+              }
+              throw e;
+            }
+          }
+        };
+
+        try {
+          await patchTemplateDefaultVersion();
+        } catch (e: any) {
+          const st = Number(e?.status || 0);
+          if (st === 405 || st === 415 || st === 400) {
+            await putTemplateDefaultVersion();
+          } else {
+            throw e;
+          }
+        }
+
+        const latestTemplate = await requestJson('GET', templateUrl, cloud.secretKey || '', insecure);
+
+        try {
+          const repo = AppDataSource.getRepository(HarvesterTemplateInventory);
+          const uid = latestTemplate?.metadata?.uid || createdTemplate?.metadata?.uid || '';
+          if (uid) {
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            const payload = {
+              cloudId: cloud.id,
+              uid,
+              name: latestTemplate?.metadata?.name || resourceName,
+              namespace: latestTemplate?.metadata?.namespace || targetNamespace,
+              description: latestTemplate?.spec?.description,
+              defaultVersionId: latestTemplate?.spec?.defaultVersionId,
+              labels: latestTemplate?.metadata?.labels,
+              annotations: latestTemplate?.metadata?.annotations,
+              rawData: latestTemplate,
+            };
+            if (existing) {
+              Object.assign(existing, payload);
+              await repo.save(existing);
+            } else {
+              const entity = repo.create(payload as any);
+              await repo.save(entity);
+            }
+          }
+        } catch (e: any) {
+          console.error('[Template-SaveAs] 入库模板失败:', e?.message || e);
+        }
 
         res.json({ message: '模板创建成功', data: latestTemplate });
       } catch (error: any) {
         if (res.headersSent) return;
-        res.status(500).json({ message: '保存为模板失败', error: error.message || String(error) });
+        const status = Number(error?.status || 500);
+        const body = error?.body ?? error?.message ?? String(error);
+        res.status(status || 500).json({ message: '保存为模板失败', error: body });
       }
     },
   );

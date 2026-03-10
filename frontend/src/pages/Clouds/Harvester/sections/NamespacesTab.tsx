@@ -523,7 +523,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       {/* === 主表格 === */}
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         rowKey={(r: any) => r?.metadata?.name || r?.name || Math.random().toString(36).slice(2)}
         loading={loading}
         dataSource={filtered}

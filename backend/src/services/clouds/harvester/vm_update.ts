@@ -298,7 +298,7 @@ const updateHarvesterVMSpecInternal = async (
   // 1. 变更规格（change_spec）：传递 cpu, memory, cpuSockets, cpuCores, cpuThreads
   // 2. 热扩容开关（hotplug_settings）：传递 enableHotPlug, maxSockets, maxMemory
   // 这两个功能传递的所有字段都在此白名单中，因此都会走简单路径，不会走到复杂路径
-  const simpleFields = ['cpu', 'memory', 'enableHotPlug', 'cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 'isolateEmulatorThread', 'cpuRequest', 'cpuLimit', 'memoryLimit', 'runStrategy', 'maxSockets', 'maxMemory'];
+  const simpleFields = ['cpu', 'memory', 'enableHotPlug', 'cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 'isolateEmulatorThread', 'cpuRequest', 'cpuLimit', 'memoryRequestGi', 'memoryLimitGi', 'memoryLimit', 'runStrategy', 'maxSockets', 'maxMemory'];
   const hasComplexFields = Object.keys(spec).some(k => !simpleFields.includes(k));
   
   if (!hasComplexFields) {
@@ -591,6 +591,9 @@ const updateHarvesterVMSpecInternal = async (
           if (spec.dedicatedCPUPlacement) {
               if (currentDedicated !== true) {
                   domain.cpu.dedicatedCpuPlacement = true;
+                  ensureResources();
+                  (domain.resources.requests as any).cpu = null;
+                  (domain.resources.limits as any).cpu = null;
               }
           } else {
               if (currentDedicated !== null && currentDedicated !== undefined) {
@@ -621,18 +624,50 @@ const updateHarvesterVMSpecInternal = async (
       const isHotPlugByAnnotation = supportCPUAndMemoryHotplug(current);
       const isCpuHotPlug = (spec.enableHotPlug === true) || (spec.enableHotPlug !== false && isHotPlugByAnnotation);
 
-      if (!isCpuHotPlug) {
+      if (!isCpuHotPlug && spec.dedicatedCPUPlacement !== true) {
           if (spec.cpuRequest !== undefined) {
               ensureResources();
-              domain.resources.requests.cpu = String(spec.cpuRequest);
+              (domain.resources.requests as any).cpu = spec.cpuRequest === null ? null : String(spec.cpuRequest);
           }
           if (spec.cpuLimit !== undefined) {
               ensureResources();
-              domain.resources.limits.cpu = String(spec.cpuLimit);
+              (domain.resources.limits as any).cpu = spec.cpuLimit === null ? null : String(spec.cpuLimit);
           }
       }
 
       // 4. Advanced Memory
+      if (spec.memoryRequestGi !== undefined) {
+          const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
+          const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
+          if (!isMemHotPlug) {
+              ensureResources();
+              if (spec.memoryRequestGi === null) {
+                  (domain.resources.requests as any).memory = null;
+              } else {
+                  const n = Number(spec.memoryRequestGi);
+                  if (Number.isFinite(n) && n > 0) {
+                      domain.resources.requests.memory = `${n}Gi`;
+                  }
+              }
+          }
+      }
+
+      if (spec.memoryLimitGi !== undefined) {
+          const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
+          const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
+          if (!isMemHotPlug) {
+              ensureResources();
+              if (spec.memoryLimitGi === null) {
+                  (domain.resources.limits as any).memory = null;
+              } else {
+                  const n = Number(spec.memoryLimitGi);
+                  if (Number.isFinite(n) && n > 0) {
+                      domain.resources.limits.memory = `${n}Gi`;
+                  }
+              }
+          }
+      }
+
       if (spec.memoryLimit !== undefined) {
           // [Hot Plug Fix] 内存热扩容模式下，忽略 memoryLimit
           const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
@@ -1410,6 +1445,9 @@ const updateHarvesterVMSpecInternal = async (
       ensureCpu();
       if (spec.dedicatedCPUPlacement) {
           domain.cpu.dedicatedCpuPlacement = true;
+          ensureResources();
+          (domain.resources.requests as any).cpu = null;
+          (domain.resources.limits as any).cpu = null;
       } else {
           // merge-patch 语义：显式置 null 才能清空现有 true 值
           (domain.cpu as any).dedicatedCpuPlacement = null;
@@ -1432,15 +1470,47 @@ const updateHarvesterVMSpecInternal = async (
   // [资源限制] CPU Requests / Limits
   if (spec.cpuRequest !== undefined) {
       ensureResources();
-      domain.resources.requests.cpu = String(spec.cpuRequest);
+      (domain.resources.requests as any).cpu = spec.cpuRequest === null ? null : String(spec.cpuRequest);
   }
   
   if (spec.cpuLimit !== undefined) {
       ensureResources();
-      domain.resources.limits.cpu = String(spec.cpuLimit);
+      (domain.resources.limits as any).cpu = spec.cpuLimit === null ? null : String(spec.cpuLimit);
   }
   
   // --- 4. [高级配置] 内存限制 (Memory Limits) ---
+  if (spec.memoryRequestGi !== undefined) {
+      const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
+      const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
+      if (!isMemHotPlug) {
+          ensureResources();
+          if (spec.memoryRequestGi === null) {
+              (domain.resources.requests as any).memory = null;
+          } else {
+              const n = Number(spec.memoryRequestGi);
+              if (Number.isFinite(n) && n > 0) {
+                  domain.resources.requests.memory = `${n}Gi`;
+              }
+          }
+      }
+  }
+
+  if (spec.memoryLimitGi !== undefined) {
+      const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
+      const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
+      if (!isMemHotPlug) {
+          ensureResources();
+          if (spec.memoryLimitGi === null) {
+              (domain.resources.limits as any).memory = null;
+          } else {
+              const n = Number(spec.memoryLimitGi);
+              if (Number.isFinite(n) && n > 0) {
+                  domain.resources.limits.memory = `${n}Gi`;
+              }
+          }
+      }
+  }
+
   if (spec.memoryLimit !== undefined) {
       ensureResources();
       domain.resources.limits.memory = spec.memoryLimit;

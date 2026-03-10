@@ -340,7 +340,7 @@ export const registerHarvesterMetaRoutes = (
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
+        const { force, skipSync } = req.query;
         
         // [前置校验]
         const cloud = await fetchCloudOr404(id, res);
@@ -399,10 +399,13 @@ export const registerHarvesterMetaRoutes = (
           whereCondition = { cloudId: id, namespace: In(allowedNamespaces) };
         }
 
-        const count = await repo.count({ where: whereCondition });
+        const totalCount = await repo.count({ where: { cloudId: id } });
+        const shouldSync =
+          totalCount === 0 ||
+          (String(force) === 'true' && String(skipSync) !== 'true');
 
         // [缓存策略] 同步模板数据
-        if (count === 0 || String(force) === 'true') {
+        if (shouldSync) {
           try {
             await syncHarvesterTemplates(cloud, insecure);
           } catch (e: any) {
@@ -410,8 +413,12 @@ export const registerHarvesterMetaRoutes = (
               'Sync Templates failed, falling back to empty/stale',
               e,
             );
-            if (count === 0) throw e;
+            if (totalCount === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(
+            `[Templates-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`,
+          );
         }
 
         const items = await repo.find({ where: whereCondition });

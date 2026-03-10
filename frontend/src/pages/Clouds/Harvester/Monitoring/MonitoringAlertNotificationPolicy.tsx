@@ -965,7 +965,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         >
           <Table
             className="std-table"
-            bordered
+            bordered={false}
             rowKey={(row) => row.id ?? row.metadata?.name ?? String(Math.random())}
             loading={configLoading}
             columns={configColumns}

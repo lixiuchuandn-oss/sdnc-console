@@ -294,7 +294,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(r) => `${r.namespace ?? ''}-${r.name}`}
           loading={loading}
           columns={columns}

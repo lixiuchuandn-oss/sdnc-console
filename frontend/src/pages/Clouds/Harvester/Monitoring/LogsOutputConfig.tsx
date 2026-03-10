@@ -556,7 +556,7 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: OutputItem) => row.id ?? `${row.metadata?.namespace ?? ''}/${row.metadata?.name ?? ''}`}
           loading={loading}
           columns={columns}

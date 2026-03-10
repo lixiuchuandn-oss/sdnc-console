@@ -463,7 +463,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: ClusterOutputItem) => row.id ?? row.metadata?.name ?? String(Math.random())}
           loading={loading}
           columns={columns}

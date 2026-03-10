@@ -270,8 +270,7 @@ const VolumesSection: React.FC<Props> = ({
   storageClasses: propStorageClasses, 
   namespacesOptions, 
   onRefresh, 
-  isTenant,
-  bordered = true
+  isTenant
 }) => {
   // ----------------------------------------------------------------
   // [状态管理] State
@@ -1067,7 +1066,7 @@ const VolumesSection: React.FC<Props> = ({
     >
       <Table
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         rowKey="key"
         rowSelection={{
           selectedRowKeys,

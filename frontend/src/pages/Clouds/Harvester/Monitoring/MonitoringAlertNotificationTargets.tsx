@@ -980,7 +980,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
         >
           <Table<ReceiverItem>
             className="std-table"
-            bordered
+            bordered={false}
             rowKey={(record) => record.key}
             loading={loading}
             columns={columns}

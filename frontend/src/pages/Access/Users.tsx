@@ -62,13 +62,13 @@ const AccessUsersPage: React.FC = () => {
   }, []);
 
   const defaultColumns: ColumnsType<SysUser> = useMemo(() => [
-    { title:'用户名', key:'username', dataIndex:'username', width:150, render: (v:any, row: SysUser) => (
+    { title:'用户名', key:'username', dataIndex:'username', render: (v:any, row: SysUser) => (
       <Space>
         { row.username === 'admin' ? <Tag color="gold">Admin</Tag> : (row.builtIn ? <Tag color="blue">BuiltIn</Tag> : <Tag>User</Tag>) }
         <Text strong>{v}</Text>
       </Space>
     ) },
-    { title:'姓名', key:'fullName', dataIndex:'fullName', width:150 },
+    { title:'姓名', key:'fullName', dataIndex:'fullName' },
     { title:'角色', key:'roles', render: (_:any, row: SysUser) => {
       const myRoles = rolesByUser[row.id] || [];
       if (!myRoles.length) return <Text type="secondary">-</Text>;
@@ -81,11 +81,11 @@ const AccessUsersPage: React.FC = () => {
       );
     } },
     { title:'邮箱', key:'email', dataIndex:'email' },
-    { title:'状态', key:'status', width:100, render: (v:any) => {
+    { title:'状态', key:'status', render: (v:any) => {
       const map: any = { 'active': <Tag color="success">活跃</Tag>, 'inactive': <Tag color="default">非活跃</Tag>, 'suspended': <Tag color="error">暂停</Tag> };
       return map[String(v)] || v;
     } },
-    { title:'操作', key:'actions', width:120, fixed:'right' as const, render: (_:any, row: SysUser) => {
+    { title:'操作', key:'actions', width:80, fixed:'right' as const, render: (_:any, row: SysUser) => {
       if (row.username === 'admin') return null;
       const itemsRaw = [
         { key:'assign', label:'分配角色', onClick: () => openAssign(row) },
@@ -255,7 +255,6 @@ const AccessUsersPage: React.FC = () => {
         columns={visibleColumns}
         scroll={{ 
           x: 'max-content',
-          y: 600  // 启用虚拟滚动，设置固定高度
         }}
         rowSelection={{
           selectedRowKeys,
@@ -265,7 +264,7 @@ const AccessUsersPage: React.FC = () => {
           }),
         }}
         pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], size: 'small', showQuickJumper: false }}
-        bordered
+        bordered={false}
       />
 
       <StdFormModal title="新建系统用户" open={createOpen} onCancel={()=> setCreateOpen(false)} okText="创建" width={600} form={createForm} onFinish={handleCreate}>

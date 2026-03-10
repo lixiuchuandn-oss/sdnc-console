@@ -566,7 +566,7 @@ const Clouds: React.FC = () => {
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         columns={activeColumns}
         dataSource={filteredClouds}
         rowKey="id"

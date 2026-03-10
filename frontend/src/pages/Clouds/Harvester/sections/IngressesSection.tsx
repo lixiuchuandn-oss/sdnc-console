@@ -122,7 +122,7 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"

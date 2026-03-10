@@ -676,7 +676,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           pagination={false}
           rowKey={(r) => SafeRead.name(r) || Math.random().toString()}
           size="small"
-          bordered={bordered}
+          bordered={false}
         />
       </div>
     );
@@ -732,7 +732,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     >
       <Table
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         rowKey={(r) => SafeRead.name(r) || Math.random().toString()}
         columns={tableColumns}
         dataSource={dataSource}

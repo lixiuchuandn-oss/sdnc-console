@@ -200,7 +200,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
     >
       <Table
         className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        bordered={false}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey={(r) => r?.key || `${r?.namespace || ''}/${r?.name || ''}`}

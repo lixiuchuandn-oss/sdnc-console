@@ -24,7 +24,7 @@
  * - 下游: `createHarvesterVm` API 接口。
  * - 子组件: StepBasic, StepCompute, StepDisks, StepNetworks, StepOthers, WizardSummary。
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Form, Row, Col, Modal, App, Space } from 'antd';
 import { CheckOutlined, ProfileOutlined, DesktopOutlined, HddOutlined, GlobalOutlined, SettingOutlined, KeyOutlined } from '@ant-design/icons';
 import './VmCreateWizard/InstanceWizard.css';
@@ -73,6 +73,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const [formSnapshot, setFormSnapshot] = useState<any>({});
   const [selectedGpuKey, setSelectedGpuKey] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<any>(null);
+  const lastValidationErrorTypeRef = useRef<string | null>(null);
 
   const {
     images, imageLoading, reloadImages, imageOptions,
@@ -234,7 +235,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     // 离开当前步骤前进行验证
     const isValid = await handleStepValidation(step);
     if (!isValid) {
-      message.error('请完整填写必填项');
+      if (lastValidationErrorTypeRef.current !== 'cpu-manager') {
+        message.error('请完整填写必填项');
+      }
       return;
     }
 
@@ -310,11 +313,51 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const handleStepValidation = async (targetStep: number = step): Promise<boolean> => {
     const fields = getStepFields(targetStep);
     try {
+      lastValidationErrorTypeRef.current = null;
       await form.validateFields(fields);
       
       // Step 0 额外校验：若选择指定主机模式，必须选中主机
       if (targetStep === 0 && hostModeState === 'node' && !selectedNodeName) {
         throw new Error('Node not selected');
+      }
+
+      if (targetStep === 1) {
+        const needBinding = !!form.getFieldValue('dedicatedCPUPlacement');
+        if (needBinding) {
+          const checkCpuManager = (node: any) => {
+            const anns = node?.metadata?.annotations || node?.annotations || {};
+            const raw = anns['harvesterhci.io/cpu-manager-update-status'];
+            if (!raw) return false;
+            try {
+              const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+              const p = String(obj?.policy || '').toLowerCase();
+              const s = String(obj?.status || '').toLowerCase();
+              return p === 'static' && s === 'success';
+            } catch {
+              return false;
+            }
+          };
+          let ok = false;
+          if (hostModeState === 'node' && selectedNodeName) {
+            const node = (nodes || []).find((n: any) => String(n?.metadata?.name || n?.name || '') === String(selectedNodeName));
+            ok = !!(node && checkCpuManager(node));
+          } else {
+            ok = (nodes || []).some((n: any) => checkCpuManager(n));
+          }
+          if (!ok) {
+            message.error('当前物理节点未开启CPU管理');
+            lastValidationErrorTypeRef.current = 'cpu-manager';
+            throw new Error('CPU manager not enabled');
+          }
+        }
+      }
+
+      if (targetStep === 2) {
+        const list = form.getFieldValue('extraDisks') || [];
+        const nested = Array.isArray(list) ? list.map((_: any, i: number) => ['extraDisks', i, 'name']) : [];
+        if (nested.length > 0) {
+          await form.validateFields(nested);
+        }
       }
 
       setStepValid((prev) => { const a = [...prev]; a[targetStep] = true; return a; });
@@ -356,6 +399,30 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       if (!cid) { throw new Error('请选择资源池'); }
       if (hostModeState === 'node' && !selectedNodeName) { throw new Error('请选择主机'); }
       // Primary NIC name is optional now (defaults to Pod Network)
+
+      if (v.dedicatedCPUPlacement) {
+        const checkCpuManager = (node: any) => {
+          const anns = node?.metadata?.annotations || node?.annotations || {};
+          const raw = anns['harvesterhci.io/cpu-manager-update-status'];
+          if (!raw) return false;
+          try {
+            const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            const p = String(obj?.policy || '').toLowerCase();
+            const s = String(obj?.status || '').toLowerCase();
+            return p === 'static' && s === 'success';
+          } catch {
+            return false;
+          }
+        };
+        let ok = false;
+        if (hostModeState === 'node' && selectedNodeName) {
+          const node = (nodes || []).find((n: any) => String(n?.metadata?.name || n?.name || '') === String(selectedNodeName));
+          ok = !!(node && checkCpuManager(node));
+        } else {
+          ok = (nodes || []).some((n: any) => checkCpuManager(n));
+        }
+        if (!ok) { message.error('当前物理节点未开启CPU管理'); return; }
+      }
 
       let selectedGpu: any = null;
       // let finalGpuResName: string | undefined = undefined;

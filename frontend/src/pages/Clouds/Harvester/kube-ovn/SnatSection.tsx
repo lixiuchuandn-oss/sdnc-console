@@ -208,7 +208,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
           dataSource={filteredData} 
           columns={columns} 
           loading={loading} 
-          bordered={bordered}
+          bordered={false}
           rowKey={r => r.metadata?.uid} 
           pagination={{
             size: 'small',

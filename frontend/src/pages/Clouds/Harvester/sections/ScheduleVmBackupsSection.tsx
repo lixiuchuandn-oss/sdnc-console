@@ -564,7 +564,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         <Table
         key="table"
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}

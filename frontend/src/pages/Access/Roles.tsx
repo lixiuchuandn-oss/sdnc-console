@@ -64,7 +64,7 @@ const AccessRolesPage: React.FC = () => {
   
   // 角色列表表格
   const fullColumns = useMemo(() => [
-    { title:'角色名称', key:'name', dataIndex:'name', width:180, render: (v:any, row: RBACRole) => (
+    { title:'角色名称', key:'name', dataIndex:'name', render: (v:any, row: RBACRole) => (
       <Space>
         { row.scope === 'system' ? <Tag color="blue">System</Tag> : <Tag color="green">Tenant</Tag> }
         <Text strong>{v}</Text>
@@ -247,7 +247,7 @@ const AccessRolesPage: React.FC = () => {
         columns={displayedColumns}
         pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: ['10','20','50','100'], showQuickJumper: false }}
         scroll={{ x: 'max-content' }}
-        bordered
+        bordered={false}
       />
 
       {/* 新建角色模态框 */}

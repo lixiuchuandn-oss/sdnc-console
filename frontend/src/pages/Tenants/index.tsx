@@ -385,7 +385,7 @@ const TenantsPage: React.FC = () => {
         <Col span={24}>
           <Table
             className="std-table"
-            bordered
+            bordered={false}
             columns={tenantColumns}
             dataSource={filteredTenants}
             rowKey="id"

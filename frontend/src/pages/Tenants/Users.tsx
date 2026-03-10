@@ -440,7 +440,7 @@ const UserManagement: React.FC = () => {
           showQuickJumper: false,
           showTotal:(total,range)=>`第 ${range[0]}-${range[1]} 条，共 ${total} 条记录`
         }}
-        bordered
+        bordered={false}
         scroll={{ 
           x: 'max-content',
           y: 600  // 启用虚拟滚动，设置固定高度

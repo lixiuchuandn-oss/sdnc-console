@@ -160,7 +160,7 @@ export const useVmReconfigure = (props: any) => {
   // Handle initial config type (处理初始选中项)
   useEffect(() => {
     if (open && initialConfigType) {
-      setSelectedKey(initialConfigType);
+      setSelectedKey(initialConfigType === 'mem_advanced' ? 'cpu_advanced' : initialConfigType);
     } else if (open && !initialConfigType) {
       setSelectedKey('change_spec');
     }
@@ -404,6 +404,10 @@ export const useVmReconfigure = (props: any) => {
         };
 
         const limit = parseCpu(resources?.limits?.cpu);
+        const reqMem = resources?.requests?.memory;
+        const limMem = resources?.limits?.memory;
+        const reqGi = reqMem ? getQuantityInGi(reqMem) : undefined;
+        const limGi = limMem ? getQuantityInGi(limMem) : undefined;
 
         form.setFieldsValue({
           cpuSockets: cpuSpec?.sockets || 1,
@@ -415,22 +419,9 @@ export const useVmReconfigure = (props: any) => {
           isolateEmulatorThread: !!cpuSpec?.isolateEmulatorThread,
           cpuRequest: parseCpu(resources?.requests?.cpu),
           cpuLimit: limit,
-          enableHotPlug: !!isHotPlug
-        });
-        break;
-      }
-      case 'mem_advanced': {
-        const resources = record?.spec?.template?.spec?.domain?.resources;
-        const reqMem = resources?.requests?.memory;
-        const limMem = resources?.limits?.memory;
-
-        const reqGi = getQuantityInGi(reqMem);
-        const limGi = limMem ? getQuantityInGi(limMem) : null;
-
-        form.setFieldsValue({
           memoryRequestGi: reqGi,
           memoryLimitGi: limGi,
-          memoryBurstUnlimited: !limMem 
+          enableHotPlug: !!isHotPlug
         });
         break;
       }
@@ -1064,29 +1055,29 @@ export const useVmReconfigure = (props: any) => {
             isolateEmulatorThread: values.isolateEmulatorThread,
           };
 
-          // 仅在用户填写了 cpuRequest 时才下发
-          if (values.cpuRequest !== undefined && values.cpuRequest !== null && values.cpuRequest !== '') {
-            advancedPayload.cpuRequest = Number(values.cpuRequest);
+          if (values.dedicatedCPUPlacement) {
+            advancedPayload.cpuRequest = null;
+            advancedPayload.cpuLimit = null;
+          } else {
+            // 仅在用户填写了 cpuRequest 时才下发
+            if (values.cpuRequest !== undefined && values.cpuRequest !== null && values.cpuRequest !== '') {
+              advancedPayload.cpuRequest = Number(values.cpuRequest);
+            }
+
+            // 仅在用户填写了 cpuLimit 时才下发；未填写则不修改后端 limit 配置
+            if (values.cpuLimit !== undefined && values.cpuLimit !== null && values.cpuLimit !== '') {
+              advancedPayload.cpuLimit = Number(values.cpuLimit);
+            }
           }
 
-          // 仅在用户填写了 cpuLimit 时才下发；未填写则不修改后端 limit 配置
-          if (values.cpuLimit !== undefined && values.cpuLimit !== null && values.cpuLimit !== '') {
-            advancedPayload.cpuLimit = Number(values.cpuLimit);
+          if (typeof values.memoryRequestGi === 'number') {
+            advancedPayload.memoryRequestGi = values.memoryRequestGi > 0 ? values.memoryRequestGi : null;
+          }
+          if (typeof values.memoryLimitGi === 'number') {
+            advancedPayload.memoryLimitGi = values.memoryLimitGi > 0 ? values.memoryLimitGi : null;
           }
 
           await updateHarvesterVmSpec(cloudId, namespace, vmName, advancedPayload);
-          openRestartConfirm(namespace, vmName, false);
-          break;
-        }
-        case 'mem_advanced': {
-          const reqGi = values.memoryRequestGi;
-          const limGi = values.memoryLimitGi;
-          const unlimited = values.memoryBurstUnlimited;
-
-          await updateHarvesterVmSpec(cloudId, namespace, vmName, {
-             memoryRequestGi: reqGi,
-             memoryLimit: unlimited ? null : (limGi ? `${limGi}Gi` : null)
-          });
           openRestartConfirm(namespace, vmName, false);
           break;
         }

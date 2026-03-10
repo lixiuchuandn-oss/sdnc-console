@@ -414,7 +414,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             break;
           case 'templates':
             if (checkPerm('clouds.templates:read')) {
-              loadResource('templates', () => fetchHarvesterTemplates(cloudId, force), (json) => {
+              loadResource('templates', () => fetchHarvesterTemplates(cloudId, force, false), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterTemplates(Array.isArray(list) ? list : []);
                 setRawTemplates(json || null);
@@ -626,6 +626,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       if (key === 'kubeovn_dnat') { loadTabResource('dnat'); return; }
       if (key === 'schedule_vm_backups') { loadTabResource('backups'); return; } // 同时加载备份和策略
       if (key === 'vm_snapshots') { loadTabResource('backups'); return; }
+      if (key === 'templates') { loadTabResource('templates', true); return; }
 
       // 直接匹配的 Key
       loadTabResource(key);
@@ -1408,7 +1409,35 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'VM 模板',
                       children: (
                         <>
-                          <TemplatesSection cloudId={cloudId} templates={harvesterTemplates} loading={resourceLoading.templates} onRefresh={() => loadTabResource('templates', true)} />
+                          <TemplatesSection
+                            cloudId={cloudId}
+                            templates={harvesterTemplates}
+                            loading={resourceLoading.templates}
+                            onRefresh={(force = true, silent = false) => {
+                              const skipSync = silent;
+                              if (checkPerm('clouds.templates:read')) {
+                                setResourceLoading(prev => ({ ...prev, templates: true }));
+                                fetchHarvesterTemplates(cloudId, force, skipSync)
+                                  .then((json) => {
+                                    const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                                    setHarvesterTemplates(Array.isArray(list) ? list : []);
+                                    setRawTemplates(json || null);
+                                    if (force && !silent) {
+                                      message.success(`刷新成功，共 ${list.length} 个模板`);
+                                    }
+                                  })
+                                  .catch((e) => {
+                                    console.warn('Failed to load Templates', e);
+                                    if (!silent) {
+                                      message.error('刷新失败: ' + (e?.message || '未知错误'));
+                                    }
+                                  })
+                                  .finally(() => {
+                                    setResourceLoading(prev => ({ ...prev, templates: false }));
+                                  });
+                              }
+                            }}
+                          />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawTemplates, null, 2)}</pre>

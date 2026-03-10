@@ -224,7 +224,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           loading={loading || refreshing}
           pagination={{
             size: 'small',

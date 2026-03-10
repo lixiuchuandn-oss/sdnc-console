@@ -166,7 +166,7 @@ const CloudInitsSection: React.FC<Props> = ({
     >
       <Table
         className={!isTenant ? "std-table" : "std-table no-border"}
-        bordered={!isTenant}
+        bordered={false}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"

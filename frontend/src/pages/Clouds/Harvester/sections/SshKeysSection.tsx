@@ -341,7 +341,7 @@ const SshKeysSection: React.FC<Props> = ({
     >
       <Table
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         dataSource={filteredData}
         columns={tableColumns}
         rowKey="key"

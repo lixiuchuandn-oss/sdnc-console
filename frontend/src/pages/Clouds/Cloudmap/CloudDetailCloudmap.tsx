@@ -8,6 +8,7 @@ import VolumesSection from '../Harvester/sections/VolumesSection';
 import NadsSection from '../Harvester/sections/NadsSection';
 import KubeOvnVpcsSection from '../Harvester/kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from '../Harvester/kube-ovn/SubnetsSection';
+import KubeOvnPublicNetworksSection from '../Harvester/kube-ovn/PubnetSection';
 import GpusSection from '../Harvester/sections/GpusSection';
 import MigrationsSection from '../Harvester/sections/MigrationsSection';
 import StorageClassesSection from '../Harvester/sections/StorageClassesSection';
@@ -30,7 +31,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm } from '../../../services/harvesterApi';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import VmSection from '../Harvester/sections/VmSection';
 import TemplatesSection from '../Harvester/sections/TemplatesSection';
@@ -106,6 +107,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const [harvesterVolumes, setHarvesterVolumes] = useState<any[]>([]); // 虚拟卷列表
   const [harvesterNodes, setHarvesterNodes] = useState<any[]>([]); // 节点列表
   const [harvesterNamespaces, setHarvesterNamespaces] = useState<any[]>([]); // 命名空间列表
+  const [harvesterNamespacesForManagement, setHarvesterNamespacesForManagement] = useState<any[]>([]); // 命名空间管理列表（含系统命名空间）
   const [harvesterStorageClasses, setHarvesterStorageClasses] = useState<any[]>([]); // 存储类列表
   const [capabilities, setCapabilities] = useState<any>(null); // 集群能力（如架构信息）
 
@@ -303,7 +305,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       }, force);
     }
 
-    loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, force), (json) => {
+    loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, force, true), (json) => {
         const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
         setHarvesterNamespaces(Array.isArray(list) ? list : []);
         setRawNamespaces(json || null);
@@ -322,6 +324,22 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
    */
   const loadTabResource = async (key: string, force = false) => {
       switch (key) {
+          case 'namespaces':
+            if (checkPerm('clouds.namespaces:read')) {
+              setResourceLoading(prev => ({ ...prev, namespaces: true }));
+              fetchHarvesterNamespaces(cloudId, force, false)
+                .then((json) => {
+                  const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                  setHarvesterNamespacesForManagement(Array.isArray(list) ? list : []);
+                })
+                .catch((e) => {
+                  console.warn('Failed to load namespaces for management', e);
+                })
+                .finally(() => {
+                  setResourceLoading(prev => ({ ...prev, namespaces: false }));
+                });
+            }
+            break;
           case 'volumes':
             // 确保进入 PVC 页面时，关联的 VM 数据也已加载 (用于挂载操作)
             if (checkPerm('clouds.instances:read')) {
@@ -375,7 +393,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             break;
           case 'templates':
             if (checkPerm('clouds.templates:read')) {
-              loadResource('templates', () => fetchHarvesterTemplates(cloudId, force), (json) => {
+              loadResource('templates', () => fetchHarvesterTemplates(cloudId, force, false), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterTemplates(Array.isArray(list) ? list : []);
                 setRawTemplates(json || null);
@@ -579,6 +597,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       if (key === 'kubeovn_dnat') { loadTabResource('dnat'); return; }
       if (key === 'schedule_vm_backups') { loadTabResource('backups'); return; } // 同时加载备份和策略
       if (key === 'vm_snapshots') { loadTabResource('backups'); return; }
+      if (key === 'templates') { loadTabResource('templates', true); return; }
 
       // 直接匹配的 Key
       loadTabResource(key);
@@ -1007,7 +1026,38 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     {
                       key: 'namespaces',
                       label: '命名空间',
-                      children: <NamespacesTab cloudId={cloudId} namespaces={harvesterNamespaces} loading={resourceLoading.namespaces} onRefresh={() => loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, true), (json) => setHarvesterNamespaces(json?.data?.items || []), true)} showLog={showLog} raw={rawNamespaces} />
+                      children: <NamespacesTab 
+                        cloudId={cloudId} 
+                        namespaces={harvesterNamespacesForManagement} 
+                        loading={resourceLoading.namespaces} 
+                        onRefresh={async (force = false, silent = false) => {
+                          setResourceLoading(prev => ({ ...prev, namespaces: true }));
+                          try {
+                            const skipSync = silent;
+                            const json = await fetchHarvesterNamespaces(cloudId, force, false, skipSync);
+                            const items = json?.data?.items || json?.items || [];
+                            const list = Array.isArray(items) ? items : [];
+                            setHarvesterNamespacesForManagement(list);
+                            const filtered = list.filter((ns: any) => {
+                              const name = ns?.metadata?.name || ns?.name;
+                              return name && !isSystemNamespace(name);
+                            });
+                            setHarvesterNamespaces(filtered);
+                            if (force && !silent) {
+                              message.success(`刷新成功，共 ${list.length} 个命名空间`);
+                            }
+                          } catch (e: any) {
+                            if (!silent) {
+                              message.error('刷新失败: ' + (e?.message || '未知错误'));
+                            }
+                          } finally {
+                            setResourceLoading(prev => ({ ...prev, namespaces: false }));
+                          }
+                        }} 
+                        showLog={showLog} 
+                        raw={rawNamespaces}
+                        isTenant={user?.role === 'tenant' || (user as any)?.tenantId}
+                      />
                     },
                     {
                       key: 'storage_classes',
@@ -1082,7 +1132,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                                     setHarvesterImages(json?.data?.items || []);
                                   }, true);
                                 }
-                                loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, true), (json) => {
+                                if (checkPerm('clouds.volumes:read')) {
+                                  loadResource('volumes', () => fetchHarvesterVolumes(cloudId, true), (json) => {
+                                    setHarvesterVolumes(json?.data?.items || []);
+                                  }, true);
+                                }
+                                loadResource('namespaces', () => fetchHarvesterNamespaces(cloudId, true, true), (json) => {
                                   setHarvesterNamespaces(json?.data?.items || []);
                                 }, true);
                               });
@@ -1174,9 +1229,41 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                               } catch(e:any){ message.error(e?.message||'恢复失败'); } 
                             }}
                             onDelete={async (iid:string, deleteVolumes?: boolean)=>{ 
-                              try { 
+                              try {
+                                const [namespace, name] = iid.split('/');
+                                if (!namespace || !name) {
+                                  throw new Error('无效的实例ID格式');
+                                }
+
+                                const vm = ecs.find((v: any) => {
+                                  const vmNs = v?.metadata?.namespace || v?.namespace || '';
+                                  const vmName = v?.metadata?.name || v?.InstanceId?.split('/')[1] || '';
+                                  return vmNs === namespace && vmName === name;
+                                });
+
+                                if (vm) {
+                                  let status = '';
+                                  if (typeof vm?.status === 'string') {
+                                    status = vm.status;
+                                  } else {
+                                    status = vm?.status?.printableStatus || vm?.status?.phase || vm?.Status || 'Unknown';
+                                  }
+                                  const statusLower = String(status).toLowerCase();
+                                  if (statusLower === 'running' || statusLower === 'starting') {
+                                    message.loading('虚拟机正在运行，正在停止...', 0);
+                                    try {
+                                      await stopHarvesterVm(cloudId, namespace, name, true);
+                                      await new Promise(resolve => setTimeout(resolve, 3000));
+                                      message.destroy();
+                                    } catch (stopError: any) {
+                                      message.destroy();
+                                      throw new Error(`停止虚拟机失败: ${stopError?.message || stopError}`);
+                                    }
+                                  }
+                                }
+
                                 await deleteCloudProviderEcs(cloudId, iid, deleteVolumes); 
-                                message.success('删除成功'); 
+                                message.success('虚拟机已移入回收站，7天后自动删除'); 
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
                               } catch(e:any){ message.error(e?.message||'删除失败'); } 
                             }}
@@ -1184,7 +1271,23 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                             namespaces={harvesterNamespaces}
                             volumes={harvesterVolumes}
                           />
-                          <VmReconfigureModal open={vmReconfOpen} cloudId={cloudId} record={vmReconfTarget} onClose={()=>{ setVmReconfOpen(false); setVmReconfTarget(null); }} onOk={refreshVms} storageClasses={harvesterStorageClasses} images={harvesterImages} gpuResources={harvesterGpuResources} />
+                          <VmReconfigureModal 
+                            open={vmReconfOpen} 
+                            cloudId={cloudId} 
+                            record={vmReconfTarget} 
+                            onClose={()=>{ setVmReconfOpen(false); setVmReconfTarget(null); }} 
+                            onOk={() => {
+                              refreshVms();
+                              if (vmReconfTarget) {
+                                setTimeout(() => {
+                                  setVmReconfTarget({ ...vmReconfTarget, _refreshTrigger: Date.now() });
+                                }, 300);
+                              }
+                            }} 
+                            storageClasses={harvesterStorageClasses} 
+                            images={harvesterImages} 
+                            gpuResources={harvesterGpuResources} 
+                          />
                           <DebugJSON data={rawEcs} show={showLog} />
                         </>
                       )
@@ -1426,11 +1529,36 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                   onChange={handleTabChange}
                   items={[
                     {
+                      key: 'kubeovn_public_networks',
+                      label: '公共网络',
+                      children: (
+                        <>
+                          <KubeOvnPublicNetworksSection />
+                          <DebugJSON data={rawSubnets} show={showLog} />
+                        </>
+                      )
+                    },
+                    {
                       key: 'vpcs',
                       label: 'VPC网络',
                       children: (
                         <>
-                          <KubeOvnVpcsSection vpcs={kubeOvnVpcs} loading={resourceLoading.vpcs} onRefresh={() => loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, true), (json) => setKubeOvnVpcs(json?.data?.items || []), true)} />
+                          <KubeOvnVpcsSection 
+                            vpcs={kubeOvnVpcs} 
+                            subnets={kubeOvnSubnets} 
+                            loading={resourceLoading.vpcs || resourceLoading.subnets} 
+                            onRefresh={async (force = false, silent = false) => {
+                              const skipSync = silent;
+                              loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync), (json) => {
+                                setKubeOvnVpcs(json?.data?.items || []);
+                                setRawVpcs(json || null);
+                              }, true);
+                              loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force, skipSync), (json) => {
+                                setKubeOvnSubnets(json?.data?.items || []);
+                                setRawSubnets(json || null);
+                              }, true);
+                            }} 
+                          />
                           <DebugJSON data={rawVpcs} show={showLog} />
                         </>
                       )
@@ -1440,7 +1568,15 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: '子网',
                       children: (
                         <>
-                          <KubeOvnSubnetsSection subnets={kubeOvnSubnets} loading={resourceLoading.subnets} onRefresh={() => loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true)} />
+                          <KubeOvnSubnetsSection 
+                            subnets={kubeOvnSubnets} 
+                            vpcList={kubeOvnVpcs} 
+                            loading={resourceLoading.subnets} 
+                            onRefresh={() => loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => {
+                              setKubeOvnSubnets(json?.data?.items || []);
+                              setRawSubnets(json || null);
+                            }, true)} 
+                          />
                           <DebugJSON data={rawSubnets} show={showLog} />
                         </>
                       )
@@ -1470,7 +1606,23 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: 'SNAT 网关',
                       children: (
                         <>
-                          <SnatSection cloudId={cloudId} snatRules={kubeOvnSnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.snatRules} onRefresh={() => loadTabResource('snat', true)} />
+                          <SnatSection cloudId={cloudId} snatRules={kubeOvnSnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.snatRules} onRefresh={(force = true, silent = false) => {
+                            const skipSync = silent;
+                            setResourceLoading(prev => ({ ...prev, snatRules: true }));
+                            fetchCloudProviderOvnSnatRules(cloudId, force, skipSync)
+                              .then((json) => {
+                                const list: any[] = (json as any)?.data?.items || [];
+                                setKubeOvnSnatRules(Array.isArray(list) ? list : []);
+                                setRawSnatRules(json || null);
+                                if (force && !silent) message.success('刷新成功');
+                              })
+                              .catch((e) => {
+                                if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
+                              })
+                              .finally(() => {
+                                setResourceLoading(prev => ({ ...prev, snatRules: false }));
+                              });
+                          }} />
                           <DebugJSON data={rawSnatRules} show={showLog} />
                         </>
                       )
@@ -1480,7 +1632,23 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: 'DNAT 网关',
                       children: (
                         <>
-                          <DnatSection cloudId={cloudId} dnatRules={kubeOvnDnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} loading={resourceLoading.dnatRules} onRefresh={() => loadTabResource('dnat', true)} />
+                          <DnatSection cloudId={cloudId} dnatRules={kubeOvnDnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} loading={resourceLoading.dnatRules} onRefresh={(force = true, silent = false) => {
+                            const skipSync = silent;
+                            setResourceLoading(prev => ({ ...prev, dnatRules: true }));
+                            fetchCloudProviderOvnDnatRules(cloudId, force, skipSync)
+                              .then((json) => {
+                                const list: any[] = (json as any)?.data?.items || [];
+                                setKubeOvnDnatRules(Array.isArray(list) ? list : []);
+                                setRawDnatRules(json || null);
+                                if (force && !silent) message.success('刷新成功');
+                              })
+                              .catch((e) => {
+                                if (!silent) message.error('刷新失败: ' + (e?.message || '未知错误'));
+                              })
+                              .finally(() => {
+                                setResourceLoading(prev => ({ ...prev, dnatRules: false }));
+                              });
+                          }} />
                           <DebugJSON data={rawDnatRules} show={showLog} />
                         </>
                       )

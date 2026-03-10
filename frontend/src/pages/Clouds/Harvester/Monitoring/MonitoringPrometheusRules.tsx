@@ -195,7 +195,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         rowKey={(row, i) => `${row.groupName}-${row.name}-${i}`}
         loading={loading}
         columns={displayColumns}

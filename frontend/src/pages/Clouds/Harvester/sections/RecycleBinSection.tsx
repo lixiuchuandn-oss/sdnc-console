@@ -773,10 +773,10 @@ const RecycleBinSection: React.FC<Props> = ({
     const volDetails = SafeRead.volumeDetails(r);
     const volumeNames = volDetails.filter((v: any) => v.claimName).map((v: any) => v.claimName).join(', ');
     
-    // 默认不勾选删除卷，通过闭包变量控制
+    // 默认勾选删除卷，通过闭包变量控制
     // 注意: 这个变量在 Checkbox 的 onChange 中被修改，在 onOk 中被使用
     // 使用闭包而不是 state，因为需要在对话框的 onOk 回调中访问
-    let shouldDeleteVolumes = false;
+    let shouldDeleteVolumes = !!volumeNames;
     
     modal.confirm({
       title: '确认彻底删除',
@@ -794,7 +794,7 @@ const RecycleBinSection: React.FC<Props> = ({
                 <div style={{ fontWeight: 500, marginBottom: 4 }}>关联的数据卷 (PVC):</div>
                 <div style={{ color: 'rgba(0,0,0,0.65)' }}>{volumeNames}</div>
                 <div style={{ marginTop: 8, borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
-                   <Checkbox onChange={(e) => { shouldDeleteVolumes = e.target.checked; }}>
+                   <Checkbox defaultChecked={true} onChange={(e) => { shouldDeleteVolumes = e.target.checked; }}>
                      同步删除关联卷 (PVC)
                    </Checkbox>
                    <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>
@@ -1216,7 +1216,7 @@ const RecycleBinSection: React.FC<Props> = ({
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         dataSource={filteredVms}
         columns={displayColumns}
         loading={loading}

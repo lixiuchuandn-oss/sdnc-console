@@ -836,7 +836,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     >
       <Table
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         rowKey={(r: any) => r?.metadata?.uid || `${r?._namespace}/${r?._name}` || Math.random().toString(36).slice(2)}
         rowSelection={rowSelection}
         columns={tableColumns}

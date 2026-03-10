@@ -640,7 +640,7 @@ const AccessActionsPage: React.FC = () => {
                 setStatusFilter((allValues.status || 'all') as StatusFilter);
               }}
             >
-              <Form.Item name="keyword" label="搜索" style={{ flex: 1, minWidth: 200 }}>
+              <Form.Item name="keyword" label="搜索">
                 <Input 
                   allowClear 
                   placeholder="搜索权限原子/功能/描述" 
@@ -648,7 +648,7 @@ const AccessActionsPage: React.FC = () => {
                   prefix={<SearchOutlined />}
                 />
               </Form.Item>
-              <Form.Item name="group" label="分组" style={{ width: 150 }}>
+              <Form.Item name="group" label="分组">
                 <Select
                   className="toolbar-filter"
                   placeholder="全部分组"
@@ -656,7 +656,7 @@ const AccessActionsPage: React.FC = () => {
                   allowClear={false}
                 />
               </Form.Item>
-              <Form.Item name="status" label="状态" style={{ width: 120 }}>
+              <Form.Item name="status" label="状态">
                 <Select 
                   className="toolbar-filter"
                   placeholder="全部状态"
@@ -664,19 +664,9 @@ const AccessActionsPage: React.FC = () => {
                   allowClear={false}
                 />
               </Form.Item>
-              <a className="toolbar-reset-btn" onClick={handleResetFilters}>
-                重置
-              </a>
             </Form>
             <Space className="toolbar-actions">
               <Button.Group>
-                <Tooltip title="卡片视图">
-                  <Button 
-                    type={viewMode === 'card' ? 'primary' : 'default'}
-                    icon={<AppstoreOutlined />} 
-                    onClick={() => setViewMode('card')}
-                  />
-                </Tooltip>
                 <Tooltip title="表格视图">
                   <Button 
                     type={viewMode === 'table' ? 'primary' : 'default'}

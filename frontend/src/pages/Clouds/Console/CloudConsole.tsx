@@ -545,7 +545,7 @@ const CloudConsolePage: React.FC = () => {
     if (!cid || cid === 'all') return;
     setLoading(true);
     try {
-      const res = await fetchHarvesterTemplates(cid, force);
+      const res = await fetchHarvesterTemplates(cid, force, false);
       setTemplates(res?.data?.items || []);
     } catch (e: any) {
       console.error('[CloudConsole] loadTemplates error:', e);

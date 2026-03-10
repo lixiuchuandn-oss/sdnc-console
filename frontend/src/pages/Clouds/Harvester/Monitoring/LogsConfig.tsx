@@ -464,7 +464,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: ClusterFlowItem) => row.id ?? row.metadata?.name ?? String(Math.random())}
           loading={configLoading}
           columns={displayColumns}

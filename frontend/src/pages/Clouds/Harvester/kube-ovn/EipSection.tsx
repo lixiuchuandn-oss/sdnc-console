@@ -255,7 +255,7 @@ export const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, subnets, 
           dataSource={filteredData} 
           columns={columns} 
           loading={loading} 
-          bordered={bordered}
+          bordered={false}
           rowKey={r => r.metadata?.uid} 
           pagination={{
             size: 'small',

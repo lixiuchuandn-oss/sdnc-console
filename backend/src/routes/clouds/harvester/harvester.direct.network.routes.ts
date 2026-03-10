@@ -670,8 +670,15 @@ export const registerHarvesterDirectNetworkRoutes = (
             labels: item.labels,
             annotations: item.annotations,
           },
-          spec: item.spec,
-          status: item.status,
+          spec: {
+            vpc: item.vpc,
+            cidrBlock: item.cidr,
+            gateway: item.gateway,
+            protocol: item.protocol,
+          },
+          status: {
+            availableIPs: item.availableIps,
+          },
         });
 
         // [Data Enrichment] 注入 NAD 的 Namespace 信息
@@ -959,8 +966,12 @@ export const registerHarvesterDirectNetworkRoutes = (
                   cloudId: cloud.id,
                   uid: result.metadata?.uid || '',
                   name: result.metadata?.name || '',
-                  spec: result.spec,
-                  status: result.status,
+                  namespace: result.metadata?.namespace,
+                  vpc: result.spec?.vpc,
+                  cidr: result.spec?.cidrBlock || result.spec?.cidr,
+                  gateway: result.spec?.gateway,
+                  protocol: result.spec?.protocol,
+                  availableIps: Number(result.status?.availableIPs ?? result.status?.availableIps ?? 0) || undefined,
                   labels: result.metadata?.labels,
                   annotations: result.metadata?.annotations,
                   rawData: result,

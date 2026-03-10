@@ -1648,7 +1648,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       <Table
         key="vm-table"
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         rowKey={(r:any)=> getIid(r)}
         rowSelection={{ selectedRowKeys: selectedKeys, onChange: (keys)=> setSelectedKeys(keys) }}
         columns={disableColumnSettings ? allColumns : (tableColumns.length > 0 ? tableColumns : allColumns)}
@@ -1657,7 +1657,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         scroll={{ 
           x: 'max-content',
           // 只有当数据量超过15条时才启用虚拟滚动，避免显示不可滚动的滚动条
-          ...(filtered.length > 15 ? { y: 600 } : {})
+          
         }}
         pagination={{
           size: 'small',

@@ -14,10 +14,9 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Table, Input, Button, Select, message, App, Tag, Tooltip } from 'antd';
+import { Table, Input, Button, Select, message, App, Tag, Tooltip, Modal, Switch } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, ProjectOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -26,7 +25,7 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import HarvesterTemplateDetailDrawer from '../components/HarvesterTemplateDetailDrawer';
 import HarvesterOpsinfoDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
-import { deleteHarvesterResourceByLink } from '../../../../services/harvesterApi';
+import { createHarvesterVmFromTemplate, deleteHarvesterResourceByLink } from '../../../../services/harvesterApi';
 
 /**
  * Props 定义
@@ -129,8 +128,11 @@ const TemplatesSection: React.FC<Props> = ({
   const [opsInfoVisible, setOpsInfoVisible] = useState(false);
   const [opsInfoRecord, setOpsInfoRecord] = useState<any>(null);
   const [opsInfoActiveTab, setOpsInfoActiveTab] = useState('detail');
-  const navigate = useNavigate();
-  const location = useLocation();
+  const [quickCreateVisible, setQuickCreateVisible] = useState(false);
+  const [quickCreateTpl, setQuickCreateTpl] = useState<any>(null);
+  const [quickCreateName, setQuickCreateName] = useState('');
+  const [quickCreateAutoStart, setQuickCreateAutoStart] = useState(true);
+  const [quickCreating, setQuickCreating] = useState(false);
 
   const handleDelete = async (tpl: any) => {
     const ns = getTemplateNamespace(tpl);
@@ -187,16 +189,39 @@ const TemplatesSection: React.FC<Props> = ({
     });
   };
 
-  const handleCreateFromTemplate = (tpl: any) => {
+  const openQuickCreate = (tpl: any) => {
     if (!tpl) return;
-    const ns = getTemplateNamespace(tpl);
-    const name = getTemplateName(tpl);
-    navigate(`/clouds/${cloudId}/instances/create`, {
-      state: {
-        backgroundLocation: location,
-        fromTemplate: { namespace: ns, name, template: tpl },
-      },
-    });
+    setQuickCreateTpl(tpl);
+    setQuickCreateName('');
+    setQuickCreateAutoStart(true);
+    setQuickCreateVisible(true);
+  };
+
+  const doQuickCreate = async () => {
+    if (!quickCreateTpl) return;
+    const tplNs = getTemplateNamespace(quickCreateTpl);
+    const tplName = getTemplateName(quickCreateTpl);
+    const vmName = String(quickCreateName || '').trim();
+    if (!vmName) {
+      message.warning('请输入虚拟机名称');
+      return;
+    }
+    try {
+      setQuickCreating(true);
+      await createHarvesterVmFromTemplate(cloudId, tplNs, tplName, {
+        name: vmName,
+        namespace: tplNs,
+        autoStart: quickCreateAutoStart,
+      });
+      message.success('创建成功');
+      setQuickCreateVisible(false);
+      setQuickCreateTpl(null);
+      setQuickCreateName('');
+    } catch (e: any) {
+      message.error(e?.message || '创建失败');
+    } finally {
+      setQuickCreating(false);
+    }
   };
 
   const handleOpenDrawer = (tpl: any) => {
@@ -342,8 +367,8 @@ const TemplatesSection: React.FC<Props> = ({
 
         items.push({
             key: 'create_vm',
-            label: '创建虚拟机',
-            onClick: () => handleCreateFromTemplate(r),
+            label: '使用模板创建虚拟机',
+            onClick: () => openQuickCreate(r),
         });
 
         items.push(
@@ -503,7 +528,7 @@ const TemplatesSection: React.FC<Props> = ({
       >
         <Table
           className="std-table"
-          bordered={bordered}
+          bordered={false}
           rowKey={(r) => r.metadata?.uid || r.metadata?.name}
           rowSelection={{
             selectedRowKeys,
@@ -518,6 +543,35 @@ const TemplatesSection: React.FC<Props> = ({
             showTotal: (total) => `共 ${total} 条`
           }}
         />
+
+        <Modal
+          title="使用模板创建虚拟机"
+          open={quickCreateVisible}
+          okText="创建"
+          cancelText="取消"
+          confirmLoading={quickCreating}
+          onOk={doQuickCreate}
+          onCancel={() => {
+            if (quickCreating) return;
+            setQuickCreateVisible(false);
+            setQuickCreateTpl(null);
+            setQuickCreateName('');
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Input
+              placeholder="请输入虚拟机名称"
+              value={quickCreateName}
+              onChange={(e) => setQuickCreateName(e.target.value)}
+              onPressEnter={() => doQuickCreate()}
+              autoFocus
+            />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>自动开机</span>
+              <Switch checked={quickCreateAutoStart} onChange={setQuickCreateAutoStart} />
+            </div>
+          </div>
+        </Modal>
 
         <HarvesterTemplateDetailDrawer
           open={detailVisible}

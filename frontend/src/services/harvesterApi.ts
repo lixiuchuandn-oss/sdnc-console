@@ -254,10 +254,29 @@ export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false
  * 获取 Harvester 模板列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterTemplates = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/templates${force ? '?force=true' : ''}`);
+export const fetchHarvesterTemplates = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/templates${queryString ? `?${queryString}` : ''}`);
+};
+
+export const createHarvesterVmFromTemplate = async (
+  cloudId: string,
+  namespace: string,
+  name: string,
+  payload: { name: string; namespace?: string; autoStart?: boolean },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/templates/${encodeURIComponent(namespace)}/${encodeURIComponent(
+      name,
+    )}/create-vm`,
+    payload,
+  );
 };
 
 /**

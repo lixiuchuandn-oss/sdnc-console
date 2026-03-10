@@ -308,7 +308,17 @@ const StepCompute: React.FC<StepComputeProps> = ({
             <Form.Item label="CPU 绑定">
               <Space>
                 <Form.Item name="dedicatedCPUPlacement" valuePropName="checked" noStyle>
-                  <Checkbox>启用</Checkbox>
+                  <Checkbox onChange={(e) => {
+                    const checked = !!e.target.checked;
+                    if (!checked) return;
+                    message.warning('启用 CPU 绑定后，CPU QoS 将被清空且不再生效');
+                    try {
+                      form.setFieldsValue({
+                        cpuRequest: undefined,
+                        cpuLimit: undefined
+                      });
+                    } catch {}
+                  }}>启用</Checkbox>
                 </Form.Item>
                 <Typography.Text type="secondary">保证用固定的物理 CPU 核心，减少切换损耗</Typography.Text>
               </Space>

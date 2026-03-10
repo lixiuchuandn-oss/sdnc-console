@@ -5,7 +5,7 @@
 
 import { AppDataSource } from '../../../config/database';
 import { Cloud, CloudStatus } from '../../../entities/Cloud';
-import { harvesterForceDeleteVM } from './lifecycle';
+import { harvesterEnsureVmStopped, harvesterForceDeleteVM } from './lifecycle';
 import { listKubevirtVMsRawWithMeta } from './vm';
 import { getSystemSetting } from '../../../config/systemSettings';
 
@@ -164,6 +164,34 @@ export class RecycleBinCleanupService {
 
       const vms = vmsResult?.items || [];
       const now = new Date();
+
+      const recycledVms = vms.filter((vm: any) => {
+        const finalizers = vm?.metadata?.finalizers || [];
+        const recycleBinFinalizer = 'tower.io/recycle-bin';
+        return Array.isArray(finalizers) && finalizers.includes(recycleBinFinalizer);
+      });
+
+      for (const vm of recycledVms) {
+        const namespace = vm?.metadata?.namespace || '';
+        const name = vm?.metadata?.name || '';
+        const instanceId = `${namespace}/${name}`;
+        const status = String(vm?.status?.printableStatus || vm?.status?.phase || '').toLowerCase();
+        const isRunning = status === 'running' || status === 'starting' || vm?.spec?.running === true;
+        if (!isRunning) continue;
+
+        try {
+          await harvesterEnsureVmStopped(
+            { endpoint, token, insecure },
+            instanceId,
+            { attempts: 2, delayMs: 1000, requireRecycleBinFinalizer: true },
+          );
+        } catch (e: any) {
+          console.warn('[RecycleBinCleanup] 回收站纠偏失败', {
+            instanceId,
+            error: e?.message || e,
+          });
+        }
+      }
 
       // 筛选出回收站中过期的VM
       const expiredVMs = vms.filter((vm: any) => {

@@ -20,7 +20,6 @@ import {
 import ChangeSpec from './VmReconfigure/ChangeSpec';
 import HotPlugSettings from './VmReconfigure/HotPlugSettings';
 import CpuAdvanced from './VmReconfigure/CpuAdvanced';
-import MemAdvanced from './VmReconfigure/MemAdvanced';
 import ChangeGpu from './VmReconfigure/ChangeGpu';
 import ChangeOs from './VmReconfigure/ChangeOs';
 import SystemDiskExpand from './VmReconfigure/SystemDiskExpand';
@@ -143,8 +142,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       children: [
         { key: 'change_spec', label: '变更实例规格' },
         { key: 'hotplug_settings', label: '热扩容设置' },
-        { key: 'cpu_advanced', label: 'CPU高级配置' },
-        { key: 'mem_advanced', label: '内存高级配置' },
+        { key: 'cpu_advanced', label: '性能设置' },
         { key: 'change_gpu', label: '变更GPU' },
       ]
     },
@@ -224,13 +222,12 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
         return (
           <CpuAdvanced 
             form={form}
+            cloudId={cloudId}
             vmCpuState={vmCpuState}
             vmCpuDebugText={JSON.stringify(vmCpuState, null, 2)} 
           />
         );
       }
-      case 'mem_advanced':
-        return <MemAdvanced form={form} />;
       case 'change_gpu':
         return (
           <ChangeGpu 
@@ -532,7 +529,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             ))}
           </Radio.Group>
         </div>
-        <div style={{ border: '1px solid #f0f0f0',borderRadius: '8px', flex: 1, padding: 24, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, padding: 24, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {renderTopAlert()}
           <div style={{ flex: 1 }}>
             <Form

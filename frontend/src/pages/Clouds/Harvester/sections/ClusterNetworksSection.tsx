@@ -55,7 +55,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
     return (
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         columns={[
           { 
             title: 'VlanConfig 名称', 
@@ -202,7 +202,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         rowKey={(r) => r.metadata?.uid || r.metadata?.name}
         dataSource={filtered}
         columns={tableColumns}

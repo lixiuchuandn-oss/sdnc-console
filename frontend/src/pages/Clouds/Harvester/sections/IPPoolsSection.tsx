@@ -350,7 +350,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
     >
       <Table
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"

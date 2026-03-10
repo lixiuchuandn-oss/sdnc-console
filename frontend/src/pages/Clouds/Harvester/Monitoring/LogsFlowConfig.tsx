@@ -580,7 +580,7 @@ const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: FlowItem) => row.id ?? `${row.metadata?.namespace ?? ''}/${row.metadata?.name ?? ''}`}
           loading={configLoading}
           columns={allColumns}

@@ -54,7 +54,7 @@ const PubnetSection: React.FC = () => {
                         { label: 'VLANs', value: 'vlans' },
                         { label: '物理接口 (Provider Networks)', value: 'providers' },
                     ]}
-                    size="large"
+                    size="middle"
                 />
             </div>
             {activeTab === 'subnets' && (
@@ -274,7 +274,7 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
             <Table 
                 className="std-table"
                 columns={columns} 
-                bordered
+                bordered={false}
                 dataSource={data.filter(d => {
                     const matchKeyword = !keyword || d.metadata.name.includes(keyword);
                     const matchVlan = !vlanFilter || d.spec.vlan === vlanFilter;
@@ -447,7 +447,7 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
             <Table 
                 className="std-table"
                 columns={columns} 
-                bordered
+                bordered={false}
                 dataSource={data.filter(d => {
                     const matchKeyword = !keyword || d.metadata.name.includes(keyword) || d.spec.id?.toString().includes(keyword);
                     const matchProvider = !providerFilter || d.spec.provider === providerFilter;
@@ -859,7 +859,7 @@ const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({
                 dataSource={data.filter(d => !keyword || d.metadata.name.includes(keyword))} 
                 rowKey={(r) => r.metadata.name} 
                 loading={loading}
-                bordered
+                bordered={false}
                 pagination={{ size: 'small', showQuickJumper: false }}
             />
 
@@ -909,7 +909,7 @@ const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({
                             rowKey={(r) => r.metadata.name} 
                             pagination={false} 
                             size="small"
-                            bordered
+                            bordered={false}
                             scroll={nodes.length > 6 ? { y: 240 } : undefined}
                         />
                     

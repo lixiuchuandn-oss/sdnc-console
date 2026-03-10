@@ -363,7 +363,13 @@ const StepDisks: React.FC<StepDisksProps> = ({
       {
         <Row gutter={12}>
           <Col span={8}>
-            <Form.Item label="名称" name="rootName">
+            <Form.Item
+              label="名称"
+              name="rootName"
+              rules={[
+                { pattern: /^[A-Za-z0-9_-]+$/, message: '名称不能包含中文或特殊字符' }
+              ]}
+            >
               <Input placeholder="自动生成" />
             </Form.Item>
           </Col>
@@ -489,7 +495,14 @@ const StepDisks: React.FC<StepDisksProps> = ({
                 >
                   <Row gutter={12}>
                     <Col span={8}>
-                      <Form.Item label="名称" name={[name, 'name']} rules={[{ required: true, message: '请输入名称' }]}> 
+                      <Form.Item
+                        label="名称"
+                        name={[name, 'name']}
+                        rules={[
+                          { required: true, message: '请输入名称' },
+                          { pattern: /^[A-Za-z0-9_-]+$/, message: '名称不能包含中文或特殊字符' }
+                        ]}
+                      > 
                         <Input placeholder="如：win-2012-vm-1" />
                       </Form.Item>
                     </Col>

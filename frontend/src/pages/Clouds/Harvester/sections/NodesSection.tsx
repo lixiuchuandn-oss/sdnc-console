@@ -373,7 +373,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     >
     <Table
       className="std-table"
-      bordered
+      bordered={false}
       rowKey={(r:any)=> r?.name || r?.metadata?.name || Math.random().toString(36).slice(2)}
       columns={tableColumns}
       dataSource={filtered}

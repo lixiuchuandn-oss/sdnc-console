@@ -310,7 +310,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: ParsedAlert) => row.id}
           loading={alertsLoading}
           columns={alertTableDisplayColumns}

@@ -304,7 +304,7 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
     >
       <Table
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         dataSource={filteredData}
         columns={columns}
         rowKey="key"

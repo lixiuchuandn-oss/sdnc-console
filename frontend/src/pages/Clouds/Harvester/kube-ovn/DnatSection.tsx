@@ -240,7 +240,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({ cloudId, dnatRules, ei
           dataSource={filteredData} 
           columns={columns} 
           loading={loading} 
-          bordered={bordered}
+          bordered={false}
           rowKey={r => r.metadata?.uid} 
           pagination={{
             size: 'small',

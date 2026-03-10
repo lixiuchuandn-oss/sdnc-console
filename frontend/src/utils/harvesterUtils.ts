@@ -116,6 +116,7 @@ export const VM_STATUS_MAP: Record<string, string> = {
   terminated: '已删除',
   pausing: '暂停中',
   paused: '已暂停',
+  crashloopbackoff: '崩溃重启中',
   error: '错误',
   errorunschedulable: '调度失败',
   waitingforvolumebinding: '等待卷绑定',

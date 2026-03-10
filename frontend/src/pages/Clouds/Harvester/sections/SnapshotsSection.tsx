@@ -411,7 +411,7 @@ const SnapshotsSection: React.FC<Props> = ({
     >
       <Table
         className="std-table"
-        bordered={bordered}
+        bordered={false}
         dataSource={filteredData}
         columns={visibleColumns || columns}
         rowKey="key"

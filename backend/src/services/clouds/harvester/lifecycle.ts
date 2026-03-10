@@ -404,6 +404,193 @@ export const harvesterRebootVM = async (
   return await requestJson('POST', url, token, insecure, { force });
 };
 
+// 从 VM 对象里取一个“尽量统一”的状态字符串（全部转成小写）
+// Harvester/KubeVirt 在不同场景下可能会把状态放在 printableStatus 或 phase 上
+const getVmStatusLower = (vm: any) => {
+  return String(vm?.status?.printableStatus || vm?.status?.phase || '').toLowerCase();
+};
+
+// 判断 VM 是否处于“看起来正在运行/正在启动”的状态
+// 这里同时参考：
+// - status.printableStatus / status.phase
+// - spec.running（有些 VM 会用这个布尔字段表示开关机意图）
+const isVmRunningLike = (vm: any) => {
+  const status = getVmStatusLower(vm);
+  return status === 'running' || status === 'starting' || vm?.spec?.running === true;
+};
+
+// 判断 VM 是否处于“看起来已经停止”的状态
+// stoppedStatus 取了几种常见的字符串，并且把 spec.running === false 也视为停止
+const isVmStoppedLike = (vm: any) => {
+  const status = getVmStatusLower(vm);
+  return status === 'stopped' || status === 'shutoff' || status === 'down' || status === 'offline' || vm?.spec?.running === false;
+};
+
+// “禁自启”补丁：把 VM 的自动运行倾向关掉，避免进入回收站后被控制器/策略拉起
+// 关键点：KubeVirt 中 runStrategy 和 running 在一些版本里属于互斥/不建议同时写的字段
+// 所以这里采用“三选一”策略：
+// 1) VM 原本有 runStrategy：把它改成 Manual，并移除 running 字段（如果存在）
+// 2) VM 原本没有 runStrategy 但有 running：把 running 设为 false
+// 3) 两者都没有：新增 runStrategy = Manual
+const patchVmDisableAutoStart = async (
+  {
+    origin,
+    endpoint,
+    token,
+    insecure,
+    namespace,
+    name,
+    vm,
+  }: {
+    origin: string;
+    endpoint: string;
+    token: string;
+    insecure: boolean;
+    namespace: string;
+    name: string;
+    vm: any;
+  },
+) => {
+  const runStrategy = vm?.spec?.runStrategy;
+  const hasRunStrategy = typeof runStrategy === 'string' && !!runStrategy;
+  const hasRunningField = typeof vm?.spec?.running === 'boolean';
+
+  const ops: any[] = [];
+  if (hasRunStrategy) {
+    if (runStrategy !== 'Manual') {
+      ops.push({ op: 'replace', path: '/spec/runStrategy', value: 'Manual' });
+    }
+    if (hasRunningField) {
+      ops.push({ op: 'remove', path: '/spec/running' });
+    }
+  } else if (hasRunningField) {
+    if (vm?.spec?.running !== false) {
+      ops.push({ op: 'replace', path: '/spec/running', value: false });
+    }
+  } else {
+    ops.push({ op: 'add', path: '/spec/runStrategy', value: 'Manual' });
+  }
+
+  if (ops.length === 0) return;
+
+  const patchUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(namespace)}/virtualmachines/${encodeURIComponent(name)}`;
+  await requestJson('PATCH', patchUrl, token, insecure, ops, {
+    'Content-Type': 'application/json-patch+json',
+  });
+};
+
+// 确保 VM “最终处于关机状态”的统一方法
+// 用途：
+// - 删除移入回收站时：先禁自启，再尝试关机，并短时间重试，减少竞态
+// - 定时兜底纠偏：发现回收站里有运行态 VM 时，调用它来纠正
+//
+// 说明：
+// - attempts/delayMs 控制重试次数和间隔（避免无限轮询）
+// - requireRecycleBinFinalizer=true 时，会要求 VM 仍然在回收站（带 tower.io/recycle-bin Finalizer）才继续操作
+export const harvesterEnsureVmStopped = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  instanceId: string,
+  opts?: { attempts?: number; delayMs?: number; requireRecycleBinFinalizer?: boolean },
+) => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
+  if (!path) throw new Error('无法解析实例标识');
+
+  const attempts = Math.max(1, Number(opts?.attempts ?? 3));
+  const delayMs = Math.max(200, Number(opts?.delayMs ?? 1000));
+  const requireRecycleBinFinalizer = !!opts?.requireRecycleBinFinalizer;
+  const recycleBinFinalizer = 'tower.io/recycle-bin';
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  let firstVm: any = null;
+  try {
+    firstVm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+  } catch (e: any) {
+    if (e?.status === 404) return;
+    throw e;
+  }
+
+  // 如果要求“只处理回收站中的 VM”，那就先检查 Finalizer
+  if (requireRecycleBinFinalizer) {
+    const finals = firstVm?.metadata?.finalizers || [];
+    if (!Array.isArray(finals) || !finals.includes(recycleBinFinalizer)) return;
+  }
+
+  // 先做禁自启，避免刚关机又被自动拉起
+  try {
+    await patchVmDisableAutoStart({
+      origin,
+      endpoint,
+      token,
+      insecure,
+      namespace: path.namespace,
+      name: path.name,
+      vm: firstVm,
+    });
+  } catch (e: any) {
+    console.warn('[EnsureVmStopped] 禁自启配置失败', {
+      instanceId: `${path.namespace}/${path.name}`,
+      error: e?.message || e,
+    });
+  }
+
+  // 如果当前看起来在运行，就先发一次强制关机请求
+  if (isVmRunningLike(firstVm)) {
+    try {
+      await harvesterStopVM({ endpoint, token, insecure }, instanceId, true);
+    } catch (e: any) {
+      console.warn('[EnsureVmStopped] 关机请求失败', {
+        instanceId: `${path.namespace}/${path.name}`,
+        error: e?.message || e,
+      });
+    }
+  }
+
+  // 短重试：每次重新拉取 VM 状态，若仍在运行则再次发关机请求
+  for (let i = 0; i < attempts; i++) {
+    let vm: any = null;
+    try {
+      vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
+    } catch (e: any) {
+      if (e?.status === 404) return;
+      await sleep(delayMs);
+      continue;
+    }
+
+    // 如果 VM 已经不在回收站了，就停止纠偏，避免误操作正常 VM
+    if (requireRecycleBinFinalizer) {
+      const finals = vm?.metadata?.finalizers || [];
+      if (!Array.isArray(finals) || !finals.includes(recycleBinFinalizer)) return;
+    }
+
+    // 已经停止就结束
+    if (isVmStoppedLike(vm)) return;
+
+    // 仍在运行则继续发强制关机
+    if (isVmRunningLike(vm)) {
+      try {
+        await harvesterStopVM({ endpoint, token, insecure }, instanceId, true);
+      } catch (e: any) {
+        console.warn('[EnsureVmStopped] 关机重试失败', {
+          instanceId: `${path.namespace}/${path.name}`,
+          error: e?.message || e,
+        });
+      }
+    }
+
+    await sleep(delayMs);
+  }
+};
+
 /**
  * 删除虚拟机（软删除）
  * 
@@ -543,6 +730,34 @@ export const harvesterDeleteVM = async (
     if (finalizers.includes(recycleBinFinalizer)) {
       throw new Error('该虚拟机已在回收站中');
     }
+
+    try {
+      await patchVmDisableAutoStart({
+        origin,
+        endpoint,
+        token,
+        insecure,
+        namespace: path.namespace,
+        name: path.name,
+        vm: currentVm,
+      });
+    } catch (e: any) {
+      console.warn('[DeleteVM] 禁自启配置失败', {
+        instanceId: `${path.namespace}/${path.name}`,
+        error: e?.message || e,
+      });
+    }
+
+    if (isVmRunningLike(currentVm)) {
+      try {
+        await harvesterStopVM({ endpoint, token, insecure }, instanceId, true);
+      } catch (e: any) {
+        console.warn('[DeleteVM] 关机请求失败', {
+          instanceId: `${path.namespace}/${path.name}`,
+          error: e?.message || e,
+        });
+      }
+    }
     
     // 添加回收站Finalizer（防止被真正删除）
     const newFinalizers = [...finalizers, recycleBinFinalizer];
@@ -583,6 +798,12 @@ export const harvesterDeleteVM = async (
       deletedAt: deletionTimestamp,
       expiresAt: expirationTimestamp
     });
+
+    await harvesterEnsureVmStopped(
+      { endpoint, token, insecure },
+      instanceId,
+      { attempts: 3, delayMs: 1000, requireRecycleBinFinalizer: true },
+    );
     
     return {
       vm: currentVm,

@@ -889,7 +889,7 @@ export const buildHarvesterVmPayload = (params: {
                           const obj: any = {};
                           
                           // CPU Limit
-                          if (!v.cpuBurstUnlimited) {
+                          if (!v.cpuBurstUnlimited && !v.dedicatedCPUPlacement) {
                             if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) {
                               obj.cpu = String(v.cpuLimit);
                             } else if (!hotExpandEnabled) {
@@ -914,10 +914,12 @@ export const buildHarvesterVmPayload = (params: {
                             const obj: any = {};
                             
                             // CPU Request
-                            if (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) {
-                                obj.cpu = String(v.cpuRequest);
-                            } else {
-                                obj.cpu = String(cpu);
+                            if (!v.dedicatedCPUPlacement) {
+                              if (typeof v.cpuRequest === 'number' && v.cpuRequest > 0) {
+                                  obj.cpu = String(v.cpuRequest);
+                              } else {
+                                  obj.cpu = String(cpu);
+                              }
                             }
 
                             // Memory Request
