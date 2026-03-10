@@ -29,7 +29,7 @@ interface Props {
   cloudId: string;
   sshKeys: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
 
   isTenant?: boolean;
   bordered?: boolean;
@@ -362,7 +362,9 @@ const SshKeysSection: React.FC<Props> = ({
         onCancel={() => setCreateModalVisible(false)}
         onSuccess={() => {
           setCreateModalVisible(false);
-          onRefresh?.(true);
+          // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+          // 静默刷新，不显示提示信息
+          onRefresh?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
         }}
         isTenant={isTenant}
       />

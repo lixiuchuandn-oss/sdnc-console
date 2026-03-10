@@ -35,17 +35,17 @@
  * ==============================================================================
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Badge, Descriptions, Collapse, List, Avatar, Space, Radio, Progress, Modal, Checkbox } from 'antd';
+import { Drawer, Segmented, Button, Dropdown, MenuProps, Tag, Tooltip, message, Card, Descriptions, List, Space, Progress, Modal, Checkbox } from 'antd';
 import { 
   PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, PauseCircleOutlined, 
   CodeOutlined, EllipsisOutlined, DesktopOutlined, DatabaseOutlined,
-  CloudServerOutlined, GlobalOutlined, HddOutlined, ApartmentOutlined,
+  HddOutlined, ApartmentOutlined,
   ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined,
-  SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined, WarningOutlined,
-  CloseOutlined, SyncOutlined, ReadOutlined, LineChartOutlined, BellOutlined, FileTextOutlined
+  SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined,
+  CloseOutlined, SyncOutlined, LineChartOutlined, BellOutlined, FileTextOutlined
 } from '@ant-design/icons';
-import { cnVmStatus, isSystemNamespace } from '../../../../utils/harvesterUtils';
-import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, abortHarvesterMigration, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
+import { cnVmStatus } from '../../../../utils/harvesterUtils';
+import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
 import { rebootCloudProviderEcs, API_BASE_URL } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
@@ -167,6 +167,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [subnets, setSubnets] = useState<any[]>([]);
   const [nads, setNads] = useState<any[]>([]);
   const [vmImages, setVmImages] = useState<any[]>(images);
+  // [聚合卷信息] 优先使用 aggregated 接口返回的 related.volumes（VM 引用的 PVC 列表）
+  // 这样磁盘容量/phase/conditions 与 VM spec 能保持同源，避免依赖外层缓存 volumes 导致差异。
+  const [vmPvcs, setVmPvcs] = useState<any[]>([]);
 
   // ==============================================================================
   // 4. 数据聚合拉取 (Aggregated Fetch)
@@ -195,8 +198,15 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 setVpcs(data.related.vpcs || []);
                 setSubnets(data.related.subnets || []);
                 setVmImages(data.related.images || []);
+                setVmPvcs(data.related.volumes || []);
             }
-            if (manual) message.success('刷新成功');
+            if (manual) {
+              message.success('刷新成功');
+              // 兜底：如果后端聚合未返回 volumes，则仍可触发上游强刷
+              if (!Array.isArray(data?.related?.volumes) || data.related.volumes.length === 0) {
+                try { onRefresh?.(true); } catch {}
+              }
+            }
         }
     } catch (e) {
         console.error('Failed to fetch aggregated VM data', e);
@@ -429,11 +439,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     }
   }, [activeTab, open]);
 
-  const fetchBackups = async (force = false) => {
+  const fetchBackups = async (force = false, skipSync = false) => {
     if (!cloudId) return;
     setBackupsLoading(true);
     try {
-      const res = await fetchHarvesterBackups(cloudId, force);
+      const res = await fetchHarvesterBackups(cloudId, force, skipSync);
       const items = (res as any)?.data?.items || [];
       setBackups(items);
     } catch (e: any) {
@@ -443,11 +453,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     }
   };
 
-  const fetchSchedules = async (force = false) => {
+  const fetchSchedules = async (force = false, skipSync = false) => {
     if (!cloudId) return;
     setSchedulesLoading(true);
     try {
-      const res = await fetchHarvesterScheduleVmBackups(cloudId, force);
+      const res = await fetchHarvesterScheduleVmBackups(cloudId, force, skipSync);
       const items = (res as any)?.data?.items || [];
       setSchedules(items);
     } catch (e: any) {
@@ -518,6 +528,16 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     vmId: (r: any) => r?.metadata?.name || '',
     namespace: (r: any) => r?.metadata?.namespace || r?.namespace || '',
     status: (r: any) => {
+        // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
+        // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
+        // 也可能在 status.migrationState 中（不同版本可能不同）
+        const vmi = r?.vmi || r?.vmiRaw;
+        if (vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'] || vmi?.status?.migrationState) {
+          // 如果存在 migrationState，说明正在迁移
+          return 'Migrating';
+        }
+        
+        // [优先级2] 检查 VM 的状态字段
         if (typeof r?.status === 'string') return r.status;
         return r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown';
     },
@@ -595,11 +615,34 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     // 3.3 计算资源 (Compute)
     // ------------------------------------------
     cpu: (r: any) => {
+      // [修复] 优先从VM spec计算CPU数量，确保热扩容后显示正确
+      // VM spec是配置规格，热扩容后会立即更新
+      // VMI spec是运行实例规格，热扩容过程中可能还没同步
       const cpu = r?.spec?.template?.spec?.domain?.cpu;
-      if (cpu?.cores && cpu?.sockets && cpu?.threads) {
-        return Number(cpu.cores) * Number(cpu.sockets) * Number(cpu.threads);
+      
+      // 优先：使用完整的拓扑信息计算（sockets * cores * threads）
+      if (cpu?.sockets !== undefined && cpu?.cores !== undefined && cpu?.threads !== undefined) {
+        return Number(cpu.sockets) * Number(cpu.cores) * Number(cpu.threads);
       }
-      return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores || 0;
+      
+      // 如果只有部分拓扑信息，尝试计算
+      if (cpu?.sockets !== undefined && cpu?.cores !== undefined) {
+        return Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
+      }
+      if (cpu?.sockets !== undefined && cpu?.threads !== undefined) {
+        return Number(cpu.sockets) * (cpu?.cores || 1) * Number(cpu.threads);
+      }
+      if (cpu?.cores !== undefined && cpu?.threads !== undefined) {
+        return (cpu?.sockets || 1) * Number(cpu.cores) * Number(cpu.threads);
+      }
+      
+      // 回退：使用后端计算的Extra.CPU（如果可用）
+      if (r?.cpu !== undefined && r?.cpu !== null) {
+        return Number(r.cpu);
+      }
+      
+      // 最后回退：使用cores或VMI的cores
+      return cpu?.cores || cpu?.sockets || r?.vmi?.spec?.domain?.cpu?.cores || 0;
     },
     memory: (r: any) => {
       // [展示口径] 优先展示 Guest Memory（规格），这是用户在 VM 配置中显式设置的值
@@ -636,14 +679,17 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         const disks = r?.spec?.template?.spec?.domain?.devices?.disks || [];
         
         // [磁盘映射] 将 domain.devices.disks 的设备信息（如 bootOrder/bus/cdrom）合并到 volumes 上，用于列表展示
+        // [容量数据源] 优先使用聚合接口返回的 related.volumes，其次才用外层 props volumes
+        const pvcSource = (Array.isArray(vmPvcs) && vmPvcs.length > 0) ? vmPvcs : volumes;
+
         return vols.map((v: any) => {
              const claimName = v?.persistentVolumeClaim?.claimName;
              const diskInfo = disks.find((d: any) => d.name === v.name);
              let capacityBytes = 0;
              let imageDisplayName = '';
              
-             if (claimName && volumes && volumes.length > 0) {
-                 const pvc = volumes.find((p: any) => {
+             if (claimName && pvcSource && pvcSource.length > 0) {
+                 const pvc = pvcSource.find((p: any) => {
                     const pName = p?.metadata?.name || p?.name;
                     const pNs = p?.metadata?.namespace || p?.namespace;
                     if (pName === claimName && pNs === vmNs) return true;
@@ -996,6 +1042,63 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   }, [cloudId, vmData, onRefresh, SafeRead]);
 
   const status = String(SafeRead.status(vmData)).toLowerCase();
+
+  // [配置同步状态] 使用 K8s generation 字段简单判断是否存在“配置未完全同步”的提示信息
+  const vmGeneration = vmData?.metadata?.generation;
+  // 预留 observedGeneration/desiredGeneration 等字段（如果后端聚合接口未来补充，可以直接使用）
+  const observedGeneration =
+    vmData?.status?.observedGeneration ??
+    vmData?.status?.desiredGeneration ??
+    vmData?.status?.lastObservedGeneration;
+
+  const hasGenerationInfo =
+    typeof vmGeneration === 'number' && typeof observedGeneration === 'number';
+
+  const isConfigOutOfSync =
+    hasGenerationInfo && vmGeneration > observedGeneration;
+
+  // [热扩容状态] 复刻列表/变配中的判定逻辑：基于 Annotation + Conditions
+  const annotations = vmData?.metadata?.annotations || {};
+  const conditions = vmData?.status?.conditions || [];
+
+  const isHotPlugConfigured =
+    annotations['harvesterhci.io/enableCPUAndMemoryHotplug']?.toLowerCase() ===
+    'true';
+
+  const hasRestartRequired = conditions.some(
+    (c: any) => c.type === 'RestartRequired' && c.status === 'True',
+  );
+
+  const hasHotPlugChangeInProgress = conditions.some(
+    (c: any) =>
+      (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') &&
+      c.status === 'True',
+  );
+
+  // [关键修复] 检查 VM 是否可迁移（内存热扩容的前提条件）
+  // KubeVirt 要求：Memory-hotplug is only available for migratable VMs
+  // [兼容性] 同时检查 LiveMigratable 和 VirtualMachineInstanceIsMigratable 两种条件类型
+  const vmi = vmData?.vmi || vmData?.vmiRaw;
+  const vmiConditions = vmi?.status?.conditions || [];
+  const isMigratable = vmiConditions.some(
+    (c: any) =>
+      (c.type === 'LiveMigratable' || c.type === 'VirtualMachineInstanceIsMigratable') &&
+      c.status === 'True',
+  );
+
+  // 当前是否可以正常执行热扩容操作（已配置 且 无待重启 且 无在途变更）
+  // [关键修正] CPU 热扩容会触发迁移，因此也需要 VM 可迁移
+  // 如果 VM 不可迁移，CPU 和内存热扩容都无法执行
+  const isHotPlugEffective =
+    isHotPlugConfigured && !hasRestartRequired && !hasHotPlugChangeInProgress && isMigratable;
+
+  // 已配置但需要重启后才生效
+  const isHotPlugPendingRestart =
+    isHotPlugConfigured && hasRestartRequired && !hasHotPlugChangeInProgress;
+
+  // 已配置且正在执行热扩容
+  const isHotPlugInProgress =
+    isHotPlugConfigured && hasHotPlugChangeInProgress;
   const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(status);
   const isRunning = ['running'].includes(status);
   const isPaused = ['paused'].includes(status);
@@ -1005,8 +1108,12 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // 11. 派生状态 (Derived Flags)
   // ==============================================================================
   // [故障提示] HotPlugCPUError 通常表示热插拔 CPU 变配失败，需要在 UI 上显式提示
-  const conditions = vmData?.status?.conditions || [];
-  const hotPlugCpuError = conditions.find((c: any) => c.type === 'Failure' && c.reason === 'HotPlugCPUError' && c.status === 'True');
+  const hotPlugCpuError = conditions.find(
+    (c: any) =>
+      c.type === 'Failure' &&
+      c.reason === 'HotPlugCPUError' &&
+      c.status === 'True',
+  );
   
   const vmDisks = SafeRead.volumeDetails(vmData);
   const vmNics = SafeRead.interfaces(vmData);
@@ -1034,7 +1141,14 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         title: (!isStopped && !isRunning) ? '仅在运行中或停止状态下支持变配' : undefined,
         onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) 
       },
-      { key: 'migrate', label: '热迁移', icon: <ExportOutlined />, disabled: isStopped, onClick: () => onMigrate && onMigrate(vmData) },
+      { 
+        key: 'migrate', 
+        label: '热迁移', 
+        icon: <ExportOutlined />, 
+        disabled: !isRunning,
+        title: !isRunning ? '只有运行中的实例才能进行热迁移' : undefined,
+        onClick: () => onMigrate && onMigrate(vmData) 
+      },
       ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
 
       { type: 'divider' },
@@ -1060,7 +1174,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         展示 VM 名称/ID/状态，以及刷新与关闭入口。
       */}
       <div style={{ background: '#f5f7fa', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ 
                 width: 38,
                 height: 38,
@@ -1075,6 +1189,69 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                 <div style={{ fontSize: 12, color: '#999'}}>ID: {SafeRead.vmId(vmData)}</div>
             </div>
             <Tag color={isRunning ? 'success' : 'default'} style={{ margin: 0}}>{cnVmStatus(status)}</Tag>
+
+            {/* 配置同步状态徽章：仅当存在 generation 信息时展示 */}
+            {hasGenerationInfo && (
+              <Tooltip
+                title={
+                  isConfigOutOfSync
+                    ? `配置未完全同步：当前 VM generation = ${vmGeneration}，最新已同步版本 = ${observedGeneration}。这通常表示最近一次规格/配置变更仍在同步或落盘过程中。`
+                    : `配置已同步：当前 VM generation = ${vmGeneration}，同步版本 = ${observedGeneration}。`
+                }
+              >
+                <Tag
+                  color={isConfigOutOfSync ? 'processing' : 'default'}
+                  style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <InfoCircleOutlined />
+                  {isConfigOutOfSync ? '变更同步中' : '配置已同步'}
+                </Tag>
+              </Tooltip>
+            )}
+
+            {/* 热扩容状态徽章：仅当已配置且在运行状态（或待重启状态）时展示 */}
+            {/* [关键修正] 热扩容功能需要 VM 运行，关机状态下不显示状态徽章（待重启状态除外） */}
+            {isHotPlugConfigured && (isRunning || isHotPlugPendingRestart) && (
+              <Tooltip
+                title={
+                  isHotPlugInProgress
+                    ? '热扩容进行中：当前正在执行 CPU 或内存热扩容操作，期间禁止再次发起新的热扩容/规格变更。'
+                    : isHotPlugPendingRestart
+                    ? '热扩容已配置但未完全生效：需要先重启虚拟机，才能开启 CPU/内存热插拔能力。'
+                    : isHotPlugEffective
+                    ? '热扩容已启用：当前虚拟机支持在不重启的前提下增加 CPU / 内存（受 maxSockets/maxMemory 上限约束）。'
+                    : isHotPlugConfigured && !isMigratable
+                    ? '热扩容不可用：CPU 和内存热扩容都需要 VM 可迁移（当前不可迁移），请检查 PVC 是否为共享存储（ReadWriteMany）或移除阻止迁移的设备。'
+                    : '热扩容状态异常：已存在配置标记，但状态条件无法判定为生效/在途/待重启，请查看事件或日志。'
+                }
+              >
+                <Tag
+                  color={
+                    isHotPlugInProgress
+                      ? 'processing'
+                      : isHotPlugPendingRestart
+                      ? 'warning'
+                      : isHotPlugEffective
+                      ? 'success'
+                      : isHotPlugConfigured && !isMigratable
+                      ? 'warning' // VM 不可迁移，热扩容不可用
+                      : 'default'
+                  }
+                  style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <InfoCircleOutlined />
+                  {isHotPlugInProgress
+                    ? '热扩容中'
+                    : isHotPlugPendingRestart
+                    ? '热扩容待重启'
+                    : isHotPlugEffective
+                    ? '热扩容已启用'
+                    : isHotPlugConfigured && !isMigratable
+                    ? '热扩容不可用'
+                    : '热扩容异常'}
+                </Tag>
+              </Tooltip>
+            )}
 
             {hotPlugCpuError && (
               <Tooltip title={`CPU 热插拔失败: ${hotPlugCpuError.message || '未知错误'}`}>
@@ -1554,7 +1731,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                   schedules={schedules}
                   backupsLoading={backupsLoading}
                   schedulesLoading={schedulesLoading}
-                  onRefresh={(force) => { fetchBackups(force); fetchSchedules(force); }}
+                  onRefresh={(force, silent) => { 
+                    const skipSync = silent || false;
+                    fetchBackups(force, skipSync); 
+                    fetchSchedules(force, skipSync); 
+                  }}
                   namespaces={namespaces}
               />
             </div>

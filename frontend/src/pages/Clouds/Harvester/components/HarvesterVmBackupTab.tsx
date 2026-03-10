@@ -49,7 +49,7 @@ interface HarvesterVmBackupTabProps {
   schedules: any[];
   backupsLoading: boolean;
   schedulesLoading: boolean;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: (force?: boolean, silent?: boolean) => void;
   namespaces: any[];
 }
 
@@ -416,7 +416,9 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
         onSuccess={() => {
           setCreateSnapshotVisible(false);
           message.success('快照创建指令已发送');
-          onRefresh(true);
+          // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+          // 静默刷新，不显示提示信息
+          onRefresh(true, true); // force=true, silent=true
         }}
         initialNamespace={namespace}
         initialVm={record}
@@ -429,7 +431,9 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
         onSuccess={() => {
           setCreateScheduleVisible(false);
           message.success('定时策略创建成功');
-          onRefresh(true);
+          // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+          // 静默刷新，不显示提示信息
+          onRefresh(true, true); // force=true, silent=true
         }}
         initialNamespace={namespace}
         initialVmName={vmId}

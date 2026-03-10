@@ -20,7 +20,7 @@ interface Props {
   cloudId: string;
   ingresses: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
 }
 
 const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefresh }) => {

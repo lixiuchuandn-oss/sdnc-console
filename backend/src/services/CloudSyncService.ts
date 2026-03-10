@@ -14,6 +14,8 @@ import {
   syncHarvesterNads,
   syncKubeOvnVpcs,
   syncKubeOvnSubnets,
+  syncKubeOvnProviderNetworks,
+  syncKubeOvnVlans,
   syncHarvesterGpus,
   syncHarvesterNamespaces,
   syncHarvesterSnapshots,
@@ -215,6 +217,8 @@ export class CloudSyncService {
       await syncHarvesterNads(cloud, insecure);
       await syncKubeOvnVpcs(cloud, insecure);
       await syncKubeOvnSubnets(cloud, insecure);
+      await syncKubeOvnProviderNetworks(cloud, insecure);
+      await syncKubeOvnVlans(cloud, insecure);
       await syncHarvesterGpus(cloud, insecure);
       await syncHarvesterNamespaces(cloud, insecure);
       await syncHarvesterSnapshots(cloud, insecure);

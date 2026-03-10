@@ -811,7 +811,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         render: (_, row) => {
           const receivers = row.spec?.receivers;
           if (!Array.isArray(receivers)) return '-';
-          const names = (receivers as { name?: string }[]).map((r) => r.name).filter(Boolean);
+          const names = (receivers as { name?: string }[])
+            .map((r) => r.name)
+            .filter((n): n is string => Boolean(n) && String(n).trim() !== 'null-receiver');
           if (!names.length) return '-';
           return (
             <Space size={[8, 4]} wrap>

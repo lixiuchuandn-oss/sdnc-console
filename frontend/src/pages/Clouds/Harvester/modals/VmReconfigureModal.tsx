@@ -12,18 +12,20 @@
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useMemo } from 'react';
-import { Modal, Form, Space, Radio, Button, Tag, Tooltip } from 'antd';
+import { Modal, Form, Space, Radio, Button, Tag, Tooltip, Checkbox } from 'antd';
 import { 
   HddOutlined, GlobalOutlined, DashboardOutlined, LoadingOutlined, QuestionCircleOutlined
 } from '@ant-design/icons';
 
 import ChangeSpec from './VmReconfigure/ChangeSpec';
+import HotPlugSettings from './VmReconfigure/HotPlugSettings';
 import CpuAdvanced from './VmReconfigure/CpuAdvanced';
 import MemAdvanced from './VmReconfigure/MemAdvanced';
 import ChangeGpu from './VmReconfigure/ChangeGpu';
 import ChangeOs from './VmReconfigure/ChangeOs';
 import SystemDiskExpand from './VmReconfigure/SystemDiskExpand';
 import AddDataDisk from './VmReconfigure/AddDataDisk';
+import DetachDataDisk from './VmReconfigure/DetachDataDisk';
 import ChangePrimaryNic from './VmReconfigure/ChangePrimaryNic';
 import ChangeSecondaryNic from './VmReconfigure/ChangeSecondaryNic';
 import { useVmReconfigure } from './VmReconfigure/useVmReconfigure';
@@ -55,7 +57,7 @@ type Props = {
 
 const VmReconfigureModal: React.FC<Props> = (props) => {
   const { 
-    open, record, onClose
+    open, cloudId, record, onClose
   } = props;
 
   /**
@@ -82,30 +84,49 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     getCurrentSpec,
     getMemoryInGi,
     isHotPlugEnabledOnVm,
+    isHotPlugConfiguredOnVm,
     isRestartRequired,
-    isHotPlugInProgress
+    isHotPlugInProgress,
+    latestVm,
+    // add disk split actions
+    diskCreating,
+    diskAttaching,
+    handleCreateDisk,
+    handleAttachDisk,
+    availableDiskPvcs,
+    // detach disk actions
+    diskDetaching,
+    handleDetachDisk,
+    refreshVm,
   } = useVmReconfigure(props);
 
-  // 监听表单中的 CPU / 内存 / 热扩容开关，用于动态计算按钮文案等
+  // 监听表单中的 CPU / 内存，用于动态计算按钮文案等
   const cpu = Form.useWatch('cpu', form);
   const memory = Form.useWatch('memory', form);
-  const enableHotPlug = Form.useWatch('enableHotPlug', form);
+  // 添加数据盘两步按钮：监听创建状态
+  const newDiskCreated = Form.useWatch('newDiskCreated', form);
+  const newDiskSource = Form.useWatch('newDiskSource', form);
+  const changeOsConfirmed = Form.useWatch('changeOsConfirmed', form);
+  // [移除] enableHotPlug 已拆分为独立功能，不再在 change_spec 中监听
+  // const enableHotPlug = Form.useWatch('enableHotPlug', form);
   
   // 计算当前实例规格（作为“变配前”的基准值）
+  // [修复] 添加 latestVm 依赖，确保当 VM 数据更新时重新计算规格
   const { cpu: currentCpuRaw, memory: currentMemoryRaw, maxSockets, maxMemory: maxMemoryRaw } = useMemo(() => {
      if (!getCurrentSpec) return { cpu: 0, memory: 0, maxSockets: undefined, maxMemory: undefined };
      return getCurrentSpec();
-  }, [getCurrentSpec, record]);
+  }, [getCurrentSpec, record, latestVm]);
   
   const currentCpu = Number(currentCpuRaw || 0);
   const currentMemory = getMemoryInGi(currentMemoryRaw);
   const maxMemory = maxMemoryRaw ? getMemoryInGi(maxMemoryRaw) : undefined;
   const architecture = record?.spec?.template?.spec?.architecture || record?.spec?.architecture;
   
-  // 当前 VM 是否已启用 CPU / 内存热扩容能力（基于注解/feature 判断）
-  const isHotPlugEnabledOnVmVal = useMemo(() => {
-    return isHotPlugEnabledOnVm ? isHotPlugEnabledOnVm() : false;
-  }, [isHotPlugEnabledOnVm, record]);
+  // 当前 VM 的热扩容状态：
+  // - isHotPlugConfiguredOnVm：仅根据 Annotation 判断是否“已配置”热扩容（用于 UI 展示/布局）
+  // - isHotPlugEnabledOnVm：已配置且当前可进行热扩容（无 RestartRequired / 热扩容进行中，用于本次是否真正走热扩容路径）
+  const isHotPlugConfiguredOnVmVal = isHotPlugConfiguredOnVm || false;
+  const isHotPlugActiveOnVmVal = isHotPlugEnabledOnVm || false;
 
   /**
    * 左侧菜单分组：
@@ -121,6 +142,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       icon: <DashboardOutlined />,
       children: [
         { key: 'change_spec', label: '变更实例规格' },
+        { key: 'hotplug_settings', label: '热扩容设置' },
         { key: 'cpu_advanced', label: 'CPU高级配置' },
         { key: 'mem_advanced', label: '内存高级配置' },
         { key: 'change_gpu', label: '变更GPU' },
@@ -133,6 +155,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
         { key: 'change_os', label: '更换系统镜像' },
         { key: 'expand_system_disk', label: '系统盘扩容' },
         { key: 'add_disk', label: '添加数据盘' },
+        { key: 'detach_disk', label: '解绑数据盘' },
       ]
     },
     {
@@ -167,7 +190,8 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             form={form} 
             currentCpu={currentCpu} 
             currentMemory={currentMemory}
-            isHotPlugEnabledOnVm={isHotPlugEnabledOnVmVal}
+            // 这里用“是否已配置热扩容”来决定界面布局和表单校验
+            isHotPlugEnabledOnVm={isHotPlugConfiguredOnVmVal}
             isRestartRequired={isRestartRequired}
             maxSockets={maxSockets}
             maxMemory={maxMemory}
@@ -175,8 +199,36 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             disabled={isHotPlugInProgress}
           />
         );
-      case 'cpu_advanced':
-        return <CpuAdvanced form={form} />;
+      case 'hotplug_settings':
+        return (
+          <HotPlugSettings
+            form={form}
+            currentCpu={currentCpu}
+            currentMemory={currentMemory}
+            // 这里使用“已配置”状态来控制 UI 展示（例如提示“已开启热扩容，上限不可修改”）
+            isHotPlugEnabledOnVm={isHotPlugConfiguredOnVmVal}
+            maxSockets={maxSockets}
+            maxMemory={maxMemory}
+            architecture={architecture}
+            disabled={isHotPlugInProgress}
+          />
+        );
+      case 'cpu_advanced': {
+        const domain = (latestVm || record)?.spec?.template?.spec?.domain;
+        const cpuSpec = domain?.cpu;
+        const resources = domain?.resources;
+        const vmCpuState = {
+          cpu: cpuSpec || null,
+          resources: resources || null,
+        };
+        return (
+          <CpuAdvanced 
+            form={form}
+            vmCpuState={vmCpuState}
+            vmCpuDebugText={JSON.stringify(vmCpuState, null, 2)} 
+          />
+        );
+      }
       case 'mem_advanced':
         return <MemAdvanced form={form} />;
       case 'change_gpu':
@@ -223,6 +275,17 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             form={form}
             scOptions={scOptions}
             reloadScs={reloadScs}
+            pvcOptions={availableDiskPvcs}
+          />
+        );
+      case 'detach_disk':
+        return (
+          <DetachDataDisk 
+            record={latestVm || record}
+            cloudId={cloudId}
+            onDetach={handleDetachDisk}
+            onRefresh={refreshVm}
+            loading={diskDetaching}
           />
         );
 
@@ -272,18 +335,16 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     let buttonText = "提交";
 
     if (selectedKey === 'change_spec') {
-        // 仅在“变更实例规格”任务下，才需要根据热扩容能力调整按钮文案
+        // 仅在"变更实例规格"任务下，才需要根据热扩容能力调整按钮文案
         // 场景：
-        // - 表单未开启热扩容开关 -> 冷扩容；
         // - VM 本身未启用热扩容能力 -> 冷扩容；
-        // - 虽然表单与 VM 均支持热扩容，但超过 4 倍上限或缩配 -> 强制冷扩容。
-        if (!enableHotPlug) {
-           buttonText = "提交（冷扩容）";
-        } else if (enableHotPlug && !isHotPlugEnabledOnVmVal) {
+        // - VM 已启用热扩容，但超过上限或缩配 -> 强制冷扩容。
+        // 按钮文案需要看“当前这次变更是否可以走热扩容路径”，因此用 Active 状态
+        if (!isHotPlugActiveOnVmVal) {
            buttonText = "提交（冷扩容）";
         } else {
            const limitCpu = maxSockets || (currentCpu * 4);
-           const limitMem = currentMemory * 4;
+           const limitMem = maxMemory || (currentMemory * 4);
            
            const isOverLimit = (cpu !== undefined && cpu > limitCpu) || (memory !== undefined && memory > limitMem);
            const isInvalid = (cpu !== undefined && cpu < currentCpu) || (memory !== undefined && memory < currentMemory);
@@ -291,18 +352,83 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
            if (isOverLimit || isInvalid) {
               buttonText = "提交（冷扩容）";
            } else {
-              buttonText = "提交";
+              buttonText = "提交（热扩容）";
            }
         }
+    } else if (selectedKey === 'hotplug_settings') {
+        // 热扩容设置：变更热扩容开关需要重启
+        buttonText = "提交（需要重启）";
     }
     return { alertMessage: messageNode, okText: buttonText };
-  }, [selectedKey, cpu, memory, enableHotPlug, currentCpu, currentMemory, isHotPlugEnabledOnVmVal, maxSockets]);
+  }, [selectedKey, cpu, memory, currentCpu, currentMemory, isHotPlugActiveOnVmVal, maxSockets, maxMemory]);
+
+  const showChangeOsRisk = () => {
+    Modal.info({
+      title: '更换系统盘风险说明',
+      width: 520,
+      content: (
+        <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6 }}>
+          <p style={{ marginBottom: 4 }}>• 更换操作系统将删除当前的系统盘并重建实例，系统盘数据将会丢失。</p>
+          <p style={{ marginBottom: 4 }}>• 挂载的数据盘将被保留，但在新系统启动后可能需要手动重新挂载。</p>
+          <p style={{ marginBottom: 0 }}>• 虚拟机将会强制重启以应用更改，请在业务低峰期执行。</p>
+        </div>
+      ),
+      okText: '我已知晓',
+      onOk: () => {
+        try {
+          form.setFieldsValue({ changeOsConfirmed: true });
+        } catch {}
+      },
+    });
+  };
 
   // 底部按钮区域，仅保留“取消 + 提交”两种操作
   const footer = (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <Button onClick={onClose}>取消</Button>
-        <Button type="primary" onClick={handleSubmit} disabled={isHotPlugInProgress}>{okText}</Button>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
+        {selectedKey === 'add_disk' ? (
+          <>
+            <Button onClick={onClose}>取消</Button>
+            <Button
+              type="primary"
+              onClick={handleCreateDisk}
+              loading={diskCreating}
+              disabled={diskAttaching || !!newDiskCreated || newDiskSource === 'existing'}
+            >
+              创建磁盘
+            </Button>
+            <Button
+              type="primary"
+              onClick={handleAttachDisk}
+              loading={diskAttaching}
+              disabled={diskCreating || !newDiskCreated}
+            >
+              挂载磁盘
+            </Button>
+          </>
+        ) : selectedKey === 'change_os' ? (
+          <>
+
+            <Checkbox checked={!!changeOsConfirmed} disabled>
+              已确认风险
+            </Checkbox>
+            <Button type="link" onClick={showChangeOsRisk} style={{ paddingLeft: 0 }}>
+              查看风险信息
+            </Button>
+            <Button onClick={onClose}>取消</Button>
+            <Button
+              type="primary"
+              onClick={handleSubmit}
+              disabled={isHotPlugInProgress || !changeOsConfirmed}
+            >
+              {okText}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button onClick={onClose}>取消</Button>
+            <Button type="primary" onClick={handleSubmit} disabled={isHotPlugInProgress}>{okText}</Button>
+          </>
+        )}
       </div>
   );
 

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { Form, Select, Input, Row, Col, Typography, Alert } from 'antd';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Form, Select, Input, InputNumber, Row, Col, Typography, Alert, Space, Checkbox } from 'antd';
 import { isSystemStorageClass } from '../../../../../utils/harvesterUtils';
+import { OsIcon } from '../../../../../components/OsIcon';
 
 type Props = {
   form: any;
@@ -21,6 +22,23 @@ const ChangeOs: React.FC<Props> = ({
 }) => {
   const [minSize, setMinSize] = useState<number>(0);
 
+  // 计算当前选中镜像的显示名称，用于镜像预览中的 OS 图标
+  const previewOsName = useMemo(() => {
+    const val = form.getFieldValue('newOsImage');
+    if (!val) return '';
+    const it = (images || []).find((x: any) => {
+      const name = x?.metadata?.name || x?.name;
+      const ns = x?.metadata?.namespace || x?.namespace;
+      const v = ns && name ? `${ns}/${name}` : name;
+      return v === val;
+    });
+    if (!it) return '';
+    const annotations = it?.metadata?.annotations || it?.annotations || {};
+    const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'];
+    const disp = imageName || it?.spec?.displayName || it?.displayName || it?.metadata?.name || it?.name || '';
+    return disp;
+  }, [form, images]);
+
   // Initialize defaults
   useEffect(() => {
     if (!form.getFieldValue('rootSourceType')) {
@@ -28,37 +46,33 @@ const ChangeOs: React.FC<Props> = ({
         rootSourceType: 'image',
         newOsBus: 'virtio',
         rootDeviceType: 'disk',
-        newOsRootSize: '自动选择' // Default size
+        // 用 undefined 表示“自动选择”，避免 number input 解析字符串报错
+        newOsRootSize: undefined
       });
     }
   }, []);
 
   return (
     <>
+      {/* rootSourceType 固定为 image，使用隐藏字段注册到表单 */}
+      <Form.Item name="rootSourceType" hidden initialValue="image">
+        <Input />
+      </Form.Item>
+      {/* 更换系统盘风险确认：字段注册，由外层 Footer 的复选框控制 */}
+      <Form.Item name="changeOsConfirmed" valuePropName="checked" hidden>
+        <Checkbox />
+      </Form.Item>
 
-          <Alert
-        description={
-          <ul style={{ paddingLeft: 20, margin: 0 }}>
-            <li>更换操作系统将删除当前的系统盘并重建实例，系统盘数据将会丢失。</li>
-            <li>挂载的数据盘将被保留，但在新系统启动后可能需要手动重新挂载。</li>
-            <li>虚拟机将会强制重启以应用更改。</li>
-          </ul>
-        }
-        type="info"
-        style={{ padding: 12, marginBottom: 16 }}
-      />
-      <Row gutter={12}>
-        <Col span={0}>
-          {/* 启动盘来源选择 - 锁定为镜像 (Hidden field for form submission) */}
-           <Form.Item name="rootSourceType" hidden initialValue="image">
-             <Input />
-           </Form.Item>
+      {/* 选择镜像 */}
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>选择镜像</div>
         </Col>
-        <Col span={24}>
-          {/* Image Selection */}
-          <Form.Item label="选择镜像" name="newOsImage" rules={[{ required: true, message: '请选择镜像' }]}>
+        <Col span={18}>
+          <Form.Item name="newOsImage" rules={[{ required: true, message: '请选择镜像' }]} noStyle>
             <Select
               showSearch
+              style={{ width: '100%' }}
               options={(images || []).filter((x: any) => {
                  const fmt = String(x?.spec?.diskFormat || x?.diskFormat || '').toLowerCase();
                  const annotations = x?.metadata?.annotations || x?.annotations || {};
@@ -70,10 +84,20 @@ const ChangeOs: React.FC<Props> = ({
                   const name = x?.metadata?.name || x?.name;
                   const ns = x?.metadata?.namespace || x?.namespace;
                   const annotations = x?.metadata?.annotations || x?.annotations || {};
-                  const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'];
+                  const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'] || annotations['harvesterhci.io/imageDisplayName'];
                   const disp = imageName || x?.spec?.displayName || x?.displayName || name;
-                  return { label: disp || '-', value: ns && name ? `${ns}/${name}` : name };
+                  return { 
+                    label: (
+                      <Space>
+                        <OsIcon osName={disp || name} />
+                        {disp || '-'}
+                      </Space>
+                    ),
+                    value: ns && name ? `${ns}/${name}` : name,
+                    labelString: disp || name,
+                  };
               })}
+              optionFilterProp="labelString"
               placeholder="请选择镜像"
               onDropdownVisibleChange={(open) => { if (open) reloadImages(); }}
               onChange={(val) => {
@@ -110,7 +134,7 @@ const ChangeOs: React.FC<Props> = ({
                   setMinSize(gi);
                   // Always auto-update size when image changes
                   if (gi) {
-                    form.setFieldsValue({ newOsRootSize: `${gi}` });
+                    form.setFieldsValue({ newOsRootSize: gi });
                   }
                 } catch (e) {
                   console.warn('Failed to auto-fill size', e);
@@ -119,72 +143,112 @@ const ChangeOs: React.FC<Props> = ({
               }}
             />
           </Form.Item>
-        </Col>
-        <Col span={12}>
-           {/* 容量 - 可编辑，带最小值校验 */}
-           <Form.Item 
-             label="容量 (GiB)" 
-             name="newOsRootSize" 
-             initialValue="自动选择" 
-             rules={[
-               { required: true, message: '请输入容量' },
-               {
-                 validator: async (_, value) => {
-                   if (value === '自动选择') return;
-                   const num = Number(value);
-                   if (isNaN(num)) throw new Error('请输入有效的数字');
-                   if (minSize > 0 && num < minSize) {
-                     throw new Error(`容量不能小于镜像大小 (${minSize} GiB)`);
-                   }
-                 }
-               }
-             ]}
-           >
-             <Input type="number" suffix="GiB" placeholder={minSize ? `最小 ${minSize} GiB` : '自动选择'} />
-           </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item label="总线" name="newOsBus" initialValue="virtio">
-            <Select options={['virtio', 'scsi', 'sata'].map(v => ({ label: v.toUpperCase(), value: v }))} />
-          </Form.Item>
+          <div style={{ marginBottom: 24 }} />
         </Col>
       </Row>
 
-      <div style={{ padding: '12px', background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8 }}>
-        <Row gutter={12}>
-          <Col span={12}>
-            {/* 设备类型 - 锁定为 DISK (Hidden field + Display Input) */}
+      {/* 容量 */}
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>容量 (GiB)</div>
+        </Col>
+        <Col span={18}>
+          <Form.Item 
+            name="newOsRootSize" 
+            rules={[
+              {
+                validator: async (_, value) => {
+                  // 空值=自动选择：要求先选镜像（镜像会自动填充容量）
+                  if (value === undefined || value === null || value === '') {
+                    const image = form.getFieldValue('newOsImage');
+                    if (!image) throw new Error('请先选择镜像，或手动输入容量');
+                    return;
+                  }
+                  const num = Number(value);
+                  if (Number.isNaN(num)) throw new Error('请输入有效的数字');
+                  if (num <= 0) throw new Error('容量必须大于 0');
+                  if (minSize > 0 && num < minSize) {
+                    throw new Error(`容量不能小于镜像大小 (${minSize} GiB)`);
+                  }
+                }
+              }
+            ]}
+            noStyle
+          >
+            <InputNumber
+              style={{ width: '100%' }}
+              min={minSize > 0 ? minSize : 1}
+              precision={0}
+              placeholder={minSize ? `最小 ${minSize} GiB` : '自动选择'}
+              suffix="GiB"
+            />
+          </Form.Item>
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
+      {/* 总线 */}
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>总线类型</div>
+        </Col>
+        <Col span={18}>
+          <Form.Item name="newOsBus" initialValue="virtio" noStyle>
+            <Select
+              style={{ width: '100%' }}
+              options={['virtio', 'scsi', 'sata'].map(v => ({ label: v.toUpperCase(), value: v }))}
+            />
+          </Form.Item>
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
+      {/* 信息预览：设备类型 / 卷类型 / 访问模式 / 存储类 */}
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>镜像预览</div>
+        </Col>
+        <Col span={18}>
+          <div style={{ padding: 12, background: '#EDF0F7', borderRadius: 8, border: '1px solid #e5e5e5' }}>
+            {previewOsName && (
+              <div style={{ marginBottom: 12 }}>
+                <Space size={8}>
+                  <OsIcon osName={previewOsName} style={{ fontSize: 16 }} />
+                  <span style={{ fontSize: 13, color: '#555' }}>{previewOsName}</span>
+                </Space>
+              </div>
+            )}
+            {/* 设备类型字段注册（隐藏，仅用于表单提交） */}
             <Form.Item name="rootDeviceType" hidden initialValue="disk">
-                <Input />
+              <Input />
             </Form.Item>
-            <Form.Item>
-                <Input readOnly value="DISK" style={{ color: '#00000040' }} suffix="设备类型" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-              {/* 卷类型 - 展示 Only */}
-              <Form.Item>
-                  <Input readOnly value="Block" style={{ color: '#00000040' }} suffix="卷类型" />
-              </Form.Item>
-          </Col>
-        </Row>
 
-        <Row gutter={12}>
-          <Col span={12}>
-              {/* 访问模式 - 展示 Only */}
-              <Form.Item style={{ marginBottom: 0 }}>
-                  <Input readOnly value="ReadWriteOnce" style={{ color: '#00000040' }} suffix="访问模式" />
-              </Form.Item>
-          </Col>
-          <Col span={12}>
-              {/* 存储类 - 只读，自动回显 */}
-              <Form.Item style={{ marginBottom: 0 }}>
-                  <Input readOnly placeholder="自动选择" style={{ color: '#00000040' }} suffix="存储类" />
-              </Form.Item>
-          </Col>
+            {/* 第一行：设备类型 / 卷类型 */}
+            <Row gutter={12} style={{ marginBottom: 12 }}>
+              <Col span={12}>
+                <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>设备类型</div>
+                <Input disabled readOnly value="DISK" style={{ color: '#00000040' }} />
+              </Col>
+              <Col span={12}>
+                <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>卷类型</div>
+                <Input disabled readOnly value="Block" style={{ color: '#00000040' }} />
+              </Col>
+            </Row>
 
-        </Row>
-      </div>
+            {/* 第二行：访问模式 / 存储类 */}
+            <Row gutter={12}>
+              <Col span={12}>
+                <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>访问模式</div>
+                <Input disabled readOnly value="ReadWriteOnce" style={{ color: '#00000040' }} />
+              </Col>
+              <Col span={12}>
+                <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>存储类</div>
+                <Input disabled readOnly placeholder="自动选择" style={{ color: '#00000040' }} />
+              </Col>
+            </Row>
+          </div>
+        </Col>
+      </Row>
     </>
   );
 };

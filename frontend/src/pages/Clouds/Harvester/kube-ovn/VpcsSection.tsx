@@ -18,7 +18,7 @@ interface KubeOvnVpcsSectionProps {
   subnets?: any[];
   namespaces?: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   bordered?: boolean;
   showYaml?: boolean;
 }
@@ -241,7 +241,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       
       setCreateModalVisible(false);
       form.resetFields();
-      onRefresh?.(true);
+      // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，silent=true 跳过后端全量同步）
+      onRefresh?.(true, true);
     } catch (error: any) {
       message.error(`${isEditVpc ? '更新' : '创建'} VPC 失败: ${error.message}`);
     } finally {
@@ -396,7 +397,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       }
 
       setCreateSubnetModalVisible(false);
-      onRefresh?.(true);
+      // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，silent=true 跳过后端全量同步）
+      onRefresh?.(true, true);
     } catch (error: any) {
       // 如果错误信息已经包含友好的提示（如命名空间终止），直接显示
       if (error.message?.includes('正在被终止')) {

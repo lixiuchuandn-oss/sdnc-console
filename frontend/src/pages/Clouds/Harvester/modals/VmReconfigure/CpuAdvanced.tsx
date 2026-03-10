@@ -3,11 +3,28 @@ import { Form, InputNumber, Space, Typography, Select, Checkbox, Input } from 'a
 
 type Props = {
   form: any;
+  /** 当前 VM 的 CPU / 资源原始对象，用于初始化和调试展示 */
+  vmCpuState?: {
+    cpu?: any;
+    resources?: any;
+  };
+  /** 调试展示用：当前 VM 的 CPU / 资源信息字符串 */
+  vmCpuDebugText?: string;
 };
 
-const CpuAdvanced: React.FC<Props> = ({ form }) => {
-  const enableHotPlug = Form.useWatch('enableHotPlug', form);
+const CpuAdvanced: React.FC<Props> = ({ form, vmCpuState, vmCpuDebugText }) => {
+  // 使用本地受控状态 + 监听 vmCpuState，保证“CPU 绑定”回显一定跟 VM 保持一致
+  const [dedicatedChecked, setDedicatedChecked] = React.useState<boolean>(!!vmCpuState?.cpu?.dedicatedCpuPlacement);
+  const [isolateChecked, setIsolateChecked] = React.useState<boolean>(!!vmCpuState?.cpu?.isolateEmulatorThread);
 
+  React.useEffect(() => {
+    const nextDedicated = !!vmCpuState?.cpu?.dedicatedCpuPlacement;
+    const nextIsolate = !!vmCpuState?.cpu?.isolateEmulatorThread;
+    setDedicatedChecked(nextDedicated);
+    setIsolateChecked(nextIsolate);
+    // 同步到表单字段，避免提交时拿不到最新值
+    form?.setFieldsValue?.({ dedicatedCPUPlacement: nextDedicated, isolateEmulatorThread: nextIsolate });
+  }, [vmCpuState, form]);
   return (
     <div>
       <Form.Item label="CPU 模式" name="cpuModel" initialValue="host-passthrough">
@@ -22,13 +39,31 @@ const CpuAdvanced: React.FC<Props> = ({ form }) => {
       </Form.Item>
       <Form.Item label="CPU 绑定" name="dedicatedCPUPlacement" valuePropName="checked">
         <Space>
-          <Checkbox>启用</Checkbox>
+          <Checkbox
+            checked={dedicatedChecked}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setDedicatedChecked(v);
+              form?.setFieldsValue?.({ dedicatedCPUPlacement: v });
+            }}
+          >
+            启用
+          </Checkbox>
           <Typography.Text type="secondary">保证用固定的物理 CPU 核心，减少切换损耗</Typography.Text>
         </Space>
       </Form.Item>
       <Form.Item label="CPU 隔离" name="isolateEmulatorThread" valuePropName="checked">
         <Space>
-          <Checkbox>启用</Checkbox>
+          <Checkbox
+            checked={isolateChecked}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setIsolateChecked(v);
+              form?.setFieldsValue?.({ isolateEmulatorThread: v });
+            }}
+          >
+            启用
+          </Checkbox>
           <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰</Typography.Text>
         </Space>
       </Form.Item>
@@ -45,11 +80,13 @@ const CpuAdvanced: React.FC<Props> = ({ form }) => {
           <Typography.Text>核</Typography.Text>
         </Space>
       </Form.Item>
-      <Form.Item label="CPU 峰值保护" name="cpuBurstUnlimited" valuePropName="checked">
-        <Space>
-          <Checkbox>启用</Checkbox>
-          <Typography.Text type="secondary">业务峰值时自动取消最多使用核数限制</Typography.Text>
-        </Space>
+      {/* 调试专用：展示当前从 VM 读取到的 CPU / 资源信息，便于核对回显是否正确 */}
+      <Form.Item label="VM CPU 调试信息">
+        <Input.TextArea
+          value={vmCpuDebugText || '（未读取到任何 CPU 信息）'}
+          autoSize={{ minRows: 3, maxRows: 10 }}
+          readOnly
+        />
       </Form.Item>
     </div>
   );

@@ -43,7 +43,8 @@ import {
   fetchHarvesterStorageClasses,
   fetchHarvesterSshKeys,
   fetchKubeOvnSubnets,
-  fetchKubeOvnVpcs
+  fetchKubeOvnVpcs,
+  fetchHarvesterVolume
 } from '../../../../../services/harvesterApi';
 
 import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
@@ -107,6 +108,7 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
 
   // [数据获取] 刷新可用卷列表
   // [业务规则] 依赖表单中的 namespace 字段进行过滤
+  // [别名补齐] 为避免 available-volumes 返回数据不含 annotations，打开下拉时逐条查询卷详情补齐 alias
   const reloadVolumes = useCallback(async () => {
     const cid = getCid();
     if (!cid) return;
@@ -114,7 +116,28 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
       const ns = form.getFieldValue('namespace') || 'default';
       const vols: any = await fetchHarvesterAvailableVolumes(cid, ns);
       const items: any[] = vols?.data?.items || vols?.items || ([] as any[]);
-      setAvailableVolumes(items);
+      const normalized = (items || []).map((x: any) => {
+        const meta = x?.metadata || {};
+        const ann = meta?.annotations || x?.annotations || {};
+        const name = x?.pvcName || meta?.name || x?.name;
+        const namespace = meta?.namespace || x?.namespace || x?.ns;
+        const alias = ann?.['tower.io/alias'] || x?.Alias || x?.alias;
+        return { ...x, pvcName: name, namespace, alias };
+      });
+      const enriched = await Promise.all(
+        normalized.map(async (x: any) => {
+          if (x.alias) return x;
+          try {
+            const detail: any = await fetchHarvesterVolume(cid, x.namespace, x.pvcName);
+            const ann = detail?.metadata?.annotations || detail?.data?.metadata?.annotations || {};
+            const alias = ann?.['tower.io/alias'];
+            return alias ? { ...x, alias } : x;
+          } catch {
+            return x;
+          }
+        })
+      );
+      setAvailableVolumes(enriched);
     } catch (e: any) {
       message.warning(e?.message || '卷列表刷新失败');
     }
@@ -289,22 +312,41 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   }), [images]);
   
   // [数据处理] 卷选项列表
-  // [业务规则] 过滤掉已挂载 (attached/inUse/mounted) 的卷，防止重复挂载
-  const volumeOptions = useMemo(() => (availableVolumes || [])
-    .filter((v: any) => {
-      if (!v?.pvcName) return false;
-      const attachedArr = Array.isArray(v?.attachedTo) ? v.attachedTo : [];
-      const attachedFlag = Boolean(v?.attached || v?.inUse || v?.used || v?.mounted);
-      return attachedArr.length === 0 && !attachedFlag;
-    })
-    .map((v: any) => {
-      const n = parseSizeToGi(v?.size);
-      const pvcName = v?.pvcName;
-      return {
-        label: `${pvcName || '-'}` + (n ? ` (${n} GiB)` : ''),
-        value: pvcName
-      };
-    }), [availableVolumes]);
+  // [业务规则] 仅显示当前命名空间、未挂载、状态正常的卷；标签优先展示 PVC 别名
+  const volumeOptions = useMemo(() => {
+    const nsTarget = String(form?.getFieldValue?.('namespace') || '');
+    return (availableVolumes || [])
+      .filter((v: any) => {
+        if (!v?.pvcName) return false;
+        const ns = v?.namespace || v?.metadata?.namespace || v?.ns;
+        if (nsTarget && ns && String(ns) !== nsTarget) return false;
+        const attachedArr = Array.isArray(v?.attachedTo) ? v.attachedTo : [];
+        const attachedFlag = Boolean(v?.attached || v?.inUse || v?.used || v?.mounted);
+        if (attachedArr.length > 0 || attachedFlag) return false;
+        const stRaw = v?.phase || v?.status?.phase || v?.status?.state || v?.state;
+        const st = String(stRaw || '').toLowerCase();
+        if (!st) return true;
+        const ok = ['healthy','bound','available','detached'].includes(st);
+        return ok;
+      })
+      .map((v: any) => {
+        const n = parseSizeToGi(v?.size);
+        const pvcName = v?.pvcName;
+        const alias = (
+          v?.metadata?.annotations?.['tower.io/alias']
+          || v?.annotations?.['tower.io/alias']
+          || v?.rawData?.metadata?.annotations?.['tower.io/alias']
+          || v?.Alias
+          || v?.alias
+          || v?.Annotation?.['tower.io/alias']
+          || v?.Annotations?.['tower.io/alias']
+          || (typeof (v as any)?.['tower.io/alias'] !== 'undefined' ? (v as any)['tower.io/alias'] : undefined)
+        );
+        const base = alias || (pvcName || '-');
+        const label = base + (n ? ` (${n} GiB)` : '');
+        return { label, value: pvcName };
+      });
+  }, [availableVolumes, form]);
 
   // [数据处理] 命名空间选项
   // [业务规则] 创建 VM 时，任何用户都不应在系统命名空间创建

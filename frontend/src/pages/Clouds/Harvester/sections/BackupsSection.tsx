@@ -3,7 +3,7 @@
  * 负责展示当前 Harvester 云中某一类型（备份 / 快照）的 VM Backup 列表，
  * 支持按状态与关键字筛选，以及发起删除和恢复操作，并在工具栏提供创建备份/快照入口。
  */
-import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge, Dropdown } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined, SaveOutlined, CameraOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -28,7 +28,7 @@ interface Props {
   cloudId: string;
   backups: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   namespaces: any[];
   vms: any[];
   type?: 'backup' | 'snapshot';
@@ -52,68 +52,8 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   
-  // Polling for created item status
-  const [pendingCreated, setPendingCreated] = useState<{ namespace: string; name: string } | null>(null);
-  const pollRef = useRef<any>(null);
-  const pollCountRef = useRef(0);
-
   // 列设置状态
   const [visibleColumns, setVisibleColumns] = useState<any>();
-
-  const startPolling = (created?: { namespace: string; name: string }) => {
-    if (!onRefresh) return;
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    if (created) {
-      setPendingCreated(created);
-      pollCountRef.current = 0;
-      onRefresh(true);
-      pollRef.current = setInterval(() => {
-        pollCountRef.current += 1;
-        onRefresh(true);
-        if (pollCountRef.current > 20) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-          setPendingCreated(null);
-        }
-      }, 3000);
-    } else {
-      onRefresh(true);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!pendingCreated) return;
-    const found = (backups || []).find((b: any) => {
-      const raw = b.rawData || b;
-      const itemType = raw.spec?.type || 'backup';
-      if (itemType !== type) return false;
-      const nm = raw.metadata?.name || b.name;
-      const ns = raw.metadata?.namespace || b.namespace;
-      return nm === pendingCreated.name && ns === pendingCreated.namespace;
-    });
-    if (found) {
-      const raw = found.rawData || found;
-      const ready = !!raw.status?.readyToUse;
-      if (ready) {
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-        setPendingCreated(null);
-      }
-    }
-  }, [backups, pendingCreated, type]);
   
   /**
    * 将原始备份列表规范化为表格可直接使用的数据结构
@@ -375,9 +315,11 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         key="create-modal"
         open={createModalVisible}
         onCancel={() => setCreateModalVisible(false)}
-        onSuccess={(created) => {
+        onSuccess={() => {
           setCreateModalVisible(false);
-          startPolling(created);
+          // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+          // 静默刷新，不显示提示信息
+          onRefresh?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
         }}
         cloudId={cloudId}
         namespaces={namespaces}

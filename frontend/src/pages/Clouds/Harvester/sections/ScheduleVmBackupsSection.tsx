@@ -58,8 +58,9 @@ interface Props {
   /** 
    * 刷新数据的回调函数
    * @param force - 如果为 true，强制后端从 Harvester 重新拉取最新数据，不走缓存
+   * @param silent - 如果为 true，静默刷新（创建后刷新），跳过全量同步，直接查询数据库
    */
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   
   /** 
    * 虚拟机列表
@@ -626,7 +627,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
           };
           setOptimisticItems(prev => prev.concat(optimistic));
         }
-        onRefresh?.(true);
+        // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+        // 静默刷新，不显示提示信息
+        onRefresh?.(true, true); // force=true, silent=true
       }}
       />
 

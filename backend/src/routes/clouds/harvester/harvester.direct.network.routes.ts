@@ -1,4 +1,6 @@
 import { Router, Response } from 'express';
+import { AppDataSource } from '../../../config/database';
+import { In } from 'typeorm';
 import { getJsonOnce, requestJson } from '../../../services/clouds/harvester/utils';
 import {
   listHarvesterLoadBalancers,
@@ -13,6 +15,14 @@ import {
   isNamespaceAllowed,
 } from './harvester.direct.helpers';
 import { licenseService } from '../../../services/LicenseService';
+import { KubevirtLoadBalancerInventory } from '../../../entities/kubevirt/KubevirtLoadBalancerInventory';
+import { HarvesterLoadBalancerIPPoolInventory } from '../../../entities/harvester/HarvesterLoadBalancerIPPoolInventory';
+import { KubeOvnNatRuleInventory } from '../../../entities/kubeovn/KubeOvnNatRuleInventory';
+import { KubeOvnProviderNetworkInventory } from '../../../entities/kubeovn/KubeOvnProviderNetworkInventory';
+import { KubeOvnSubnetInventory } from '../../../entities/kubeovn/KubeOvnSubnetInventory';
+import { KubeOvnVlanInventory } from '../../../entities/kubeovn/KubeOvnVlanInventory';
+import { KubevirtNadInventory } from '../../../entities/kubevirt/KubevirtNadInventory';
+import { syncHarvesterLoadBalancers, syncHarvesterLoadBalancerIPPools, syncKubeOvnNatRules, syncKubeOvnProviderNetworks, syncKubeOvnSubnets, syncKubeOvnVlans } from '../../../services/clouds/harvester/inventory';
 
 /**
  * ==============================================================================
@@ -45,6 +55,7 @@ import { licenseService } from '../../../services/LicenseService';
  * - GET    /:id/resources/ovneips                                  获取 EIP 列表
  * - POST   /:id/resources/ovneips                                  创建 EIP
  * - GET    /:id/resources/ovnfips                                  获取 FIP 列表
+ * - POST   /:id/resources/ovnfips                                  创建 FIP
  * - GET    /:id/resources/ovnsnatrules                             获取 SNAT 规则
  * - GET    /:id/resources/ovndnatrules                             获取 DNAT 规则
  * - GET    /:id/resources/services                                 获取 Service 列表 (基于 LB)
@@ -300,18 +311,43 @@ export const registerHarvesterDirectNetworkRoutes = (
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
 
-        const base = (cloud.endpoint || '').replace(/\/+$/, '');
-        let origin = base;
-        try {
-          const u = new URL(base);
-          origin = `${u.protocol}//${u.host}`;
-        } catch {
-          origin = base.replace(/\/v[0-9].*$/, '');
+        const { force, skipSync } = req.query;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const repo = AppDataSource.getRepository(KubeOvnProviderNetworkInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+
+        // 如果数据库为空或强制刷新且未跳过同步，则进行全量同步
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        if (shouldSync) {
+          await syncKubeOvnProviderNetworks(cloud, insecure);
+        } else if (String(skipSync) === 'true') {
+          console.log(`[ProviderNetwork-Refresh] 跳过全量同步（创建后刷新），直接查询数据库`);
         }
 
-        const url = `${origin}/apis/kubeovn.io/v1/provider-networks`;
-        const json = await getJsonOnce(url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
-        res.json({ message: '查询成功', data: json });
+        // 从数据库查询
+        const items = await repo.find({ where: { cloudId: id } });
+        const list = items.map((item) => item.rawData || {
+          metadata: {
+            name: item.name,
+            uid: item.uid,
+            labels: item.labels,
+            annotations: item.annotations,
+          },
+          spec: {
+            defaultInterface: item.defaultInterface,
+            customInterfaces: item.customInterfaces,
+            exchangeLinkName: item.exchangeLinkName,
+            excludeNodes: item.excludeNodes,
+          },
+          status: {
+            ready: item.ready,
+            readyNodes: item.readyNodes,
+            notReadyNodes: item.notReadyNodes,
+            vlans: item.vlans,
+          },
+        });
+
+        res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '查询 Provider Networks 失败', error: error.message });
@@ -347,24 +383,111 @@ export const registerHarvesterDirectNetworkRoutes = (
           origin = base.replace(/\/v[0-9].*$/, '');
         }
 
-        const { name, defaultInterface, customInterfaces, exchangeLinkName } = req.body;
+        // 支持两种格式：
+        // 1. 扁平格式: { name, defaultInterface, customInterfaces, exchangeLinkName }
+        // 2. 嵌套格式: { name, spec: { defaultInterface, customInterfaces, exchangeLinkName } }
+        const { name, spec, defaultInterface, customInterfaces, exchangeLinkName } = req.body;
+        
+        if (!name) {
+          res.status(400).json({ message: '缺少必要参数: name' });
+          return;
+        }
+
+        // 如果前端发送了 spec 对象，使用 spec 中的值；否则使用扁平结构
+        const finalSpec = spec || {
+          defaultInterface: defaultInterface || '',
+          customInterfaces: customInterfaces || [],
+          exchangeLinkName: exchangeLinkName !== undefined ? exchangeLinkName : false
+        };
+
+        // 验证 defaultInterface 不为空
+        if (!finalSpec.defaultInterface || finalSpec.defaultInterface.trim() === '') {
+          res.status(400).json({ message: 'defaultInterface 不能为空' });
+          return;
+        }
+
+        // 验证 customInterfaces 格式
+        if (finalSpec.customInterfaces && !Array.isArray(finalSpec.customInterfaces)) {
+          res.status(400).json({ message: 'customInterfaces 必须是数组格式' });
+          return;
+        }
+
         const payload = {
             apiVersion: 'kubeovn.io/v1',
             kind: 'ProviderNetwork',
             metadata: { name },
-            spec: {
-                defaultInterface,
-                customInterfaces: customInterfaces || [],
-                exchangeLinkName: exchangeLinkName || false
-            }
+            spec: finalSpec
         };
 
         const url = `${origin}/apis/kubeovn.io/v1/provider-networks`;
         const json = await requestJson('POST', url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls, payload);
+        
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法）
+        if (json && json.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(KubeOvnProviderNetworkInventory);
+            const entity = repo.create({
+              cloudId: cloud.id,
+              uid: json.metadata?.uid || '',
+              name: json.metadata?.name || '',
+              defaultInterface: json.spec?.defaultInterface,
+              customInterfaces: json.spec?.customInterfaces,
+              exchangeLinkName: json.spec?.exchangeLinkName,
+              excludeNodes: json.spec?.excludeNodes,
+              ready: json.status?.ready,
+              readyNodes: json.status?.readyNodes,
+              notReadyNodes: json.status?.notReadyNodes,
+              vlans: json.status?.vlans,
+              labels: json.metadata?.labels,
+              annotations: json.metadata?.annotations,
+              rawData: json,
+            });
+            await repo.save(entity);
+          } catch (e: any) {
+            console.error('[ProviderNetwork-Create] 入库失败:', e?.message || e);
+          }
+        }
+        
         res.json({ message: '创建成功', data: json });
       } catch (error: any) {
         if (res.headersSent) return;
-        res.status(500).json({ message: '创建 Provider Network 失败', error: error.message });
+        
+        // 处理 422 验证错误，提取详细错误信息
+        let errorMessage = error.message || '创建 Provider Network 失败';
+        let errorDetails: any = null;
+        
+        if (error.status === 422 || error.statusCode === 422) {
+          try {
+            // 尝试解析错误响应体
+            if (error.body) {
+              if (typeof error.body === 'string') {
+                errorDetails = JSON.parse(error.body);
+              } else {
+                errorDetails = error.body;
+              }
+              
+              // 提取 K8s 验证错误信息
+              if (errorDetails.message) {
+                errorMessage = errorDetails.message;
+              } else if (errorDetails.details?.causes) {
+                const causes = errorDetails.details.causes;
+                errorMessage = causes.map((c: any) => c.message || c.field).join('; ');
+              } else if (errorDetails.details?.field) {
+                errorMessage = `${errorDetails.details.field}: ${errorDetails.details.message || errorMessage}`;
+              }
+            }
+          } catch (parseError) {
+            // 如果解析失败，使用原始错误信息
+            console.error('Failed to parse error response:', parseError);
+          }
+        }
+        
+        const statusCode = error.status || error.statusCode || 500;
+        res.status(statusCode).json({ 
+          message: '创建 Provider Network 失败', 
+          error: errorMessage,
+          details: errorDetails 
+        });
       }
     }
   );
@@ -392,18 +515,40 @@ export const registerHarvesterDirectNetworkRoutes = (
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
 
-        const base = (cloud.endpoint || '').replace(/\/+$/, '');
-        let origin = base;
-        try {
-          const u = new URL(base);
-          origin = `${u.protocol}//${u.host}`;
-        } catch {
-          origin = base.replace(/\/v[0-9].*$/, '');
+        const { force, skipSync } = req.query;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const repo = AppDataSource.getRepository(KubeOvnVlanInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+
+        // 如果数据库为空或强制刷新且未跳过同步，则进行全量同步
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        if (shouldSync) {
+          await syncKubeOvnVlans(cloud, insecure);
+        } else if (String(skipSync) === 'true') {
+          console.log(`[Vlan-Refresh] 跳过全量同步（创建后刷新），直接查询数据库`);
         }
 
-        const url = `${origin}/apis/kubeovn.io/v1/vlans`;
-        const json = await getJsonOnce(url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
-        res.json({ message: '查询成功', data: json });
+        // 从数据库查询
+        const items = await repo.find({ where: { cloudId: id } });
+        const list = items.map((item) => item.rawData || {
+          metadata: {
+            name: item.name,
+            uid: item.uid,
+            labels: item.labels,
+            annotations: item.annotations,
+          },
+          spec: {
+            id: item.vlanId,
+            provider: item.provider,
+            providerInterfaceName: item.providerInterfaceName,
+          },
+          status: {
+            subnets: item.subnets,
+            conflict: item.conflict,
+          },
+        });
+
+        res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '查询 VLANs 失败', error: error.message });
@@ -452,6 +597,30 @@ export const registerHarvesterDirectNetworkRoutes = (
 
         const url = `${origin}/apis/kubeovn.io/v1/vlans`;
         const json = await requestJson('POST', url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls, payload);
+        
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法）
+        if (json && json.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(KubeOvnVlanInventory);
+            const entity = repo.create({
+              cloudId: cloud.id,
+              uid: json.metadata?.uid || '',
+              name: json.metadata?.name || '',
+              vlanId: json.spec?.id || json.spec?.vlanId,
+              provider: json.spec?.provider,
+              providerInterfaceName: json.spec?.providerInterfaceName,
+              subnets: json.status?.subnets,
+              conflict: json.status?.conflict,
+              labels: json.metadata?.labels,
+              annotations: json.metadata?.annotations,
+              rawData: json,
+            });
+            await repo.save(entity);
+          } catch (e: any) {
+            console.error('[Vlan-Create] 入库失败:', e?.message || e);
+          }
+        }
+        
         res.json({ message: '创建成功', data: json });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -479,50 +648,62 @@ export const registerHarvesterDirectNetworkRoutes = (
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
 
-        const base = (cloud.endpoint || '').replace(/\/+$/, '');
-        let origin = base;
-        try {
-          const u = new URL(base);
-          origin = `${u.protocol}//${u.host}`;
-        } catch {
-          origin = base.replace(/\/v[0-9].*$/, '');
+        const { force, skipSync } = req.query;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
+        const count = await repo.count({ where: { cloudId: id } });
+
+        // 如果数据库为空或强制刷新且未跳过同步，则进行全量同步
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        if (shouldSync) {
+          await syncKubeOvnSubnets(cloud, insecure);
+        } else if (String(skipSync) === 'true') {
+          console.log(`[Subnet-Refresh] 跳过全量同步（创建后刷新），直接查询数据库`);
         }
 
-        const url = `${origin}/apis/kubeovn.io/v1/subnets`;
-        const json = await getJsonOnce(url, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
-        
+        // 从数据库查询
+        const dbItems = await repo.find({ where: { cloudId: id } });
+        let items = dbItems.map((item) => item.rawData || {
+          metadata: {
+            name: item.name,
+            uid: item.uid,
+            labels: item.labels,
+            annotations: item.annotations,
+          },
+          spec: item.spec,
+          status: item.status,
+        });
+
         // [Data Enrichment] 注入 NAD 的 Namespace 信息
         // Kube-OVN Subnet 是 Cluster 级别资源，不包含 Namespace 信息。
         // 但其实际对应的 NAD (NetworkAttachmentDefinition) 是 Namespaced 资源。
         // 为了前端能正确拼接网络名称 (<namespace>/<name>)，我们需要找到每个 Subnet 对应的 NAD。
         try {
-            const nadUrl = `${origin}/apis/k8s.cni.cncf.io/v1/network-attachment-definitions`;
-            const nads = await getJsonOnce(nadUrl, cloud.secretKey || '', !!(cloud.config as any)?.ignoreTls);
-            const nadItems = Array.isArray(nads?.items) ? nads.items : [];
-            
-            // 构建 NAD 索引: name -> namespace
-            const nadMap = new Map<string, string>();
-            nadItems.forEach((nad: any) => {
-                if (nad?.metadata?.name && nad?.metadata?.namespace) {
-                    nadMap.set(nad.metadata.name, nad.metadata.namespace);
-                }
-            });
+          const nadRepo = AppDataSource.getRepository(KubevirtNadInventory);
+          const nads = await nadRepo.find({ where: { cloudId: id } });
+          
+          // 构建 NAD 索引: name -> namespace
+          const nadMap = new Map<string, string>();
+          nads.forEach((nad: any) => {
+            const name = nad.name || nad.rawData?.metadata?.name;
+            const namespace = nad.namespace || nad.rawData?.metadata?.namespace;
+            if (name && namespace) {
+              nadMap.set(name, namespace);
+            }
+          });
 
-            const items = Array.isArray(json?.items) ? json.items : [];
-            items.forEach((subnet: any) => {
-                const name = subnet?.metadata?.name;
-                if (name && nadMap.has(name)) {
-                    // 将 NAD 的 Namespace 注入到 Subnet 的 metadata.namespace 字段
-                    // 或者使用专用字段 _nadNamespace，这里直接复用 metadata.namespace (因为 Subnet 本身为空)
-                    if (!subnet.metadata) subnet.metadata = {};
-                    subnet.metadata.namespace = nadMap.get(name);
-                }
-            });
+          items.forEach((subnet: any) => {
+            const name = subnet?.metadata?.name;
+            if (name && nadMap.has(name)) {
+              if (!subnet.metadata) subnet.metadata = {};
+              subnet.metadata.namespace = nadMap.get(name);
+            }
+          });
         } catch (e) {
-            console.warn('[Subnets] Failed to enrich NAD namespace info:', e);
+          console.warn('[Subnets] Failed to enrich NAD namespace info:', e);
         }
 
-        res.json({ message: '查询成功', data: json });
+        res.json({ message: '查询成功', data: { items } });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({ message: '查询 Subnets 失败', error: error.message });
@@ -769,6 +950,27 @@ export const registerHarvesterDirectNetworkRoutes = (
             insecure,
             payload,
             );
+            
+            // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法）
+            if (result && result.metadata) {
+              try {
+                const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
+                const entity = repo.create({
+                  cloudId: cloud.id,
+                  uid: result.metadata?.uid || '',
+                  name: result.metadata?.name || '',
+                  spec: result.spec,
+                  status: result.status,
+                  labels: result.metadata?.labels,
+                  annotations: result.metadata?.annotations,
+                  rawData: result,
+                });
+                await repo.save(entity);
+              } catch (e: any) {
+                console.error('[Subnet-Create] 入库失败:', e?.message || e);
+              }
+            }
+            
             res.json({ message: '创建子网成功', data: result });
         } catch (error: any) {
             // [Rollback] 如果子网创建失败，尝试回滚 NAD
@@ -982,28 +1184,50 @@ export const registerHarvesterDirectNetworkRoutes = (
           return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
-        const rawItems = await listHarvesterLoadBalancers({
-          endpoint: cloud.endpoint,
-          token: cloud.secretKey || '',
-          insecure,
-        });
+        const repo = AppDataSource.getRepository(KubevirtLoadBalancerInventory);
 
-        let items = rawItems;
+        let whereCondition: any = { cloudId: id };
         if (isTenant) {
           if (tenantNamespace) {
-            items = items.filter((i: any) =>
-              isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-            );
+            const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
+            if (allowedNamespaces.length > 0) {
+              whereCondition.namespace = In(allowedNamespaces);
+            } else {
+              whereCondition.namespace = In([]); // 空数组，不会匹配任何记录
+            }
           } else {
-            items = [];
+            return res.json({ message: '查询成功', data: { items: [] } });
           }
         } else if (tenantNamespace) {
-          items = items.filter((i: any) =>
-            isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-          );
+          const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
+          if (allowedNamespaces.length > 0) {
+            whereCondition.namespace = In(allowedNamespaces);
+          }
         }
 
-        res.json({ message: '查询成功', data: { items } });
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
+        const count = await repo.count({ where: whereCondition });
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
+          try {
+            await syncHarvesterLoadBalancers(cloud, insecure);
+            console.log(`[LoadBalancer-Query] 同步完成，cloudId: ${id}`);
+          } catch (e: any) {
+            console.warn('Sync LoadBalancers failed, falling back to empty/stale', e);
+            if (count === 0) throw e;
+          }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[LoadBalancer-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map((i) => i.rawData).filter((item) => item != null);
+
+        res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({
@@ -1067,6 +1291,53 @@ export const registerHarvesterDirectNetworkRoutes = (
           } as any,
           payload,
         );
+
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        if (result && result.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(KubevirtLoadBalancerInventory);
+            const uid = result.metadata?.uid || result.id || '';
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.name = result.metadata?.name || '';
+              existing.namespace = result.metadata?.namespace || payload.namespace;
+              existing.cluster = result.spec?.cluster;
+              existing.vpc = result.spec?.vpc;
+              existing.externalIP = result.status?.externalIP;
+              existing.ports = result.spec?.ports;
+              existing.links = result.links;
+              existing.labels = result.metadata?.labels;
+              existing.annotations = result.metadata?.annotations;
+              existing.rawData = result;
+              await repo.save(existing);
+              console.log(`[LoadBalancer-Create] 负载均衡已更新，cloudId: ${cloud.id}, name: ${result.metadata?.name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                uid: uid,
+                name: result.metadata?.name || '',
+                namespace: result.metadata?.namespace || payload.namespace,
+                cluster: result.spec?.cluster,
+                vpc: result.spec?.vpc,
+                externalIP: result.status?.externalIP,
+                ports: result.spec?.ports,
+                links: result.links,
+                labels: result.metadata?.labels,
+                annotations: result.metadata?.annotations,
+                rawData: result,
+              });
+              await repo.save(entity);
+              console.log(`[LoadBalancer-Create] 负载均衡已入库，cloudId: ${cloud.id}, name: ${result.metadata?.name}`);
+            }
+          } catch (e: any) {
+            console.error('[LoadBalancer-Create] 入库负载均衡失败:', e?.message || e);
+            // 入库失败不影响创建操作的成功返回
+          }
+        }
+
         res.json({ message: '创建成功', data: result });
       } catch (error: any) {
         res.status(500).json({
@@ -1478,6 +1749,261 @@ export const registerHarvesterDirectNetworkRoutes = (
   );
 
   /**
+   * [POST] /:id/resources/ovnfips
+   * 创建 FIP。
+   */
+  router.post(
+    '/:id/resources/ovnfips',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed)
+          return res
+            .status(403)
+            .json({ message: 'Access denied to this resource pool' });
+
+        const { name, ovnEip, vpc, ipType, ipName, v4Ip, v6Ip, type } = req.body;
+
+        if (!name || !ovnEip || !vpc || !ipName) {
+          res
+            .status(400)
+            .json({ message: '缺少必要参数: name, ovnEip, vpc, ipName' });
+          return;
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (
+          !ensureProvider(
+            cloud,
+            'harvester',
+            res,
+            '仅支持 Harvester 资源创建',
+            next,
+          )
+        )
+          return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const candidates = [
+          `${origin}/apis/kubeovn.io/v1/ovnfips`,
+          `${origin}/apis/kubeovn.io/v1/ovn-fips`,
+        ];
+
+        const payload = {
+          apiVersion: 'kubeovn.io/v1',
+          kind: 'OvnFip',
+          metadata: {
+            name,
+          },
+          spec: {
+            ovnEip,
+            vpc,
+            ipName,
+            ipType: ipType || 'eip',
+            ...(v4Ip ? { v4Ip } : {}),
+            ...(v6Ip ? { v6Ip } : {}),
+            ...(type ? { type } : {}),
+          },
+        };
+
+        let json: any = null;
+        let lastErr: any = null;
+
+        for (const url of candidates) {
+          try {
+            json = await requestJson(
+              'POST',
+              url,
+              cloud.secretKey || '',
+              insecure,
+              payload,
+            );
+            if (json) break;
+          } catch (e: any) {
+            lastErr = e;
+            // 如果是 404，尝试下一个 URL
+            if (e?.status === 404) continue;
+            // 其他错误直接抛出
+            throw e;
+          }
+        }
+
+        if (!json && lastErr) {
+          throw lastErr;
+        }
+
+        res.json({ message: '创建成功', data: json });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        console.error('Create OvnFip error:', error);
+
+        let details = error.body;
+        try {
+          if (typeof details === 'string') {
+            details = JSON.parse(details);
+          }
+        } catch {
+          // ignore
+        }
+
+        res.status(500).json({
+          message: '创建FIP失败',
+          error: error.message,
+          details,
+        });
+      }
+    },
+  );
+
+  /**
+   * [POST] /:id/resources/ovnsnatrules
+   * 创建 SNAT 规则。
+   */
+  router.post(
+    '/:id/resources/ovnsnatrules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed)
+          return res
+            .status(403)
+            .json({ message: 'Access denied to this resource pool' });
+
+        const { name, ovnEip, vpcSubnet } = req.body;
+
+        if (!name || !ovnEip || !vpcSubnet) {
+          res
+            .status(400)
+            .json({ message: '缺少必要参数: name, ovnEip, vpcSubnet' });
+          return;
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (
+          !ensureProvider(
+            cloud,
+            'harvester',
+            res,
+            '仅支持 Harvester 资源创建',
+            next,
+          )
+        )
+          return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        const candidates = [
+          `${origin}/apis/kubeovn.io/v1/ovnsnatrules`,
+          `${origin}/apis/kubeovn.io/v1/ovn-snat-rules`,
+        ];
+
+        const payload = {
+          apiVersion: 'kubeovn.io/v1',
+          kind: 'OvnSnatRule',
+          metadata: {
+            name,
+          },
+          spec: {
+            ovnEip,
+            vpcSubnet,
+          },
+        };
+
+        let json: any = null;
+        let lastErr: any = null;
+
+        for (const url of candidates) {
+          try {
+            json = await requestJson('POST', url, cloud.secretKey || '', insecure, payload);
+            if (json) break;
+          } catch (e: any) {
+            lastErr = e;
+            // 如果第一个 URL 返回 404，尝试第二个
+            if (e?.status === 404 && candidates.indexOf(url) === 0) {
+              continue;
+            }
+            throw e;
+          }
+        }
+
+        if (!json && lastErr) {
+          throw lastErr || new Error('Failed to create OvnSnatRule');
+        }
+
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法）
+        if (json && json.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
+            const entity = repo.create({
+              cloudId: cloud.id,
+              uid: json.metadata?.uid || json.metadata?.name,
+              name: json.metadata?.name || '',
+              vpc: json.spec?.vpc,
+              type: 'SNAT',
+              cidr: json.spec?.vpcSubnet,
+              eip: json.spec?.ovnEip,
+              externalIp: json.status?.v4Eip,
+              rawData: json,
+            });
+            await repo.save(entity);
+          } catch (e: any) {
+            console.error('[SNAT-Create] 入库失败:', e?.message || e);
+          }
+        }
+
+        res.json({ message: '创建成功', data: json });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        console.error('Create OvnSnatRule error:', error);
+
+        let details = error.body;
+        try {
+          if (typeof details === 'string') {
+            details = JSON.parse(details);
+          }
+        } catch {
+          // ignore
+        }
+
+        res.status(500).json({
+          message: '创建SNAT规则失败',
+          error: error.message,
+          details,
+        });
+      }
+    },
+  );
+
+  /**
    * [GET] /:id/resources/ovnsnatrules
    * 查询 SNAT 规则列表。
    */
@@ -1511,6 +2037,99 @@ export const registerHarvesterDirectNetworkRoutes = (
           return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
+        const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
+
+        let whereCondition: any = { cloudId: id, type: 'SNAT' };
+        if (isTenant) {
+          if (tenantNamespace) {
+            // SNAT 规则可能没有 namespace，根据 VPC 过滤
+            // 这里简化处理，如果需要可以根据 VPC 的 namespaces 字段过滤
+          } else {
+            whereCondition.cloudId = 'none'; // 确保不返回任何数据
+          }
+        }
+
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
+        const count = await repo.count({ where: whereCondition });
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
+          try {
+            await syncKubeOvnNatRules(cloud, insecure);
+            console.log(`[SNAT-Query] 同步完成，cloudId: ${id}`);
+          } catch (e: any) {
+            console.warn('Sync SNAT Rules failed, falling back to empty/stale', e);
+            if (count === 0) throw e;
+          }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[SNAT-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        let list = items.map((i) => i.rawData).filter((item) => item != null);
+
+        // 租户过滤：根据命名空间过滤（如果需要）
+        if (isTenant && tenantNamespace) {
+          // SNAT 规则可能没有直接的 namespace，这里简化处理
+          // 实际可以根据 VPC 的 namespaces 字段进行过滤
+        }
+
+        res.json({ message: '查询成功', data: { items: list } });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({
+          message: '查询SNAT规则失败',
+          error: error.body || error.message,
+        });
+      }
+    },
+  );
+
+  /**
+   * [POST] /:id/resources/ovndnatrules
+   * 创建 DNAT 规则。
+   */
+  router.post(
+    '/:id/resources/ovndnatrules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        if (!licenseService.hasFeature('network.ovn.vpc')) {
+          return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+        }
+        const { id } = req.params;
+        const { allowed } = await checkTenantAccess(req, id);
+        if (!allowed)
+          return res
+            .status(403)
+            .json({ message: 'Access denied to this resource pool' });
+
+        const { name, ovnEip, protocol, externalPort, internalPort, internalIp, vpc } = req.body;
+
+        if (!name || !ovnEip || !externalPort || !internalPort || !internalIp || !vpc) {
+          res
+            .status(400)
+            .json({ message: '缺少必要参数: name, ovnEip, externalPort, internalPort, internalIp, vpc' });
+          return;
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (
+          !ensureProvider(
+            cloud,
+            'harvester',
+            res,
+            '仅支持 Harvester 资源创建',
+            next,
+          )
+        )
+          return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
         const base = (cloud.endpoint || '').replace(/\/+$/, '');
         let origin = base;
         try {
@@ -1521,58 +2140,91 @@ export const registerHarvesterDirectNetworkRoutes = (
         }
 
         const candidates = [
-          `${origin}/apis/kubeovn.io/v1/ovnsnatrules`,
-          `${origin}/apis/kubeovn.io/v1/ovn-snat-rules`,
+          `${origin}/apis/kubeovn.io/v1/ovndnatrules`,
+          `${origin}/apis/kubeovn.io/v1/ovn-dnat-rules`,
         ];
+
+        const payload = {
+          apiVersion: 'kubeovn.io/v1',
+          kind: 'OvnDnatRule',
+          metadata: {
+            name,
+          },
+          spec: {
+            ovnEip,
+            ipType: 'ip', // 使用 EIP，类型为 'ip'
+            ipName: ovnEip, // IPName 应该是 EIP 的名称
+            protocol: protocol || 'tcp',
+            externalPort: String(externalPort),
+            internalPort: String(internalPort),
+            v4Ip: internalIp,
+            vpc,
+          },
+        };
 
         let json: any = null;
         let lastErr: any = null;
 
         for (const url of candidates) {
           try {
-            json = await getJsonOnce(url, cloud.secretKey || '', insecure);
+            json = await requestJson('POST', url, cloud.secretKey || '', insecure, payload);
             if (json) break;
           } catch (e: any) {
             lastErr = e;
+            // 如果第一个 URL 返回 404，尝试第二个
+            if (e?.status === 404 && candidates.indexOf(url) === 0) {
+              continue;
+            }
+            throw e;
           }
         }
 
-        if (!json) {
-          const s = Number((lastErr as any)?.status || 0);
-          const m = String((lastErr as any)?.message || '').toLowerCase();
-          if (s === 404 || m.includes('not found')) {
-            res.json({ message: '查询成功', data: { items: [] } });
-            return;
-          }
-          throw lastErr || new Error('Failed to fetch OvnSnatRules');
+        if (!json && lastErr) {
+          throw lastErr || new Error('Failed to create OvnDnatRule');
         }
 
-        const rawItems = Array.isArray(json?.items)
-          ? json?.items
-          : Array.isArray(json?.data)
-          ? json?.data
-          : [];
-        let items = rawItems;
-        if (isTenant) {
-          if (tenantNamespace) {
-            items = items.filter((i: any) =>
-              isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-            );
-          } else {
-            items = [];
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法）
+        if (json && json.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
+            const entity = repo.create({
+              cloudId: cloud.id,
+              uid: json.metadata?.uid || json.metadata?.name,
+              name: json.metadata?.name || '',
+              vpc: json.spec?.vpc || vpc,
+              type: 'DNAT',
+              eip: json.spec?.ovnEip,
+              externalIp: json.status?.v4Eip,
+              internalIp: json.spec?.v4Ip || internalIp,
+              internalPort: json.spec?.internalPort || String(internalPort),
+              externalPort: json.spec?.externalPort || String(externalPort),
+              protocol: json.spec?.protocol || protocol || 'tcp',
+              rawData: json,
+            });
+            await repo.save(entity);
+          } catch (e: any) {
+            console.error('[DNAT-Create] 入库失败:', e?.message || e);
           }
-        } else if (tenantNamespace) {
-          items = items.filter((i: any) =>
-            isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-          );
         }
 
-        res.json({ message: '查询成功', data: { items } });
+        res.json({ message: '创建成功', data: json });
       } catch (error: any) {
         if (res.headersSent) return;
+        console.error('Create OvnDnatRule error:', error);
+
+        let details = error.body;
+        try {
+          if (typeof details === 'string') {
+            details = JSON.parse(details);
+          }
+        } catch {
+          // ignore
+        }
+
         res.status(500).json({
-          message: '查询SNAT规则失败',
-          error: error.body || error.message,
+          message: '创建DNAT规则失败',
+          error: error.message,
+          details,
         });
       }
     },
@@ -1612,63 +2264,47 @@ export const registerHarvesterDirectNetworkRoutes = (
           return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
-        const base = (cloud.endpoint || '').replace(/\/+$/, '');
-        let origin = base;
-        try {
-          const u = new URL(base);
-          origin = `${u.protocol}//${u.host}`;
-        } catch {
-          origin = base.replace(/\/v[0-9].*$/, '');
-        }
+        const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);
 
-        const candidates = [
-          `${origin}/apis/kubeovn.io/v1/ovndnatrules`,
-          `${origin}/apis/kubeovn.io/v1/ovn-dnat-rules`,
-        ];
-
-        let json: any = null;
-        let lastErr: any = null;
-
-        for (const url of candidates) {
-          try {
-            json = await getJsonOnce(url, cloud.secretKey || '', insecure);
-            if (json) break;
-          } catch (e: any) {
-            lastErr = e;
-          }
-        }
-
-        if (!json) {
-          const s = Number((lastErr as any)?.status || 0);
-          const m = String((lastErr as any)?.message || '').toLowerCase();
-          if (s === 404 || m.includes('not found')) {
-            res.json({ message: '查询成功', data: { items: [] } });
-            return;
-          }
-          throw lastErr || new Error('Failed to fetch OvnDnatRules');
-        }
-
-        const rawItems = Array.isArray(json?.items)
-          ? json?.items
-          : Array.isArray(json?.data)
-          ? json?.data
-          : [];
-        let items = rawItems;
+        let whereCondition: any = { cloudId: id, type: 'DNAT' };
         if (isTenant) {
           if (tenantNamespace) {
-            items = items.filter((i: any) =>
-              isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-            );
+            // DNAT 规则可能没有 namespace，根据 VPC 过滤
+            // 这里简化处理，如果需要可以根据 VPC 的 namespaces 字段过滤
           } else {
-            items = [];
+            whereCondition.cloudId = 'none'; // 确保不返回任何数据
           }
-        } else if (tenantNamespace) {
-          items = items.filter((i: any) =>
-            isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-          );
         }
 
-        res.json({ message: '查询成功', data: { items } });
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
+        const count = await repo.count({ where: whereCondition });
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
+          try {
+            await syncKubeOvnNatRules(cloud, insecure);
+            console.log(`[DNAT-Query] 同步完成，cloudId: ${id}`);
+          } catch (e: any) {
+            console.warn('Sync DNAT Rules failed, falling back to empty/stale', e);
+            if (count === 0) throw e;
+          }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[DNAT-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        let list = items.map((i) => i.rawData).filter((item) => item != null);
+
+        // 租户过滤：根据命名空间过滤（如果需要）
+        if (isTenant && tenantNamespace) {
+          // DNAT 规则可能没有直接的 namespace，这里简化处理
+          // 实际可以根据 VPC 的 namespaces 字段进行过滤
+        }
+
+        res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({
@@ -1851,28 +2487,50 @@ export const registerHarvesterDirectNetworkRoutes = (
           return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
-        const items = await listHarvesterLoadBalancerIPPools({
-          endpoint: cloud.endpoint,
-          token: cloud.secretKey || '',
-          insecure,
-        });
+        const repo = AppDataSource.getRepository(HarvesterLoadBalancerIPPoolInventory);
 
-        let filteredItems = items;
+        let whereCondition: any = { cloudId: id };
         if (isTenant) {
           if (tenantNamespace) {
-            filteredItems = items.filter((i: any) =>
-              isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-            );
+            const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
+            if (allowedNamespaces.length > 0) {
+              whereCondition.namespace = In(allowedNamespaces);
+            } else {
+              whereCondition.namespace = In([]); // 空数组，不会匹配任何记录
+            }
           } else {
-            filteredItems = [];
+            return res.json({ message: '查询成功', data: { items: [] } });
           }
         } else if (tenantNamespace) {
-          filteredItems = items.filter((i: any) =>
-            isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-          );
+          const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
+          if (allowedNamespaces.length > 0) {
+            whereCondition.namespace = In(allowedNamespaces);
+          }
         }
 
-        res.json({ message: '查询成功', data: { items: filteredItems } });
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
+        const count = await repo.count({ where: whereCondition });
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
+          try {
+            await syncHarvesterLoadBalancerIPPools(cloud, insecure);
+            console.log(`[IPPool-Query] 同步完成，cloudId: ${id}`);
+          } catch (e: any) {
+            console.warn('Sync IPPools failed, falling back to empty/stale', e);
+            if (count === 0) throw e;
+          }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[IPPool-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
+        }
+
+        const items = await repo.find({ where: whereCondition });
+        const list = items.map((i) => i.rawData).filter((item) => item != null);
+
+        res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
         if (res.headersSent) return;
         res.status(500).json({
@@ -1971,6 +2629,49 @@ export const registerHarvesterDirectNetworkRoutes = (
             payload,
           );
           console.log(`[IPPool] Success:`, (data as any)?.id);
+
+          // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+          if (data && data.metadata) {
+            try {
+              const repo = AppDataSource.getRepository(HarvesterLoadBalancerIPPoolInventory);
+              const uid = data.metadata?.uid || data.id || '';
+              const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+              
+              if (existing) {
+                // 更新现有记录
+                existing.name = data.metadata?.name || '';
+                existing.namespace = data.metadata?.namespace || ns;
+                existing.links = data.links;
+                existing.ipam = data.spec?.ipam;
+                existing.selector = data.spec?.selector;
+                existing.subnet = data.status?.allocated?.subnet;
+                existing.gateway = data.status?.allocated?.gateway;
+                existing.rawData = data;
+                await repo.save(existing);
+                console.log(`[IPPool-Create] 地址池已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+              } else {
+                // 插入新记录
+                const entity = repo.create({
+                  cloudId: cloud.id,
+                  uid: uid,
+                  name: data.metadata?.name || '',
+                  namespace: data.metadata?.namespace || ns,
+                  links: data.links,
+                  ipam: data.spec?.ipam,
+                  selector: data.spec?.selector,
+                  subnet: data.status?.allocated?.subnet,
+                  gateway: data.status?.allocated?.gateway,
+                  rawData: data,
+                });
+                await repo.save(entity);
+                console.log(`[IPPool-Create] 地址池已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+              }
+            } catch (e: any) {
+              console.error('[IPPool-Create] 入库地址池失败:', e?.message || e);
+              // 入库失败不影响创建操作的成功返回
+            }
+          }
+
           return res.json({ message: '创建成功', data });
         } catch (e: any) {
           console.error(

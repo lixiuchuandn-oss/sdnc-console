@@ -58,7 +58,7 @@ interface Props {
   cloudId: string;
   snapshots: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   isTenant?: boolean;
   namespaces?: any[];
   bordered?: boolean;

@@ -254,6 +254,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     
     // [字段] 状态字符串 (Running, Stopped 等)
     status: (r: any) => {
+      // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
+      // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
+      // 也可能在 status.migrationState 中（不同版本可能不同）
+      const vmi = r?.vmi || r?.vmiRaw;
+      if (vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'] || vmi?.status?.migrationState) {
+        // 如果存在 migrationState，说明正在迁移
+        return 'Migrating';
+      }
+      
+      // [优先级2] 检查 VM 的状态字段
       if (typeof r?.status === 'string') return r.status;
       // Harvester 的状态字段可能在 printableStatus, phase 或 Status 中
       return r?.status?.printableStatus || r?.status?.phase || r?.Status || 'Unknown';
@@ -274,12 +284,33 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     
     // [字段] CPU 核心数
     // 逻辑：Harvester CPU = Sockets * Cores * Threads
+    // [统一] 与详情视图保持一致的计算顺序和回退逻辑
     cpu: (r: any) => {
       const cpu = r?.spec?.template?.spec?.domain?.cpu;
-      if (cpu?.cores && cpu?.sockets && cpu?.threads) {
-        return Number(cpu.cores) * Number(cpu.sockets) * Number(cpu.threads);
+      
+      // 优先：使用完整的拓扑信息计算（sockets * cores * threads）
+      if (cpu?.sockets !== undefined && cpu?.cores !== undefined && cpu?.threads !== undefined) {
+        return Number(cpu.sockets) * Number(cpu.cores) * Number(cpu.threads);
       }
-      return r?.cpu || cpu?.cores || r?.vmi?.spec?.domain?.cpu?.cores;
+      
+      // 如果只有部分拓扑信息，尝试计算
+      if (cpu?.sockets !== undefined && cpu?.cores !== undefined) {
+        return Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
+      }
+      if (cpu?.sockets !== undefined && cpu?.threads !== undefined) {
+        return Number(cpu.sockets) * (cpu?.cores || 1) * Number(cpu.threads);
+      }
+      if (cpu?.cores !== undefined && cpu?.threads !== undefined) {
+        return (cpu?.sockets || 1) * Number(cpu.cores) * Number(cpu.threads);
+      }
+      
+      // 回退：使用后端计算的Extra.CPU（如果可用）
+      if (r?.cpu !== undefined && r?.cpu !== null) {
+        return Number(r.cpu);
+      }
+      
+      // 最后回退：使用cores或VMI的cores
+      return cpu?.cores || cpu?.sockets || r?.vmi?.spec?.domain?.cpu?.cores || 0;
     },
     
     // [字段] CPU 拓扑描述
@@ -289,13 +320,18 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return '';
     },
     
-    // [字段] 内存大小 (优先读取 limits，其次是 guest 内存)
+    // [字段] 内存大小
+    // [统一] 与详情视图保持一致：优先展示 Guest Memory（规格），这是用户在 VM 配置中显式设置的值
+    // 优先级：guest > limits > memoryGb > vmi guest
     memory: (r: any) => {
-      const lim = r?.spec?.template?.spec?.domain?.resources?.limits?.memory;
-      if (lim) return lim;
+      // [展示口径] 优先展示 Guest Memory（规格），这是用户在 VM 配置中显式设置的值
       const guest = r?.spec?.template?.spec?.domain?.memory?.guest;
       if (guest) return guest;
-      return r?.memoryGb || r?.vmi?.spec?.domain?.memory?.guest;
+      
+      const lim = r?.spec?.template?.spec?.domain?.resources?.limits?.memory;
+      if (lim) return lim;
+      
+      return r?.memoryGb || r?.vmi?.spec?.domain?.memory?.guest || '';
     },
 
     // [字段] 内存规格描述 (Request / Limit)
@@ -303,6 +339,29 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         const req = r?.spec?.template?.spec?.domain?.resources?.requests;
         const lim = r?.spec?.template?.spec?.domain?.resources?.limits;
         return `Request: ${req?.memory || '-'} / Limit: ${lim?.memory || '-'}`;
+    },
+
+    // [字段] 是否开启热扩容
+    // [Harvester 兼容] 复刻 Harvester 逻辑：通过 Annotation harvesterhci.io/enableCPUAndMemoryHotplug 判断
+    // 同时需要排除 RestartRequired 和 HotPlugInProgress 状态
+    isHotPlugEnabled: (r: any) => {
+      // [Harvester 兼容] 使用 Annotation 判断，而不是 maxSockets
+      const annotations = r?.metadata?.annotations || {};
+      const isConfigured = annotations['harvesterhci.io/enableCPUAndMemoryHotplug']?.toLowerCase() === 'true';
+      
+      if (!isConfigured) return false;
+      
+      // 检查状态条件：如果存在 RestartRequired 或 HotPlugInProgress，视为未启用
+      const conditions = r?.status?.conditions || [];
+      const isRestartRequired = conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
+      const isHotPlugInProgress = conditions.some((c: any) => 
+        (c.type === 'HotVCPUChange' || c.type === 'HotMemoryChange') && c.status === 'True'
+      );
+      
+      // 如果存在 RestartRequired 或 HotPlugInProgress，返回 false
+      if (isRestartRequired || isHotPlugInProgress) return false;
+      
+      return true;
     },
 
     // ------------------------------------------
@@ -1320,6 +1379,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return v ? `${v} C` : '-';
     } },
     { title: '内存', key: 'memory',  render: (_: any, r: any) => SafeRead.memory(r) || '-' },
+    { title: '热扩容', key: 'hotplug', width: 80, render: (_: any, r: any) => {
+      const isEnabled = SafeRead.isHotPlugEnabled(r);
+      return isEnabled ? <Tag color="success">已开启</Tag> : <Tag>未开启</Tag>;
+    } },
     { title: '说明', key: 'memSpec', ellipsis: true, render: (_: any, r: any) => SafeRead.memSpec(r) },
     { title: '镜像', key: 'image', ellipsis: true, render: (_: any, r: any) => {
         const displayName = SafeRead.imageDisplayName(r);

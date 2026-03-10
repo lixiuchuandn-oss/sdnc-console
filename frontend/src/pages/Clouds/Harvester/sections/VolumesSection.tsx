@@ -71,7 +71,7 @@ import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined, HddOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume } from '../../../../services/harvesterApi';
+import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume, fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
@@ -100,7 +100,7 @@ type Props = {
   vms?: any[];
   storageClasses?: any[];
   namespacesOptions?: string[];
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷)
   bordered?: boolean;
 };
@@ -484,8 +484,11 @@ const VolumesSection: React.FC<Props> = ({
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
     return dataSource.filter(item => {
-      // 关键字搜索
-      if (kw && !item.name.toLowerCase().includes(kw)) return false;
+      // 关键字搜索：优先匹配别名，其次匹配名称
+      if (kw) {
+        const displayName = String(item.alias || item.name || '').toLowerCase();
+        if (!displayName.includes(kw)) return false;
+      }
       // 状态筛选
       if (st && item.phase.toLowerCase() !== st) return false;
       
@@ -509,33 +512,42 @@ const VolumesSection: React.FC<Props> = ({
   }, [dataSource, keyword, statusFilter, nsFilter, scFilter, showSystemVolumes]);
 
   // 生成命名空间下拉选项
+  const [fetchedNsOptions, setFetchedNsOptions] = useState<string[]>([]);
   const nsOptions = useMemo(() => {
     const set = new Set<string>();
-
     if (Array.isArray(namespacesOptions)) {
       namespacesOptions.forEach(ns => ns && set.add(ns));
     }
-
+    (fetchedNsOptions || []).forEach(ns => ns && set.add(ns));
     if (set.size === 0) {
       dataSource.forEach(v => v.namespace && set.add(v.namespace));
       (vms || []).forEach((vm: any) => {
         const ns = vm?.extra?.namespace || vm?.namespace || vm?.Extra?.Namespace;
         if (ns) set.add(ns);
       });
-      // 仅在非租户模式下添加 default
       if (!isTenant && !set.has('default')) set.add('default');
     }
-    
     let list = Array.from(set);
-    
     if (isTenant) {
       list = list.filter(ns => !isSystemNamespace(ns) && !isPublicNamespace(ns));
     } else if (!showSystemVolumes) {
       list = list.filter(ns => !isSystemNamespace(ns));
     }
-    
     return list.sort().map(s => ({ value: s, label: s }));
-  }, [dataSource, vms, showSystemVolumes, namespacesOptions, isTenant]);
+  }, [dataSource, vms, showSystemVolumes, namespacesOptions, fetchedNsOptions, isTenant]);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!createOpen) return;
+      try {
+        const res: any = await fetchHarvesterNamespaces(cloudId, true, true);
+        const items: any[] = res?.data?.items || res?.items || [];
+        const list = items.map((x: any) => x?.metadata?.name || x?.name).filter((s: any) => !!s);
+        setFetchedNsOptions(list);
+      } catch {}
+    };
+    run();
+  }, [createOpen, cloudId]);
 
   const statusOptions = [
     'healthy','degraded','faulted','detached','attaching','attached','detaching','maintenance','restoring','creating','deleting','error','bound','pending','lost'
@@ -1035,7 +1047,21 @@ const VolumesSection: React.FC<Props> = ({
             settingsKey="harvester_volumes_table"
             defaultHiddenColumns={['namespace', 'volumeMode']}
           />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={async () => {
+              // 刷新主数据
+              onRefresh?.(true);
+              // 同时刷新命名空间列表，确保下拉选项包含最新数据
+              try {
+                const res: any = await fetchHarvesterNamespaces(cloudId, true, true);
+                const items: any[] = res?.data?.items || res?.items || [];
+                const list = items.map((x: any) => x?.metadata?.name || x?.name).filter((s: any) => !!s);
+                setFetchedNsOptions(list);
+              } catch {}
+            }} 
+            loading={loading} 
+          />
         </>
       )}
     >
@@ -1090,14 +1116,31 @@ const VolumesSection: React.FC<Props> = ({
             await createHarvesterVolume(cloudId, payload);
             message.success('创建成功');
             setCreateOpen(false);
-            onRefresh?.();
+            // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+            // 静默刷新，不显示提示信息
+            onRefresh?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
           } catch (e: any) { message.error(e.message || '创建失败'); }
           finally { setCreating(false); }
         }}
       >
           <Form.Item label="别名" name="alias" rules={[{ required: true }]}><Input placeholder="例如: 测试pvc" /></Form.Item>
           <Form.Item label="命名空间" name="namespace" rules={[{ required: true }]}>
-            <Select showSearch options={nsOptions} style={{ width: '100%' }} />
+            <Select 
+              showSearch 
+              options={nsOptions} 
+              style={{ width: '100%' }}
+              onOpenChange={async (open) => {
+                // 下拉框打开时强制刷新命名空间列表，确保包含最新创建的命名空间
+                if (open) {
+                  try {
+                    const res: any = await fetchHarvesterNamespaces(cloudId, true, true);
+                    const items: any[] = res?.data?.items || res?.items || [];
+                    const list = items.map((x: any) => x?.metadata?.name || x?.name).filter((s: any) => !!s);
+                    setFetchedNsOptions(list);
+                  } catch {}
+                }
+              }}
+            />
           </Form.Item>
           <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
           <Form.Item label="访问模式" name="accessModes" initialValue="ReadWriteMany">
@@ -1201,6 +1244,9 @@ const VolumesSection: React.FC<Props> = ({
             });
             message.success('创建成功');
             setSnapshotOpen(false);
+            // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+            // 静默刷新，不显示提示信息
+            onRefresh?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
           } catch (e: any) { message.error(e.message || '创建失败'); }
         }}
       >

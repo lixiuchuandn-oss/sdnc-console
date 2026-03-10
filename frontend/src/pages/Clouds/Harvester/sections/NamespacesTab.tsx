@@ -25,7 +25,7 @@ type Props = {
   cloudId: string;
   namespaces?: any[];
   loading?: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   showLog?: boolean;
   raw?: any;
   isTenant?: boolean;
@@ -271,10 +271,16 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         message.success('创建成功');
       }
 
+      // 关闭弹窗和重置表单
       setCreating(false);
       setEditingNamespace(null);
       form.resetFields();
-      onRefresh?.();
+      
+      // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+      // 静默刷新，不显示提示信息
+      if (onRefresh) {
+        onRefresh(true, true); // force=true 跳过缓存，silent=true 静默刷新
+      }
     } catch (e: any) {
       message.error(e?.message || (editingNamespace ? '更新失败' : '创建失败'));
     }
@@ -492,7 +498,25 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
             allColumns={allColumns}
             settingsKey="harvester_namespaces_table_v3"
           />
-          <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={() => {
+              console.log('[NamespacesTab] 刷新按钮被点击, loading:', loading, 'onRefresh:', !!onRefresh);
+              if (onRefresh) {
+                try {
+                  onRefresh(true); // 使用 force=true 跳过缓存，强制刷新
+                } catch (e: any) {
+                  console.error('[NamespacesTab] 刷新按钮执行出错:', e);
+                  message.error('刷新失败: ' + (e?.message || '未知错误'));
+                }
+              } else {
+                // 如果没有传入 onRefresh，至少显示一个提示
+                message.warning('刷新功能未配置');
+              }
+            }} 
+            loading={loading}
+            disabled={loading}
+          />
         </>
       }
     >

@@ -119,7 +119,6 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
         
         // [校验] 检查云资源是否存在及类型
         const cloud = await fetchCloudOr404(id, res);
@@ -203,16 +202,24 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           whereCondition.namespace = In(Array.from(uniqueNamespaces));
         }
 
-        // [缓存策略] 如果数据库为空或强制刷新，则同步数据
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
         const count = await repo.count({ where: whereCondition });
-
-        if (count === 0 || String(force) === 'true') {
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
           try {
             await syncHarvesterVolumes(cloud, insecure);
+            // 同步后重新获取 repository，确保查询使用最新数据
+            console.log(`[Volume-Query] 同步完成，cloudId: ${id}`);
           } catch (e: any) {
             console.warn('Sync Volumes failed, falling back to empty/stale', e);
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[Volume-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
         }
 
         const items = await repo.find({ where: whereCondition });
@@ -712,6 +719,56 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           pvcName,
           { name, snapshotClassName, alias },
         );
+        
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        // 注意：只有当返回数据包含 metadata.uid 时才入库，避免空字符串导致唯一索引冲突
+        if (data && data.metadata && data.metadata.uid) {
+          try {
+            const repo = AppDataSource.getRepository(HarvesterSnapshotInventory);
+            const uid = data.metadata.uid;
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.name = data.metadata?.name || '';
+              existing.namespace = data.metadata?.namespace || namespace;
+              existing.sourcePvc = data.spec?.source?.persistentVolumeClaimName || pvcName;
+              existing.status = data.status?.readyToUse ? 'Ready' : 'NotReady';
+              existing.size = data.status?.restoreSize;
+              existing.restoreSize = data.status?.restoreSize;
+              existing.snapshotClassName = data.spec?.volumeSnapshotClassName || snapshotClassName;
+              existing.labels = data.metadata?.labels;
+              existing.annotations = data.metadata?.annotations;
+              existing.rawData = data;
+              await repo.save(existing);
+              console.log(`[Snapshot-Create] 快照已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                uid: uid,
+                name: data.metadata?.name || '',
+                namespace: data.metadata?.namespace || namespace,
+                sourcePvc: data.spec?.source?.persistentVolumeClaimName || pvcName,
+                status: data.status?.readyToUse ? 'Ready' : 'NotReady',
+                size: data.status?.restoreSize,
+                restoreSize: data.status?.restoreSize,
+                snapshotClassName: data.spec?.volumeSnapshotClassName || snapshotClassName,
+                labels: data.metadata?.labels,
+                annotations: data.metadata?.annotations,
+                rawData: data,
+              });
+              await repo.save(entity);
+              console.log(`[Snapshot-Create] 快照已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+            }
+          } catch (e: any) {
+            console.error('[Snapshot-Create] 入库快照失败:', e?.message || e);
+            // 入库失败不影响创建操作的成功返回
+          }
+        } else if (data && data.metadata && !data.metadata.uid) {
+          console.warn(`[Snapshot-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || name}`);
+        }
+        
         res.json({ message: '创建快照成功', data });
       } catch (error: any) {
         const status = Number(error?.status || 0);
@@ -896,6 +953,56 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
           { namespace, name, sizeGi: sizeGi || size, accessModes, volumeMode, storageClassName, annotations },
         );
+        
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        // 注意：只有当返回数据包含 metadata.uid 时才入库，避免空字符串导致唯一索引冲突
+        if (data && data.metadata && data.metadata.uid) {
+          try {
+            const repo = AppDataSource.getRepository(KubevirtVolumeInventory);
+            const uid = data.metadata.uid;
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.name = data.metadata?.name || '';
+              existing.namespace = data.metadata?.namespace || namespace;
+              existing.phase = data.status?.phase;
+              existing.capacity = data.status?.capacity?.storage;
+              existing.storageClassName = data.spec?.storageClassName || storageClassName;
+              existing.volumeMode = data.spec?.volumeMode || volumeMode;
+              existing.accessModes = Array.isArray(data.spec?.accessModes) ? data.spec.accessModes.join(',') : '';
+              existing.labels = data.metadata?.labels;
+              existing.annotations = data.metadata?.annotations;
+              existing.rawData = data;
+              await repo.save(existing);
+              console.log(`[Volume-Create] PVC 已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                uid: uid,
+                name: data.metadata?.name || '',
+                namespace: data.metadata?.namespace || namespace,
+                phase: data.status?.phase,
+                capacity: data.status?.capacity?.storage,
+                storageClassName: data.spec?.storageClassName || storageClassName,
+                volumeMode: data.spec?.volumeMode || volumeMode,
+                accessModes: Array.isArray(data.spec?.accessModes) ? data.spec.accessModes.join(',') : '',
+                labels: data.metadata?.labels,
+                annotations: data.metadata?.annotations,
+                rawData: data,
+              });
+              await repo.save(entity);
+              console.log(`[Volume-Create] PVC 已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+            }
+          } catch (e: any) {
+            console.error('[Volume-Create] 入库 PVC 失败:', e?.message || e);
+            // 入库失败不影响创建操作的成功返回
+          }
+        } else if (data && data.metadata && !data.metadata.uid) {
+          console.warn(`[Volume-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || name}`);
+        }
+        
         res.json({ message: '创建成功', data });
       } catch (error: any) {
         const status = Number(error?.status || 0);
@@ -940,7 +1047,6 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1024,15 +1130,24 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           }
         }
 
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
         const count = await repo.count({ where: whereCondition });
-
-        if (count === 0 || String(force) === 'true') {
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
           try {
             await syncHarvesterImages(cloud, insecure);
+            // 同步后重新获取 repository，确保查询使用最新数据
+            console.log(`[Image-Query] 同步完成，cloudId: ${id}`);
           } catch (e: any) {
             console.warn('Sync Images failed, falling back to empty/stale', e);
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[Image-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
         }
 
         const items = await repo.find({ where: whereCondition });
@@ -1204,6 +1319,54 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           },
         };
         const json = await requestJson('POST', urlPath, cloud.secretKey || '', insecure, body);
+        
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        // 注意：只有当返回数据包含 metadata.uid 时才入库，避免空字符串导致唯一索引冲突
+        if (json && json.metadata && json.metadata.uid) {
+          try {
+            const repo = AppDataSource.getRepository(HarvesterImageInventory);
+            const uid = json.metadata.uid;
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.name = json.metadata?.name || '';
+              existing.namespace = json.metadata?.namespace || namespace;
+              existing.displayName = json.spec?.displayName || displayName || name;
+              existing.progress = json.status?.progress;
+              existing.size = String(json.status?.size || json.status?.downloadedBytes || '0');
+              existing.storageClassName = json.spec?.storageClassName || targetStorageClassName;
+              existing.labels = json.metadata?.labels;
+              existing.annotations = json.metadata?.annotations;
+              existing.rawData = json;
+              await repo.save(existing);
+              console.log(`[Image-Create] 镜像已更新，cloudId: ${cloud.id}, name: ${json.metadata?.name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                uid: uid,
+                name: json.metadata?.name || '',
+                namespace: json.metadata?.namespace || namespace,
+                displayName: json.spec?.displayName || displayName || name,
+                progress: json.status?.progress,
+                size: String(json.status?.size || json.status?.downloadedBytes || '0'),
+                storageClassName: json.spec?.storageClassName || targetStorageClassName,
+                labels: json.metadata?.labels,
+                annotations: json.metadata?.annotations,
+                rawData: json,
+              });
+              await repo.save(entity);
+              console.log(`[Image-Create] 镜像已入库，cloudId: ${cloud.id}, name: ${json.metadata?.name}`);
+            }
+          } catch (e: any) {
+            console.error('[Image-Create] 入库镜像失败:', e?.message || e);
+            // 入库失败不影响创建操作的成功返回
+          }
+        } else if (json && json.metadata && !json.metadata.uid) {
+          console.warn(`[Image-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${json.metadata?.name || name}`);
+        }
+        
         res.json({ message: '创建成功', data: json });
       } catch (error: any) {
         res.status(500).json({ message: '创建镜像失败', error: error.message });
@@ -1273,7 +1436,6 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1316,14 +1478,24 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           whereCondition = allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns }));
         }
 
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
         const count = await repo.count({ where: whereCondition });
-        if (count === 0 || String(force) === 'true') {
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
           try {
             await syncHarvesterSnapshots(cloud, insecure);
+            // 同步后重新获取 repository，确保查询使用最新数据
+            console.log(`[Snapshot-Query] 同步完成，cloudId: ${id}`);
           } catch (e: any) {
             console.warn('Sync Snapshots failed, falling back to empty/stale', e);
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[Snapshot-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
         }
 
         const items = await repo.find({ where: whereCondition });
@@ -1395,7 +1567,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
+        const { force, skipSync } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1437,15 +1609,19 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           }
           whereCondition = allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns }));
         }
-
         const count = await repo.count({ where: whereCondition });
-        if (count === 0 || String(force) === 'true') {
+        // [同步策略] 缓存优先 + 按需同步
+        // skipSync=true 表示创建后刷新，数据已入库，只需查询数据库，无需全量同步
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        if (shouldSync) {
           try {
             await syncHarvesterBackups(cloud, insecure);
           } catch (e: any) {
             console.warn('Sync Backups failed, falling back to empty/stale', e);
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[Backup-Refresh] 跳过全量同步（创建后刷新），直接查询数据库`);
         }
 
         const items = await repo.find({ where: whereCondition });
@@ -1471,7 +1647,6 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -1500,14 +1675,23 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           }
         }
 
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
         const count = await repo.count({ where: whereCondition });
-        if (count === 0 || String(force) === 'true') {
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
           try {
             await syncHarvesterScheduleVmBackups(cloud, insecure);
+            console.log(`[ScheduleVmBackup-Query] 同步完成，cloudId: ${id}`);
           } catch (e: any) {
             console.warn('Sync ScheduleVmBackups failed, falling back to empty/stale', e);
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[ScheduleVmBackup-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
         }
 
         const items = await repo.find({ where: whereCondition });
@@ -1536,7 +1720,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
 
         const payload = req.body;
 
-        await createHarvesterScheduleVmBackup(
+        const result = await createHarvesterScheduleVmBackup(
           {
             endpoint: cloud.endpoint,
             token: cloud.secretKey,
@@ -1546,13 +1730,55 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           payload,
         );
 
-        try {
-          await syncHarvesterScheduleVmBackups(cloud, insecure);
-        } catch (e) {
-          console.warn('Sync after create failed', e);
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        if (result && result.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
+            const uid = result.metadata?.uid || result.id || '';
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.name = result.metadata?.name || '';
+              existing.namespace = result.metadata?.namespace || payload.namespace;
+              existing.cron = result.spec?.cron;
+              existing.vmName = result.spec?.vmbackup?.source?.name;
+              existing.retention = String(result.spec?.retain || '');
+              existing.status = result.spec?.suspend ? 'Suspended' : 'Active';
+              existing.maxFailure = result.spec?.maxFailure;
+              existing.links = result.links;
+              existing.labels = result.metadata?.labels;
+              existing.annotations = result.metadata?.annotations;
+              existing.rawData = result;
+              await repo.save(existing);
+              console.log(`[ScheduleVmBackup-Create] 定时策略已更新，cloudId: ${cloud.id}, name: ${result.metadata?.name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                uid: uid,
+                name: result.metadata?.name || '',
+                namespace: result.metadata?.namespace || payload.namespace,
+                cron: result.spec?.cron,
+                vmName: result.spec?.vmbackup?.source?.name,
+                retention: String(result.spec?.retain || ''),
+                status: result.spec?.suspend ? 'Suspended' : 'Active',
+                maxFailure: result.spec?.maxFailure,
+                links: result.links,
+                labels: result.metadata?.labels,
+                annotations: result.metadata?.annotations,
+                rawData: result,
+              });
+              await repo.save(entity);
+              console.log(`[ScheduleVmBackup-Create] 定时策略已入库，cloudId: ${cloud.id}, name: ${result.metadata?.name}`);
+            }
+          } catch (e: any) {
+            console.error('[ScheduleVmBackup-Create] 入库定时策略失败:', e?.message || e);
+            // 入库失败不影响创建操作的成功返回
+          }
         }
 
-        res.json({ message: '创建定时备份成功' });
+        res.json({ message: '创建定时备份成功', data: result });
       } catch (error: any) {
         res.status(500).json({ message: '创建定时备份失败', error: error.body || error.message });
       }
@@ -1712,10 +1938,48 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           { name, vmName, type, alias },
         );
 
-        try {
-          await syncHarvesterBackups(cloud, insecure);
-        } catch (e) {
-          console.warn('Sync after create failed', e);
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        if (result && result.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(HarvesterBackupInventory);
+            const uid = result.metadata?.uid || result.id || '';
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.name = result.metadata?.name || '';
+              existing.namespace = result.metadata?.namespace || namespace;
+              existing.sourceVm = result.spec?.source?.name;
+              existing.status = result.status?.readyToUse ? 'Ready' : undefined;
+              existing.type = result.spec?.type;
+              existing.target = result.status?.target ? JSON.stringify(result.status.target) : undefined;
+              existing.labels = result.metadata?.labels;
+              existing.annotations = result.metadata?.annotations;
+              existing.rawData = result;
+              await repo.save(existing);
+              console.log(`[Backup-Create] 备份已更新，cloudId: ${cloud.id}, name: ${result.metadata?.name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                uid: uid,
+                name: result.metadata?.name || '',
+                namespace: result.metadata?.namespace || namespace,
+                sourceVm: result.spec?.source?.name,
+                status: result.status?.readyToUse ? 'Ready' : undefined,
+                type: result.spec?.type,
+                target: result.status?.target ? JSON.stringify(result.status.target) : undefined,
+                labels: result.metadata?.labels,
+                annotations: result.metadata?.annotations,
+                rawData: result,
+              });
+              await repo.save(entity);
+              console.log(`[Backup-Create] 备份已入库，cloudId: ${cloud.id}, name: ${result.metadata?.name}`);
+            }
+          } catch (e: any) {
+            console.error('[Backup-Create] 入库备份失败:', e?.message || e);
+            // 入库失败不影响创建操作的成功返回
+          }
         }
 
         res.json({ message: '创建成功', data: result });

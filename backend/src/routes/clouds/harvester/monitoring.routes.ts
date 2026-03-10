@@ -448,10 +448,31 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
   const EMAIL_RECEIVER = 'email-receiver';
   const DINGTALK_RECEIVER = 'dingtalk-receiver';
   const WEBSITE_RECEIVER = "website-receiver";
+  const NULL_RECEIVER = 'null-receiver';
 
   /** AlertmanagerConfig 名称必须为 email-receiver / dingtalk-receiver / website-receiver 之一（通知对象专用） */
   function isValidReceiverConfigName(name: string): boolean {
     return [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER].includes(String(name || '').trim());
+  }
+
+  /** 判断是否为告警通知策略（非三类通知对象配置）。策略需带 null-receiver 且 route.receiver 为 null-receiver */
+  function isPolicyAlertmanagerConfig(metadataName: string): boolean {
+    const n = (metadataName ?? '').toString().trim();
+    return n.length > 0 && !isValidReceiverConfigName(n);
+  }
+
+  /**
+   * 规范化告警通知策略的 spec：receivers 中增加 null-receiver，route 最上层设置 receiver: null-receiver。
+   * 仅对策略（非 email/dingtalk/website-receiver）调用，避免污染通知对象配置。
+   */
+  function normalizePolicySpec(spec: any): any {
+    if (!spec || typeof spec !== 'object') return spec;
+    const receivers = Array.isArray(spec.receivers) ? spec.receivers : [];
+    const hasNull = receivers.some((r: any) => (r?.name ?? '').toString().trim() === NULL_RECEIVER);
+    const nextReceivers = hasNull ? receivers : [...receivers, { name: NULL_RECEIVER }];
+    const route = spec.route && typeof spec.route === 'object' ? spec.route : {};
+    const nextRoute = { ...route, receiver: NULL_RECEIVER };
+    return { ...spec, receivers: nextReceivers, route: nextRoute };
   }
 
   const ALERTMANAGERCONFIG_BASE = 'v1/harvester/monitoring.coreos.com.alertmanagerconfigs';
@@ -1274,7 +1295,10 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       if (!tenant) return;
       const conn = await getCloudAndConn(cloudId, res);
       if (!conn) return;
-      const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, body);
+      const payload = isPolicyAlertmanagerConfig(name)
+        ? { ...body, spec: normalizePolicySpec(body.spec) }
+        : body;
+      const data = await requestJson('POST', `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`, conn.token, conn.insecure, payload);
       res.status(201).json(data);
     } catch (e: any) {
       const status = (e as any).status || 500;
@@ -1295,7 +1319,11 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       const conn = await getCloudAndConn(cloudId, res);
       if (!conn) return;
       const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-      const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, req.body);
+      const body = req.body || {};
+      const payload = isPolicyAlertmanagerConfig(name)
+        ? { ...body, spec: normalizePolicySpec(body.spec) }
+        : body;
+      const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, conn.insecure, payload);
       res.json(data);
     } catch (e: any) {
       const status = (e as any).status || 500;

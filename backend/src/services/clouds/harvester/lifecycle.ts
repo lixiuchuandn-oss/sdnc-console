@@ -1,12 +1,62 @@
+/**
+ * ==============================================================================
+ * 服务名称: Harvester 虚拟机生命周期管理服务 (Harvester VM Lifecycle Service)
+ * 文件路径: backend/src/services/clouds/harvester/lifecycle.ts
+ * ==============================================================================
+ * 
+ * [功能描述]
+ * 提供 Harvester 虚拟机的生命周期管理能力，包括电源控制（启动/停止/重启/暂停/恢复）、
+ * 迁移管理、删除与恢复等操作。本模块专注于 VM 的状态变更，不涉及配置修改。
+ * 
+ * [核心功能]
+ * 1. [电源管理]:
+ *    - 启动虚拟机 (Start): 将 VM 从停止状态转为运行状态
+ *    - 停止虚拟机 (Stop): 支持正常停止和强制停止
+ *    - 重启虚拟机 (Reboot): 支持正常重启和强制重启
+ *    - 软重启 (Soft Reboot): 通过 ACPI 信号触发 Guest OS 重启
+ *    - 暂停/恢复 (Pause/Unpause): 暂停 VM 实例的执行
+ * 
+ * 2. [迁移管理]:
+ *    - 热迁移 (Migrate): 将运行中的 VM 迁移到其他节点
+ *    - 取消迁移 (Abort Migration): 终止正在进行的迁移任务
+ * 
+ * 3. [删除与恢复]:
+ *    - 软删除 (Delete): 将 VM 移入回收站，7 天后自动删除
+ *    - 强制删除 (Force Delete): 从回收站中真正删除 VM 及关联资源
+ *    - 恢复 (Restore): 从回收站中恢复 VM
+ * 
+ * [设计原则]
+ * - 所有操作均通过 Harvester/KubeVirt API 实现，不直接操作底层资源
+ * - 支持实例标识自动解析（支持多种格式：ns/name、ns:name、InstanceId）
+ * - 删除操作采用软删除机制，提供回收站功能，防止误删
+ * 
+ * ------------------------------------------------------------------------------
+ * [依赖关系]
+ * ------------------------------------------------------------------------------
+ * - vm.ts: 依赖 listHarvesterVMsStandard、getHarvesterVM 用于实例标识解析和 VM 信息获取
+ * - utils.ts: 依赖 requestJson、getJsonOnce 用于 HTTP 请求
+ * ==============================================================================
+ */
+
 import { HarvesterTestParams } from './types';
 import { requestJson, getJsonOnce } from './utils';
 import { listHarvesterVMsStandard, getHarvesterVM } from './vm';
+import { updateHarvesterVMSpec } from './vm_update';
 
-// 将前端传入的实例标识解析为 { namespace, name }
-// - 支持格式：
-//   1) ns/name
-//   2) ns:name
-//   3) 仅传 InstanceId 或 InstanceName 时，会先查 VM 列表再反推命名空间和名称
+/**
+ * 解析实例标识为命名空间和名称
+ * 
+ * [功能描述]
+ * 将前端传入的多种格式的实例标识统一解析为 { namespace, name } 格式。
+ * 
+ * [支持的格式]
+ * 1. 命名空间/名称格式: "default/vm-01" 或 "default:vm-01"
+ * 2. 实例ID格式: 通过查询 VM 列表，根据 InstanceId 或 InstanceName 反推命名空间和名称
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 实例标识（支持多种格式）
+ * @returns 解析后的命名空间和名称，解析失败返回 null
+ */
 const resolveVmPath = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -26,7 +76,19 @@ const resolveVmPath = async (
   return null;
 };
 
-// 启动虚拟机（等价于 Harvester UI 的 Start 操作）
+/**
+ * 启动虚拟机
+ * 
+ * [功能描述]
+ * 将虚拟机从停止状态转为运行状态，等价于 Harvester UI 的 Start 操作。
+ * 
+ * [实现原理]
+ * 调用 Harvester 的 addVolume action API，触发 VM 启动流程。
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @returns API 响应结果
+ */
 export const harvesterStartVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -45,8 +107,21 @@ export const harvesterStartVM = async (
   return await requestJson('POST', url, token, insecure, {});
 };
 
-// 停止虚拟机
-// - force=true 时，Harvester 会尝试强制停止（内部语义由 Harvester 控制）
+/**
+ * 停止虚拟机
+ * 
+ * [功能描述]
+ * 停止运行中的虚拟机，支持正常停止和强制停止两种模式。
+ * 
+ * [参数说明]
+ * - force=false: 正常停止，等待 Guest OS 优雅关闭
+ * - force=true: 强制停止，Harvester 会尝试强制终止 VM 进程
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @param force 是否强制停止，默认为 false
+ * @returns API 响应结果
+ */
 export const harvesterStopVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -66,8 +141,21 @@ export const harvesterStopVM = async (
   return await requestJson('POST', url, token, insecure, { force });
 };
 
-// 软重启虚拟机
-// - 区别于 Stop+Start，软重启更接近 Guest OS 内部触发的重启
+/**
+ * 软重启虚拟机
+ * 
+ * [功能描述]
+ * 通过 ACPI 信号触发 Guest OS 内部重启，区别于 Stop+Start 的硬重启方式。
+ * 软重启更接近操作系统内部触发的重启，对 Guest OS 更友好。
+ * 
+ * [适用场景]
+ * - 需要重启 Guest OS 但希望保持 VM 实例运行状态
+ * - 避免因硬重启导致的文件系统损坏风险
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @returns API 响应结果
+ */
 export const harvesterSoftRebootVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -86,8 +174,21 @@ export const harvesterSoftRebootVM = async (
   return await requestJson('POST', url, token, insecure, {});
 };
 
-// 暂停虚拟机实例（VMI 级别）
-// - 仅对运行中的实例有效
+/**
+ * 暂停虚拟机实例
+ * 
+ * [功能描述]
+ * 暂停运行中的虚拟机实例（VMI 级别），VM 的 CPU 和内存状态将被冻结。
+ * 
+ * [注意事项]
+ * - 仅对运行中的实例有效
+ * - 使用 KubeVirt 原生的 Subresource API，而非 Harvester Action API
+ * - 暂停后可通过 harvesterUnpauseVM 恢复执行
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @returns API 响应结果
+ */
 export const harvesterPauseVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -107,7 +208,20 @@ export const harvesterPauseVM = async (
   return await requestJson('PUT', url, token, insecure, {}, { Accept: '*/*' });
 };
 
-// 取消暂停虚拟机实例（VMI 级别）
+/**
+ * 取消暂停虚拟机实例
+ * 
+ * [功能描述]
+ * 恢复被暂停的虚拟机实例，VM 将从暂停状态恢复执行。
+ * 
+ * [注意事项]
+ * - 仅对已暂停的实例有效
+ * - 使用 KubeVirt 原生的 Subresource API
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @returns API 响应结果
+ */
 export const harvesterUnpauseVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -127,8 +241,24 @@ export const harvesterUnpauseVM = async (
   return await requestJson('PUT', url, token, insecure, {}, { Accept: '*/*' });
 };
 
-// 触发虚拟机热迁移（创建 VirtualMachineInstanceMigration 对象）
-// - targetNode 可选，用于指定目标节点（具体生效依赖集群版本）
+/**
+ * 触发虚拟机热迁移
+ * 
+ * [功能描述]
+ * 将运行中的虚拟机迁移到其他节点，迁移过程中 VM 保持运行状态（热迁移）。
+ * 
+ * [实现原理]
+ * 创建 VirtualMachineInstanceMigration 对象，KubeVirt 控制器会自动执行迁移流程。
+ * 
+ * [参数说明]
+ * - targetNode: 可选，指定目标节点名称。如果未指定，由调度器自动选择目标节点。
+ *   注意：目标节点指定功能依赖 KubeVirt 版本，较旧版本可能忽略此参数。
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @param targetNode 可选，目标节点名称
+ * @returns API 响应结果
+ */
 export const harvesterMigrateVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -188,8 +318,21 @@ export const harvesterMigrateVM = async (
   return await requestJson('POST', url, token, insecure, payload);
 };
 
-// 终止指定虚拟机当前正在进行的迁移任务
-// - 会列出关联该 VMI 的所有迁移对象，删除尚未完成的迁移
+/**
+ * 终止虚拟机迁移任务
+ * 
+ * [功能描述]
+ * 取消指定虚拟机当前正在进行的迁移任务，删除所有未完成的迁移对象。
+ * 
+ * [实现逻辑]
+ * 1. 查询该 VMI 关联的所有 VirtualMachineInstanceMigration 对象
+ * 2. 筛选出未完成的迁移（状态不是 Succeeded 或 Failed）
+ * 3. 逐个删除这些迁移对象
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @returns 返回终止的迁移数量 { aborted: number }
+ */
 export const harvesterAbortMigration = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -227,339 +370,21 @@ export const harvesterAbortMigration = async (
   return { aborted: activeMigrations.length };
 };
 
-export const harvesterAddVolumeToVM = async (
-  { endpoint, token, insecure = false }: HarvesterTestParams,
-  instanceId: string,
-  payload: { name: string; bus?: string; pvcNamespace: string; pvcName: string },
-) => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-  let path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
-  if (!path) {
-    const guessNs = String(payload.pvcNamespace || '').trim();
-    const guessName = String(instanceId || '').trim();
-    if (guessNs && guessName) {
-      try {
-        const probe = await getJsonOnce(
-          `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(guessNs)}/${encodeURIComponent(guessName)}`,
-          token,
-          insecure,
-          true,
-        );
-        if (probe && (probe?.metadata?.name || probe?.name)) {
-          path = { namespace: guessNs, name: guessName };
-        }
-      } catch {}
-    }
-  }
-  if (!path) throw new Error('无法解析实例标识');
-  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=addVolume`;
-  let pvcName = String(payload.pvcName || '').trim();
-  const volName = String(payload.name || '').trim();
-  let pvName: string | undefined = undefined;
-  if (!pvcName || pvcName.toLowerCase() === volName.toLowerCase()) {
-    const ns = String(payload.pvcNamespace || '').trim();
-    const candidates = [
-      `${origin}/apis/longhorn.io/v1beta1/namespaces/${encodeURIComponent(ns)}/volumes/${encodeURIComponent(volName)}`,
-      `${origin}/v1/harvester/longhorn.io.volumes/${encodeURIComponent(volName)}`,
-      `${origin}/v1/longhorn.io.volumes/${encodeURIComponent(volName)}`,
-    ];
-    for (const p of candidates) {
-      try {
-        const j = await getJsonOnce(p, token, insecure, true);
-        const k = j?.status?.kubernetesStatus?.pvcName || '';
-        const pv = j?.status?.kubernetesStatus?.pvName || '';
-        if (typeof k === 'string' && k.trim()) {
-          pvcName = String(k).trim();
-          pvName = typeof pv === 'string' && pv.trim() ? String(pv).trim() : pvName;
-          break;
-        }
-      } catch {}
-    }
-  }
-  if (!pvcName) throw new Error('该卷缺少 PVC 名称，无法挂载');
-  if (!pvName) {
-    try {
-      const ns = String(payload.pvcNamespace || '').trim();
-      const urls = [
-        `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(ns)}/${encodeURIComponent(pvcName)}`,
-        `${origin}/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(pvcName)}`,
-      ];
-      for (const u of urls) {
-        try {
-          const j = await getJsonOnce(u, token, insecure, true);
-          const pv = j?.spec?.volumeName || '';
-          if (typeof pv === 'string' && pv.trim()) {
-            pvName = String(pv).trim();
-            break;
-          }
-        } catch {}
-      }
-    } catch {}
-  }
-  const bodies: any[] = [
-    {
-      diskName: volName,
-      volumeSourceName: pvcName,
-    },
-    {
-      name: volName,
-      disk: { bus: payload.bus || 'virtio' },
-      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
-      diskName: volName,
-      volumeName: pvName || volName,
-    },
-    {
-      name: volName,
-      disk: { bus: payload.bus || 'virtio' },
-      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
-      diskName: volName,
-      volumeName: pvcName,
-    },
-    {
-      name: volName,
-      disk: { bus: payload.bus || 'virtio' },
-      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
-    },
-  ];
-  let lastErr: any = null;
-  for (let i = 0; i < bodies.length; i++) {
-    const body = bodies[i];
-    try {
-      const tag =
-        i === 0
-          ? 'harvester addVolume request'
-          : i === 1
-            ? 'harvester addVolume retry'
-            : 'harvester addVolume fallback';
-      console.info(tag, {
-        url,
-        name: body.name,
-        diskBus: body.disk?.bus,
-        diskName: body.diskName,
-        volumeName: body.volumeName,
-        volumeSourceName: body.volumeSourceName,
-        claimName: body.volumeSource?.persistentVolumeClaim?.claimName,
-        ...(lastErr
-          ? { status: Number(lastErr?.status || 0), error: String(lastErr?.message || '') }
-          : {}),
-      });
-      const res = await requestJson('POST', url, token, insecure, body);
-      return res;
-    } catch (e: any) {
-      lastErr = e;
-      const s = Number(e?.status || 0);
-      const m = String(e?.message || '').toLowerCase();
-
-      // [特殊处理] 422 Unprocessable Entity
-      // 如果错误信息包含 "already" (e.g. "Volume ... is already attached"), 则视为成功
-      if (s === 422 && (m.includes('already') || m.includes('exist'))) {
-          console.info('harvester addVolume 422 ignored (already attached)', { name: body.name, error: m });
-          return { status: 'AlreadyAttached', message: 'Volume is already attached' };
-      }
-
-      const needContinue =
-        s === 422 ||
-        s === 500 ||
-        m.includes('invalid') ||
-        m.includes('required') ||
-        s === 404 ||
-        m.includes('not found');
-      if (!needContinue) throw e;
-    }
-  }
-  if (lastErr) throw lastErr;
-};
-
-export const harvesterAddVolumeToVMDirect = async (
-  { endpoint, token, insecure = false }: HarvesterTestParams,
-  namespace: string,
-  name: string,
-  payload: { name: string; bus?: string; pvcNamespace: string; pvcName: string },
-) => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?action=addVolume`;
-  let pvcName = String(payload.pvcName || '').trim();
-  const volName = String(payload.name || '').trim() || String(pvcName || '').trim();
-  if (!volName) throw new Error('参数缺失：磁盘设备名 diskName');
-  let pvName: string | undefined = undefined;
-  const needResolveFromLonghorn =
-    !pvcName || pvcName.toLowerCase() === volName.toLowerCase() || !/^pvc-/.test(pvcName);
-  if (needResolveFromLonghorn) {
-    try {
-      const candidatesAll = [
-        `${origin}/v1/longhorn.io.volumes`,
-        `${origin}/v1/harvester/longhorn.io.volumes`,
-        `${origin}/apis/longhorn.io/v1beta1/volumes`,
-      ];
-      let listJson: any = null;
-      for (const u of candidatesAll) {
-        try {
-          listJson = await getJsonOnce(u, token, insecure, true);
-          if (listJson) break;
-        } catch {}
-      }
-      const items: any[] = Array.isArray(listJson?.data)
-        ? listJson?.data
-        : Array.isArray(listJson?.items)
-          ? listJson?.items
-          : [];
-      const hit = items.find((it: any) => {
-        const ks = it?.status?.kubernetesStatus || {};
-        const nm = it?.metadata?.name || it?.name || '';
-        const vname = ks?.volumeName || '';
-        return String(vname || '').trim() === volName || String(nm || '').trim() === volName;
-      });
-      if (hit) {
-        const ks = hit?.status?.kubernetesStatus || {};
-        const kPVC = ks?.pvcName || '';
-        const kPV = ks?.pvName || '';
-        if (typeof kPVC === 'string' && kPVC.trim()) pvcName = String(kPVC).trim();
-        if (typeof kPV === 'string' && kPV.trim()) pvName = String(kPV).trim();
-      }
-    } catch {}
-  }
-  if (!pvcName || pvcName.toLowerCase() === volName.toLowerCase()) {
-    const ns = String(payload.pvcNamespace || '').trim();
-    const candidates = [
-      `${origin}/apis/longhorn.io/v1beta1/namespaces/${encodeURIComponent(ns)}/volumes/${encodeURIComponent(volName)}`,
-      `${origin}/v1/harvester/longhorn.io.volumes/${encodeURIComponent(volName)}`,
-      `${origin}/v1/longhorn.io.volumes/${encodeURIComponent(volName)}`,
-    ];
-    for (const p of candidates) {
-      try {
-        const j = await getJsonOnce(p, token, insecure);
-        const k = j?.status?.kubernetesStatus?.pvcName || '';
-        const pv = j?.status?.kubernetesStatus?.pvName || '';
-        if (typeof k === 'string' && k.trim()) {
-          pvcName = String(k).trim();
-          pvName = typeof pv === 'string' && pv.trim() ? String(pv).trim() : pvName;
-          break;
-        }
-      } catch {}
-    }
-  }
-  if (!pvcName) throw new Error('该卷缺少 PVC 名称，无法挂载');
-  if (!pvName) {
-    try {
-      const ns = String(payload.pvcNamespace || '').trim();
-      const urls = [
-        `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(ns)}/${encodeURIComponent(pvcName)}`,
-        `${origin}/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(pvcName)}`,
-      ];
-      for (const u of urls) {
-        try {
-          const j = await getJsonOnce(u, token, insecure, true);
-          const pv = j?.spec?.volumeName || '';
-          if (typeof pv === 'string' && pv.trim()) {
-            pvName = String(pv).trim();
-            break;
-          }
-        } catch {}
-      }
-    } catch {}
-  }
-  const bodies: any[] = [
-    {
-      diskName: volName,
-      volumeSourceName: pvcName,
-    },
-    {
-      name: volName,
-      disk: { bus: payload.bus || 'virtio' },
-      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
-      diskName: volName,
-      volumeName: pvName || volName,
-    },
-    {
-      name: volName,
-      disk: { bus: payload.bus || 'virtio' },
-      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
-      diskName: volName,
-      volumeName: pvcName,
-    },
-    {
-      name: volName,
-      disk: { bus: payload.bus || 'virtio' },
-      volumeSource: { persistentVolumeClaim: { claimName: pvcName } },
-    },
-  ];
-
-  let lastErr: any = null;
-  for (let i = 0; i < bodies.length; i++) {
-    const body = bodies[i];
-    try {
-      const tag =
-        i === 0
-          ? 'harvester addVolume direct request'
-          : i === 1
-            ? 'harvester addVolume direct retry'
-            : 'harvester addVolume direct fallback';
-      console.info(tag, {
-        url,
-        name: body.name,
-        diskBus: body.disk?.bus,
-        diskName: body.diskName,
-        volumeName: body.volumeName,
-        volumeSourceName: body.volumeSourceName,
-        claimName: body.volumeSource?.persistentVolumeClaim?.claimName,
-        ...(lastErr
-          ? { status: Number(lastErr?.status || 0), error: String(lastErr?.message || '') }
-          : {}),
-      });
-      const res = await requestJson('POST', url, token, insecure, body);
-      return res;
-    } catch (e: any) {
-      lastErr = e;
-      const s = Number(e?.status || 0);
-      const m = String(e?.message || '').toLowerCase();
-      const needContinue =
-        s === 422 ||
-        s === 500 ||
-        m.includes('invalid') ||
-        m.includes('required') ||
-        s === 404 ||
-        m.includes('not found');
-      if (!needContinue) throw e;
-    }
-  }
-  if (lastErr) throw lastErr;
-};
-
-export const harvesterRemoveVolumeFromVM = async (
-  { endpoint, token, insecure = false }: HarvesterTestParams,
-  instanceId: string,
-  payload: { name: string },
-) => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-  const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
-  if (!path) throw new Error('无法解析实例标识');
-  const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=removeVolume`;
-  // Harvester/KubeVirt requires volumeName (or diskName) in the body
-  const body = { name: payload.name, volumeName: payload.name, diskName: payload.name };
-  return await requestJson('POST', url, token, insecure, body);
-};
-
+/**
+ * 重启虚拟机
+ * 
+ * [功能描述]
+ * 重启虚拟机，支持正常重启和强制重启两种模式。
+ * 
+ * [参数说明]
+ * - force=false: 正常重启，等待 Guest OS 优雅关闭后重启
+ * - force=true: 强制重启，强制终止 VM 进程后重启
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @param force 是否强制重启，默认为 false
+ * @returns API 响应结果
+ */
 export const harvesterRebootVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -579,6 +404,34 @@ export const harvesterRebootVM = async (
   return await requestJson('POST', url, token, insecure, { force });
 };
 
+/**
+ * 删除虚拟机（软删除）
+ * 
+ * [功能描述]
+ * 将虚拟机移入回收站，而非立即删除。VM 会在回收站中保留 7 天，到期后自动删除。
+ * 
+ * [实现机制]
+ * 1. [防删检查]: 检查重要实例标记（Finalizer 或 Label），禁止删除受保护的 VM
+ * 2. [资源解析]: 解析 VM 关联的 PVC 列表（如果 deleteVolumes=true）
+ * 3. [软删除]: 添加回收站 Finalizer 和删除标记（Annotation/Label），VM 进入 Terminating 状态但不会被真正删除
+ * 
+ * [回收站机制]
+ * - Finalizer: `tower.io/recycle-bin` - 防止 VM 被真正删除
+ * - Annotation: `tower.io/deletion-scheduled` - 删除时间
+ * - Annotation: `tower.io/deletion-expires` - 过期时间（7 天后）
+ * - Label: `tower.io/recycle-bin: true` - 回收站标记
+ * - Label: `tower.io/deletion-status: pending` - 删除状态
+ * 
+ * [参数说明]
+ * - deleteVolumes: 是否同时删除关联的 PVC（仅在真正删除时生效，软删除阶段仅记录）
+ * - background: 是否在后台执行清理任务（未使用，保留用于兼容）
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @param deleteVolumes 是否删除关联的 PVC，默认为 false
+ * @param background 是否后台执行，默认为 false（未使用）
+ * @returns 返回操作结果，包含 VM 对象和状态信息
+ */
 export const harvesterDeleteVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
@@ -752,7 +605,27 @@ export const harvesterDeleteVM = async (
 
 /**
  * 强制删除虚拟机（从回收站中真正删除）
- * 用于回收站中的立即删除操作和后台清理任务
+ * 
+ * [功能描述]
+ * 从回收站中真正删除虚拟机及其关联资源，用于回收站中的立即删除操作和后台清理任务。
+ * 
+ * [实现流程]
+ * 1. [资源解析]: 解析 VM 关联的 PVC 列表（如果 deleteVolumes=true）
+ * 2. [移除 Finalizers]: 移除 Tower 相关的 Finalizers（recycle-bin、managed），允许真正删除
+ * 3. [删除 VM]: 调用 DELETE API 删除 VM 对象
+ * 4. [等待删除]: 等待 VM 删除完成（最多 120 秒）
+ * 5. [清理 PVC]: 如果 deleteVolumes=true，删除关联的 PVC
+ * 
+ * [注意事项]
+ * - 此操作不可逆，VM 将被永久删除
+ * - 如果 background=true，清理任务在后台执行，不阻塞主流程
+ * - 移除 tower.io/managed Finalizer 是必要的，否则 VM 会一直卡在 Terminating 状态
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @param deleteVolumes 是否同时删除关联的 PVC，默认为 false
+ * @param background 是否在后台执行清理任务，默认为 false
+ * @returns 返回操作结果，包含删除的 PVC 列表和状态信息
  */
 export const harvesterForceDeleteVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -910,6 +783,27 @@ export const harvesterForceDeleteVM = async (
 
 /**
  * 恢复虚拟机（从回收站中恢复）
+ * 
+ * [功能描述]
+ * 将虚拟机从回收站中恢复，移除回收站相关的 Finalizer 和标记，VM 恢复正常状态。
+ * 
+ * [实现逻辑]
+ * 1. [状态检查]: 验证 VM 是否在回收站中（检查 Finalizer）
+ * 2. [移除标记]: 使用 JSON Patch 移除以下标记：
+ *    - Finalizer: `tower.io/recycle-bin`
+ *    - Annotation: `tower.io/deletion-scheduled`
+ *    - Annotation: `tower.io/deletion-expires`
+ *    - Annotation: `tower.io/deletion-protection-days`
+ *    - Label: `tower.io/recycle-bin`
+ *    - Label: `tower.io/deletion-status`
+ * 
+ * [注意事项]
+ * - 仅对回收站中的 VM 有效
+ * - 恢复后 VM 将恢复正常状态，可以正常使用
+ * 
+ * @param params Harvester 连接参数
+ * @param instanceId 虚拟机实例标识
+ * @returns 返回恢复后的 VM 对象和状态信息
  */
 export const harvesterRestoreVM = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,

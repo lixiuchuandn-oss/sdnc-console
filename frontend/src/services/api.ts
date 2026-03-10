@@ -112,9 +112,17 @@ export const apiRequest = async (endpoint: string, options?: { skipCache?: boole
   }
 };
 
-// 通用 POST 请求（带重试，不缓存，不去重）
+// 通用 POST 请求（默认带重试，不缓存，不去重）
 // 注意：创建操作禁用去重，确保每次点击都能真正创建
-export const apiPost = async (endpoint: string, body: any = {}) => {
+export const apiPost = async (
+  endpoint: string,
+  body: any = {},
+  options?: {
+    enableRetry?: boolean;
+    retryCount?: number;
+    retryDelay?: number;
+  }
+) => {
   try {
     return await requestManager(
       {
@@ -125,7 +133,9 @@ export const apiPost = async (endpoint: string, body: any = {}) => {
         options: {
           enableDeduplication: false, // 创建操作不去重，允许重复创建
           enableCache: false, // POST 请求不缓存
-          enableRetry: true, // 保留重试功能
+          enableRetry: options?.enableRetry ?? true, // 默认保留重试功能
+          retryCount: options?.retryCount,
+          retryDelay: options?.retryDelay,
         },
       },
       API_BASE_URL
@@ -204,6 +214,30 @@ export const apiPatch = async (endpoint: string, body: any = {}, options?: { con
           enableDeduplication: false, // 更新操作不去重，允许重复更新
           enableCache: false, // PATCH 请求不缓存
           enableRetry: true, // 保留重试功能
+        },
+      },
+      API_BASE_URL
+    );
+  } catch (error) {
+    console.error(`API请求失败 ${endpoint}:`, error);
+    throw error;
+  }
+};
+
+// 通用 PUT 请求（带重试，不缓存，不去重）
+// 注意：更新操作禁用去重，确保每次更新都能真正执行
+export const apiPut = async (endpoint: string, body: any = {}) => {
+  try {
+    return await requestManager(
+      {
+        method: 'PUT',
+        endpoint,
+        body,
+        headers: getAuthHeaders(),
+        options: {
+          enableDeduplication: false,
+          enableCache: false,
+          enableRetry: true,
         },
       },
       API_BASE_URL

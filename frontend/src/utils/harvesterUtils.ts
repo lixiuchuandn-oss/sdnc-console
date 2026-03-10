@@ -71,6 +71,16 @@ export const isSystemStorageClass = (name: string): boolean => {
   // 过滤掉镜像相关的存储类（使用前缀匹配，避免误过滤用户自定义的存储类）
   if (n.startsWith('image-')) return true;
   if (n.startsWith('longhorn-image-')) return true;
+
+  // 过滤 Harvester/Longhorn 内部生成的随机 StorageClass（常见为 longhorn-<uuid>）
+  // 例如：longhorn-0f3a2c1d-8b7e-4d3a-9b1c-0a1b2c3d4e5f
+  // 这类一般不希望在“业务选择存储类”的下拉里暴露。
+  if (/^longhorn-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(n)) return true;
+
+  // 过滤镜像导入/临时任务生成的 StorageClass（常见为 longhorn-<something>-<timestamp>）
+  // 例如：longhorn-centos111-1770203161435554900
+  // 例如：longhorn-222.iso-final-v9-1770202327299882000
+  if (n.startsWith('longhorn-') && /-[0-9]{13,}$/.test(n)) return true;
   
   return false;
 };

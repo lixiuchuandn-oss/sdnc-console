@@ -243,6 +243,13 @@ export const ensureProvider = (
  * @returns {string} 标准化后的状态字符串
  */
 export const resolveVMStatus = (vm: any, vmi: any): string => {
+  // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
+  // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
+  // 也可能在 status.migrationState 中（不同版本可能不同）
+  if (vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'] || vmi?.status?.migrationState) {
+    return 'Migrating';
+  }
+
   let status = 'Unknown';
 
   // [Status Normalization] 状态优先级解析

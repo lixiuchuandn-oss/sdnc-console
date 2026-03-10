@@ -9,6 +9,7 @@ import NadsSection from '../Harvester/sections/NadsSection';
 import KubeOvnVpcsSection from '../Harvester/kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from '../Harvester/kube-ovn/SubnetsSection';
 import GpusSection from '../Harvester/sections/GpusSection';
+import MigrationsSection from '../Harvester/sections/MigrationsSection';
 import StorageClassesSection from '../Harvester/sections/StorageClassesSection';
 import SnapshotsSection from '../Harvester/sections/SnapshotsSection';
 import BackupsSection from '../Harvester/sections/BackupsSection';
@@ -19,6 +20,7 @@ import ServicesSection from '../Harvester/sections/ServicesSection';
 import LoadBalancersSection from '../Harvester/sections/LoadBalancersSection';
 import IPPoolsSection from '../Harvester/sections/IPPoolsSection';
 import ClusterNetworksSection from '../Harvester/sections/ClusterNetworksSection';
+import RecycleBinSection from '../Harvester/sections/RecycleBinSection';
 // 重新编译触发引入
 import NamespacesTab from '../Harvester/sections/NamespacesTab';
 import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ReloadOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, AppstoreOutlined, LoginOutlined } from '@ant-design/icons';
@@ -1016,6 +1018,21 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                           <DebugJSON data={harvesterStorageClasses} show={showLog} />
                         </>
                       )
+                    },
+                    {
+                      key: 'ingresses',
+                      label: 'Ingress 路由',
+                      children: (
+                        <>
+                          <IngressesSection cloudId={cloudId} ingresses={harvesterIngresses} loading={resourceLoading.ingresses} onRefresh={() => loadTabResource('ingresses', true)} />
+                          <DebugJSON data={rawIngresses} show={showLog} />
+                        </>
+                      )
+                    },
+                    {
+                      key: 'gpu',
+                      label: 'GPU',
+                      children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={refreshGpu} raw={rawGpu} showLog={showLog} />)
                     }
                   ].filter((i:any) => {
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.nodes:read');
@@ -1023,6 +1040,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       if (i.key === 'cluster_networks') return checkPerm('clouds.networks:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
                       if (i.key === 'storage_classes') return checkPerm('clouds.volumes:read');
+                      if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read');
+                      if (i.key === 'gpu') return checkPerm('clouds.instances:read');
                       return true;
                    })}
                 />
@@ -1201,16 +1220,46 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
-                      key: 'gpu',
-                      label: 'GPU',
-                      children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={refreshGpu} raw={rawGpu} showLog={showLog} />)
+                      key: 'recycle_bin',
+                      label: '回收站',
+                      children: (
+                        <>
+                          <RecycleBinSection
+                            vms={ecs}
+                            loading={resourceLoading.ecs}
+                            cloudId={cloudId}
+                            onRefresh={() => {
+                              apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
+                            }}
+                            namespaces={harvesterNamespaces}
+                            volumes={harvesterVolumes}
+                            images={harvesterImages}
+                          />
+                          {showLog && (
+                            <div style={{ marginTop: 12 }}>
+                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>
+                                {JSON.stringify(ecs.filter((vm: any) => {
+                                  const finalizers = vm?.metadata?.finalizers || [];
+                                  const labels = vm?.metadata?.labels || {};
+                                  return finalizers.includes('tower.io/recycle-bin') || labels['tower.io/recycle-bin'] === 'true';
+                                }), null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                        </>
+                      )
+                    },
+                    {
+                      key: 'migrations',
+                      label: '迁移记录',
+                      children: <MigrationsSection cloudId={cloudId} />
                     }
                   ].filter((i:any) => {
                       if (i.key === 'ecs') return checkPerm('clouds.instances:read');
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
                       if (i.key === 'ssh_keys') return checkPerm('clouds.sshkeys:read');
                       if (i.key === 'cloud_inits') return checkPerm('clouds.cloudinits:read');
-                      if (i.key === 'gpu') return checkPerm('clouds.instances:read');
+                      if (i.key === 'migrations') return checkPerm('clouds.instances:read');
                       return true;
                   })}
                 />
@@ -1338,16 +1387,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
-                      key: 'ingresses',
-                      label: 'Ingress 路由',
-                      children: (
-                        <>
-                          <IngressesSection cloudId={cloudId} ingresses={harvesterIngresses} loading={resourceLoading.ingresses} onRefresh={() => loadTabResource('ingresses', true)} />
-                          <DebugJSON data={rawIngresses} show={showLog} />
-                        </>
-                      )
-                    },
-                    {
                       key: 'load_balancers',
                       label: '负载均衡',
                       children: (
@@ -1369,7 +1408,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     }
                   ].filter((i:any) => {
                       if (i.key === 'nads') return checkPerm('clouds.networks:read');
-                      if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read');
                       if (i.key === 'load_balancers') return checkPerm('clouds.loadbalancers:read');
                       if (i.key === 'ippools') return checkPerm('clouds.ippools:read');
                       return true;

@@ -28,7 +28,7 @@ interface Props {
   cloudId: string;
   ippools: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   isTenant?: boolean;
   bordered?: boolean;
 }
@@ -366,7 +366,11 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
         open={createVisible}
         cloudId={cloudId}
         onClose={() => setCreateVisible(false)}
-        onSuccess={() => onRefresh?.(true)}
+        onSuccess={() => {
+          // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+          // 静默刷新，不显示提示信息
+          onRefresh?.(true, true); // force=true, silent=true
+        }}
       />
 
       <HarvesterResourceDrawer

@@ -17,6 +17,7 @@
 export { HarvesterTestParams } from './types';
 import { getHarvesterVMAggregated } from './vm_aggregated';
 export { getHarvesterVMAggregated };
+export { updateHarvesterVMSpec } from './vm_update';
 export {
   listHarvesterVMsStandard,
   // 移除 buildHarvesterVMManifest,
@@ -26,10 +27,12 @@ export {
   listKubevirtVMIsRawWithMeta,
   getHarvesterVM,
   createHarvesterVM,
-  updateHarvesterVMSpec,
   patchHarvesterVM, // Export the new function
   getHarvesterVmVncUrl,
   syncVmVolumeSize,
+  harvesterAddVolumeToVM,
+  harvesterRemoveVolumeFromVM,
+  harvesterAddVolumeToVMDirect,
 } from './vm';
 export {
   harvesterStartVM,
@@ -41,9 +44,6 @@ export {
   harvesterDeleteVM,
   harvesterForceDeleteVM,
   harvesterRestoreVM,
-  harvesterAddVolumeToVM,
-  harvesterRemoveVolumeFromVM,
-  harvesterAddVolumeToVMDirect,
   harvesterMigrateVM,
   harvesterAbortMigration,
 } from './lifecycle';
@@ -63,6 +63,8 @@ export {
   listKubeOvnFips,
   listKubeOvnSnatRules,
   listKubeOvnDnatRules,
+  listKubeOvnProviderNetworks,
+  listKubeOvnVlans,
   listHarvesterClusterNetworks,
   listHarvesterClusterNetworkConfigs,
 } from './network';

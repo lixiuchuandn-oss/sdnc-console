@@ -59,13 +59,13 @@ export const registerHarvesterNamespaceRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force, excludeSystem } = req.query;
+        const { force, excludeSystem, skipSync } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
-        const repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
+        let repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
 
         let whereCondition: any = { cloudId: id };
         const isTenant =
@@ -147,10 +147,22 @@ export const registerHarvesterNamespaceRoutes = (
         const count = await repo.count({ where: whereCondition });
 
         // [同步策略] 缓存优先 + 按需同步
-        // 如果本地数据库为空，或者用户显式请求 force=true，则触发远程同步。
-        if (count === 0 || String(force) === 'true') {
+        // 如果本地数据库为空，则必须触发远程同步
+        // 如果用户显式请求 force=true 且 skipSync!=true，则触发远程同步（确保数据最新）
+        // skipSync=true 表示创建后刷新，数据已入库，只需查询数据库，无需全量同步
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        if (shouldSync) {
           try {
+            // 如果强制刷新，等待一小段时间确保远程 API 已更新（特别是刚创建的资源）
+            if (String(force) === 'true') {
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
             await syncHarvesterNamespaces(cloud, insecure);
+            // 同步完成后，重新获取 repository 实例确保使用最新的数据库连接
+            // 注意：对于租户用户，whereCondition 已经包含了授权限制，所以只会返回授权的命名空间
+            console.log(`[Namespace-Refresh] 同步完成，whereCondition:`, JSON.stringify(whereCondition));
+            // 同步后重新获取 repository，确保查询使用最新数据
+            repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
           } catch (e: any) {
             console.warn(
               'Sync Namespaces failed, falling back to empty/stale',
@@ -158,9 +170,12 @@ export const registerHarvesterNamespaceRoutes = (
             );
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[Namespace-Refresh] 跳过全量同步（创建后刷新），直接查询数据库`);
         }
 
         const items = await repo.find({ where: whereCondition });
+        console.log(`[Namespace-Refresh] 查询结果数量: ${items.length}, whereCondition:`, JSON.stringify(whereCondition));
         let list = items.map((i) => i.rawData);
         
         // [系统命名空间过滤] 如果 excludeSystem=true，过滤掉系统/受保护的命名空间
@@ -291,6 +306,14 @@ export const registerHarvesterNamespaceRoutes = (
             .json({ message: msg, error: lastErr?.message });
         }
 
+        // [数据同步] 更新成功后立即同步数据库，确保更新后的命名空间数据立即可见
+        try {
+          await syncHarvesterNamespaces(cloud, insecure);
+        } catch (syncErr: any) {
+          console.warn('更新命名空间后同步失败，但不影响更新操作:', syncErr);
+          // 同步失败不影响更新操作的成功返回
+        }
+
         res.json({ message: '更新成功', data: json });
       } catch (error: any) {
         res
@@ -376,6 +399,41 @@ export const registerHarvesterNamespaceRoutes = (
             .status(500)
             .json({ message: msg, error: lastErr?.message });
         }
+        
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        if (json && json.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
+            const name = json.metadata?.name || '';
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, name } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.labels = json.metadata?.labels;
+              existing.annotations = json.metadata?.annotations;
+              existing.links = json.links;
+              existing.rawData = json;
+              await repo.save(existing);
+              console.log(`[Namespace-Create] 命名空间已更新，cloudId: ${cloud.id}, name: ${name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                name: name,
+                labels: json.metadata?.labels,
+                annotations: json.metadata?.annotations,
+                links: json.links,
+                rawData: json,
+              });
+              await repo.save(entity);
+              console.log(`[Namespace-Create] 命名空间已入库，cloudId: ${cloud.id}, name: ${name}`);
+            }
+          } catch (e: any) {
+            console.error('[Namespace-Create] 入库命名空间失败:', e?.message || e);
+            // 入库失败不影响创建操作的成功返回
+          }
+        }
+        
         res.json({ message: '创建成功', data: json });
       } catch (error: any) {
         res

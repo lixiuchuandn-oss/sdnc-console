@@ -30,7 +30,7 @@ interface Props {
   loadBalancers: any[];
   namespaces?: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
   isTenant?: boolean;
   bordered?: boolean;
 }
@@ -322,7 +322,11 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
         cloudId={cloudId}
         namespaces={namespaces}
         onClose={() => setCreateModalOpen(false)}
-        onSuccess={() => onRefresh && onRefresh(true)}
+        onSuccess={() => {
+          // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+          // 静默刷新，不显示提示信息
+          onRefresh && onRefresh(true, true); // force=true, silent=true
+        }}
       />
 
       <HarvesterResourceDrawer

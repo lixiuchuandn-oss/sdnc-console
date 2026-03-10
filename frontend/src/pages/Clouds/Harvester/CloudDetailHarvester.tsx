@@ -191,15 +191,18 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
    * 独立刷新 NAD 数据的函数 (传递给子组件使用)
    */
   const [nadsLoading, setNadsLoading] = useState(false);
-  const refreshNads = async (force = false) => {
+  const refreshNads = async (force = false, silent = false) => {
       if (nadsLoading) return;
       setNadsLoading(true);
       try {
-        const nadsJson = await fetchHarvesterNads(cloudId, force);
+        const skipSync = silent || false;
+        const nadsJson = await fetchHarvesterNads(cloudId, force, skipSync);
         const nadsList: any[] = (nadsJson as any)?.data?.items || [];
         setHarvesterNads(Array.isArray(nadsList) ? nadsList : []);
         setRawNads(nadsJson || null);
-        message.success('NAD网络刷新成功');
+        if (!silent) {
+          message.success('NAD网络刷新成功');
+        }
       } catch (e: any) {
         message.error(`刷新NAD网络失败: ${e?.message || '未知错误'}`);
       } finally {
@@ -366,6 +369,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             break;
           case 'snapshots':
             if (checkPerm('clouds.snapshots:read')) {
+              // 注意：loadTabResource 的 force 参数会被传递给 fetchHarvesterSnapshots
+              // 如果需要 skipSync，需要在调用时传递 skipSync 参数
+              // 但 loadTabResource 不支持 skipSync，所以这里保持原样
+              // 创建后的刷新会通过 SnapshotsSection 的 onRefresh 处理
               loadResource('snapshots', () => fetchHarvesterSnapshots(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterSnapshots(Array.isArray(list) ? list : []);
@@ -1083,24 +1090,42 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '命名空间',
                       children: <NamespacesTab 
                         cloudId={cloudId} 
-                        namespaces={harvesterNamespacesForManagement.length > 0 ? harvesterNamespacesForManagement : harvesterNamespaces} 
+                        namespaces={harvesterNamespacesForManagement} 
                         loading={resourceLoading.namespaces} 
-                        onRefresh={() => {
-                          // 命名空间管理页面需要显示所有命名空间（包括系统命名空间），用于管理员查看和管理
-                          // 注意：使用独立状态 harvesterNamespacesForManagement，避免影响其他组件使用的 harvesterNamespaces
-                          // 后端已实现租户隔离，租户用户即使查询所有命名空间，也只会看到分配给自己的命名空间
+                        onRefresh={async (force = false, silent = false) => {
+                          console.log('[CloudDetailHarvester] 命名空间刷新开始, cloudId:', cloudId, 'force:', force, 'silent:', silent);
                           setResourceLoading(prev => ({ ...prev, namespaces: true }));
-                          fetchHarvesterNamespaces(cloudId, true, false)
-                            .then((json) => {
-                              const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
-                              setHarvesterNamespacesForManagement(Array.isArray(list) ? list : []);
-                            })
-                            .catch((e) => {
-                              console.warn('Failed to load namespaces for management', e);
-                            })
-                            .finally(() => {
-                              setResourceLoading(prev => ({ ...prev, namespaces: false }));
+                          try {
+                            // 创建后刷新（silent=true）时，使用 skipSync=true 跳过全量同步，只查询数据库
+                            const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
+                            console.log('[CloudDetailHarvester] 调用 fetchHarvesterNamespaces, force:', force, 'skipSync:', skipSync);
+                            const json = await fetchHarvesterNamespaces(cloudId, force, false, skipSync);
+                            console.log('[CloudDetailHarvester] fetchHarvesterNamespaces 返回:', json);
+                            const items = json?.data?.items || json?.items || [];
+                            const list = Array.isArray(items) ? items : [];
+                            console.log('[CloudDetailHarvester] 解析后的命名空间数量:', list.length);
+                            setHarvesterNamespacesForManagement(list);
+                            // 同步更新通用命名空间列表（过滤系统命名空间）
+                            const filtered = list.filter((ns: any) => {
+                              const name = ns?.metadata?.name || ns?.name;
+                              return name && !isSystemNamespace(name);
                             });
+                            console.log('[CloudDetailHarvester] 过滤后的命名空间数量:', filtered.length);
+                            setHarvesterNamespaces(filtered);
+                            // 只有在非静默模式且是手动刷新时才显示提示信息
+                            if (force && !silent) {
+                              message.success(`刷新成功，共 ${list.length} 个命名空间`);
+                            }
+                          } catch (e: any) {
+                            console.error('[CloudDetailHarvester] 刷新命名空间列表失败', e);
+                            // 静默模式下不显示错误提示（创建后的自动刷新）
+                            if (!silent) {
+                              message.error('刷新失败: ' + (e?.message || '未知错误'));
+                            }
+                          } finally {
+                            console.log('[CloudDetailHarvester] 命名空间刷新结束，重置 loading 状态');
+                            setResourceLoading(prev => ({ ...prev, namespaces: false }));
+                          }
                         }} 
                         showLog={showLog} 
                         raw={rawNamespaces}
@@ -1120,6 +1145,40 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           )}
                         </>
                       )
+                    },
+                    {
+                      key: 'ingresses',
+                      label: 'Ingress 路由',
+                      children: (
+                        <>
+                          <IngressesSection cloudId={cloudId} ingresses={harvesterIngresses} loading={resourceLoading.ingresses} onRefresh={(force = true, silent = false) => {
+                            const skipSync = silent;
+                            setResourceLoading(prev => ({ ...prev, ingresses: true }));
+                            fetchHarvesterIngresses(cloudId, force, skipSync)
+                              .then((json) => {
+                                const list: any[] = (json as any)?.data?.items || [];
+                                setHarvesterIngresses(Array.isArray(list) ? list : []);
+                                setRawIngresses(json || null);
+                              })
+                              .catch((e) => {
+                                console.warn('Failed to load Ingresses', e);
+                              })
+                              .finally(() => {
+                                setResourceLoading(prev => ({ ...prev, ingresses: false }));
+                              });
+                          }} />
+                          {showLog && (
+                            <div style={{ marginTop: 12 }}>
+                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawIngresses, null, 2)}</pre>
+                            </div>
+                          )}
+                        </>
+                      )
+                    },
+                    {
+                      key: 'gpu',
+                      label: 'GPU',
+                      children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={refreshGpu} raw={rawGpu} showLog={showLog} />)
                     }
                   ].filter((i:any) => {
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.nodes:read');
@@ -1127,6 +1186,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       if (i.key === 'cluster_networks') return checkPerm('clouds.networks:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
                       if (i.key === 'storage_classes') return checkPerm('clouds.volumes:read');
+                      if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read');
+                      if (i.key === 'gpu') return checkPerm('clouds.instances:read');
                       return true;
                    })}
                 />
@@ -1361,7 +1422,33 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'SSH 密钥',
                       children: (
                         <>
-                          <SshKeysSection cloudId={cloudId} sshKeys={harvesterSshKeys} loading={resourceLoading.sshKeys} onRefresh={() => loadTabResource('ssh_keys', true)} />
+                          <SshKeysSection cloudId={cloudId} sshKeys={harvesterSshKeys} loading={resourceLoading.sshKeys} onRefresh={(force = true, silent = false) => {
+                            // 创建后刷新（silent=true）时，使用 skipSync=true 跳过全量同步
+                            const skipSync = silent;
+                            if (checkPerm('clouds.sshkeys:read')) {
+                              setResourceLoading(prev => ({ ...prev, sshKeys: true }));
+                              fetchHarvesterSshKeys(cloudId, force, skipSync)
+                                .then((json) => {
+                                  const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                                  setHarvesterSshKeys(Array.isArray(list) ? list : []);
+                                  setRawSshKeys(json || null);
+                                  // 只有在非静默模式且是手动刷新时才显示提示信息
+                                  if (force && !silent) {
+                                    message.success(`刷新成功，共 ${list.length} 个 SSH 密钥`);
+                                  }
+                                })
+                                .catch((e) => {
+                                  console.warn('Failed to load SSH keys', e);
+                                  // 静默模式下不显示错误提示（创建后的自动刷新）
+                                  if (!silent) {
+                                    message.error('刷新失败: ' + (e?.message || '未知错误'));
+                                  }
+                                })
+                                .finally(() => {
+                                  setResourceLoading(prev => ({ ...prev, sshKeys: false }));
+                                });
+                            }
+                          }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSshKeys, null, 2)}</pre>
@@ -1383,11 +1470,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           )}
                         </>
                       )
-                    },
-                    {
-                      key: 'gpu',
-                      label: 'GPU',
-                      children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={refreshGpu} raw={rawGpu} showLog={showLog} />)
                     },
                     {
                       key: 'recycle_bin',
@@ -1429,7 +1511,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
                       if (i.key === 'ssh_keys') return checkPerm('clouds.sshkeys:read');
                       if (i.key === 'cloud_inits') return checkPerm('clouds.cloudinits:read');
-                      if (i.key === 'gpu') return checkPerm('clouds.instances:read');
                       if (i.key === 'migrations') return checkPerm('clouds.instances:read');
                       return true;
                   })}
@@ -1451,8 +1532,25 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'PVC虚拟卷',
                       children: (
                         <>
-                          <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={resourceLoading.volumes} vms={ecs} storageClasses={harvesterStorageClasses} onRefresh={() => {
-                            loadResource('volumes', () => fetchHarvesterVolumes(cloudId, true), (json) => setHarvesterVolumes(json?.data?.items || []), true);
+                          <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={resourceLoading.volumes} vms={ecs} storageClasses={harvesterStorageClasses} onRefresh={async (force = false, silent = false) => {
+                            const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
+                            setResourceLoading(prev => ({ ...prev, volumes: true }));
+                            try {
+                              const json = await fetchHarvesterVolumes(cloudId, force, skipSync);
+                              const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                              setHarvesterVolumes(Array.isArray(list) ? list : []);
+                              setRawVolumes(json || null);
+                              if (force && !silent) {
+                                message.success(`刷新成功，共 ${list.length} 个卷`);
+                              }
+                            } catch (e: any) {
+                              if (!silent) {
+                                message.error('刷新失败: ' + (e?.message || '未知错误'));
+                              }
+                            } finally {
+                              setResourceLoading(prev => ({ ...prev, volumes: false }));
+                            }
+                            // 同时刷新 VM 列表（如果需要）
                             loadResource('ecs', () => fetchCloudProviderEcs(cloudId, true), (json) => {
                               const list: any[] = Array.isArray((json as any)?.data) ? (json as any).data : (((json as any)?.data?.Instances?.Instance) || ((json as any)?.data?.items) || ((json as any)?.data?.data) || []);
                               setEcs(Array.isArray(list) ? list : []);
@@ -1471,7 +1569,25 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '镜像',
                       children: (
                         <>
-                          <ImagesSection cloudId={cloudId} images={harvesterImages} loading={resourceLoading.images} onRefresh={() => loadResource('images', () => fetchHarvesterImages(cloudId, true), (json) => setHarvesterImages(json?.data?.items || []), true)} />
+                          <ImagesSection cloudId={cloudId} images={harvesterImages} loading={resourceLoading.images} onRefresh={async (force = false, silent = false) => {
+                            const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
+                            setResourceLoading(prev => ({ ...prev, images: true }));
+                            try {
+                              const json = await fetchHarvesterImages(cloudId, force, skipSync);
+                              const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                              setHarvesterImages(Array.isArray(list) ? list : []);
+                              setRawImages(json || null);
+                              if (force && !silent) {
+                                message.success(`刷新成功，共 ${list.length} 个镜像`);
+                              }
+                            } catch (e: any) {
+                              if (!silent) {
+                                message.error('刷新失败: ' + (e?.message || '未知错误'));
+                              }
+                            } finally {
+                              setResourceLoading(prev => ({ ...prev, images: false }));
+                            }
+                          }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawImages, null, 2)}</pre>
@@ -1485,7 +1601,25 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '卷快照',
                       children: (
                         <>
-                          <SnapshotsSection cloudId={cloudId} snapshots={harvesterSnapshots} namespaces={harvesterNamespaces} loading={resourceLoading.snapshots} onRefresh={() => loadTabResource('snapshots', true)} />
+                          <SnapshotsSection cloudId={cloudId} snapshots={harvesterSnapshots} namespaces={harvesterNamespaces} loading={resourceLoading.snapshots} onRefresh={async (force = false, silent = false) => {
+                            const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
+                            setResourceLoading(prev => ({ ...prev, snapshots: true }));
+                            try {
+                              const json = await fetchHarvesterSnapshots(cloudId, force, skipSync);
+                              const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                              setHarvesterSnapshots(Array.isArray(list) ? list : []);
+                              setRawSnapshots(json || null);
+                              if (force && !silent) {
+                                message.success(`刷新成功，共 ${list.length} 个快照`);
+                              }
+                            } catch (e: any) {
+                              if (!silent) {
+                                message.error('刷新失败: ' + (e?.message || '未知错误'));
+                              }
+                            } finally {
+                              setResourceLoading(prev => ({ ...prev, snapshots: false }));
+                            }
+                          }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSnapshots, null, 2)}</pre>
@@ -1518,7 +1652,25 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'VM 备份',
                       children: (
                         <>
-                          <BackupsSection cloudId={cloudId} backups={harvesterBackups} loading={resourceLoading.backups} onRefresh={() => loadTabResource('backups', true)} namespaces={harvesterNamespaces} vms={ecs} type="backup" />
+                          <BackupsSection cloudId={cloudId} backups={harvesterBackups} loading={resourceLoading.backups} onRefresh={(force = true, silent = false) => {
+                            // 创建后刷新（silent=true）时，使用 skipSync=true 跳过全量同步
+                            const skipSync = silent;
+                            if (checkPerm('clouds.backups:read')) {
+                              setResourceLoading(prev => ({ ...prev, backups: true }));
+                              fetchHarvesterBackups(cloudId, force, skipSync)
+                                .then((json) => {
+                                  const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                                  setHarvesterBackups(Array.isArray(list) ? list : []);
+                                  setRawBackups(json || null);
+                                })
+                                .catch((e) => {
+                                  console.warn('Failed to load backups', e);
+                                })
+                                .finally(() => {
+                                  setResourceLoading(prev => ({ ...prev, backups: false }));
+                                });
+                            }
+                          }} namespaces={harvesterNamespaces} vms={ecs} type="backup" />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawBackups, null, 2)}</pre>
@@ -1532,7 +1684,25 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'VM 快照',
                       children: (
                         <>
-                          <BackupsSection cloudId={cloudId} backups={harvesterBackups} loading={resourceLoading.backups} onRefresh={() => loadTabResource('backups', true)} namespaces={harvesterNamespaces} vms={ecs} type="snapshot" />
+                          <BackupsSection cloudId={cloudId} backups={harvesterBackups} loading={resourceLoading.backups} onRefresh={(force = true, silent = false) => {
+                            // 创建后刷新（silent=true）时，使用 skipSync=true 跳过全量同步
+                            const skipSync = silent;
+                            if (checkPerm('clouds.backups:read')) {
+                              setResourceLoading(prev => ({ ...prev, backups: true }));
+                              fetchHarvesterBackups(cloudId, force, skipSync)
+                                .then((json) => {
+                                  const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                                  setHarvesterBackups(Array.isArray(list) ? list : []);
+                                  setRawBackups(json || null);
+                                })
+                                .catch((e) => {
+                                  console.warn('Failed to load backups', e);
+                                })
+                                .finally(() => {
+                                  setResourceLoading(prev => ({ ...prev, backups: false }));
+                                });
+                            }
+                          }} namespaces={harvesterNamespaces} vms={ecs} type="snapshot" />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawBackups, null, 2)}</pre>
@@ -1594,7 +1764,22 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             loadBalancers={harvesterLoadBalancers}
                             namespaces={harvesterNamespaces}
                             loading={resourceLoading.loadBalancers} 
-                            onRefresh={() => loadTabResource('load_balancers', true)} 
+                            onRefresh={(force, silent) => {
+                              const skipSync = silent || false;
+                              setResourceLoading(prev => ({ ...prev, loadBalancers: true }));
+                              fetchHarvesterLoadBalancers(cloudId, force, skipSync)
+                                .then((json) => {
+                                  const list = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                                  setHarvesterLoadBalancers(list);
+                                  setRawLoadBalancers(json || null);
+                                })
+                                .catch((e) => {
+                                  console.warn('Failed to refresh load balancers', e);
+                                })
+                                .finally(() => {
+                                  setResourceLoading(prev => ({ ...prev, loadBalancers: false }));
+                                });
+                            }} 
                           />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
@@ -1609,7 +1794,27 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '地址池',
                       children: (
                         <>
-                          <IPPoolsSection cloudId={cloudId} ippools={harvesterIPPools} loading={resourceLoading.ippools} onRefresh={() => loadTabResource('ippools', true)} />
+                          <IPPoolsSection 
+                            cloudId={cloudId} 
+                            ippools={harvesterIPPools} 
+                            loading={resourceLoading.ippools} 
+                            onRefresh={(force, silent) => {
+                              const skipSync = silent || false;
+                              setResourceLoading(prev => ({ ...prev, ippools: true }));
+                              fetchHarvesterIPPools(cloudId, force, skipSync)
+                                .then((json) => {
+                                  const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                                  setHarvesterIPPools(Array.isArray(list) ? list : []);
+                                  setRawIPPools(json || null);
+                                })
+                                .catch((e) => {
+                                  console.warn('Failed to refresh IP pools', e);
+                                })
+                                .finally(() => {
+                                  setResourceLoading(prev => ({ ...prev, ippools: false }));
+                                });
+                            }} 
+                          />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawIPPools, null, 2)}</pre>
@@ -1656,9 +1861,10 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'VPC 私有网络',
                       children: (
                         <>
-                          <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={() => { 
-                            loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, true), (json) => setKubeOvnVpcs(json?.data?.items || []), true); 
-                            loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true);
+                          <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={async (force = false, silent = false) => {
+                            const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
+                            loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync), (json) => setKubeOvnVpcs(json?.data?.items || []), true);
+                            loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force, skipSync), (json) => setKubeOvnSubnets(json?.data?.items || []), true);
                           }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
@@ -1716,7 +1922,22 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'SNAT 规则',
                       children: (
                         <>
-                          <SnatSection cloudId={cloudId} snatRules={kubeOvnSnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.snatRules} onRefresh={() => loadTabResource('snat', true)} />
+                          <SnatSection cloudId={cloudId} snatRules={kubeOvnSnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.snatRules} onRefresh={(force = true, silent = false) => {
+                            const skipSync = silent;
+                            setResourceLoading(prev => ({ ...prev, snatRules: true }));
+                            fetchCloudProviderOvnSnatRules(cloudId, force, skipSync)
+                              .then((json) => {
+                                const list: any[] = (json as any)?.data?.items || [];
+                                setKubeOvnSnatRules(Array.isArray(list) ? list : []);
+                                setRawSnatRules(json || null);
+                              })
+                              .catch((e) => {
+                                console.warn('Failed to load SNAT rules', e);
+                              })
+                              .finally(() => {
+                                setResourceLoading(prev => ({ ...prev, snatRules: false }));
+                              });
+                          }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSnatRules, null, 2)}</pre>
@@ -1730,24 +1951,25 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'DNAT 规则',
                       children: (
                         <>
-                          <DnatSection cloudId={cloudId} dnatRules={kubeOvnDnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} loading={resourceLoading.dnatRules} onRefresh={() => loadTabResource('dnat', true)} />
+                          <DnatSection cloudId={cloudId} dnatRules={kubeOvnDnatRules} eips={kubeOvnEips} vpcs={kubeOvnVpcs} loading={resourceLoading.dnatRules} onRefresh={(force = true, silent = false) => {
+                            const skipSync = silent;
+                            setResourceLoading(prev => ({ ...prev, dnatRules: true }));
+                            fetchCloudProviderOvnDnatRules(cloudId, force, skipSync)
+                              .then((json) => {
+                                const list: any[] = (json as any)?.data?.items || [];
+                                setKubeOvnDnatRules(Array.isArray(list) ? list : []);
+                                setRawDnatRules(json || null);
+                              })
+                              .catch((e) => {
+                                console.warn('Failed to load DNAT rules', e);
+                              })
+                              .finally(() => {
+                                setResourceLoading(prev => ({ ...prev, dnatRules: false }));
+                              });
+                          }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawDnatRules, null, 2)}</pre>
-                            </div>
-                          )}
-                        </>
-                      )
-                    },
-                    {
-                      key: 'ingresses',
-                      label: 'Ingress 路由',
-                      children: (
-                        <>
-                          <IngressesSection cloudId={cloudId} ingresses={harvesterIngresses} loading={resourceLoading.ingresses} onRefresh={() => loadTabResource('ingresses', true)} />
-                          {showLog && (
-                            <div style={{ marginTop: 12 }}>
-                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawIngresses, null, 2)}</pre>
                             </div>
                           )}
                         </>
@@ -1759,7 +1981,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                      if (i.key === 'kubeovn_fips') return checkPerm('clouds.networks:read');
                      if (i.key === 'kubeovn_snat') return checkPerm('clouds.networks:read');
                      if (i.key === 'kubeovn_dnat') return checkPerm('clouds.networks:read');
-                     if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read');
                      return true;
                   })}
                 />

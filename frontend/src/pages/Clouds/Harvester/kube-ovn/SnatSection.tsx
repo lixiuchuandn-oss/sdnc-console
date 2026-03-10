@@ -9,7 +9,7 @@ import MetadataModal from './MetadataModal';
 interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: (force?: boolean, silent?: boolean) => void;
   bordered?: boolean;
 }
 
@@ -75,7 +75,8 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
       message.success('SNAT 规则创建成功');
       setIsCreateVisible(false);
       form.resetFields();
-      onRefresh(true);
+      // 创建后刷新（silent=true）时，使用 skipSync=true 跳过全量同步
+      onRefresh(true, true);
     } catch (e: any) {
       let errMsg = e.message || '创建失败';
       try {

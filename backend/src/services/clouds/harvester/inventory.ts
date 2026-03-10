@@ -10,7 +10,8 @@ import { KubevirtNadInventory } from '../../../entities/kubevirt/KubevirtNadInve
 import { KubevirtLoadBalancerInventory } from '../../../entities/kubevirt/KubevirtLoadBalancerInventory';
 import { KubeOvnVpcInventory } from '../../../entities/kubeovn/KubeOvnVpcInventory';// Kube-ovn 虚拟私有云资源
 import { KubeOvnSubnetInventory } from '../../../entities/kubeovn/KubeOvnSubnetInventory';// Kube-ovn 子网资源
-// import { KubeOvnProviderInventory } from '../../../entities/kubeovn/KubeOvnProviderInventory';// Kbue-ovn 公共网络
+import { KubeOvnProviderNetworkInventory } from '../../../entities/kubeovn/KubeOvnProviderNetworkInventory';// Kube-ovn Provider Network 公共网络
+import { KubeOvnVlanInventory } from '../../../entities/kubeovn/KubeOvnVlanInventory';// Kube-ovn VLAN 资源
 import { HarvesterGpuInventory } from '../../../entities/harvester/HarvesterGpuInventory';// Harvester GPU 资源
 import { HarvesterSnapshotInventory } from '../../../entities/harvester/HarvesterSnapshotInventory';
 import { HarvesterBackupInventory } from '../../../entities/harvester/HarvesterBackupInventory';
@@ -72,6 +73,8 @@ import {
   listKubeOvnFips,
   listKubeOvnSnatRules,
   listKubeOvnDnatRules,
+  listKubeOvnProviderNetworks,
+  listKubeOvnVlans,
   getHarvesterCapabilities,
   listHarvesterPciDevices,
   listHarvesterTemplatesRaw,
@@ -896,36 +899,41 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
 export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
   let items: any[] = [];
   try {
+    console.log(`[Harvester-Sync] ${cloud.name}: 开始获取备份列表，cloudId: ${cloud.id}`);
     items = await listHarvesterBackupsStandard({
       endpoint: cloud.endpoint,
       token: cloud.secretKey,
       insecure,
     } as any);
+    console.log(`[Harvester-Sync] ${cloud.name}: 从 Harvester API 获取到 ${items.length} 条备份`);
   } catch (e: any) {
     if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
       console.warn(`[Harvester-Sync] ${cloud.name}: 跳过备份同步 (401 未授权)`);
       return;
     }
+    console.error(`[Harvester-Sync] ${cloud.name}: 获取备份列表失败:`, e?.message || e);
     throw e;
   }
 
-  console.log(`[Harvester-Sync] ${cloud.name}: 备份同步完成，共 ${items.length} 条`);
-
   // Filter out items that are marked for deletion
   const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
+  console.log(`[Harvester-Sync] ${cloud.name}: 过滤后有效备份 ${validItems.length} 条（排除删除中的备份）`);
 
   const repo = AppDataSource.getRepository(HarvesterBackupInventory);
+  console.log(`[Harvester-Sync] ${cloud.name}: 开始同步到数据库，cloudId: ${cloud.id}`);
   await upsertItems(repo, cloud.id, validItems, (item) => ({
     uid: item.metadata?.uid || item.id,
     name: item.metadata?.name,
     namespace: item.metadata?.namespace,
     sourceVm: item.spec?.source?.name,
-    readyToUse: item.status?.readyToUse,
+    status: item.status?.readyToUse ? 'Ready' : 'NotReady',
+    type: item.spec?.type,
     target: JSON.stringify(item.status?.target || {}),
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
     rawData: item,
   }));
+  console.log(`[Harvester-Sync] ${cloud.name}: 备份同步完成，共 ${validItems.length} 条已入库`);
 };
 
 /**
@@ -1224,6 +1232,81 @@ export const syncKubeOvnFips = async (cloud: any, insecure: boolean) => {
 };
 
 /**
+ * 同步 Kube-OVN VLAN 库存
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
+export const syncKubeOvnVlans = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listKubeOvnVlans({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Harvester-Sync] ${cloud.name}: VLAN获取失败:`, e.message);
+    return;
+  }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: VLAN同步完成，共 ${items.length} 条`);
+
+  const repo = AppDataSource.getRepository(KubeOvnVlanInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    vlanId: item.spec?.id || item.spec?.vlanId,
+    provider: item.spec?.provider,
+    providerInterfaceName: item.spec?.providerInterfaceName,
+    subnets: item.status?.subnets,
+    conflict: item.status?.conflict,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+/**
+ * 同步 Kube-OVN Provider Network 库存
+ * @param cloud 云账号配置
+ * @param insecure 是否忽略 TLS 校验
+ */
+export const syncKubeOvnProviderNetworks = async (cloud: any, insecure: boolean) => {
+  let items: any[] = [];
+  try {
+    items = await listKubeOvnProviderNetworks({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey,
+      insecure,
+    } as any);
+  } catch (e: any) {
+    if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
+    console.warn(`[Harvester-Sync] ${cloud.name}: Provider Network获取失败:`, e.message);
+    return;
+  }
+
+  console.log(`[Harvester-Sync] ${cloud.name}: Provider Network同步完成，共 ${items.length} 条`);
+
+  const repo = AppDataSource.getRepository(KubeOvnProviderNetworkInventory);
+  await upsertItems(repo, cloud.id, items, (item) => ({
+    uid: item.metadata?.uid || item.id,
+    name: item.metadata?.name,
+    defaultInterface: item.spec?.defaultInterface,
+    customInterfaces: item.spec?.customInterfaces,
+    exchangeLinkName: item.spec?.exchangeLinkName,
+    excludeNodes: item.spec?.excludeNodes,
+    ready: item.status?.ready,
+    readyNodes: item.status?.readyNodes,
+    notReadyNodes: item.status?.notReadyNodes,
+    vlans: item.status?.vlans,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  }));
+};
+
+/**
  * 同步 Kube-OVN NAT 规则库存（SNAT + DNAT）
  * 分别拉取 SNAT / DNAT 资源，打上 _type 标记后统一写入表
  * @param cloud 云账号配置
@@ -1291,6 +1374,8 @@ export const syncNetworkInventory = async (cloud: any, insecure: boolean) => {
   await syncHarvesterNads(cloud, insecure);
   await syncKubeOvnVpcs(cloud, insecure);
   await syncKubeOvnSubnets(cloud, insecure);
+  await syncKubeOvnProviderNetworks(cloud, insecure);
+  await syncKubeOvnVlans(cloud, insecure);
   await syncKubeOvnEips(cloud, insecure);
   await syncKubeOvnFips(cloud, insecure);
   await syncKubeOvnNatRules(cloud, insecure);

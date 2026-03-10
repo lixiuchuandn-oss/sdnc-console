@@ -74,6 +74,7 @@ const translateErrorMessage = (error: any): string => {
   if (status === 401) return '认证失败：Token 已过期或无效';
   if (status === 403) return '权限不足：当前账号无权执行此操作';
   if (status === 404) return '资源未找到：请求的 API 路径不存在';
+  if (status === 409) return '资源版本冲突：对象有更新，请更新到最新的版本后重试';
   if (status === 500) return '服务器内部错误：Harvester 集群响应异常';
   if (status === 502 || status === 503 || status === 504) return '网关错误：无法连接到 Harvester 控制平面';
 

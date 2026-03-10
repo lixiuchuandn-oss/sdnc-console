@@ -140,7 +140,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
         }
         const { id } = req.params;
-        const { force } = req.query;
+        const { force, skipSync } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询', next)) return;
@@ -189,13 +189,17 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
 
         const count = await repo.count({ where: whereCondition });
 
-        if (count === 0 || String(force) === 'true') {
+        // 如果数据库为空或强制刷新且未跳过同步，则进行全量同步
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        if (shouldSync) {
           try {
             await syncKubeOvnVpcs(cloud, insecure);
           } catch (e: any) {
             console.warn('Sync VPCs failed, falling back to empty/stale', e);
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[VPC-Refresh] 跳过全量同步（创建后刷新），直接查询数据库`);
         }
 
         const items = await repo.find({ where: whereCondition });
@@ -245,6 +249,27 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
           req.body
         );
+
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法）
+        if (data && data.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(KubeOvnVpcInventory);
+            const entity = repo.create({
+              cloudId: cloud.id,
+              uid: data.metadata?.uid || '',
+              name: data.metadata?.name || '',
+              namespace: data.metadata?.namespace,
+              status: data.status?.conditions?.[0]?.type || 'Unknown',
+              subnets: data.status?.subnets,
+              labels: data.metadata?.labels,
+              annotations: data.metadata?.annotations,
+              rawData: data,
+            });
+            await repo.save(entity);
+          } catch (e: any) {
+            console.error('[VPC-Create] 入库失败:', e?.message || e);
+          }
+        }
 
         res.json({ message: '创建成功', data });
       } catch (error: any) {
@@ -406,7 +431,6 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -429,16 +453,23 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           }
         }
 
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const { force, skipSync } = req.query;
         const count = await repo.count({ where: whereCondition });
-
-        // [同步策略] 缓存优先 + 按需同步
-        if (count === 0 || String(force) === 'true') {
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
           try {
             await syncHarvesterNads(cloud, insecure);
+            console.log(`[NAD-Query] 同步完成，cloudId: ${id}`);
           } catch (e: any) {
             console.warn('Sync NADs failed, falling back to empty/stale', e);
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[NAD-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
         }
 
         const items = await repo.find({ where: whereCondition });
@@ -566,6 +597,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
 
         // [多路径兼容] 尝试多种 API 路径创建 NAD
         // Harvester 版本差异可能导致 API 路径不同 (K8s 原生 vs Rancher 代理)。
+        let createdData: any = null;
         for (const url of candidates) {
           try {
             const data = await requestJson(
@@ -575,7 +607,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
               insecure,
               nadPayload,
             );
-            res.json({ message: '创建成功', data });
+            createdData = data;
             success = true;
             break;
           } catch (innerError: any) {
@@ -607,6 +639,60 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
             `Harvester API 404 Not Found. 无法找到有效的创建路径 (尝试了标准K8s API和Rancher API)。请检查命名空间 '${namespace}' 是否存在。${lastErrorDetail}`,
           );
         }
+
+        // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        if (createdData && createdData.metadata) {
+          try {
+            const repo = AppDataSource.getRepository(KubevirtNadInventory);
+            const uid = createdData.metadata?.uid || createdData.id || '';
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.name = createdData.metadata?.name || '';
+              existing.namespace = createdData.metadata?.namespace || namespace;
+              existing.links = createdData.links;
+              existing.config = createdData.spec?.config;
+              try {
+                existing.type = JSON.parse(createdData.spec?.config || '{}').type;
+              } catch {
+                existing.type = undefined;
+              }
+              existing.labels = createdData.metadata?.labels;
+              existing.annotations = createdData.metadata?.annotations;
+              existing.rawData = createdData;
+              await repo.save(existing);
+              console.log(`[NAD-Create] 网络已更新，cloudId: ${cloud.id}, name: ${createdData.metadata?.name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                uid: uid,
+                name: createdData.metadata?.name || '',
+                namespace: createdData.metadata?.namespace || namespace,
+                links: createdData.links,
+                config: createdData.spec?.config,
+                type: (() => {
+                  try {
+                    return JSON.parse(createdData.spec?.config || '{}').type;
+                  } catch {
+                    return undefined;
+                  }
+                })(),
+                labels: createdData.metadata?.labels,
+                annotations: createdData.metadata?.annotations,
+                rawData: createdData,
+              });
+              await repo.save(entity);
+              console.log(`[NAD-Create] 网络已入库，cloudId: ${cloud.id}, name: ${createdData.metadata?.name}`);
+            }
+          } catch (e: any) {
+            console.error('[NAD-Create] 入库网络失败:', e?.message || e);
+            // 入库失败不影响创建操作的成功返回
+          }
+        }
+
+        res.json({ message: '创建成功', data: createdData });
       } catch (error: any) {
         const rawError = error.body || error.message;
         res
@@ -737,7 +823,7 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { force } = req.query;
+        const { force, skipSync } = req.query;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
@@ -763,14 +849,21 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
 
         const count = await repo.count({ where: whereCondition });
         
-        // [同步策略] 缓存优先 + 按需同步
-        if (count === 0 || String(force) === 'true') {
+        // [缓存策略] 自动同步逻辑
+        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
+        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
+        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+        
+        if (shouldSync) {
           try {
             await syncHarvesterIngresses(cloud, insecure);
+            console.log(`[Ingress-Query] 同步完成，cloudId: ${id}`);
           } catch (e: any) {
             console.warn('Sync Ingresses failed, falling back to empty/stale', e);
             if (count === 0) throw e;
           }
+        } else if (String(skipSync) === 'true') {
+          console.log(`[Ingress-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
         }
 
         const items = await repo.find({ where: whereCondition });

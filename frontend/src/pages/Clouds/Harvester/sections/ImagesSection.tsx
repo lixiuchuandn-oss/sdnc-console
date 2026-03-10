@@ -49,7 +49,7 @@ type Props = {
   cloudId: string;
   images: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: (force?: boolean, silent?: boolean) => void;
 
   isTenant?: boolean;
   bordered?: boolean;
@@ -360,7 +360,9 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       });
       message.success('创建成功');
       setCreating(false);
-      onRefresh?.(true);
+      // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+      // 静默刷新，不显示提示信息
+      onRefresh?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
     } catch (e: any) {
       message.error(e?.message || '创建失败');
     }

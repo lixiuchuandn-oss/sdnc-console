@@ -1344,9 +1344,13 @@ export const registerHarvesterDirectVmRoutes = (
         );
         res.json({ message: '卸载成功', data });
       } catch (error: any) {
-        res.status(500).json({
-          message: '卸载卷失败',
-          error: error.body || error.message,
+        // 如果错误对象包含 status，使用该状态码；否则使用 500
+        const statusCode = error?.status && error.status !== 500 ? error.status : 500;
+        // 优先使用 error.message（友好的错误消息），其次使用 error.body 或 error.message
+        const errorMessage = error?.message || error?.body || error?.message || '卸载卷失败';
+        res.status(statusCode).json({
+          message: errorMessage,
+          error: error?.body || error?.message || String(error),
         });
       }
     },

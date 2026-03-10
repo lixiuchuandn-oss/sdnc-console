@@ -1,4 +1,4 @@
-import { apiRequest, apiPost, apiDelete, apiPatch } from './api';
+import { apiRequest, apiPost, apiDelete, apiPatch, apiPut } from './api';
 
 /**
  * 创建 Harvester VPC
@@ -18,7 +18,10 @@ export const createHarvesterVpc = async (cloudId: string, payload: any) => {
  * @returns Promise<any>
  */
 export const fetchHarvesterVMAggregated = async (cloudId: string, namespace: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/aggregated`);
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/aggregated`,
+    { skipCache: true }
+  );
 };
 
 /**
@@ -48,8 +51,12 @@ export const updateHarvesterVpc = async (cloudId: string, name: string, payload:
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterSnapshots = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/snapshots${force ? '?force=true' : ''}`);
+export const fetchHarvesterSnapshots = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/snapshots${queryString ? `?${queryString}` : ''}`);
 };
 
 
@@ -79,10 +86,15 @@ export const deleteHarvesterPVC = async (cloudId: string, namespace: string, nam
  * 获取 Harvester 计划虚拟机备份列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterScheduleVmBackups = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${force ? '?force=true' : ''}`);
+export const fetchHarvesterScheduleVmBackups = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${queryString ? `?${queryString}` : ''}`);
 };
 
 /**
@@ -124,8 +136,12 @@ export const updateHarvesterScheduleVmBackup = async (cloudId: string, namespace
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterBackups = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/backups${force ? '?force=true' : ''}`);
+export const fetchHarvesterBackups = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/backups${queryString ? `?${queryString}` : ''}`);
 };
 
 /**
@@ -175,8 +191,12 @@ export const abortHarvesterMigration = async (cloudId: string, instanceId: strin
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterSshKeys = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/sshkeys${force ? '?force=true' : ''}`);
+export const fetchHarvesterSshKeys = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/sshkeys${queryString ? `?${queryString}` : ''}`);
 };
 
 
@@ -197,8 +217,12 @@ export const fetchHarvesterCloudInits = async (cloudId: string, force = false) =
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterIngresses = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/ingresses${force ? '?force=true' : ''}`);
+export const fetchHarvesterIngresses = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/ingresses${query}`);
 };
 
 /**
@@ -215,10 +239,15 @@ export const fetchHarvesterServices = async (cloudId: string, force = false) => 
  * 获取 Harvester 负载均衡器列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester-loadbalancers${force ? '?force=true' : ''}`);
+export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester-loadbalancers${queryString ? `?${queryString}` : ''}`);
 };
 
 /**
@@ -235,19 +264,31 @@ export const fetchHarvesterTemplates = async (cloudId: string, force = false) =>
  * 获取 Harvester IP 池列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterIPPools = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ippools${force ? '?force=true' : ''}`);
+export const fetchHarvesterIPPools = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/ippools${queryString ? `?${queryString}` : ''}`);
 };
 
 /**
  * 获取 Harvester NAD（网络附加定义）列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步（创建后刷新时使用），默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterNads = (cloudId: string, force = false) => apiRequest(`/api/clouds/${cloudId}/resources/nads${force ? '?force=true' : ''}`);
+export const fetchHarvesterNads = (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return apiRequest(`/api/clouds/${cloudId}/resources/harvester/nads${queryString ? `?${queryString}` : ''}`);
+};
 
 /**
  * 获取 Harvester 集群网络列表
@@ -395,18 +436,27 @@ export const fetchCloudProviderOvnFips = async (cloudId: string, force = false) 
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchCloudProviderOvnSnatRules = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovnsnatrules${force ? '?force=true' : ''}`);
+export const fetchCloudProviderOvnSnatRules = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/ovnsnatrules${query}`);
 };
 
 /**
  * 获取云提供商 OVN DNAT 规则列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步，默认 false
  * @returns Promise<any>
  */
-export const fetchCloudProviderOvnDnatRules = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/ovndnatrules${force ? '?force=true' : ''}`);
+export const fetchCloudProviderOvnDnatRules = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/ovndnatrules${query}`);
 };
 
 /**
@@ -561,11 +611,13 @@ export const deleteKubeOvnSubnet = async (cloudId: string, name: string) => {
  * @param excludeSystem 是否排除系统命名空间，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterNamespaces = async (cloudId: string, force = false, excludeSystem = false) => {
+export const fetchHarvesterNamespaces = async (cloudId: string, force = false, excludeSystem = false, skipSync = false) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
   if (excludeSystem) params.append('excludeSystem', 'true');
+  if (skipSync) params.append('skipSync', 'true');
   const queryString = params.toString();
+  // 当 force=true 时，URL 中包含 force=true，requestManager 会自动跳过缓存
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/namespaces${queryString ? `?${queryString}` : ''}`);
 };
 
@@ -606,8 +658,12 @@ export const deleteHarvesterNamespace = async (cloudId: string, name: string) =>
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterVolumes = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/volumes${force ? '?force=true' : ''}`);
+export const fetchHarvesterVolumes = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/volumes${queryString ? `?${queryString}` : ''}`);
 };
 
 /**
@@ -647,8 +703,12 @@ export const fetchHarvesterStorageClassDetail = async (cloudId: string, name: st
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterImages = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images${force ? '?force=true' : ''}`);
+export const fetchHarvesterImages = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const queryString = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images${queryString ? `?${queryString}` : ''}`);
 };
 
 /**
@@ -674,7 +734,12 @@ export const attachHarvesterVolumeToVm = async (
   instanceId: string,
   payload: { name: string; bus?: string; pvcNamespace: string; pvcName: string }
 ) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(instanceId)}/add-volume`, payload);
+  // add-volume 具备副作用，且后端可能出现“已生效但响应异常”的场景；禁用前端 5xx 重试避免重复提交
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(instanceId)}/add-volume`,
+    payload,
+    { enableRetry: false }
+  );
 };
 
 /**
@@ -702,7 +767,12 @@ export const attachHarvesterVolumeToVmByName = async (
   vmName: string,
   payload: { name?: string; diskName?: string; bus?: string; pvcNamespace: string; pvcName: string }
 ) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(vmNamespace)}/${encodeURIComponent(vmName)}/add-volume`, payload);
+  // add-volume 具备副作用，且后端可能出现"已生效但响应异常"的场景；禁用前端 5xx 重试避免重复提交
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(vmNamespace)}/${encodeURIComponent(vmName)}/add-volume`,
+    payload,
+    { enableRetry: false }
+  );
 };
 
 /**
@@ -759,7 +829,7 @@ export const listHarvesterSnapshotClasses = async (cloudId: string) => {
  * @returns Promise<any>
  */
 export const updateHarvesterVolume = async (cloudId: string, namespace: string, pvcName: string, payload: { sizeGi?: number; size?: string; accessModes?: string[]; volumeMode?: string; storageClassName?: string; annotations?: Record<string,string>; labels?: Record<string,string> }) => {
-  return await apiPatch(`/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(pvcName)}`, payload || {});
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(pvcName)}`, payload || {});
 };
 
 /**
@@ -786,7 +856,12 @@ export const detachHarvesterVolumeFromVm = async (
   instanceId: string,
   payload: { name: string }
 ) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(instanceId)}/remove-volume`, payload);
+  // remove-volume 具备副作用，禁用前端 5xx 重试避免重复提交
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(instanceId)}/remove-volume`,
+    payload,
+    { enableRetry: false }
+  );
 };
 
 /**
@@ -816,8 +891,12 @@ export const deleteHarvesterImage = async (cloudId: string, namespace: string, n
  * @param cloudId 云环境 ID
  * @returns Promise<any>
  */
-export const fetchKubeOvnProviderNetworks = async (cloudId: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/providernetworks`);
+export const fetchKubeOvnProviderNetworks = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/providernetworks${query ? `?${query}` : ''}`);
 };
 
 /**
@@ -835,8 +914,12 @@ export const createKubeOvnProviderNetwork = async (cloudId: string, payload: any
  * @param cloudId 云环境 ID
  * @returns Promise<any>
  */
-export const fetchKubeOvnVlans = async (cloudId: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/vlans`);
+export const fetchKubeOvnVlans = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/vlans${query ? `?${query}` : ''}`);
 };
 
 /**
@@ -935,8 +1018,19 @@ export const saveHarvesterVmAsTemplate = async (
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchKubeOvnVpcs = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs${force ? '?force=true' : ''}`);
+/**
+ * 获取 KubeOVN VPC 列表
+ * @param cloudId 云环境 ID
+ * @param force 是否强制刷新，默认 false
+ * @param skipSync 是否跳过全量同步，默认 false
+ * @returns Promise<any>
+ */
+export const fetchKubeOvnVpcs = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs${query ? `?${query}` : ''}`);
 };
 
 /**
@@ -945,8 +1039,12 @@ export const fetchKubeOvnVpcs = async (cloudId: string, force = false) => {
  * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchKubeOvnSubnets = async (cloudId: string, force = false) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/subnets${force ? '?force=true' : ''}`);
+export const fetchKubeOvnSubnets = async (cloudId: string, force = false, skipSync = false) => {
+  const params = new URLSearchParams();
+  if (force) params.append('force', 'true');
+  if (skipSync) params.append('skipSync', 'true');
+  const query = params.toString();
+  return await apiRequest(`/api/clouds/${cloudId}/resources/subnets${query ? `?${query}` : ''}`);
 };
 
 /**

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Table, Tabs, Modal, Form, Input, Select, message, Tag, Space, Popconfirm, Card, Alert, Tooltip, Badge } from 'antd';
+import { Button, Table, Segmented, Modal, Form, Input, Select, message, Tag, Space, Popconfirm, Card, Alert, Tooltip, Badge } from 'antd';
 import { ReloadOutlined, PlusOutlined, DeleteOutlined, InfoCircleOutlined, ThunderboltOutlined, PartitionOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import { 
@@ -10,10 +10,10 @@ import {
     createKubeOvnProviderNetwork,
     fetchKubeOvnVlans,
     createKubeOvnVlan,
-    fetchHarvesterNodes
+    fetchHarvesterNodes,
+    fetchHarvesterClusterNetworks
 } from '../../../../services/harvesterApi';
 
-const { TabPane } = Tabs;
 const { Option } = Select;
 
 // ====================================================================================================
@@ -37,24 +37,36 @@ const { Option } = Select;
 /**
  * 公共网络主入口组件
  * [功能描述]
- * 容器组件，使用 Tabs 组织三个维度的网络资源管理。
+ * 容器组件，使用 Segmented 分段切换组织三个维度的网络资源管理。
  */
 const PubnetSection: React.FC = () => {
     const { id: cloudId } = useParams<{ id: string }>();
-    const [activeTab, setActiveTab] = useState('subnets');
+    const [activeTab, setActiveTab] = useState<string>('subnets');
 
     return (
-        <Tabs activeKey={activeTab} onChange={setActiveTab} type="card">
-            <TabPane tab={<span>公共子网</span>} key="subnets">
-                <SubnetList cloudId={cloudId || ''} isActive={activeTab === 'subnets'} />
-            </TabPane>
-            <TabPane tab={<span>VLANs</span>} key="vlans">
-                <VlanList cloudId={cloudId || ''} isActive={activeTab === 'vlans'} />
-            </TabPane>
-            <TabPane tab={<span>物理接口 (Provider Networks)</span>} key="providers">
-                <ProviderNetworkList cloudId={cloudId || ''} isActive={activeTab === 'providers'} />
-            </TabPane>
-        </Tabs>
+        <div>
+            <div style={{ marginBottom: 16 }}>
+                <Segmented
+                    value={activeTab}
+                    onChange={(value) => setActiveTab(value as string)}
+                    options={[
+                        { label: '公共子网', value: 'subnets' },
+                        { label: 'VLANs', value: 'vlans' },
+                        { label: '物理接口 (Provider Networks)', value: 'providers' },
+                    ]}
+                    size="large"
+                />
+            </div>
+            {activeTab === 'subnets' && (
+                <SubnetList cloudId={cloudId || ''} isActive={true} />
+            )}
+            {activeTab === 'vlans' && (
+                <VlanList cloudId={cloudId || ''} isActive={true} />
+            )}
+            {activeTab === 'providers' && (
+                <ProviderNetworkList cloudId={cloudId || ''} isActive={true} />
+            )}
+        </div>
     );
 };
 
@@ -78,10 +90,10 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
 
     // [逻辑: 数据加载]
     // 获取子网列表，不进行复杂的客户端过滤，依靠 API 返回。
-    const fetchData = async () => {
+    const fetchData = async (force = false, skipSync = false) => {
         setLoading(true);
         try {
-            const res = await fetchKubeOvnSubnets(cloudId);
+            const res = await fetchKubeOvnSubnets(cloudId, force, skipSync);
             const items = Array.isArray(res?.data?.items) ? res.data.items : [];
             
             // 过滤出属于公共网络的子网 (必须绑定 VLAN 或 Provider，排除纯 Overlay/VPC 子网)
@@ -152,7 +164,8 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
             message.success('创建子网成功');
             setIsModalVisible(false);
             form.resetFields();
-            fetchData();
+            // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，skipSync=true 跳过后端全量同步）
+            fetchData(true, true);
         } catch (error: any) {
             message.error(`创建失败: ${error.message}`);
         }
@@ -253,7 +266,7 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
                 </div>
                 <div className="toolbar-actions">
                     <Button type="primary" onClick={() => setIsModalVisible(true)}>新建子网</Button>
-                    <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading} />
+                    <Button icon={<ReloadOutlined />} onClick={() => fetchData()} loading={loading} />
                 </div>
             </div>
             
@@ -326,10 +339,10 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
     const [keyword, setKeyword] = useState('');
     const [providerFilter, setProviderFilter] = useState<string | undefined>(undefined); // New State
 
-    const fetchData = async () => {
+    const fetchData = async (force = false, skipSync = false) => {
         setLoading(true);
         try {
-            const res = await fetchKubeOvnVlans(cloudId);
+            const res = await fetchKubeOvnVlans(cloudId, force, skipSync);
             setData(Array.isArray(res?.data?.items) ? res.data.items : []);
         } catch (error: any) {
             message.error(`获取 VLAN 列表失败: ${error.message}`);
@@ -362,7 +375,8 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
             message.success('创建 VLAN 成功');
             setIsModalVisible(false);
             form.resetFields();
-            fetchData();
+            // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，skipSync=true 跳过后端全量同步）
+            fetchData(true, true);
         } catch (error: any) {
             message.error(`创建失败: ${error.message}`);
         }
@@ -426,7 +440,7 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
                 </div>
                 <div className="toolbar-actions">
                     <Button type="primary" onClick={() => setIsModalVisible(true)}>创建 VLAN</Button>
-                    <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading} />
+                    <Button icon={<ReloadOutlined />} onClick={() => fetchData()} loading={loading} />
                 </div>
             </div>
             {/* Data Table */}
@@ -478,8 +492,10 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
 // 支持异构集群的节点级网卡自定义 (Custom Interfaces)。
 // [核心逻辑]
 // 1. [网卡发现] 自动扫描所有节点的物理网卡，并过滤掉虚拟接口 (veth, ovn, docker, etc.)。
-// 2. [配置分离] 将配置分为“统一设置 (Default)”和“节点自定义 (Custom)”。
-// 3. [动态映射] 实时维护 node -> interface 的映射表，并可视化展示差异。
+// 2. [集群网络过滤] 自动过滤掉已被集群网络 (ClusterNetwork) 使用的网卡，避免冲突。
+// 3. [状态过滤] 自动过滤掉 down 状态的网卡，仅显示可用 (up) 的网卡。
+// 4. [配置分离] 将配置分为"统一设置 (Default)"和"节点自定义 (Custom)"。
+// 5. [动态映射] 实时维护 node -> interface 的映射表，并可视化展示差异。
 // ====================================================================================================
 const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, isActive }) => {
     const [data, setData] = useState<any[]>([]);
@@ -496,10 +512,10 @@ const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({
     const [interfaceMap, setInterfaceMap] = useState<Record<string, string>>({});
     const [keyword, setKeyword] = useState('');
 
-    const fetchData = async () => {
+    const fetchData = async (force = false, skipSync = false) => {
         setLoading(true);
         try {
-            const res = await fetchKubeOvnProviderNetworks(cloudId);
+            const res = await fetchKubeOvnProviderNetworks(cloudId, force, skipSync);
             setData(Array.isArray(res?.data?.items) ? res.data.items : []);
         } catch (error: any) {
             message.error(`获取 Provider Network 列表失败: ${error.message}`);
@@ -512,36 +528,118 @@ const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({
     // 1. 获取所有节点信息 (包含 physicalInterfaces)。
     // 2. 提取并去重所有物理网卡名称。
     // 3. 过滤掉已知的虚拟网卡前缀 (veth, ovn, docker, etc.)。
+    // 4. 过滤掉集群网络使用的网卡。
+    // 5. 过滤掉 down 状态的网卡。
     const fetchNodesAndInterfaces = async () => {
         setNodesLoading(true);
         try {
-            const res = await fetchHarvesterNodes(cloudId, true);
-            const items = res?.data?.items || [];
+            // [并发获取] 同时获取节点数据和集群网络数据
+            const [nodesRes, clusterNetworksRes] = await Promise.all([
+                fetchHarvesterNodes(cloudId, true),
+                fetchHarvesterClusterNetworks(cloudId, true).catch((e: any) => {
+                    // 如果获取集群网络失败，不影响主流程，返回空数组
+                    console.warn('Failed to fetch cluster networks:', e);
+                    return { data: { items: [] } };
+                })
+            ]);
+            
+            const items = nodesRes?.data?.items || [];
             setNodes(items);
+            
+            // [提取集群网络使用的网卡] 从所有集群网络的 uplinks.nics 中提取
+            const clusterNetworkNics = new Set<string>();
+            const clusterNetworks = clusterNetworksRes?.data?.items || [];
+            clusterNetworks.forEach((cn: any) => {
+                const uplinks = cn.uplinks || cn.rawData?.uplinks;
+                if (uplinks?.nics && Array.isArray(uplinks.nics)) {
+                    uplinks.nics.forEach((nic: string) => {
+                        if (nic && typeof nic === 'string') {
+                            clusterNetworkNics.add(nic.trim());
+                        }
+                    });
+                }
+                // 兼容处理：直接从 rawData 中提取（如果 uplinks 字段不存在）
+                if (!uplinks && cn.rawData) {
+                    const vlanConfigs = cn.vlanConfigs || [];
+                    vlanConfigs.forEach((vc: any) => {
+                        const vcUplinks = vc.uplink || vc.rawData?.uplink;
+                        if (vcUplinks?.nics && Array.isArray(vcUplinks.nics)) {
+                            vcUplinks.nics.forEach((nic: string) => {
+                                if (nic && typeof nic === 'string') {
+                                    clusterNetworkNics.add(nic.trim());
+                                }
+                            });
+                        }
+                    });
+                }
+            });
             
             // 提取并聚合所有节点上的物理网卡名称，用于 Default Interface 的建议列表
             const allInterfaces = new Set<string>();
+            const interfaceStatusMap: Record<string, string> = {}; // 聚合所有节点的网卡状态
+            
             items.forEach((node: any) => {
                 const phys = node.physicalInterfaces || [];
                 if (Array.isArray(phys) && phys.length > 0) {
-                    phys.forEach((p: string) => allInterfaces.add(p));
+                    phys.forEach((p: string) => {
+                        allInterfaces.add(p);
+                        // 收集网卡状态信息（如果后端提供了）
+                        if (node.interfaceStatusMap && node.interfaceStatusMap[p]) {
+                            interfaceStatusMap[p] = node.interfaceStatusMap[p];
+                        }
+                    });
                 } else {
                     const links = node.status?.nodeInfo?.networkInfo?.links || [];
-                    links.forEach((l: any) => allInterfaces.add(l.name));
+                    links.forEach((l: any) => {
+                        const linkName = l.name || l;
+                        if (linkName) {
+                            allInterfaces.add(linkName);
+                            // 尝试从 link 对象中提取状态
+                            if (l.operState || l.state) {
+                                interfaceStatusMap[linkName] = String(l.operState || l.state).toLowerCase();
+                            }
+                        }
+                    });
                 }
             });
 
+            // [多层过滤] 应用所有过滤规则
             const ifaces = Array.from(allInterfaces)
-                .filter((n: string) => 
-                    !n.startsWith('veth') && 
-                    !n.startsWith('ovn') && 
-                    !n.startsWith('docker') &&
-                    !n.startsWith('flannel') && 
-                    !n.startsWith('cni') && 
-                    !n.startsWith('calico') &&
-                    !n.includes('br-') &&
-                    n !== 'lo'
-                )
+                .filter((n: string) => {
+                    // 1. 过滤虚拟接口
+                    if (n.startsWith('veth') || 
+                        n.startsWith('ovn') || 
+                        n.startsWith('docker') ||
+                        n.startsWith('flannel') || 
+                        n.startsWith('cni') || 
+                        n.startsWith('calico') ||
+                        n.includes('br-') ||
+                        n === 'lo') {
+                        return false;
+                    }
+                    
+                    // 2. 过滤集群网络使用的网卡
+                    if (clusterNetworkNics.has(n)) {
+                        return false;
+                    }
+                    
+                    // 3. 过滤 down 状态的网卡
+                    // 检查状态：operState/state 为 "down"、"down" 或类似值
+                    const status = interfaceStatusMap[n];
+                    if (status) {
+                        const statusLower = status.toLowerCase();
+                        // 排除 down 状态（包括 "down", "downed", "disabled" 等）
+                        if (statusLower === 'down' || 
+                            statusLower === 'downed' || 
+                            statusLower === 'disabled' ||
+                            statusLower === 'lowerlayerdown' ||
+                            statusLower.includes('down')) {
+                            return false;
+                        }
+                    }
+                    
+                    return true;
+                })
                 .sort();
             
             setNodeInterfaces(ifaces);
@@ -618,9 +716,24 @@ const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({
             await createKubeOvnProviderNetwork(cloudId, payload);
             message.success('创建 Provider Network 成功');
             setIsModalVisible(false);
-            fetchData();
+            // 刷新数据列表（创建后已直接入库，使用 force=true 跳过前端缓存，skipSync=true 跳过后端全量同步）
+            fetchData(true, true);
         } catch (error: any) {
-            message.error(`创建失败: ${error.message}`);
+            let errorMsg = error.message || '创建失败';
+            // 尝试提取更详细的错误信息
+            if (error.response?.data) {
+                const errorData = error.response.data;
+                if (errorData.error) {
+                    errorMsg = errorData.error;
+                } else if (errorData.message) {
+                    errorMsg = errorData.message;
+                } else if (errorData.details) {
+                    errorMsg = typeof errorData.details === 'string' 
+                        ? errorData.details 
+                        : JSON.stringify(errorData.details);
+                }
+            }
+            message.error(`创建失败: ${errorMsg}`);
         }
     };
 
@@ -721,7 +834,7 @@ const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({
     // === JSX Structure ===
     return (
         <div>
-            <Alert message="Provider Network 定义了集群节点上的物理网卡映射关系。如果集群节点网卡命名不一致，请使用“自定义接口”进行特定配置。" type="warning" showIcon style={{ marginBottom: 16 }} />
+            <Alert message="Provider Network 定义了集群节点上的物理网卡映射关系。如果集群节点网卡命名不一致，请使用“自定义接口”进行特定配置。" type="info" showIcon style={{ marginBottom: 16 }} />
             {/* Action Bar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div className="toolbar-container">
@@ -736,7 +849,7 @@ const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({
                 </div>
                 <div className="toolbar-actions">
                     <Button type="primary" onClick={() => setIsModalVisible(true)}>创建 Provider</Button>
-                    <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading} />
+                    <Button icon={<ReloadOutlined />} onClick={() => fetchData()} loading={loading} />
                 </div>
             </div>
             {/* Data Table */}

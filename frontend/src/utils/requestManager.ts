@@ -233,6 +233,13 @@ export async function requestManager(
   const method = (config.method || 'GET').toUpperCase();
   const isGetRequest = method === 'GET';
 
+  // 如果 URL 中包含 force=true，自动跳过缓存和去重
+  const endpoint = config.endpoint || '';
+  const hasForceParam = endpoint.includes('force=true');
+  if (hasForceParam) {
+    options.skipCache = true;
+  }
+
   // 生成请求键
   const requestKey = generateRequestKey(config);
 
