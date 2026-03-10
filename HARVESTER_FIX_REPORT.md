@@ -1,68 +1,159 @@
-# Harvester 资源池管理问题修复报告
+# Compute Tower 虚拟化管理平台技术参数与功能全集
 
-## 1. 虚拟机创建问题
+## 一、 核心架构与高性能要求（控标项）
 
-### 1.1 SSH 公钥注入失败
-- **问题描述**: 创建虚拟机时选择 SSH 公钥，但创建后无法使用私钥登录。
-- **原因分析**: Harvester 的 Webhook 在某些场景下未能正确处理 `ssh_authorized_keys` 字段，导致 CloudInit 配置未生效。
-- **修复方案**: 在后端服务中增加了显式的公钥注入逻辑。
-- **代码变更**: [backend/src/services/clouds/harvester/vm.ts](file:///d%3A/ComputeTower/Compute.Tower/backend/src/services/clouds/harvester/vm.ts)
-  - 在 `createHarvesterVM` 方法中，手动获取公钥内容并追加到 `userData` 的 `ssh_authorized_keys` 字段中。
+1.  **★ 双通道数据架构**：
+    *   系统必须采用"前端统一视图 + 后端 Cache/Direct 双通道"架构。
+    *   **读写分离**：资源列表查询必须优先读取本地数据库库存（Inventory Cache），以支持秒级返回 1000+ 条数据；生命周期操作（开机/关机/删除等）必须直连底层云平台 API（Direct API），确保操作的实时性与一致性。
+    *   **智能刷新**：操作完成后，系统需支持 `force=true` 机制强制同步最新状态至缓存，杜绝数据不一致。
 
-### 1.2 ISO 镜像无法选择 CD-ROM 模式
-- **问题描述**: 创建虚拟机选择 ISO 来源时，无法正确识别或设置为 CD-ROM 启动模式，导致安装程序无法加载。
-- **原因分析**: 前端向导在选择 ISO 时，未自动设置磁盘总线类型 (Bus) 为 `sata`（KubeVirt 对光驱的默认支持类型）。
-- **修复方案**: 优化了磁盘配置向导的逻辑。
-- **代码变更**: [frontend/src/pages/Clouds/Harvester/modals/VmCreateWizard/StepDisks.tsx](file:///d%3A/ComputeTower/Compute.Tower/frontend/src/pages/Clouds/Harvester/modals/VmCreateWizard/StepDisks.tsx)
-  - 当检测到 ISO 镜像时，强制将 `bus` 设置为 `sata` 并标记为 CD-ROM 设备。
+2.  **★ 实时状态流（SSE）**：
+    *   系统必须基于 Server-Sent Events (SSE) 实现全量资源的实时状态推送，禁止使用轮询（Polling）机制。
+    *   **增量推送**：后端必须实现状态去重机制（Deduplication），仅在资源状态（Status/IP/Node）发生实际变更时才推送事件，减少带宽占用。
+    *   **元数据同步**：SSE 事件载荷必须包含 Kubernetes `metadata`（含 Labels 和 Finalizers），以确保前端能实时感知"重要实例"标记、删除保护锁等元数据变更，而不仅仅是运行状态。
 
----
+3.  **★ 智能 Patch 策略**：
+    *   系统在进行虚拟机规格变更时，必须具备"智能分流"能力：
+        *   **最小化 Patch**：对于仅修改 CPU/内存的简单变更，必须构造极简 JSON Patch 包，避免发送全量 Spec 导致的大报文连接重置（ECONNRESET）问题。
+        *   **原子更新**：对于磁盘/网络等复杂变更，必须采用"Read-Modify-Write"模式，确保并发修改下的数据一致性。
+        *   **协议要求**：必须支持 `application/json-patch+json` 标准，严禁仅依赖 Merge Patch 导致列表字段（如 Finalizers）无法精确删除的问题。
 
-## 2. 虚拟机变配 (Reconfigure) 问题
+## 二、 虚拟机生命周期管理
 
-### 2.1 变更操作系统/网卡不生效 & 系统盘扩容 404
-- **问题描述**: 
-  1. 在变配页面更换系统镜像或修改网卡后，重启虚拟机未生效。
-  2. 尝试扩容系统盘时提示 404 错误。
-- **原因分析**: 原实现使用的是 `PATCH` (Merge Patch) 方法，无法处理复杂的对象替换（如 PVC 替换、网卡列表重置）。后端在处理 Patch 请求时无法正确映射新旧资源。
-- **修复方案**: 将变配逻辑升级为 `updateHarvesterVmSpec` (PUT)，发送完整的 Spec 配置。
-- **代码变更**: [frontend/src/pages/Clouds/Harvester/modals/VmReconfigure/useVmReconfigure.ts](file:///d%3A/ComputeTower/Compute.Tower/frontend/src/pages/Clouds/Harvester/modals/VmReconfigure/useVmReconfigure.ts)
-  - `change_os` (更换系统)、`change_primary_nic` (修改主网卡)、`change_secondary_nic` (修改辅网卡) 等操作现在使用全量更新接口。
+1.  **创建向导**：
+    *   提供图形化虚拟机创建向导，支持基础信息、计算规格（CPU/内存）、磁盘（系统盘/数据盘）、网络（多网卡/NAD）、登录设置（SSH Key/CloudInit）等配置步骤。
+    *   支持镜像/ISO/现有磁盘等多种启动源选择。
+    *   支持自定义 User Data 和 Network Data 配置。
 
-### 2.2 变配按钮状态检查
-- **问题描述**: 虚拟机在 `Starting`、`Migrating` 等中间状态下仍允许点击“资源变配”，导致操作报错或状态异常。
-- **修复方案**: 在详情页增加了严格的状态检查。
-- **代码变更**: [frontend/src/pages/Clouds/Harvester/components/HarvesterVmDetailDrawer.tsx](file:///d%3A/ComputeTower/Compute.Tower/frontend/src/pages/Clouds/Harvester/components/HarvesterVmDetailDrawer.tsx)
-  - “资源变配”按钮现在仅在 **Running (运行中)** 或 **Stopped (已停止)** 状态下可用，其他状态禁用并显示提示。
+2.  **基础操作**：
+    *   支持虚拟机的启动、停止、重启（含软重启/强制重启）、暂停、恢复、删除等全生命周期操作。
+    *   支持批量操作（批量启动/停止/重启/删除），并提供操作进度反馈。
 
----
+3.  **★ 热扩容（Hot Plug）安全策略**：
+    *   支持 CPU 和内存的在线热扩容，且必须具备以下安全约束策略：
+        *   **智能初始化**：首次启用热扩容时，系统应自动建议 `maxSockets` 和 `maxMemory` 上限为当前规格的 4 倍（可配置比例），避免无限制扩容带来的资源超卖风险。
+        *   **运行时锁定**：热扩容功能一旦激活，必须锁定上限配置（Max Limit），禁止在运行时修改 `maxSockets`，以保障 KubeVirt 底层热插拔契约的稳定性。
+        *   **拓扑约束**：热扩容模式下，必须强制锁定 CPU 拓扑为 `cores=1, threads=1`，仅通过增加 `sockets` 数量来实现扩容，以最大化兼容性。
+        *   **免重启体验**：当前端检测到仅涉及资源增加（Hot Add）且热扩容已激活时，必须自动跳过重启确认提示，提供无感知的扩容体验。
 
-## 3. 运维操作问题
+4.  **★ 增强型删除保护（Finalizer Lock）**：
+    *   系统必须提供多层级的防误删保护机制：
+        *   **UI 级保护**：通过 Label (`tower.io/important`) 在界面上通过图标标识重要实例。
+        *   **内核级锁（关键控标点）**：必须利用 Kubernetes 原生 Finalizer 机制（`tower.io/deletion-protection`）实现内核级死锁。当 API 发起删除请求时，后端必须主动拦截并校验此 Finalizer，直接拒绝删除操作（返回 403），严禁依赖 K8s 异步 GC 导致的资源卡在 `Terminating` 状态。
 
-### 3.1 缺少冷迁移操作
-- **问题描述**: 关机状态下的虚拟机无法进行迁移操作（弹窗卡顿或无法打开）。
-- **原因分析**: 迁移弹窗尝试获取 VMI (VirtualMachineInstance) 信息，但关机状态下 VMI 不存在。
-- **修复方案**: 优化迁移弹窗逻辑，兼容关机状态。
-- **代码变更**: [frontend/src/pages/Clouds/Harvester/modals/HarvesterMigrateModal.tsx](file:///d%3A/ComputeTower/Compute.Tower/frontend/src/pages/Clouds/Harvester/modals/HarvesterMigrateModal.tsx)
-  - 当检测到虚拟机未运行时，跳过 VMI 检查，允许用户选择目标节点进行冷迁移调度。
+5.  **★ 回收站机制（软删除）**：
+    *   支持虚拟机软删除功能，删除操作不得直接销毁资源。
+    *   **实现机制**：删除时必须自动注入 `tower.io/recycle-bin` Finalizer 及过期时间戳 Annotation。
+    *   **自动清理**：系统需支持配置保留周期（默认 7 天），过期后自动通过 Patch 移除 Finalizer 执行物理删除。
+    *   **无损恢复**：支持一键从回收站恢复虚拟机，恢复过程必须自动清理所有删除标记。
 
-### 3.2 挂载卷报错 422 (实际成功)
-- **问题描述**: 给虚拟机挂载数据盘时，界面提示 HTTP 422 错误，但实际后台挂载成功。
-- **原因分析**: Harvester API 在某些并发或重试场景下，如果卷已挂载会返回 422 错误。
-- **修复方案**: 后端增加错误过滤逻辑。
-- **代码变更**: [backend/src/services/clouds/harvester/lifecycle.ts](file:///d%3A/ComputeTower/Compute.Tower/backend/src/services/clouds/harvester/lifecycle.ts)
-  - 捕获 422 错误，若错误信息包含 "already attached" 或 "exist"，则视为操作成功。
+6.  **高级特性**：
+    *   **克隆**：支持跨命名空间的虚拟机克隆。
+    *   **快照/备份**：支持创建虚拟机快照和备份，并支持从备份恢复。
+    *   **模板管理**：支持将现有虚拟机保存为模板，并基于模板批量创建新实例。
+    *   **VNC 控制台**：提供基于 Web 的 VNC 远程控制台，支持发送 Ctrl+Alt+Del 等组合键。
+    *   **迁移功能**：支持虚拟机在不同物理节点间的热迁移（Live Migration）和冷迁移（Cold Migration），并支持指定目标节点。
 
-### 3.3 备份/快照选择目标显示别名
-- **问题描述**: 创建备份/快照时，目标虚拟机下拉框仅显示 UUID 或 Name，无法通过别名识别。
-- **修复方案**: 优化下拉框展示逻辑。
-- **代码变更**: [frontend/src/pages/Clouds/Harvester/modals/VmBackupCreateModal.tsx](file:///d%3A/ComputeTower/Compute.Tower/frontend/src/pages/Clouds/Harvester/modals/VmBackupCreateModal.tsx)
-  - 选项格式调整为 `别名 (Name)`，方便用户识别。
+## 三、 存储与网络高级特性
 
----
+1.  **磁盘管理**：
+    *   **自动扩容**：支持系统盘和数据盘的在线扩容。系统必须能自动识别文件系统类型（ext4/xfs/ntfs）并触发 `FileSystemResize`，无需用户进入虚拟机内部手动执行命令。
+    *   **智能挂载**：挂载磁盘时，必须自动校验磁盘状态（Available），并支持跨命名空间（同租户下）的磁盘复用。
+    *   **镜像管理**：支持大文件镜像的断点续传与内网直传功能，支持 ISO 镜像自动识别并配置为 CD-ROM 设备。
 
-## 4. 待确认事项
+2.  **★ Kube-OVN 深度集成**：
+    *   **VPC 多租户隔离**：必须支持基于 Kube-OVN 的 VPC 逻辑隔离，租户可自主创建私有 VPC、子网（Subnet）、NAT 网关，实现完全独立的网络空间。
+    *   **混合网络编排**：支持在同一集群内混合使用 Overlay (VPC) 和 Underlay (VLAN/Bridge) 网络，满足不同业务对网络性能和灵活性的需求。
+    *   **高级网络功能**：
+        *   **固定 IP (Fixed IP)**：支持为虚拟机指定固定业务 IP，且在生命周期内保持不变。
+        *   **负载均衡 (Load Balancer)**：支持创建 L4 负载均衡器，后端自动对接 Kube-OVN VPC 内的虚拟机实例。
+        *   **弹性公网 IP (EIP)**：支持为 VPC 内的虚拟机绑定浮动公网 IP，实现公网访问能力。
+        *   **NAT 网关**：支持 SNAT/DNAT 规则配置，实现私网虚拟机访问外网或端口映射。
 
-以下问题建议进一步观察或提供详细日志：
-1. **新增资源池报错**: 需确认具体的报错信息（HTTP 状态码及 Response Body），可能是网络连通性或认证问题。
-2. **热扩容开关报错**: 需确认是在前端校验阶段报错还是后端 API 返回错误。
+3.  **★ 细粒度安全访问控制**：
+    *   **多维度鉴权**：系统后端必须实现基于 `UserSpace` 和 `Organization ID` 的多维度鉴权机制。
+    *   **资源可见性**：
+        *   租户只能看到属于自己项目（`ns-{orgId}`）的私有资源（VM、Volume、Secret）。
+        *   公共资源（如 `harvester-public` 下的镜像、`default` 下的公共网络）必须通过白名单机制对租户放行，实现"私有隔离+公共共享"的安全模型。
+
+4.  **SSH 密钥注入**：
+    *   支持标准 CloudInit (NoCloud) 数据注入。
+    *   **双重注入机制**：系统应支持通过 MutatingWebhook 自动注入 SSH Key，同时作为备份机制，后端 API 必须具备在 CloudInit UserData 中手动追加 SSH Public Key 的能力，确保在 Webhook 失效时密钥仍能正确下发。
+    
+5.  **★ 网络安全策略（Network Policy）**：
+    *   **流量微隔离**：必须支持基于 Kubernetes NetworkPolicy 的流量隔离，实现 Namespace 级别和 Pod (VM) 级别的微隔离。
+    *   **安全组（Security Group）**：支持可视化的安全组配置，允许用户定义入站（Ingress）和出站（Egress）规则，支持基于 CIDR、端口和协议的访问控制，并可动态绑定至虚拟机网卡。
+
+6.  **★ 全栈 SDN 网络能力**：
+    *   **可视化网络拓扑**：提供全局网络拓扑视图，实时展示 VPC、子网、虚拟机、网关之间的逻辑连接关系与流量状态。
+    *   **流量工程 (QoS)**：支持基于 Pod/VM 粒度的带宽限制（Ingress/Egress Rate Limiting）和流量整形，保障关键业务的网络服务质量。
+    *   **网关高可用 (Gateway HA)**：虚拟路由器/网关必须具备 Active-Standby 高可用模式，当主网关节点故障时，秒级切换至备用节点，确保南北向流量不中断。
+    *   **服务链编排 (SFC)**：支持自定义服务链，将防火墙、WAF、IPS 等网络安全功能网元（NFV）按需编排到业务流量路径中。
+
+## 四、 可观测性与智能运维
+
+1.  **★ 多租户监控体系**：
+    *   **Prometheus 集成**：系统必须内置 Prometheus 监控能力，支持采集虚拟机、节点、存储、网络的全栈指标。
+    *   **全局大盘**：提供资源监控概览大盘，包含 CPU、内存、存储、网络等核心指标的实时趋势图。
+    *   **租户级告警**：
+        *   支持多租户告警规则（PrometheusRule）配置，租户只能管理自己命名空间下的告警规则。
+        *   **告警路由**：支持基于 Alertmanager 的多渠道通知（邮件、钉钉、Webhook），且必须实现通知策略的租户隔离，防止告警信息泄露。
+    *   **自定义规则**：支持用户自定义 PromQL 告警表达式，并提供语法校验能力。
+
+2.  **★ 日志流水线（Logging Pipeline）**：
+    *   **架构要求**：必须基于 Banzai Cloud Logging Operator 架构，支持 `ClusterFlow/ClusterOutput`（集群级）和 `Flow/Output`（租户级）的分层日志管理。
+    *   **租户自助日志**：租户可自助配置 `Flow` 将业务日志推送到外部系统（Elasticsearch, Kafka, S3, Syslog），无需管理员介入。
+    *   **实时日志流**：支持在控制台实时查看虚拟机 `virt-launcher` 容器的标准输出和错误日志，支持关键字搜索和日志下载。
+
+3.  **★ Fail-Safe 删除策略**：
+    *   在执行命名空间或资源池删除操作时，必须执行"强一致性检查"。
+    *   **熔断机制**：如果底层云平台 API 连接失败或超时，无法确认资源占用情况，系统必须直接拒绝删除操作（Fail-Safe），返回明确的错误码（如 503），严禁在状态未知的情况下执行删除导致数据丢失。
+
+4.  **运维审计**：
+    *   系统必须记录所有关键操作（创建、删除、变配、控制台访问）的审计日志。
+
+## 五、 交付与兼容性
+
+1.  **★ 版本兼容性**：
+    *   **多版本支持**：系统必须同时兼容 Harvester v1.0, v1.1, v1.2+ 等主流版本。
+    *   **API 自动适配**：后端必须具备 API 版本探测能力，根据集群版本自动切换 KubeVirt API (`/apis/kubevirt.io/v1`) 或 Rancher Steve API 调用路径，确保平滑升级。
+
+2.  **★ 交付标准**：
+    *   **全容器化部署**：系统所有组件（前端、后端、数据库、中间件）必须支持容器化部署。
+    *   **无状态设计**：应用服务必须采用无状态设计，支持水平扩展（HPA）以应对高并发访问。
+
+3.  **性能指标**：
+    *   **大规模并发**：前端列表必须采用虚拟滚动技术（Virtual Scrolling），在 1000+ 虚拟机规模下，列表渲染时间小于 1 秒。
+    *   **操作响应**：生命周期操作 API 响应时间小于 500ms（异步任务提交时间）。
+
+## 六、 企业级高可用与资源调度
+
+1.  **★ 虚拟机高可用（VM HA）**：
+    *   **故障自愈**：系统必须具备节点级故障检测能力。当物理节点发生宕机或网络中断时，必须在 60 秒内自动将该节点上的虚拟机重新调度至其他健康节点启动，确保业务连续性。
+    *   **健康检查**：支持对虚拟机内部应用进行健康探测（TCP/HTTP/Command），探测失败自动执行重启策略。
+
+2.  **智能资源调度（DRS）**：
+    *   **亲和性策略**：支持节点亲和性（Node Affinity）和反亲和性（Anti-Affinity）配置，支持虚拟机亲和性（VM Affinity）以确保特定业务部署在同一节点或分散部署。
+    *   **动态负载均衡**：系统应根据节点 CPU/内存负载情况，提供智能调度建议，避免资源热点。
+
+3.  **★ 异构算力支持（GPU 虚拟化）**：
+    *   **PCI 透传**：支持将物理 GPU 设备直接透传（Passthrough）给虚拟机，满足高性能计算需求。
+    *   **vGPU 切分**：支持 NVIDIA vGPU 虚拟化技术，将单块物理 GPU 切分为多个虚拟 GPU 分配给不同虚拟机，并支持算力配额管理。
+
+4.  **多级配额管理（Resource Quota）**：
+    *   支持基于租户（Project）和命名空间（Namespace）的双层资源配额管理。
+    *   **限制维度**：必须支持对 CPU 核数、内存容量、存储容量、GPU 卡数等关键资源设置硬限制（Hard Limit）。
+
+## 七、 安全合规与开放平台
+
+1.  **★ 细粒度权限体系（RBAC）**：
+    *   **角色管理**：内置管理员、项目管理员、普通用户、审计员等标准角色，并支持自定义角色（Custom Role）。
+    *   **权限颗粒度**：权限控制必须精确到 API 动作级别（Create/Get/List/Update/Delete），支持对特定资源类型（如仅允许重启 VM 但不允许删除）的授权。
+
+2.  **全链路审计（Audit）**：
+    *   **行为审计**：系统必须记录所有用户的登录、操作行为，包含操作人、操作时间、源 IP、操作对象、操作结果等关键信息。
+    *   **日志留存**：审计日志需支持持久化存储，并支持导出以满足等保合规要求。
+
+3.  **开放 API 与生态集成**：
+    *   **OpenAPI 标准**：必须提供符合 OpenAPI v3 (Swagger) 标准的 RESTful API 接口文档。
+    *   **Terraform 支持**：提供官方 Terraform Provider，支持通过代码（IaC）管理虚拟机、网络和存储资源。

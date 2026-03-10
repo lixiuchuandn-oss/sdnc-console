@@ -117,37 +117,52 @@ const ChangePrimaryNic: React.FC<Props> = ({
                             placeholder="选择 VPC"
                             options={kubeVpcOptions}
                             onDropdownVisibleChange={(open) => { if (open) reloadVpcs(); }}
-                            onChange={(val) => { 
+                            onChange={async (val) => { 
                                try {
                                  const curr = form.getFieldValue('primaryNic') || {}; 
                                  // Reset subnet when VPC changes
                                  form.setFieldsValue({ primaryNic: { ...curr, vpc: val, subnet: undefined, name: undefined, type: 'bridge' } }); 
+                                 // 重新加载子网列表，确保能获取到该VPC下的子网
+                                 await reloadSubnets();
                                } catch {}
                             }}
                           />
                         </Form.Item>
                       </Col>
                       <Col span={8}>
-                        <Form.Item label="子网" name={["primaryNic", 'subnet']} rules={[{ required: true, message: '请选择子网' }]}>
-                          <Select
-                            placeholder="选择 VPC 子网"
-                            options={(function () { 
-                                const vpc = form.getFieldValue(['primaryNic', 'vpc']); 
-                                const list = subnets || []; 
-                                // StepNetworks.tsx 使用 x.vpc，这里假设 subnets 已经是扁平化对象或者我们需要检查 spec
-                                // 为了安全起见，我们同时检查 x.vpc (如果是处理过的) 和 x.spec.vpc (如果是原始的)
-                                const filtered = vpc ? list.filter((x: any) => (x?.vpc === vpc) || (x?.spec?.vpc === vpc)) : []; 
-                                return filtered.map((x: any) => ({ label: `${x?.metadata?.name || x?.name || '-'}`, value: x?.metadata?.name || x?.name })); 
-                            })()}
-                            onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
-                            onChange={(val) => { 
-                               try {
-                                 const curr = form.getFieldValue('primaryNic') || {}; 
-                                 // Subnet name IS the network name in Harvester/Kube-OVN
-                                 form.setFieldsValue({ primaryNic: { ...curr, name: val, type: 'bridge' } }); 
-                               } catch {}
-                            }}
-                          />
+                        <Form.Item noStyle shouldUpdate={(prev: any, curr: any) => prev?.primaryNic?.vpc !== curr?.primaryNic?.vpc}>
+                          {({ getFieldValue }) => {
+                            const vpc = getFieldValue(['primaryNic', 'vpc']);
+                            const list = subnets || [];
+                            // 过滤出属于当前VPC的子网
+                            const filtered = vpc ? list.filter((x: any) => {
+                              const subnetVpc = x?.spec?.vpc || x?.vpc;
+                              return subnetVpc === vpc;
+                            }) : [];
+                            return (
+                              <Form.Item 
+                                label="子网" 
+                                name={["primaryNic", 'subnet']} 
+                                rules={[{ required: true, message: '请选择子网' }]}
+                              >
+                                <Select
+                                  placeholder="选择 VPC 子网"
+                                  options={filtered.map((x: any) => ({ 
+                                    label: `${x?.metadata?.name || x?.name || '-'}`, 
+                                    value: x?.metadata?.name || x?.name 
+                                  }))}
+                                  onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
+                                  onChange={(val) => { 
+                                     try {
+                                       const curr = form.getFieldValue('primaryNic') || {}; 
+                                       // Subnet name IS the network name in Harvester/Kube-OVN
+                                       form.setFieldsValue({ primaryNic: { ...curr, name: val, type: 'bridge' } }); 
+                                     } catch {}
+                                  }}
+                                />
+                              </Form.Item>
+                            );
+                          }}
                         </Form.Item>
                       </Col>
                       {/* CIDR 回显 */}

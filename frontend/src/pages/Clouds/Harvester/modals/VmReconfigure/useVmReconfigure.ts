@@ -700,30 +700,87 @@ export const useVmReconfigure = (props: any) => {
         case 'change_primary_nic': {
            // Construct new networks list with modified primary
            const nic = values.primaryNic;
+           const netMode = values.netMode || 'flat';
            // We need to fetch current VM state to be safe, but using record is okay for now
            const networks = [...(record?.spec?.template?.spec?.networks || [])];
            const interfaces = [...(record?.spec?.template?.spec?.domain?.devices?.interfaces || [])];
            
            if (interfaces.length > 0) {
               // Update interface[0]
-              interfaces[0] = {
+              const interfaceConfig: any = {
                  name: networks[0]?.name || 'default', // Keep link name
-                 model: nic.model,
-                 macAddress: nic.macAddress,
-                 [nic.type]: {} // bridge: {}, masquerade: {} ...
+                 model: nic.model || 'virtio',
               };
+              
+              // Set MAC address if provided
+              if (nic.macAddress) {
+                 interfaceConfig.macAddress = nic.macAddress;
+              }
+              
+              // Set interface type (bridge, masquerade, sriov, macvtap)
+              if (nic.type === 'masquerade') {
+                 interfaceConfig.masquerade = {};
+              } else if (nic.type === 'sriov') {
+                 interfaceConfig.sriov = {};
+              } else if (nic.type === 'macvtap') {
+                 interfaceConfig.macvtap = {};
+              } else {
+                 interfaceConfig.bridge = {};
+              }
+              
+              interfaces[0] = interfaceConfig;
+              
               // Update network[0]
-              let pNetName = nic.name || 'default/pod';
-              // If name doesn't have namespace (e.g. "vlan100"), try to resolve it from loaded NADs
-              if (pNetName && !pNetName.includes('/') && pNetName !== 'default/pod') {
-                  const found = nads.find((n: any) => n.metadata.name === pNetName);
-                  if (found) pNetName = `${found.metadata.namespace}/${found.metadata.name}`;
+              let pNetName = nic.name;
+              
+              // Handle different network modes
+              if (netMode === 'vpc') {
+                 // VPC network: subnet name is the network name
+                 pNetName = nic.subnet || nic.name || '';
+              } else if (netMode === 'flat') {
+                 // Flat network: NAD name (namespace/name format)
+                 if (!pNetName) {
+                    // If no name selected, use pod network
+                    pNetName = 'default/pod';
+                 } else if (!pNetName.includes('/')) {
+                    // If name doesn't have namespace, try to resolve it from loaded NADs
+                    const found = nads.find((n: any) => n.metadata.name === pNetName);
+                    if (found) {
+                       pNetName = `${found.metadata.namespace}/${found.metadata.name}`;
+                    } else {
+                       // Fallback: assume it's in default namespace
+                       pNetName = `default/${pNetName}`;
+                    }
+                 }
+              } else if (netMode === 'passthrough') {
+                 // Passthrough network: SR-IOV/Macvtap NAD
+                 if (!pNetName) {
+                    pNetName = 'default/pod';
+                 } else if (!pNetName.includes('/')) {
+                    const found = nads.find((n: any) => n.metadata.name === pNetName);
+                    if (found) {
+                       pNetName = `${found.metadata.namespace}/${found.metadata.name}`;
+                    } else {
+                       pNetName = `default/${pNetName}`;
+                    }
+                 }
+              } else {
+                 pNetName = pNetName || 'default/pod';
               }
 
-              networks[0] = {
-                 name: networks[0]?.name || 'default',
-                 multus: { networkName: pNetName } // Simplification
-              };
+              // Build network configuration
+              if (pNetName === 'default/pod' || !pNetName) {
+                 // Pod network: no multus needed
+                 networks[0] = {
+                    name: networks[0]?.name || 'default',
+                 };
+              } else {
+                 // Multus network: NAD or VPC subnet
+                 networks[0] = {
+                    name: networks[0]?.name || 'default',
+                    multus: { networkName: pNetName }
+                 };
+              }
               
               const payload: any = { networks, interfaces };
 

@@ -91,6 +91,14 @@ export const LicenseProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const hasFeature = (feature: string): boolean => {
     if (!license.active || !license.payload) return false;
+    
+    // [兼容项] platform.sdn: 如果授权中有任意一个SDN功能，则认为platform.sdn启用
+    if (feature === 'platform.sdn') {
+      return license.payload.features.some(f => 
+        f === 'sdn.cascade' || f === 'sdn.interconnect' || f === 'sdn.traffic'
+      );
+    }
+    
     return license.payload.features.includes(feature);
   };
 
