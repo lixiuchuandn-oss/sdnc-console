@@ -4,6 +4,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDefaultAdminPath } from '../../utils/accessMapping';
+import { getSystemSetting } from '../../services/systemApi';
 import './Login.css';
 
 const AdminLogin: React.FC = () => {
@@ -21,7 +22,17 @@ const AdminLogin: React.FC = () => {
       message.success('登录成功');
       const role = String((loggedInUser as any)?.role || '').toLowerCase();
       if (role === 'super_admin' || role === 'admin') {
-        navigate('/admin/dashboard');
+        try {
+          const fav = await getSystemSetting('favorite.cloudId');
+          const cloudId = String(fav?.value || '').trim();
+          if (cloudId) {
+            navigate(`/admin/clouds/${cloudId}`);
+          } else {
+            navigate('/admin/dashboard');
+          }
+        } catch {
+          navigate('/admin/dashboard');
+        }
         return;
       }
       const perms = Array.isArray((loggedInUser as any).permissions) ? (loggedInUser as any).permissions : [];

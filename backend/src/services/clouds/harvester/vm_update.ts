@@ -1519,20 +1519,31 @@ const updateHarvesterVMSpecInternal = async (
   // --- 5. [硬件设备] GPU 配置 ---
   // ---------------------------------------------------------
   // Harvester 支持将物理 GPU 透传给虚拟机。
-  // 目前仅支持单个 GPU 设备的添加或移除。
   // ---------------------------------------------------------
-  if (spec.gpuResourceName !== undefined) {
+  if (spec.gpuResourceNames !== undefined || spec.gpuResourceName !== undefined) {
       if (!domain.devices) domain.devices = {};
-      // If resourceName is empty, remove GPU
-      if (!spec.gpuResourceName) {
+      const rawList = (spec.gpuResourceNames !== undefined)
+        ? (Array.isArray(spec.gpuResourceNames) ? spec.gpuResourceNames : [])
+        : (!spec.gpuResourceName ? [] : [spec.gpuResourceName]);
+      const names: string[] = Array.from(new Set<string>(rawList.map((x: any) => String(x || '').trim()).filter(Boolean)));
+      const mode = String(spec.gpuMode || '').toLowerCase();
+      const useGpus = mode === 'vgpu';
+
+      if (names.length === 0) {
           delete domain.devices.gpus;
+          delete domain.devices.hostDevices;
+      } else if (useGpus) {
+          delete domain.devices.hostDevices;
+          domain.devices.gpus = names.map((n: string, idx: number) => ({
+              name: `gpu-${idx + 1}`,
+              deviceName: n,
+          }));
       } else {
-          domain.devices.gpus = [
-              {
-                  name: 'gpu-1',
-                  deviceName: spec.gpuResourceName
-              }
-          ];
+          delete domain.devices.gpus;
+          domain.devices.hostDevices = names.map((n: string, idx: number) => ({
+              name: `gpu-${idx + 1}`,
+              deviceName: n,
+          }));
       }
   }
 

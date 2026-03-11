@@ -42,7 +42,6 @@ import FipSection from './kube-ovn/FipSection';
 import SnatSection from './kube-ovn/SnatSection';
 import DnatSection from './kube-ovn/DnatSection';
 import MonitoringOverview from './Monitoring/MonitoringOverview';
-import ResourceStatistics from './Monitoring/ResourceStatistics';
 import LogsConfig from './Monitoring/LogsConfig';
 import LogOutputs from './Monitoring/LogOutputs';
 import LogsFlowConfig from './Monitoring/LogsFlowConfig';
@@ -943,55 +942,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             {
               key: 'Overview',
               label: '资源总览',
-              children: (
-                <Tabs
-                  defaultActiveKey="overview"
-                  tabPosition="top"
-                  type="line"
-                  destroyOnHidden
-                  items={[
-                    {
-                      key: 'overview',
-                      label: '概览',
-                      children: <MonitoringOverview cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'resource-statistics',
-                      label: '资源统计',
-                      children: (
-                        <ResourceStatistics
-                          vmCount={ecs.length}
-                          namespaceCount={harvesterNamespaces.length}
-                          imageCount={harvesterImages.length}
-                          volumeCount={harvesterVolumes.length}
-                          nodeCount={harvesterNodes.length}
-                          nadCount={harvesterNads.length}
-                          vpcCount={kubeOvnVpcs.length}
-                          subnetCount={kubeOvnSubnets.length}
-                          storageClassCount={harvesterStorageClasses.length}
-                          snapshotCount={harvesterSnapshots.length}
-                          backupCount={harvesterBackups.length}
-                          scheduleVmBackupCount={harvesterScheduleVmBackups.length}
-                          templateCount={harvesterTemplates.length}
-                          sshKeyCount={harvesterSshKeys.length}
-                          cloudInitCount={harvesterCloudInits.length}
-                          ingressCount={harvesterIngresses.length}
-                          serviceCount={harvesterServices.length}
-                          loadBalancerCount={harvesterLoadBalancers.length}
-                          ipPoolCount={harvesterIPPools.length}
-                          clusterNetworkCount={harvesterClusterNetworks.length}
-                          eipCount={kubeOvnEips.length}
-                          fipCount={kubeOvnFips.length}
-                          snatCount={kubeOvnSnatRules.length}
-                          dnatCount={kubeOvnDnatRules.length}
-                          gpuCount={harvesterGpuResources.length}
-                        />
-                      ),
-                    },
-
-                  ]}
-                />
-              )
+              children: <MonitoringOverview cloudId={cloudId} />
             },
             {
               key: 'monitoring-alerts',

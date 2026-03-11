@@ -568,7 +568,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             _type: config?.type,
             _cniVersion: config?.cniVersion
         };
-    });
+    }).filter((x: any) => !String(x?._type || '').toLowerCase().includes('ovn'));
   }, [nads]);
 
   /**

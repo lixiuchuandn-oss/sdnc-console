@@ -1,6 +1,24 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { Form, Select, Input, InputNumber, Row, Col, Typography, Alert, Space, Checkbox } from 'antd';
-import { isSystemStorageClass } from '../../../../../utils/harvesterUtils';
+/**
+ * ChangeOs.tsx
+ *
+ * 功能：更换系统盘（重装系统）表单片段（供 VmReconfigureModal 动态渲染）
+ *
+ * 功能块索引（便于检索/跳转）：
+ * 1) 默认值初始化：rootSourceType/newOsBus/rootDeviceType/newOsRootSize
+ *    - 检索关键词：INIT_DEFAULTS
+ * 2) 隐藏字段注册：rootSourceType/storageClassName/changeOsConfirmed/rootDeviceType
+ *    - 检索关键词：HIDDEN_FIELDS
+ * 3) 镜像选择：过滤 ISO、下拉展开刷新、选中后回填 storageClassName/容量/设备类型
+ *    - 检索关键词：IMAGE_SELECT
+ * 4) 镜像预览：展示（设备类型/卷类型/访问模式/存储类），反映当前会提交/会使用的值
+ *    - 检索关键词：IMAGE_PREVIEW
+ * 5) 容量设置：InputNumber + 最小容量校验（>= 镜像大小）
+ *    - 检索关键词：ROOT_SIZE
+ * 6) 总线类型：Segmented（virtio/scsi/sata）写入 newOsBus
+ *    - 检索关键词：ROOT_BUS
+ */
+import React, { useEffect, useState } from 'react';
+import { Form, Select, Input, InputNumber, Row, Col, Space, Checkbox, Segmented } from 'antd';
 import { OsIcon } from '../../../../../components/OsIcon';
 
 type Props = {
@@ -16,30 +34,15 @@ const ChangeOs: React.FC<Props> = ({
   form,
   images,
   reloadImages,
-  storageClasses,
+  storageClasses: _storageClasses,
   reloadStorageClasses,
   defaultStorageClassName
 }) => {
   const [minSize, setMinSize] = useState<number>(0);
+  const rootDeviceType = Form.useWatch('rootDeviceType', form);
+  const storageClassName = Form.useWatch('storageClassName', form);
 
-  // 计算当前选中镜像的显示名称，用于镜像预览中的 OS 图标
-  const previewOsName = useMemo(() => {
-    const val = form.getFieldValue('newOsImage');
-    if (!val) return '';
-    const it = (images || []).find((x: any) => {
-      const name = x?.metadata?.name || x?.name;
-      const ns = x?.metadata?.namespace || x?.namespace;
-      const v = ns && name ? `${ns}/${name}` : name;
-      return v === val;
-    });
-    if (!it) return '';
-    const annotations = it?.metadata?.annotations || it?.annotations || {};
-    const imageName = annotations['field.cattle.io/displayName'] || annotations['harvesterhci.io/image-name'];
-    const disp = imageName || it?.spec?.displayName || it?.displayName || it?.metadata?.name || it?.name || '';
-    return disp;
-  }, [form, images]);
-
-  // Initialize defaults
+  /* ============================== INIT_DEFAULTS ============================== */
   useEffect(() => {
     if (!form.getFieldValue('rootSourceType')) {
       form.setFieldsValue({
@@ -50,12 +53,16 @@ const ChangeOs: React.FC<Props> = ({
         newOsRootSize: undefined
       });
     }
-  }, []);
+  }, [form]);
 
   return (
     <>
+      {/* ============================== HIDDEN_FIELDS ============================== */}
       {/* rootSourceType 固定为 image，使用隐藏字段注册到表单 */}
       <Form.Item name="rootSourceType" hidden initialValue="image">
+        <Input />
+      </Form.Item>
+      <Form.Item name="storageClassName" hidden>
         <Input />
       </Form.Item>
       {/* 更换系统盘风险确认：字段注册，由外层 Footer 的复选框控制 */}
@@ -63,7 +70,7 @@ const ChangeOs: React.FC<Props> = ({
         <Checkbox />
       </Form.Item>
 
-      {/* 选择镜像 */}
+      {/* ============================== IMAGE_SELECT ============================== */}
       <Row gutter={12} style={{ marginBottom: 0 }}>
         <Col span={6}>
           <div style={{ lineHeight: '32px' }}>选择镜像</div>
@@ -99,7 +106,7 @@ const ChangeOs: React.FC<Props> = ({
               })}
               optionFilterProp="labelString"
               placeholder="请选择镜像"
-              onDropdownVisibleChange={(open) => { if (open) reloadImages(); }}
+              onOpenChange={(open) => { if (open) reloadImages(); }}
               onChange={(val) => {
                 try {
                   if (!defaultStorageClassName) reloadStorageClasses();
@@ -147,10 +154,58 @@ const ChangeOs: React.FC<Props> = ({
         </Col>
       </Row>
 
-      {/* 容量 */}
+      {/* ============================== IMAGE_PREVIEW ============================== */}
+      <Row gutter={12} style={{ marginBottom: 24 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>镜像预览</div>
+        </Col>
+        <Col span={18}>
+          <div style={{ padding: 12, background: '#EDF0F7', borderRadius: 8, border: '1px solid #e5e5e5' }}>
+
+            {/* 设备类型字段注册（隐藏，仅用于表单提交） */}
+            <Form.Item name="rootDeviceType" hidden initialValue="disk">
+              <Input />
+            </Form.Item>
+
+            {/* 第一行：设备类型 / 卷类型 */}
+            <Row gutter={12} style={{ marginBottom: 12 }}>
+              <Col span={12}>
+                <Input
+                  disabled
+                  readOnly
+                  prefix="设备类型"
+                  value={String(rootDeviceType || 'disk').toUpperCase()}
+                  style={{ color: '#00000040' }}
+                />
+              </Col>
+              <Col span={12}>
+                <Input disabled readOnly prefix="卷类型" value="Block" style={{ color: '#00000040' }} />
+              </Col>
+            </Row>
+
+            {/* 第二行：访问模式 / 存储类 */}
+            <Row gutter={12}>
+              <Col span={12}>
+                <Input disabled readOnly prefix="访问模式" value="ReadWriteMany" style={{ color: '#00000040' }} />
+              </Col>
+              <Col span={12}>
+                <Input
+                  disabled
+                  readOnly
+                  prefix="存储类"
+                  value={storageClassName ? String(storageClassName) : '自动选择'}
+                  style={{ color: '#00000040' }}
+                />
+              </Col>
+            </Row>
+          </div>
+        </Col>
+      </Row>
+
+      {/* ============================== ROOT_SIZE ============================== */}
       <Row gutter={12} style={{ marginBottom: 0 }}>
         <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>容量 (GiB)</div>
+          <div style={{ lineHeight: '32px' }}>磁盘容量</div>
         </Col>
         <Col span={18}>
           <Form.Item 
@@ -176,7 +231,7 @@ const ChangeOs: React.FC<Props> = ({
             noStyle
           >
             <InputNumber
-              style={{ width: '100%' }}
+              style={{ width: '150px' }}
               min={minSize > 0 ? minSize : 1}
               precision={0}
               placeholder={minSize ? `最小 ${minSize} GiB` : '自动选择'}
@@ -187,15 +242,14 @@ const ChangeOs: React.FC<Props> = ({
         </Col>
       </Row>
 
-      {/* 总线 */}
+      {/* ============================== ROOT_BUS ============================== */}
       <Row gutter={12} style={{ marginBottom: 0 }}>
         <Col span={6}>
           <div style={{ lineHeight: '32px' }}>总线类型</div>
         </Col>
         <Col span={18}>
           <Form.Item name="newOsBus" initialValue="virtio" noStyle>
-            <Select
-              style={{ width: '100%' }}
+            <Segmented
               options={['virtio', 'scsi', 'sata'].map(v => ({ label: v.toUpperCase(), value: v }))}
             />
           </Form.Item>
@@ -203,52 +257,7 @@ const ChangeOs: React.FC<Props> = ({
         </Col>
       </Row>
 
-      {/* 信息预览：设备类型 / 卷类型 / 访问模式 / 存储类 */}
-      <Row gutter={12} style={{ marginBottom: 0 }}>
-        <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>镜像预览</div>
-        </Col>
-        <Col span={18}>
-          <div style={{ padding: 12, background: '#EDF0F7', borderRadius: 8, border: '1px solid #e5e5e5' }}>
-            {previewOsName && (
-              <div style={{ marginBottom: 12 }}>
-                <Space size={8}>
-                  <OsIcon osName={previewOsName} style={{ fontSize: 16 }} />
-                  <span style={{ fontSize: 13, color: '#555' }}>{previewOsName}</span>
-                </Space>
-              </div>
-            )}
-            {/* 设备类型字段注册（隐藏，仅用于表单提交） */}
-            <Form.Item name="rootDeviceType" hidden initialValue="disk">
-              <Input />
-            </Form.Item>
-
-            {/* 第一行：设备类型 / 卷类型 */}
-            <Row gutter={12} style={{ marginBottom: 12 }}>
-              <Col span={12}>
-                <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>设备类型</div>
-                <Input disabled readOnly value="DISK" style={{ color: '#00000040' }} />
-              </Col>
-              <Col span={12}>
-                <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>卷类型</div>
-                <Input disabled readOnly value="Block" style={{ color: '#00000040' }} />
-              </Col>
-            </Row>
-
-            {/* 第二行：访问模式 / 存储类 */}
-            <Row gutter={12}>
-              <Col span={12}>
-                <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>访问模式</div>
-                <Input disabled readOnly value="ReadWriteOnce" style={{ color: '#00000040' }} />
-              </Col>
-              <Col span={12}>
-                <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>存储类</div>
-                <Input disabled readOnly placeholder="自动选择" style={{ color: '#00000040' }} />
-              </Col>
-            </Row>
-          </div>
-        </Col>
-      </Row>
+      
     </>
   );
 };

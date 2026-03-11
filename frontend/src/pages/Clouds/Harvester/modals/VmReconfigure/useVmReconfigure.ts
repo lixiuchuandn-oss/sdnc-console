@@ -49,11 +49,10 @@ export const useVmReconfigure = (props: any) => {
   const [scs, setScs] = useState<any[]>([]);
   const [images, setImages] = useState<any[]>([]);
   const [gpuResources, setGpuResources] = useState<any[]>([]);
-  const [selectedGpuKey, setSelectedGpuKey] = useState<string | null>(null);
+  const [selectedGpuKeys, setSelectedGpuKeys] = useState<string[]>([]);
   const [nads, setNads] = useState<any[]>([]);
   const [vpcs, setVpcs] = useState<any[]>([]);
   const [subnets, setSubnets] = useState<any[]>([]);
-  const [gpuKeyword, setGpuKeyword] = useState<string>('');
   const [gpuLoading, setGpuLoading] = useState<boolean>(false);
   const [systemDiskSize, setSystemDiskSize] = useState<number | null>(null);
   const [systemDiskLoading, setSystemDiskLoading] = useState<boolean>(false);
@@ -270,6 +269,36 @@ export const useVmReconfigure = (props: any) => {
     } catch (e) { console.error(e); return []; }
   };
 
+  const ensureNadsLoaded = async () => {
+    if (Array.isArray(nads) && nads.length > 0) return nads;
+    return await reloadNads();
+  };
+
+  const getMissingNadsFromNetworks = (networks: any[], vmNamespace: string, nadList: any[]) => {
+    const list = Array.isArray(nadList) ? nadList : [];
+    const getNs = (x: any) => x?.metadata?.namespace || x?.namespace || '';
+    const getName = (x: any) => x?.metadata?.name || x?.name || '';
+    const hasNad = (ns: string, name: string) =>
+      list.some((x: any) => String(getNs(x)) === String(ns) && String(getName(x)) === String(name));
+
+    return (Array.isArray(networks) ? networks : [])
+      .map((n: any) => n?.multus?.networkName)
+      .filter(Boolean)
+      .map((raw: any) => String(raw))
+      .map((s: string) => (s.includes('@') ? s.split('@')[0] : s))
+      .map((s: string) => {
+        const parts = s.split('/');
+        if (parts.length > 1) return { namespace: parts[0], name: parts[1] };
+        const shortName = parts[0];
+        const matched = list.filter((x: any) => String(getName(x)) === String(shortName));
+        if (matched.length === 1) return { namespace: getNs(matched[0]), name: shortName };
+        return { namespace: vmNamespace, name: shortName };
+      })
+      .filter((ref: any) => ref?.name && ref?.namespace)
+      .filter((ref: any) => !hasNad(ref.namespace, ref.name))
+      .map((ref: any) => `${ref.namespace}/${ref.name}`);
+  };
+
   const reloadVpcs = async () => {
     try { 
       const res = await fetchKubeOvnVpcs(cloudId); 
@@ -323,7 +352,7 @@ export const useVmReconfigure = (props: any) => {
     // Reset all fields when switching tabs to ensure "Single Selection" / "Single Task" isolation
     // 切换功能菜单时，强制重置表单，防止配置冲突
     form.resetFields();
-    setSelectedGpuKey(null);
+    setSelectedGpuKeys([]);
 
     if (!record) return;
 
@@ -547,11 +576,19 @@ export const useVmReconfigure = (props: any) => {
         break;
       }
       case 'change_gpu': {
-        const gpus = record?.spec?.template?.spec?.domain?.devices?.gpus || [];
-        const gpu = gpus.length > 0 ? gpus[0] : null;
+        if (!gpuResources || gpuResources.length === 0) reloadGpuResources();
+
+        const domain = activeRecord?.spec?.template?.spec?.domain || record?.spec?.template?.spec?.domain;
+        const hostDevices = domain?.devices?.hostDevices || [];
+        const gpus = domain?.devices?.gpus || [];
+        const hasHost = Array.isArray(hostDevices) && hostDevices.length > 0;
+        const hasGpu = Array.isArray(gpus) && gpus.length > 0;
+        const mode = hasHost ? 'passthrough' : (hasGpu ? 'vgpu' : 'none');
+        const usedList = hasHost ? hostDevices : (hasGpu ? gpus : []);
+        const names = (Array.isArray(usedList) ? usedList : []).map((x: any) => x?.deviceName).filter(Boolean);
         form.setFieldsValue({
-          gpuMode: gpu ? 'passthrough' : undefined, 
-          gpuResourceName: gpu?.deviceName,
+          gpuMode: mode,
+          gpuResourceNames: names,
         });
         break;
       }
@@ -622,6 +659,51 @@ export const useVmReconfigure = (props: any) => {
     });
   }, [open, selectedKey, activeRecord, form]);
 
+  useEffect(() => {
+    if (!open) return;
+    if (selectedKey !== 'change_gpu') return;
+
+    const currentMode = form.getFieldValue('gpuMode') || 'none';
+    if (currentMode === 'none') {
+      setSelectedGpuKeys([]);
+      return;
+    }
+
+    const domain = activeRecord?.spec?.template?.spec?.domain;
+    const hostDevices = domain?.devices?.hostDevices || [];
+    const gpus = domain?.devices?.gpus || [];
+
+    const vmAssigned = (currentMode === 'vgpu' ? gpus : hostDevices);
+    const vmAssignedNames = (Array.isArray(vmAssigned) ? vmAssigned : []).map((x: any) => x?.deviceName).filter(Boolean);
+
+    const currentNames = form.getFieldValue('gpuResourceNames');
+    const desiredNames = (Array.isArray(currentNames) && currentNames.length > 0) ? currentNames : vmAssignedNames;
+    if (!Array.isArray(desiredNames) || desiredNames.length === 0) {
+      setSelectedGpuKeys([]);
+      return;
+    }
+
+    form.setFieldsValue({ gpuResourceNames: Array.from(new Set(desiredNames.filter(Boolean))) });
+
+    const getResourceName = (x: any) => x?.resourceName || x?.raw?.status?.resourceName || x?.raw?.spec?.resourceName;
+    const list = Array.isArray(gpuResources) ? gpuResources : [];
+    const wanted = new Set(desiredNames.map((x: any) => String(x)));
+
+    const keys: string[] = [];
+    list.forEach((x: any) => {
+      const rn = getResourceName(x);
+      if (!rn) return;
+      if (String(x?.type) !== String(currentMode)) return;
+      if (!wanted.has(String(rn))) return;
+      const name = x?.raw?.metadata?.name || x?.name || rn || '-';
+      const node = x?.node || x?.nodeName || '-';
+      const bus = x?.pciAddress || x?.address || x?.pci || '-';
+      keys.push(`${name}|${node}|${bus}`);
+    });
+
+    setSelectedGpuKeys(Array.from(new Set(keys)));
+  }, [open, selectedKey, activeRecord, gpuResources, form]);
+
   const openRestartConfirm = (namespace: string, vmName: string, force: boolean = false) => {
     Modal.confirm({
       title: '规格变更已提交，需要重启实例生效，是否重启实例',
@@ -644,6 +726,16 @@ export const useVmReconfigure = (props: any) => {
       const values = await form.validateFields();
       const vmName = record?.metadata?.name;
       const namespace = record?.metadata?.namespace;
+
+      if (selectedKey !== 'change_primary_nic' && selectedKey !== 'change_secondary_nic') {
+        const currentNetworks = activeRecord?.spec?.template?.spec?.networks || record?.spec?.template?.spec?.networks || [];
+        const nadList = await ensureNadsLoaded();
+        const missing = getMissingNadsFromNetworks(currentNetworks, String(namespace || 'default'), nadList);
+        if (missing.length > 0) {
+          message.error(`更新失败：虚拟机网卡引用的 NAD 不存在：${missing.join(', ')}。请先在【变更网卡】中修复后再进行该操作。`);
+          return;
+        }
+      }
 
       switch (selectedKey) {
         case 'expand_system_disk': {
@@ -693,7 +785,20 @@ export const useVmReconfigure = (props: any) => {
                  }
              }
              
-             message.success('系统盘扩容请求已提交。请注意：您仍需在操作系统内部扩展文件系统。');
+             try {
+               const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
+               const data = res?.data?.vm ? res.data : res;
+               const updatedVm = data?.vm || data;
+               if (updatedVm && data?.related) {
+                 updatedVm.related = data.related;
+               }
+               setLatestVm(updatedVm);
+             } catch {}
+
+             message.success('系统盘扩容请求已提交，设置已保存，需要重启后生效。');
+             setTimeout(() => {
+               openRestartConfirm(namespace, vmName, false);
+             }, 300);
           }
           break;
         }
@@ -1160,15 +1265,15 @@ export const useVmReconfigure = (props: any) => {
           break;
         }
         case 'change_gpu': {
-           const mode = values.gpuMode;
-           const gpuName = values.gpuResourceName;
-           // Patch VM to add/remove GPU
-           await patchHarvesterVm(cloudId, namespace, vmName, {
-              gpuResourceName: mode === 'none' ? '' : gpuName
-           });
-           message.success('GPU配置已更新');
-           openRestartConfirm(namespace, vmName, false);
-           break;
+          const mode = values.gpuMode || 'none';
+          const names = Array.isArray(values.gpuResourceNames) ? values.gpuResourceNames : [];
+          await updateHarvesterVmSpec(cloudId, namespace, vmName, {
+            gpuMode: mode,
+            gpuResourceNames: mode === 'none' ? [] : names,
+          });
+          message.success('GPU配置已更新');
+          openRestartConfirm(namespace, vmName, false);
+          break;
         }
         case 'change_primary_nic': {
            // Construct new networks list with modified primary
@@ -1209,7 +1314,22 @@ export const useVmReconfigure = (props: any) => {
               // Handle different network modes
               if (netMode === 'vpc') {
                  // VPC network: subnet name is the network name
-                 pNetName = nic.subnet || nic.name || '';
+                 const subnetName = nic.subnet || nic.name || '';
+                 if (subnetName) {
+                    const subnet = subnets.find((s: any) => s?.metadata?.name === subnetName);
+                    if (subnet?.metadata?.namespace) {
+                       pNetName = `${subnet.metadata.namespace}/${subnetName}`;
+                    } else {
+                       const nad = nads.find((n: any) => n?.metadata?.name === subnetName);
+                       if (nad?.metadata?.namespace) {
+                          pNetName = `${nad.metadata.namespace}/${subnetName}`;
+                       } else {
+                          pNetName = subnetName;
+                       }
+                    }
+                 } else {
+                    pNetName = '';
+                 }
               } else if (netMode === 'flat') {
                  // Flat network: NAD name (namespace/name format)
                  if (!pNetName) {
@@ -1308,6 +1428,15 @@ export const useVmReconfigure = (props: any) => {
                  payload.networkData = yaml.dump(networkDataObj);
               }
               
+              {
+                const nadList = await ensureNadsLoaded();
+                const missing = getMissingNadsFromNetworks(networks, String(namespace || 'default'), nadList);
+                if (missing.length > 0) {
+                  message.error(`更新失败：引用的 NAD 不存在：${missing.join(', ')}。请更换为存在的网络后再提交。`);
+                  return;
+                }
+              }
+
               await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
               openRestartConfirm(namespace, vmName, false);
            }
@@ -1432,6 +1561,15 @@ export const useVmReconfigure = (props: any) => {
                payload.networkData = yaml.dump(networkDataObj);
            }
 
+           {
+             const nadList = await ensureNadsLoaded();
+             const missing = getMissingNadsFromNetworks(newNetworks, String(namespace || 'default'), nadList);
+             if (missing.length > 0) {
+               message.error(`更新失败：引用的 NAD 不存在：${missing.join(', ')}。请更换为存在的网络后再提交。`);
+               return;
+             }
+           }
+
            await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
            openRestartConfirm(namespace, vmName, false);
            break;
@@ -1452,6 +1590,10 @@ export const useVmReconfigure = (props: any) => {
           // KubeVirt/Harvester Webhook Error Translation
           if (errorMsg.includes('Guest memory is greater than the configured maxGuest memory')) {
             errorMsg = '调整后的内存超过了配置的最大限制（热扩容上限），请求被拒绝。';
+          }
+          const nadNotFound = errorMsg.match(/network-attachment-definitions\.k8s\.cni\.cncf\.io\s+"([^"]+)"\s+not\s+found/i);
+          if (nadNotFound?.[1]) {
+            errorMsg = `更新失败：引用的网络附件（NAD）不存在：${nadNotFound[1]}。请在虚拟机网卡配置中更换为存在的网络，或在对应命名空间创建该 NAD。`;
           }
         }
 
@@ -1509,6 +1651,16 @@ export const useVmReconfigure = (props: any) => {
       const namespace = record?.metadata?.namespace;
       if (!vmName || !namespace) throw new Error('无法解析虚拟机信息');
 
+      {
+        const currentNetworks = activeRecord?.spec?.template?.spec?.networks || record?.spec?.template?.spec?.networks || [];
+        const nadList = await ensureNadsLoaded();
+        const missing = getMissingNadsFromNetworks(currentNetworks, String(namespace || 'default'), nadList);
+        if (missing.length > 0) {
+          message.error(`挂载失败：虚拟机网卡引用的 NAD 不存在：${missing.join(', ')}。请先在【变更网卡】中修复后再挂载磁盘。`);
+          return;
+        }
+      }
+
       const created = !!values.newDiskCreated;
       if (!created) {
         message.warning('请先创建磁盘');
@@ -1537,26 +1689,18 @@ export const useVmReconfigure = (props: any) => {
           updatedVm.related = data.related;
         }
         
-        const conditions = updatedVm?.status?.conditions || [];
-        const needsRestart = conditions.some(
-          (c: any) => c.type === 'RestartRequired' && c.status === 'True'
-        );
-        
         setLatestVm(updatedVm);
-        
-        if (needsRestart) {
-          // 挂载成功，但需要重启生效，弹出重启确认对话框
-          message.success('挂载成功，设置已保存');
-          // 延迟一下，确保消息提示先显示
-          setTimeout(() => {
-            openRestartConfirm(namespace, vmName, false);
-          }, 300);
-        } else {
-          message.success('挂载成功');
-        }
+
+        message.success('挂载成功，设置已保存，需要重启后生效');
+        setTimeout(() => {
+          openRestartConfirm(namespace, vmName, false);
+        }, 300);
       } catch (refreshErr: any) {
         console.warn('刷新VM数据失败:', refreshErr);
-        message.success('挂载成功（设置已保存，请检查是否需要重启）');
+        message.success('挂载成功，设置已保存，需要重启后生效');
+        setTimeout(() => {
+          openRestartConfirm(namespace, vmName, false);
+        }, 300);
       }
       
       // 清理 step 标记，避免下次误走挂载
@@ -1614,6 +1758,16 @@ export const useVmReconfigure = (props: any) => {
       const namespace = record?.metadata?.namespace;
       if (!vmName || !namespace) throw new Error('无法解析虚拟机信息');
 
+      {
+        const currentNetworks = activeRecord?.spec?.template?.spec?.networks || record?.spec?.template?.spec?.networks || [];
+        const nadList = await ensureNadsLoaded();
+        const missing = getMissingNadsFromNetworks(currentNetworks, String(namespace || 'default'), nadList);
+        if (missing.length > 0) {
+          message.error(`解绑失败：虚拟机网卡引用的 NAD 不存在：${missing.join(', ')}。请先在【变更网卡】中修复后再解绑磁盘。`);
+          return;
+        }
+      }
+
       const instanceId = `${namespace}/${vmName}`;
       await detachHarvesterVolumeFromVm(cloudId, instanceId, {
         name: diskName,
@@ -1668,9 +1822,9 @@ export const useVmReconfigure = (props: any) => {
   return {
     form,
     selectedKey, setSelectedKey,
-    scs, images, gpuResources, selectedGpuKey, setSelectedGpuKey,
+    scs, images, gpuResources, selectedGpuKeys, setSelectedGpuKeys,
     nads, vpcs, subnets, setVpcs,
-    gpuKeyword, setGpuKeyword, gpuLoading,
+    gpuLoading,
     reloadScs, reloadImages, reloadGpuResources, reloadNads, reloadVpcs, reloadSubnets,
     handleSubmit,
     systemDisk,

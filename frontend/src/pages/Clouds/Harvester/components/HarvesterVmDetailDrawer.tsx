@@ -53,6 +53,7 @@ import HarvesterVmBackupTab from './HarvesterVmBackupTab';
 import { ReactComponent as CpuIcon } from '../../../../assets/clouds/cpu.svg';
 import { ReactComponent as MemIcon } from '../../../../assets/clouds/mem.svg';
 import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
+import { ReactComponent as GpuIcon } from '../../../../assets/clouds/gpu.svg';
 import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
 import HarvesterEventsTab from './HarvesterEventsTab';
 import HarvesterVmLogsTab from './HarvesterVmLogsTab';
@@ -1117,6 +1118,37 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   
   const vmDisks = SafeRead.volumeDetails(vmData);
   const vmNics = SafeRead.interfaces(vmData);
+  const vmGpus = useMemo(() => {
+    const domain = vmData?.spec?.template?.spec?.domain;
+    const devices = domain?.devices || {};
+
+    const hostDevices = Array.isArray(devices?.hostDevices) ? devices.hostDevices : [];
+    const gpus = Array.isArray(devices?.gpus) ? devices.gpus : [];
+
+    let allocation: any = null;
+    try {
+      const raw = vmData?.metadata?.annotations?.['harvesterhci.io/deviceAllocationDetails'];
+      if (raw) allocation = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch {
+      allocation = null;
+    }
+    const hostAlloc = allocation?.hostdevices || {};
+
+    const mapped = [
+      ...hostDevices.map((d: any) => ({ kind: 'hostDevices', deviceName: d?.deviceName, name: d?.name })),
+      ...gpus.map((d: any) => ({ kind: 'gpus', deviceName: d?.deviceName, name: d?.name })),
+    ]
+      .filter((x: any) => x?.deviceName || x?.name)
+      .map((x: any) => {
+        const allocNames = Array.isArray(hostAlloc?.[x.deviceName]) ? hostAlloc[x.deviceName] : [];
+        return {
+          ...x,
+          allocationNames: allocNames,
+        };
+      });
+
+    return mapped;
+  }, [vmData]);
 
   // [动作开关] 若第一块磁盘为 cdrom，则暴露“弹出 CD-ROM”动作
   const rawDisks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
@@ -1655,6 +1687,57 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                 </List.Item>
                             )}
                           />
+                      </Card>
+                  </div>
+
+                  <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ color: '#666' }}>GPU</span>
+                      </div>
+                      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+                          {vmGpus.length === 0 ? (
+                            <div style={{ padding: '16px 24px', fontSize: 12, color: '#999' }}>未分配</div>
+                          ) : (
+                            <List
+                              dataSource={vmGpus}
+                              renderItem={(item: any) => (
+                                  <List.Item style={{ padding: '16px 24px' }}>
+                                      <List.Item.Meta
+                                          avatar={
+                                            <div style={{ 
+                                                width: 48, height: 48, borderRadius: 8, background: '#ffffff',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                flexShrink: 0 
+                                            }}>
+                                                <GpuIcon width={34} height={34} style={{ fill: '#1890ff' }} />
+                                            </div>
+                                          }
+                                          title={
+                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                              <span style={{ wordBreak: 'break-word' }}>{item.deviceName || '-'}</span>
+                                              <Tag color={item.kind === 'gpus' ? 'blue' : 'purple'} style={{ fontSize: 10, margin: 0 }}>
+                                                {item.kind === 'gpus' ? 'GPU' : 'HostDevice'}
+                                              </Tag>
+                                            </div>
+                                          }
+                                          description={
+                                            <div style={{ fontSize: 12, color: '#666' }}>
+                                              {item.name ? (
+                                                <span>分配ID：{item.name}</span>
+                                              ) : null}
+                                              {Array.isArray(item.allocationNames) && item.allocationNames.length > 0 ? (
+                                                <>
+                                                  {item.name ? <span style={{ margin: '0 8px', color: '#eee' }}>|</span> : null}
+                                                  <span>分配明细：{item.allocationNames.join(', ')}</span>
+                                                </>
+                                              ) : null}
+                                            </div>
+                                          }
+                                      />
+                                  </List.Item>
+                              )}
+                            />
+                          )}
                       </Card>
                   </div>
 

@@ -6,13 +6,14 @@
  * 主要功能：
  * 1. 提供虚拟机规格变更、系统重装、磁盘管理等多种运维操作。
  * 2. 采用"单任务模式" (Single Task Mode)：
- *    - 左侧导航栏采用 Radio.Group 单选模式，确保同一时间只能进行一种类型的变配操作。
+ *    - 左侧导航栏采用 Menu 单选模式，确保同一时间只能进行一种类型的变配操作。
  *    - 切换功能项时，自动重置表单，避免不同任务间的配置冲突。
  * 3. 样式冻结 (Style Freeze)：
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useMemo } from 'react';
-import { Modal, Form, Space, Radio, Button, Tag, Tooltip, Checkbox } from 'antd';
+import { Modal, Form, Menu, Button, Tag, Tooltip, Checkbox } from 'antd';
+import type { MenuProps } from 'antd';
 import { 
   HddOutlined, GlobalOutlined, DashboardOutlined, LoadingOutlined, QuestionCircleOutlined
 } from '@ant-design/icons';
@@ -72,9 +73,9 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   const {
     form,
     selectedKey, setSelectedKey,
-    scs, images, gpuResources, selectedGpuKey, setSelectedGpuKey,
+    scs, images, gpuResources, selectedGpuKeys, setSelectedGpuKeys,
     nads, vpcs, subnets, setVpcs,
-    gpuKeyword, setGpuKeyword, gpuLoading,
+    gpuLoading,
     reloadScs, reloadImages, reloadGpuResources, reloadNads, reloadVpcs, reloadSubnets,
     handleSubmit,
     systemDisk,
@@ -110,11 +111,11 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   // const enableHotPlug = Form.useWatch('enableHotPlug', form);
   
   // 计算当前实例规格（作为“变配前”的基准值）
-  // [修复] 添加 latestVm 依赖，确保当 VM 数据更新时重新计算规格
+  // [修复] getCurrentSpec 内部依赖最新 VM 状态，确保当 VM 数据更新时重新计算规格
   const { cpu: currentCpuRaw, memory: currentMemoryRaw, maxSockets, maxMemory: maxMemoryRaw } = useMemo(() => {
      if (!getCurrentSpec) return { cpu: 0, memory: 0, maxSockets: undefined, maxMemory: undefined };
      return getCurrentSpec();
-  }, [getCurrentSpec, record, latestVm]);
+  }, [getCurrentSpec]);
   
   const currentCpu = Number(currentCpuRaw || 0);
   const currentMemory = getMemoryInGi(currentMemoryRaw);
@@ -233,10 +234,8 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
           <ChangeGpu 
             form={form} 
             gpuResources={gpuResources}
-            selectedGpuKey={selectedGpuKey}
-            setSelectedGpuKey={setSelectedGpuKey}
-            gpuKeyword={gpuKeyword}
-            setGpuKeyword={setGpuKeyword}
+            selectedGpuKeys={selectedGpuKeys}
+            setSelectedGpuKeys={setSelectedGpuKeys}
             gpuLoading={gpuLoading}
             reloadGpuResources={reloadGpuResources}
           />
@@ -320,7 +319,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
   };
 
   // --- Style Freeze: Do NOT modify the styles below ---
-  // The user has explicitly requested this specific visual design (Radio Group with rounded corners, expanded groups).
+  // The user has explicitly requested this specific visual design (Menu with rounded corners, expanded groups).
   // Any changes to the layout, spacing, or visual appearance must be approved by the user.
   // -----------------------------------------------------
 
@@ -486,50 +485,24 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       styles={{ body: { padding: 0 } }}
     >
       <div style={{ display: 'flex', height: '70vh' }}>
-        <div style={{ width: 180,  overflowY: 'auto', marginRight: 40 }}>
-          <Radio.Group 
-            value={selectedKey} 
-            onChange={(e) => setSelectedKey(e.target.value)} 
-            style={{ width: '100%' }} 
-          >
-            {menuGroups.map((group, gIndex) => (
-              <div key={group.title} style={{ marginBottom: 10 }}>
-                <div style={{ 
-                  lineHeight: '40px', 
-                  marginBottom: 10,
-                  borderBottom: '1px solid #e6e6e6',
-                  fontSize: 14, 
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8
-                }}>
-                  {group.icon}
-                  <span>{group.title}</span>
-                </div>
-                <Space direction="vertical" style={{ width: '100%', gap: 4 }}>
-                  {group.children.map(child => (
-                    <Radio 
-                      key={child.key} 
-                      value={child.key} 
-                      style={{ 
-                        display: 'flex', 
-                        lineHeight: '32px', 
-                        padding: '0 10px',
-                        marginBottom: 6,
-                        borderRadius: '8px',
-                        background: selectedKey === child.key ? '#e6f7ff' : 'transparent',
-                        color: selectedKey === child.key ? '#1677ff' : 'inherit',
-                      }}
-                    >
-                      {child.label}
-                    </Radio>
-                  ))}
-                </Space>
-              </div>
-            ))}
-          </Radio.Group>
+        <div style={{ width: 200,  overflowY: 'auto', marginRight: 24 }}>
+          <Menu
+            mode="inline"
+            style={{ paddingInlineEnd: 24 }}
+            selectedKeys={[selectedKey]}
+            onClick={({ key }) => setSelectedKey(String(key))}
+            items={menuGroups.map((group, groupIndex) => ({
+              key: `group_${groupIndex}`,
+              type: 'group',
+              label: group.title,
+              children: group.children.map((child) => ({
+                key: child.key,
+                label: child.label,
+              })),
+            })) as MenuProps['items']}
+          />
         </div>
-        <div style={{ flex: 1, padding: 24, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, padding: 10, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {renderTopAlert()}
           <div style={{ flex: 1 }}>
             <Form

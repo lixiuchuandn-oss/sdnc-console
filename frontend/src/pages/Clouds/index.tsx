@@ -54,6 +54,7 @@ import {
 import PageContainer from '../../components/PageContainer';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
+import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -126,6 +127,8 @@ const Clouds: React.FC = () => {
   // [权限管理] 用户权限检查
   const { user } = useAuth();
   const hasAdminPermission = user?.role === 'super_admin';
+  const canManageFavorite = ['super_admin', 'admin'].includes(String(user?.role || '').toLowerCase());
+  const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
 
   
 
@@ -135,6 +138,17 @@ const Clouds: React.FC = () => {
   // ============================================================================
   useEffect(() => {
     fetchClouds();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const fav = await getSystemSetting('favorite.cloudId');
+        setFavoriteCloudId(String(fav?.value || '').trim());
+      } catch {
+        setFavoriteCloudId('');
+      }
+    })();
   }, []);
 
   // ============================================================================
@@ -320,13 +334,20 @@ const Clouds: React.FC = () => {
       width: 220,
       fixed:'left' as 'left',
       render: (text: string, record: Cloud) => (
-        <Button 
-          type="link" 
-          onClick={() => navigate(`/admin/clouds/${record.id}`)}
-          style={{ padding: 0, height: 'auto' }}
-        >
-          {record.name}
-        </Button>
+        <Space size={6}>
+          <Button 
+            type="link" 
+            onClick={() => navigate(`/admin/clouds/${record.id}`)}
+            style={{ padding: 0, height: 'auto' }}
+          >
+            {record.name}
+          </Button>
+          {favoriteCloudId && String(record.id) === String(favoriteCloudId) && (
+            <Tag bordered={false} color="gold" style={{ marginInlineEnd: 0 }}>
+              默认
+            </Tag>
+          )}
+        </Space>
       )
     },
 
@@ -383,10 +404,13 @@ const Clouds: React.FC = () => {
       fixed: 'right' as 'right',
       align: 'center' as 'center',
       render: (record: Cloud) => {
+        const isFavorite = !!favoriteCloudId && String(record.id) === String(favoriteCloudId);
         const items = [
           { key: 'detail', label: '资源详情' },
           { key: 'edit', label: '编辑信息', disabled: !hasAdminPermission },
           { key: 'test', label: '连接测试', disabled: !hasAdminPermission || testingConnection===record.id },
+          { key: 'setFavorite', label: '设为默认资源池', disabled: !canManageFavorite || isFavorite },
+          { key: 'unsetFavorite', label: '取消默认资源池', disabled: !canManageFavorite || !isFavorite },
           { type: 'divider' as const },
           { key: 'del', label: '删除', danger: true, disabled: !hasAdminPermission },
         ];
@@ -394,6 +418,30 @@ const Clouds: React.FC = () => {
           if (key === 'test') return testConnection(record.id);
           if (key === 'detail') return navigate(`/admin/clouds/${record.id}`);
           if (key === 'edit') return handleEdit(record);
+          if (key === 'setFavorite') {
+            (async () => {
+              try {
+                await updateSystemSetting('favorite.cloudId', record.id);
+                setFavoriteCloudId(String(record.id));
+                message.success('已设为默认资源池');
+              } catch (e) {
+                message.error('设置失败');
+              }
+            })();
+            return;
+          }
+          if (key === 'unsetFavorite') {
+            (async () => {
+              try {
+                await updateSystemSetting('favorite.cloudId', '');
+                setFavoriteCloudId('');
+                message.success('已取消默认资源池');
+              } catch (e) {
+                message.error('取消失败');
+              }
+            })();
+            return;
+          }
           if (key === 'del') return handleDelete(record.id);
         };
         return (
@@ -403,7 +451,7 @@ const Clouds: React.FC = () => {
         );
       }
     }
-  ], [navigate, hasAdminPermission, testingConnection, testConnection, handleEdit, handleDelete]);
+  ], [navigate, hasAdminPermission, canManageFavorite, favoriteCloudId, testingConnection, testConnection, handleEdit, handleDelete]);
 
   // ============================================================================
   // [功能块: 表格列设置管理]

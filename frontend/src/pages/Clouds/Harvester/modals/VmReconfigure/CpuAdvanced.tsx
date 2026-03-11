@@ -1,5 +1,5 @@
 import React from 'react';
-import { Form, InputNumber, Space, Typography, Select, Checkbox, Input, message } from 'antd';
+import { Form, InputNumber, Space, Typography, Select, Checkbox, Input, message, Row, Col } from 'antd';
 import { fetchHarvesterNodes } from '../../../../../services/harvesterApi';
 
 type Props = {
@@ -58,113 +58,174 @@ const CpuAdvanced: React.FC<Props> = ({ form, cloudId, vmCpuState, vmCpuDebugTex
   }, [vmCpuState, form]);
   return (
     <div>
-      <Form.Item label="CPU 模式" name="cpuModel" initialValue="host-passthrough">
-        <Select options={[{ label: 'Host-Passthrough', value: 'host-passthrough' }, { label: 'Host-Model', value: 'host-model' }, { label: '自定义', value: 'custom' }]} style={{ width: 220 }} />
-      </Form.Item>
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>CPU 模式</div>
+        </Col>
+        <Col span={18}>
+          <Form.Item name="cpuModel" initialValue="host-passthrough" noStyle>
+            <Select
+              options={[
+                { label: 'Host-Passthrough', value: 'host-passthrough' },
+                { label: 'Host-Model', value: 'host-model' },
+                { label: '自定义', value: 'custom' },
+              ]}
+              style={{ width: 220 }}
+            />
+          </Form.Item>
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
       <Form.Item noStyle shouldUpdate={(prev, curr) => prev.cpuModel !== curr.cpuModel}>
-        {({ getFieldValue }) => (getFieldValue('cpuModel') === 'custom' ? (
-          <Form.Item label="自定义模型" name="cpuModelCustom" extra={<Typography.Text type="secondary">指定 CPU 型号名称，例如 Skylake-Client-IBRS</Typography.Text>}>
-            <Input placeholder="如：Skylake-Client-IBRS" />
-          </Form.Item>
-        ) : null)}
+        {({ getFieldValue }) =>
+          getFieldValue('cpuModel') === 'custom' ? (
+            <Row gutter={12} style={{ marginBottom: 0 }}>
+              <Col span={6}>
+                <div style={{ lineHeight: '32px' }}>自定义模型</div>
+              </Col>
+              <Col span={18}>
+                <Form.Item name="cpuModelCustom" noStyle>
+                  <Input placeholder="如：Skylake-Client-IBRS" style={{ width: 320 }} />
+                </Form.Item>
+                <div style={{ marginTop: 6 }}>
+                  <Typography.Text type="secondary">指定 CPU 型号名称，例如 Skylake-Client-IBRS</Typography.Text>
+                </div>
+                <div style={{ marginBottom: 24 }} />
+              </Col>
+            </Row>
+          ) : null
+        }
       </Form.Item>
-      <Form.Item label="CPU 绑定" name="dedicatedCPUPlacement" valuePropName="checked">
-        <Space>
-          <Checkbox
-            checked={dedicatedChecked}
-            onChange={async (e) => {
-              const v = e.target.checked;
-              if (!v) {
-                setDedicatedChecked(false);
-                form?.setFieldsValue?.({ dedicatedCPUPlacement: false });
-                return;
-              }
 
-              const checkCpuManager = (node: any) => {
-                const anns = node?.metadata?.annotations || node?.annotations || {};
-                const raw = anns['harvesterhci.io/cpu-manager-update-status'];
-                if (!raw) return false;
-                try {
-                  const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                  const p = String(obj?.policy || '').toLowerCase();
-                  const s = String(obj?.status || '').toLowerCase();
-                  return p === 'static' && s === 'success';
-                } catch {
-                  return false;
-                }
-              };
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>CPU 绑定</div>
+        </Col>
+        <Col span={18}>
+          <Form.Item name="dedicatedCPUPlacement" valuePropName="checked" noStyle>
+            <Space style={{ minHeight: 32, alignItems: 'center' }}>
+              <Checkbox
+                style={{ height: 32, lineHeight: '32px', display: 'inline-flex', alignItems: 'center' }}
+                checked={dedicatedChecked}
+                onChange={async (e) => {
+                  const v = e.target.checked;
+                  if (!v) {
+                    setDedicatedChecked(false);
+                    form?.setFieldsValue?.({ dedicatedCPUPlacement: false });
+                    return;
+                  }
 
-              try {
-                if (!cloudId) throw new Error('missing cloudId');
-                const res: any = await fetchHarvesterNodes(cloudId);
-                const items: any[] = res?.data?.items || res?.items || [];
-                const ok = (items || []).some((node: any) => checkCpuManager(node));
-                if (!ok) {
-                  message.error('当前物理节点未开启CPU管理');
-                  setDedicatedChecked(false);
-                  form?.setFieldsValue?.({ dedicatedCPUPlacement: false });
-                  return;
-                }
-                message.warning('CPU 绑定为资源独占模式，无法使用CPU QoS');
-                form?.setFieldsValue?.({
-                  cpuRequest: undefined,
-                  cpuLimit: undefined,
-                });
-                setDedicatedChecked(true);
-                form?.setFieldsValue?.({ dedicatedCPUPlacement: true });
-              } catch {
-                message.error('CPU管理状态校验失败');
-                setDedicatedChecked(false);
-                form?.setFieldsValue?.({ dedicatedCPUPlacement: false });
-              }
-            }}
-          >
-            启用
-          </Checkbox>
-          <Typography.Text type="secondary">保证用固定的物理 CPU 核心，减少切换损耗</Typography.Text>
-        </Space>
-      </Form.Item>
-      <Form.Item label="CPU 隔离" name="isolateEmulatorThread" valuePropName="checked">
-        <Space>
-          <Checkbox
-            checked={isolateChecked}
-            onChange={(e) => {
-              const v = e.target.checked;
-              setIsolateChecked(v);
-              form?.setFieldsValue?.({ isolateEmulatorThread: v });
-            }}
-          >
-            启用
-          </Checkbox>
-          <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰</Typography.Text>
-        </Space>
-      </Form.Item>
-      <Form.Item label="CPU QoS">
-        <Space>
-          <Typography.Text>平时至少需要</Typography.Text>
-          <Form.Item noStyle name="cpuRequest">
-            <InputNumber min={0} max={512} precision={0} style={{ width: 100 }} />
+                  const checkCpuManager = (node: any) => {
+                    const anns = node?.metadata?.annotations || node?.annotations || {};
+                    const raw = anns['harvesterhci.io/cpu-manager-update-status'];
+                    if (!raw) return false;
+                    try {
+                      const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                      const p = String(obj?.policy || '').toLowerCase();
+                      const s = String(obj?.status || '').toLowerCase();
+                      return p === 'static' && s === 'success';
+                    } catch {
+                      return false;
+                    }
+                  };
+
+                  try {
+                    if (!cloudId) throw new Error('missing cloudId');
+                    const res: any = await fetchHarvesterNodes(cloudId);
+                    const items: any[] = res?.data?.items || res?.items || [];
+                    const ok = (items || []).some((node: any) => checkCpuManager(node));
+                    if (!ok) {
+                      message.error('当前物理节点未开启CPU管理');
+                      setDedicatedChecked(false);
+                      form?.setFieldsValue?.({ dedicatedCPUPlacement: false });
+                      return;
+                    }
+                    message.warning('CPU 绑定为资源独占模式，无法使用CPU QoS');
+                    form?.setFieldsValue?.({
+                      cpuRequest: undefined,
+                      cpuLimit: undefined,
+                    });
+                    setDedicatedChecked(true);
+                    form?.setFieldsValue?.({ dedicatedCPUPlacement: true });
+                  } catch {
+                    message.error('CPU管理状态校验失败');
+                    setDedicatedChecked(false);
+                    form?.setFieldsValue?.({ dedicatedCPUPlacement: false });
+                  }
+                }}
+              >
+                启用
+              </Checkbox>
+              <Typography.Text type="secondary">启用后独占指定的物理 CPU 核心，无法使用CPU QoS</Typography.Text>
+            </Space>
           </Form.Item>
-          <Typography.Text>核，最多使用</Typography.Text>
-          <Form.Item noStyle name="cpuLimit">
-            <InputNumber min={0} max={512} precision={0} style={{ width: 100 }} />
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>CPU 隔离</div>
+        </Col>
+        <Col span={18}>
+          <Form.Item name="isolateEmulatorThread" valuePropName="checked" noStyle>
+            <Space style={{ minHeight: 32, alignItems: 'center' }}>
+              <Checkbox
+                style={{ height: 32, lineHeight: '32px', display: 'inline-flex', alignItems: 'center' }}
+                checked={isolateChecked}
+                onChange={(e) => {
+                  const v = e.target.checked;
+                  setIsolateChecked(v);
+                  form?.setFieldsValue?.({ isolateEmulatorThread: v });
+                }}
+              >
+                启用
+              </Checkbox>
+              <Typography.Text type="secondary">启用后与其他虚拟机的 QEMU 线程隔离，降低干扰</Typography.Text>
+            </Space>
           </Form.Item>
-          <Typography.Text>核</Typography.Text>
-        </Space>
-      </Form.Item>
-      <Form.Item label="内存 QoS">
-        <Space>
-          <Typography.Text>平时至少需要</Typography.Text>
-          <Form.Item noStyle name="memoryRequestGi">
-            <InputNumber min={0} max={2048} precision={0} style={{ width: 100 }} />
-          </Form.Item>
-          <Typography.Text>GiB，最多使用</Typography.Text>
-          <Form.Item noStyle name="memoryLimitGi">
-            <InputNumber min={0} max={4096} precision={0} style={{ width: 100 }} />
-          </Form.Item>
-          <Typography.Text>GiB</Typography.Text>
-        </Space>
-      </Form.Item>
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>CPU QoS</div>
+        </Col>
+        <Col span={18}>
+          <Space>
+            <Typography.Text>平时至少需要</Typography.Text>
+            <Form.Item noStyle name="cpuRequest">
+              <InputNumber min={0} max={512} precision={0} style={{ width: 100 }} suffix="核" />
+            </Form.Item>
+            <Typography.Text>最多使用</Typography.Text>
+            <Form.Item noStyle name="cpuLimit">
+              <InputNumber min={0} max={512} precision={0} style={{ width: 100 }} suffix="核" />
+            </Form.Item>
+          </Space>
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>内存 QoS</div>
+        </Col>
+        <Col span={18}>
+          <Space>
+            <Typography.Text>平时至少需要</Typography.Text>
+            <Form.Item noStyle name="memoryRequestGi">
+              <InputNumber min={0} max={2048} precision={0} style={{ width: 100 }} suffix="GiB" />
+            </Form.Item>
+            <Typography.Text>最多使用</Typography.Text>
+            <Form.Item noStyle name="memoryLimitGi">
+              <InputNumber min={0} max={4096} precision={0} style={{ width: 100 }} suffix="GiB" />
+            </Form.Item>
+          </Space>
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
     </div>
   );
 };

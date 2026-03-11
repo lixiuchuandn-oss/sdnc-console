@@ -36,13 +36,21 @@ const ChangePrimaryNic: React.FC<Props> = ({
   const nadInfos = (nads || []).map((n: any) => {
     let type = '' as any; let vlan: any = undefined;
     try { const cfg = JSON.parse(n?.spec?.config || '{}'); type = cfg?.type || ''; vlan = cfg?.vlan; } catch {}
-    const labelBase = n?.metadata?.name; const tag = type || '-';
+    const id = n?.metadata?.name || '-';
+    const alias = n?.metadata?.annotations?.['tower.io/alias'] || '';
+    const labelBase = (alias && alias !== id) ? `${alias} (${id})` : id;
+    const tag = type || '-';
     const label = vlan ? `${labelBase} (VLAN ${vlan}) · ${tag}` : `${labelBase} · ${tag}`;
     return { label, value: `${n.metadata.namespace}/${n.metadata.name}`, _type: String(type).toLowerCase() };
   });
-  const nadOptionsAll = nadInfos.map(x => ({ label: x.label, value: x.value }));
+  const nadOptionsFlat = nadInfos.filter(x => !String(x._type || '').includes('ovn')).map(x => ({ label: x.label, value: x.value }));
   const nadOptionsPassthrough = nadInfos.filter(x => x._type === 'sriov' || x._type === 'macvtap').map(x => ({ label: x.label, value: x.value }));
-  const kubeVpcOptions = (vpcs || []).map((v: any) => ({ label: v.metadata.name, value: v.metadata.name }));
+  const kubeVpcOptions = (vpcs || []).map((v: any) => {
+    const name = v?.metadata?.name || '-';
+    const alias = v?.metadata?.annotations?.['tower.io/alias'] || '';
+    const label = (alias && alias !== name) ? `${alias} (${name})` : name;
+    return { label, value: name };
+  });
 
   return (
     <>
@@ -90,7 +98,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                     >
                       <Select
                         placeholder={mode === 'passthrough' ? '选择直通网络（SR-IOV/macvtap NAD）' : '选择网络'}
-                        options={mode === 'passthrough' ? nadOptionsPassthrough : (nadOptionsAll || [])}
+                        options={mode === 'passthrough' ? nadOptionsPassthrough : (nadOptionsFlat || [])}
                         onDropdownVisibleChange={(open) => { if (open) reloadNads(); }}
                         allowClear={mode !== 'passthrough'}
                         onChange={(val) => {
@@ -148,7 +156,11 @@ const ChangePrimaryNic: React.FC<Props> = ({
                                 <Select
                                   placeholder="选择 VPC 子网"
                                   options={filtered.map((x: any) => ({ 
-                                    label: `${x?.metadata?.name || x?.name || '-'}`, 
+                                    label: (function () {
+                                      const name = x?.metadata?.name || x?.name || '-';
+                                      const alias = x?.metadata?.annotations?.['tower.io/alias'] || '';
+                                      return (alias && alias !== name) ? `${alias} (${name})` : name;
+                                    })(), 
                                     value: x?.metadata?.name || x?.name 
                                   }))}
                                   onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}

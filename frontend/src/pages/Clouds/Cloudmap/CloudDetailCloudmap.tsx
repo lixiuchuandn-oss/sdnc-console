@@ -40,7 +40,6 @@ import EipSection from '../Harvester/kube-ovn/EipSection';
 import FipSection from '../Harvester/kube-ovn/FipSection';
 import MonitoringOverview from '../Harvester/Monitoring/MonitoringOverview';
 import MonitoringAlerts from '../Harvester/Monitoring/MonitoringAlerts';
-import ResourceStatistics from '../Harvester/Monitoring/ResourceStatistics';
 import LogsConfig from '../Harvester/Monitoring/LogsConfig';
 import LogOutputs from '../Harvester/Monitoring/LogOutputs';
 import LogsFlowConfig from '../Harvester/Monitoring/LogsFlowConfig';
@@ -835,6 +834,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       }
       asCard={false}
       subtitle="Cloudmap云平台详情页，统一纳管与可视化平台资源及网络拓扑"
+      defaultOverviewCollapsed
       overviewContent={(
         <Descriptions bordered size="small" column={4}>
           <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
@@ -904,39 +904,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       key: 'overview',
                       label: '概览',
                       children: <MonitoringOverview cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'resource-statistics',
-                      label: '资源统计',
-                      children: (
-                        <ResourceStatistics 
-                          vmCount={ecs.length}
-                          namespaceCount={harvesterNamespaces.length}
-                          imageCount={harvesterImages.length}
-                          volumeCount={harvesterVolumes.length}
-                          nodeCount={harvesterNodes.length}
-                          nadCount={harvesterNads.length}
-                          vpcCount={kubeOvnVpcs.length}
-                          subnetCount={kubeOvnSubnets.length}
-                          storageClassCount={harvesterStorageClasses.length}
-                          snapshotCount={harvesterSnapshots.length}
-                          backupCount={harvesterBackups.length}
-                          scheduleVmBackupCount={harvesterScheduleVmBackups.length}
-                          templateCount={harvesterTemplates.length}
-                          sshKeyCount={harvesterSshKeys.length}
-                          cloudInitCount={harvesterCloudInits.length}
-                          ingressCount={harvesterIngresses.length}
-                          serviceCount={harvesterServices.length}
-                          loadBalancerCount={harvesterLoadBalancers.length}
-                          ipPoolCount={harvesterIPPools.length}
-                          clusterNetworkCount={harvesterClusterNetworks.length}
-                          eipCount={kubeOvnEips.length}
-                          fipCount={kubeOvnFips.length}
-                          snatCount={kubeOvnSnatRules.length}
-                          dnatCount={kubeOvnDnatRules.length}
-                          gpuCount={harvesterGpuResources.length}
-                        />
-                      ),
                     },
                   ]}
                 />

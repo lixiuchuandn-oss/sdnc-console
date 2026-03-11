@@ -1,5 +1,5 @@
 import 'antd/dist/reset.css';
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { getDefaultAdminPath } from './utils/accessMapping';
@@ -12,6 +12,7 @@ import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import AdminRoute from './components/AdminRoute';
 import PrivateRoute from './components/PrivateRoute';
 import { routeSpecs } from './routes/RouteSpec';
+import { getSystemSetting } from './services/systemApi';
 
 // 关键路由保持同步加载（首屏必需，体积小）
 import Login from './pages/Auth/Login';
@@ -223,11 +224,38 @@ const AppRoutes: React.FC = () => {
 const AdminIndex: React.FC = () => {
   const { user, loading } = useAuth();
   const perms = Array.isArray(user?.permissions) ? user!.permissions! : [];
-  if (loading || !user) return <></>;
-  const role = String(user.role || '').toLowerCase();
-  const target = (role === 'super_admin' || role === 'admin') ? '/admin/dashboard' : getDefaultAdminPath(perms);
+  const role = String(user?.role || '').toLowerCase();
+  const isAdmin = role === 'super_admin' || role === 'admin';
+  const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
+  const [favoriteReady, setFavoriteReady] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    if (!isAdmin) {
+      setFavoriteCloudId('');
+      setFavoriteReady(true);
+      return;
+    }
+    setFavoriteReady(false);
+    (async () => {
+      try {
+        const fav = await getSystemSetting('favorite.cloudId');
+        setFavoriteCloudId(String(fav?.value || '').trim());
+      } catch {
+        setFavoriteCloudId('');
+      } finally {
+        setFavoriteReady(true);
+      }
+    })();
+  }, [user?.id, isAdmin]);
+
+  if (loading || !user || (isAdmin && !favoriteReady)) return <></>;
+  const target = isAdmin
+    ? (favoriteCloudId ? `/admin/clouds/${favoriteCloudId}` : '/admin/dashboard')
+    : getDefaultAdminPath(perms);
   return <Navigate to={target} replace />;
 };
+
 
   const AppContent: React.FC = () => {
   const { settings } = useSettings();
