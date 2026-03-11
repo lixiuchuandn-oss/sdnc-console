@@ -239,11 +239,17 @@ const AdminLayout: React.FC = () => {
    * @returns React 图标组件
    */
   const groupIconOf = (pf: string, grp: string) => {
-    const firstSpec = routeSpecs
+    const visible = routeSpecs
+      .filter(s => s.layout === 'admin' && s.platform === pf && s.group === grp && !s.hidden)
+      .sort((a:any, b:any) => Number(a.order ?? 9999) - Number(b.order ?? 9999));
+
+    const all = routeSpecs
       .filter(s => s.layout === 'admin' && s.platform === pf && s.group === grp)
-      .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))[0];
-    const iconKey = firstSpec?.icon;
-    return iconOf(iconKey);
+      .sort((a:any, b:any) => Number(a.order ?? 9999) - Number(b.order ?? 9999));
+
+    const list = visible.length > 0 ? visible : all;
+    const firstWithIcon = list.find(s => !!s.icon) || list[0];
+    return iconOf(firstWithIcon?.icon);
   };
 
   /**
@@ -268,18 +274,15 @@ const AdminLayout: React.FC = () => {
    */
   const adminSpecs = routeSpecs.filter(s => s.layout === 'admin' && !s.hidden);
   
-  const centers = React.useMemo(() => PLATFORMS.filter(p => p !== '全部').map((pf: any) => ({
-    key: pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : pf === 'CNSOC' ? '/admin/cen_secops' : '/admin/cen_settings',
-    label: PLATFORM_LABELS[pf as keyof typeof PLATFORM_LABELS] || pf,
-    icon: pf === 'SETTINGS' ? <SettingOutlined /> : <CodeOutlined />,
-    // 对于 SETTINGS 平台，直接平铺子菜单，不进行分组嵌套
-    items: pf === 'SETTINGS' ? 
-      adminSpecs.filter(s => s.platform === pf)
-        .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
-        .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature }))
-      :
-      // 其他平台保持原有的分组逻辑
-      Array.from(new Set(adminSpecs.filter(s => s.platform === pf).map(s => String(s.group || ''))))
+  const centers = React.useMemo(() => PLATFORMS.filter(p => p !== '全部').map((pf: any) => {
+    const key = pf === 'CNMC' ? '/admin/cen_compute' : pf === 'SDNCC' ? '/admin/cen_sdn' : pf === 'CNSOC' ? '/admin/cen_secops' : '/admin/cen_settings';
+    const platformSpecs = adminSpecs.filter(s => s.platform === pf);
+    const topLevelSpecs = platformSpecs.filter(s => !s.group);
+    const groupedSpecs = platformSpecs.filter(s => !!s.group);
+    const topLevelItems = topLevelSpecs
+      .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
+      .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature }));
+    const groupItems = Array.from(new Set(groupedSpecs.map(s => String(s.group || ''))))
       .sort((a, b) => {
         const idxA = GROUPS.indexOf(a as any);
         const idxB = GROUPS.indexOf(b as any);
@@ -288,15 +291,26 @@ const AdminLayout: React.FC = () => {
         return safeA - safeB;
       })
       .map((grp) => ({
-      key: `${pf}_${grp}`,
-      label: grp,
-      icon: groupIconOf(pf, grp),
-      children: adminSpecs
-        .filter(s => s.platform === pf && s.group === grp)
-        .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
-        .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature })),
-    })),
-  })), []);
+        key: `${pf}_${grp}`,
+        label: grp,
+        icon: groupIconOf(pf, grp),
+        children: groupedSpecs
+          .filter(s => s.group === grp)
+          .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
+          .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature })),
+      }));
+    return ({
+      key,
+      label: PLATFORM_LABELS[pf as keyof typeof PLATFORM_LABELS] || pf,
+      icon: pf === 'SETTINGS' ? <SettingOutlined /> : <CodeOutlined />,
+      items: pf === 'SETTINGS' ?
+        platformSpecs
+          .sort((a:any, b:any) => Number(a.order ?? 0) - Number(b.order ?? 0))
+          .map((s) => ({ key: s.path, label: s.title || s.breadcrumbLabel || s.id, icon: iconOf(s.icon), requiredFeature: s.requiredFeature }))
+        :
+        [...topLevelItems, ...groupItems],
+    });
+  }), []);
 
   /**
    * 移除菜单项中的自定义属性（避免传递给 DOM 元素）
@@ -342,20 +356,29 @@ const AdminLayout: React.FC = () => {
             .map(cleanMenuItem),
         };
       }
-      // 其他平台保持原有的分组逻辑
       return {
         ...c,
         items: (c.items || [])
-          .map((p:any) => ({
-            ...p,
-            children: (p.children || [])
-              .filter((it:any) => 
-                canAccessPath(String(it.key || '')) &&
-                (!it.requiredFeature || hasFeature(it.requiredFeature))
-              )
-              .map(cleanMenuItem),
-          }))
-          .filter((p:any) => (p.children || []).length > 0),
+          .map((p:any) => {
+            if (!p.children) return p;
+            return {
+              ...p,
+              children: (p.children || [])
+                .filter((it:any) => 
+                  canAccessPath(String(it.key || '')) &&
+                  (!it.requiredFeature || hasFeature(it.requiredFeature))
+                )
+                .map(cleanMenuItem),
+            };
+          })
+          .filter((p:any) => {
+            if (p.children) return (p.children || []).length > 0;
+            return (
+              canAccessPath(String(p.key || '')) &&
+              (!p.requiredFeature || hasFeature(p.requiredFeature))
+            );
+          })
+          .map(cleanMenuItem),
       };
     })
     .filter((c:any) => (c.items || []).length > 0), [centers, user, hasFeature]);
@@ -414,11 +437,9 @@ const AdminLayout: React.FC = () => {
                     </Space>
                   ),
                   onClick: () => {
-                    const firstGroup = (c.items || [])[0];
-                    const firstPage = (firstGroup?.children || [])[0];
-                    if (firstPage?.key) {
-                      navigate(firstPage.key);
-                    }
+                    const first = (c.items || [])[0];
+                    const firstPage = first?.children ? (first.children || [])[0] : first;
+                    if (firstPage?.key) navigate(firstPage.key);
                   },
                 })),
               selectable: true,
@@ -561,8 +582,22 @@ const AdminLayout: React.FC = () => {
           });
         });
       } else {
-        // 其他平台保持原有的分组逻辑
         (c.items || []).forEach((p:any) => {
+          if (!p.children) {
+            const title = `${String(p.label || '')} ${String(c.label || '')}`;
+            opts.push({
+              value: String(p.key || ''),
+              title,
+              label: (
+                <Space size={8}>
+                  <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:6, background:'#f0f5ff' }}>{p.icon}</span>
+                  <span style={{ fontSize:13 }}>{p.label}</span>
+                  <Typography.Text type="secondary" style={{ marginLeft:8 }}>{c.label}</Typography.Text>
+                </Space>
+              ),
+            });
+            return;
+          }
           (p.children || []).forEach((it:any) => {
             const title = `${String(it.label || '')} ${String(p.label || '')} ${String(c.label || '')}`;
             opts.push({

@@ -116,7 +116,7 @@ function inferGroup(prefix: string, platform: Platform): Group {
   if (platform === 'SDNCC') {
     if (prefix.startsWith('networks.')) {
       if (prefix.includes('cen') || prefix.includes('security-domain')) return '安全管理面';
-      return '跨地域互联';
+      return '跨域互联';
     }
     if (prefix.startsWith('security.traffic.')) return '流量编排';
     if (prefix.startsWith('security.')) return '安全管理面';

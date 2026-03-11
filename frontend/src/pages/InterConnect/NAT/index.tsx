@@ -1,19 +1,17 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { Button, Form, Input, Select, Table, Tag, message, Modal, Space, Row, Col, Typography, Divider, Dropdown, Checkbox, Popover } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Form, Input, Select, Tag, message, Space, Row, Col, Typography } from 'antd';
 import type { MenuProps } from 'antd';
-import { DeleteOutlined, EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, SettingOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
-import StdSideDrawer from '../../../components/StdSideDrawer';
 import type { ColumnsType } from 'antd/es/table';
-import { getNATRules, createNATRule, deleteNATRule, NATRule } from '../../../services/virtualRouterApi';
-import { vrApi } from '../../../services/virtualRouterApi';
+import { vrApi, getVRConfigCached } from '../../../services/virtualRouterApi';
 import { apiRequest } from '../../../services/api';
 
 const { Option } = Select;
 const { Text } = Typography;
 
 const NATPage: React.FC = () => {
-  const [data, setData] = useState<NATRule[]>([]);
+  const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [vrList, setVrList] = useState<any[]>([]);
   const [vrNameMap, setVrNameMap] = useState<Record<string, string>>({});
@@ -25,11 +23,6 @@ const NATPage: React.FC = () => {
   // PageContainer handles column visibility
   const defaultHiddenColumns: string[] = [];
   
-  // Create Drawer State
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [createForm] = Form.useForm();
-  const [submitting, setSubmitting] = useState(false);
-
   // Fetch VRs and NAT Rules
   const fetchData = async () => {
     setLoading(true);
@@ -61,18 +54,68 @@ const NATPage: React.FC = () => {
       });
       setVrNameMap(map);
 
-      // Fetch NAT Rules
-      const list = await getNATRules();
-      const normalized = Array.isArray(list)
-        ? list
-        : Array.isArray((list as any)?.data)
-          ? (list as any).data
-          : Array.isArray((list as any)?.list)
-            ? (list as any).list
-            : Array.isArray((list as any)?.rows)
-              ? (list as any).rows
-              : [];
-      setData(normalized);
+      const natRows: any[] = [];
+      for (const v of vrs) {
+        const vid = v.uuid || v.id || v.vm_id;
+        if (!vid) continue;
+        try {
+          const cfg = await getVRConfigCached(vid);
+          const natGroups = cfg?.nat_address_group || [];
+          for (const g of Array.isArray(natGroups) ? natGroups : []) {
+            const gid = g?.group_id ?? g?.groupId ?? '';
+            const ranges = g?.range ?? [];
+            const rangeArr = Array.isArray(ranges) ? ranges : (ranges ? [ranges] : []);
+            const rangeText = rangeArr.map((x: any) => (typeof x === 'string' ? x : JSON.stringify(x))).join('；');
+
+            const mappingsRaw =
+              (Array.isArray(g?.static_mapping) ? g.static_mapping : null) ??
+              (Array.isArray(g?.staticMapping) ? g.staticMapping : null) ??
+              null;
+
+            if (mappingsRaw) {
+              mappingsRaw.forEach((sm: any, idx: number) => {
+                natRows.push({
+                  id: `${vid}:${gid}:${idx}:${sm?.inside || ''}:${sm?.local_port || ''}:${sm?.outside || ''}:${sm?.external_port || ''}`,
+                  groupId: String(gid),
+                  rangeText,
+                  vrId: vid,
+                  type: 'static',
+                  proto: sm?.proto || '',
+                  inside: sm?.inside || '',
+                  localPort: sm?.local_port ?? '',
+                  outside: sm?.outside || '',
+                  externalPort: sm?.external_port ?? '',
+                  vrf: sm?.vrf ?? '',
+                  twiceNat: sm?.twice_nat || '',
+                });
+              });
+              continue;
+            }
+
+            const nested = rangeArr
+              .map((r: any) => r?.static_mapping || r?.staticMapping)
+              .filter(Boolean);
+            nested.forEach((sm: any, idx: number) => {
+              natRows.push({
+                id: `${vid}:${gid}:nested:${idx}:${sm?.inside || ''}:${sm?.local_port || ''}:${sm?.outside || ''}:${sm?.external_port || ''}`,
+                groupId: String(gid),
+                rangeText,
+                vrId: vid,
+                type: 'static',
+                proto: sm?.proto || '',
+                inside: sm?.inside || '',
+                localPort: sm?.local_port ?? '',
+                outside: sm?.outside || '',
+                externalPort: sm?.external_port ?? '',
+                vrf: sm?.vrf ?? '',
+                twiceNat: sm?.twice_nat || '',
+              });
+            });
+          }
+        } catch (e) {
+        }
+      }
+      setData(natRows);
     } catch (e: any) {
       console.error(e);
       message.error('加载 NAT 规则列表失败: ' + (e.message || 'Unknown error'));
@@ -85,55 +128,16 @@ const NATPage: React.FC = () => {
     fetchData();
   }, []);
 
-  const handleDelete = (record: NATRule) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除 NAT 规则 "${record.name}" 吗？`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteNATRule(record.id);
-          message.success('删除成功');
-          fetchData();
-        } catch (e: any) {
-          message.error('删除失败: ' + (e.message || 'Unknown error'));
-        }
-      },
-    });
-  };
-
-  const handleCreate = async () => {
-    try {
-      const values = await createForm.validateFields();
-      setSubmitting(true);
-      await createNATRule(values);
-      message.success('创建成功');
-      setDrawerOpen(false);
-      createForm.resetFields();
-      fetchData();
-    } catch (e: any) {
-      console.error(e);
-      // If validation error, don't show message
-      if (!e.errorFields) {
-        message.error('创建失败: ' + (e.message || 'Unknown error'));
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const fullColumns: ColumnsType<NATRule> = [
+  const fullColumns: ColumnsType<any> = [
     {
-      title: '规则名称',
-      dataIndex: 'name',
-      key: 'name',
+      title: '地址池',
+      dataIndex: 'groupId',
+      key: 'groupId',
       width: 150,
       render: (text, record) => (
         <Space direction="vertical" size={0}>
-          <Text strong>{text}</Text>
-          {record.description && <Text type="secondary" style={{ fontSize: 12 }}>{record.description}</Text>}
+          <Text strong>{String(text || '-')}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{record.rangeText || '-'}</Text>
         </Space>
       ),
     },
@@ -157,55 +161,65 @@ const NATPage: React.FC = () => {
       },
     },
     {
-      title: '接口',
-      dataIndex: 'interface',
-      key: 'interface',
+      title: '协议',
+      dataIndex: 'proto',
+      key: 'proto',
       width: 100,
       render: (text) => text || '-',
     },
     {
-      title: '原始地址/端口',
-      key: 'original',
+      title: '内部地址/端口',
+      key: 'inside',
       width: 250,
       render: (_, r) => (
         <div style={{ fontSize: 13 }}>
-          <div>Src: {r.originalSourceIp || 'any'}:{r.originalSourcePort || 'any'}</div>
-          <div>Dst: {r.originalDestinationIp || 'any'}:{r.originalDestinationPort || 'any'}</div>
+          <div>{r.inside || '-'}</div>
+          <div>端口: {r.localPort !== undefined ? r.localPort : '-'}</div>
         </div>
       ),
     },
     {
-      title: '转换后地址/端口',
-      key: 'translated',
+      title: '外部地址/端口',
+      key: 'outside',
       width: 250,
       render: (_, r) => (
         <div style={{ fontSize: 13 }}>
-          <div>Src: {r.translatedSourceIp || '-'}:{r.translatedSourcePort || '-'}</div>
-          <div>Dst: {r.translatedDestinationIp || '-'}:{r.translatedDestinationPort || '-'}</div>
+          <div>{r.outside || '-'}</div>
+          <div>端口: {r.externalPort !== undefined ? r.externalPort : '-'}</div>
         </div>
       ),
     },
     {
-      title: '操作',
-      key: 'action',
+      title: 'VRF',
+      dataIndex: 'vrf',
+      key: 'vrf',
       width: 100,
-      render: (_, record) => (
-        <Button 
-          type="text" 
-          danger 
-          icon={<DeleteOutlined />} 
-          onClick={() => handleDelete(record)}
-        >
-          删除
-        </Button>
-      ),
+      render: (t) => (t !== undefined && t !== null && String(t).trim() !== '' ? String(t) : '-'),
+    },
+    {
+      title: 'Twice NAT',
+      dataIndex: 'twiceNat',
+      key: 'twiceNat',
+      width: 120,
+      render: (t) => t || '-',
     },
   ];
 
   const columns = fullColumns;
 
   const filteredData = data.filter((r) => {
-    if (keyword && !String(r.name || '').toLowerCase().includes(keyword.toLowerCase())) return false;
+    if (keyword) {
+      const kw = keyword.toLowerCase();
+      const hay = [
+        r.groupId,
+        r.rangeText,
+        r.inside,
+        r.outside,
+        r.proto,
+        r.twiceNat,
+      ].map((x: any) => String(x || '').toLowerCase()).join(' ');
+      if (!hay.includes(kw)) return false;
+    }
     if (vrFilter && r.vrId !== vrFilter) return false;
     if (typeFilter && r.type !== typeFilter) return false;
     return true;
@@ -236,11 +250,6 @@ const NATPage: React.FC = () => {
     <PageContainer
       titleLevel={3}
       asCard={false}
-      primaryAction={{
-        text: '新建 NAT',
-        onClick: () => setDrawerOpen(true),
-        type: 'primary',
-      }}
       moreMenuItems={[
         { key: 'refresh', label: '刷新列表', onClick: fetchData },
         { key: 'reset', label: '重置筛选', onClick: resetFilters }
@@ -285,129 +294,6 @@ const NATPage: React.FC = () => {
         bordered: true
       }}
     >
-
-      <StdSideDrawer
-        title="新建 NAT 规则"
-        width={700}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onOk={handleCreate}
-        okText={submitting ? "提交中..." : "提交"}
-      >
-        <Form form={createForm} layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item 
-                name="name" 
-                label="规则名称" 
-                rules={[{ required: true, message: '请输入名称' }]}
-              >
-                <Input placeholder="例如: nat-rule-01" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item 
-                name="vrId" 
-                label="所属 VR" 
-                rules={[{ required: true, message: '请选择 VR' }]}
-              >
-                <Select placeholder="选择 VR 实例">
-                  {vrList.map(vr => {
-                    const id = vr.uuid || vr.id || vr.vm_id;
-                    const name = vr.name || id;
-                    return id ? (<Option key={id} value={id}>{name}</Option>) : null;
-                  })}
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item 
-                name="type" 
-                label="NAT 类型" 
-                initialValue="snat"
-                rules={[{ required: true }]}
-              >
-                <Select>
-                  <Option value="snat">SNAT (源地址转换)</Option>
-                  <Option value="dnat">DNAT (目的地址转换)</Option>
-                  <Option value="static">STATIC (静态一对一)</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item 
-                name="interface" 
-                label="接口 (可选)"
-              >
-                <Input placeholder="例如: eth0" />
-              </Form.Item>
-            </Col>
-          </Row>
-          
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-
-          <div style={{ border: '1px solid #f0f0f0', padding: '16px', marginBottom: '16px', borderRadius: '4px' }}>
-            <Text strong style={{ display: 'block', marginBottom: '12px' }}>原始匹配条件</Text>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="originalSourceIp" label="原始源 IP">
-                  <Input placeholder="IP 或网段" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="originalSourcePort" label="原始源端口">
-                  <Input placeholder="端口号" />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="originalDestinationIp" label="原始目的 IP">
-                  <Input placeholder="IP 或网段" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="originalDestinationPort" label="原始目的端口">
-                  <Input placeholder="端口号" />
-                </Form.Item>
-              </Col>
-            </Row>
-          </div>
-
-          <div style={{ border: '1px solid #f0f0f0', padding: '16px', marginBottom: '16px', borderRadius: '4px', background: '#fafafa' }}>
-            <Text strong style={{ display: 'block', marginBottom: '12px' }}>转换后动作</Text>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="translatedSourceIp" label="转换后源 IP">
-                  <Input placeholder="IP 或网段" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="translatedSourcePort" label="转换后源端口">
-                  <Input placeholder="端口号" />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="translatedDestinationIp" label="转换后目的 IP">
-                  <Input placeholder="IP 或网段" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="translatedDestinationPort" label="转换后目的端口">
-                  <Input placeholder="端口号" />
-                </Form.Item>
-              </Col>
-            </Row>
-          </div>
-        </Form>
-      </StdSideDrawer>
     </PageContainer>
   );
 };

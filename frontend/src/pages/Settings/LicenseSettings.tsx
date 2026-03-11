@@ -16,7 +16,7 @@ const FEATURE_MAP: Record<string, { label: string; icon: React.ReactNode; desc?:
   'platform.multi-cloud': { label: '多云管理 (Multi-Cloud)', icon: <CloudServerOutlined />, desc: '支持接入阿里云、华为云等公有云资源' },
   'platform.sdn': { label: 'SDN 控制中心', icon: <SafetyCertificateOutlined />, desc: 'SDN 基础能力标识' },
   'sdn.cascade': { label: 'SDN 级联管理 (Cascade)', icon: <GatewayOutlined />, desc: '支持多层级联与统一管理' },
-  'sdn.interconnect': { label: 'SDN 跨地域互联 (Interconnect)', icon: <ShareAltOutlined />, desc: '支持 IPsec/SRv6/VXLAN 等互联技术' },
+  'sdn.interconnect': { label: 'SDN 跨域互联 (Interconnect)', icon: <ShareAltOutlined />, desc: '支持 IPsec/SRv6/VXLAN 等互联技术' },
   'sdn.traffic': { label: 'SDN 流量编排 (Traffic)', icon: <NodeIndexOutlined />, desc: '支持服务链、QoS 与流量镜像' },
   'platform.aisoc': { label: 'AISOC 安全运营中心', icon: <SafetyOutlined />, desc: '解锁态势感知与威胁分析高级功能' },
   'network.ovn.vpc': { label: '虚拟专有云 (OVN VPC)', icon: <CloudServerOutlined />, desc: '控制 Harvester/CloudMap 的 VPC/子网/EIP/FIP/NAT 等功能' },
@@ -221,7 +221,7 @@ const LicenseSettingsPage: React.FC = () => {
     { key: '8', feature: '多云管理 (Multi-Cloud)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需功能授权</Tag> },
     { key: '9', feature: '虚拟专有云 (OVN VPC)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需功能授权</Tag> },
     { key: '10', feature: 'SDN 级联管理 (Cascade)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
-    { key: '11', feature: 'SDN 跨地域互联 (Interconnect)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
+    { key: '11', feature: 'SDN 跨域互联 (Interconnect)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
     { key: '12', feature: 'SDN 流量编排 (Traffic)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
     { key: '13', feature: 'AISOC 安全运营中心', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="purple"><SafetyCertificateOutlined /> 需 AISOC 授权</Tag> },
   ];

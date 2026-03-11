@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Row, Col, Tooltip, Button, Empty, Spin, Tag } from 'antd';
+import { Row, Col, Button, Empty, Spin, Tag } from 'antd';
 import {
   AlertOutlined,
-  ReloadOutlined,
   GlobalOutlined,
   SafetyCertificateOutlined,
   ArrowUpOutlined,
@@ -214,10 +213,6 @@ const SdnDashboard: React.FC = () => {
 
   return (
     <div className="dashboard">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <Tooltip title="刷新数据"><Button icon={<ReloadOutlined />} onClick={loadData} /></Tooltip>
-      </div>
-
       <Row gutter={[24, 24]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} lg={6}>
           <KPICard title="VR 实例" value={sdnStats.vrCount} icon={<GatewayOutlined />} loading={chartsLoading} />

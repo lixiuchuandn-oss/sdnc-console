@@ -709,6 +709,87 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
     return yaml.dump(nextConfigYamlObject, { noRefs: true, lineWidth: -1 });
   }
 
+  /**
+   * 滚动更新 alertmanager-webhook-dingtalk Deployment：修改 Pod 模板注解以触发重建。
+   * - 命名空间：cattle-monitoring-system（与 DINGTALK_CONFIGMAP_NS 一致）
+   * - Deployment 名称：alertmanager-webhook-dingtalk（与 DINGTALK_CONFIGMAP_NAME 一致）
+   *
+   * 若获取或更新 Deployment 失败，仅记录告警日志，不影响主流程（ConfigMap 已成功更新）。
+   */
+  async function restartDingtalkWebhookDeployment(
+    conn: { origin: string; token: string; insecure: boolean }
+  ): Promise<void> {
+    const namespace = DINGTALK_CONFIGMAP_NS;
+    const name = DINGTALK_CONFIGMAP_NAME;
+    const candidates = [
+      // 直连 K8s API（通过 /k8s/clusters/{id} 前缀）
+      `${conn.origin}/apis/apps/v1/namespaces/${encodeURIComponent(namespace)}/deployments/${encodeURIComponent(name)}`,
+      // Harvester 透传 K8s API（与 nodes 查询方式保持一致）
+      `${conn.origin}/v1/harvester/apis/apps/v1/namespaces/${encodeURIComponent(namespace)}/deployments/${encodeURIComponent(name)}`,
+    ];
+
+    let existing: any = null;
+    let urlUsed: string | null = null;
+    let lastErr: any = null;
+    for (const url of candidates) {
+      try {
+        const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
+        if (!raw) continue;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as any).metadata != null) {
+          existing = raw;
+        } else if (
+          (raw as any)?.data != null &&
+          typeof (raw as any).data === 'object' &&
+          !Array.isArray((raw as any).data) &&
+          (raw as any).data?.metadata != null
+        ) {
+          existing = (raw as any).data;
+        } else {
+          existing =
+            (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+        }
+        urlUsed = url;
+        break;
+      } catch (e: any) {
+        lastErr = e;
+      }
+    }
+
+    if (!existing || !urlUsed) {
+      if (lastErr) {
+        console.warn('[dingtalk-receiver] restart alertmanager-webhook-dingtalk: get deployment failed:', lastErr);
+      }
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const template = (existing as any).spec?.template || {};
+    const templateMeta = template.metadata || {};
+    const templateAnnotations = templateMeta.annotations || {};
+    const patched: any = {
+      ...existing,
+      spec: {
+        ...(existing as any).spec,
+        template: {
+          ...template,
+          metadata: {
+            ...templateMeta,
+            annotations: {
+              ...templateAnnotations,
+              'compute-tower.io/restarted-at': now,
+            },
+          },
+        },
+      },
+    };
+
+    try {
+      await requestJson('PUT', urlUsed, conn.token, conn.insecure, patched);
+    } catch (e: any) {
+      console.warn('[dingtalk-receiver] restart alertmanager-webhook-dingtalk: update deployment failed:', e);
+    }
+  }
+
   /** 同步 dingtalkWebhookConfig：更新 ConfigMap targets，原子性与 DB 操作配合。先 GET 再修改再 PUT，resourceVersion 来自同一次 GET；若 PUT 返回 409（旧数据）则重试。 */
   async function syncDingtalkWebhookConfig(
     conn: { origin: string; token: string; insecure: boolean },
@@ -743,6 +824,8 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
         data: { [DINGTALK_CONFIG_KEY]: nextYaml },
       };
       await requestJson('POST', `${conn.origin}/${CONFIGMAPS_BASE}`, conn.token, conn.insecure, payload);
+      // ConfigMap 首次创建成功后，滚动更新 alertmanager-webhook-dingtalk，以便加载最新配置
+      await restartDingtalkWebhookDeployment(conn);
       return;
     }
 
@@ -760,6 +843,8 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       };
       try {
         await requestJson('PUT', getUrl, conn.token, conn.insecure, payload);
+        // ConfigMap 更新成功后，滚动更新 alertmanager-webhook-dingtalk，以便加载最新配置
+        await restartDingtalkWebhookDeployment(conn);
         return;
       } catch (e: any) {
         const status = Number((e as any)?.status ?? (e as any)?.statusCode ?? 0);
