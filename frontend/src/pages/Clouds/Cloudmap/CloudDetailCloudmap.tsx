@@ -22,16 +22,18 @@ import LoadBalancersSection from '../Harvester/sections/LoadBalancersSection';
 import IPPoolsSection from '../Harvester/sections/IPPoolsSection';
 import ClusterNetworksSection from '../Harvester/sections/ClusterNetworksSection';
 import RecycleBinSection from '../Harvester/sections/RecycleBinSection';
+import PciDevicesSection from '../Harvester/sections/PciDevicesSection';
+import UsbDevicesSection from '../Harvester/sections/UsbDevicesSection';
 // 重新编译触发引入
 import NamespacesTab from '../Harvester/sections/NamespacesTab';
-import { CloudUploadOutlined, CloudServerOutlined, GlobalOutlined, HddOutlined, NodeIndexOutlined, CameraOutlined, ClusterOutlined, ReloadOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, AppstoreOutlined, LoginOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import VmSection from '../Harvester/sections/VmSection';
 import TemplatesSection from '../Harvester/sections/TemplatesSection';
@@ -131,6 +133,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const [harvesterTemplates, setHarvesterTemplates] = useState<any[]>([]); // 虚拟机模板
   const [harvesterScheduleVmBackups, setHarvesterScheduleVmBackups] = useState<any[]>([]); // 定时备份策略
   const [harvesterGpuResources, setHarvesterGpuResources] = useState<any[]>([]); // GPU 资源
+  const [harvesterUsbDevices, setHarvesterUsbDevices] = useState<any[]>([]); // USB 资源
+  const [harvesterPciDevices, setHarvesterPciDevices] = useState<any[]>([]); // PCI 设备
 
   // --- UI 交互状态 ---
   const [vmReconfOpen, setVmReconfOpen] = useState(false); // 虚拟机配额调整模态框开关
@@ -152,6 +156,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const [rawSnatRules, setRawSnatRules] = useState<any | null>(null);
   const [rawDnatRules, setRawDnatRules] = useState<any | null>(null);
   const [rawGpu, setRawGpu] = useState<any | null>(null);
+  const [rawUsbDevices, setRawUsbDevices] = useState<any | null>(null);
+  const [rawPciDevices, setRawPciDevices] = useState<any | null>(null);
   const [rawNamespaces, setRawNamespaces] = useState<any | null>(null);
   const [rawSnapshots, setRawSnapshots] = useState<any | null>(null);
   const [rawBackups, setRawBackups] = useState<any | null>(null);
@@ -408,6 +414,24 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
               }, force);
             }
             break;
+          case 'usb_devices':
+            if (checkPerm('clouds.instances:read')) {
+              loadResource('usbDevices', () => fetchHarvesterUsbResources(cloudId, force), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                setHarvesterUsbDevices(Array.isArray(list) ? list : []);
+                setRawUsbDevices(json || null);
+              }, force);
+            }
+            break;
+          case 'pci_devices':
+            if (checkPerm('clouds.instances:read')) {
+              loadResource('pciDevices', () => fetchHarvesterPciDevices(cloudId, force), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
+                setHarvesterPciDevices(Array.isArray(list) ? list : []);
+                setRawPciDevices(json || null);
+              }, force);
+            }
+            break;
           case 'load_balancers':
             if (checkPerm('clouds.loadbalancers:read')) {
               loadResource('loadBalancers', () => fetchHarvesterLoadBalancers(cloudId, force), (json) => {
@@ -589,6 +613,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
 
       // 内层 Tabs 映射
       if (key === 'cluster_services') { loadTabResource('services'); return; }
+      if (key === 'cluster_usb') { loadTabResource('usb_devices'); return; }
+      if (key === 'cluster_pci') { loadTabResource('pci_devices'); return; }
       if (key === 'load_balancers') { loadTabResource('load_balancers'); return; }
       if (key === 'kubeovn_eips') { loadTabResource('eips'); return; }
       if (key === 'kubeovn_fips') { loadTabResource('fips'); return; }
@@ -891,23 +917,9 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
           onChange={handleTabChange}
           items={[
             {
-              key: 'Overview',
+              key: 'overview',
               label: '资源总览',
-              children: (
-                <Tabs
-                  defaultActiveKey="overview"
-                  tabPosition="top"
-                  type="line"
-                  destroyInactiveTabPane
-                  items={[
-                    {
-                      key: 'overview',
-                      label: '概览',
-                      children: <MonitoringOverview cloudId={cloudId} />,
-                    },
-                  ]}
-                />
-              )
+              children: <MonitoringOverview cloudId={cloudId} />
             },
             {
               key: 'monitoring-alerts',
@@ -1050,11 +1062,23 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       key: 'gpu',
                       label: 'GPU',
                       children: (<GpusSection cloudId={cloudId} resources={harvesterGpuResources} onRefresh={refreshGpu} raw={rawGpu} showLog={showLog} />)
-                    }
+                    },
+                    {
+                      key: 'cluster_usb',
+                      label: 'USB',
+                      children: (<UsbDevicesSection cloudId={cloudId} usbDevices={harvesterUsbDevices} loading={resourceLoading.usbDevices} onRefresh={() => loadTabResource('usb_devices', true)} raw={rawUsbDevices} showLog={showLog} bordered={false} />)
+                    },
+                    {
+                      key: 'cluster_pci',
+                      label: 'PCI 设备',
+                      children: (<PciDevicesSection cloudId={cloudId} devices={harvesterPciDevices} loading={resourceLoading.pciDevices} onRefresh={() => loadTabResource('pci_devices', true)} raw={rawPciDevices} showLog={showLog} bordered={false} />)
+                    },
                   ].filter((i:any) => {
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.nodes:read');
                       if (i.key === 'cluster_services') return checkPerm('clouds.services:read');
                       if (i.key === 'cluster_networks') return checkPerm('clouds.networks:read');
+                      if (i.key === 'cluster_usb') return checkPerm('clouds.instances:read');
+                      if (i.key === 'cluster_pci') return checkPerm('clouds.instances:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
                       if (i.key === 'storage_classes') return checkPerm('clouds.volumes:read');
                       if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read');

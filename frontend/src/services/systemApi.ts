@@ -1,4 +1,4 @@
-import { apiRequest, apiPost, apiPatch, apiUpload } from './api';
+import { apiRequest, apiPatch, apiUpload } from './api';
 
 const API_BASE = '/api/system';
 const API_THREATS = '/api/threats';

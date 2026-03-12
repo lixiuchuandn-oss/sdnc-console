@@ -298,7 +298,7 @@ const updateHarvesterVMSpecInternal = async (
   // 1. 变更规格（change_spec）：传递 cpu, memory, cpuSockets, cpuCores, cpuThreads
   // 2. 热扩容开关（hotplug_settings）：传递 enableHotPlug, maxSockets, maxMemory
   // 这两个功能传递的所有字段都在此白名单中，因此都会走简单路径，不会走到复杂路径
-  const simpleFields = ['cpu', 'memory', 'enableHotPlug', 'cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 'isolateEmulatorThread', 'cpuRequest', 'cpuLimit', 'memoryRequestGi', 'memoryLimitGi', 'memoryLimit', 'runStrategy', 'maxSockets', 'maxMemory'];
+  const simpleFields = ['cpu', 'memory', 'enableHotPlug', 'cpuSockets', 'cpuCores', 'cpuThreads', 'dedicatedCPUPlacement', 'isolateEmulatorThread', 'cpuRequest', 'cpuLimit', 'memoryRequestGi', 'memoryLimitGi', 'memoryLimit', 'runStrategy', 'evictionStrategy', 'maxSockets', 'maxMemory'];
   const hasComplexFields = Object.keys(spec).some(k => !simpleFields.includes(k));
   
   if (!hasComplexFields) {
@@ -680,15 +680,25 @@ const updateHarvesterVMSpecInternal = async (
       }
       
       // 5. RunStrategy
-      if (spec.runStrategy) {
+      // [重要] runStrategy 和 running 字段是互斥的，不能同时设置
+      // 如果设置了 runStrategy，需要移除 running 字段（如果存在）
+      if (spec.runStrategy !== undefined) {
           const currentRunStrategy = current?.spec?.runStrategy;
           if (currentRunStrategy !== spec.runStrategy) {
               patch.spec.runStrategy = spec.runStrategy;
           }
-          const currentRunning = current?.spec?.running;
-          const desiredRunning = spec.runStrategy !== 'Halted';
-          if (currentRunning !== desiredRunning) {
-              patch.spec.running = desiredRunning;
+          // 如果当前 VM 有 running 字段，需要移除它（因为 runStrategy 和 running 互斥）
+          if (current?.spec?.running !== undefined) {
+              patch.spec.running = null; // 设置为 null 表示删除该字段
+          }
+      }
+
+      // 6. EvictionStrategy
+      if (spec.evictionStrategy !== undefined) {
+          const currentEvictionStrategy = current?.spec?.evictionStrategy ?? current?.spec?.template?.spec?.evictionStrategy;
+          const nextEvictionStrategy = spec.evictionStrategy;
+          if (currentEvictionStrategy !== nextEvictionStrategy) {
+              patch.spec.evictionStrategy = nextEvictionStrategy;
           }
       }
 
@@ -1516,35 +1526,158 @@ const updateHarvesterVMSpecInternal = async (
       domain.resources.limits.memory = spec.memoryLimit;
   }
 
+  const currentHostDevices = Array.isArray(current?.spec?.template?.spec?.domain?.devices?.hostDevices)
+    ? current.spec.template.spec.domain.devices.hostDevices
+    : [];
+  const isUsbHostDevice = (d: any) => {
+      const dn = String(d?.deviceName || '').toLowerCase();
+      const n = String(d?.name || '').toLowerCase();
+      return n.startsWith('usb') || dn.includes('usb');
+  };
+  const isGpuLikeHostDevice = (d: any) => {
+      if (isUsbHostDevice(d)) return false;
+      const dn = String(d?.deviceName || '').toLowerCase();
+      const n = String(d?.name || '').toLowerCase();
+      if (n.startsWith('gpu')) return true;
+      if (dn.startsWith('nvidia.com/')) return true;
+      return false;
+  };
+  const hostDevicesOther = currentHostDevices.filter((d: any) => !isGpuLikeHostDevice(d) && !isUsbHostDevice(d));
+  let nextGpuHostDevices = currentHostDevices.filter((d: any) => isGpuLikeHostDevice(d));
+  let nextUsbHostDevices = currentHostDevices.filter((d: any) => isUsbHostDevice(d));
+  let shouldUpdateHostDevices = false;
+
   // --- 5. [硬件设备] GPU 配置 ---
   // ---------------------------------------------------------
-  // Harvester 支持将物理 GPU 透传给虚拟机。
+  // Harvester 支持将物理 GPU 透传 (hostDevices) 或 vGPU (gpus) 给虚拟机。
   // ---------------------------------------------------------
   if (spec.gpuResourceNames !== undefined || spec.gpuResourceName !== undefined) {
       if (!domain.devices) domain.devices = {};
+      shouldUpdateHostDevices = true;
       const rawList = (spec.gpuResourceNames !== undefined)
         ? (Array.isArray(spec.gpuResourceNames) ? spec.gpuResourceNames : [])
         : (!spec.gpuResourceName ? [] : [spec.gpuResourceName]);
       const names: string[] = Array.from(new Set<string>(rawList.map((x: any) => String(x || '').trim()).filter(Boolean)));
       const mode = String(spec.gpuMode || '').toLowerCase();
       const useGpus = mode === 'vgpu';
+      const allocationProvided = (spec as any).gpuDeviceNames !== undefined || (spec as any).gpuDeviceName !== undefined;
+      const rawDeviceNames = ((spec as any).gpuDeviceNames !== undefined)
+        ? (Array.isArray((spec as any).gpuDeviceNames) ? (spec as any).gpuDeviceNames : [])
+        : (!(spec as any).gpuDeviceName ? [] : [(spec as any).gpuDeviceName]);
+      const deviceNames = rawDeviceNames.map((x: any) => String(x || '').trim());
+      const hasAllocation = deviceNames.length === names.length && deviceNames.every((x: any) => !!String(x || '').trim());
 
       if (names.length === 0) {
-          delete domain.devices.gpus;
-          delete domain.devices.hostDevices;
+          domain.devices.gpus = [];
+          nextGpuHostDevices = [];
       } else if (useGpus) {
-          delete domain.devices.hostDevices;
           domain.devices.gpus = names.map((n: string, idx: number) => ({
               name: `gpu-${idx + 1}`,
               deviceName: n,
           }));
+          nextGpuHostDevices = [];
       } else {
-          delete domain.devices.gpus;
-          domain.devices.hostDevices = names.map((n: string, idx: number) => ({
-              name: `gpu-${idx + 1}`,
+          domain.devices.gpus = [];
+          nextGpuHostDevices = names.map((n: string, idx: number) => ({
+              name: hasAllocation ? deviceNames[idx] : `gpu-${idx + 1}`,
               deviceName: n,
           }));
       }
+      if (allocationProvided) {
+          if (!newSpec.metadata) newSpec.metadata = {};
+          if (!newSpec.metadata.annotations) newSpec.metadata.annotations = {};
+          if (useGpus || names.length === 0 || !hasAllocation) {
+              (newSpec.metadata.annotations as any)['harvesterhci.io/deviceAllocationDetails'] = null;
+          } else {
+              const hostdevices: any = {};
+              names.forEach((rn: string, idx: number) => {
+                  const dn = deviceNames[idx];
+                  if (!dn) return;
+                  if (!hostdevices[rn]) hostdevices[rn] = [];
+                  hostdevices[rn].push(dn);
+              });
+              newSpec.metadata.annotations['harvesterhci.io/deviceAllocationDetails'] = JSON.stringify({ hostdevices });
+          }
+      }
+  }
+
+  // --- 4.5 [节点调度] 节点选择器配置 ---
+  // ---------------------------------------------------------
+  // 处理节点调度逻辑（独立于 GPU 配置）
+  // 支持：指定主机模式、标签选择模式、自动调度模式
+  // ---------------------------------------------------------
+  const gpuNodeName = spec.gpuNodeName;
+  const nodeSelectorOverride = spec.nodeSelector; // 节点调度功能的 nodeSelector
+  
+  // [重要] 使用 nodeSelector 而不是 nodeAffinity 来固定节点
+  // 原因：Harvester 的 mutator 会清除 nodeAffinity 中的 kubernetes.io/hostname
+  // 但 nodeSelector 不会被清除，所以应该使用 nodeSelector
+  
+  // 处理节点调度逻辑
+  // 优先级：nodeSelectorOverride > gpuNodeName
+  // 如果 nodeSelectorOverride 为 null，表示要清空所有 nodeSelector
+  if (nodeSelectorOverride !== undefined) {
+      // 节点调度功能：直接使用提供的 nodeSelector（指定主机或标签选择模式）
+      console.log(`🔧 [节点调度] nodeSelectorOverride:`, JSON.stringify(nodeSelectorOverride));
+      console.log(`🔧 [节点调度] 当前 newSpec.template.spec.nodeSelector:`, JSON.stringify(newSpec.template.spec.nodeSelector));
+      
+      if (nodeSelectorOverride && typeof nodeSelectorOverride === 'object' && Object.keys(nodeSelectorOverride).length > 0) {
+          // 设置 nodeSelector - 确保完全覆盖原有值
+          // 先删除原有的 nodeSelector，再设置新的值，避免对象引用问题
+          if (newSpec.template.spec.nodeSelector) {
+              delete newSpec.template.spec.nodeSelector;
+          }
+          newSpec.template.spec.nodeSelector = JSON.parse(JSON.stringify(nodeSelectorOverride));
+          console.log(`✅ [节点调度] 已设置 nodeSelector:`, JSON.stringify(newSpec.template.spec.nodeSelector));
+      } else {
+          // 清空 nodeSelector（自动调度模式）
+          newSpec.template.spec.nodeSelector = undefined;
+          console.log(`✅ [节点调度] 已清空 nodeSelector`);
+      }
+  } else if (gpuNodeName !== undefined) {
+      // GPU 功能专用：GPU 节点固定逻辑
+      if (gpuNodeName === null || gpuNodeName === undefined) {
+          // 清除节点固定：移除 nodeSelector 中的 hostname
+          // 注意：null 和 undefined 都表示不需要固定节点
+          if (newSpec.template.spec.nodeSelector?.['kubernetes.io/hostname']) {
+              if (!newSpec.template.spec.nodeSelector) {
+                  newSpec.template.spec.nodeSelector = {};
+              }
+              delete newSpec.template.spec.nodeSelector['kubernetes.io/hostname'];
+              // 如果 nodeSelector 为空，设置为 undefined
+              if (Object.keys(newSpec.template.spec.nodeSelector).length === 0) {
+                  newSpec.template.spec.nodeSelector = undefined;
+              }
+          }
+      } else {
+          // 设置节点固定：使用 nodeSelector
+          const n = String(gpuNodeName || '').trim();
+          if (n) {
+              if (!newSpec.template.spec.nodeSelector) {
+                  newSpec.template.spec.nodeSelector = {};
+              }
+              newSpec.template.spec.nodeSelector['kubernetes.io/hostname'] = n;
+          }
+      }
+  }
+
+  // --- 5.1 [硬件设备] USB 配置 ---
+  if (spec.usbResourceNames !== undefined || spec.usbResourceName !== undefined) {
+      if (!domain.devices) domain.devices = {};
+      shouldUpdateHostDevices = true;
+      const rawList = (spec.usbResourceNames !== undefined)
+        ? (Array.isArray(spec.usbResourceNames) ? spec.usbResourceNames : [])
+        : (!spec.usbResourceName ? [] : [spec.usbResourceName]);
+      const names: string[] = Array.from(new Set<string>(rawList.map((x: any) => String(x || '').trim()).filter(Boolean)));
+      nextUsbHostDevices = names.map((n: string, idx: number) => ({
+          name: `usb-${idx + 1}`,
+          deviceName: n,
+      }));
+  }
+
+  if (shouldUpdateHostDevices) {
+      if (!domain.devices) domain.devices = {};
+      domain.devices.hostDevices = [...hostDevicesOther, ...nextGpuHostDevices, ...nextUsbHostDevices];
   }
 
   // --- 6. [网络配置] 多网卡 (Multus Networks) ---
@@ -1560,6 +1693,58 @@ const updateHarvesterVMSpecInternal = async (
       domain.devices.interfaces = spec.interfaces;
   }
 
+  // --- 7. [运行策略] RunStrategy 和 EvictionStrategy ---
+  // [重要] runStrategy 和 running 字段是互斥的，不能同时设置
+  // 如果设置了 runStrategy，需要移除 running 字段（如果存在）
+  if (spec.runStrategy !== undefined) {
+      newSpec.runStrategy = spec.runStrategy;
+      // 如果当前 VM 有 running 字段，需要移除它（因为 runStrategy 和 running 互斥）
+      if (current?.spec?.running !== undefined) {
+          newSpec.running = undefined; // 设置为 undefined，merge-patch 会删除该字段
+      }
+  }
+  
+  if (spec.evictionStrategy !== undefined) {
+      if (!newSpec.template.spec) newSpec.template.spec = {};
+      newSpec.template.spec.evictionStrategy = spec.evictionStrategy;
+  }
+
+  // --- 8. [节点亲和性] Affinity 配置 ---
+  // ---------------------------------------------------------
+  // 处理节点亲和性（nodeAffinity）配置
+  // 注意：nodeAffinity 和 nodeSelector 可以同时存在
+  // nodeAffinity 通常用于更复杂的调度规则（如网络标签要求）
+  // ---------------------------------------------------------
+  if (spec.affinity !== undefined) {
+      if (!newSpec.template.spec) newSpec.template.spec = {};
+      
+      if (spec.affinity === null || spec.affinity === undefined) {
+          // 清空 affinity
+          newSpec.template.spec.affinity = undefined;
+      } else if (spec.affinity && typeof spec.affinity === 'object') {
+          // 设置 affinity
+          if (!newSpec.template.spec.affinity) {
+              newSpec.template.spec.affinity = {};
+          }
+          // 合并 nodeAffinity（保留其他 affinity 配置如 podAffinity）
+          if (spec.affinity.nodeAffinity) {
+              newSpec.template.spec.affinity.nodeAffinity = JSON.parse(JSON.stringify(spec.affinity.nodeAffinity));
+          } else {
+              // 如果没有 nodeAffinity，清空它
+              if (newSpec.template.spec.affinity.nodeAffinity) {
+                  delete newSpec.template.spec.affinity.nodeAffinity;
+              }
+              // 如果 affinity 为空，设置为 undefined
+              if (Object.keys(newSpec.template.spec.affinity).length === 0) {
+                  newSpec.template.spec.affinity = undefined;
+              }
+          }
+      }
+  }
+
+  // 在构建 body 前，再次确认 nodeSelector 的值
+  console.log(`🔍 [构建 body 前] newSpec.template.spec.nodeSelector:`, JSON.stringify(newSpec.template.spec.nodeSelector));
+  
   const body = {
     metadata: newSpec.metadata,
     spec: newSpec,

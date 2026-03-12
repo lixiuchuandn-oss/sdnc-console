@@ -54,7 +54,6 @@ const ChangePrimaryNic: React.FC<Props> = ({
 
   return (
     <>
-       <div style={{ marginBottom: 16, color: '#999' }}>变更主网卡将修改 eth0 接口配置（需重启生效）</div>
        <Row gutter={12}>
           <Col span={8}>
             <Form.Item label="网络类型" name="netMode" initialValue="flat" rules={[{ required: true, message: '请选择网络类型' }]}>

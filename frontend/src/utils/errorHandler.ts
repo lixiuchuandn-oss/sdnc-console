@@ -42,6 +42,27 @@ export const handleApiError = (
     message: defaultMessage,
   };
 
+  const translateKnownMessage = (raw: string) => {
+    const msg = String(raw || '').trim();
+    if (!msg) return raw;
+    const lower = msg.toLowerCase();
+    if (
+      /runstategy\s+halted.*manual restart/i.test(msg) ||
+      /runstrategy\s+halted.*manual restart/i.test(msg) ||
+      (lower.includes('virtualmachine.kubevirt.io') && lower.includes('runstategy halted')) ||
+      (lower.includes('virtualmachine.kubevirt.io') && lower.includes('runstrategy halted'))
+    ) {
+      let vm = '';
+      const m1 = msg.match(/restart virtual machine\s+([^\s]+)\s+failed/i);
+      if (m1?.[1]) vm = String(m1[1]);
+      const m2 = msg.match(/virtualmachine\.kubevirt\.io\s+"([^"]+)"/i);
+      if (!vm && m2?.[1]) vm = String(m2[1]);
+      const head = vm ? `实例 ${vm} ` : '实例 ';
+      return `${head}运行策略为 Halted（保持停止），不支持重启。请先启动实例或将运行策略调整为允许运行后再重试。`;
+    }
+    return raw;
+  };
+
   // 处理 Fetch API Response 错误（同步处理，因为 Response.json() 是异步的）
   // 注意：这种情况通常不会直接传入 Response，而是通过其他方式处理
 
@@ -50,7 +71,7 @@ export const handleApiError = (
     const { status, data } = error.response;
     apiError.status = status;
     apiError.data = data;
-    apiError.message = data?.message || data?.error || getStatusMessage(status);
+    apiError.message = translateKnownMessage(data?.message || data?.error || getStatusMessage(status));
     
     // 特殊状态码处理
     handleSpecialStatus(status, apiError.message);
@@ -83,7 +104,7 @@ export const handleApiError = (
 
   // 处理普通 Error 对象
   if (error instanceof Error) {
-    apiError.message = error.message || defaultMessage;
+    apiError.message = translateKnownMessage(error.message || defaultMessage);
     
     if (showMessage) {
       message.error(apiError.message);
@@ -98,7 +119,7 @@ export const handleApiError = (
 
   // 处理字符串错误
   if (typeof error === 'string') {
-    apiError.message = error;
+    apiError.message = translateKnownMessage(error);
     
     if (showMessage) {
       message.error(apiError.message);

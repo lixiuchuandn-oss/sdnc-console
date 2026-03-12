@@ -8,7 +8,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
 // 数据来源统一通过后端接口（axios）获取，并在切换组织/租户时刷新。
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Alert, List, Tag, Tooltip } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';

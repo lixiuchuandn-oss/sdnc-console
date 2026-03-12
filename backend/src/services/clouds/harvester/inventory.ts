@@ -396,9 +396,19 @@ export const syncHarvesterUsbResources = async (cloud: any, insecure: boolean) =
     uid: item.resourceName, // Using resourceName as unique ID
     resourceName: item.resourceName,
     name: item.name,
-    vendorId: item.vendorId,
-    productId: item.productId,
-    description: (item.raw as any)?.description || item.name,
+    vendorId:
+      item.vendorId ||
+      (item.raw as any)?.status?.vendorID ||
+      (item.raw as any)?.status?.vendorId ||
+      (item.raw as any)?.spec?.vendorID ||
+      (item.raw as any)?.spec?.vendorId,
+    productId:
+      item.productId ||
+      (item.raw as any)?.status?.productID ||
+      (item.raw as any)?.status?.productId ||
+      (item.raw as any)?.spec?.productID ||
+      (item.raw as any)?.spec?.productId,
+    description: item.description || (item.raw as any)?.status?.description || (item.raw as any)?.spec?.description || (item.raw as any)?.description || item.name,
     rawData: item.raw,
   }));
 };

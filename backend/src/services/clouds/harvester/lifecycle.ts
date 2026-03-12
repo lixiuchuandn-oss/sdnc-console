@@ -1044,9 +1044,14 @@ export const harvesterRestoreVM = async (
   // 获取当前VM
   const vm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
   const finalizers = vm?.metadata?.finalizers || [];
+  const annotations = (vm?.metadata?.annotations || {}) as Record<string, any>;
+  const labels = (vm?.metadata?.labels || {}) as Record<string, any>;
   const recycleBinFinalizer = 'tower.io/recycle-bin';
   
-  if (!finalizers.includes(recycleBinFinalizer)) {
+  if (
+    !finalizers.includes(recycleBinFinalizer) &&
+    labels['tower.io/recycle-bin'] !== 'true'
+  ) {
     throw new Error('该虚拟机不在回收站中');
   }
 
@@ -1060,17 +1065,23 @@ export const harvesterRestoreVM = async (
   }
   
   // 移除删除相关的Annotation
-  patchBody.push(
-    { op: 'remove', path: '/metadata/annotations/tower.io~1deletion-scheduled' },
-    { op: 'remove', path: '/metadata/annotations/tower.io~1deletion-expires' },
-    { op: 'remove', path: '/metadata/annotations/tower.io~1deletion-protection-days' }
-  );
+  if (Object.prototype.hasOwnProperty.call(annotations, 'tower.io/deletion-scheduled')) {
+    patchBody.push({ op: 'remove', path: '/metadata/annotations/tower.io~1deletion-scheduled' });
+  }
+  if (Object.prototype.hasOwnProperty.call(annotations, 'tower.io/deletion-expires')) {
+    patchBody.push({ op: 'remove', path: '/metadata/annotations/tower.io~1deletion-expires' });
+  }
+  if (Object.prototype.hasOwnProperty.call(annotations, 'tower.io/deletion-protection-days')) {
+    patchBody.push({ op: 'remove', path: '/metadata/annotations/tower.io~1deletion-protection-days' });
+  }
   
   // 移除删除相关的Label
-  patchBody.push(
-    { op: 'remove', path: '/metadata/labels/tower.io~1recycle-bin' },
-    { op: 'remove', path: '/metadata/labels/tower.io~1deletion-status' }
-  );
+  if (Object.prototype.hasOwnProperty.call(labels, 'tower.io/recycle-bin')) {
+    patchBody.push({ op: 'remove', path: '/metadata/labels/tower.io~1recycle-bin' });
+  }
+  if (Object.prototype.hasOwnProperty.call(labels, 'tower.io/deletion-status')) {
+    patchBody.push({ op: 'remove', path: '/metadata/labels/tower.io~1deletion-status' });
+  }
 
   const patchUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachines/${encodeURIComponent(path.name)}`;
   const result = await requestJson('PATCH', patchUrl, token, insecure, patchBody, {

@@ -19,6 +19,7 @@ interface Props {
   vpcs: any[];
   subnets: any[];
   ecs: any[];
+  images?: any[];
   volumes?: any[];
   snapshots?: any[];
   backups?: any[];
@@ -34,6 +35,9 @@ interface Props {
   onStart: (iid: string) => void;
   onStop: (iid: string) => void;
   onReboot: (iid: string) => void;
+  onSoftReboot?: (iid: string) => void;
+  onPause?: (iid: string) => void;
+  onUnpause?: (iid: string) => void;
   onDelete: (iid: string, deleteImage?: boolean) => void;
   bordered?: boolean; // New prop
 }
@@ -44,6 +48,7 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   vpcs,
   subnets,
   ecs,
+  images = [],
   volumes = [],
   snapshots = [],
   backups = [],
@@ -58,6 +63,9 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   onStart,
   onStop,
   onReboot,
+  onSoftReboot,
+  onPause,
+  onUnpause,
   onDelete,
   bordered = true // Default to true
 }) => {
@@ -75,10 +83,21 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   const [nsValue, setNsValue] = useState<string | undefined>(undefined);
   const [nodeValue, setNodeValue] = useState<string | undefined>(undefined);
 
+  useEffect(() => {
+    setNsValue(undefined);
+    setNodeValue(undefined);
+    setActiveCategory('compute');
+    setActiveResource('vm');
+  }, [vpcName]);
+
   // Find current VPC object
   const currentVpc = useMemo(() => {
     return vpcs.find(v => v.metadata?.name === vpcName || v.name === vpcName);
   }, [vpcs, vpcName]);
+
+  const resolvedVpcName = useMemo(() => {
+    return currentVpc?.metadata?.name || currentVpc?.name || vpcName;
+  }, [currentVpc, vpcName]);
 
   // Get VPC bound namespaces
   const vpcNamespaces = useMemo(() => {
@@ -91,30 +110,53 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   const mySubnets = useMemo(() => {
     return subnets.filter(s => {
         const vpc = s.spec?.vpc || s.vpc;
-        return vpc === vpcName;
+        return vpc === resolvedVpcName || vpc === vpcName;
     });
-  }, [subnets, vpcName]);
+  }, [subnets, resolvedVpcName, vpcName]);
+
+  const vpcSubnetNetworkNameSet = useMemo(() => {
+    const set = new Set<string>();
+    (mySubnets || []).forEach((s: any) => {
+      const name = s?.metadata?.name || s?.name || '';
+      const ns = s?.metadata?.namespace || s?.namespace || '';
+      if (name) set.add(String(name));
+      if (ns && name) set.add(`${String(ns)}/${String(name)}`);
+    });
+    return set;
+  }, [mySubnets]);
 
   // Filter ECS by VPC namespaces
   const myEcs = useMemo(() => {
     return ecs.filter(e => {
-        // 1. Check strict annotation
-        if (e.metadata?.annotations?.['ovn.kubernetes.io/vpc'] === vpcName) return true;
-        
-        // 2. Check namespace (common in multi-tenant)
-        if (e.metadata?.namespace === vpcName) return true;
+        const ecsNs = e?.metadata?.namespace || e?.namespace || '';
+        const ann = e?.metadata?.annotations || {};
+        const vpcAnnot = ann['kubeovn.io/vpc'] || ann['ovn.kubernetes.io/vpc'] || '';
 
-        // 3. Check if ECS namespace matches any of our subnets' namespace
-        // (If subnets are namespaced and belong to this VPC)
-        const ecsNs = e.metadata?.namespace;
-        if (mySubnets.some(s => s.metadata?.namespace === ecsNs)) return true;
+        if (vpcAnnot && (vpcAnnot === resolvedVpcName || vpcAnnot === vpcName)) return true;
 
-        // 4. Check if ECS namespace is in VPC bound namespaces
-        if (vpcNamespaces.length > 0 && ecsNs && vpcNamespaces.includes(ecsNs)) return true;
+        if (vpcSubnetNetworkNameSet.size > 0) {
+          const vmNs = e?.metadata?.namespace || e?.namespace || 'default';
+          const networks = e?.spec?.template?.spec?.networks || [];
+          const multusNames = (networks || []).map((n: any) => n?.multus?.networkName).filter(Boolean) as string[];
+
+          return multusNames.some((raw: string) => {
+            const parts = String(raw).split('/');
+            const targetNs = parts.length > 1 ? parts[0] : vmNs;
+            const targetName = parts.length > 1 ? parts[1] : parts[0];
+            if (!targetName) return false;
+            if (vpcSubnetNetworkNameSet.has(`${targetNs}/${targetName}`)) return true;
+            if (vpcSubnetNetworkNameSet.has(targetName)) return true;
+            return false;
+          });
+        }
+
+        if (vpcNamespaces.length > 0) {
+          return !!ecsNs && vpcNamespaces.includes(ecsNs);
+        }
 
         return false;
     });
-  }, [ecs, vpcName, mySubnets, vpcNamespaces]);
+  }, [ecs, resolvedVpcName, vpcName, vpcSubnetNetworkNameSet, vpcNamespaces]);
 
   // Filter Volumes by VPC namespaces
   const myVolumes = useMemo(() => {
@@ -140,8 +182,9 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
     return backups.filter((b: any) => {
       const raw = b.rawData || b;
       const targetName = raw.spec?.source?.name || b.targetVm;
+      const targetNs = raw.spec?.source?.namespace || raw.metadata?.namespace || b.namespace || '';
       // Find the VM and check its namespace
-      const vm = myEcs.find((v: any) => v.metadata?.name === targetName);
+      const vm = myEcs.find((v: any) => v.metadata?.name === targetName && (v.metadata?.namespace || v.namespace || '') === targetNs);
       if (vm) {
         const vmNs = vm.metadata?.namespace || vm.namespace || '';
         return vmNs && vpcNamespaces.includes(vmNs);
@@ -257,6 +300,7 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
         return (
           <VmSection 
             vms={myEcs}
+            images={images}
             loading={!!parentLoading}
             namespacesOptions={namespacesOptions}
             nodesOptions={nodesOptions}
@@ -270,6 +314,9 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
             onStart={onStart}
             onStop={onStop}
             onReboot={onReboot}
+            onSoftReboot={onSoftReboot}
+            onPause={onPause}
+            onUnpause={onUnpause}
             onDelete={onDelete}
             isTenant={true}
             bordered={bordered}
@@ -401,51 +448,46 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
     setActiveResource(resKey);
   }, []);
 
-  const tabItems = useMemo(() => {
-    return tabConfig.map(cat => {
-      const isActive = cat.key === activeCategory;
-      // [展示规则] 未选中时展示默认资源标签；选中时展示当前 activeResource 标签
-      const currentResKey = isActive ? activeResource : cat.resources[0].key;
-      const currentResLabel = cat.resources.find(r => r.key === currentResKey)?.label || cat.resources[0].label;
+  const tabItems = tabConfig.map(cat => {
+    const isActive = cat.key === activeCategory;
+    const currentResKey = isActive ? activeResource : cat.resources[0].key;
+    const currentResLabel = cat.resources.find(r => r.key === currentResKey)?.label || cat.resources[0].label;
 
-      return {
-        key: cat.key,
-        label: (
-          <Space size={4} align="center">
-            <span>{cat.label} {currentResLabel}</span>
-            <Dropdown
-              menu={{
-                items: cat.resources.map(res => ({
-                  key: res.key,
-                  label: res.label,
-                  onClick: (e: any) => {
-                    e.domEvent.stopPropagation();
-                    handleResourceChange(cat.key, res.key);
-                  }
-                })),
-                selectedKeys: [isActive ? activeResource : '']
-              }}
-              trigger={['click']}
+    return {
+      key: cat.key,
+      label: (
+        <Space size={4} align="center">
+          <span>{cat.label} {currentResLabel}</span>
+          <Dropdown
+            menu={{
+              items: cat.resources.map(res => ({
+                key: res.key,
+                label: res.label,
+                onClick: (e: any) => {
+                  e.domEvent.stopPropagation();
+                  handleResourceChange(cat.key, res.key);
+                }
+              })),
+              selectedKeys: [isActive ? activeResource : '']
+            }}
+            trigger={['click']}
+          >
+            <span
+              onClick={(e) => e.stopPropagation()}
+              className="cloud-console-harvester-dropdown-trigger"
             >
-              <span 
-                onClick={(e) => e.stopPropagation()} 
-                className="cloud-console-harvester-dropdown-trigger"
-              >
-                <CaretDownFilled style={{ fontSize: 12 }} />
-              </span>
-            </Dropdown>
-          </Space>
-        ),
-        children: (
-          <div>
-            {isActive ? renderContent() : null}
-          </div>
-        )
-      };
-    });
-    // 只依赖 activeCategory 和 activeResource，避免其他依赖导致无限循环
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabConfig, activeCategory, activeResource, handleResourceChange]);
+              <CaretDownFilled style={{ fontSize: 12 }} />
+            </span>
+          </Dropdown>
+        </Space>
+      ),
+      children: (
+        <div>
+          {isActive ? renderContent() : null}
+        </div>
+      )
+    };
+  });
 
   return (
     <div className="vpc-detail-container" style={{ height: '100%', background: '#fff'}}>

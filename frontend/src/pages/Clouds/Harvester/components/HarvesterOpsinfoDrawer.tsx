@@ -4,7 +4,6 @@ import yaml from 'js-yaml';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
 import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
-import HarvesterEventsTab from './HarvesterEventsTab';
 
 export interface HarvesterResourceDrawerProps {
   open: boolean;

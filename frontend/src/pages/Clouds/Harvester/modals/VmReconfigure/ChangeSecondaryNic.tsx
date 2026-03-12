@@ -1,6 +1,6 @@
 import React from 'react';
 import { Form, Select, Row, Col, Card, Button, Input } from 'antd';
-import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { MinusCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 
 type Props = {
   form: any;
@@ -44,7 +44,17 @@ const ChangeSecondaryNic: React.FC<Props> = ({
 
   return (
     <>
-       <div style={{ marginBottom: 16, color: '#999' }}>变更辅助网卡接口配置（需重启生效）</div>
+       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+         <div style={{ color: '#999' }}>变更辅助网卡接口配置（需重启生效）</div>
+         <Button
+           type="link"
+           icon={<ReloadOutlined />}
+           onClick={() => { reloadNads(); reloadVpcs(); reloadSubnets(); }}
+           style={{ padding: 0 }}
+         >
+           刷新
+         </Button>
+       </div>
        <Form.List name="secondaryNics">
          {(fields, { add, remove }) => (
            <div>

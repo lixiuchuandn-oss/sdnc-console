@@ -52,6 +52,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [type, setType] = useState<'backup' | 'snapshot'>(initialType);
   const [selectedNamespace, setSelectedNamespace] = useState<string>('');
+  const lockToInitialVm = !!initialVm;
 
   // 弹窗打开时重置表单，并根据 initialType 初始化当前类型
   useEffect(() => {
@@ -109,8 +110,9 @@ const VmBackupCreateModal: React.FC<Props> = ({
     }
   };
 
-  // 根据所选命名空间过滤可选 VM；只展示当前命名空间内的虚机
-  const filteredVms = vms.filter(vm => !selectedNamespace || vm.namespace === selectedNamespace || (vm.metadata && vm.metadata.namespace === selectedNamespace));
+  const filteredVms = lockToInitialVm
+    ? [initialVm]
+    : vms.filter(vm => !selectedNamespace || vm.namespace === selectedNamespace || (vm.metadata && vm.metadata.namespace === selectedNamespace));
   // 过滤掉系统命名空间，仅保留业务命名空间
   const filteredNamespaces = namespaces.filter(ns => !isSystemNamespace(ns.metadata?.name || ns.name));
 
@@ -153,6 +155,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
             }}
             showSearch
             optionFilterProp="children"
+            disabled={lockToInitialVm}
           >
             {filteredNamespaces.map(ns => (
               <Select.Option key={ns.metadata.name} value={ns.metadata.name}>
@@ -171,7 +174,7 @@ const VmBackupCreateModal: React.FC<Props> = ({
             placeholder="请选择虚拟机"
             showSearch
             optionFilterProp="children"
-            disabled={!selectedNamespace}
+            disabled={!selectedNamespace || lockToInitialVm}
           >
             {filteredVms.map(vm => {
               const alias = vm.metadata?.annotations?.['tower.io/alias'];

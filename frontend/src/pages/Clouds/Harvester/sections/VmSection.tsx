@@ -51,6 +51,7 @@ import TableColumnSettingsButton from '../../../../components/TableColumnSetting
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
+import VmCloneModal from '../modals/VmCloneModal';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
 import { isPublicNamespace, cnVmStatus, VM_STATUS_MAP } from '../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../components/OsIcon';
@@ -138,6 +139,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const [vmBackupModalVisible, setVmBackupModalVisible] = useState(false);
   const [vmBackupModalType, setVmBackupModalType] = useState<'backup' | 'snapshot'>('backup');
   const [vmBackupModalVm, setVmBackupModalVm] = useState<any>(null);
+
+  // [弹窗控制] 克隆虚拟机
+  const [cloneModalVisible, setCloneModalVisible] = useState(false);
+  const [cloneSourceVm, setCloneSourceVm] = useState<any>(null);
 
   // [筛选] 租户/组织
   const [tenantOrgPath, setTenantOrgPath] = useState<string[]>([]);
@@ -579,8 +584,42 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
     // [字段] GPU 列表
     gpus: (r: any) => {
-        const gpus = r?.spec?.template?.spec?.domain?.devices?.gpus || [];
-        return gpus.map((g: any) => g.name).join(', ');
+        const short = (s: any) => {
+          const v = String(s || '').trim();
+          if (!v) return '';
+          const parts = v.split('/');
+          return parts[parts.length - 1] || v;
+        };
+        let alloc: any = null;
+        try {
+          const raw = r?.metadata?.annotations?.['harvesterhci.io/deviceAllocationDetails'];
+          if (raw) alloc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        } catch { }
+        const hostAlloc = (alloc && alloc.hostdevices) ? alloc.hostdevices : {};
+        const devices = r?.spec?.template?.spec?.domain?.devices || {};
+        const hostDevices = Array.isArray(devices?.hostDevices) ? devices.hostDevices : [];
+        const gpus = Array.isArray(devices?.gpus) ? devices.gpus : [];
+        const isUsb = (x: any) => {
+          const dn = String(x?.deviceName || '').toLowerCase();
+          const n = String(x?.name || '').toLowerCase();
+          return dn.includes('usb') || n.startsWith('usb');
+        };
+        const list: string[] = [];
+        hostDevices.filter((d: any) => !isUsb(d)).forEach((d: any) => {
+          const rn = String(d?.deviceName || '').trim();
+          const localName = String(d?.name || '').trim();
+          const mapped = Array.isArray(hostAlloc?.[rn]) ? hostAlloc[rn] : [];
+          const suffix = mapped.length > 0 ? mapped.join(',') : (localName || '');
+          const label = short(rn);
+          list.push(suffix ? `${label}:${suffix}` : label);
+        });
+        gpus.forEach((g: any) => {
+          const rn = String(g?.deviceName || '').trim();
+          const localName = String(g?.name || '').trim();
+          const label = short(rn);
+          list.push(localName ? `${label}:${localName}` : label);
+        });
+        return list;
     },
     
     // [字段] USB 设备
@@ -828,10 +867,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     setVmBackupModalVisible(true);
   }, []);
 
-  // [事件] 触发克隆操作 (跳转到创建页)
+  // [事件] 触发克隆操作
   const handleClone = useCallback((r: any) => {
-    navigate(`/clouds/${cloudId}/instances/create`, { state: { fromVm: r, backgroundLocation: location } });
-  }, [cloudId, location, navigate]);
+    setCloneSourceVm(r);
+    setCloneModalVisible(true);
+  }, []);
 
   // [事件] 切换重要实例标记 (Toggle Important)
   // 使用 JSON Patch (RFC 6902) 操作 Finalizer，实现真正的 Kubernetes 级硬防删
@@ -1236,59 +1276,65 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     } catch(e:any){ message.error(e?.message||'批量重启失败'); }
   };
 
-  // [事件] 批量删除 (支持勾选同步删除 PVC)
+  // [事件] 批量移入回收站
   const batchDelete = () => {
     if (selectedKeys.length === 0) return;
-    
-    // 创建局部变量以在 Modal 闭包中捕获 Checkbox 状态
-    let batchDeleteVolumes = false;
 
     modal.confirm({
-      title: '确认批量删除所选实例？',
+      title: '批量移入回收站',
       width: 500,
       content: (
         <div>
-          <p>即将删除 {selectedKeys.length} 台虚拟机。此操作不可恢复。</p>
-          <div style={{ marginTop: 16, borderTop: '1px solid #eee', paddingTop: 16 }}>
-             <Checkbox onChange={(e) => { batchDeleteVolumes = e.target.checked; }}>
-               同步删除关联卷 (PVC)
-             </Checkbox>
-             <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>
-               注意：将删除所有关联的 DataVolume 和 PVC，数据无法找回。
-             </div>
+          <p>确定要将选中的 {selectedKeys.length} 台虚拟机移入回收站吗？</p>
+          <div style={{ marginBottom: 16, color: '#1890ff', background: '#e6f7ff', padding: '8px 12px', border: '1px solid #91d5ff', borderRadius: 4 }}>
+            <InfoCircleOutlined style={{ marginRight: 8 }} />
+            虚拟机将被移入回收站，可在回收站中恢复或彻底删除。移入回收站时不会删除关联卷（PVC）。
           </div>
         </div>
       ),
-      okText: '批量删除',
-      okType: 'danger',
+      okText: '移入回收站',
+      okType: 'default',
       cancelText: '取消',
       onOk: async () => {
         try {
-          const targets = (vms || []).filter((r:any)=> selectedKeys.includes(getIid(r)));
-          const results = await Promise.all(targets.map(async (r: any)=> { 
+          const targets = (vms || []).filter((r: any) => selectedKeys.includes(getIid(r)));
+          const protectedTargets = targets.filter((r: any) => {
+            const finalizers = r?.metadata?.finalizers || [];
+            const isFinalizerProtected =
+              Array.isArray(finalizers) && finalizers.includes('tower.io/deletion-protection');
+            const isLabelProtected = r?.metadata?.labels?.['tower.io/important'] === 'true';
+            return isFinalizerProtected || isLabelProtected;
+          });
+
+          const deletableTargets = targets.filter((r: any) => !protectedTargets.includes(r));
+
+          const results: Array<{ ok: boolean; iid: string; err?: string }> = [];
+          for (const r of deletableTargets) {
             const iid = getIid(r);
-            try { 
-              await onDelete(iid, batchDeleteVolumes); 
-              return { ok:true, iid }; 
-            } catch(e:any){ 
-              return { ok:false, iid, err:e?.message||String(e) }; 
-            } 
-          }));
-          
-          const ok = results.filter(x=>x.ok).length; 
-          const fail = results.filter(x=>!x.ok);
-          
-          if (ok>0) message.success(`删除指令已发送: ${ok} 台`);
-          if (fail.length>0) {
-            console.error('Batch delete errors:', fail);
-            message.error(`删除失败 ${fail.length} 台`);
+            try {
+              await onDelete(iid, false);
+              results.push({ ok: true, iid });
+            } catch (e: any) {
+              results.push({ ok: false, iid, err: e?.message || String(e) });
+            }
+          }
+
+          const ok = results.filter((x) => x.ok).length;
+          const fail = results.filter((x) => !x.ok);
+
+          if (ok > 0) message.success(`已移入回收站 ${ok} 台`);
+          if (protectedTargets.length > 0)
+            message.warning(`已跳过重要实例 ${protectedTargets.length} 台（受防删保护）`);
+          if (fail.length > 0) {
+            console.error('Batch recycle-bin errors:', fail);
+            message.error(`移入回收站失败 ${fail.length} 台：${fail.map((f) => f.iid).join(', ')}`);
           }
           
           setSelectedKeys([]);
           if (onRefresh) onRefresh(true);
           
         } catch(e:any){ 
-          message.error(e?.message||'批量删除失败'); 
+          message.error(e?.message||'批量移入回收站失败'); 
         }
       }
     });
@@ -1379,6 +1425,13 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       return v ? `${v} C` : '-';
     } },
     { title: '内存', key: 'memory',  render: (_: any, r: any) => SafeRead.memory(r) || '-' },
+    { title: 'GPU', key: 'gpus', ellipsis: true, render: (_: any, r: any) => {
+      const items = SafeRead.gpus(r);
+      const list = Array.isArray(items) ? items.filter(Boolean) : [];
+      if (list.length === 0) return '-';
+      const text = list.join(', ');
+      return <Tooltip title={text}><div style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</div></Tooltip>;
+    } },
     { title: '热扩容', key: 'hotplug', width: 80, render: (_: any, r: any) => {
       const isEnabled = SafeRead.isHotPlugEnabled(r);
       return isEnabled ? <Tag color="success">已开启</Tag> : <Tag>未开启</Tag>;
@@ -1452,6 +1505,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // 1. 基础信息与访问
         // ----------------------------------------------------------------
         { key: 'detail', label:'实例详情', onClick: () => handleShowMetadata(r, 'detail') },
+        { key: 'clone', label:'克隆', onClick: () => handleClone(r) },
         
         // 运维模式下的 YAML 查看
         ...(!isTenant ? [
@@ -1527,7 +1581,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }} />;
     } },
-  ], [handleShowMetadata, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant]);
+  ], [handleShowMetadata, handleClone, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vm_table_v3');
@@ -1706,6 +1760,19 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         vms={vms}
         initialType={vmBackupModalType}
         initialVm={vmBackupModalVm}
+      />
+
+      <VmCloneModal
+        open={cloneModalVisible}
+        onCancel={() => setCloneModalVisible(false)}
+        onSuccess={() => {
+          setCloneModalVisible(false);
+          message.success('克隆任务已提交，可在「快照/备份 → 克隆任务」中查看进度');
+          onRefresh && onRefresh(true);
+        }}
+        cloudId={cloudId}
+        sourceVm={cloneSourceVm}
+        existingVms={vms}
       />
 
       {/* 热迁移弹窗 */}

@@ -104,6 +104,7 @@ export {
 } from './storage';
 export {
   listHarvesterNodesStandard,
+  listK8sNodesRaw,
   listHarvesterServices,
   listHarvesterStorageClassesStandard,
   harvesterHealthCheck,
@@ -123,4 +124,13 @@ export {
   isTowerManagedNamespace,
   getNamespaceScenario,
 } from './namespace';
-export { listHarvesterGpuResources, listHarvesterUsbResources, listHarvesterPciDevices } from './peripherals';
+export {
+  listHarvesterGpuResources,
+  listHarvesterUsbResources,
+  listHarvesterPciDevices,
+  listHarvesterPciDeviceClaims,
+  listHarvesterUsbDeviceClaims,
+  createHarvesterUsbDeviceClaim,
+  deleteHarvesterUsbDeviceClaim,
+  deleteHarvesterPciDeviceClaim,
+} from './peripherals';

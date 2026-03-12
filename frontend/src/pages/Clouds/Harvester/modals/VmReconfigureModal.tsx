@@ -12,7 +12,7 @@
  *    - 左侧导航栏的样式（圆角、展开分组、选中效果）由用户指定，严禁随意修改。
  */
 import React, { useMemo } from 'react';
-import { Modal, Form, Menu, Button, Tag, Tooltip, Checkbox } from 'antd';
+import { Modal, Form, Menu, Button, Tag, Tooltip, Checkbox, Card, Select, message, Row, Col } from 'antd';
 import type { MenuProps } from 'antd';
 import { 
   HddOutlined, GlobalOutlined, DashboardOutlined, LoadingOutlined, QuestionCircleOutlined
@@ -22,7 +22,10 @@ import ChangeSpec from './VmReconfigure/ChangeSpec';
 import HotPlugSettings from './VmReconfigure/HotPlugSettings';
 import CpuAdvanced from './VmReconfigure/CpuAdvanced';
 import ChangeGpu from './VmReconfigure/ChangeGpu';
+import ChangeUsb from './VmReconfigure/ChangeUsb';
 import ChangeOs from './VmReconfigure/ChangeOs';
+import ChangeNodeScheduling from './VmReconfigure/ChangeNodeScheduling';
+import ChangeNodeAffinity from './VmReconfigure/ChangeNodeAffinity';
 import SystemDiskExpand from './VmReconfigure/SystemDiskExpand';
 import AddDataDisk from './VmReconfigure/AddDataDisk';
 import DetachDataDisk from './VmReconfigure/DetachDataDisk';
@@ -30,6 +33,7 @@ import ChangePrimaryNic from './VmReconfigure/ChangePrimaryNic';
 import ChangeSecondaryNic from './VmReconfigure/ChangeSecondaryNic';
 import { useVmReconfigure } from './VmReconfigure/useVmReconfigure';
 import { isSystemStorageClass } from '../../../../utils/harvesterUtils';
+import './VmCreateWizard/InstanceWizard.css';
 
 /**
  * 组件入参说明：
@@ -74,9 +78,12 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
     form,
     selectedKey, setSelectedKey,
     scs, images, gpuResources, selectedGpuKeys, setSelectedGpuKeys,
+    usbResources, selectedUsbKeys, setSelectedUsbKeys,
     nads, vpcs, subnets, setVpcs,
+    nodes, reloadNodes,
     gpuLoading,
-    reloadScs, reloadImages, reloadGpuResources, reloadNads, reloadVpcs, reloadSubnets,
+    usbLoading,
+    reloadScs, reloadImages, reloadGpuResources, reloadUsbResources, reloadNads, reloadVpcs, reloadSubnets,
     handleSubmit,
     systemDisk,
     systemDiskSize,
@@ -144,7 +151,9 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
         { key: 'change_spec', label: '变更实例规格' },
         { key: 'hotplug_settings', label: '热扩容设置' },
         { key: 'cpu_advanced', label: '性能设置' },
-        { key: 'change_gpu', label: '变更GPU' },
+        { key: 'vm_policy', label: '高可用设置' },
+        { key: 'change_node_scheduling', label: '节点调度' },
+        { key: 'change_node_affinity', label: '节点亲和性' },
       ]
     },
     {
@@ -158,11 +167,13 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
       ]
     },
     {
-      title: '网络配置',
+      title: '网络与设备',
       icon: <GlobalOutlined />,
       children: [
         { key: 'change_primary_nic', label: '变更主网卡' },
         { key: 'change_secondary_nic', label: '变更辅助网卡' },
+        { key: 'change_gpu', label: '变更GPU' },
+        { key: 'change_usb', label: '变更USB' },
       ]
     }
   ];
@@ -239,6 +250,90 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             gpuLoading={gpuLoading}
             reloadGpuResources={reloadGpuResources}
           />
+        );
+      case 'change_usb':
+        return (
+          <ChangeUsb
+            form={form}
+            usbResources={usbResources}
+            selectedUsbKeys={selectedUsbKeys}
+            setSelectedUsbKeys={setSelectedUsbKeys}
+            usbLoading={usbLoading}
+            reloadUsbResources={reloadUsbResources}
+          />
+        );
+      case 'change_node_scheduling':
+        return (
+          <ChangeNodeScheduling
+            form={form}
+            cloudId={cloudId}
+            record={latestVm || record}
+            nodes={nodes}
+            reloadNodes={reloadNodes}
+            nodesLoading={false}
+          />
+        );
+      case 'change_node_affinity':
+        return (
+          <ChangeNodeAffinity
+            form={form}
+            cloudId={cloudId}
+            record={latestVm || record}
+          />
+        );
+      case 'vm_policy':
+        return (
+          <>
+            <div>
+              <Row gutter={12} style={{ marginBottom: 0 }}>
+                <Col span={6}>
+                  <div style={{ lineHeight: '32px' }}>运行策略</div>
+                </Col>
+                <Col span={18}>
+                  <Form.Item name="runStrategy" rules={[{ required: true, message: '请选择运行策略' }]} noStyle>
+                    <Select
+                      placeholder="选择运行策略"
+                      style={{ width: 320 }}
+                      options={[
+                        { value: 'Always', label: 'Always（始终运行）' },
+                        { value: 'RerunOnFailure', label: 'RerunOnFailure（失败自动重启）' },
+                        { value: 'Manual', label: 'Manual（手动控制）' },
+                        { value: 'Halted', label: 'Halted（保持停止）' },
+                      ]}
+                      onChange={(v) => {
+                        if (String(v) === 'Halted') message.warning('设置为 Halted 后实例将保持停止状态');
+                      }}
+                    />
+                  </Form.Item>
+                  <div style={{ marginBottom: 24 }} />
+                </Col>
+              </Row>
+
+              <Row gutter={12} style={{ marginBottom: 0 }}>
+                <Col span={6}>
+                  <div style={{ lineHeight: '32px' }}>驱逐策略</div>
+                </Col>
+                <Col span={18}>
+                  <Form.Item name="evictionStrategy" noStyle>
+                    <Select
+                      placeholder="选择驱逐策略"
+                      allowClear
+                      style={{ width: 320 }}
+                      options={[
+                        { value: 'LiveMigrateIfPossible', label: 'LiveMigrateIfPossible（尽可能热迁移）' },
+                        { value: 'LiveMigrate', label: 'LiveMigrate（强制热迁移）' },
+                        { value: 'None', label: 'None（不迁移）' },
+                      ]}
+                      onChange={(v) => {
+                        if (String(v) === 'None') message.warning('驱逐策略为 None 时，节点维护/驱逐可能导致实例不可用');
+                      }}
+                    />
+                  </Form.Item>
+                  <div style={{ marginBottom: 24 }} />
+                </Col>
+              </Row>
+            </div>
+          </>
         );
       
       // --- System & Storage Config (系统与存储配置) ---

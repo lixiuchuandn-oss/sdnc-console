@@ -248,6 +248,71 @@ export const listHarvesterNodesStandard = async ({
   });
 };
 
+export const listK8sNodesRaw = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  const clusterId = await (async () => {
+    try {
+      const url = `${origin}/v3/clusters`;
+      const json = await getJsonOnce(url, token, insecure, true);
+      const items = Array.isArray(json?.data)
+        ? json?.data
+        : Array.isArray(json?.items)
+          ? json?.items
+          : [];
+      const local = items.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+      const any = local || items[0];
+      return String(any?.id || any?.Id || '')?.trim() || null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const candidates = [
+    ...(clusterId ? [`${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/api/v1/nodes`] : []),
+    `${origin}/api/v1/nodes`,
+  ];
+
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      const items = Array.isArray(json?.items)
+        ? json.items
+        : Array.isArray(json?.data)
+          ? json.data
+          : [];
+      return Array.isArray(items) ? items : [];
+    } catch (e: any) {
+      lastErr = e;
+      const status = Number(e?.status || 0);
+      const body = String(e?.body || '').toLowerCase();
+      const msg = String(e?.message || '').toLowerCase();
+      if (status === 401 || status === 403 || msg.includes('unauthorized') || body.includes('unauthorized')) throw e;
+    }
+  }
+
+  if (lastErr) {
+    const status = Number(lastErr?.status || 0);
+    const body = String(lastErr?.body || '').toLowerCase();
+    const msg = String(lastErr?.message || '').toLowerCase();
+    if (status === 404 || msg.includes('not found') || body.includes('not found')) return [];
+    if (status === 401 || msg.includes('unauthorized') || body.includes('unauthorized')) return [];
+  }
+  return [];
+};
+
 /**
  * Harvester 健康检查
  * [功能描述]

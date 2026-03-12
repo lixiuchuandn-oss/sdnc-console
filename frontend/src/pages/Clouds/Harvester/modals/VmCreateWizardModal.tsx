@@ -39,6 +39,7 @@ import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
+import { fetchCloudProviderEcs } from '../../../../services/api';
 
 type Props = {
   isTenant?: boolean;
@@ -73,6 +74,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const [formSnapshot, setFormSnapshot] = useState<any>({});
   const [selectedGpuKey, setSelectedGpuKey] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<any>(null);
+  const [existingVms, setExistingVms] = useState<any[]>([]);
   const lastValidationErrorTypeRef = useRef<string | null>(null);
 
   const {
@@ -92,6 +94,37 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
   const fromTemplateState = (location.state as any)?.fromTemplate;
   const fromVmState = (location.state as any)?.fromVm;
+
+  useEffect(() => {
+    const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
+    if (!cid) {
+      setExistingVms([]);
+      return;
+    }
+    fetchCloudProviderEcs(cid, false)
+      .then((json: any) => {
+        const list: any[] = Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json?.data?.items)
+            ? json.data.items
+            : Array.isArray(json?.items)
+              ? json.items
+              : [];
+        setExistingVms(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        setExistingVms([]);
+      });
+  }, [currentCloudId, cloudId]);
+
+  useEffect(() => {
+    try {
+      const name = String(form.getFieldValue('name') || '').trim();
+      const ns = String(form.getFieldValue('namespace') || '').trim();
+      if (!name || !ns) return;
+      form.validateFields(['name']).catch(() => {});
+    } catch {}
+  }, [existingVms, form]);
 
   useEffect(() => {
     if (fromTemplateState && fromTemplateState.namespace && fromTemplateState.name) {
@@ -530,6 +563,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
               {step === 0 && (
                 <StepBasic
                   form={form}
+                  existingVms={existingVms}
                   cloudId={cloudId}
                   currentCloudId={currentCloudId}
                   setCurrentCloudId={setCurrentCloudId}

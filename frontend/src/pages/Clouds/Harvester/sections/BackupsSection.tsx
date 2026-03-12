@@ -199,7 +199,15 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       title: '创建时间', 
       dataIndex: 'creationTimestamp', 
       key: 'creationTimestamp', 
-      render: (t: string) => <span>{t}</span>
+      render: (t: string) => <span>{t}</span>,
+      sorter: (a: any, b: any) => {
+        const ta = Date.parse(String(a?.creationTimestamp || ''));
+        const tb = Date.parse(String(b?.creationTimestamp || ''));
+        const na = Number.isFinite(ta) ? ta : 0;
+        const nb = Number.isFinite(tb) ? tb : 0;
+        return na - nb;
+      },
+      defaultSortOrder: 'descend' as const,
     },
     {
       title: '操作',

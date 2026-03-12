@@ -9,9 +9,7 @@ import {
   Modal,
   Row,
   Col,
-  Tabs,
   Typography,
-  Select,
 } from 'antd';
 import { 
   EllipsisOutlined,

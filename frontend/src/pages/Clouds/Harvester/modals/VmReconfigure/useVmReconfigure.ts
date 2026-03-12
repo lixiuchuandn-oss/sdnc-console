@@ -3,10 +3,10 @@ import { Form, message, Modal } from 'antd';
 import yaml from 'js-yaml';
 import { 
   updateHarvesterVmSpec, createHarvesterVolume, attachHarvesterVolumeToVmByName, 
-  fetchHarvesterGpuResources, patchHarvesterVm, fetchHarvesterNads,
+  fetchHarvesterGpuResources, fetchHarvesterUsbResources, patchHarvesterVm, fetchHarvesterNads,
   fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterImages, fetchHarvesterStorageClasses,
   fetchHarvesterVolume, fetchHarvesterVmDetail, updateHarvesterVolume, fetchHarvesterVolumes,
-  detachHarvesterVolumeFromVm, fetchHarvesterVMAggregated
+  detachHarvesterVolumeFromVm, fetchHarvesterVMAggregated, fetchHarvesterNodes
 } from '../../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../../services/api';
 
@@ -50,10 +50,14 @@ export const useVmReconfigure = (props: any) => {
   const [images, setImages] = useState<any[]>([]);
   const [gpuResources, setGpuResources] = useState<any[]>([]);
   const [selectedGpuKeys, setSelectedGpuKeys] = useState<string[]>([]);
+  const [usbResources, setUsbResources] = useState<any[]>([]);
+  const [selectedUsbKeys, setSelectedUsbKeys] = useState<string[]>([]);
   const [nads, setNads] = useState<any[]>([]);
   const [vpcs, setVpcs] = useState<any[]>([]);
   const [subnets, setSubnets] = useState<any[]>([]);
+  const [nodes, setNodes] = useState<any[]>([]);
   const [gpuLoading, setGpuLoading] = useState<boolean>(false);
+  const [usbLoading, setUsbLoading] = useState<boolean>(false);
   const [systemDiskSize, setSystemDiskSize] = useState<number | null>(null);
   const [systemDiskLoading, setSystemDiskLoading] = useState<boolean>(false);
 
@@ -316,6 +320,18 @@ export const useVmReconfigure = (props: any) => {
     } catch (e) { console.error(e); return []; }
   };
 
+  const reloadNodes = async () => {
+    try {
+      const res = await fetchHarvesterNodes(cloudId);
+      const items = res?.data?.items || res?.items || (Array.isArray(res?.data) ? res.data : []);
+      setNodes(Array.isArray(items) ? items : []);
+      return items;
+    } catch (e: any) {
+      console.error('Failed to reload nodes:', e);
+      return [];
+    }
+  };
+
   const reloadImages = async () => {
     try {
       const res = await fetchHarvesterImages(cloudId);
@@ -345,6 +361,19 @@ export const useVmReconfigure = (props: any) => {
     }
   };
 
+  const reloadUsbResources = async () => {
+    try {
+      setUsbLoading(true);
+      const res = await fetchHarvesterUsbResources(cloudId);
+      const items = Array.isArray(res?.data?.items) ? res.data.items : (Array.isArray(res?.items) ? res.items : []);
+      setUsbResources(items);
+    } catch (e: any) {
+      message.error(e?.message || '刷新失败');
+    } finally {
+      setUsbLoading(false);
+    }
+  };
+
   // Handle form reset and initialization on tab switch
   useEffect(() => {
     if (!open) return;
@@ -353,6 +382,7 @@ export const useVmReconfigure = (props: any) => {
     // 切换功能菜单时，强制重置表单，防止配置冲突
     form.resetFields();
     setSelectedGpuKeys([]);
+    setSelectedUsbKeys([]);
 
     if (!record) return;
 
@@ -579,17 +609,87 @@ export const useVmReconfigure = (props: any) => {
         if (!gpuResources || gpuResources.length === 0) reloadGpuResources();
 
         const domain = activeRecord?.spec?.template?.spec?.domain || record?.spec?.template?.spec?.domain;
-        const hostDevices = domain?.devices?.hostDevices || [];
+        const hostDevicesAll = domain?.devices?.hostDevices || [];
+        const hostDevices = (Array.isArray(hostDevicesAll) ? hostDevicesAll : []).filter((d: any) => {
+          const n = String(d?.name || '').toLowerCase();
+          return n.startsWith('gpu');
+        });
         const gpus = domain?.devices?.gpus || [];
         const hasHost = Array.isArray(hostDevices) && hostDevices.length > 0;
         const hasGpu = Array.isArray(gpus) && gpus.length > 0;
-        const mode = hasHost ? 'passthrough' : (hasGpu ? 'vgpu' : 'none');
-        const usedList = hasHost ? hostDevices : (hasGpu ? gpus : []);
+        const mode = hasGpu ? 'vgpu' : (hasHost ? 'passthrough' : 'none');
+        const usedList = hasGpu ? gpus : (hasHost ? hostDevices : []);
         const names = (Array.isArray(usedList) ? usedList : []).map((x: any) => x?.deviceName).filter(Boolean);
         form.setFieldsValue({
           gpuMode: mode,
           gpuResourceNames: names,
         });
+        break;
+      }
+      case 'change_node_scheduling': {
+        // 确保节点列表已加载
+        if (!nodes || nodes.length === 0) {
+          reloadNodes();
+        }
+        
+        const spec = activeRecord?.spec?.template?.spec || record?.spec?.template?.spec;
+        const nodeSelector = spec?.nodeSelector || {};
+        
+        // 提取节点选择器中的 hostname
+        // 同时检查当前运行节点（如果 nodeSelector 中没有，但 VM 正在运行，可以从 status.nodeName 获取）
+        let currentNode = nodeSelector['kubernetes.io/hostname'] || null;
+        if (!currentNode) {
+          // 如果 nodeSelector 中没有，尝试从 status 中获取当前运行节点
+          const currentRunningNode = activeRecord?.status?.nodeName || record?.status?.nodeName || activeRecord?.nodeName || record?.nodeName || null;
+          if (currentRunningNode) {
+            currentNode = currentRunningNode;
+          }
+        }
+        
+        // 提取其他标签（除了 hostname）
+        const labelPairs: Array<{ key: string; value: string }> = [];
+        Object.entries(nodeSelector).forEach(([key, value]) => {
+          if (key !== 'kubernetes.io/hostname') {
+            labelPairs.push({ key, value: String(value) });
+          }
+        });
+        
+        // 判断调度模式
+        let mode: 'auto' | 'fixed' | 'label' = 'auto';
+        if (currentNode) {
+          mode = 'fixed';
+        } else if (labelPairs.length > 0) {
+          mode = 'label';
+        }
+        
+        form.setFieldsValue({
+          nodeSchedulingMode: mode,
+          fixedNode: currentNode || undefined,
+          nodeSelectorPairs: labelPairs.length > 0 ? labelPairs : undefined,
+        });
+        break;
+      }
+      case 'change_usb': {
+        if (!usbResources || usbResources.length === 0) reloadUsbResources();
+
+        const domain = activeRecord?.spec?.template?.spec?.domain || record?.spec?.template?.spec?.domain;
+        const hostDevices = domain?.devices?.hostDevices || [];
+        const usb = (Array.isArray(hostDevices) ? hostDevices : []).filter((d: any) => {
+          const n = String(d?.name || '').toLowerCase();
+          const dn = String(d?.deviceName || '').toLowerCase();
+          return n.startsWith('usb') || dn.includes('usb');
+        });
+        const names = usb.map((x: any) => x?.deviceName).filter(Boolean);
+        form.setFieldsValue({ usbResourceNames: names });
+        setSelectedUsbKeys(Array.from(new Set(names.map((x: any) => String(x || '')).filter(Boolean))));
+        break;
+      }
+      case 'vm_policy': {
+        const rs = (activeRecord || record)?.spec?.runStrategy || 'Manual';
+        const es = (activeRecord || record)?.spec?.evictionStrategy
+          || (activeRecord || record)?.spec?.template?.spec?.evictionStrategy
+          || undefined;
+        form.setFieldsValue({ runStrategy: rs, evictionStrategy: es });
         break;
       }
       case 'change_os': {
@@ -663,17 +763,45 @@ export const useVmReconfigure = (props: any) => {
     if (!open) return;
     if (selectedKey !== 'change_gpu') return;
 
+    const domain = activeRecord?.spec?.template?.spec?.domain;
+    const hostDevices = domain?.devices?.hostDevices || [];
+    const gpus = domain?.devices?.gpus || [];
+    const hostNames = (Array.isArray(hostDevices) ? hostDevices : []).map((x: any) => x?.deviceName).filter(Boolean);
+    const gpuNames = (Array.isArray(gpus) ? gpus : []).map((x: any) => x?.deviceName).filter(Boolean);
+    const getResourceName = (x: any) => x?.resourceName || x?.raw?.status?.resourceName || x?.raw?.spec?.resourceName;
+    const resList = Array.isArray(gpuResources) ? gpuResources : [];
+
+    const deriveModeFromVm = () => {
+      if (gpuNames.length > 0) return 'vgpu';
+      if (hostNames.length === 0) return 'none';
+      const wanted = new Set(hostNames.map((x: any) => String(x)));
+      const matchedTypes = new Set<string>();
+      resList.forEach((x: any) => {
+        const rn = getResourceName(x);
+        if (!rn) return;
+        if (!wanted.has(String(rn))) return;
+        const t = String(x?.type || '').toLowerCase();
+        if (t) matchedTypes.add(t);
+      });
+      if (matchedTypes.has('sriov')) return 'sriov';
+      if (matchedTypes.has('passthrough')) return 'passthrough';
+      return 'passthrough';
+    };
+
+    const inferredMode = deriveModeFromVm();
     const currentMode = form.getFieldValue('gpuMode') || 'none';
-    if (currentMode === 'none') {
+    if (currentMode !== inferredMode) {
+      const names = inferredMode === 'vgpu' ? gpuNames : inferredMode === 'none' ? [] : hostNames;
+      form.setFieldsValue({ gpuMode: inferredMode, gpuResourceNames: Array.from(new Set(names.filter(Boolean))) });
+    }
+
+    const effectiveMode = form.getFieldValue('gpuMode') || inferredMode || 'none';
+    if (effectiveMode === 'none') {
       setSelectedGpuKeys([]);
       return;
     }
 
-    const domain = activeRecord?.spec?.template?.spec?.domain;
-    const hostDevices = domain?.devices?.hostDevices || [];
-    const gpus = domain?.devices?.gpus || [];
-
-    const vmAssigned = (currentMode === 'vgpu' ? gpus : hostDevices);
+    const vmAssigned = (effectiveMode === 'vgpu' ? gpus : hostDevices);
     const vmAssignedNames = (Array.isArray(vmAssigned) ? vmAssigned : []).map((x: any) => x?.deviceName).filter(Boolean);
 
     const currentNames = form.getFieldValue('gpuResourceNames');
@@ -685,23 +813,100 @@ export const useVmReconfigure = (props: any) => {
 
     form.setFieldsValue({ gpuResourceNames: Array.from(new Set(desiredNames.filter(Boolean))) });
 
-    const getResourceName = (x: any) => x?.resourceName || x?.raw?.status?.resourceName || x?.raw?.spec?.resourceName;
-    const list = Array.isArray(gpuResources) ? gpuResources : [];
-    const wanted = new Set(desiredNames.map((x: any) => String(x)));
+    const parseAllocation = () => {
+      try {
+        const raw = activeRecord?.metadata?.annotations?.['harvesterhci.io/deviceAllocationDetails'];
+        if (!raw) return null;
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch {
+        return null;
+      }
+    };
+    const allocation = parseAllocation();
+    const hostAlloc = allocation?.hostdevices || {};
+    const runningNode = activeRecord?.vmi?.status?.nodeName || activeRecord?.vmiRaw?.status?.nodeName || undefined;
+
+    const matchByAllocName = (allocName: string) => {
+      const target = String(allocName || '');
+      if (!target) return null;
+      const found = resList.find((x: any) => String(x?.raw?.metadata?.name || x?.name || '') === target);
+      if (!found) return null;
+      if (String(found?.type) !== String(effectiveMode)) return null;
+      const name = found?.raw?.metadata?.name || found?.name || target || '-';
+      const node = found?.node || found?.nodeName || '-';
+      const bus = found?.pciAddress || found?.address || found?.pci || '-';
+      return `${name}|${node}|${bus}`;
+    };
+
+    const buildKeyFromResourceName = (rn: string, usedKeys: Set<string>) => {
+      const candidates = resList
+        .filter((x: any) => String(x?.type) === String(effectiveMode))
+        .filter((x: any) => String(getResourceName(x) || '') === String(rn || ''));
+      const scored = candidates.slice().sort((a: any, b: any) => {
+        const an = String(a?.node || a?.nodeName || '');
+        const bn = String(b?.node || b?.nodeName || '');
+        const as = runningNode && an === runningNode ? 1 : 0;
+        const bs = runningNode && bn === runningNode ? 1 : 0;
+        return bs - as;
+      });
+      const pick = scored.find((x: any) => {
+        const name = x?.raw?.metadata?.name || x?.name || rn || '-';
+        const node = x?.node || x?.nodeName || '-';
+        const bus = x?.pciAddress || x?.address || x?.pci || '-';
+        const key = `${name}|${node}|${bus}`;
+        return !usedKeys.has(key);
+      }) || scored[0];
+      if (!pick) return null;
+      const name = pick?.raw?.metadata?.name || pick?.name || rn || '-';
+      const node = pick?.node || pick?.nodeName || '-';
+      const bus = pick?.pciAddress || pick?.address || pick?.pci || '-';
+      return `${name}|${node}|${bus}`;
+    };
 
     const keys: string[] = [];
-    list.forEach((x: any) => {
-      const rn = getResourceName(x);
-      if (!rn) return;
-      if (String(x?.type) !== String(currentMode)) return;
-      if (!wanted.has(String(rn))) return;
-      const name = x?.raw?.metadata?.name || x?.name || rn || '-';
-      const node = x?.node || x?.nodeName || '-';
-      const bus = x?.pciAddress || x?.address || x?.pci || '-';
-      keys.push(`${name}|${node}|${bus}`);
-    });
+    const usedKeys = new Set<string>();
 
-    setSelectedGpuKeys(Array.from(new Set(keys)));
+    if (effectiveMode !== 'vgpu') {
+      const assigned = Array.isArray(hostDevices) ? hostDevices : [];
+      assigned.forEach((d: any) => {
+        const rn = String(d?.deviceName || '');
+        const allocNames = Array.isArray(hostAlloc?.[rn]) ? hostAlloc[rn] : [];
+        if (allocNames.length > 0) {
+          const k = matchByAllocName(String(allocNames[0] || ''));
+          if (k) {
+            keys.push(k);
+            usedKeys.add(k);
+            return;
+          }
+        }
+        const k = buildKeyFromResourceName(rn, usedKeys);
+        if (k) {
+          keys.push(k);
+          usedKeys.add(k);
+        }
+      });
+    } else {
+      const assigned = Array.isArray(gpus) ? gpus : [];
+      assigned.forEach((d: any) => {
+        const rn = String(d?.deviceName || '');
+        const k = buildKeyFromResourceName(rn, usedKeys);
+        if (k) {
+          keys.push(k);
+          usedKeys.add(k);
+        }
+      });
+    }
+
+    setSelectedGpuKeys(keys);
+    const inferredNode = (() => {
+      const first = keys[0];
+      if (!first) return null;
+      const parts = String(first).split('|');
+      const node = parts.length >= 2 ? String(parts[1] || '') : '';
+      if (!node || node === '-') return null;
+      return node;
+    })();
+    form.setFieldsValue({ gpuNodeName: inferredNode });
   }, [open, selectedKey, activeRecord, gpuResources, form]);
 
   const openRestartConfirm = (namespace: string, vmName: string, force: boolean = false) => {
@@ -719,6 +924,40 @@ export const useVmReconfigure = (props: any) => {
       },
       onCancel: () => {}
     });
+  };
+
+  const isRestartRequiredFromVm = (vm: any) => {
+    const conditions = vm?.status?.conditions || [];
+    return conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
+  };
+
+  const fetchAggregatedVm = async (namespace: string, vmName: string) => {
+    const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
+    const data = res?.data?.vm ? res.data : res;
+    const updatedVm = data?.vm || data;
+    if (updatedVm && data?.related) {
+      updatedVm.related = data.related;
+    }
+    setLatestVm(updatedVm);
+    return updatedVm;
+  };
+
+  const maybePromptRestart = async (namespace: string, vmName: string, options?: { force?: boolean }) => {
+    const force = !!options?.force;
+    if (force) {
+      openRestartConfirm(namespace, vmName, false);
+      return;
+    }
+
+    try {
+      await new Promise((r) => setTimeout(r, 300));
+      const updatedVm = await fetchAggregatedVm(namespace, vmName);
+      if (isRestartRequiredFromVm(updatedVm)) {
+        openRestartConfirm(namespace, vmName, false);
+      }
+    } catch {
+      message.info('设置已保存（请检查是否需要重启）');
+    }
   };
 
   const handleSubmit = async () => {
@@ -795,10 +1034,8 @@ export const useVmReconfigure = (props: any) => {
                setLatestVm(updatedVm);
              } catch {}
 
-             message.success('系统盘扩容请求已提交，设置已保存，需要重启后生效。');
-             setTimeout(() => {
-               openRestartConfirm(namespace, vmName, false);
-             }, 300);
+            message.success('系统盘扩容请求已提交，设置已保存');
+            void maybePromptRestart(namespace, vmName);
           }
           break;
         }
@@ -1183,7 +1420,7 @@ export const useVmReconfigure = (props: any) => {
           }
 
           await updateHarvesterVmSpec(cloudId, namespace, vmName, advancedPayload);
-          openRestartConfirm(namespace, vmName, false);
+          void maybePromptRestart(namespace, vmName);
           break;
         }
         case 'change_os': {
@@ -1241,6 +1478,7 @@ export const useVmReconfigure = (props: any) => {
               size: values.newDiskSize,
               storageClassName: values.newDiskSc,
               accessModes: [accessMode],
+              volumeMode: 'Block',
             });
             form.setFieldsValue({ newDiskCreated: true });
             message.success(`数据盘创建成功（访问类型: ${accessModeText}），请再次点击【提交】进行挂载`);
@@ -1255,7 +1493,25 @@ export const useVmReconfigure = (props: any) => {
             bus: values.newDiskBus,
           });
 
-          message.success('挂载成功');
+          try {
+            const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
+            const data = res?.data?.vm ? res.data : res;
+            const updatedVm = data?.vm || data;
+            if (updatedVm && data?.related) {
+              updatedVm.related = data.related;
+            }
+            const conditions = updatedVm?.status?.conditions || [];
+            const needsRestart = conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
+            setLatestVm(updatedVm);
+            if (needsRestart) {
+              message.success('挂载成功，设置已保存，需要重启后生效');
+              openRestartConfirm(namespace, vmName, false);
+            } else {
+              message.success('挂载成功');
+            }
+          } catch {
+            message.success('挂载成功（请检查是否需要重启）');
+          }
           // 清理 step 标记，避免下次复用表单误走挂载
           form.setFieldsValue({ newDiskCreated: false });
 
@@ -1267,12 +1523,140 @@ export const useVmReconfigure = (props: any) => {
         case 'change_gpu': {
           const mode = values.gpuMode || 'none';
           const names = Array.isArray(values.gpuResourceNames) ? values.gpuResourceNames : [];
+          const deviceNames = Array.isArray(values.gpuDeviceNames) ? values.gpuDeviceNames : [];
+          const gpuNodeName = values.gpuNodeName !== undefined ? values.gpuNodeName : undefined;
           await updateHarvesterVmSpec(cloudId, namespace, vmName, {
             gpuMode: mode,
             gpuResourceNames: mode === 'none' ? [] : names,
+            gpuDeviceNames: mode === 'none' ? [] : deviceNames,
+            gpuNodeName: mode === 'none' ? null : gpuNodeName,
           });
           message.success('GPU配置已更新');
-          openRestartConfirm(namespace, vmName, false);
+          void maybePromptRestart(namespace, vmName);
+          break;
+        }
+        case 'change_node_scheduling': {
+          const mode = values.nodeSchedulingMode;
+          const fixedNode = values.fixedNode;
+          const nodeSelectorPairs = values.nodeSelectorPairs || [];
+          
+          // 验证
+          if (mode === 'fixed' && !fixedNode) {
+            message.error('请选择要固定的节点');
+            return;
+          }
+          if (mode === 'label') {
+            const validPairs = nodeSelectorPairs.filter((p: any) => p?.key && p?.value);
+            if (validPairs.length === 0) {
+              message.error('请至少添加一个标签选择器');
+              return;
+            }
+          }
+          
+          // 构建提交参数
+          let updateParams: any = {};
+          
+          if (mode === 'auto') {
+            // 自动调度：清空所有 nodeSelector
+            updateParams.nodeSelector = null;
+          } else if (mode === 'fixed') {
+            // 指定主机：使用 nodeSelector
+            const nodeName = String(fixedNode || '').trim();
+            if (nodeName) {
+              updateParams.nodeSelector = {
+                'kubernetes.io/hostname': nodeName
+              };
+            } else {
+              updateParams.nodeSelector = null;
+            }
+          } else if (mode === 'label') {
+            // 标签选择：构建 nodeSelector 对象
+            const nodeSelector: Record<string, string> = {};
+            nodeSelectorPairs.forEach((p: any) => {
+              const key = String(p?.key || '').trim();
+              const value = String(p?.value || '').trim();
+              if (key && value) {
+                nodeSelector[key] = value;
+              }
+            });
+            updateParams.nodeSelector = Object.keys(nodeSelector).length > 0 ? nodeSelector : null;
+          }
+          
+          // 调试日志：确认提交的参数
+          console.log('节点调度提交参数:', {
+            mode,
+            fixedNode,
+            updateParams
+          });
+          
+          await updateHarvesterVmSpec(cloudId, namespace, vmName, updateParams);
+          message.success('节点调度配置已更新');
+          void maybePromptRestart(namespace, vmName);
+          break;
+        }
+        case 'change_node_affinity': {
+          const mode = values.nodeAffinityMode;
+          const terms = values.nodeAffinityTerms || [];
+          
+          // 构建 nodeAffinity
+          let nodeAffinity: any = null; // 使用 null 表示清空
+          if (mode === 'required' && terms.length > 0) {
+            const nodeSelectorTerms = terms.map((term: any) => {
+              const expressions = (term.expressions || []).filter((expr: any) => expr?.key && expr?.operator);
+              if (expressions.length === 0) return null;
+              
+              return {
+                matchExpressions: expressions.map((expr: any) => {
+                  const matchExpr: any = {
+                    key: String(expr.key || '').trim(),
+                    operator: String(expr.operator || 'In'),
+                  };
+                  
+                  // 某些操作符不需要 values（如 Exists, DoesNotExist）
+                  if (!['Exists', 'DoesNotExist'].includes(matchExpr.operator)) {
+                    const values = Array.isArray(expr.values) ? expr.values : [];
+                    const filteredValues = values.filter((v: any) => v && String(v).trim()).map((v: any) => String(v).trim());
+                    if (filteredValues.length > 0) {
+                      matchExpr.values = filteredValues;
+                    } else {
+                      // 如果操作符需要值但没有提供，跳过这个表达式
+                      return null;
+                    }
+                  }
+                  
+                  return matchExpr;
+                }).filter((expr: any) => expr !== null && expr.key),
+              };
+            }).filter((term: any) => term !== null && term.matchExpressions && term.matchExpressions.length > 0);
+            
+            if (nodeSelectorTerms.length > 0) {
+              nodeAffinity = {
+                nodeAffinity: {
+                  requiredDuringSchedulingIgnoredDuringExecution: {
+                    nodeSelectorTerms,
+                  },
+                },
+              };
+            }
+          }
+          
+          await updateHarvesterVmSpec(cloudId, namespace, vmName, { affinity: nodeAffinity });
+          message.success('节点亲和性配置已更新');
+          void maybePromptRestart(namespace, vmName);
+          break;
+        }
+        case 'change_usb': {
+          const names = Array.isArray(values.usbResourceNames) ? values.usbResourceNames : [];
+          await updateHarvesterVmSpec(cloudId, namespace, vmName, { usbResourceNames: names });
+          message.success('USB配置已更新');
+          void maybePromptRestart(namespace, vmName);
+          break;
+        }
+        case 'vm_policy': {
+          const rs = values.runStrategy || 'Manual';
+          const es = values.evictionStrategy ? String(values.evictionStrategy) : null;
+          await updateHarvesterVmSpec(cloudId, namespace, vmName, { runStrategy: rs, evictionStrategy: es });
+          message.success('策略配置已更新');
           break;
         }
         case 'change_primary_nic': {
@@ -1571,7 +1955,7 @@ export const useVmReconfigure = (props: any) => {
            }
 
            await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
-           openRestartConfirm(namespace, vmName, false);
+           void maybePromptRestart(namespace, vmName);
            break;
         }
         // ... other cases
@@ -1629,6 +2013,7 @@ export const useVmReconfigure = (props: any) => {
         size: values.newDiskSize,
         storageClassName: values.newDiskSc,
         accessModes: [accessMode],
+        volumeMode: 'Block',
       });
 
       form.setFieldsValue({ newDiskCreated: true });
@@ -1690,17 +2075,19 @@ export const useVmReconfigure = (props: any) => {
         }
         
         setLatestVm(updatedVm);
-
-        message.success('挂载成功，设置已保存，需要重启后生效');
-        setTimeout(() => {
-          openRestartConfirm(namespace, vmName, false);
-        }, 300);
+        const conditions = updatedVm?.status?.conditions || [];
+        const needsRestart = conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
+        if (needsRestart) {
+          message.success('挂载成功，设置已保存，需要重启后生效');
+          setTimeout(() => {
+            openRestartConfirm(namespace, vmName, false);
+          }, 300);
+        } else {
+          message.success('挂载成功');
+        }
       } catch (refreshErr: any) {
         console.warn('刷新VM数据失败:', refreshErr);
-        message.success('挂载成功，设置已保存，需要重启后生效');
-        setTimeout(() => {
-          openRestartConfirm(namespace, vmName, false);
-        }, 300);
+        message.success('挂载成功（请检查是否需要重启）');
       }
       
       // 清理 step 标记，避免下次误走挂载
@@ -1823,9 +2210,12 @@ export const useVmReconfigure = (props: any) => {
     form,
     selectedKey, setSelectedKey,
     scs, images, gpuResources, selectedGpuKeys, setSelectedGpuKeys,
+    usbResources, selectedUsbKeys, setSelectedUsbKeys,
     nads, vpcs, subnets, setVpcs,
+    nodes,
     gpuLoading,
-    reloadScs, reloadImages, reloadGpuResources, reloadNads, reloadVpcs, reloadSubnets,
+    usbLoading,
+    reloadScs, reloadImages, reloadGpuResources, reloadUsbResources, reloadNads, reloadVpcs, reloadSubnets, reloadNodes,
     handleSubmit,
     systemDisk,
     systemDiskSize,

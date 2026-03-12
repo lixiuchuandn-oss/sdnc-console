@@ -561,6 +561,15 @@ export const buildHarvesterVmPayload = (params: {
   const { v, memGi, hostModeState, selectedNodeName, gpuResources, selectedGpu, capabilities, isArm64, vmId } = params;
   
   // --- 1. GPU 资源处理 ---
+  const gpuMode = String(v.gpuMode || 'none').toLowerCase();
+  const selectedGpuDeviceName = (function () {
+      if (!selectedGpu) return undefined;
+      const rawName = selectedGpu?.raw?.metadata?.name;
+      if (rawName) return String(rawName);
+      const n = selectedGpu?.name;
+      if (n) return String(n);
+      return undefined;
+  })();
   const finalGpuResName = (function() {
       if (selectedGpu) {
            return selectedGpu?.resourceName || selectedGpu?.raw?.status?.resourceName || selectedGpu?.raw?.spec?.resourceName || undefined;
@@ -583,9 +592,42 @@ export const buildHarvesterVmPayload = (params: {
   const memory = String(v.memory || `${memGi}Gi`);
   const actualMemGi = parseSizeToGi(memory);
 
-  // --- 3. 调度策略 (Node Selector/Affinity) ---
-  // 处理 Label 调度
-  const nodeSelector = (function () { 
+  // --- 3. 调度策略 (Node Selector) ---
+  // [重要] 使用 nodeSelector 而不是 nodeAffinity 来固定节点
+  // 原因：Harvester 的 mutator 会清除 nodeAffinity 中的 kubernetes.io/hostname
+  // 但 nodeSelector 不会被清除，所以应该使用 nodeSelector
+  
+  // 处理节点调度逻辑
+  const nodeSelector = (function () {
+      // 优先 GPU 节点（如果选择了 GPU）
+      const gpuNode = selectedGpu && String(selectedGpu?.node || selectedGpu?.nodeName || '').trim();
+      if (gpuNode) {
+          return { 'kubernetes.io/hostname': gpuNode };
+      }
+      
+      // 如果没有选择 GPU，尝试从 GPU 资源中获取节点
+      if (!selectedGpu && v.gpuPcideviceName) {
+          try {
+              const list = Array.isArray(gpuResources) ? gpuResources : [];
+              const found = list.find((x: any) => String(x?.raw?.metadata?.name || x?.name || '') === String(v.gpuPcideviceName));
+              const gn = found && String(found?.node || found?.nodeName || '').trim();
+              if (gn) {
+                  return { 'kubernetes.io/hostname': gn };
+              }
+          } catch {}
+      }
+      if (!selectedGpu && v.gpuResourceName) {
+          try {
+              const list = Array.isArray(gpuResources) ? gpuResources : [];
+              const found = list.find((x:any)=> String(x?.resourceName)===String(v.gpuResourceName));
+              const gn = found && String(found?.node||found?.nodeName||'').trim();
+              if (gn) {
+                  return { 'kubernetes.io/hostname': gn };
+              }
+          } catch {}
+      }
+      
+      // 标签选择模式
       if (hostModeState === 'label') {
           const arr = Array.isArray(v.nodeSelectorPairs) ? v.nodeSelectorPairs : []; 
           const obj: any = {}; 
@@ -596,22 +638,14 @@ export const buildHarvesterVmPayload = (params: {
           }); 
           return Object.keys(obj).length > 0 ? obj : undefined; 
       }
-      return undefined;
-  })();
-  
-  // 处理 Node 亲和性 (优先 GPU 节点)
-  const nodeName = (function () {
-      const gpuNode = selectedGpu && String(selectedGpu?.node || selectedGpu?.nodeName || '').trim();
-      if (gpuNode) return gpuNode;
-      if (!selectedGpu && v.gpuResourceName) {
-           try {
-            const list = Array.isArray(gpuResources) ? gpuResources : [];
-            const found = list.find((x:any)=> String(x?.resourceName)===String(v.gpuResourceName));
-            const gn = found && String(found?.node||found?.nodeName||'').trim();
-            if (gn) return gn;
-           } catch {}
+      
+      // 指定主机模式
+      if (hostModeState === 'node' && selectedNodeName) {
+          return { 'kubernetes.io/hostname': selectedNodeName };
       }
-      return hostModeState === 'node' ? (selectedNodeName || undefined) : undefined;
+      
+      // 自动调度模式：返回 undefined
+      return undefined;
   })();
 
   // --- 4. 资源集合初始化 ---
@@ -853,19 +887,6 @@ export const buildHarvesterVmPayload = (params: {
                 evictionStrategy: (v.evictionStrategy && v.evictionStrategy !== 'None') ? v.evictionStrategy : undefined,
                 hostname: vmId || v.name,
                 nodeSelector: nodeSelector,
-                affinity: nodeName ? {
-                    nodeAffinity: {
-                        requiredDuringSchedulingIgnoredDuringExecution: {
-                            nodeSelectorTerms: [{
-                                matchExpressions: [{
-                                    key: "kubernetes.io/hostname",
-                                    operator: "In",
-                                    values: [nodeName]
-                                }]
-                            }]
-                        }
-                    }
-                } : undefined,
                 domain: {
                     cpu: {
                         cores: cores,
@@ -949,8 +970,11 @@ export const buildHarvesterVmPayload = (params: {
                         interfaces: interfaces,
                         disks: disks,
                         tpm: v.tpmEnabled ? { persistent: !!v.tpmPersistent } : undefined,
-                        hostDevices: finalGpuResName ? [
+                        gpus: (gpuMode === 'vgpu' && finalGpuResName) ? [
                             { name: "gpu-0", deviceName: finalGpuResName }
+                        ] : [],
+                        hostDevices: (gpuMode !== 'vgpu' && finalGpuResName) ? [
+                            { name: selectedGpuDeviceName || "gpu-0", deviceName: finalGpuResName }
                         ] : []
                     },
                     machine: {
@@ -971,6 +995,13 @@ export const buildHarvesterVmPayload = (params: {
 
   if (v.sshNames && v.sshNames.length > 0) {
       manifest.spec.template.metadata.annotations["harvesterhci.io/sshNames"] = JSON.stringify(v.sshNames);
+  }
+  if (gpuMode !== 'vgpu' && finalGpuResName && selectedGpuDeviceName) {
+      manifest.metadata.annotations["harvesterhci.io/deviceAllocationDetails"] = JSON.stringify({
+          hostdevices: {
+              [finalGpuResName]: [selectedGpuDeviceName],
+          },
+      });
   }
 
   return manifest;

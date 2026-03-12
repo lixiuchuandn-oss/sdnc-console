@@ -9,7 +9,7 @@ import { isSystemNamespace } from '../../../utils/harvesterUtils';
 import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchHarvesterLoadBalancers, fetchHarvesterStorageClasses, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, fetchHarvesterVolumes, fetchHarvesterImages } from '../../../services/harvesterApi';
 import { 
   fetchClouds, fetchCloudProviderEcs, API_BASE_URL,
-  startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs,
+  startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs,
   apiRequest
 } from '../../../services/api';
 import { getToken } from '../../../utils/tokenStorage';
@@ -163,6 +163,39 @@ const CloudConsolePage: React.FC = () => {
       loadEcs(currentCloudId);
     } catch (e: any) {
       message.error(`重启失败: ${e.message}`);
+    }
+  };
+
+  const handleSoftReboot = async (iid: string) => {
+    if (!currentCloudId) return;
+    try {
+      await softRebootCloudProviderEcs(currentCloudId, iid);
+      message.success('已发送重启指令');
+      loadEcs(currentCloudId);
+    } catch (e: any) {
+      message.error(`重启失败: ${e.message}`);
+    }
+  };
+
+  const handlePause = async (iid: string) => {
+    if (!currentCloudId) return;
+    try {
+      await pauseCloudProviderEcs(currentCloudId, iid);
+      message.success('已发送暂停指令');
+      loadEcs(currentCloudId);
+    } catch (e: any) {
+      message.error(`暂停失败: ${e.message}`);
+    }
+  };
+
+  const handleUnpause = async (iid: string) => {
+    if (!currentCloudId) return;
+    try {
+      await unpauseCloudProviderEcs(currentCloudId, iid);
+      message.success('已发送恢复指令');
+      loadEcs(currentCloudId);
+    } catch (e: any) {
+      message.error(`恢复失败: ${e.message}`);
     }
   };
 
@@ -1189,6 +1222,7 @@ const CloudConsolePage: React.FC = () => {
                     vpcs={vpcs}
                     subnets={subnets}
                     ecs={ecs}
+                    images={images}
                     volumes={pvcs}
                     snapshots={snapshots}
                     backups={backups}
@@ -1206,6 +1240,9 @@ const CloudConsolePage: React.FC = () => {
                     onStart={handleStart}
                     onStop={handleStop}
                     onReboot={handleReboot}
+                    onSoftReboot={handleSoftReboot}
+                    onPause={handlePause}
+                    onUnpause={handleUnpause}
                     onDelete={handleDelete}
                     bordered={false}
                 />
@@ -1279,6 +1316,9 @@ const CloudConsolePage: React.FC = () => {
                     onStart={handleStart}
                     onStop={handleStop}
                     onReboot={handleReboot}
+                    onSoftReboot={handleSoftReboot}
+                    onPause={handlePause}
+                    onUnpause={handleUnpause}
                     onDelete={handleDelete}
                     bordered={false}
                   />
@@ -1350,6 +1390,9 @@ const CloudConsolePage: React.FC = () => {
                     onStart={handleStart}
                     onStop={handleStop}
                     onReboot={handleReboot}
+                    onSoftReboot={handleSoftReboot}
+                    onPause={handlePause}
+                    onUnpause={handleUnpause}
                     onDelete={handleDelete}
                     bordered={false}
                   />

@@ -40,6 +40,8 @@ import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harve
 interface StepBasicProps {
   /** Ant Design Form 实例 */
   form: any;
+  /** 当前资源池下已存在的 VM 列表（用于显示名称重名校验） */
+  existingVms?: any[];
   /** 当前选中的资源池 ID */
   cloudId: string;
   /** 当前资源池 ID (用于内部状态) */
@@ -78,6 +80,7 @@ interface StepBasicProps {
 
 const StepBasic: React.FC<StepBasicProps> = ({
   form,
+  existingVms,
   cloudId,
   currentCloudId,
   setCurrentCloudId,
@@ -345,8 +348,42 @@ const StepBasic: React.FC<StepBasicProps> = ({
       <Form.Item 
         label="虚拟机名称" 
         name="name" 
+        dependencies={['namespace']}
+        validateTrigger="onChange"
         rules={[
-          { required: true, message: '请输入虚拟机名称' }
+          { required: true, message: '请输入虚拟机名称' },
+          {
+            validator: async (_: any, value: any) => {
+              const name = String(value || '').trim();
+              if (!name) return;
+              const ns = String(form.getFieldValue('namespace') || '').trim();
+              if (!ns) return;
+              const list = Array.isArray(existingVms) ? existingVms : [];
+              const getVmNamespace = (vm: any) => {
+                const direct = vm?.namespace || vm?.metadata?.namespace;
+                if (direct) return String(direct).trim();
+                const iid = vm?.InstanceId || vm?.id || vm?.metadata?.name;
+                const s = String(iid || '').trim();
+                if (s.includes('/')) return s.split('/')[0].trim();
+                return '';
+              };
+              const getVmAlias = (vm: any) => {
+                return String(
+                  vm?.metadata?.annotations?.['tower.io/alias'] ||
+                  vm?.annotations?.['tower.io/alias'] ||
+                  ''
+                ).trim();
+              };
+              const dup = list.some((vm: any) => {
+                const vmNs = getVmNamespace(vm);
+                if (!vmNs || vmNs !== ns) return false;
+                const alias = getVmAlias(vm);
+                if (!alias) return false;
+                return alias === name;
+              });
+              if (dup) throw new Error('虚拟机名称不可重复，请修改虚拟机名称');
+            }
+          }
         ]}
       >
         <Input placeholder="显示名称（支持中文）" />

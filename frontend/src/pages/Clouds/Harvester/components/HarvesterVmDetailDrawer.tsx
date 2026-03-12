@@ -46,7 +46,7 @@ import {
 } from '@ant-design/icons';
 import { cnVmStatus } from '../../../../utils/harvesterUtils';
 import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
-import { rebootCloudProviderEcs, API_BASE_URL } from '../../../../services/api';
+import { rebootCloudProviderEcs, API_BASE_URL, apiPost } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
 import HarvesterVmBackupTab from './HarvesterVmBackupTab';
@@ -54,9 +54,11 @@ import { ReactComponent as CpuIcon } from '../../../../assets/clouds/cpu.svg';
 import { ReactComponent as MemIcon } from '../../../../assets/clouds/mem.svg';
 import { ReactComponent as DiskIcon } from '../../../../assets/clouds/disk.svg';
 import { ReactComponent as GpuIcon } from '../../../../assets/clouds/gpu.svg';
+import { ReactComponent as UsbIcon } from '../../../../assets/clouds/usb.svg';
 import { ReactComponent as NicIcon } from '../../../../assets/clouds/nic.svg';
 import HarvesterEventsTab from './HarvesterEventsTab';
 import HarvesterVmLogsTab from './HarvesterVmLogsTab';
+import HarvesterVmDiagnosisTab from './HarvesterVmDiagnosisTab';
 import { OsIcon } from '../../../../components/OsIcon';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
 import { getToken } from '../../../../utils/tokenStorage';
@@ -444,6 +446,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     if (!cloudId) return;
     setBackupsLoading(true);
     try {
+      if (force && !skipSync) {
+        try { await apiPost(`/api/clouds/${cloudId}/sync`); } catch {}
+      }
       const res = await fetchHarvesterBackups(cloudId, force, skipSync);
       const items = (res as any)?.data?.items || [];
       setBackups(items);
@@ -458,6 +463,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     if (!cloudId) return;
     setSchedulesLoading(true);
     try {
+      if (force && !skipSync) {
+        try { await apiPost(`/api/clouds/${cloudId}/sync`); } catch {}
+      }
       const res = await fetchHarvesterScheduleVmBackups(cloudId, force, skipSync);
       const items = (res as any)?.data?.items || [];
       setSchedules(items);
@@ -1118,12 +1126,9 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   
   const vmDisks = SafeRead.volumeDetails(vmData);
   const vmNics = SafeRead.interfaces(vmData);
-  const vmGpus = useMemo(() => {
+  const vmDeviceAlloc = useMemo(() => {
     const domain = vmData?.spec?.template?.spec?.domain;
     const devices = domain?.devices || {};
-
-    const hostDevices = Array.isArray(devices?.hostDevices) ? devices.hostDevices : [];
-    const gpus = Array.isArray(devices?.gpus) ? devices.gpus : [];
 
     let allocation: any = null;
     try {
@@ -1133,22 +1138,45 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       allocation = null;
     }
     const hostAlloc = allocation?.hostdevices || {};
+    return { hostAlloc, devices };
+  }, [vmData]);
 
+  const vmGpus = useMemo(() => {
+    const isUsb = (x: any) => {
+      const dn = String(x?.deviceName || '').toLowerCase();
+      const n = String(x?.name || '').toLowerCase();
+      return dn.includes('usb') || n.includes('usb');
+    };
+    const hostDevices = Array.isArray(vmDeviceAlloc?.devices?.hostDevices) ? vmDeviceAlloc.devices.hostDevices : [];
+    const gpus = Array.isArray(vmDeviceAlloc?.devices?.gpus) ? vmDeviceAlloc.devices.gpus : [];
     const mapped = [
-      ...hostDevices.map((d: any) => ({ kind: 'hostDevices', deviceName: d?.deviceName, name: d?.name })),
+      ...hostDevices.filter((d: any) => !isUsb(d)).map((d: any) => ({ kind: 'hostDevices', deviceName: d?.deviceName, name: d?.name })),
       ...gpus.map((d: any) => ({ kind: 'gpus', deviceName: d?.deviceName, name: d?.name })),
     ]
       .filter((x: any) => x?.deviceName || x?.name)
       .map((x: any) => {
-        const allocNames = Array.isArray(hostAlloc?.[x.deviceName]) ? hostAlloc[x.deviceName] : [];
-        return {
-          ...x,
-          allocationNames: allocNames,
-        };
+        const allocNames = Array.isArray(vmDeviceAlloc?.hostAlloc?.[x.deviceName]) ? vmDeviceAlloc.hostAlloc[x.deviceName] : [];
+        return { ...x, allocationNames: allocNames };
       });
-
     return mapped;
-  }, [vmData]);
+  }, [vmDeviceAlloc]);
+
+  const vmUsb = useMemo(() => {
+    const isUsb = (x: any) => {
+      const dn = String(x?.deviceName || '').toLowerCase();
+      const n = String(x?.name || '').toLowerCase();
+      return dn.includes('usb') || n.includes('usb');
+    };
+    const hostDevices = Array.isArray(vmDeviceAlloc?.devices?.hostDevices) ? vmDeviceAlloc.devices.hostDevices : [];
+    return hostDevices
+      .filter((d: any) => isUsb(d))
+      .map((d: any) => ({ kind: 'hostDevices', deviceName: d?.deviceName, name: d?.name }))
+      .filter((x: any) => x?.deviceName || x?.name)
+      .map((x: any) => {
+        const allocNames = Array.isArray(vmDeviceAlloc?.hostAlloc?.[x.deviceName]) ? vmDeviceAlloc.hostAlloc[x.deviceName] : [];
+        return { ...x, allocationNames: allocNames };
+      });
+  }, [vmDeviceAlloc]);
 
   // [动作开关] 若第一块磁盘为 cdrom，则暴露“弹出 CD-ROM”动作
   const rawDisks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
@@ -1373,6 +1401,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
               options={[
                 { label: '详情', value: 'detail', icon: <DesktopOutlined /> },
                 { label: '性能', value: 'performance', icon: <LineChartOutlined /> },
+                { label: '诊断', value: 'diagnosis', icon: <ExclamationCircleOutlined /> },
                 { label: '备份/快照', value: 'backup_snapshot', icon: <DatabaseOutlined /> },
                 { label: '事件', value: 'events', icon: <BellOutlined /> },
                 { label: '实时日志', value: 'logs', icon: <FileTextOutlined /> },
@@ -1690,60 +1719,174 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                       </Card>
                   </div>
 
+                  {vmGpus.length > 0 && (
+                      <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <span style={{ color: '#666' }}>GPU</span>
+                          </div>
+                          <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+                              <List
+                                dataSource={vmGpus}
+                                renderItem={(item: any) => (
+                                    <List.Item style={{ padding: '16px 24px' }}>
+                                        <List.Item.Meta
+                                            avatar={
+                                              <div style={{ 
+                                                  width: 48, height: 48, borderRadius: 8, background: '#ffffff',
+                                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                  flexShrink: 0 
+                                              }}>
+                                                  <GpuIcon width={34} height={34} style={{ fill: '#1890ff' }} />
+                                              </div>
+                                            }
+                                            title={
+                                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <span style={{ wordBreak: 'break-word' }}>{item.deviceName || '-'}</span>
+                                                <Tag color={item.kind === 'gpus' ? 'blue' : 'purple'} style={{ fontSize: 10, margin: 0 }}>
+                                                  {item.kind === 'gpus' ? 'GPU' : 'HostDevice'}
+                                                </Tag>
+                                              </div>
+                                            }
+                                            description={
+                                              <div style={{ fontSize: 12, color: '#666' }}>
+                                                {item.name ? (
+                                                  <span>分配ID：{item.name}</span>
+                                                ) : null}
+                                                {Array.isArray(item.allocationNames) && item.allocationNames.length > 0 ? (
+                                                  <>
+                                                    {item.name ? <span style={{ margin: '0 8px', color: '#eee' }}>|</span> : null}
+                                                    <span>分配明细：{item.allocationNames.join(', ')}</span>
+                                                  </>
+                                                ) : null}
+                                              </div>
+                                            }
+                                        />
+                                    </List.Item>
+                                )}
+                              />
+                          </Card>
+                      </div>
+                  )}
+
+                  {vmUsb.length > 0 && (
+                      <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <span style={{ color: '#666' }}>USB</span>
+                          </div>
+                          <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+                              <List
+                                dataSource={vmUsb}
+                                renderItem={(item: any) => (
+                                    <List.Item style={{ padding: '16px 24px' }}>
+                                        <List.Item.Meta
+                                            avatar={
+                                              <div style={{ 
+                                                  width: 48, height: 48, borderRadius: 8, background: '#ffffff',
+                                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                  flexShrink: 0 
+                                              }}>
+                                                  <UsbIcon width={34} height={34} style={{ fill: '#1890ff' }} />
+                                              </div>
+                                            }
+                                            title={
+                                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <span style={{ wordBreak: 'break-word' }}>{item.deviceName || '-'}</span>
+                                                <Tag color="purple" style={{ fontSize: 10, margin: 0 }}>USB</Tag>
+                                              </div>
+                                            }
+                                            description={
+                                              <div style={{ fontSize: 12, color: '#666' }}>
+                                                {item.name ? (
+                                                  <span>分配ID：{item.name}</span>
+                                                ) : null}
+                                                {Array.isArray(item.allocationNames) && item.allocationNames.length > 0 ? (
+                                                  <>
+                                                    {item.name ? <span style={{ margin: '0 8px', color: '#eee' }}>|</span> : null}
+                                                    <span>分配明细：{item.allocationNames.join(', ')}</span>
+                                                  </>
+                                                ) : null}
+                                              </div>
+                                            }
+                                        />
+                                    </List.Item>
+                                )}
+                              />
+                          </Card>
+                      </div>
+                  )}
+
+                  {/*
+                    ========================================
+                    4.4 节点调度
+                    ========================================
+                    展示节点选择器（nodeSelector）和节点亲和性（nodeAffinity）配置，帮助诊断调度问题。
+                  */}
                   <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ color: '#666' }}>GPU</span>
+                          <span style={{ color: '#666' }}>节点调度</span>
                       </div>
-                      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-                          {vmGpus.length === 0 ? (
-                            <div style={{ padding: '16px 24px', fontSize: 12, color: '#999' }}>未分配</div>
-                          ) : (
-                            <List
-                              dataSource={vmGpus}
-                              renderItem={(item: any) => (
-                                  <List.Item style={{ padding: '16px 24px' }}>
-                                      <List.Item.Meta
-                                          avatar={
-                                            <div style={{ 
-                                                width: 48, height: 48, borderRadius: 8, background: '#ffffff',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                flexShrink: 0 
-                                            }}>
-                                                <GpuIcon width={34} height={34} style={{ fill: '#1890ff' }} />
-                                            </div>
-                                          }
-                                          title={
-                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                              <span style={{ wordBreak: 'break-word' }}>{item.deviceName || '-'}</span>
-                                              <Tag color={item.kind === 'gpus' ? 'blue' : 'purple'} style={{ fontSize: 10, margin: 0 }}>
-                                                {item.kind === 'gpus' ? 'GPU' : 'HostDevice'}
-                                              </Tag>
-                                            </div>
-                                          }
-                                          description={
-                                            <div style={{ fontSize: 12, color: '#666' }}>
-                                              {item.name ? (
-                                                <span>分配ID：{item.name}</span>
-                                              ) : null}
-                                              {Array.isArray(item.allocationNames) && item.allocationNames.length > 0 ? (
-                                                <>
-                                                  {item.name ? <span style={{ margin: '0 8px', color: '#eee' }}>|</span> : null}
-                                                  <span>分配明细：{item.allocationNames.join(', ')}</span>
-                                                </>
-                                              ) : null}
-                                            </div>
-                                          }
-                                      />
-                                  </List.Item>
-                              )}
-                            />
-                          )}
+                      <Card variant="borderless" styles={{ body: { padding: '16px 24px' } }}>
+                          <Descriptions column={1} size="small" styles={{ label: { width: 140, color: '#999' } }}>
+                              <Descriptions.Item label="当前节点">
+                                  {vmData?.status?.nodeName || vmData?.vmi?.status?.nodeName || '-'}
+                              </Descriptions.Item>
+                              <Descriptions.Item label={
+                                  <Tooltip title="节点选择器：强制虚拟机调度到指定节点（如 GPU 节点固定）">
+                                      <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>节点选择器</span>
+                                  </Tooltip>
+                              }>
+                                  {(() => {
+                                      const nodeSelector = vmData?.spec?.template?.spec?.nodeSelector;
+                                      if (!nodeSelector || Object.keys(nodeSelector).length === 0) {
+                                          return <span style={{ color: '#999' }}>未设置</span>;
+                                      }
+                                      return (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                              {Object.entries(nodeSelector).map(([key, value]) => (
+                                                  <Tag key={key} color="blue" style={{ margin: 0 }}>
+                                                      {key}: {String(value)}
+                                                  </Tag>
+                                              ))}
+                                          </div>
+                                      );
+                                  })()}
+                              </Descriptions.Item>
+                              <Descriptions.Item label={
+                                  <Tooltip title="节点亲和性：根据节点标签进行调度（如网络标签要求）">
+                                      <span style={{ borderBottom: '1px dashed #999', cursor: 'help' }}>节点亲和性</span>
+                                  </Tooltip>
+                              }>
+                                  {(() => {
+                                      const nodeAffinity = vmData?.spec?.template?.spec?.affinity?.nodeAffinity;
+                                      if (!nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution) {
+                                          return <span style={{ color: '#999' }}>未设置</span>;
+                                      }
+                                      const terms = nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms || [];
+                                      if (terms.length === 0) {
+                                          return <span style={{ color: '#999' }}>未设置</span>;
+                                      }
+                                      return (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                              {terms.map((term: any, idx: number) => (
+                                                  <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                      {term.matchExpressions?.map((expr: any, exprIdx: number) => (
+                                                          <Tag key={exprIdx} color="green" style={{ margin: 0 }}>
+                                                              {expr.key} {expr.operator} {Array.isArray(expr.values) ? expr.values.join(', ') : expr.values || ''}
+                                                          </Tag>
+                                                      ))}
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      );
+                                  })()}
+                              </Descriptions.Item>
+                          </Descriptions>
                       </Card>
                   </div>
 
                   {/*
                     ========================================
-                    4.4 其他选项
+                    4.5 其他选项
                     ========================================
                     展示 Guest Agent、Cloud-Init、SSH Keys、运行策略、固件/TPM 等配置项，便于排查实例行为差异。
                   */}
@@ -1803,6 +1946,16 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                   namespace={SafeRead.namespace(vmData)} 
                   name={SafeRead.vmId(vmData)} 
               />
+          )}
+
+          {activeTab === 'diagnosis' && (
+              <div style={{ padding: '0 0 24px' }}>
+                 <HarvesterVmDiagnosisTab 
+                    cloudId={cloudId} 
+                    record={vmData} 
+                    active={activeTab === 'diagnosis'} 
+                 />
+              </div>
           )}
 
           {activeTab === 'backup_snapshot' && (

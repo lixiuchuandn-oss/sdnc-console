@@ -173,7 +173,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
         <Col span={16}>
           {/* 来源=镜像 (非 ISO) */}
           {(form.getFieldValue('rootSourceType') || 'image') === 'image' && (
-            <Form.Item label="选择镜像" name="image" rules={[{ required: true }]}> 
+            <Form.Item label="选择镜像" name="image" rules={[{ required: true, message: '请选择镜像' }]}> 
               <Select
                 options={(images || []).filter((x: any) => {
                   const kind = resolveImageKind(x);
@@ -259,7 +259,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
 
           {/* 来源=ISO */}
           {(form.getFieldValue('rootSourceType') || 'image') === 'iso' && (
-            <Form.Item label="选择 ISO 镜像" name="image" rules={[{ required: true }]}>
+            <Form.Item label="选择 ISO 镜像" name="image" rules={[{ required: true, message: '请选择 ISO 镜像' }]}>
               <Select
                 options={(images || []).filter((x: any) => {
                   const kind = resolveImageKind(x);

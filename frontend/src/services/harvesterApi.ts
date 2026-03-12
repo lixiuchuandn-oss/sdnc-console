@@ -393,13 +393,35 @@ export const deleteHarvesterResourceByLink = async (cloudId: string, path: strin
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`);
 };
 
+export const fetchHarvesterVirtualMachineRestores = async (cloudId: string, force = false) => {
+  const path = `/apis/harvesterhci.io/v1beta1/virtualmachinerestores`;
+  return await fetchHarvesterResourceByLink(cloudId, path);
+};
+
+export const deleteHarvesterVirtualMachineRestore = async (cloudId: string, namespace: string, name: string) => {
+  const path = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinerestores/${encodeURIComponent(name)}`;
+  return await deleteHarvesterResourceByLink(cloudId, path);
+};
+
 /**
  * 获取 Harvester USB 设备资源列表
  * @param cloudId 云环境 ID
  * @returns Promise<any>
  */
-export const fetchHarvesterUsbResources = async (cloudId: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/usb-devices`);
+export const fetchHarvesterUsbResources = async (cloudId: string, force = false) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/usb-devices${force ? '?force=true' : ''}`);
+};
+
+export const claimHarvesterUsbDevice = async (cloudId: string, name: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/usb-devices/${encodeURIComponent(name)}/claim`, {});
+};
+
+export const unclaimHarvesterUsbDevice = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/usb-devices/${encodeURIComponent(name)}/claim`);
+};
+
+export const fetchHarvesterPciDevices = async (cloudId: string, force = false) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/pci-devices${force ? '?force=true' : ''}`);
 };
 
 /**

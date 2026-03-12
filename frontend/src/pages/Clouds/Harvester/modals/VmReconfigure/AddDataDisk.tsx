@@ -10,6 +10,19 @@ type Props = {
   pvcOptions?: any[];
 };
 
+const formatAccessMode = (m: string) => {
+  if (m === 'ReadWriteOnce') return 'RWO (ReadWriteOnce)';
+  if (m === 'ReadWriteMany') return 'RWX (ReadWriteMany)';
+  if (m === 'ReadOnlyMany') return 'ROX (ReadOnlyMany)';
+  return m || '-';
+};
+
+const formatAccessModes = (modes: any[]) => {
+  const list = (Array.isArray(modes) ? modes : []).map((x) => String(x || '')).filter(Boolean);
+  if (list.length === 0) return '-';
+  return Array.from(new Set(list)).map(formatAccessMode).join(', ');
+};
+
 const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions = [] }) => {
   const created = !!Form.useWatch('newDiskCreated', form);
   const diskName = Form.useWatch('newDiskName', form);
@@ -29,6 +42,15 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
     const raw = p?.rawData || p;
     return raw?.spec?.storageClassName || p?.storageClassName || '';
   };
+  const getPvcAccessModes = (p: any) => {
+    const raw = p?.rawData || p;
+    const modes = raw?.spec?.accessModes;
+    return Array.isArray(modes) ? modes.filter(Boolean) : [];
+  };
+  const selectedExistingPvcObj = (diskSource === 'existing' ? (pvcOptions || []).find((p: any) => getPvcName(p) === (existingPvc || diskName)) : undefined);
+  const previewCap = selectedExistingPvcObj ? (getPvcCap(selectedExistingPvcObj) || '-') : '-';
+  const previewSc = selectedExistingPvcObj ? (getPvcSc(selectedExistingPvcObj) || '-') : '-';
+  const previewAccess = selectedExistingPvcObj ? formatAccessModes(getPvcAccessModes(selectedExistingPvcObj)) : '-';
 
   return (
     <>
@@ -41,7 +63,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
         <Input />
       </Form.Item>
 
-      {created && (
+      {created && diskSource === 'create' && (
         <div style={{ marginBottom: 16 }}>
           <Alert
             type="success"
@@ -54,26 +76,9 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
                 </div>
                 <Descriptions size="small" column={1} styles={{ label: { width: 120 } }}>
                   <Descriptions.Item label="磁盘名称">{diskName || '-'}</Descriptions.Item>
-                  <Descriptions.Item label="容量">
-                    {diskSource === 'existing'
-                      ? (getPvcCap((pvcOptions || []).find((p: any) => getPvcName(p) === (existingPvc || diskName))) || '-')
-                      : (diskSize ? `${diskSize} GiB` : '-')
-                    }
-                  </Descriptions.Item>
-                  <Descriptions.Item label="存储类">
-                    {diskSource === 'existing'
-                      ? (getPvcSc((pvcOptions || []).find((p: any) => getPvcName(p) === (existingPvc || diskName))) || '-')
-                      : (diskSc || '-')
-                    }
-                  </Descriptions.Item>
-                  {diskSource === 'create' && (
-                    <Descriptions.Item label="访问类型">
-                      {diskAccessMode === 'ReadWriteOnce' ? 'RWO (ReadWriteOnce)' :
-                       diskAccessMode === 'ReadWriteMany' ? 'RWX (ReadWriteMany)' :
-                       diskAccessMode === 'ReadOnlyMany' ? 'ROX (ReadOnlyMany)' :
-                       'RWX (ReadWriteMany)'}
-                    </Descriptions.Item>
-                  )}
+                  <Descriptions.Item label="容量">{diskSize ? `${diskSize} GiB` : '-'}</Descriptions.Item>
+                  <Descriptions.Item label="存储类">{diskSc || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="访问类型">{formatAccessMode(String(diskAccessMode || 'ReadWriteMany'))}</Descriptions.Item>
                 </Descriptions>
               </div>
             }
@@ -92,7 +97,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
             value={diskSource || 'create'}
             options={[
               { label: '创建新磁盘', value: 'create' },
-              { label: '选择已有磁盘(PVC)', value: 'existing' },
+              { label: '选择已有磁盘', value: 'existing' },
             ]}
             onChange={(val) => {
               const v = String(val);
@@ -119,7 +124,8 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
             <Form.Item
               name="existingPvcName"
               rules={[{ required: true, message: '请选择已有磁盘' }]}
-              noStyle
+              style={{ marginBottom: 0 }}
+              extra="仅展示当前命名空间下、且未挂载的卷"
             >
               <Select
                 showSearch
@@ -131,81 +137,109 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
                     const ns = getPvcNs(p);
                     const cap = getPvcCap(p);
                     if (!name) return null;
-                    const label = cap ? `${name} (${cap})` : name;
+                    const access = formatAccessModes(getPvcAccessModes(p));
+                    const label = cap ? `${name} (${cap}) · ${access}` : `${name} · ${access}`;
                     return { label, value: name, _ns: ns };
                   })
                   .filter(Boolean) as any}
                 onChange={(name) => {
-                  // 选择已有磁盘后：自动填充 newDiskName，并标记为“已创建”，直接进入挂载阶段
                   form.setFieldsValue({ newDiskName: name, newDiskCreated: true });
                 }}
               />
             </Form.Item>
-            <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>
-              仅展示当前命名空间下、且未挂载到本虚拟机的卷
+          </Col>
+        </Row>
+      )}
+
+      {diskSource === 'existing' && (
+        <Row gutter={12} style={{ marginBottom: 24 }}>
+          <Col span={6}>
+            <div style={{ lineHeight: '32px' }}>磁盘预览</div>
+          </Col>
+          <Col span={18}>
+            <div style={{ padding: 12, background: '#EDF0F7', borderRadius: 8, border: '1px solid #e5e5e5' }}>
+              <Row gutter={12} style={{ marginBottom: 12 }}>
+                <Col span={12}>
+                  <Input disabled readOnly prefix="磁盘名称" value={selectedExistingPvcObj ? (getPvcName(selectedExistingPvcObj) || '-') : '-'} style={{ color: '#00000040' }} />
+                </Col>
+                <Col span={12}>
+                  <Input disabled readOnly prefix="磁盘容量" value={previewCap} style={{ color: '#00000040' }} />
+                </Col>
+              </Row>
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Input disabled readOnly prefix="存储类" value={previewSc} style={{ color: '#00000040' }} />
+                </Col>
+                <Col span={12}>
+                  <Input disabled readOnly prefix="访问类型" value={previewAccess} style={{ color: '#00000040' }} />
+                </Col>
+              </Row>
             </div>
-            <div style={{ marginBottom: 24 }} />
           </Col>
         </Row>
       )}
       
-      <Row gutter={12} style={{ marginBottom: 0 }}>
-        <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>磁盘名称</div>
-        </Col>
-        <Col span={18}>
-          <Form.Item
-            name="newDiskName"
-            rules={[
-              { required: true, message: '请输入磁盘名称' },
-              { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '名称必须由小写字母、数字或连字符组成，且开头结尾必须是字母或数字' }
-            ]}
-            noStyle
-          >
-            <Input placeholder="请输入磁盘名称" disabled={created || diskSource === 'existing'} />
-          </Form.Item>
-          <div style={{ marginBottom: 24 }} />
-        </Col>
-      </Row>
+      {diskSource === 'create' && (
+        <>
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>磁盘名称</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item
+                name="newDiskName"
+                rules={[
+                  { required: true, message: '请输入磁盘名称' },
+                  { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '名称必须由小写字母、数字或连字符组成，且开头结尾必须是字母或数字' }
+                ]}
+                noStyle
+              >
+                <Input placeholder="请输入磁盘名称" disabled={created} />
+              </Form.Item>
+              <div style={{ marginBottom: 24 }} />
+            </Col>
+          </Row>
 
-      <Row gutter={12} style={{ marginBottom: 0 }}>
-        <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>容量 (GiB)</div>
-        </Col>
-        <Col span={18}>
-          <Form.Item
-            name="newDiskSize"
-            initialValue={10}
-            rules={[{ required: true, message: '请输入容量' }]}
-            noStyle
-          >
-            <InputNumber min={1} suffix="GiB" style={{ width: '100%' }} disabled={created || diskSource === 'existing'} />
-          </Form.Item>
-          <div style={{ marginBottom: 24 }} />
-        </Col>
-      </Row>
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>容量 (GiB)</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item
+                name="newDiskSize"
+                initialValue={10}
+                rules={[{ required: true, message: '请输入容量' }]}
+                noStyle
+              >
+                <InputNumber min={1} suffix="GiB" style={{ width: '150px' }} disabled={created} />
+              </Form.Item>
+              <div style={{ marginBottom: 24 }} />
+            </Col>
+          </Row>
 
-      <Row gutter={12} style={{ marginBottom: 0 }}>
-        <Col span={6}>
-          <div style={{ lineHeight: '32px' }}>存储类</div>
-        </Col>
-        <Col span={18}>
-          <Form.Item
-            name="newDiskSc"
-            rules={[{ required: true, message: '请选择存储类' }]}
-            noStyle
-          >
-            <Select 
-              options={scOptions} 
-              placeholder="请选择存储类" 
-              onDropdownVisibleChange={(open) => open && reloadScs()}
-              disabled={created || diskSource === 'existing'}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-          <div style={{ marginBottom: 24 }} />
-        </Col>
-      </Row>
+          <Row gutter={12} style={{ marginBottom: 0 }}>
+            <Col span={6}>
+              <div style={{ lineHeight: '32px' }}>存储类</div>
+            </Col>
+            <Col span={18}>
+              <Form.Item
+                name="newDiskSc"
+                rules={[{ required: true, message: '请选择存储类' }]}
+                noStyle
+              >
+                <Select 
+                  options={scOptions} 
+                  placeholder="请选择存储类" 
+                  onDropdownVisibleChange={(open) => open && reloadScs()}
+                  disabled={created}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+              <div style={{ marginBottom: 24 }} />
+            </Col>
+          </Row>
+        </>
+      )}
 
       {diskSource === 'create' && (
         <Row gutter={12} style={{ marginBottom: 0 }}>

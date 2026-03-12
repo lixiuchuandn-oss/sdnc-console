@@ -1,5 +1,5 @@
 import { HarvesterTestParams } from './types';
-import { getJsonOnce } from './utils';
+import { getJsonOnce, requestJson } from './utils';
 
 /**
  * ==============================================================================
@@ -371,13 +371,7 @@ export const listHarvesterUsbResources = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  const candidates = [
-    `${origin}/v1/kubevirt.io.kubevirts/${encodeURIComponent('kubevirt')}`,
-    `${origin}/v1/kubevirt.io.kubevirts`,
-    `${origin}/v1/harvester/kubevirt.io.kubevirts`,
-    `${origin}/apis/kubevirt.io/v1/kubevirts`,
-    `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent('kubevirt')}/kubevirts/${encodeURIComponent('kubevirt')}`,
-  ];
+  let clusterId: string | null = null;
   try {
     const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
     const cItems = Array.isArray((clusters as any)?.data)
@@ -385,22 +379,116 @@ export const listHarvesterUsbResources = async ({
       : Array.isArray((clusters as any)?.items)
         ? (clusters as any)?.items
         : [];
-    const clusterId = String(
-      (
-        cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local') ||
-        cItems[0] ||
-        {}
-      )?.id || '',
-    ).trim();
-    if (clusterId) {
-      candidates.unshift(
-        `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/kubevirt.io/v1/kubevirts`,
-      );
-      candidates.unshift(
-        `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent('kubevirt')}/kubevirts/${encodeURIComponent('kubevirt')}`,
-      );
-    }
+    const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+    const any = local || cItems[0];
+    clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
   } catch {}
+
+  const usbDeviceCandidates = [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.cloudhci.io/v1beta1/usbdevices`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.cloudhci.io/v1/usbdevices`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1beta1/usbdevices`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/usbdevices`,
+        ]
+      : []),
+    `${origin}/apis/devices.cloudhci.io/v1beta1/usbdevices`,
+    `${origin}/apis/devices.cloudhci.io/v1/usbdevices`,
+    `${origin}/apis/devices.harvesterhci.io/v1beta1/usbdevices`,
+    `${origin}/apis/devices.harvesterhci.io/v1/usbdevices`,
+    `${origin}/v1/harvester/devices.cloudhci.io.usbdevices`,
+    `${origin}/v1/harvester/devices.harvesterhci.io.usbdevices`,
+    `${origin}/v1/harvester/devices.cloudhci.io.usbdevice`,
+    `${origin}/v1/harvester/devices.harvesterhci.io.usbdevice`,
+  ];
+
+  for (const url of usbDeviceCandidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      const items = Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json?.items)
+          ? json.items
+          : [];
+      if (!items || items.length === 0) continue;
+
+      return (items || [])
+        .filter((d: any) => {
+          const nm = String(d?.metadata?.name || d?.name || '').trim();
+          if (nm.startsWith('d-')) return false;
+          const rn = String(d?.status?.resourceName || d?.spec?.resourceName || '').trim();
+          const vid = String(
+            d?.status?.vendorID || d?.status?.vendorId || d?.spec?.vendorID || d?.spec?.vendorId || '',
+          ).trim();
+          const pid = String(
+            d?.status?.productID || d?.status?.productId || d?.spec?.productID || d?.spec?.productId || '',
+          ).trim();
+          return Boolean(rn || (vid && pid));
+        })
+        .map((d: any) => {
+          const resourceName =
+            d?.status?.resourceName ||
+            d?.spec?.resourceName ||
+            d?.status?.deviceName ||
+            d?.spec?.deviceName ||
+            d?.metadata?.name ||
+            d?.name ||
+            '';
+          const name = d?.metadata?.name || d?.name || '';
+          const description =
+            d?.status?.description ||
+            d?.spec?.description ||
+            d?.metadata?.annotations?.['field.cattle.io/description'] ||
+            '';
+          const vendorId =
+            d?.status?.vendorId ||
+            d?.status?.vendorID ||
+            d?.spec?.vendorId ||
+            d?.spec?.vendorID ||
+            d?.status?.vendor ||
+            d?.spec?.vendor ||
+            '';
+          const productId =
+            d?.status?.productId ||
+            d?.status?.productID ||
+            d?.spec?.productId ||
+            d?.spec?.productID ||
+            d?.status?.deviceId ||
+            d?.spec?.deviceId ||
+            '';
+          return {
+            resourceName: String(resourceName || ''),
+            name: name ? String(name) : undefined,
+            description: description ? String(description) : undefined,
+            vendorId: vendorId ? String(vendorId) : undefined,
+            productId: productId ? String(productId) : undefined,
+            raw: d,
+          };
+        })
+        .filter((x: any) => !!x.resourceName);
+    } catch {}
+  }
+
+  const candidates = [
+    `${origin}/v1/kubevirt.io.kubevirts/${encodeURIComponent('kubevirt')}`,
+    `${origin}/v1/kubevirt.io.kubevirts`,
+    `${origin}/v1/harvester/kubevirt.io.kubevirts`,
+    `${origin}/apis/kubevirt.io/v1/kubevirts`,
+    `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent('kubevirt')}/kubevirts/${encodeURIComponent('kubevirt')}`,
+    `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent('harvester-system')}/kubevirts/${encodeURIComponent('kubevirt')}`,
+  ];
+  if (clusterId) {
+    candidates.unshift(
+      `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/kubevirt.io/v1/kubevirts`,
+    );
+    candidates.unshift(
+      `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent('kubevirt')}/kubevirts/${encodeURIComponent('kubevirt')}`,
+    );
+    candidates.unshift(
+      `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent('harvester-system')}/kubevirts/${encodeURIComponent('kubevirt')}`,
+    );
+  }
   let kv: any = null;
   for (const url of candidates) {
     try {
@@ -433,7 +521,376 @@ export const listHarvesterUsbResources = async ({
       const sel = Array.isArray(d?.selectors) ? d.selectors[0] : undefined;
       const vendor = d?.vendorId || sel?.vendor;
       const product = d?.productId || sel?.product;
-      return { resourceName: d?.resourceName || '', vendorId: vendor, productId: product, raw: d };
+      return {
+        resourceName: d?.resourceName || '',
+        name: d?.resourceName || '',
+        description: d?.description || '',
+        vendorId: vendor,
+        productId: product,
+        raw: d,
+      };
     })
     .filter((x: any) => !!x.resourceName);
 };
+
+export const listHarvesterPciDeviceClaims = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  let clusterId: string | null = null;
+  try {
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const cItems = Array.isArray((clusters as any)?.data)
+      ? (clusters as any)?.data
+      : Array.isArray((clusters as any)?.items)
+        ? (clusters as any)?.items
+        : [];
+    const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+    const any = local || cItems[0];
+    clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
+  } catch {}
+
+  const candidates = [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1beta1/pcideviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1/pcideviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1beta1/pcideviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/pcideviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/pcidevices.harvesterhci.io.pcideviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/devices.harvesterhci.io.pcideviceclaims`,
+        ]
+      : []),
+    `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcideviceclaims`,
+    `${origin}/apis/pcidevices.harvesterhci.io/v1/pcideviceclaims`,
+    `${origin}/apis/devices.harvesterhci.io/v1beta1/pcideviceclaims`,
+    `${origin}/apis/devices.harvesterhci.io/v1/pcideviceclaims`,
+    `${origin}/v1/harvester/pcidevices.harvesterhci.io.pcideviceclaims`,
+    `${origin}/v1/harvester/devices.harvesterhci.io.pcideviceclaims`,
+  ];
+
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      const items = Array.isArray((json as any)?.data)
+        ? (json as any).data
+        : Array.isArray((json as any)?.items)
+          ? (json as any).items
+          : [];
+      return Array.isArray(items) ? items : [];
+    } catch (e: any) {
+      lastErr = e;
+      const s = Number(e?.status || 0);
+      if (s === 401 || s === 403) throw e;
+    }
+  }
+  if (lastErr) return [];
+  return [];
+};
+
+export const listHarvesterUsbDeviceClaims = async ({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<any[]> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  let clusterId: string | null = null;
+  try {
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const cItems = Array.isArray((clusters as any)?.data)
+      ? (clusters as any)?.data
+      : Array.isArray((clusters as any)?.items)
+        ? (clusters as any)?.items
+        : [];
+    const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+    const any = local || cItems[0];
+    clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
+  } catch {}
+
+  const candidates = [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1beta1/usbdeviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/usbdeviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.cloudhci.io/v1beta1/usbdeviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.cloudhci.io/v1/usbdeviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/devices.harvesterhci.io.usbdeviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/devices.cloudhci.io.usbdeviceclaims`,
+        ]
+      : []),
+    `${origin}/v1/harvester/devices.harvesterhci.io.usbdeviceclaims`,
+    `${origin}/v1/harvester/devices.cloudhci.io.usbdeviceclaims`,
+    `${origin}/apis/devices.harvesterhci.io/v1beta1/usbdeviceclaims`,
+    `${origin}/apis/devices.harvesterhci.io/v1/usbdeviceclaims`,
+    `${origin}/apis/devices.cloudhci.io/v1beta1/usbdeviceclaims`,
+    `${origin}/apis/devices.cloudhci.io/v1/usbdeviceclaims`,
+  ];
+
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      const items = Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json?.items)
+          ? json.items
+          : [];
+      return Array.isArray(items) ? items : [];
+    } catch (e: any) {
+      lastErr = e;
+      const s = Number(e?.status || 0);
+      if (s === 401 || s === 403) throw e;
+    }
+  }
+  if (lastErr) throw lastErr;
+  return [];
+};
+
+export const createHarvesterUsbDeviceClaim = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  usbDeviceName: string,
+  userName: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  let clusterId: string | null = null;
+  try {
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const cItems = Array.isArray((clusters as any)?.data)
+      ? (clusters as any)?.data
+      : Array.isArray((clusters as any)?.items)
+        ? (clusters as any)?.items
+        : [];
+    const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+    const any = local || cItems[0];
+    clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
+  } catch {}
+
+  const name = String(usbDeviceName || '').trim();
+  if (!name) throw new Error('缺少 USBDevice 名称');
+  const encoded = encodeURIComponent(name);
+
+  const deviceCandidates = [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1beta1/usbdevices/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/usbdevices/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.cloudhci.io/v1beta1/usbdevices/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.cloudhci.io/v1/usbdevices/${encoded}`,
+        ]
+      : []),
+    `${origin}/apis/devices.harvesterhci.io/v1beta1/usbdevices/${encoded}`,
+    `${origin}/apis/devices.harvesterhci.io/v1/usbdevices/${encoded}`,
+    `${origin}/apis/devices.cloudhci.io/v1beta1/usbdevices/${encoded}`,
+    `${origin}/apis/devices.cloudhci.io/v1/usbdevices/${encoded}`,
+  ];
+  let device: any = null;
+  for (const url of deviceCandidates) {
+    try {
+      const j = await getJsonOnce(url, token, insecure, true);
+      if (j?.metadata?.name) {
+        device = j;
+        break;
+      }
+    } catch {}
+  }
+  if (!device) throw new Error(`USBDevice ${name} not found`);
+
+  const uid = String(device?.metadata?.uid || '').trim();
+  const nodeName = String(device?.status?.nodeName || device?.spec?.nodeName || '').trim();
+  const pciAddress = String(device?.status?.pciAddress || device?.status?.address || device?.spec?.pciAddress || device?.spec?.address || '').trim();
+
+  const ownerReferences = uid
+    ? [{
+        apiVersion: String(device?.apiVersion || 'devices.harvesterhci.io/v1beta1'),
+        kind: 'USBDevice',
+        name,
+        uid,
+      }]
+    : undefined;
+
+  const payload: any = {
+    type: 'devices.harvesterhci.io.usbdeviceclaim',
+    metadata: {
+      name,
+      ...(ownerReferences ? { ownerReferences } : {}),
+    },
+    spec: {
+      userName: String(userName || '').trim() || 'admin',
+      ...(nodeName ? { nodeName } : {}),
+      ...(pciAddress ? { pciAddress } : {}),
+    },
+  };
+
+  const claimCandidates = [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/devices.harvesterhci.io.usbdeviceclaims`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/devices.cloudhci.io.usbdeviceclaims`,
+        ]
+      : []),
+    `${origin}/v1/harvester/devices.harvesterhci.io.usbdeviceclaims`,
+    `${origin}/v1/harvester/devices.cloudhci.io.usbdeviceclaims`,
+  ];
+
+  let lastErr: any = null;
+  for (const url of claimCandidates) {
+    try {
+      return await requestJson('POST', url, token, insecure, payload);
+    } catch (e: any) {
+      lastErr = e;
+      const s = Number(e?.status || 0);
+      if (s === 401 || s === 403) throw e;
+      if (s === 409) return { message: 'Already claimed', name };
+    }
+  }
+  if (lastErr) throw lastErr;
+  throw new Error('创建 USBDeviceClaim 失败');
+};
+
+export const deleteHarvesterUsbDeviceClaim = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  claimName: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  let clusterId: string | null = null;
+  try {
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const cItems = Array.isArray((clusters as any)?.data)
+      ? (clusters as any)?.data
+      : Array.isArray((clusters as any)?.items)
+        ? (clusters as any)?.items
+        : [];
+    const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+    const any = local || cItems[0];
+    clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
+  } catch {}
+
+  const name = String(claimName || '').trim();
+  if (!name) throw new Error('缺少 USBDeviceClaim 名称');
+  const encoded = encodeURIComponent(name);
+
+  const candidates = [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/devices.harvesterhci.io.usbdeviceclaims/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/devices.cloudhci.io.usbdeviceclaims/${encoded}`,
+        ]
+      : []),
+    `${origin}/v1/harvester/devices.harvesterhci.io.usbdeviceclaims/${encoded}`,
+    `${origin}/v1/harvester/devices.cloudhci.io.usbdeviceclaims/${encoded}`,
+  ];
+
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      return await requestJson('DELETE', url, token, insecure);
+    } catch (e: any) {
+      lastErr = e;
+      const s = Number(e?.status || 0);
+      if (s === 401 || s === 403) throw e;
+      if (s === 404) return { message: 'Not found', name };
+    }
+  }
+  if (lastErr) throw lastErr;
+  return { message: 'Not found', name };
+};
+
+export const deleteHarvesterPciDeviceClaim = async (
+  { endpoint, token, insecure = false }: HarvesterTestParams,
+  claimName: string,
+): Promise<any> => {
+  const base = (endpoint || '').replace(/\/+$/, '');
+  let origin = base;
+  try {
+    const u = new URL(base);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    origin = base.replace(/\/v[0-9].*$/, '');
+  }
+
+  let clusterId: string | null = null;
+  try {
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const cItems = Array.isArray((clusters as any)?.data)
+      ? (clusters as any)?.data
+      : Array.isArray((clusters as any)?.items)
+        ? (clusters as any)?.items
+        : [];
+    const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+    const any = local || cItems[0];
+    clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
+  } catch {}
+
+  const name = String(claimName || '').trim();
+  if (!name) throw new Error('缺少 PCIDeviceClaim 名称');
+  const encoded = encodeURIComponent(name);
+
+  const candidates = [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1beta1/pcideviceclaims/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1/pcideviceclaims/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1beta1/pcideviceclaims/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/pcideviceclaims/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/pcidevices.harvesterhci.io.pcideviceclaims/${encoded}`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/v1/harvester/devices.harvesterhci.io.pcideviceclaims/${encoded}`,
+        ]
+      : []),
+    `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcideviceclaims/${encoded}`,
+    `${origin}/apis/pcidevices.harvesterhci.io/v1/pcideviceclaims/${encoded}`,
+    `${origin}/apis/devices.harvesterhci.io/v1beta1/pcideviceclaims/${encoded}`,
+    `${origin}/apis/devices.harvesterhci.io/v1/pcideviceclaims/${encoded}`,
+    `${origin}/v1/harvester/pcidevices.harvesterhci.io.pcideviceclaims/${encoded}`,
+    `${origin}/v1/harvester/devices.harvesterhci.io.pcideviceclaims/${encoded}`,
+  ];
+
+  let lastErr: any = null;
+  for (const url of candidates) {
+    try {
+      return await requestJson('DELETE', url, token, insecure);
+    } catch (e: any) {
+      lastErr = e;
+      const s = Number(e?.status || 0);
+      if (s === 401 || s === 403) throw e;
+      if (s === 404) return { message: 'Not found', name };
+    }
+  }
+  if (lastErr) throw lastErr;
+  return { message: 'Not found', name };
+};
+

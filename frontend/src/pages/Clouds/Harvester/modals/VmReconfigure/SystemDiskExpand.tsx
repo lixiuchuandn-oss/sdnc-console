@@ -77,7 +77,7 @@ const SystemDiskExpand: React.FC<Props> = ({
           >
             <InputNumber 
               suffix="GiB" 
-              style={{ width: '100%' }} 
+              style={{ width: '150px' }} 
               placeholder="请输入扩容后的总容量" 
               min={systemDiskSize || 1}
             />
