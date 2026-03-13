@@ -355,7 +355,6 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     let list = namespaces || [];
 
     if (isTenant) {
-      // 租户模式下，创建 VM 时也不能选择公共命名空间 (如 harvester-public)
       list = list.filter((n: any) => {
         const name = n?.metadata?.name || n?.name;
         return !isPublicNamespace(name);

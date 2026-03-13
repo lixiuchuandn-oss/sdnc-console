@@ -42,7 +42,8 @@ import {
   HddOutlined, ApartmentOutlined,
   ExportOutlined, CopyOutlined, HistoryOutlined, DownOutlined, DeleteOutlined,
   SaveOutlined, StopOutlined, InfoCircleOutlined, ExclamationCircleOutlined,
-  CloseOutlined, SyncOutlined, LineChartOutlined, BellOutlined, FileTextOutlined
+  CloseOutlined, SyncOutlined, LineChartOutlined, BellOutlined, FileTextOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons';
 import { cnVmStatus } from '../../../../utils/harvesterUtils';
 import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
@@ -61,6 +62,7 @@ import HarvesterVmLogsTab from './HarvesterVmLogsTab';
 import HarvesterVmDiagnosisTab from './HarvesterVmDiagnosisTab';
 import { OsIcon } from '../../../../components/OsIcon';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
+import VmHotplugModal from '../modals/VmHotplugModal';
 import { getToken } from '../../../../utils/tokenStorage';
 
 /**
@@ -94,6 +96,7 @@ interface HarvesterVmDetailDrawerProps {
   onTabChange?: (key: string) => void;
   onRefresh?: (force?: boolean) => void;
   onOpenReconfigure?: (vm: any) => void;
+  onOpenHotplug?: (vm: any) => void;
   onBackup?: (vm: any) => void;
   onSnapshot?: (vm: any) => void;
   onClone?: (vm: any) => void;
@@ -113,6 +116,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   onTabChange: propOnTabChange,
   onRefresh,
   onOpenReconfigure,
+  onOpenHotplug,
   onBackup,
   onSnapshot,
   onClone,
@@ -126,6 +130,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [hotplugModalOpen, setHotplugModalOpen] = useState(false);
 
   // [状态同步] 抽屉内部统一使用 vmData 作为渲染/动作的数据源
   // 详细解释：
@@ -540,9 +545,22 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
         // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
         // 也可能在 status.migrationState 中（不同版本可能不同）
+        // 注意：如果 migrationState.Completed === true，说明迁移已完成，不应该返回 'Migrating'
         const vmi = r?.vmi || r?.vmiRaw;
-        if (vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'] || vmi?.status?.migrationState) {
-          // 如果存在 migrationState，说明正在迁移
+        const migrationState = vmi?.status?.migrationState;
+        const migrationAnnotation = vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'];
+        
+        // 检查是否真的在迁移中（排除已完成的迁移）
+        if (migrationState) {
+          // 如果 migrationState.completed 或 migrationState.Completed 为 true，说明迁移已完成，不应该显示为迁移中
+          // 注意：JSON 中的字段名是小写的 "completed"，但代码中可能有大写的情况
+          const isCompleted = migrationState.completed === true || migrationState.Completed === true;
+          if (!isCompleted) {
+            return 'Migrating';
+          }
+        } else if (migrationAnnotation) {
+          // 如果只有注解但没有 migrationState，也认为在迁移中
+          // 但需要排除已完成的状态（Harvester 会在完成后删除注解，但可能有延迟）
           return 'Migrating';
         }
         
@@ -1192,7 +1210,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       
       { type: 'divider' },
 
-      // 运行态操作（变配/迁移/介质卸载）
+      // 运行态操作（变配/热插拔/迁移/介质卸载）
       { 
         key: 'reconfigure', 
         label: '资源变配', 
@@ -1200,6 +1218,21 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         disabled: !isStopped && !isRunning,
         title: (!isStopped && !isRunning) ? '仅在运行中或停止状态下支持变配' : undefined,
         onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) 
+      },
+      { 
+        key: 'hotplug', 
+        label: '热插拔', 
+        icon: <ThunderboltOutlined />, 
+        disabled: !isRunning,
+        title: !isRunning ? '只有运行中的实例才能进行热插拔操作' : undefined,
+        onClick: () => {
+          if (onOpenHotplug) {
+            onOpenHotplug(vmData);
+          } else {
+            // 如果没有外部回调，使用内部状态管理
+            setHotplugModalOpen(true);
+          }
+        }
       },
       { 
         key: 'migrate', 
@@ -2006,6 +2039,17 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         5. 弹窗组件
         ========================================
       */}
+      <VmHotplugModal
+        open={hotplugModalOpen}
+        cloudId={cloudId}
+        record={vmData}
+        onClose={() => setHotplugModalOpen(false)}
+        onOk={() => {
+          setHotplugModalOpen(false);
+          fetchAggregated(false);
+          onRefresh && onRefresh();
+        }}
+      />
       <VmSaveAsTemplateModal
         open={showTemplateModal}
         onClose={() => setShowTemplateModal(false)}

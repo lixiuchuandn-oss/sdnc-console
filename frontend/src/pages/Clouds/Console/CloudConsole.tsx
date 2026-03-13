@@ -18,6 +18,7 @@ import CloudConsoleHarvester from './CloudConsoleHarvester';
 import VmSection from '../Harvester/sections/VmSection';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import CloudConsoleVpcDetail from './CloudConsoleVpcDetail';
+import { useLicense } from '../../../contexts/LicenseContext';
 
 type CloudItem = { id: string; name: string; region?: string; type?: string; config?: any; status?: string };
 
@@ -36,6 +37,8 @@ const CloudConsolePage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const { hasFeature } = useLicense();
+  const ovnVpcEnabled = hasFeature('network.ovn.vpc');
   
   // ==================== State Definitions (状态定义) ====================
   
@@ -358,7 +361,7 @@ const CloudConsolePage: React.FC = () => {
       const children: any[] = [];
       
       // 如果是当前选中的资源池，则将 VPC 列表作为子节点展示
-      if (isCurrent) {
+      if (isCurrent && ovnVpcEnabled) {
         if (vpcs.length > 0) {
           children.push(...vpcs.map(v => {
             const vpcAlias = v.metadata?.annotations?.['tower.io/alias'];
@@ -743,6 +746,11 @@ const CloudConsolePage: React.FC = () => {
   const loadVpcsAndSubnets = async (cloudId?: string, force: boolean = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
+    if (!ovnVpcEnabled) {
+      setVpcs([]);
+      setSubnets([]);
+      return;
+    }
     setVpcLoading(true);
     try {
       const query = force ? '?force=true' : '';
@@ -886,7 +894,9 @@ const CloudConsolePage: React.FC = () => {
       setHarvesterCategory('compute');
       setHarvesterResource('vm');
 
-      loadVpcsAndSubnets(currentCloudId);
+      if (ovnVpcEnabled) {
+        loadVpcsAndSubnets(currentCloudId);
+      }
       // Ensure the current cloud node is expanded to show VPCs
       setExpandedKeys(prev => {
         const newKeys = new Set(prev);
@@ -900,7 +910,15 @@ const CloudConsolePage: React.FC = () => {
         return Array.from(newKeys);
       });
     }
-  }, [currentCloudId, clouds]);
+  }, [currentCloudId, clouds, ovnVpcEnabled]);
+
+  useEffect(() => {
+    if (!ovnVpcEnabled) {
+      setVpcs([]);
+      setSubnets([]);
+      setSelectedVpc(null);
+    }
+  }, [ovnVpcEnabled]);
 
   // 计算当前资源池是否为 Harvester (Derived State)
   const isHarvester = useMemo(() => {

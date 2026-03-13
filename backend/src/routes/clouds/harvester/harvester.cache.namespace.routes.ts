@@ -82,21 +82,33 @@ export const registerHarvesterNamespaceRoutes = (
           const whereClause: any[] = [];
 
           // [UserSpace Query] 查询当前用户所属组织的 UserSpace 记录（组织隔离）
-          // 组织级用户：只查询 organizationId = userOrgId 的记录
-          // 租户级用户（无 organizationId）：查询 organizationId = null 的记录
+          //
+          // 历史兼容：
+          // - 早期数据可能把 UserSpace.organizationId 置为 null（租户级），即使用户当前带 organizationId。
+          // - 若只按 organizationId 精确匹配，会导致租户“命名空间列表为空”，从而无法创建 VM。
+          //
+          // 策略：
+          // - 若 userOrgId 存在：同时允许读取 organizationId=userOrgId 与 organizationId=null 的 UserSpace 记录。
+          // - 若 userOrgId 不存在：仅读取 organizationId=null 的记录。
           if (userOrgId) {
             whereClause.push({
               tenantId: (req.user as any).tenantId,
               cloudId: id,
               status: 'active',
-              organizationId: userOrgId, // 严格限制：只查询当前组织的 UserSpace
+              organizationId: userOrgId,
+            });
+            whereClause.push({
+              tenantId: (req.user as any).tenantId,
+              cloudId: id,
+              status: 'active',
+              organizationId: null,
             });
           } else {
             whereClause.push({
               tenantId: (req.user as any).tenantId,
               cloudId: id,
               status: 'active',
-              organizationId: null, // 租户级用户：查询租户级的 UserSpace
+              organizationId: null,
             });
           }
 

@@ -197,6 +197,161 @@ kubectl get nodes -o wide
    EOF
    ```
 
+### 5.1. GPU 挂载导致 IP 地址池耗尽（特殊场景）
+
+**问题描述**：
+当虚拟机挂载 GPU 后，会出现 Calico IP 地址池用完的错误，但移除 GPU 后可以正常运行。所有配置都没变，都在同一节点。
+
+**根本原因分析**：
+
+GPU 挂载导致 IP 地址池耗尽的可能原因：
+
+1. **GPU 设备插件创建额外 Pod**：
+   - NVIDIA Device Plugin 或其他 GPU 设备管理组件可能创建额外的 DaemonSet Pod
+   - 这些 Pod 需要从 Calico IPPool 分配 IP 地址
+   - 如果 IPPool 已经接近饱和，新增的 Pod 就会导致地址池耗尽
+
+2. **virt-launcher Pod 的网络配置变化**：
+   - GPU 挂载可能导致 virt-launcher Pod 需要额外的网络接口或 sidecar 容器
+   - 某些 GPU 管理组件可能需要额外的网络命名空间或 CNI 接口
+   - 每个网络接口都需要从 IPPool 分配 IP 地址
+
+3. **节点调度变化**：
+   - GPU 挂载可能导致虚拟机被调度到不同的节点（GPU 节点）
+   - 不同节点上的 Calico IPPool 使用情况可能不同
+   - GPU 节点上可能已经有更多 Pod 占用了 IP 地址
+
+4. **Multus 网络接口增加**：
+   - GPU 挂载可能触发额外的 Multus 网络接口创建
+   - 每个 Multus 网络接口都需要独立的 IP 地址
+   - 如果配置了多个网络接口，会消耗更多 IP 地址
+
+**诊断步骤**：
+
+1. **对比 GPU 挂载前后的 Pod 数量**：
+   ```bash
+   # 挂载 GPU 前，记录 Pod 数量
+   kubectl get pods -A --field-selector=status.phase=Running -o wide | wc -l
+   
+   # 挂载 GPU 后，再次统计
+   kubectl get pods -A --field-selector=status.phase=Running -o wide | wc -l
+   
+   # 查看新增的 Pod
+   kubectl get pods -A -o wide | grep -E "nvidia|gpu|device"
+   ```
+
+2. **检查 virt-launcher Pod 的网络接口**：
+   ```bash
+   # 查找 virt-launcher Pod
+   kubectl get pods -n <namespace> | grep virt-launcher
+   
+   # 查看 Pod 的网络配置
+   kubectl get pod <virt-launcher-pod-name> -n <namespace> -o yaml | grep -A 20 "annotations"
+   
+   # 检查是否有额外的网络接口
+   kubectl exec -n <namespace> <virt-launcher-pod-name> -- ip addr show
+   ```
+
+3. **检查 Calico IPPool 使用情况**：
+   ```bash
+   # 查看 IPPool 配置
+   kubectl get ippool -o yaml
+   
+   # 检查已分配的 IP 地址数量
+   kubectl get pods -A -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}' | grep -v "^$" | wc -l
+   
+   # 查看 IPPool 的 CIDR 范围
+   kubectl get ippool default-ipv4-ippool -o jsonpath='{.spec.cidr}'
+   ```
+
+4. **检查节点上的 Pod 分布**：
+   ```bash
+   # 查看 GPU 节点上的 Pod 数量
+   kubectl get pods -A -o wide --field-selector spec.nodeName=<gpu-node-name> | wc -l
+   
+   # 对比非 GPU 节点
+   kubectl get pods -A -o wide --field-selector spec.nodeName=<non-gpu-node-name> | wc -l
+   ```
+
+5. **检查 GPU 设备插件**：
+   ```bash
+   # 查找 NVIDIA Device Plugin Pod
+   kubectl get pods -n kube-system | grep nvidia
+   
+   # 查看 Device Plugin 的配置
+   kubectl get daemonset -n kube-system | grep nvidia
+   ```
+
+**解决方案**：
+
+1. **扩大 Calico IPPool 地址范围**（最直接有效）：
+   ```bash
+   # 编辑 IPPool，将 CIDR 从 /24 扩大到 /22 或更大
+   kubectl edit ippool default-ipv4-ippool
+   
+   # 例如：将 10.52.0.0/24 (254个地址) 改为 10.52.0.0/22 (1022个地址)
+   # 修改 spec.cidr 字段
+   ```
+
+2. **添加新的 IPPool**（推荐用于生产环境）：
+   ```bash
+   kubectl apply -f - <<EOF
+   apiVersion: projectcalico.org/v3
+   kind: IPPool
+   metadata:
+     name: gpu-ippool
+   spec:
+     cidr: 10.53.0.0/24
+     ipipMode: Never
+     natOutgoing: true
+     nodeSelector: "has(gpu)"  # 可选：仅用于 GPU 节点
+   EOF
+   ```
+
+3. **清理未使用的 Pod 和 IP 地址**：
+   ```bash
+   # 查找并删除已停止的 Pod
+   kubectl get pods -A --field-selector=status.phase!=Running
+   kubectl delete pod <pod-name> -n <namespace>
+   
+   # 重启 Calico 节点代理以释放泄漏的 IP
+   kubectl delete pod -n kube-system -l k8s-app=calico-node
+   ```
+
+4. **优化 GPU 节点上的 Pod 分布**：
+   ```bash
+   # 如果 GPU 节点上 Pod 过多，考虑将非 GPU 相关 Pod 调度到其他节点
+   # 使用节点选择器或污点/容忍度来控制 Pod 调度
+   ```
+
+5. **检查并优化 Multus 网络配置**：
+   ```bash
+   # 如果虚拟机配置了多个 Multus 网络接口，评估是否都需要
+   # 减少不必要的网络接口可以节省 IP 地址
+   kubectl get network-attachment-definition -A
+   ```
+
+**预防措施**：
+
+1. **提前规划 IP 地址池大小**：
+   - 根据集群规模（节点数、Pod 数量）合理规划 IPPool 大小
+   - 考虑 GPU 节点可能需要的额外 IP 地址
+   - 建议预留 20-30% 的 IP 地址余量
+
+2. **监控 IPPool 使用情况**：
+   ```bash
+   # 创建监控脚本定期检查 IPPool 使用率
+   #!/bin/bash
+   TOTAL=$(kubectl get ippool default-ipv4-ippool -o jsonpath='{.spec.cidr}' | awk -F'/' '{print 2^($2-2)}')
+   USED=$(kubectl get pods -A -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}' | grep -v "^$" | wc -l)
+   RATE=$(echo "scale=2; $USED*100/$TOTAL" | bc)
+   echo "IPPool 使用率: $RATE% ($USED/$TOTAL)"
+   ```
+
+3. **使用节点亲和性和污点**：
+   - 为 GPU 节点设置污点，避免非 GPU Pod 调度到 GPU 节点
+   - 这样可以减少 GPU 节点上的 IP 地址消耗
+
 ### 6. VMI 调度失败
 
 **问题**：VMI 无法被调度到任何节点

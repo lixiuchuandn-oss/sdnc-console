@@ -29,6 +29,7 @@ import { CloudUploadOutlined, ArrowLeftOutlined, ReloadOutlined, HomeOutlined, L
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLicense } from '../../../contexts/LicenseContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { getToken } from '../../../utils/tokenStorage';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
@@ -40,6 +41,8 @@ import RecycleBinSection from './sections/RecycleBinSection';
 import TemplatesSection from './sections/TemplatesSection';
 import ScheduleVmBackupsSection from './sections/ScheduleVmBackupsSection';
 import VmCloneTasksSection from './sections/VmCloneTasksSection';
+import VmRestoreTasksSection from './sections/VmRestoreTasksSection';
+import VmCreateTasksSection from './sections/VmCreateTasksSection';
 import EipSection from './kube-ovn/EipSection';
 import FipSection from './kube-ovn/FipSection';
 import SnatSection from './kube-ovn/SnatSection';
@@ -82,6 +85,8 @@ const statusTag = (s?: string) => {
 const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string }> = ({ cloudId, defaultProvider }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { hasFeature } = useLicense();
+  const ovnVpcEnabled = hasFeature('network.ovn.vpc');
   const permissions = user?.permissions;
   // 权限检查辅助函数
   const checkPerm = (act: string) => hasPermissionForAction(permissions || [], act);
@@ -283,16 +288,23 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       }, force);
       
       // Kube-OVN 基础网络资源
-      loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force), (json) => {
-        const list: any[] = (json as any)?.data?.items || [];
-        setKubeOvnVpcs(Array.isArray(list) ? list : []);
-        setRawVpcs(json || null);
-      }, force);
-      loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force), (json) => {
-        const list: any[] = (json as any)?.data?.items || [];
-        setKubeOvnSubnets(Array.isArray(list) ? list : []);
-        setRawSubnets(json || null);
-      }, force);
+      if (ovnVpcEnabled) {
+        loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force), (json) => {
+          const list: any[] = (json as any)?.data?.items || [];
+          setKubeOvnVpcs(Array.isArray(list) ? list : []);
+          setRawVpcs(json || null);
+        }, force);
+        loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force), (json) => {
+          const list: any[] = (json as any)?.data?.items || [];
+          setKubeOvnSubnets(Array.isArray(list) ? list : []);
+          setRawSubnets(json || null);
+        }, force);
+      } else {
+        setKubeOvnVpcs([]);
+        setKubeOvnSubnets([]);
+        setRawVpcs(null);
+        setRawSubnets(null);
+      }
     }
 
     if (checkPerm('clouds.images:read')) {
@@ -1751,6 +1763,20 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       children: (
                         <VmCloneTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
                       )
+                    },
+                    {
+                      key: 'vm_restores',
+                      label: '恢复任务',
+                      children: (
+                        <VmRestoreTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
+                      )
+                    },
+                    {
+                      key: 'vm_creates',
+                      label: '新建任务',
+                      children: (
+                        <VmCreateTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
+                      )
                     }
                   ]}
                 />
@@ -1859,7 +1885,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 />
               )
             },
-            {
+            ...(ovnVpcEnabled ? [{
               key: 'kube_ovn',
               label: 'Kube-OVN',
               children: (
@@ -1889,7 +1915,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       children: (
                         <>
                           <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={async (force = false, silent = false) => {
-                            const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
+                            const skipSync = silent;
                             loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync), (json) => setKubeOvnVpcs(json?.data?.items || []), true);
                             loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force, skipSync), (json) => setKubeOvnSubnets(json?.data?.items || []), true);
                           }} />
@@ -1915,7 +1941,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         </>
                       )
                     },
-
                     {
                       key: 'kubeovn_eips',
                       label: 'EIP 外部IP',
@@ -2004,7 +2029,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     }
                   ].filter((i:any) => {
                      if (i.key === 'kubeovn_vpcs' || i.key === 'kubeovn_subnets' || i.key === 'kubeovn_public_networks') return checkPerm('clouds.networks:read');
-                     if (i.key === 'kubeovn_eips') return checkPerm('clouds.networks:read'); // Need granularity?
+                     if (i.key === 'kubeovn_eips') return checkPerm('clouds.networks:read');
                      if (i.key === 'kubeovn_fips') return checkPerm('clouds.networks:read');
                      if (i.key === 'kubeovn_snat') return checkPerm('clouds.networks:read');
                      if (i.key === 'kubeovn_dnat') return checkPerm('clouds.networks:read');
@@ -2012,7 +2037,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                   })}
                 />
               )
-            },
+            }] : []),
             {
               key: 'logs-config',
               label: '日志管理',

@@ -1239,7 +1239,37 @@ export const deleteHarvesterPVC = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(name)}`;
-  return requestJson('DELETE', url, token, insecure);
+  try {
+    const current = await getJsonOnce(url, token, insecure);
+    const finalizers = current?.metadata?.finalizers;
+    const managedFinalizer = 'tower.io/managed';
+    if (Array.isArray(finalizers) && finalizers.includes(managedFinalizer)) {
+      const indicesToRemove = finalizers
+        .map((f: any, i: number) => (f === managedFinalizer ? i : -1))
+        .filter((i: number) => i >= 0)
+        .sort((a: number, b: number) => b - a);
+      if (indicesToRemove.length > 0) {
+        const patchOps = indicesToRemove.map((index: number) => ({
+          op: 'remove',
+          path: `/metadata/finalizers/${index}`,
+        }));
+        await requestJson('PATCH', url, token, insecure, patchOps, {
+          'Content-Type': 'application/json-patch+json',
+        });
+      }
+    }
+  } catch {}
+  try {
+    return await requestJson('DELETE', url, token, insecure);
+  } catch (e: any) {
+    const status = Number(e?.status || 0);
+    const msg = String(e?.message || '').toLowerCase();
+    const body = String(e?.body || '').toLowerCase();
+    if (status === 404 || msg.includes('not found') || body.includes('not found')) {
+      return { status: 'AlreadyDeleted' };
+    }
+    throw e;
+  }
 };
 
 /**

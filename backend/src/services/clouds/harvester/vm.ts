@@ -337,8 +337,22 @@ export const listHarvesterVMsStandard = async ({
     // Simple Status
     // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
     // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
+    // 也可能在 status.migrationState 中（不同版本可能不同）
+    // 注意：如果 migrationState.completed 为 true，说明迁移已完成，不应该返回 'Migrating'
     let status = vm?.status?.printableStatus || vm?.status?.phase || 'Unknown';
-    if (vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'] || vmi?.status?.migrationState) {
+    const migrationState = vmi?.status?.migrationState;
+    const migrationAnnotation = vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'];
+    
+    // 检查是否真的在迁移中（排除已完成的迁移）
+    if (migrationState) {
+      // 如果 migrationState.completed 或 migrationState.Completed 为 true，说明迁移已完成，不应该显示为迁移中
+      // 注意：JSON 中的字段名是小写的 "completed"，但代码中可能有大写的情况
+      const isCompleted = migrationState.completed === true || migrationState.Completed === true;
+      if (!isCompleted) {
+        status = 'Migrating';
+      }
+    } else if (migrationAnnotation) {
+      // 如果只有注解但没有 migrationState，也认为在迁移中
       status = 'Migrating';
     }
     

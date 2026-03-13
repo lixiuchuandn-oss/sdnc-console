@@ -742,6 +742,26 @@ export const deleteKubeOvnVpc = async (
   }
 
   const url = `${origin}/apis/kubeovn.io/v1/vpcs/${encodeURIComponent(name)}`;
+  try {
+    const current = await getJsonOnce(url, token, insecure);
+    const finalizers = current?.metadata?.finalizers;
+    const managedFinalizer = 'tower.io/managed';
+    if (Array.isArray(finalizers) && finalizers.includes(managedFinalizer)) {
+      const indicesToRemove = finalizers
+        .map((f: any, i: number) => (f === managedFinalizer ? i : -1))
+        .filter((i: number) => i >= 0)
+        .sort((a: number, b: number) => b - a);
+      if (indicesToRemove.length > 0) {
+        const patchOps = indicesToRemove.map((index: number) => ({
+          op: 'remove',
+          path: `/metadata/finalizers/${index}`,
+        }));
+        await requestJson('PATCH', url, token, insecure, patchOps, {
+          'Content-Type': 'application/json-patch+json',
+        });
+      }
+    }
+  } catch {}
   return await requestJson('DELETE', url, token, insecure);
 };
 

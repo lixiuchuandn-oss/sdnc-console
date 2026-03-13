@@ -1464,7 +1464,7 @@ export const useVmReconfigure = (props: any) => {
 
           // 两步流程：
           // - 第一次提交：只创建 PVC（避免 PVC 尚未 Bound 导致挂载需要点两次）
-          // - 第二次提交：再执行挂载
+          // - 第二次提交：通过修改 VM 规格模板挂载数据盘（支持自定义总线类型，需重启生效）
           if (!created) {
             const accessMode = values.newDiskAccessMode || 'ReadWriteMany';
             const accessModeText = accessMode === 'ReadWriteOnce' ? 'RWO (ReadWriteOnce)' :
@@ -1481,17 +1481,63 @@ export const useVmReconfigure = (props: any) => {
               volumeMode: 'Block',
             });
             form.setFieldsValue({ newDiskCreated: true });
-            message.success(`数据盘创建成功（访问类型: ${accessModeText}），请再次点击【提交】进行挂载`);
+            message.success(`数据盘创建成功（访问类型: ${accessModeText}），请再次点击【提交】进行挂载（需重启生效）`);
             return; // 不关闭弹窗
           }
 
-          await attachHarvesterVolumeToVmByName(cloudId, namespace, vmName, {
-            name: volName,
-            diskName: volName,
-            pvcName: volName,
-            pvcNamespace: namespace,
-            bus: values.newDiskBus,
-          });
+          // 第二步：通过修改 VM 规格模板挂载数据盘，而不是走在线热插拔 API
+          {
+            const vmSpecSource = latestVm || record;
+            const vmSpec = vmSpecSource?.spec || {};
+            const tplSpec = vmSpec?.template?.spec || {};
+            const domain = tplSpec?.domain || {};
+            const devices = domain?.devices || {};
+            const volumes = Array.isArray(tplSpec?.volumes) ? [...tplSpec.volumes] : [];
+            const disks = Array.isArray(devices?.disks) ? [...devices.disks] : [];
+
+            // 确保 PVC 作为 volume 存在
+            const volExisting = volumes.find((v: any) => v?.name === volName);
+            if (!volExisting) {
+              volumes.push({
+                name: volName,
+                persistentVolumeClaim: { claimName: volName },
+              });
+            }
+
+            // 为该 volume 添加/更新磁盘信息（总线类型由用户选择）
+            const targetBus = values.newDiskBus || 'virtio';
+            const diskExisting = disks.find((d: any) => d?.name === volName);
+            if (diskExisting) {
+              diskExisting.disk = diskExisting.disk || {};
+              diskExisting.disk.bus = targetBus;
+              // 不设置 bootOrder，避免误当成系统盘
+            } else {
+              disks.push({
+                name: volName,
+                disk: { bus: targetBus },
+              });
+            }
+
+            const patchPayload: any = {
+              spec: {
+                template: {
+                  spec: {
+                    ...tplSpec,
+                    domain: {
+                      ...domain,
+                      devices: {
+                        ...devices,
+                        disks,
+                      },
+                    },
+                    volumes,
+                  },
+                },
+              },
+            };
+
+            await patchHarvesterVm(cloudId, namespace, vmName, patchPayload);
+          }
 
           try {
             const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
@@ -1500,18 +1546,13 @@ export const useVmReconfigure = (props: any) => {
             if (updatedVm && data?.related) {
               updatedVm.related = data.related;
             }
-            const conditions = updatedVm?.status?.conditions || [];
-            const needsRestart = conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
             setLatestVm(updatedVm);
-            if (needsRestart) {
-              message.success('挂载成功，设置已保存，需要重启后生效');
-              openRestartConfirm(namespace, vmName, false);
-            } else {
-              message.success('挂载成功');
-            }
           } catch {
-            message.success('挂载成功（请检查是否需要重启）');
+            // 刷新失败不影响后续重启提示
           }
+          // 无论后端是否显式打上 RestartRequired，都统一给出“需重启”提示
+          message.success('数据盘挂载成功，设置已保存，需要重启后生效');
+          openRestartConfirm(namespace, vmName, false);
           // 清理 step 标记，避免下次复用表单误走挂载
           form.setFieldsValue({ newDiskCreated: false });
 
@@ -2053,13 +2094,59 @@ export const useVmReconfigure = (props: any) => {
       }
 
       const volName = values.newDiskName;
-      await attachHarvesterVolumeToVmByName(cloudId, namespace, vmName, {
-        name: volName,
-        diskName: volName,
-        pvcName: volName,
-        pvcNamespace: namespace,
-        bus: values.newDiskBus || 'virtio',
-      });
+
+      // 通过修改 VM 规格模板挂载数据盘（支持自定义总线类型，需重启生效）
+      {
+        const vmSpecSource = latestVm || record;
+        const vmSpec = vmSpecSource?.spec || {};
+        const tplSpec = vmSpec?.template?.spec || {};
+        const domain = tplSpec?.domain || {};
+        const devices = domain?.devices || {};
+        const volumes = Array.isArray(tplSpec?.volumes) ? [...tplSpec.volumes] : [];
+        const disks = Array.isArray(devices?.disks) ? [...devices.disks] : [];
+
+        // 确保 PVC 作为 volume 存在
+        const volExisting = volumes.find((v: any) => v?.name === volName);
+        if (!volExisting) {
+          volumes.push({
+            name: volName,
+            persistentVolumeClaim: { claimName: volName },
+          });
+        }
+
+        // 为该 volume 添加/更新磁盘信息
+        const targetBus = values.newDiskBus || 'virtio';
+        const diskExisting = disks.find((d: any) => d?.name === volName);
+        if (diskExisting) {
+          diskExisting.disk = diskExisting.disk || {};
+          diskExisting.disk.bus = targetBus;
+        } else {
+          disks.push({
+            name: volName,
+            disk: { bus: targetBus },
+          });
+        }
+
+        const patchPayload: any = {
+          spec: {
+            template: {
+              spec: {
+                ...tplSpec,
+                domain: {
+                  ...domain,
+                  devices: {
+                    ...devices,
+                    disks,
+                  },
+                },
+                volumes,
+              },
+            },
+          },
+        };
+
+        await patchHarvesterVm(cloudId, namespace, vmName, patchPayload);
+      }
 
       // 检查是否需要重启（添加/删除卷通常会触发 RestartRequired）
       // 使用聚合接口刷新，确保包含 related.volumes 数据
@@ -2075,20 +2162,15 @@ export const useVmReconfigure = (props: any) => {
         }
         
         setLatestVm(updatedVm);
-        const conditions = updatedVm?.status?.conditions || [];
-        const needsRestart = conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
-        if (needsRestart) {
-          message.success('挂载成功，设置已保存，需要重启后生效');
-          setTimeout(() => {
-            openRestartConfirm(namespace, vmName, false);
-          }, 300);
-        } else {
-          message.success('挂载成功');
-        }
       } catch (refreshErr: any) {
         console.warn('刷新VM数据失败:', refreshErr);
-        message.success('挂载成功（请检查是否需要重启）');
+        // 刷新失败不影响后续重启提示
       }
+      // 统一弹出重启提示，而不是让用户自己判断
+      message.success('数据盘挂载成功，设置已保存，需要重启后生效');
+      setTimeout(() => {
+        openRestartConfirm(namespace, vmName, false);
+      }, 300);
       
       // 清理 step 标记，避免下次误走挂载
       form.setFieldsValue({ newDiskCreated: false });

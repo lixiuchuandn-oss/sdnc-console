@@ -650,7 +650,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           msg =
             '删除失败：权限不足或接口不支持删除（403）。请检查登录账号权限，或通过 Longhorn 卷 CRD 路径执行删除。';
         } else if (status === 404 || lower.includes('not found')) {
-          msg = '删除失败：未找到该卷（404）。请确认命名空间与卷名是否正确。';
+          return res.json({ message: '删除成功', data: { status: 'AlreadyDeleted' } });
         } else if (status === 409 || lower.includes('conflict') || lower.includes('in use')) {
           msg = `删除虚拟磁盘失败：虚拟磁盘 ${name} 正在被云主机使用，请先在云主机中卸载该磁盘后再删除。`;
         } else if (lower.includes('method delete not supported')) {

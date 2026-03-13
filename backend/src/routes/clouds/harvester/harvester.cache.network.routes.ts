@@ -22,7 +22,7 @@ import {
   deleteKubeOvnVpc,
   updateKubeOvnVpc,
 } from '../../../services/clouds/harvester/client';
-import { requestJson } from '../../../services/clouds/harvester/utils';
+import { requestJson, getJsonOnce } from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { licenseService } from '../../../services/LicenseService';
 
@@ -725,6 +725,40 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
           `${endpoint}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions/${namespace}/${name}`,
           `${endpoint}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions/${namespace}/${name}`,
         ];
+
+        const managedFinalizer = 'tower.io/managed';
+        for (const url of candidates) {
+          if (!url.includes('/apis/k8s.cni.cncf.io/')) continue;
+          try {
+            const current = await getJsonOnce(
+              url,
+              cloud.secretKey || '',
+              insecure,
+            );
+            const finalizers = current?.metadata?.finalizers;
+            if (!Array.isArray(finalizers) || !finalizers.includes(managedFinalizer)) {
+              continue;
+            }
+            const indicesToRemove = finalizers
+              .map((f: any, i: number) => (f === managedFinalizer ? i : -1))
+              .filter((i: number) => i >= 0)
+              .sort((a: number, b: number) => b - a);
+            if (indicesToRemove.length > 0) {
+              const patchOps = indicesToRemove.map((index: number) => ({
+                op: 'remove',
+                path: `/metadata/finalizers/${index}`,
+              }));
+              await requestJson(
+                'PATCH',
+                url,
+                cloud.secretKey || '',
+                insecure,
+                patchOps,
+                { 'Content-Type': 'application/json-patch+json' },
+              );
+            }
+          } catch {}
+        }
 
         let lastError: any = null;
         let success = false;

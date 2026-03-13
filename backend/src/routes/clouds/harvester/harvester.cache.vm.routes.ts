@@ -893,6 +893,91 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
     },
   );
 
+  /**
+   * [POST] /:id/resources/harvester/vms/:namespace/:name/action
+   * 执行 VM 操作（热插拔等）
+   *
+   * 支持的 action：
+   * - addNic, removeNic, findHotunpluggableNics (网卡热插拔)
+   * - addVolume, removeVolume (数据盘热插拔)
+   * - cpuAndMemoryHotplug (CPU/内存热插拔)
+   * - insertCdRomVolume, ejectCdRomVolume (CD-ROM热插拔)
+   *
+   * 安全策略：
+   * - 仅在当前用户为租户时执行命名空间白名单检查
+   * - UserSpace.namespace + ns-{orgId} 共同组成允许访问范围
+   */
+  router.post(
+    '/:id/resources/harvester/vms/:namespace/:name/action',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const { action } = req.query;
+
+        if (!action || typeof action !== 'string') {
+          return res.status(400).json({ message: 'Missing action parameter' });
+        }
+
+        // 租户权限检查
+        if ((req as any).user?.role === 'tenant') {
+          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+          const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };
+          if ((req.user as any).organizationId) {
+            where.organizationId = (req.user as any).organizationId;
+          }
+          const userSpace = await userSpaceRepo.findOne({ where });
+          if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
+
+          const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map((s) => s.trim()) : [];
+
+          if (!validNamespaces.includes(namespace)) {
+            return res.status(403).json({ message: '无权访问该命名空间资源' });
+          }
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作', next)) return;
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+
+        // 构建 Harvester API 路径
+        const base = (cloud.endpoint || '').replace(/\/+$/, '');
+        let origin = base;
+        try {
+          const u = new URL(base);
+          origin = `${u.protocol}//${u.host}`;
+        } catch {
+          origin = base.replace(/\/v[0-9].*$/, '');
+        }
+
+        // Harvester API 路径格式：/v1/harvester/kubevirt.io.virtualmachine/{namespace}/{name}?action={action}
+        const targetUrl = `${origin}/v1/harvester/kubevirt.io.virtualmachine/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?action=${encodeURIComponent(action)}`;
+
+        console.log(`[HarvesterVMAction] Proxying POST to: ${targetUrl}, action: ${action}`);
+
+        // 转发请求到 Harvester API
+        const data = await requestJson(
+          'POST',
+          targetUrl,
+          cloud.secretKey || '',
+          insecure,
+          req.body, // 传递请求体
+        );
+
+        res.json({ message: '操作成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        const statusCode = error.status || error.statusCode || 500;
+        const errorMessage = error.body?.message || error.message || '操作失败';
+        res.status(statusCode).json({
+          message: '操作失败',
+          error: errorMessage,
+        });
+      }
+    },
+  );
+
   router.post(
     '/:id/resources/harvester/vms/:namespace/:name/save-as-template',
     checkAdminPermission,
@@ -1319,7 +1404,20 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
           // [优先级1] 检查 VMI 的迁移状态（迁移状态优先级最高）
           // 迁移状态存储在 VMI 的 metadata.annotations['harvesterhci.io/migrationState'] 中
           // 也可能在 status.migrationState 中（不同版本可能不同）
-          if (vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'] || vmi?.status?.migrationState) {
+          // 注意：如果 migrationState.completed 为 true，说明迁移已完成，不应该返回 'Migrating'
+          const migrationState = vmi?.status?.migrationState;
+          const migrationAnnotation = vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'];
+          
+          // 检查是否真的在迁移中（排除已完成的迁移）
+          if (migrationState) {
+            // 如果 migrationState.completed 或 migrationState.Completed 为 true，说明迁移已完成，不应该显示为迁移中
+            // 注意：JSON 中的字段名是小写的 "completed"，但代码中可能有大写的情况
+            const isCompleted = migrationState.completed === true || migrationState.Completed === true;
+            if (!isCompleted) {
+              return 'Migrating';
+            }
+          } else if (migrationAnnotation) {
+            // 如果只有注解但没有 migrationState，也认为在迁移中
             return 'Migrating';
           }
           

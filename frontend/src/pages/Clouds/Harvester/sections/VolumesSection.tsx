@@ -10,7 +10,7 @@
  * 
  * [核心功能]
  * 1. 列表展示: 展示 PVC 的状态、容量、存储类、挂载 VM 等信息
- * 2. 资源过滤: 支持按关键字、命名空间、状态、存储类筛选，提供"显示系统卷"开关
+ * 2. 资源过滤: 支持按关键字、命名空间、状态、存储类筛选，默认排除系统卷
  * 3. 生命周期管理: 创建、克隆、扩容、删除、创建快照、导出镜像
  * 4. 挂载管理: 将卷挂载到虚拟机或从虚拟机卸载
  * 
@@ -282,7 +282,6 @@ const VolumesSection: React.FC<Props> = ({
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [scFilter, setScFilter] = useState<string>('');
-  const [showSystemVolumes, setShowSystemVolumes] = useState<boolean>(false);
   
   // 批量操作选中项
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -497,9 +496,8 @@ const VolumesSection: React.FC<Props> = ({
         if (isSystemNamespace(item.namespace) || isPublicNamespace(item.namespace)) return false;
       }
       
-      // 2. 非租户模式: 根据"显示系统卷"开关决定是否过滤
-      // 注意：租户场景下 showSystemVolumes 应该被忽略或强制为 false
-      if (!isTenant && !showSystemVolumes && (isSystemNamespace(item.namespace) || isSystemStorageClass(item.storageClass))) return false;
+      // 2. 非租户模式: 始终过滤系统命名空间和系统存储类
+      if (!isTenant && (isSystemNamespace(item.namespace) || isSystemStorageClass(item.storageClass))) return false;
 
       // 命名空间筛选
       if (nsFilter && item.namespace !== nsFilter) return false;
@@ -508,7 +506,7 @@ const VolumesSection: React.FC<Props> = ({
 
       return true;
     });
-  }, [dataSource, keyword, statusFilter, nsFilter, scFilter, showSystemVolumes]);
+  }, [dataSource, keyword, statusFilter, nsFilter, scFilter]);
 
   // 生成命名空间下拉选项
   const [fetchedNsOptions, setFetchedNsOptions] = useState<string[]>([]);
@@ -529,11 +527,12 @@ const VolumesSection: React.FC<Props> = ({
     let list = Array.from(set);
     if (isTenant) {
       list = list.filter(ns => !isSystemNamespace(ns) && !isPublicNamespace(ns));
-    } else if (!showSystemVolumes) {
+    } else {
+      // 管理员模式下，命名空间下拉默认排除系统命名空间
       list = list.filter(ns => !isSystemNamespace(ns));
     }
     return list.sort().map(s => ({ value: s, label: s }));
-  }, [dataSource, vms, showSystemVolumes, namespacesOptions, fetchedNsOptions, isTenant]);
+  }, [dataSource, vms, namespacesOptions, fetchedNsOptions, isTenant]);
 
   useEffect(() => {
     const run = async () => {
@@ -607,8 +606,13 @@ const VolumesSection: React.FC<Props> = ({
       onOk: async () => {
         try {
           const results = await Promise.allSettled(targets.map(t => deleteHarvesterVolume(cloudId, t.namespace, t.name)));
-          const ok = results.filter(x => x.status === 'fulfilled').length;
-          const fail = results.length - ok;
+          const ok = results.filter((x: any) => {
+            if (x.status === 'fulfilled') return true;
+            const status = Number(x?.reason?.status || 0);
+            const msg = String(x?.reason?.message || '').toLowerCase();
+            return status === 404 || msg.includes('not found') || msg.includes('未找到');
+          }).length;
+          const fail = Math.max(0, results.length - ok);
           if (ok > 0) message.success(`成功删除 ${ok} 个卷`);
           if (fail > 0) message.error(`${fail} 个卷删除失败`);
           setSelectedRowKeys([]);
@@ -680,9 +684,21 @@ const VolumesSection: React.FC<Props> = ({
     // 2. 尝试解析磁盘名称 (diskName)
     const pvcName = r.name;
     const vmVolumes = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
+    const vmDisks = Array.isArray(vm?.spec?.template?.spec?.domain?.devices?.disks)
+      ? vm.spec.template.spec.domain.devices.disks
+      : [];
     // 在 VM spec 里找对应 claimName 的卷
     const volEntry = vmVolumes.find((v: any) => v?.persistentVolumeClaim?.claimName === pvcName);
     const volName = volEntry?.name || '';
+
+    // 如果该卷对应的磁盘是系统盘（bootOrder=1），则禁止通过此入口卸载
+    if (volName) {
+      const diskEntry = vmDisks.find((d: any) => d?.name === volName);
+      if (diskEntry && Number(diskEntry.bootOrder) === 1) {
+        message.warning('系统盘不支持通过此入口卸载，如需变更请使用重建/镜像等高级操作。');
+        return;
+      }
+    }
     // 或者从 Extra Map 里找
     const mappedName = vm?.Extra?.VolumeMap?.[pvcName] || '';
     const diskName = volName || mappedName || '';
@@ -850,7 +866,25 @@ const VolumesSection: React.FC<Props> = ({
       fixed: 'right' as const,
       render: (_: any, r: VolumeView) => {
         const vm = SafeRead.attachedVm(r);
-        
+
+        // 识别当前卷在 VM 内是否为系统盘（bootOrder=1）
+        let isSystemDisk = false;
+        if (vm) {
+          const pvcName = r.name;
+          const vmVolumes = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
+          const vmDisks = Array.isArray(vm?.spec?.template?.spec?.domain?.devices?.disks)
+            ? vm.spec.template.spec.domain.devices.disks
+            : [];
+          const volEntry = vmVolumes.find((v: any) => v?.persistentVolumeClaim?.claimName === pvcName);
+          const volName = volEntry?.name || '';
+          if (volName) {
+            const diskEntry = vmDisks.find((d: any) => d?.name === volName);
+            if (diskEntry && Number(diskEntry.bootOrder) === 1) {
+              isSystemDisk = true;
+            }
+          }
+        }
+
         const items: any[] = [
           // 1. 资源详情
           ...(!isTenant ? [{ key: 'detail', label: '运维信息', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
@@ -920,6 +954,7 @@ const VolumesSection: React.FC<Props> = ({
             key: 'detach', 
             label: '从云主机卸载', 
             danger: true, 
+            disabled: isSystemDisk,
             onClick: () => handleDetach(r) 
           }] : []),
           { 
@@ -984,16 +1019,6 @@ const VolumesSection: React.FC<Props> = ({
             value={statusFilter || undefined} onChange={(v) => setStatusFilter(v || '')}
             className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...statusOptions.map(k => ({ value: k, label: cnStatus(k) }))]}
           />
-          {!isTenant && (
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Checkbox 
-                checked={showSystemVolumes} 
-                onChange={(e: any) => setShowSystemVolumes(e.target.checked)}
-              >
-                显示系统资源
-              </Checkbox>
-            </div>
-          )}
           <button
             type="button"
             className="toolbar-reset-btn"
@@ -1002,7 +1027,6 @@ const VolumesSection: React.FC<Props> = ({
               setStatusFilter('');
               setNsFilter('');
               setScFilter('');
-              setShowSystemVolumes(false);
             }}
           >
             重置
@@ -1167,16 +1191,21 @@ const VolumesSection: React.FC<Props> = ({
             const vm = (vms || []).find((x: any) => (x.id || x.InstanceId) === v.instanceId);
             if (!vm) { message.error('未找到云主机'); return; }
             
-            const vmName = vm.name || vm.InstanceName || '';
-            const iid = String(vm.id || vm.InstanceId || '');
-            const finalName = vmName || (iid.includes('/') ? iid.split('/').pop() : iid);
-
+            // 提取VM名称：优先使用 metadata.name（K8s资源名），其次使用 name 或 InstanceName
+            const vmName = vm.metadata?.name || vm.name || vm.InstanceName || '';
+            // 如果还是没有，尝试从 InstanceId 中解析（格式可能是 namespace/name）
+            const finalName = vmName || (vm.InstanceId?.includes('/') ? vm.InstanceId.split('/').pop() : vm.InstanceId) || '';
+            
+            // 提取VM命名空间：优先使用 metadata.namespace，其次使用 namespace
+            const vmNamespace = vm.metadata?.namespace || vm.namespace || '';
+            
             if (!finalName) { message.error('云主机名称无效'); return; }
+            if (!vmNamespace) { message.error('云主机命名空间无效'); return; }
 
             // 生成安全的磁盘名
             const computedDiskName = (currentRecord.name).replace(/[^a-z0-9-]/gi, '-').toLowerCase().slice(0, 63);
 
-            await attachHarvesterVolumeToVmByName(cloudId, currentRecord.namespace, finalName, {
+            await attachHarvesterVolumeToVmByName(cloudId, vmNamespace, finalName, {
               diskName: computedDiskName,
               bus: v.bus || 'virtio',
               pvcNamespace: currentRecord.namespace,
@@ -1188,18 +1217,38 @@ const VolumesSection: React.FC<Props> = ({
           } catch (e: any) { message.error(e.message || '挂载失败'); }
         }}
       >
-          <Form.Item label="云主机" name="instanceId" rules={[{ required: true }]}>
-            <Select showSearch placeholder="选择云主机" options={(vms || [])
-              .filter((vm: any) => {
-                const extra = vm?.extra || vm?.Extra || {};
-                const vmNs = extra.namespace || vm.namespace || extra.Namespace;
-                return vmNs === currentRecord?.namespace;
-              })
-              .map((vm: any) => ({ value: vm.id || vm.InstanceId, label: vm.name || vm.InstanceName || vm.id || vm.InstanceId }))} style={{ width: '100%' }} />
+          <Form.Item 
+            label="云主机" 
+            name="instanceId" 
+            rules={[{ required: true }]}
+            help={currentRecord?.namespace ? `仅显示命名空间 "${currentRecord.namespace}" 下的云主机` : undefined}
+          >
+            <Select 
+              showSearch 
+              placeholder="选择云主机" 
+              options={(vms || [])
+                .filter((vm: any) => {
+                  if (!currentRecord?.namespace) return false;
+                  const vmNs = vm.namespace || vm.metadata?.namespace || vm.extra?.namespace || vm.Extra?.Namespace || '';
+                  return String(vmNs) === String(currentRecord.namespace);
+                })
+                .map((vm: any) => {
+                  const alias = vm.metadata?.annotations?.['tower.io/alias'] || vm.alias || '';
+                  const name = vm.metadata?.name || vm.name || vm.InstanceName || vm.id || vm.InstanceId || '';
+                  const displayName = alias ? `${alias} (${name})` : name;
+                  return { 
+                    value: vm.id || vm.InstanceId, 
+                    label: displayName 
+                  };
+                })} 
+              style={{ width: '100%' }} 
+              notFoundContent={currentRecord?.namespace ? `命名空间 "${currentRecord.namespace}" 下没有可用的云主机` : '请先选择PVC'}
+            />
           </Form.Item>
           <Form.Item label="总线" name="bus" initialValue="virtio">
             <Select options={['virtio', 'sata', 'scsi'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} />
           </Form.Item>
+          <Form.Item label="命名空间"><Input value={currentRecord?.namespace} disabled /></Form.Item>
           <Form.Item label="PVC"><Input value={currentRecord?.name} disabled /></Form.Item>
       </StdFormModal>
 

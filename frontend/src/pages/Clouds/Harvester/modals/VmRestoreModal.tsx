@@ -10,8 +10,8 @@
  *   - 替换模式下传 deletionPolicy=retain，避免删除策略冲突。
  */
 import React, { useEffect, useState, useMemo } from 'react';
-import { Modal, Form, Input, message, Alert, Switch, Radio, Tooltip, Select } from 'antd';
-import { createHarvesterVirtualMachineRestore } from '../../../../services/harvesterApi';
+import { Modal, Form, Input, message, Alert, Switch, Tooltip, Radio, Select } from 'antd';
+import { createHarvesterVirtualMachineRestore, stopHarvesterVm } from '../../../../services/harvesterApi';
 
 /**
  * 组件入参
@@ -45,58 +45,78 @@ const VmRestoreModal: React.FC<Props> = ({
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [keepMacAddress, setKeepMacAddress] = useState(false);
-  // 监听表单字段，用于控制「新建/替换」模式与目标 VM
   const newVM = Form.useWatch('newVM', form);
-  const targetVmName = Form.useWatch('targetVmName', form);
 
-  // 根据当前选择的目标 VM 名称在 vms 列表中查找完整对象
-  const targetVmObj = useMemo(() => {
-    if (!vms || !targetVmName || !resource) return null;
-    return vms.find(v => v.metadata.name === targetVmName && v.metadata.namespace === resource.namespace);
-  }, [vms, targetVmName, resource]);
+  const raw = useMemo(() => {
+    if (!resource) return null;
+    return (resource as any).rawData || (resource as any).raw || resource;
+  }, [resource]);
 
-  // 根据资源记录的 targetVm 字段，判断目标 VM 在当前列表中是否存在
-  const isTargetVmExists = useMemo(() => {
-    if (!resource || !vms || vms.length === 0) return false;
-    const originalTargetVmName = resource.targetVm || '';
-    if (!originalTargetVmName || originalTargetVmName === '-') return false;
-    return vms.some(vm => {
-      const vmName = vm.name || vm.metadata?.name;
-      return vmName === originalTargetVmName;
-    });
-  }, [resource, vms]);
+  const namespace = useMemo(() => {
+    return raw?.metadata?.namespace || (resource as any)?.namespace || '';
+  }, [raw, resource]);
 
-  // 判断目标 VM 是否处于运行/启动中，用于决定是否允许「替换模式」
-  const isTargetVmRunning = useMemo(() => {
-    if (!targetVmObj) return false;
-    const status = targetVmObj.status?.printableStatus || targetVmObj.status?.phase;
-    return String(status).toLowerCase() === 'running' || String(status).toLowerCase() === 'starting';
-  }, [targetVmObj]);
+  const sourceName = useMemo(() => {
+    return raw?.metadata?.name || (resource as any)?.name || '';
+  }, [raw, resource]);
+
+  const sourceVmName = useMemo(() => {
+    const fromSpec = raw?.spec?.source?.name;
+    const fromCompat = (resource as any)?.targetVm;
+    const name = fromSpec || fromCompat || '';
+    return name && name !== '-' ? name : '';
+  }, [raw, resource]);
+
+  const sourceVmObj = useMemo(() => {
+    if (!vms || !namespace || !sourceVmName) return null;
+    return (vms || []).find((vm: any) => {
+      const vmNs = vm?.metadata?.namespace || vm?.namespace || '';
+      const vmName = vm?.metadata?.name || vm?.name || '';
+      return String(vmNs) === String(namespace) && String(vmName) === String(sourceVmName);
+    }) || null;
+  }, [vms, namespace, sourceVmName]);
+
+  const sourceVmAlias = useMemo(() => {
+    const fromRecord = (resource as any)?.targetVmAlias;
+    if (fromRecord && fromRecord !== '-') return String(fromRecord);
+    const fromVm = sourceVmObj?.metadata?.annotations?.['tower.io/alias'] || sourceVmObj?.alias;
+    if (fromVm) return String(fromVm);
+    return sourceVmName || '-';
+  }, [resource, sourceVmObj, sourceVmName]);
+
+  const sourceVmDisplay = useMemo(() => {
+    if (!sourceVmName) return '-';
+    if (!sourceVmAlias || sourceVmAlias === '-' || sourceVmAlias === sourceVmName) return sourceVmName;
+    return `${sourceVmAlias} (${sourceVmName})`;
+  }, [sourceVmAlias, sourceVmName]);
+
+  const isSourceVmExists = useMemo(() => {
+    return !!sourceVmObj;
+  }, [sourceVmObj]);
+
+  const isSourceVmRunning = useMemo(() => {
+    if (!sourceVmObj) return false;
+    const status = sourceVmObj?.status?.printableStatus || sourceVmObj?.status?.phase || sourceVmObj?.status || '';
+    const s = String(status).toLowerCase();
+    return s === 'running' || s === 'starting';
+  }, [sourceVmObj]);
 
   // 弹窗打开时重置表单并初始化默认值
   useEffect(() => {
     if (open && resource) {
       form.resetFields();
       setKeepMacAddress(false);
+      const base = sourceVmName || sourceName || 'vm';
+      const suggestedNewVmName = `restore-${base}-${Math.floor(Date.now() / 1000)}`;
       form.setFieldsValue({
-        name: `restore-${resource.name}-${Math.floor(Date.now() / 1000)}`,
-        targetVmName: resource.targetVm !== '-' ? resource.targetVm : '',
+        name: `restore-${sourceName}-${Math.floor(Date.now() / 1000)}`,
         newVM: true,
-        deletionPolicy: 'Delete', // Default to Delete
-        keepMacAddress: false // Default to Keep MAC (Disabled) -> Reset MAC
+        deletionPolicy: 'retain',
+        newVmName: suggestedNewVmName,
+        keepMacAddress: false,
       });
     }
-  }, [open, resource, form]);
-
-  // 若目标 VM 正在运行或不存在，则强制切回「新建虚拟机」模式
-  useEffect(() => {
-    if (isTargetVmRunning || !isTargetVmExists) {
-      const currentNewVM = form.getFieldValue('newVM');
-      if (currentNewVM === false) {
-        form.setFieldsValue({ newVM: true });
-      }
-    }
-  }, [isTargetVmRunning, isTargetVmExists, form]);
+  }, [open, resource, form, sourceName, sourceVmName]);
 
   /**
    * 提交创建虚拟机恢复任务：
@@ -107,56 +127,64 @@ const VmRestoreModal: React.FC<Props> = ({
     try {
       const values = await form.validateFields();
       setLoading(true);
+
+      const targetName = values.newVM === false ? sourceVmName : values.newVmName;
+      if (!targetName) throw new Error('目标虚拟机名称为空');
+
+      if (values.newVM === false) {
+        if (!isSourceVmExists) throw new Error('源虚拟机不存在，无法执行替换');
+        if (isSourceVmRunning) {
+          message.loading('源虚拟机正在运行，正在停止...', 0);
+          try {
+            await stopHarvesterVm(cloudId, namespace, sourceVmName, true);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          } finally {
+            message.destroy();
+          }
+        }
+      }
       
-      const isSnapshot = resourceType === 'snapshot';
       const payload: any = {
         apiVersion: 'harvesterhci.io/v1beta1',
         kind: 'VirtualMachineRestore',
         metadata: {
           name: values.name,
-          namespace: resource.namespace,
+          namespace,
           annotations: {
-            'tower.io/description': 'Created via Compute Tower'
+            'tower.io/description': 'Created via Compute Tower',
+            'tower.io/restoreTask': 'true',
+            'tower.io/restoreMode': values.newVM ? 'new' : 'replace',
+            'tower.io/restoreSource': `${namespace}/${sourceName}`,
+            'tower.io/restoreTarget': `${namespace}/${targetName}`
           }
         },
         spec: {
           target: {
             apiGroup: 'kubevirt.io',
             kind: 'VirtualMachine',
-            name: values.targetVmName
+            name: targetName
           }
         }
       };
 
+      payload.spec.virtualMachineBackupName = sourceName;
+      payload.spec.virtualMachineBackupNamespace = namespace;
+      if (values.newVM === false) payload.spec.deletionPolicy = 'retain';
+
       if (resourceType === 'snapshot') {
-        // 按照用户提供的参考参数，整机快照恢复也使用backup字段来传递信息
-        payload.spec.virtualMachineBackupName = resource.name;
-        payload.spec.virtualMachineBackupNamespace = resource.namespace;
-        // 当选择替换虚拟机时，需要传deletionPolicy为retain以避免删除策略冲突，且不需要传newVM字段
         if (values.newVM === false) {
-          // 替换模式：添加deletionPolicy字段，不需要传newVM字段
-          // 注意：快照类型需要小写的deletionPolicy值
-          payload.spec.deletionPolicy = (values.deletionPolicy || "retain").toLowerCase();
+          payload.spec.deletionPolicy = 'retain';
         } else {
-          // 新建模式：添加newVM字段
           payload.spec.newVM = true;
         }
       } else {
-        payload.spec.virtualMachineBackupName = resource.name;
-        payload.spec.virtualMachineBackupNamespace = resource.namespace;
-        // Harvester Backup specific options
         if (values.newVM !== undefined) payload.spec.newVM = values.newVM;
-        // The UI label is "MAC Address Keep" (Enabled/Disabled).
-        // If Enabled (true) -> Keep MAC -> keepMacAddress = true.
-        // If Disabled (false) -> Reset MAC -> keepMacAddress = false.
-        if (values.keepMacAddress !== undefined) {
-          payload.spec.keepMacAddress = values.keepMacAddress;
-        }
+        if (values.keepMacAddress !== undefined) payload.spec.keepMacAddress = values.keepMacAddress;
       }
 
       await createHarvesterVirtualMachineRestore(
         cloudId,
-        resource.namespace,
+        namespace,
         payload
       );
 
@@ -181,12 +209,12 @@ const VmRestoreModal: React.FC<Props> = ({
       destroyOnHidden
     >
       <Alert
-        message={isTargetVmRunning ? "目标虚拟机正在运行中" : (!isTargetVmExists ? "目标虚拟机不存在" : "注意")}
-        description={isTargetVmRunning 
-          ? "目标虚拟机正在运行中，无法执行替换操作，只能进行新建虚拟机操作。如需替换，请先停止虚拟机。" 
-          : (!isTargetVmExists 
-            ? "目标虚拟机不存在，无法执行替换操作。将创建一个新的虚拟机。"
-            : "恢复操作将停止并替换目标虚拟机。如果目标虚拟机不存在，将会创建一个新的虚拟机。")}
+        message={newVM === false ? '将替换目标虚拟机' : '将新建虚拟机'}
+        description={
+          newVM === false
+            ? (isSourceVmExists ? '替换模式会自动停止目标虚拟机后执行恢复。' : '目标虚拟机不存在，无法执行替换。')
+            : '新建模式会创建一个新的虚拟机，不会覆盖现有虚拟机。'
+        }
         type="warning"
         showIcon
         style={{ marginBottom: 16 }}
@@ -196,7 +224,11 @@ const VmRestoreModal: React.FC<Props> = ({
         layout="vertical"
       >
         <Form.Item label={resourceType === 'snapshot' ? '源快照' : '源备份'}>
-          <Input value={resource.name} disabled />
+          <Input value={sourceName} disabled />
+        </Form.Item>
+
+        <Form.Item label="源虚拟机">
+          <Input value={sourceVmDisplay} disabled />
         </Form.Item>
 
         <Form.Item
@@ -210,28 +242,51 @@ const VmRestoreModal: React.FC<Props> = ({
         </Form.Item>
 
         <Form.Item
-          name="targetVmName"
-          label="目标虚拟机名称"
-          rules={[{ required: true, message: '请输入目标虚拟机名称' }]}
-        >
-          <Input placeholder="请输入目标虚拟机名称" />
-        </Form.Item>
-
-        <Form.Item 
-          name="newVM" 
+          name="newVM"
           label="恢复模式"
         >
-           <Radio.Group onChange={() => form.setFieldsValue({ deletionPolicy: resourceType === 'snapshot' ? 'retain' : 'Delete' })}>
-              <Radio value={true}>新建虚拟机</Radio>
-              <Radio value={false} disabled={isTargetVmRunning || !isTargetVmExists}>
-                替换虚拟机
-                {isTargetVmRunning && <span style={{fontSize: 12, color: '#ff4d4f', marginLeft: 8}}>(运行中，不可用)</span>}
-                {!isTargetVmExists && <span style={{fontSize: 12, color: '#ff4d4f', marginLeft: 8}}>(虚拟机不存在，不可用)</span>}
-              </Radio>
-           </Radio.Group>
+          <Radio.Group>
+            <Radio value={true}>新建虚拟机</Radio>
+            <Radio value={false} disabled={!isSourceVmExists}>替换虚拟机</Radio>
+          </Radio.Group>
         </Form.Item>
 
-        {resourceType === 'backup' && newVM === true && (
+        {newVM === true && (
+          <>
+            <Form.Item label="目标虚拟机名称">
+              <Input value={sourceVmName || '-'} disabled />
+            </Form.Item>
+            <Form.Item
+              name="newVmName"
+              label="新虚拟机名称"
+              rules={[
+                { required: true, message: '请输入新虚拟机名称' },
+                {
+                  validator: async (_, value) => {
+                    const name = String(value || '').trim();
+                    if (!name) return;
+                    const conflict = (vms || []).some((vm: any) => {
+                      const vmNs = vm?.metadata?.namespace || vm?.namespace || '';
+                      const vmName = vm?.metadata?.name || vm?.name || '';
+                      return String(vmNs) === String(namespace) && String(vmName) === String(name);
+                    });
+                    if (conflict) throw new Error('虚拟机名称已存在');
+                  }
+                }
+              ]}
+            >
+              <Input placeholder="请输入新虚拟机名称" />
+            </Form.Item>
+          </>
+        )}
+
+        {newVM === false && (
+          <Form.Item label="目标虚拟机名称">
+            <Input value={sourceVmDisplay} disabled />
+          </Form.Item>
+        )}
+
+        {resourceType === 'backup' && newVM === false && (
           <Form.Item 
             name="keepMacAddress" 
             label="MAC 地址保留"
@@ -249,18 +304,17 @@ const VmRestoreModal: React.FC<Props> = ({
           </Form.Item>
         )}
 
-        {newVM === false && (
-          <Form.Item 
-            name="deletionPolicy" 
-            label="删除以前的虚拟磁盘"
-            initialValue="retain"
+        {resourceType === 'snapshot' && newVM === false && (
+          <Form.Item
+            name="deletionPolicy"
+            label="删除策略"
+            rules={[{ required: true, message: '请选择删除策略' }]}
           >
-            <Select>
-              {resourceType !== 'snapshot' && (
-                <Select.Option value="delete">Delete</Select.Option>
-              )}
-              <Select.Option value="retain">Retain</Select.Option>
-            </Select>
+            <Select
+              options={[
+                { label: 'Retain', value: 'retain' },
+              ]}
+            />
           </Form.Item>
         )}
       </Form>

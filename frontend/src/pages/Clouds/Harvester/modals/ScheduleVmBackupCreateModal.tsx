@@ -70,7 +70,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
         suspend: false,
         cron: `${randomMinute} 2 * * *`,
         ...(initialNamespace && { namespace: initialNamespace }),
-        ...(initialVmName && { targetVm: initialVmName })
+        ...(initialVmName && { vmName: initialVmName })
       });
     }
   }, [open, cloudId, initialNamespace, initialVmName]);
@@ -111,25 +111,55 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
       
       const nsItems = nsRes?.data?.items || nsRes?.items || [];
       setNamespaces(nsItems);
+      
+      const vmItems = Array.isArray(vmRes?.data) ? vmRes.data : (vmRes || []);
+      setVms(vmItems);
+
+      // 如果有初始虚拟机，自动选择该虚拟机所在的命名空间
+      if (initialVmName && vmItems.length > 0) {
+        const targetVm = vmItems.find((vm: any) => vm.name === initialVmName || vm.metadata?.name === initialVmName);
+        if (targetVm) {
+          const vmNamespace = targetVm.namespace || targetVm.metadata?.namespace;
+          if (vmNamespace) {
+            form.setFieldValue('namespace', vmNamespace);
+            return;
+          }
+        }
+      }
 
       // Default select first namespace if available
       if (nsItems.length > 0) {
         form.setFieldValue('namespace', nsItems[0].metadata?.name || nsItems[0].name);
       }
-      
-      const vmItems = Array.isArray(vmRes?.data) ? vmRes.data : (vmRes || []);
-      setVms(vmItems);
     } catch (e) {
       console.error(e);
       message.error('加载资源失败');
     }
   };
 
+  // 过滤命名空间：如果有初始虚拟机，只显示该虚拟机所在的命名空间
+  const filteredNamespaces = useMemo(() => {
+    if (!initialVmName) return namespaces;
+    // 找到初始虚拟机
+    const targetVm = vms.find((vm: any) => vm.name === initialVmName || vm.metadata?.name === initialVmName);
+    if (!targetVm) return namespaces;
+    // 获取虚拟机所在的命名空间
+    const vmNamespace = targetVm.namespace || targetVm.metadata?.namespace;
+    if (!vmNamespace) return namespaces;
+    // 只显示该命名空间
+    return namespaces.filter(ns => ns.metadata?.name === vmNamespace || ns.name === vmNamespace);
+  }, [namespaces, vms, initialVmName]);
+
   // 根据选中的命名空间过滤可选 VM
   const filteredVms = useMemo(() => {
     if (!selectedNamespace) return [];
-    return vms.filter(v => v.namespace === selectedNamespace || v.metadata?.namespace === selectedNamespace);
-  }, [vms, selectedNamespace]);
+    let filtered = vms.filter(v => v.namespace === selectedNamespace || v.metadata?.namespace === selectedNamespace);
+    // 如果指定了初始虚拟机，只显示该虚拟机
+    if (initialVmName) {
+      filtered = filtered.filter(v => v.name === initialVmName || v.metadata?.name === initialVmName);
+    }
+    return filtered;
+  }, [vms, selectedNamespace, initialVmName]);
 
   /**
    * 校验表单并提交创建定时策略：
@@ -261,7 +291,7 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
         <Form.Item name="namespace" label="命名空间" rules={[{ required: true }]}>
           <Select 
             placeholder="请选择命名空间"
-            options={namespaces.map(n => ({ label: n.metadata?.name || n.name, value: n.metadata?.name || n.name }))}
+            options={filteredNamespaces.map(n => ({ label: n.metadata?.name || n.name, value: n.metadata?.name || n.name }))}
             onChange={() => form.setFieldValue('vmName', undefined)}
             showSearch
           />

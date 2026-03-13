@@ -6,6 +6,7 @@ import { AuthRequest } from '../middleware/auth';
 import { In } from 'typeorm';
 import { UserSpaceAllocation } from '../entities/UserSpaceAllocation';
 import { UserSpace } from '../entities/UserSpace';
+import { licenseService } from '../services/LicenseService';
 
 // 仪表盘相关路由：
 // - 提供平台全局统计数据（云数量、用户数量等）
@@ -13,6 +14,13 @@ import { UserSpace } from '../entities/UserSpace';
 // - 提供按云类型聚合的资源配额与已分配用量，用于首页看板展示
 // 这些接口只要求通过身份认证，不再进行细粒度 RBAC 控制。
 const router = Router();
+
+router.use((_req: AuthRequest, res: Response, next: any) => {
+  if (!licenseService.hasFeature('sys.dashboard')) {
+    return res.status(403).json({ message: '未授权：全局仪表盘（Dashboard）功能未启用' });
+  }
+  return next();
+});
 
 // GET /api/dashboard/stats
 // 返回平台级别的基础统计信息：云资源数量、用户数量等

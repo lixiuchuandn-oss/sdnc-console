@@ -48,7 +48,8 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     title: '资源总览',
     icon: 'DashboardOutlined',
-    order: 0
+    order: 0,
+    requiredFeature: 'sys.dashboard'
   },
   {
     id: 'sdn-dashboard',
@@ -639,7 +640,8 @@ export const routeSpecs: RouteSpec[] = [
     title: '高级集成',
     subtitle: '管理 AI SOC、Dify 工作流等第三方服务的集成参数。',
     icon: 'ApiOutlined',
-    order: 20
+    order: 20,
+    requiredFeature: 'platform.aisoc'
   },
   {
     id: 'settings-license',

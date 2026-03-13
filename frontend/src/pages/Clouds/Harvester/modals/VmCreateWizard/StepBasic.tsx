@@ -29,7 +29,7 @@
  * - 依赖外部传入的 cloudOptions, namespaceOptions, filteredNodes 进行渲染。
  */
 import React, { useMemo, useState, useEffect } from 'react';
-import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress } from 'antd';
+import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from '../../../../../services/harvesterApi';
 import { isSystemNamespace, isPublicNamespace } from '../../../../../utils/harvesterUtils';
@@ -102,6 +102,11 @@ const StepBasic: React.FC<StepBasicProps> = ({
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
   const [capabilities, setCapabilities] = useState<any>({});
 
+  const visibleNamespaceOptions = useMemo(() => {
+    if (!isTenant) return namespaceOptions;
+    return namespaceOptions.filter((n) => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
+  }, [namespaceOptions, isTenant]);
+
   // [数据同步] 根据 cloudId 获取集群能力（架构、推荐机型）
   // 调用 API 获取指定资源池的能力集，并自动填充推荐值（如架构、机型）
   // 异常处理：若获取失败，仅打印日志，不阻塞流程，字段保持默认或手动输入
@@ -123,18 +128,14 @@ const StepBasic: React.FC<StepBasicProps> = ({
   useEffect(() => {
     // 如果已有值且合法，则跳过自动选择，防止切换步骤时重置用户选择
     const currentVal = form.getFieldValue('namespace');
-    let validOptions = namespaceOptions;
-    if (isTenant) {
-      validOptions = namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
-    }
+    const validOptions = visibleNamespaceOptions;
     const isValid = currentVal && validOptions.some(o => o.value === currentVal);
     
     if (!isValid && validOptions.length > 0) {
       // 优先选中非系统命名空间作为默认值
-      const firstNonSystem = validOptions.find(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || '')));
-      form.setFieldsValue({ namespace: firstNonSystem?.value || validOptions[0].value });
+      form.setFieldsValue({ namespace: validOptions[0].value });
     }
-  }, [namespaceOptions, form, isTenant]);
+  }, [visibleNamespaceOptions, form]);
 
   // [辅助函数] 判断节点是否就绪
   // 兼容逻辑：优先检查顶层 ready 字段，若不存在则遍历 status.conditions 查找 Type=Ready 且 Status=True
@@ -174,7 +175,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
         <Col span={12}>
           <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}> 
             <Select 
-              options={isTenant ? namespaceOptions.filter(n => !isSystemNamespace(String(n.value || '')) && !isPublicNamespace(String(n.value || ''))) : namespaceOptions}
+              options={visibleNamespaceOptions}
               placeholder="选择命名空间"
               showSearch
               onOpenChange={(open) => { if (open) reloadNamespaces(); }}
@@ -183,6 +184,15 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
       </Row>
+      {isTenant && visibleNamespaceOptions.length === 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="未分配可用命名空间"
+          description="租户不允许在公共/系统命名空间创建云主机，请联系管理员为该租户分配业务命名空间（UserSpace.namespace）。"
+          style={{ marginBottom: 12 }}
+        />
+      ) : null}
       <Row gutter={12}>
         <Col span={12}>
           <Form.Item label="运行位置" name="hostMode"> 

@@ -109,9 +109,9 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
     }
   };
 
-  // 当 cloudId 变化时自动加载一次数据
+  // 当 cloudId 变化时自动加载一次数据（强制刷新以确保获取最新数据）
   useEffect(() => {
-    loadData();
+    loadData(true); // 首次加载时强制刷新，避免显示旧数据
   }, [cloudId]);
 
   /**

@@ -42,6 +42,7 @@ import { HarvesterTestParams } from './types';
 import { requestJson, getJsonOnce } from './utils';
 import { listHarvesterVMsStandard, getHarvesterVM } from './vm';
 import { updateHarvesterVMSpec } from './vm_update';
+import { deleteHarvesterPVC } from './storage';
 
 /**
  * 解析实例标识为命名空间和名称
@@ -967,9 +968,11 @@ export const harvesterForceDeleteVM = async (
     if (deleteVolumes && pvcNames.length > 0) {
       for (const claimName of pvcNames) {
         try {
-          const delUrl = `${origin}/v1/harvester/persistentvolumeclaims/${encodeURIComponent(path.namespace)}/${encodeURIComponent(claimName)}`;
-          console.info('[ForceDeleteVM] Request delete PVC', { namespace: path.namespace, name: claimName, url: delUrl });
-          await requestJson('DELETE', delUrl, token, insecure);
+          await deleteHarvesterPVC(
+            { endpoint, token, insecure },
+            path.namespace,
+            claimName,
+          );
           console.info(`[ForceDeleteVM] Deleted PVC: ${claimName}`);
         } catch (e: any) {
           if (e?.status !== 404) {

@@ -114,7 +114,14 @@ const VmBackupCreateModal: React.FC<Props> = ({
     ? [initialVm]
     : vms.filter(vm => !selectedNamespace || vm.namespace === selectedNamespace || (vm.metadata && vm.metadata.namespace === selectedNamespace));
   // 过滤掉系统命名空间，仅保留业务命名空间
-  const filteredNamespaces = namespaces.filter(ns => !isSystemNamespace(ns.metadata?.name || ns.name));
+  // 当 initialVm 存在时，只显示该虚拟机所在的命名空间
+  const filteredNamespaces = namespaces
+    .filter(ns => !isSystemNamespace(ns.metadata?.name || ns.name))
+    .filter(ns => {
+      if (!initialVm) return true;
+      const vmNamespace = initialVm.namespace || initialVm.metadata?.namespace;
+      return ns.metadata?.name === vmNamespace || ns.name === vmNamespace;
+    });
 
   return (
     <Modal

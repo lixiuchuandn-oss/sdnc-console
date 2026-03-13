@@ -38,6 +38,9 @@ import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import VmSection from '../Harvester/sections/VmSection';
 import TemplatesSection from '../Harvester/sections/TemplatesSection';
 import ScheduleVmBackupsSection from '../Harvester/sections/ScheduleVmBackupsSection';
+import VmCloneTasksSection from '../Harvester/sections/VmCloneTasksSection';
+import VmRestoreTasksSection from '../Harvester/sections/VmRestoreTasksSection';
+import VmCreateTasksSection from '../Harvester/sections/VmCreateTasksSection';
 import EipSection from '../Harvester/kube-ovn/EipSection';
 import FipSection from '../Harvester/kube-ovn/FipSection';
 import MonitoringOverview from '../Harvester/Monitoring/MonitoringOverview';
@@ -54,6 +57,7 @@ import { MonitoringProvider } from '../Harvester/Monitoring/context/MonitoringCo
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
 import { getToken } from '../../../utils/tokenStorage';
+import { useLicense } from '../../../contexts/LicenseContext';
 
 /**
  * 调试用的 JSON 展示组件
@@ -89,6 +93,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const permissions = user?.permissions;
   // 权限检查辅助函数
   const checkPerm = (act: string) => hasPermissionForAction(permissions || [], act);
+  const { hasFeature } = useLicense();
+  const ovnVpcEnabled = hasFeature('network.ovn.vpc');
 
   // --- 状态定义 ---
 
@@ -1455,6 +1461,27 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                           <DebugJSON data={rawScheduleVmBackups} show={showLog} />
                         </>
                       )
+                    },
+                    {
+                      key: 'vm_clones',
+                      label: '克隆任务',
+                      children: (
+                        <VmCloneTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
+                      )
+                    },
+                    {
+                      key: 'vm_restores',
+                      label: '恢复任务',
+                      children: (
+                        <VmRestoreTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
+                      )
+                    },
+                    {
+                      key: 'vm_creates',
+                      label: '新建任务',
+                      children: (
+                        <VmCreateTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
+                      )
                     }
                   ]}
                 />
@@ -1509,7 +1536,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                 />
               )
             },
-            {
+            ...(ovnVpcEnabled ? [{
               key: 'kube_ovn_group',
               label: '虚拟专有云 VPC',
               children: (
@@ -1645,12 +1672,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     }
                   ].filter((i:any) => {
-                      // 这里简化，只要有 clouds.networks:read 权限即可查看
                       return checkPerm('clouds.networks:read');
                   })}
                 />
               )
-            },
+            }] : []),
             {
               key: 'logs-config',
               label: '日志管理',

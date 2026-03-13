@@ -1,8 +1,10 @@
 import React from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useLicense } from '../contexts/LicenseContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../utils/accessMapping';
 import { Spin } from 'antd';
+import { routeSpecs } from '../routes/RouteSpec';
 
 interface AdminRouteProps {
   children: React.ReactNode;
@@ -10,6 +12,7 @@ interface AdminRouteProps {
 
 const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   const { user, loading, logout } = useAuth();
+  const { hasFeature } = useLicense();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -37,6 +40,31 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
     return <Navigate to="/admin/login" replace />;
   }
 
+  const currentSpec = (() => {
+    const p = String(location.pathname || '');
+    const found = routeSpecs.find((r) => {
+      if (r.path === p) return true;
+      if (r.path.includes(':')) {
+        const base = r.path.split(':')[0];
+        return p.startsWith(base);
+      }
+      return false;
+    });
+    return found;
+  })();
+
+  if (currentSpec?.requiredFeature && !hasFeature(currentSpec.requiredFeature)) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16 }}>
+        <div style={{ fontSize:18, color:'#595959' }}>当前授权未包含该功能</div>
+        <div style={{ display:'flex', gap:12 }}>
+          <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/settings/license')}>查看授权</button>
+          <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={logout}>退出登录</button>
+        </div>
+      </div>
+    );
+  }
+
   
 
   if (!canAccessPath(location.pathname + location.search)) {
@@ -44,7 +72,7 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16 }}>
         <div style={{ fontSize:18, color:'#595959' }}>当前账号没有访问该页面的权限</div>
         <div style={{ display:'flex', gap:12 }}>
-          <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/dashboard')}>返回仪表板</button>
+          <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/clouds')}>返回资源池</button>
           <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={logout}>退出登录</button>
         </div>
       </div>

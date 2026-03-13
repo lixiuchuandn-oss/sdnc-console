@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Tabs, Table, Tag, Button, Space, Dropdown } from 'antd';
+import { Tabs, Table, Tag, Button, Space, Dropdown, Empty } from 'antd';
 import { ReloadOutlined, CaretDownFilled } from '@ant-design/icons';
 import VmSection from '../Harvester/sections/VmSection';
 import VolumesSection from '../Harvester/sections/VolumesSection';
 import SnapshotsSection from '../Harvester/sections/SnapshotsSection';
 import BackupsSection from '../Harvester/sections/BackupsSection';
 import { DEFAULT_PAGINATION_CONFIG } from '../../../constants/pagination';
+import { useLicense } from '../../../contexts/LicenseContext';
 import { 
   fetchCloudProviderOvnEips, 
   fetchCloudProviderOvnFips, 
@@ -69,6 +70,8 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   onDelete,
   bordered = true // Default to true
 }) => {
+  const { hasFeature } = useLicense();
+  const ovnVpcEnabled = hasFeature('network.ovn.vpc');
   // 二级导航状态
   const [activeCategory, setActiveCategory] = useState<string>('compute');
   const [activeResource, setActiveResource] = useState<string>('vm');
@@ -451,7 +454,7 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   const tabItems = tabConfig.map(cat => {
     const isActive = cat.key === activeCategory;
     const currentResKey = isActive ? activeResource : cat.resources[0].key;
-    const currentResLabel = cat.resources.find(r => r.key === currentResKey)?.label || cat.resources[0].label;
+    const currentResLabel = cat.resources.find((r: any) => r.key === currentResKey)?.label || cat.resources[0].label;
 
     return {
       key: cat.key,
@@ -460,7 +463,7 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
           <span>{cat.label} {currentResLabel}</span>
           <Dropdown
             menu={{
-              items: cat.resources.map(res => ({
+              items: cat.resources.map((res: any) => ({
                 key: res.key,
                 label: res.label,
                 onClick: (e: any) => {
@@ -488,6 +491,10 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
       )
     };
   });
+
+  if (!ovnVpcEnabled) {
+    return <Empty description="未授权" />;
+  }
 
   return (
     <div className="vpc-detail-container" style={{ height: '100%', background: '#fff'}}>

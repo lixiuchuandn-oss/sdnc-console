@@ -1302,6 +1302,28 @@ export const createHarvesterIPPool = async (cloudId: string, payload: any) => {
 };
 
 /**
+ * 执行 Harvester VM 操作（热插拔等）
+ * @param cloudId 云环境 ID
+ * @param namespace 虚拟机命名空间
+ * @param name 虚拟机名称
+ * @param action 操作类型：addNic, removeNic, findHotunpluggableNics 等
+ * @param payload 操作参数
+ * @returns Promise<any>
+ */
+export const harvesterVmAction = async (
+  cloudId: string,
+  namespace: string,
+  name: string,
+  action: string,
+  payload: any
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/vms/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/action?action=${action}`,
+    payload
+  );
+};
+
+/**
  * 删除 Harvester IP 池
  * @param cloudId 云环境 ID
  * @param name IP 池名称

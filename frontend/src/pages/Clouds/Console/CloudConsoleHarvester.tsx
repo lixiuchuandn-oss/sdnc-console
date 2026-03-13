@@ -30,6 +30,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLicense } from '../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 import VmSection from '../Harvester/sections/VmSection';
 import RecycleBinSection from '../Harvester/sections/RecycleBinSection';
@@ -202,6 +203,8 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   showSys = true
 }) => {
   const { user } = useAuth();
+  const { hasFeature } = useLicense();
+  const ovnVpcEnabled = hasFeature('network.ovn.vpc');
   
   // [租户判断] 根据用户角色动态判断是否为租户
   const isTenantUser = useMemo(() => {
@@ -228,56 +231,68 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   }, [namespaces]);
 
   // [结构配置] 类目与资源的二级导航配置
-  const tabConfig = useMemo(() => [
-    {
-      key: 'compute',
-      label: '云主机',
-      resources: [
-        { key: 'vm', label: '实例' },
-        { key: 'recycle-bin', label: '回收站' },
-        { key: 'template', label: '模板' },
-        { key: 'image', label: '镜像' },
-        { key: 'ssh', label: 'SSH密钥' },
-      ]
-    },
-    {
-      key: 'storage',
-      label: '云盘',
-      resources: [
-        { key: 'volume', label: '实例' },
-        { key: 'volume-snapshot', label: '快照' },
-      ]
-    },
-    {
-      key: 'backup',
-      label: '整机',
-      resources: [
-        { key: 'snapshot', label: '快照' },
-        { key: 'backup', label: '备份' },
-        { key: 'schedule', label: '定时策略' },
-      ]
-    },
-    {
-      key: 'flatnet',
-      label: 'VLAN',
-      resources: [
-        { key: 'nad', label: '网络' },
-        { key: 'lb', label: 'SLB' },
-        { key: 'ippool', label: '地址池' },
-      ]
-    },
-    {
-      key: 'vpc',
-      label: 'VPC',
-      resources: [
-         { key: 'vpc-subnet', label: '网络' },
-         { key: 'eip', label: 'EIP' },
-         { key: 'fip', label: 'FIP' },
-         { key: 'snat', label: 'SNAT' },
-         { key: 'dnat', label: 'DNAT' },
-      ]
+  const tabConfig = useMemo(() => {
+    const base: any[] = [
+      {
+        key: 'compute',
+        label: '云主机',
+        resources: [
+          { key: 'vm', label: '实例' },
+          { key: 'recycle-bin', label: '回收站' },
+          { key: 'template', label: '模板' },
+          { key: 'image', label: '镜像' },
+          { key: 'ssh', label: 'SSH密钥' },
+        ]
+      },
+      {
+        key: 'storage',
+        label: '云盘',
+        resources: [
+          { key: 'volume', label: '实例' },
+          { key: 'volume-snapshot', label: '快照' },
+        ]
+      },
+      {
+        key: 'backup',
+        label: '整机',
+        resources: [
+          { key: 'snapshot', label: '快照' },
+          { key: 'backup', label: '备份' },
+          { key: 'schedule', label: '定时策略' },
+        ]
+      },
+      {
+        key: 'flatnet',
+        label: 'VLAN',
+        resources: [
+          { key: 'nad', label: '网络' },
+          { key: 'lb', label: 'SLB' },
+          { key: 'ippool', label: '地址池' },
+        ]
+      },
+    ];
+    if (ovnVpcEnabled) {
+      base.push({
+        key: 'vpc',
+        label: 'VPC',
+        resources: [
+          { key: 'vpc-subnet', label: '网络' },
+          { key: 'eip', label: 'EIP' },
+          { key: 'fip', label: 'FIP' },
+          { key: 'snat', label: 'SNAT' },
+          { key: 'dnat', label: 'DNAT' },
+        ]
+      });
     }
-  ], []);
+    return base;
+  }, [ovnVpcEnabled]);
+
+  useEffect(() => {
+    if (!ovnVpcEnabled && activeCategory === 'vpc') {
+      setActiveCategory('compute');
+      setActiveResource('vm');
+    }
+  }, [activeCategory, ovnVpcEnabled, setActiveCategory, setActiveResource]);
 
   const getDefaultResource = (catKey: string) => {
     const cat = tabConfig.find(c => c.key === catKey);
@@ -285,6 +300,9 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   };
 
   const renderContent = () => {
+    if (!ovnVpcEnabled && ['vpc-subnet', 'eip', 'fip', 'snat', 'dnat'].includes(activeResource)) {
+      return <Empty description="未授权" />;
+    }
     // [内容渲染] 根据 activeResource 映射到具体 Section，并透传资源数据与刷新函数
     switch (activeResource) {
       // Compute
@@ -561,7 +579,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       const isActive = cat.key === activeCategory;
       // [展示规则] 未选中时展示默认资源标签；选中时展示当前 activeResource 标签
       const currentResKey = isActive ? activeResource : cat.resources[0].key;
-      const currentResLabel = cat.resources.find(r => r.key === currentResKey)?.label || cat.resources[0].label;
+      const currentResLabel = cat.resources.find((r: any) => r.key === currentResKey)?.label || cat.resources[0].label;
 
       return {
         key: cat.key,
@@ -570,7 +588,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             <span>{cat.label} {currentResLabel}</span>
             <Dropdown
               menu={{
-                items: cat.resources.map(res => ({
+                items: cat.resources.map((res: any) => ({
                   key: res.key,
                   label: res.label,
                   onClick: (e: any) => {

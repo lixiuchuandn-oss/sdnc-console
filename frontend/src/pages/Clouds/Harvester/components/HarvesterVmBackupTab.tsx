@@ -131,13 +131,15 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   const handleDeleteBackup = (item: any, type: 'backup' | 'snapshot') => {
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
+    const alias = raw.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias || name;
     const ns = raw.metadata?.namespace;
     
     Modal.confirm({
       title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
       content: (
         <div>
-          <p>确定要删除 {type === 'backup' ? '备份' : '快照'} <b>{name}</b> 吗？</p>
+          <p>确定要删除 {type === 'backup' ? '备份' : '快照'} <b>{displayName}</b> 吗？</p>
           <p style={{ color: '#ff4d4f', fontSize: 12 }}><WarningOutlined /> 此操作不可恢复。</p>
         </div>
       ),
@@ -165,13 +167,15 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   const handleDeleteSchedule = (item: any) => {
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
+    const alias = raw.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias || name;
     const ns = raw.metadata?.namespace;
 
     Modal.confirm({
       title: '确认删除定时策略',
       content: (
         <div>
-          <p>确定要删除定时策略 <b>{name}</b> 吗？</p>
+          <p>确定要删除定时策略 <b>{displayName}</b> 吗？</p>
           <p style={{ color: '#ff4d4f', fontSize: 12 }}><WarningOutlined /> 此操作不可恢复。</p>
         </div>
       ),
@@ -215,6 +219,8 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   const renderBackupItem = (item: any, type: 'backup' | 'snapshot') => {
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
+    const alias = raw.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias || name;
     const readyToUse = raw.status?.readyToUse;
     const createdAt = raw.metadata?.creationTimestamp;
     const timeAgo = formatAge(createdAt);
@@ -239,7 +245,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           }
           title={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span style={{ fontWeight: 500 }}>{name}</span>
+                <span style={{ fontWeight: 500 }}>{displayName}</span>
                 {readyToUse ? <Tag color="success" style={{ fontSize: 10 }}>READY</Tag> : <Tag color="warning" style={{ fontSize: 10 }}>NOT READY</Tag>}
             </div>
           }
@@ -258,6 +264,8 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
   const renderScheduleItem = (item: any) => {
     const raw = item.rawData || item;
     const name = raw.metadata?.name;
+    const alias = raw.metadata?.annotations?.['tower.io/alias'];
+    const displayName = alias || name;
     const cron = raw.spec?.cron;
     const suspend = raw.spec?.suspend === true;
     const retain = raw.spec?.retain;
@@ -293,7 +301,7 @@ const HarvesterVmBackupTab: React.FC<HarvesterVmBackupTabProps> = ({
           }
           title={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span style={{ fontWeight: 500 }}>{name}</span>
+                <span style={{ fontWeight: 500 }}>{displayName}</span>
                 {suspend ? <Tag color="default" style={{ fontSize: 10 }}>已暂停</Tag> : <Tag color="processing" style={{ fontSize: 10 }}>运行中</Tag>}
                 <Tag style={{ fontSize: 10 }}>{type === 'snapshot' ? '快照' : '备份'}</Tag>
             </div>
