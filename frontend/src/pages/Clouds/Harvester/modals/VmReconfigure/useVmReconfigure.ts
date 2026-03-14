@@ -910,6 +910,13 @@ export const useVmReconfigure = (props: any) => {
   }, [open, selectedKey, activeRecord, gpuResources, form]);
 
   const openRestartConfirm = (namespace: string, vmName: string, force: boolean = false) => {
+    // [修复] 检查虚拟机状态，如果已停止则不提示重启
+    const activeVm = latestVm || record;
+    if (isVmStopped(activeVm)) {
+      message.success('设置已保存，下次启动时将自动应用新配置');
+      return;
+    }
+    
     Modal.confirm({
       title: '规格变更已提交，需要重启实例生效，是否重启实例',
       okText: '立即重启',
@@ -929,6 +936,17 @@ export const useVmReconfigure = (props: any) => {
   const isRestartRequiredFromVm = (vm: any) => {
     const conditions = vm?.status?.conditions || [];
     return conditions.some((c: any) => c.type === 'RestartRequired' && c.status === 'True');
+  };
+
+  // 判断虚拟机是否处于停止状态
+  const isVmStopped = (vm: any) => {
+    if (!vm) return false;
+    // 检查 spec.running 字段
+    if (vm.spec?.running === false) return true;
+    // 检查状态字符串
+    const status = vm.status?.printableStatus || vm.status?.phase || '';
+    const statusLower = String(status).toLowerCase();
+    return ['stopped', 'shutoff', 'down', 'offline'].includes(statusLower);
   };
 
   const fetchAggregatedVm = async (namespace: string, vmName: string) => {
@@ -952,6 +970,14 @@ export const useVmReconfigure = (props: any) => {
     try {
       await new Promise((r) => setTimeout(r, 300));
       const updatedVm = await fetchAggregatedVm(namespace, vmName);
+      
+      // [修复] 如果虚拟机处于停止状态，不需要提示重启
+      // 停止状态的虚拟机在下次启动时会自动应用配置，无需重启
+      if (isVmStopped(updatedVm)) {
+        message.success('设置已保存，下次启动时将自动应用新配置');
+        return;
+      }
+      
       if (isRestartRequiredFromVm(updatedVm)) {
         openRestartConfirm(namespace, vmName, false);
       }
@@ -1279,7 +1305,18 @@ export const useVmReconfigure = (props: any) => {
              if (finalMemChanged && !isMigratable && isHotPlugActive) {
                message.warning('内存热扩容需要 VM 可迁移，当前 VM 不可迁移，将需要重启生效');
              }
-             openRestartConfirm(namespace, vmName, false);
+             // [修复] 检查虚拟机是否处于停止状态，停止状态的虚拟机在启动时会自动应用配置，无需重启
+             try {
+               const updatedVm = await fetchAggregatedVm(namespace, vmName);
+               if (isVmStopped(updatedVm)) {
+                 message.success('设置已保存，下次启动时将自动应用新配置');
+               } else {
+                 openRestartConfirm(namespace, vmName, false);
+               }
+             } catch {
+               // 如果获取VM状态失败，仍然提示重启（保守策略）
+               openRestartConfirm(namespace, vmName, false);
+             }
           }
           break;
         }
@@ -1381,8 +1418,8 @@ export const useVmReconfigure = (props: any) => {
           console.log('========================');
           
           await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
-          message.success('热扩容设置已提交，需要重启生效');
-          openRestartConfirm(namespace, vmName, false);
+          message.success('热扩容设置已提交');
+          void maybePromptRestart(namespace, vmName);
           break;
         }
         case 'cpu_advanced': {
@@ -1421,7 +1458,7 @@ export const useVmReconfigure = (props: any) => {
 
           await updateHarvesterVmSpec(cloudId, namespace, vmName, advancedPayload);
           message.success('性能设置已更新');
-          openRestartConfirm(namespace, vmName, false);
+          void maybePromptRestart(namespace, vmName);
           break;
         }
         case 'change_os': {
@@ -1567,6 +1604,94 @@ export const useVmReconfigure = (props: any) => {
           const names = Array.isArray(values.gpuResourceNames) ? values.gpuResourceNames : [];
           const deviceNames = Array.isArray(values.gpuDeviceNames) ? values.gpuDeviceNames : [];
           const gpuNodeName = values.gpuNodeName !== undefined ? values.gpuNodeName : undefined;
+          
+          // [节点选择器校验] 如果是直通GPU（非vGPU），需要校验节点选择器
+          if (mode !== 'none' && mode !== 'vgpu' && names.length > 0) {
+            const activeVm = latestVm || record;
+            const currentNodeSelector = activeVm?.spec?.template?.spec?.nodeSelector || {};
+            const currentNodeName = currentNodeSelector['kubernetes.io/hostname'];
+            
+            // 获取要挂载的GPU设备所在的节点
+            const gpuList = Array.isArray(gpuResources) ? gpuResources : [];
+            const targetGpus = names.map((rn: string) => gpuList.find((g: any) => String(g?.resourceName || '') === String(rn))).filter(Boolean);
+            const targetNodes = targetGpus.map((g: any) => String(g?.node || g?.nodeName || '').trim()).filter(Boolean);
+            const uniqueTargetNodes = Array.from(new Set(targetNodes));
+            
+            if (uniqueTargetNodes.length > 0) {
+              const targetNode = uniqueTargetNodes[0]; // 取第一个节点（如果多个节点不一致，后面会拒绝）
+              
+              // 检查当前VM是否有其他直通设备（USB或GPU）
+              const domain = activeVm?.spec?.template?.spec?.domain;
+              const hostDevices = Array.isArray(domain?.devices?.hostDevices) ? domain.devices.hostDevices : [];
+              const currentGpus = Array.isArray(domain?.devices?.gpus) ? domain.devices.gpus : [];
+              const isUsbHostDevice = (d: any) => {
+                const dn = String(d?.deviceName || '').toLowerCase();
+                const n = String(d?.name || '').toLowerCase();
+                return n.startsWith('usb') || dn.includes('usb');
+              };
+              const isGpuLikeHostDevice = (d: any) => {
+                if (isUsbHostDevice(d)) return false;
+                const dn = String(d?.deviceName || '').toLowerCase();
+                const n = String(d?.name || '').toLowerCase();
+                return n.startsWith('gpu') || dn.startsWith('nvidia.com/');
+              };
+              const hasOtherPassthroughDevices = hostDevices.some((d: any) => isGpuLikeHostDevice(d) || isUsbHostDevice(d)) || currentGpus.length > 0;
+              
+              // 1. 判断是否有节点选择器
+              if (!currentNodeName) {
+                // 2. 如果没有，自动设置节点选择器
+                await updateHarvesterVmSpec(cloudId, namespace, vmName, {
+                  gpuMode: mode,
+                  gpuResourceNames: names,
+                  gpuDeviceNames: deviceNames,
+                  gpuNodeName: targetNode,
+                });
+                message.success(`GPU配置已更新，已自动设置节点选择器为 ${targetNode}`);
+                openRestartConfirm(namespace, vmName, false);
+                break;
+              } else {
+                // 3. 如果有节点选择器
+                if (!hasOtherPassthroughDevices) {
+                  // 3.1 没有其他直通设备，提示用户是否变更节点
+                  if (currentNodeName !== targetNode) {
+                    Modal.confirm({
+                      title: '节点选择器不一致',
+                      content: `当前VM的节点选择器为 ${currentNodeName}，但GPU设备位于节点 ${targetNode}。是否将节点选择器变更为 ${targetNode}？`,
+                      okText: '是，变更节点',
+                      cancelText: '取消',
+                      onOk: async () => {
+                        await updateHarvesterVmSpec(cloudId, namespace, vmName, {
+                          gpuMode: mode,
+                          gpuResourceNames: names,
+                          gpuDeviceNames: deviceNames,
+                          gpuNodeName: targetNode,
+                        });
+                        message.success('GPU配置已更新，节点选择器已变更');
+                        openRestartConfirm(namespace, vmName, false);
+                      },
+                    });
+                    return; // 不继续执行，等待用户确认
+                  }
+                } else {
+                  // 3.2 有其他直通设备
+                  if (currentNodeName === targetNode) {
+                    // 3.2.1 节点选择器与自己一致，跳过（直接提交）
+                  } else {
+                    // 3.2.2 节点选择器与自己不一致，拒绝变配
+                    message.error(`无法挂载GPU：当前VM已挂载其他直通设备，节点选择器为 ${currentNodeName}，但GPU设备位于节点 ${targetNode}。请先移除其他直通设备或选择位于 ${currentNodeName} 节点的GPU设备。`);
+                    return; // 拒绝提交
+                  }
+                }
+              }
+              
+              // 检查多个GPU是否在同一节点
+              if (uniqueTargetNodes.length > 1) {
+                message.error(`无法挂载GPU：选择的GPU设备位于不同节点（${uniqueTargetNodes.join(', ')}），请选择位于同一节点的GPU设备。`);
+                return; // 拒绝提交
+              }
+            }
+          }
+          
           await updateHarvesterVmSpec(cloudId, namespace, vmName, {
             gpuMode: mode,
             gpuResourceNames: mode === 'none' ? [] : names,
@@ -1689,6 +1814,90 @@ export const useVmReconfigure = (props: any) => {
         }
         case 'change_usb': {
           const names = Array.isArray(values.usbResourceNames) ? values.usbResourceNames : [];
+          
+          // [节点选择器校验] USB是直通设备，需要校验节点选择器
+          if (names.length > 0) {
+            const activeVm = latestVm || record;
+            const currentNodeSelector = activeVm?.spec?.template?.spec?.nodeSelector || {};
+            const currentNodeName = currentNodeSelector['kubernetes.io/hostname'];
+            
+            // 获取要挂载的USB设备所在的节点
+            const usbList = Array.isArray(usbResources) ? usbResources : [];
+            const targetUsbs = names.map((rn: string) => usbList.find((u: any) => String(u?.resourceName || '') === String(rn))).filter(Boolean);
+            const targetNodes = targetUsbs.map((u: any) => String(u?.nodeName || u?.node || '').trim()).filter(Boolean);
+            const uniqueTargetNodes = Array.from(new Set(targetNodes));
+            
+            if (uniqueTargetNodes.length > 0) {
+              const targetNode = uniqueTargetNodes[0]; // 取第一个节点（如果多个节点不一致，后面会拒绝）
+              
+              // 检查当前VM是否有其他直通设备（USB或GPU）
+              const domain = activeVm?.spec?.template?.spec?.domain;
+              const hostDevices = Array.isArray(domain?.devices?.hostDevices) ? domain.devices.hostDevices : [];
+              const currentGpus = Array.isArray(domain?.devices?.gpus) ? domain.devices.gpus : [];
+              const isUsbHostDevice = (d: any) => {
+                const dn = String(d?.deviceName || '').toLowerCase();
+                const n = String(d?.name || '').toLowerCase();
+                return n.startsWith('usb') || dn.includes('usb');
+              };
+              const isGpuLikeHostDevice = (d: any) => {
+                if (isUsbHostDevice(d)) return false;
+                const dn = String(d?.deviceName || '').toLowerCase();
+                const n = String(d?.name || '').toLowerCase();
+                return n.startsWith('gpu') || dn.startsWith('nvidia.com/');
+              };
+              const hasOtherPassthroughDevices = hostDevices.some((d: any) => isGpuLikeHostDevice(d) || isUsbHostDevice(d)) || currentGpus.length > 0;
+              
+              // 1. 判断是否有节点选择器
+              if (!currentNodeName) {
+                // 2. 如果没有，自动设置节点选择器
+                await updateHarvesterVmSpec(cloudId, namespace, vmName, { 
+                  usbResourceNames: names,
+                  nodeSelector: { 'kubernetes.io/hostname': targetNode }
+                });
+                message.success(`USB配置已更新，已自动设置节点选择器为 ${targetNode}`);
+                openRestartConfirm(namespace, vmName, false);
+                break;
+              } else {
+                // 3. 如果有节点选择器
+                if (!hasOtherPassthroughDevices) {
+                  // 3.1 没有其他直通设备，提示用户是否变更节点
+                  if (currentNodeName !== targetNode) {
+                    Modal.confirm({
+                      title: '节点选择器不一致',
+                      content: `当前VM的节点选择器为 ${currentNodeName}，但USB设备位于节点 ${targetNode}。是否将节点选择器变更为 ${targetNode}？`,
+                      okText: '是，变更节点',
+                      cancelText: '取消',
+                      onOk: async () => {
+                        await updateHarvesterVmSpec(cloudId, namespace, vmName, { 
+                          usbResourceNames: names,
+                          nodeSelector: { 'kubernetes.io/hostname': targetNode }
+                        });
+                        message.success('USB配置已更新，节点选择器已变更');
+                        openRestartConfirm(namespace, vmName, false);
+                      },
+                    });
+                    return; // 不继续执行，等待用户确认
+                  }
+                } else {
+                  // 3.2 有其他直通设备
+                  if (currentNodeName === targetNode) {
+                    // 3.2.1 节点选择器与自己一致，跳过（直接提交）
+                  } else {
+                    // 3.2.2 节点选择器与自己不一致，拒绝变配
+                    message.error(`无法挂载USB：当前VM已挂载其他直通设备，节点选择器为 ${currentNodeName}，但USB设备位于节点 ${targetNode}。请先移除其他直通设备或选择位于 ${currentNodeName} 节点的USB设备。`);
+                    return; // 拒绝提交
+                  }
+                }
+              }
+              
+              // 检查多个USB是否在同一节点
+              if (uniqueTargetNodes.length > 1) {
+                message.error(`无法挂载USB：选择的USB设备位于不同节点（${uniqueTargetNodes.join(', ')}），请选择位于同一节点的USB设备。`);
+                return; // 拒绝提交
+              }
+            }
+          }
+          
           await updateHarvesterVmSpec(cloudId, namespace, vmName, { usbResourceNames: names });
           message.success('USB配置已更新');
           openRestartConfirm(namespace, vmName, false);

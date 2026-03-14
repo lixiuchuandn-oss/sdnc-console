@@ -153,6 +153,14 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     } },
     { title: '绑定到', key: 'binding', render: (_: any, r: any) => {
       if (!r?.claimed) return <Tag>未绑定</Tag>;
+      // 优先显示VM信息（如果GPU挂载到虚拟机）
+      if (r?.vmInfo) {
+        const vmInfo = r.vmInfo;
+        const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
+        const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
+        return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
+      }
+      // 否则显示Claim信息
       const txt = r?.bindingTo || r?.claimedBy || r?.claimName || '已绑定';
       return <span style={{ wordBreak: 'break-word' }}>{String(txt)}</span>;
     } },

@@ -136,6 +136,19 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
         const rawObj = r?.raw || r?.rawData || r;
         return rawObj?.raw?.status?.state || rawObj?.status?.state || rawObj?.status?.status || rawObj?.status?.phase || '-';
       } },
+      { title: '绑定到', key: 'binding', width: 220, ellipsis: true, render: (_: any, r: any) => {
+        if (!r?.claimed) return <Tag>未绑定</Tag>;
+        // 优先显示VM信息（如果USB挂载到虚拟机）
+        if (r?.vmInfo) {
+          const vmInfo = r.vmInfo;
+          const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
+          const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
+          return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
+        }
+        // 否则显示Claim信息
+        const txt = r?.bindingTo || r?.claimedBy || r?.claimName || '已绑定';
+        return <span style={{ wordBreak: 'break-word' }}>{String(txt)}</span>;
+      } },
       {
         title: '操作',
         key: 'actions',

@@ -189,6 +189,8 @@ const VmRestoreModal: React.FC<Props> = ({
       );
 
       message.success('恢复任务创建成功');
+      // 触发恢复任务创建事件，通知恢复任务列表刷新
+      window.dispatchEvent(new CustomEvent('harvester:restore-created'));
       onSuccess();
     } catch (e: any) {
       message.error(`创建失败: ${e.message}`);

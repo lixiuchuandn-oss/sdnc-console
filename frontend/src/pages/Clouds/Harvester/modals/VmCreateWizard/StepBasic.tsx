@@ -209,7 +209,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
         <Col span={6}>
-          <Form.Item label="支持的VM类型" name="machineType" tooltip="根据集群架构自动推荐">
+          <Form.Item label="支持的VM类型" name="machineType">
             <Select disabled placeholder="选择VM类型">
               {capabilities?.recommendedMachineType && (
                 <Select.Option value={capabilities.recommendedMachineType}>

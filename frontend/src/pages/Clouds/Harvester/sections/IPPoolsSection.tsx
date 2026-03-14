@@ -102,15 +102,16 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
 
   /**
    * 根据关键字、命名空间进行过滤
+   * 
+   * [权限说明]
+   * - 租户可以看到公共命名空间（default、cloud-public、harvester-public）的 IPPool，但不能删除它们
+   * - 删除权限控制已在删除函数中实现
    */
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     const ns = nsFilter.trim().toLowerCase();
 
     return dataSource.filter((x: any) => {
-      // 租户模式过滤：自动过滤公共命名空间
-      if (isTenant && isPublicNamespace(x.namespace)) return false;
-
       // 关键字过滤：匹配名称或命名空间
       if (kw) {
         const name = String(x.name || '').toLowerCase();
@@ -161,6 +162,13 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
    * - 针对特定错误信息（仍有已分配 IP）做用户友好的错误提示
    */
   const handleDelete = (record: any) => {
+    // 租户不能删除公共命名空间的资源
+    const isPublic = isPublicNamespace(record.namespace);
+    if (isTenant && isPublic) {
+      message.warning('租户不能删除公共命名空间的资源');
+      return;
+    }
+
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除地址池 ${record.name} 吗？此操作不可恢复。`,
@@ -198,23 +206,52 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
   /**
    * 批量删除选中的地址池
    * - 遍历 selectedRowKeys 从 dataSource 中反查对应对象并执行删除
-   * - 对“仍有 IP 被占用”的错误做统一处理
+   * - 对"仍有 IP 被占用"的错误做统一处理
    */
   const handleBatchDelete = () => {
+    // 过滤掉系统命名空间和公共命名空间的资源（如果是租户）
+    const targets = selectedRowKeys.map(key => dataSource.find(d => d.key === key)).filter(Boolean);
+    const deletableTargets = targets.filter((item: any) => {
+      if (isSystemNamespace(item.namespace)) return false;
+      if (isTenant && isPublicNamespace(item.namespace)) return false;
+      return true;
+    });
+    const systemTargets = targets.filter((item: any) => isSystemNamespace(item.namespace));
+    const publicTargets = isTenant ? targets.filter((item: any) => isPublicNamespace(item.namespace)) : [];
+
+    if (deletableTargets.length === 0) {
+      const reasons: string[] = [];
+      if (systemTargets.length > 0) reasons.push(`${systemTargets.length} 个系统命名空间`);
+      if (publicTargets.length > 0) reasons.push(`${publicTargets.length} 个公共命名空间`);
+      message.warning(`选中的地址池无法删除：${reasons.join('，')}`);
+      setSelectedRowKeys([]);
+      return;
+    }
+
     Modal.confirm({
       title: '确认批量删除',
-      content: `确定要删除选中的 ${selectedRowKeys.length} 个地址池吗？此操作不可恢复。`,
+      content: (
+        <>
+          <div>{`确定要删除选中的 ${deletableTargets.length} 个地址池吗？此操作不可恢复。`}</div>
+          {systemTargets.length > 0 && (
+            <div style={{ color: '#faad14', marginTop: 8 }}>
+              {`注意：${systemTargets.length} 个系统命名空间的地址池将被跳过。`}
+            </div>
+          )}
+          {publicTargets.length > 0 && (
+            <div style={{ color: '#faad14', marginTop: 8 }}>
+              {`注意：${publicTargets.length} 个公共命名空间的地址池将被跳过（租户不能删除公共命名空间的资源）。`}
+            </div>
+          )}
+        </>
+      ),
       okText: '批量删除',
       okType: 'danger',
       cancelText: '取消',
       onOk: async () => {
         try {
-          const promises = selectedRowKeys.map(key => {
-            const item = dataSource.find(d => d.key === key);
-            if (item) {
-              return deleteHarvesterIpPool(cloudId, item.name);
-            }
-            return Promise.resolve();
+          const promises = deletableTargets.map((item: any) => {
+            return deleteHarvesterIpPool(cloudId, item.name);
           });
           
           await Promise.all(promises);
@@ -249,6 +286,9 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
   const rowSelection = {
     selectedRowKeys,
     onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+    getCheckboxProps: (record: any) => ({
+      disabled: isSystemNamespace(record.namespace) || (isTenant && isPublicNamespace(record.namespace)),
+    }),
   };
 
   /**
@@ -288,19 +328,30 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
       width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown 
-          items={[
-            ...(!isTenant ? [{
-              key: 'opsinfo',
-              label: '运维信息',
-              onClick: () => handleOpenOpsinfo(record)
-            }] : []),
-            { type: 'divider' },
-            { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) }
-          ]}
-        />
-      ),
+      render: (_: any, record: any) => {
+        const isSys = isSystemNamespace(record.namespace);
+        const isPublic = isPublicNamespace(record.namespace);
+        const deleteDisabled = isSys || (isTenant && isPublic);
+        return (
+          <ResourceActionsDropdown 
+            items={[
+              ...(!isTenant ? [{
+                key: 'opsinfo',
+                label: '运维信息',
+                onClick: () => handleOpenOpsinfo(record)
+              }] : []),
+              { type: 'divider' },
+              { 
+                key: 'delete', 
+                label: '删除', 
+                danger: true, 
+                disabled: deleteDisabled,
+                onClick: () => handleDelete(record) 
+              }
+            ]}
+          />
+        );
+      },
     },
   ];
 

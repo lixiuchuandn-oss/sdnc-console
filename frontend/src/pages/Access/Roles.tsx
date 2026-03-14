@@ -206,14 +206,31 @@ const AccessRolesPage: React.FC = () => {
             items: [
               { key: 'delete', label: '批量删除', danger: true, onClick: () => {
                 if (!selectedRowKeys.length) return message.warning('请先选择角色');
+                
+                // 过滤出选中的角色，检查是否有系统角色
+                const selectedRoles = roles.filter(r => selectedRowKeys.includes(r.id));
+                const systemRoles = selectedRoles.filter(r => r.scope === 'system');
+                
+                if (systemRoles.length > 0) {
+                  return message.warning(`选中的角色中包含 ${systemRoles.length} 个系统内置角色，无法删除`);
+                }
+                
                 Modal.confirm({
                   title: '确认批量删除？',
                   content: `即将删除 ${selectedRowKeys.length} 个角色`,
                   okButtonProps: { danger: true },
                   onOk: async () => {
-                    // TODO: Implement batch delete
-                    message.success('已触发批量删除（演示）');
-                    setSelectedRowKeys([]);
+                    try {
+                      // 批量删除角色
+                      await Promise.all(selectedRowKeys.map(roleId => 
+                        apiDelete(`/api/system/rbac/roles/${roleId}`)
+                      ));
+                      message.success(`成功删除 ${selectedRowKeys.length} 个角色`);
+                      setSelectedRowKeys([]);
+                      fetchRoles(); // 刷新列表
+                    } catch (error: any) {
+                      message.error(error?.message || '批量删除失败');
+                    }
                   }
                 });
               }}

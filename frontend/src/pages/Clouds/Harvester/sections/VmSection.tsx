@@ -1537,6 +1537,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(statusStr);
       const isRunning = statusStr === 'running';
       const isPaused = statusStr === 'paused';
+      const isMigrating = statusStr === 'migrating';
       const { isResizing, pvcName } = checkResizeStatus(r);
 
       // [Feature] 检查重要实例标记
@@ -1588,6 +1589,27 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         ] : []),
 
         // ----------------------------------------------------------------
+        // 2.5. 迁移操作 (Migration)
+        // ----------------------------------------------------------------
+        // 根据迁移状态动态显示"热迁移"或"中止迁移"
+        ...(isMigrating ? [
+          { 
+            key: 'abort_migration', 
+            label: '中止迁移', 
+            danger: true, 
+            onClick: () => handleAbortMigration(r) 
+          }
+        ] : [
+          ...(isRunning ? [
+            { 
+              key: 'migrate', 
+              label: '热迁移', 
+              onClick: () => handleMigrate(r) 
+            }
+          ] : [])
+        ]),
+
+        // ----------------------------------------------------------------
         // 3. 标记管理 (Tags)
         // ----------------------------------------------------------------
         { type: 'divider' },
@@ -1622,7 +1644,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }} />;
     } },
-  ], [handleShowMetadata, handleClone, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant]);
+  ], [handleShowMetadata, handleClone, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant, handleMigrate, handleAbortMigration]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vm_table_v3');

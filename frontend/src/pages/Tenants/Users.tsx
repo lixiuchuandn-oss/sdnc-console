@@ -37,6 +37,7 @@ interface RBACRole {
   description: string;
   status: 'active' | 'inactive';
   type: 'system' | 'custom';
+  scope?: 'system' | 'tenant';  // 角色作用域
 }
 
 interface Assignment {
@@ -133,7 +134,11 @@ const UserManagement: React.FC = () => {
       const response = await apiCall('get', '/api/system/rbac/roles?limit=1000');
       const raw = response.data;
       const list: RBACRole[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.roles) ? raw.roles : []);
-      setAvailableRoles(list.filter(r => String(r.status || 'active') === 'active'));
+      // 只显示租户级角色（修复逻辑问题：租户用户只能分配租户级角色）
+      setAvailableRoles(list.filter(r => 
+        r.scope === 'tenant' && 
+        String(r.status || 'active') === 'active'
+      ));
     } catch (error) {
       console.error('Failed to fetch roles', error);
     }

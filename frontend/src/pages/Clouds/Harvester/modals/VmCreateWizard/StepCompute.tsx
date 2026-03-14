@@ -443,8 +443,20 @@ const StepCompute: React.FC<StepComputeProps> = ({
                     name: x?.raw?.metadata?.name || x?.raw?.spec?.deviceName || x?.name || x?.description || x?.desc || x?.resourceName,
                     resourceName: x?.resourceName || x?.raw?.status?.resourceName || x?.raw?.spec?.resourceName,
                     type: x?.type,
+                    claimed: x?.claimed, // [修复] 保留claimed字段，用于过滤被其他VM使用的GPU
                     raw: x
                   }));
+                  
+                  // [修复] 过滤被其他VM使用的GPU
+                  data = data.filter((r: any) => {
+                    const resourceName = String(r?.resourceName || '').trim();
+                    // 如果resourceName为空，跳过claimed检查（可能是数据不完整）
+                    if (resourceName && r?.claimed === true) {
+                      // 被其他VM使用的GPU，过滤掉
+                      return false;
+                    }
+                    return true;
+                  });
                   
                   // 客户端搜索过滤
                   const kw = String(gpuKeyword || '').trim().toLowerCase();

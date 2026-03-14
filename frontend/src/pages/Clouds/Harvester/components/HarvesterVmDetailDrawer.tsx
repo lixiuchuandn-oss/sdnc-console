@@ -46,7 +46,7 @@ import {
   ThunderboltOutlined
 } from '@ant-design/icons';
 import { cnVmStatus } from '../../../../utils/harvesterUtils';
-import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
+import { stopHarvesterVm, startHarvesterVm, pauseHarvesterVm, unpauseHarvesterVm, detachHarvesterVolumeFromVm, deleteHarvesterPVC, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterVMAggregated, abortHarvesterMigration } from '../../../../services/harvesterApi';
 import { rebootCloudProviderEcs, API_BASE_URL, apiPost } from '../../../../services/api';
 import { fetchMetricRange } from '../../../../services/monitoringApi';
 import { VMPerformance } from './VMPerformance';
@@ -1064,6 +1064,33 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
     });
   }, [cloudId, vmData, onRefresh, SafeRead]);
 
+  // [事件] 中止迁移
+  const handleAbortMigration = useCallback(() => {
+    Modal.confirm({
+      title: '确认中止迁移？',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要中止虚拟机 ${SafeRead.name(vmData)} 的迁移任务吗？`,
+      okText: '中止迁移',
+      okType: 'danger',
+      onOk: async () => {
+        const hide = message.loading('正在中止迁移...', 0);
+        try {
+          const ns = SafeRead.namespace(vmData);
+          const name = SafeRead.vmId(vmData);
+          // [实例标识] Harvester 侧的 instanceId 约定为 namespace/name
+          const instanceId = `${ns}/${name}`;
+          await abortHarvesterMigration(cloudId, instanceId);
+          message.success('已发送中止迁移指令');
+          onRefresh && onRefresh(true);
+        } catch (e: any) {
+          message.error(`中止迁移失败: ${e.message || '未知错误'}`);
+        } finally {
+          hide();
+        }
+      }
+    });
+  }, [cloudId, vmData, onRefresh, SafeRead]);
+
   const status = String(SafeRead.status(vmData)).toLowerCase();
 
   // [配置同步状态] 使用 K8s generation 字段简单判断是否存在“配置未完全同步”的提示信息
@@ -1125,6 +1152,7 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const isStopped = ['stopped', 'shutoff', 'down', 'offline'].includes(status);
   const isRunning = ['running'].includes(status);
   const isPaused = ['paused'].includes(status);
+  const isMigrating = status === 'Migrating' || status.toLowerCase() === 'migrating';
 
 
   // ==============================================================================
@@ -1215,14 +1243,25 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         title: (!isStopped && !isRunning) ? '仅在运行中或停止状态下支持变配' : undefined,
         onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) 
       },
-      { 
-        key: 'migrate', 
-        label: '热迁移', 
-        icon: <ExportOutlined />, 
-        disabled: !isRunning,
-        title: !isRunning ? '只有运行中的实例才能进行热迁移' : undefined,
-        onClick: () => onMigrate && onMigrate(vmData) 
-      },
+      // 根据迁移状态动态显示"热迁移"或"中止迁移"
+      ...(isMigrating ? [
+        { 
+          key: 'abort_migration', 
+          label: '中止迁移', 
+          icon: <StopOutlined />, 
+          danger: true,
+          onClick: handleAbortMigration 
+        }
+      ] : [
+        { 
+          key: 'migrate', 
+          label: '热迁移', 
+          icon: <ExportOutlined />, 
+          disabled: !isRunning,
+          title: !isRunning ? '只有运行中的实例才能进行热迁移' : undefined,
+          onClick: () => onMigrate && onMigrate(vmData) 
+        }
+      ]),
       ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
 
       { type: 'divider' },

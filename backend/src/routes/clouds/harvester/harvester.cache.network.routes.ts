@@ -441,15 +441,58 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
         let whereCondition: any = { cloudId: id };
         
         // [租户过滤] NAD 可见性控制
-        // 租户仅能看到分配给自己的 Namespace 下的 NAD。
-        if ((req as any).user?.role === 'tenant') {
+        // 租户能看到分配给自己的 Namespace 下的 NAD，以及公共命名空间（default、cloud-public、harvester-public）下的 NAD。
+        const isTenantUser =
+          (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+        const isTenantRole = (req.user as any)?.role === 'tenant';
+        const isTenant = isTenantUser || isTenantRole;
+        
+        if (isTenant) {
           const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-          const us = await userSpaceRepo.findOne({
-            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
-          });
+          const where: any = {
+            tenantId: (req as any).user.tenantId,
+            cloudId: id,
+            status: 'active',
+          };
+          if ((req.user as any).organizationId) {
+            where.organizationId = (req.user as any).organizationId;
+          }
+          const us = await userSpaceRepo.findOne({ where });
           if (!us) return res.json({ message: '查询成功', data: { items: [] } });
+          
           if (us.namespace) {
-            whereCondition.namespace = us.namespace;
+            const allowed = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
+            
+            // [自动修复] 确保组织命名空间存在
+            if ((req.user as any).organizationId) {
+              const orgNs = `ns-${(req.user as any).organizationId}`;
+              if (!allowed.includes(orgNs)) {
+                allowed.push(orgNs);
+                us.namespace = allowed.join(',');
+                try {
+                  await userSpaceRepo.save(us);
+                } catch (e) {
+                  console.warn('Failed to auto-update UserSpace namespace', e);
+                }
+              }
+            }
+            
+            // 使用数组形式的 whereCondition 以支持多个命名空间，并包含公共命名空间
+            whereCondition = [
+              ...allowed.map((ns) => ({ cloudId: id, namespace: ns })),
+              { cloudId: id, namespace: 'cloud-public' },
+              { cloudId: id, namespace: 'Cloud-Public' },
+              { cloudId: id, namespace: 'harvester-public' },
+              { cloudId: id, namespace: 'default' }, // 允许访问 default 命名空间的 NAD
+            ];
+          } else {
+            // 即使 namespace 为空，也允许访问公共命名空间
+            whereCondition = [
+              { cloudId: id, namespace: 'cloud-public' },
+              { cloudId: id, namespace: 'Cloud-Public' },
+              { cloudId: id, namespace: 'harvester-public' },
+              { cloudId: id, namespace: 'default' },
+            ];
           }
         }
 

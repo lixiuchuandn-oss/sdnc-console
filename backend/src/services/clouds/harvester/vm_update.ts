@@ -1522,8 +1522,16 @@ const updateHarvesterVMSpecInternal = async (
   }
 
   if (spec.memoryLimit !== undefined) {
-      ensureResources();
-      domain.resources.limits.memory = spec.memoryLimit;
+      // [Hot Plug Fix] 内存热扩容模式下，忽略 memoryLimit
+      // 在热扩容模式下，KubeVirt 的内存热插拔控制器会根据 guest 内存自动调整 Pod 资源。
+      // 如果手动修改 resources.limits.memory，可能导致 requests > limits 的错误。
+      const currentMaxGuest = current?.spec?.template?.spec?.domain?.memory?.maxGuest;
+      const isMemHotPlug = !!spec.maxMemory || !!currentMaxGuest;
+      
+      if (!isMemHotPlug) {
+          ensureResources();
+          domain.resources.limits.memory = spec.memoryLimit;
+      }
   }
 
   const currentHostDevices = Array.isArray(current?.spec?.template?.spec?.domain?.devices?.hostDevices)
@@ -1631,8 +1639,10 @@ const updateHarvesterVMSpecInternal = async (
           console.log(`✅ [节点调度] 已设置 nodeSelector:`, JSON.stringify(newSpec.template.spec.nodeSelector));
       } else {
           // 清空 nodeSelector（自动调度模式）
-          newSpec.template.spec.nodeSelector = undefined;
-          console.log(`✅ [节点调度] 已清空 nodeSelector`);
+          // [重要] 在 merge-patch 中，要删除字段必须设置为 null，而不是 undefined
+          // undefined 在 JSON 序列化时会被忽略，不会发送到服务器，因此不会删除字段
+          newSpec.template.spec.nodeSelector = null;
+          console.log(`✅ [节点调度] 已清空 nodeSelector (设置为 null)`);
       }
   } else if (gpuNodeName !== undefined) {
       // GPU 功能专用：GPU 节点固定逻辑
@@ -1816,6 +1826,17 @@ const updateHarvesterVMSpecInternal = async (
             console.log(`  ${key}: ${value === null ? '(删除)' : value}`);
         }
       });
+  
+  // 节点调度变更
+  const patchNodeSelector = body?.spec?.template?.spec?.nodeSelector;
+  if (patchNodeSelector !== undefined) {
+      console.log('\n🔧 [节点调度变更]');
+      if (patchNodeSelector === null) {
+          console.log(`  nodeSelector: (删除 - 自动调度模式)`);
+      } else {
+          console.log(`  nodeSelector:`, JSON.stringify(patchNodeSelector));
+      }
+  }
   
   console.log('\n📋 [完整 Patch JSON]');
   console.log(JSON.stringify(body, null, 2));

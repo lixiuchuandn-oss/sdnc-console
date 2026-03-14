@@ -9,6 +9,7 @@ type Props = {
   setSelectedUsbKeys: (keys: string[]) => void;
   usbLoading: boolean;
   reloadUsbResources: () => void;
+  currentVmUsbResourceNames?: string[]; // 当前VM正在使用的USB资源名列表
 };
 
 const ChangeUsb: React.FC<Props> = ({
@@ -17,7 +18,8 @@ const ChangeUsb: React.FC<Props> = ({
   selectedUsbKeys,
   setSelectedUsbKeys,
   usbLoading,
-  reloadUsbResources
+  reloadUsbResources,
+  currentVmUsbResourceNames = []
 }) => {
   const updateSelection = (nextKeys: string[]) => {
     const list = Array.isArray(nextKeys) ? nextKeys : [];
@@ -68,7 +70,7 @@ const ChangeUsb: React.FC<Props> = ({
                   : (x?.raw?.status?.enabled !== undefined
                       ? !!x.raw.status.enabled
                       : (x?.raw?.spec?.enabled !== undefined ? !!x.raw.spec.enabled : false));
-              return { key: rn, resourceName: rn, name, description, nodeName, vendor, vendorId, productId, enabled, raw: x };
+              return { key: rn, resourceName: rn, name, description, nodeName, vendor, vendorId, productId, enabled, claimed: x?.claimed, raw: x };
             })
             .filter(Boolean) as any[];
 
@@ -106,12 +108,27 @@ const ChangeUsb: React.FC<Props> = ({
 
           const buildOptions = (idx: number) => {
             const used = new Set(keys.filter((k, i) => i !== idx).map((k) => String(k || '')).filter(Boolean));
+            // 当前VM正在使用的资源名集合（用于保留当前VM使用的资源）
+            const currentVmResourceNames = new Set(
+              (Array.isArray(currentVmUsbResourceNames) ? currentVmUsbResourceNames : []).map((n) => String(n || '').trim()).filter(Boolean)
+            );
             return data
               .filter((r: any) => {
                 const k = String(r?.key || '');
                 if (!k) return false;
                 if (used.has(k)) return false;
                 if (r?.enabled !== true) return false;
+                // 过滤被其他VM使用的USB（但保留当前VM正在使用的）
+                const resourceName = String(r?.resourceName || '').trim();
+                // 如果resourceName为空，跳过claimed检查（可能是数据不完整）
+                if (resourceName && r?.claimed === true) {
+                  // 如果资源被使用，检查是否是当前VM使用的
+                  if (!currentVmResourceNames.has(resourceName)) {
+                    // 被其他VM使用，过滤掉
+                    return false;
+                  }
+                  // 是当前VM使用的，保留
+                }
                 return true;
               })
               .map((r: any) => {

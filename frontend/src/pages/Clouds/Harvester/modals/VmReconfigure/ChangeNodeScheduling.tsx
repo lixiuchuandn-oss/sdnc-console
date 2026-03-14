@@ -37,27 +37,35 @@ const ChangeNodeScheduling: React.FC<Props> = ({
     const nodeSelector = spec?.nodeSelector;
     
     // 提取节点选择器中的 hostname
-    // 优先从 nodeSelector 中获取，如果没有则从 status 中获取当前运行节点
+    // 优先从 nodeSelector 中获取，只有在 nodeSelector 明确存在且有内容时才使用
     let currentNode: string | null = null;
     
     // 检查 nodeSelector 是否存在且有内容
-    if (nodeSelector && typeof nodeSelector === 'object' && Object.keys(nodeSelector).length > 0) {
+    // [重要] 需要排除 null（typeof null === 'object' 是 JavaScript 的特性）
+    // 只有当 nodeSelector 是对象且不为 null，且有实际内容时，才认为是指定主机模式
+    if (nodeSelector && 
+        nodeSelector !== null && 
+        typeof nodeSelector === 'object' && 
+        Object.keys(nodeSelector).length > 0) {
       currentNode = nodeSelector['kubernetes.io/hostname'] || null;
+      
+      // 如果 nodeSelector 中没有 hostname，但 nodeSelector 存在且有其他字段（标签选择模式）
+      // 这种情况下不应该从 status.nodeName 获取，因为这是标签选择模式，不是指定主机模式
+      // 所以这里不需要额外的逻辑
     }
     
-    // 如果 nodeSelector 中没有 hostname，尝试从 status 中获取当前运行节点
-    // 但只有在确实是指定主机模式时才使用（即 nodeSelector 中有其他字段或明确设置了 hostname）
-    if (!currentNode) {
-      const currentRunningNode = record?.status?.nodeName || record?.status?.hostNodeName || record?.nodeName || null;
-      // 如果 nodeSelector 存在且不为空，说明是指定主机模式，使用运行节点
-      if (currentRunningNode && nodeSelector && typeof nodeSelector === 'object' && Object.keys(nodeSelector).length > 0) {
-        currentNode = currentRunningNode;
-      }
-    }
+    // [修复] 移除了从 status.nodeName 恢复节点的逻辑
+    // 原因：当 nodeSelector 被清空（自动调度模式）时，即使 VM 还在某个节点上运行，
+    // status.nodeName 仍然存在，但这不代表是指定主机模式
+    // 只有 spec.template.spec.nodeSelector 中明确设置了 hostname，才是指定主机模式
     
     // 提取其他标签（除了 hostname）
     const labelPairs: Array<{ key: string; value: string }> = [];
-    if (nodeSelector && typeof nodeSelector === 'object') {
+    // [修复] 需要排除 null，因为 typeof null === 'object' 在 JavaScript 中是 true
+    if (nodeSelector && 
+        nodeSelector !== null && 
+        typeof nodeSelector === 'object' && 
+        Object.keys(nodeSelector).length > 0) {
       Object.entries(nodeSelector).forEach(([key, value]) => {
         if (key !== 'kubernetes.io/hostname' && value) {
           labelPairs.push({ key, value: String(value) });

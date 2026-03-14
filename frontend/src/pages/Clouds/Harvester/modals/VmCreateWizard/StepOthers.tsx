@@ -173,14 +173,28 @@ const StepOthers: React.FC<StepOthersProps> = ({
                   <Form.Item name={[name]} rules={[{ required: true, message: '请选择 USB 设备' }]}>
                     <Select
                       placeholder="选择 USB 设备"
-                      options={(usbResources || []).map((x: any) => { 
-                        // [数据转换] 格式化显示 Vendor:Product 
-                        const v = String(x?.vendorId || x?.vendor || ''); 
-                        const p = String(x?.productId || x?.product || ''); 
-                        const code = (v && p) ? `${v}:${p}` : ''; 
-                        const rn = x?.resourceName || '-'; 
-                        return { label: code ? `${rn} (${code})` : rn, value: rn }; 
-                      })}
+                      options={(usbResources || [])
+                        .filter((x: any) => {
+                          // [修复] 只显示启用的USB设备
+                          const enabled = x?.enabled !== undefined ? !!x.enabled : (x?.raw?.status?.enabled !== undefined ? !!x.raw.status.enabled : (x?.raw?.spec?.enabled !== undefined ? !!x.raw.spec.enabled : false));
+                          if (enabled !== true) return false;
+                          // [修复] 过滤被其他VM使用的USB
+                          const resourceName = String(x?.resourceName || '').trim();
+                          // 如果resourceName为空，跳过claimed检查（可能是数据不完整）
+                          if (resourceName && x?.claimed === true) {
+                            // 被其他VM使用，过滤掉
+                            return false;
+                          }
+                          return true;
+                        })
+                        .map((x: any) => { 
+                          // [数据转换] 格式化显示 Vendor:Product 
+                          const v = String(x?.vendorId || x?.vendor || ''); 
+                          const p = String(x?.productId || x?.product || ''); 
+                          const code = (v && p) ? `${v}:${p}` : ''; 
+                          const rn = x?.resourceName || '-'; 
+                          return { label: code ? `${rn} (${code})` : rn, value: rn }; 
+                        })}
                       onOpenChange={(open) => { if (open) reloadUsbResources(); }}
                     />
                   </Form.Item>

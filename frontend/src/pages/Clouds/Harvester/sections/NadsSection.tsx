@@ -575,15 +575,18 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * 过滤逻辑
    * 
    * [过滤顺序]
-   * 1. 租户模式过滤：租户模式下，自动过滤公共命名空间的资源
-   * 2. 关键字过滤：匹配网络名称或命名空间（不区分大小写）
-   * 3. 命名空间过滤：精确匹配（不区分大小写）
-   * 4. IP分配方式过滤：精确匹配（不区分大小写）
+   * 1. 关键字过滤：匹配网络名称或命名空间（不区分大小写）
+   * 2. 命名空间过滤：精确匹配（不区分大小写）
+   * 3. IP分配方式过滤：精确匹配（不区分大小写）
    * 
    * [过滤规则]
    * - 所有过滤条件都是 AND 关系（必须同时满足）
    * - 空字符串表示不过滤该维度
    * - 关键字支持部分匹配，命名空间和 IP分配方式必须精确匹配
+   * 
+   * [权限说明]
+   * - 租户可以看到公共命名空间（default、cloud-public、harvester-public）的 NAD，但不能删除它们
+   * - 删除权限控制已在 handleDelete 函数中实现
    */
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -594,8 +597,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       const name = String(item._name || '').toLowerCase();
       const nspace = String(item._namespace || '').toLowerCase();
       const ipam = String(item._ipamType || '').toLowerCase();
-
-      if (isTenant && isPublicNamespace(nspace)) return false;
 
       // Keyword Filter: 匹配名称、别名或命名空间
       const alias = String(item._alias || '').toLowerCase();
@@ -610,7 +611,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
 
       return true;
     });
-  }, [processedData, keyword, nsFilter, ipamFilter]);
+  }, [processedData, keyword, nsFilter, ipamFilter, isTenant]);
 
   // ==================== 过滤选项 ====================
   

@@ -239,7 +239,19 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
           />
         );
       }
-      case 'change_gpu':
+      case 'change_gpu': {
+        // 获取当前VM正在使用的GPU资源名列表
+        // 使用与 useVmReconfigure hook 相同的逻辑来确保一致性
+        const activeVm = latestVm || record;
+        const domain = activeVm?.spec?.template?.spec?.domain;
+        const hostDevices = domain?.devices?.hostDevices || [];
+        const gpus = domain?.devices?.gpus || [];
+        // 判断GPU模式：优先检查gpus，再检查hostDevices
+        const inferredMode = gpus.length > 0 ? 'vgpu' : (hostDevices.length > 0 ? 'passthrough' : 'none');
+        const currentMode = form.getFieldValue('gpuMode') || inferredMode;
+        const effectiveMode = currentMode === 'none' ? inferredMode : currentMode;
+        const vmAssigned = (effectiveMode === 'vgpu' ? gpus : hostDevices);
+        const currentVmGpuResourceNames = (Array.isArray(vmAssigned) ? vmAssigned : []).map((x: any) => x?.deviceName).filter(Boolean);
         return (
           <ChangeGpu 
             form={form} 
@@ -248,9 +260,21 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             setSelectedGpuKeys={setSelectedGpuKeys}
             gpuLoading={gpuLoading}
             reloadGpuResources={reloadGpuResources}
+            currentVmGpuResourceNames={currentVmGpuResourceNames}
           />
         );
-      case 'change_usb':
+      }
+      case 'change_usb': {
+        // 获取当前VM正在使用的USB资源名列表
+        const activeVm = latestVm || record;
+        const domain = activeVm?.spec?.template?.spec?.domain;
+        const hostDevices = domain?.devices?.hostDevices || [];
+        const usb = (Array.isArray(hostDevices) ? hostDevices : []).filter((d: any) => {
+          const n = String(d?.name || '').toLowerCase();
+          const dn = String(d?.deviceName || '').toLowerCase();
+          return n.startsWith('usb') || dn.includes('usb');
+        });
+        const currentVmUsbResourceNames = usb.map((x: any) => x?.deviceName).filter(Boolean);
         return (
           <ChangeUsb
             form={form}
@@ -259,8 +283,10 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             setSelectedUsbKeys={setSelectedUsbKeys}
             usbLoading={usbLoading}
             reloadUsbResources={reloadUsbResources}
+            currentVmUsbResourceNames={currentVmUsbResourceNames}
           />
         );
+      }
       case 'change_node_scheduling':
         return (
           <ChangeNodeScheduling

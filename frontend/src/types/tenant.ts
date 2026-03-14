@@ -86,7 +86,7 @@ export interface CreateTenantUserRequest {
   email: string;
   fullName: string;
   password: string;
-  role: 'admin' | 'user' | 'viewer';
+  role: string;  // 角色ID（UUID字符串），支持RBAC角色系统
   organizationId: string;
 }
 

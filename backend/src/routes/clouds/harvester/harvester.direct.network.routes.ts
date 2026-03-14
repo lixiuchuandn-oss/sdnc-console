@@ -508,9 +508,9 @@ export const registerHarvesterDirectNetworkRoutes = (
           return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
         }
         const { id } = req.params;
-        const { allowed } = await checkTenantAccess(req, id);
+        const { allowed, namespace: tenantNamespace, isTenant } =
+          await checkTenantAccess(req, id);
         if (!allowed) return res.status(403).json({ message: 'Access denied' });
-
 
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -529,8 +529,10 @@ export const registerHarvesterDirectNetworkRoutes = (
         }
 
         // 从数据库查询
+        // 注意：VLAN 是集群级别的资源，通常所有租户都可以看到
+        // 但我们可以根据关联的子网进行过滤（如果需要）
         const items = await repo.find({ where: { cloudId: id } });
-        const list = items.map((item) => item.rawData || {
+        let list = items.map((item) => item.rawData || {
           metadata: {
             name: item.name,
             uid: item.uid,
@@ -547,6 +549,11 @@ export const registerHarvesterDirectNetworkRoutes = (
             conflict: item.conflict,
           },
         });
+
+        // [租户过滤] 如果是租户，可以根据关联的子网进行过滤
+        // 但通常VLAN是集群级别的资源，所有租户都可以看到
+        // 如果需要根据子网过滤，可以在这里添加逻辑
+        // 目前保持原样，让所有租户都能看到VLAN
 
         res.json({ message: '查询成功', data: { items: list } });
       } catch (error: any) {
@@ -1202,12 +1209,31 @@ export const registerHarvesterDirectNetworkRoutes = (
           if (tenantNamespace) {
             const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
             if (allowedNamespaces.length > 0) {
-              whereCondition.namespace = In(allowedNamespaces);
+              // 使用数组形式的 whereCondition 以支持多个命名空间，并包含公共命名空间
+              whereCondition = [
+                ...allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns })),
+                { cloudId: id, namespace: 'cloud-public' },
+                { cloudId: id, namespace: 'Cloud-Public' },
+                { cloudId: id, namespace: 'harvester-public' },
+                { cloudId: id, namespace: 'default' }, // 允许访问 default 命名空间的 LoadBalancer
+              ];
             } else {
-              whereCondition.namespace = In([]); // 空数组，不会匹配任何记录
+              // 即使没有租户命名空间，也允许访问公共命名空间
+              whereCondition = [
+                { cloudId: id, namespace: 'cloud-public' },
+                { cloudId: id, namespace: 'Cloud-Public' },
+                { cloudId: id, namespace: 'harvester-public' },
+                { cloudId: id, namespace: 'default' },
+              ];
             }
           } else {
-            return res.json({ message: '查询成功', data: { items: [] } });
+            // 即使没有租户命名空间，也允许访问公共命名空间
+            whereCondition = [
+              { cloudId: id, namespace: 'cloud-public' },
+              { cloudId: id, namespace: 'Cloud-Public' },
+              { cloudId: id, namespace: 'harvester-public' },
+              { cloudId: id, namespace: 'default' },
+            ];
           }
         } else if (tenantNamespace) {
           const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
@@ -2505,12 +2531,31 @@ export const registerHarvesterDirectNetworkRoutes = (
           if (tenantNamespace) {
             const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());
             if (allowedNamespaces.length > 0) {
-              whereCondition.namespace = In(allowedNamespaces);
+              // 使用数组形式的 whereCondition 以支持多个命名空间，并包含公共命名空间
+              whereCondition = [
+                ...allowedNamespaces.map((ns) => ({ cloudId: id, namespace: ns })),
+                { cloudId: id, namespace: 'cloud-public' },
+                { cloudId: id, namespace: 'Cloud-Public' },
+                { cloudId: id, namespace: 'harvester-public' },
+                { cloudId: id, namespace: 'default' }, // 允许访问 default 命名空间的 IPPool
+              ];
             } else {
-              whereCondition.namespace = In([]); // 空数组，不会匹配任何记录
+              // 即使没有租户命名空间，也允许访问公共命名空间
+              whereCondition = [
+                { cloudId: id, namespace: 'cloud-public' },
+                { cloudId: id, namespace: 'Cloud-Public' },
+                { cloudId: id, namespace: 'harvester-public' },
+                { cloudId: id, namespace: 'default' },
+              ];
             }
           } else {
-            return res.json({ message: '查询成功', data: { items: [] } });
+            // 即使没有租户命名空间，也允许访问公共命名空间
+            whereCondition = [
+              { cloudId: id, namespace: 'cloud-public' },
+              { cloudId: id, namespace: 'Cloud-Public' },
+              { cloudId: id, namespace: 'harvester-public' },
+              { cloudId: id, namespace: 'default' },
+            ];
           }
         } else if (tenantNamespace) {
           const allowedNamespaces = tenantNamespace.split(',').map((s: string) => s.trim());

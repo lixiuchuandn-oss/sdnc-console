@@ -157,18 +157,26 @@ const OrgManagePage: React.FC = () => {
     } catch {}
   };
 
-  // 获取角色库（过滤掉非活跃角色）
+  // 获取角色库（过滤掉非活跃角色，只保留租户级角色）
   const fetchTenantRoles = async () => {
     try {
       // 显式请求更多记录以防止分页截断
       const raw = await apiRequest('/api/system/rbac/roles?limit=1000');
       const list: RBACRole[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.roles) ? raw.roles : []);
-      // 允许分配租户自定义角色和系统预置角色
-      setTenantRoles(list.filter(r => String(r.status || 'active') === 'active'));
+      // 只显示租户级角色（修复逻辑问题：租户用户只能分配租户级角色）
+      const filtered = list.filter(r => 
+        r.scope === 'tenant' && 
+        String(r.status || 'active') === 'active'
+      );
+      console.log('[OrgManage] 加载租户角色:', { total: list.length, filtered: filtered.length, roles: filtered });
+      setTenantRoles(filtered);
       // 兼容响应结构差异：
       // - 有的接口返回 { roles: [] }，有的直接返回数组；统一归一化为 list
-      // - 仅保留 status=active 的角色，避免展示禁用项
-    } catch {}
+      // - 仅保留 scope=tenant 且 status=active 的角色，避免展示禁用项和系统角色
+    } catch (e) {
+      console.error('[OrgManage] 获取租户角色失败:', e);
+      setTenantRoles([]);
+    }
   };
 
   // 获取指定组织下的用户列表
@@ -1418,7 +1426,15 @@ const OrgManagePage: React.FC = () => {
             <Input.Password placeholder="请输入密码" />
           </Form.Item>
           <Form.Item label="角色" name="role" rules={[{ required: true }]}>
-            <Select placeholder="请选择角色">
+            <Select 
+              placeholder="请选择角色" 
+              showSearch
+              filterOption={(input, option) => {
+                const label = option?.children?.toString() || '';
+                return label.toLowerCase().includes(input.toLowerCase());
+              }}
+              notFoundContent={tenantRoles.length === 0 ? '暂无可用角色' : '未找到匹配的角色'}
+            >
               {tenantRoles.map(r => {
                 const roleNameMap: Record<string, string> = {
                   'Super Admin': '超级管理员',
@@ -1428,8 +1444,12 @@ const OrgManagePage: React.FC = () => {
                   'user': '用户',
                   'viewer': '查看者'
                 };
+                const displayName = roleNameMap[r.name] || r.name;
                 return (
-                  <Select.Option key={r.id} value={r.id}>{roleNameMap[r.name] || r.name}</Select.Option>
+                  <Select.Option key={r.id} value={r.id} title={r.description || displayName}>
+                    {displayName}
+                    {r.description && <span style={{ color: '#999', marginLeft: 8, fontSize: 12 }}>({r.description})</span>}
+                  </Select.Option>
                 );
               })}
             </Select>
@@ -1560,7 +1580,7 @@ const OrgManagePage: React.FC = () => {
               'User': '普通用户'
             };
             const base = tenantRoles
-              .filter(r => String(r.status || 'active') === 'active')
+              .filter(r => r.scope === 'tenant' && String(r.status || 'active') === 'active')  // 确保只显示租户级角色
               .filter(r => (roleAssignKw ? ((r.name || '').toLowerCase().includes(roleAssignKw.toLowerCase()) || (r.description || '').toLowerCase().includes(roleAssignKw.toLowerCase())) : true))
               .map(r => ({ key: r.id, title: roleNameMap[r.name] || r.name, description: r.description }));
             const selected = (roleAssignSelected || []).map(k => {

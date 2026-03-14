@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Modal, Form, message, Select, Tabs, InputNumber, Row, Col, MenuProps, Tooltip, Descriptions } from 'antd';
+import { Table, Input, Tag, Button, Modal, Form, message, Select, Tooltip } from 'antd';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { API_BASE_URL, getAuthHeaders } from '../../../../services/api';
@@ -153,42 +153,10 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       .map((k) => `${k}=${labels[k]}`)
       .join(',');
 
-    // 解析资源配额 (Resource Quota)
-    const rqStr = annotations['field.cattle.io/resourceQuota'];
-    let rqLimit: any = {};
-    try {
-      const rq = rqStr ? JSON.parse(rqStr) : {};
-      rqLimit = rq.limit || {};
-    } catch {}
-
-    // 解析容器默认资源限制
-    const cdStr = annotations['field.cattle.io/containerDefaultResourceLimit'];
-    let cdLimit: any = {};
-    try {
-      cdLimit = cdStr ? JSON.parse(cdStr) : {};
-    } catch {}
-
     // 设置表单值
     form.setFieldsValue({
       name: name,
       labels: labelStr,
-      // 配额字段
-      rq_limitsCpu: rqLimit.limitsCpu,
-      rq_limitsMemory: rqLimit.limitsMemory,
-      rq_requestsCpu: rqLimit.requestsCpu,
-      rq_requestsMemory: rqLimit.requestsMemory,
-      rq_configMaps: rqLimit.configMaps,
-      rq_pods: rqLimit.pods,
-      rq_services: rqLimit.services,
-      rq_secrets: rqLimit.secrets,
-      rq_persistentVolumeClaims: rqLimit.persistentVolumeClaims,
-      rq_servicesLoadBalancers: rqLimit.servicesLoadBalancers,
-      rq_servicesNodePorts: rqLimit.servicesNodePorts,
-      // 容器默认限制字段
-      cd_limitsCpu: cdLimit.limitsCpu,
-      cd_limitsMemory: cdLimit.limitsMemory,
-      cd_requestsCpu: cdLimit.requestsCpu,
-      cd_requestsMemory: cdLimit.requestsMemory,
     });
     setCreating(true);
   };
@@ -208,49 +176,6 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       }
       
       const labels = parseLabels(v.labels);
-      const annotations: any = {};
-
-      // 构建资源配额配置 (Resource Quota)
-      const rqLimit: any = {};
-      const rqFields = [
-        'limitsCpu',
-        'limitsMemory',
-        'requestsCpu',
-        'requestsMemory',
-        'configMaps',
-        'pods',
-        'services',
-        'secrets',
-        'persistentVolumeClaims',
-        'servicesLoadBalancers',
-        'servicesNodePorts',
-      ];
-      let hasRq = false;
-      rqFields.forEach((f) => {
-        const val = v[`rq_${f}`];
-        if (val) {
-          rqLimit[f] = String(val);
-          hasRq = true;
-        }
-      });
-      if (hasRq) {
-        annotations['field.cattle.io/resourceQuota'] = JSON.stringify({ limit: rqLimit });
-      }
-
-      // 构建容器默认资源限制
-      const cdLimit: any = {};
-      const cdFields = ['limitsCpu', 'limitsMemory', 'requestsCpu', 'requestsMemory'];
-      let hasCd = false;
-      cdFields.forEach((f) => {
-        const val = v[`cd_${f}`];
-        if (val) {
-          cdLimit[f] = String(val);
-          hasCd = true;
-        }
-      });
-      if (hasCd) {
-        annotations['field.cattle.io/containerDefaultResourceLimit'] = JSON.stringify(cdLimit);
-      }
 
       // 构造符合 K8s Manifest 标准的 Payload
       const payload = {
@@ -259,7 +184,6 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         metadata: {
           name,
           labels,
-          annotations: Object.keys(annotations).length ? annotations : undefined,
         }
       };
 
@@ -544,124 +468,20 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         okText={editingNamespace ? "保存" : "创建"}
         form={form}
       >
-          <Tabs
-            defaultActiveKey="basic"
-            items={[
-              {
-                key: 'basic',
-                label: '基础信息',
-                children: (
-                  <>
-                    <Form.Item
-                      label="命名空间名称"
-                      name="name"
-                      rules={[
-                        { required: true, message: '请输入名称' },
-                        { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '仅允许小写字母、数字与连字符，且首尾为字母或数字' },
-                        { max: 63, message: '最长 63 个字符' }
-                      ]}
-                    >
-                      <Input placeholder="例如：default 或 my-space" disabled={!!editingNamespace} />
-                    </Form.Item>
-                    <Form.Item label="标签（可选）" name="labels" tooltip="以逗号分隔的 k=v 列表，如 env=dev,team=net" >
-                      <Input placeholder="k=v,k2=v2" />
-                    </Form.Item>
-                  </>
-                ),
-              },
-              {
-                key: 'quota',
-                label: '资源配额',
-                children: (
-                  <Row gutter={16}>
-                     <Col span={12}>
-                        <Form.Item label="CPU 上限 (limitsCpu)" name="rq_limitsCpu" tooltip="例如：1000m, 1, 2.5">
-                           <Input placeholder="无限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="内存上限 (limitsMemory)" name="rq_limitsMemory" tooltip="例如：1Gi, 512Mi">
-                           <Input placeholder="无限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="CPU 下限 (requestsCpu)" name="rq_requestsCpu">
-                           <Input placeholder="无限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="内存下限 (requestsMemory)" name="rq_requestsMemory">
-                           <Input placeholder="无限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="配置字典 (ConfigMaps)" name="rq_configMaps">
-                           <Input placeholder="数量限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="Pods" name="rq_pods">
-                           <Input placeholder="数量限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="Services" name="rq_services">
-                           <Input placeholder="数量限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="Secrets" name="rq_secrets">
-                           <Input placeholder="数量限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="PVCs" name="rq_persistentVolumeClaims">
-                           <Input placeholder="数量限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="Services (LB)" name="rq_servicesLoadBalancers">
-                           <Input placeholder="数量限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="Services (NodePort)" name="rq_servicesNodePorts">
-                           <Input placeholder="数量限制" />
-                        </Form.Item>
-                     </Col>
-                  </Row>
-                ),
-              },
-              {
-                key: 'container',
-                label: '容器默认限制',
-                children: (
-                  <Row gutter={16}>
-                     <Col span={12}>
-                        <Form.Item label="CPU 上限 (limitsCpu)" name="cd_limitsCpu" tooltip="例如：1000m">
-                           <Input placeholder="无限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="内存上限 (limitsMemory)" name="cd_limitsMemory" tooltip="例如：512Mi">
-                           <Input placeholder="无限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="CPU 下限 (requestsCpu)" name="cd_requestsCpu">
-                           <Input placeholder="无限制" />
-                        </Form.Item>
-                     </Col>
-                     <Col span={12}>
-                        <Form.Item label="内存下限 (requestsMemory)" name="cd_requestsMemory">
-                           <Input placeholder="无限制" />
-                        </Form.Item>
-                     </Col>
-                  </Row>
-                ),
-              },
+          <Form.Item
+            label="命名空间名称"
+            name="name"
+            rules={[
+              { required: true, message: '请输入名称' },
+              { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '仅允许小写字母、数字与连字符，且首尾为字母或数字' },
+              { max: 63, message: '最长 63 个字符' }
             ]}
-          />
+          >
+            <Input placeholder="例如：default 或 my-space" disabled={!!editingNamespace} />
+          </Form.Item>
+          <Form.Item label="标签（可选）" name="labels" tooltip="以逗号分隔的 k=v 列表，如 env=dev,team=net" >
+            <Input placeholder="k=v,k2=v2" />
+          </Form.Item>
       </StdFormModal>
 
       {/* === 详情侧边抽屉 === */}

@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Transfer, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, SafetyCertificateOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
 import StdFormModal from '../../components/StdFormModal';
-import StdSideDrawer from '../../components/StdSideDrawer';
 import PageContainer from '../../components/PageContainer';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
@@ -38,9 +37,6 @@ const AccessUsersPage: React.FC = () => {
   const [assignUser, setAssignUser] = useState<SysUser | null>(null);
   const [assignSelected, setAssignSelected] = useState<string[]>([]);
   const [assignExisting, setAssignExisting] = useState<Assignment[]>([]);
-  const [assignRoleKw, setAssignRoleKw] = useState('');
-  const [assignScope, setAssignScope] = useState<'all'|'system'|'tenant'>('system');
-  const [assignStatus, setAssignStatus] = useState<'all'|'active'|'inactive'>('active');
   const [editOpen, setEditOpen] = useState(false);
   const [editForm] = Form.useForm();
   const [editingUser, setEditingUser] = useState<SysUser | null>(null);
@@ -363,50 +359,27 @@ const AccessUsersPage: React.FC = () => {
         )}
       </StdFormModal>
 
-      <StdSideDrawer title="配置角色" open={assignOpen} onClose={()=> { setAssignOpen(false); setAssignUser(null); }} onOk={saveAssign} width={800}>
-        <Form layout="vertical" style={{ display:'flex', gap: 16, marginBottom: 16 }}>
-          <Form.Item label="角色范围" style={{ width: 160, marginBottom: 0 }}>
-            <Select value={assignScope} onChange={(v: 'all'|'system'|'tenant')=> setAssignScope(v)} options={[{ value:'all', label:'全部' }, { value:'system', label:'系统' }, { value:'tenant', label:'租户' }]} />
-          </Form.Item>
-          <Form.Item label="状态" style={{ width: 160, marginBottom: 0 }}>
-            <Select value={assignStatus} onChange={(v: 'all'|'active'|'inactive')=> setAssignStatus(v)} options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }]} />
-          </Form.Item>
-          <Form.Item label="关键字" style={{ flex: 1, marginBottom: 0 }}>
-            <Input.Search allowClear placeholder="搜索角色名称或说明" value={assignRoleKw} onChange={e => setAssignRoleKw(e.target.value)} />
-          </Form.Item>
-        </Form>
+      <Modal
+        title={`分配角色 - ${assignUser?.username}`}
+        open={assignOpen}
+        onOk={saveAssign}
+        onCancel={() => { setAssignOpen(false); setAssignUser(null); }}
+        width={700}
+      >
         <Transfer
-          dataSource={roles
-            .filter(r => (assignScope==='all' ? true : r.scope === assignScope))
-            .filter(r => (assignStatus==='all' ? true : String(r.status || 'active') === assignStatus))
-            .filter(r => (assignRoleKw ? ((r.name||'').toLowerCase().includes(assignRoleKw.toLowerCase()) || (r.description||'').toLowerCase().includes(assignRoleKw.toLowerCase())) : true))
-            .map(r => {
-              const roleNameMap: Record<string, string> = {
-                'Super Admin': '超级管理员',
-                'Tenant Admin': '租户管理员',
-                'User': '普通用户'
-              };
-              return { key: r.id, title: roleNameMap[r.name] || r.name, description: r.description };
-            })}
-          titles={["角色库","已选角色"]}
-          targetKeys={assignSelected}
-          onChange={(next)=> setAssignSelected(next.map(String))}
-          showSearch
-          filterOption={(inputValue, item) => {
-            const v = inputValue.toLowerCase();
-            return (item.title || '').toLowerCase().includes(v) || (item.description || '').toLowerCase().includes(v);
-          }}
-          style={{ width: '100%' }}
-          listStyle={{ flex: '1 1 0', minWidth: 0, height: 420 }}
-          render={item => (
-            <div style={{ display:'flex', flexDirection:'column' }}>
-              <span style={{ fontWeight: 500 }}>{item.title}</span>
-              <span style={{ color:'#888', fontSize: 12 }}>{item.description || '—'}</span>
-            </div>
+          dataSource={roles.filter(r => 
+            r.scope === 'system' &&  // 只显示系统级角色（修复逻辑问题）
+            String(r.status || 'active') === 'active'
           )}
+          titles={['可选角色', '已选角色']}
+          targetKeys={assignSelected}
+          onChange={(nextTargetKeys) => setAssignSelected(nextTargetKeys as string[])}
+          render={(item) => item.name}
+          rowKey={(item) => item.id}
+          listStyle={{ width: 300, height: 400 }}
+          showSearch
         />
-        <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>保存将同步新增与移除的角色赋权</div>
-      </StdSideDrawer>
+      </Modal>
     </PageContainer>
   );
 };

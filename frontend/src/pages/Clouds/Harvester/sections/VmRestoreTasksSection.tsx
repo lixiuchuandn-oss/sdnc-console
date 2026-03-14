@@ -223,6 +223,20 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
     };
   }, [refresh]);
 
+  // 监听恢复任务创建事件，创建后立即刷新
+  useEffect(() => {
+    const handleRestoreCreated = () => {
+      // 延迟一小段时间，确保后端数据已更新
+      setTimeout(() => {
+        refresh(true);
+      }, 1000);
+    };
+    window.addEventListener('harvester:restore-created', handleRestoreCreated);
+    return () => {
+      window.removeEventListener('harvester:restore-created', handleRestoreCreated);
+    };
+  }, [refresh]);
+
   useEffect(() => {
     const hasPending = filtered.some((x: any) => {
       const rsSt = x.restoreStatus || { phase: 'pending' };
