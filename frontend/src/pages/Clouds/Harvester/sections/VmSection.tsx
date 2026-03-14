@@ -42,7 +42,7 @@ import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Tag, Tabs, Tooltip, Alert, Cascader } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined, SafetyCertificateFilled } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, ExclamationCircleOutlined, WarningOutlined, InfoCircleOutlined, SearchOutlined, SafetyCertificateFilled, CopyOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, startHarvesterVm, deleteHarvesterPVC, abortHarvesterMigration, fetchHarvesterNodes, fetchHarvesterNads, patchHarvesterVm } from '../../../../services/harvesterApi';
@@ -995,7 +995,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           
           <div style={{ marginBottom: 16, color: '#1890ff', background: '#e6f7ff', padding: '8px 12px', border: '1px solid #91d5ff', borderRadius: 4 }}>
             <InfoCircleOutlined style={{ marginRight: 8 }} />
-            实例将被移入回收站，7天后自动删除。您可以在回收站中恢复或立即删除。
+            虚拟机实例将被移入回收站，您可以在回收站中恢复或立即删除。
           </div>     
           
           {volumeNames && (
@@ -1362,12 +1362,41 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         { title: '云主机名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
       const text = SafeRead.name(r) || '-';
       const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
+      
+      // 检查是否是克隆虚拟机
+      const cloneTaskAnno = r?.metadata?.annotations?.['tower.io/cloneTask'];
+      let cloneInfo: any = null;
+      if (cloneTaskAnno) {
+        try {
+          cloneInfo = JSON.parse(cloneTaskAnno);
+        } catch (e) {
+          // 忽略解析错误
+        }
+      }
+      const isCloned = !!cloneInfo;
+      const sourceVmName = cloneInfo?.sourceVmName || cloneInfo?.sourceVm?.split('/')?.[1] || '';
+      const sourceVmNamespace = cloneInfo?.sourceVmNamespace || cloneInfo?.sourceVm?.split('/')?.[0] || '';
+      
       return (
-        <span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <OsIcon osName={osName} style={{ marginRight: 8 }} />
           <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>
             {text}
           </span>
+          {isCloned && (
+            <Tooltip 
+              title={sourceVmName ? `克隆自: ${sourceVmNamespace}/${sourceVmName}` : '克隆虚拟机'}
+              placement="top"
+            >
+              <Tag 
+                color="blue" 
+                icon={<CopyOutlined />}
+                style={{ marginLeft: 4, cursor: 'help' }}
+              >
+                克隆
+              </Tag>
+            </Tooltip>
+          )}
         </span>
       );
     } },
@@ -1394,21 +1423,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       })();
       
       const { isFsPending, isResizing } = checkResizeStatus(r);
-      
-      // 检查是否是克隆中的 VM
-      const cloneTaskAnno = r?.metadata?.annotations?.['tower.io/cloneTask'];
-      const isCloning = !!cloneTaskAnno;
-      let cloneInfo: any = null;
-      if (isCloning) {
-        try {
-          cloneInfo = JSON.parse(cloneTaskAnno);
-        } catch (e) {
-          // 忽略解析错误
-        }
-      }
-      
-      // 判断克隆是否完成（VM Ready 且所有 PVC Bound）
-      const isCloneCompleted = isCloning && (k === 'running' || k === 'stopped');
       
       return (
         <div>
@@ -1437,9 +1451,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
               <Tooltip title="重要实例 (防删保护)">
                 <SafetyCertificateFilled style={{ color: '#faad14', marginLeft: 8, fontSize: 14 }} />
               </Tooltip>
-            )}
-            {isCloning && !isCloneCompleted && (
-              <Tag color="processing" style={{ marginLeft: 4 }}>克隆中</Tag>
             )}
           </div>
         </div>

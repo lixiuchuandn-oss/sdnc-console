@@ -304,6 +304,14 @@ interface DiagnosisResult {
     matchedNodeNames?: string[];
     message: string;
   };
+  nodeSelector?: {
+    configured: boolean;
+    checked: boolean;
+    selector: Record<string, string>;
+    matchedNodeNames?: string[];
+    totalNodes?: number;
+    message: string;
+  };
   resources?: {
     cpuRequest: string;
     memoryRequest: string;
@@ -366,6 +374,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const [error, setError] = useState<string>('');
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [steps, setSteps] = useState<DiagnosisStep[]>([]);
+  const [refreshingEvents, setRefreshingEvents] = useState(false);
   const stepTimeoutRef = useRef<NodeJS.Timeout[]>([]);
   const animateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
@@ -458,6 +467,9 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       // 分析节点亲和性
       const nodeAffinity = analyzeNodeAffinity(vmData, nodesChecked ? nodes : null);
       
+      // 分析节点选择器
+      const nodeSelector = analyzeNodeSelector(vmData, nodesChecked ? nodes : null);
+      
       // 构建 VMI 状态对象（先构建，以便后续使用 nodeName）
       // 优先级：1. vmiData.status (原始 VMI 状态) 2. vmData.status (已合并的 VMI 状态) 3. 推断状态
       let vmiStatusObj = null;
@@ -516,7 +528,9 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
 
       // 分析事件模式，检测 Pod 频繁创建/删除循环（使用合并后的事件）
       // 传入 VM 状态和 Pod 信息，以便正确判断运行状态
-      const eventAnalysis = analyzeEvents(allEvents, vmData?.status, podData);
+      // 传入 VM 对象以便检查是否是克隆的虚拟机
+      // 传入 PVC 状态以便检查 PVC 是否存在（对于克隆的虚拟机，PVC 可能未创建）
+      const eventAnalysis = analyzeEvents(allEvents, vmData?.status, podData, vmData, pvcStatus);
 
       const diagnosisResult: DiagnosisResult = {
         vmStatus: vmData?.status,
@@ -525,6 +539,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
         podLogs,
         events: allEvents.slice(0, 30), // 最近30条事件（包含 Pod 和 VMI 事件）
         nodeAffinity,
+        nodeSelector,
         resources,
         pvcStatus,
         networkStatus,
@@ -591,6 +606,8 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
           return renderPodInfo(diagnosisData.podInfo, diagnosisData);
         case 'node-affinity':
           return renderNodeAffinity(diagnosisData.nodeAffinity);
+        case 'node-selector':
+          return renderNodeSelector(diagnosisData.nodeSelector);
         case 'resources':
           return renderResources(diagnosisData.resources);
         case 'pvc-status':
@@ -634,6 +651,13 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
         description: '检查节点调度约束',
         status: 'wait',
         content: createStepContent('node-affinity')
+      },
+      {
+        key: 'node-selector',
+        title: '检查节点选择器',
+        description: '检查节点选择器配置',
+        status: 'wait',
+        content: createStepContent('node-selector')
       },
       {
         key: 'resources',
@@ -686,6 +710,12 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
           if (!diagnosis.nodeAffinity.valid) return 'error';
           if (!diagnosis.nodeAffinity.checked) return 'finish';
           return diagnosis.nodeAffinity.nodesWithLabel > 0 ? 'finish' : 'error';
+        case 'node-selector':
+          if (!diagnosis.nodeSelector?.configured) return 'finish';
+          if (!diagnosis.nodeSelector.checked) return 'finish';
+          // 如果配置了节点选择器但没有匹配的节点，返回错误
+          const matchedCount = diagnosis.nodeSelector.matchedNodeNames?.length || 0;
+          return matchedCount > 0 ? 'finish' : 'error';
         case 'resources': {
           const nodeCheck = diagnosis.resources?.nodeResourceCheck;
           if (nodeCheck?.checked && !nodeCheck.sufficient) return 'error';
@@ -696,7 +726,17 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
           if (pvcs.length === 0) return 'finish';
           const checked = pvcs.filter((p: any) => p?.checked === true);
           if (checked.some((p: any) => p?.exists === false)) return 'error';
-          if (checked.some((p: any) => p?.exists === true && p?.bound === false)) return 'error';
+          // 检查是否真正就绪（不仅 Bound，还要没有进行中的操作）
+          const allReady = checked.filter((p: any) => p?.exists === true).every((p: any) => p?.isReady === true);
+          if (!allReady) {
+            // 如果存在但未就绪，检查是否有进行中的操作
+            const hasResizing = checked.some((p: any) => p?.isResizing === true);
+            const hasFsPending = checked.some((p: any) => p?.isFsResizePending === true);
+            if (hasResizing || hasFsPending) return 'process'; // 使用 process 表示进行中
+            // 如果未绑定，返回错误
+            if (checked.some((p: any) => p?.exists === true && p?.bound === false)) return 'error';
+            return 'error'; // 其他未就绪情况返回错误
+          }
           return 'finish';
         }
         case 'network':
@@ -851,6 +891,60 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     };
   };
 
+  const analyzeNodeSelector = (vm: any, nodes: any[] | null): DiagnosisResult['nodeSelector'] => {
+    const nodeSelector = vm?.spec?.template?.spec?.nodeSelector;
+    
+    // 如果没有配置节点选择器
+    if (!nodeSelector || typeof nodeSelector !== 'object' || Object.keys(nodeSelector).length === 0) {
+      return {
+        configured: false,
+        checked: false,
+        selector: {},
+        totalNodes: Array.isArray(nodes) ? nodes.length : undefined,
+        message: '未配置节点选择器（自动调度）'
+      };
+    }
+
+    // 获取节点标签
+    const getLabels = (node: any): Record<string, string> => {
+      const labelsObj = node?.metadata?.labels || node?.labels || {};
+      return labelsObj && typeof labelsObj === 'object' ? labelsObj : {};
+    };
+
+    // 检查节点是否匹配选择器
+    const matchedNodeNames = Array.isArray(nodes)
+      ? nodes
+          .filter((n: any) => {
+            const labelsObj = getLabels(n);
+            // 检查所有选择器条件是否都满足
+            return Object.entries(nodeSelector).every(([key, value]) => {
+              const nodeValue = labelsObj[key];
+              return nodeValue !== undefined && String(nodeValue) === String(value);
+            });
+          })
+          .map((n: any) => String(n?.name || n?.metadata?.name || '').trim())
+          .filter(Boolean)
+      : [];
+
+    // 格式化选择器显示
+    const selectorStr = Object.entries(nodeSelector)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(', ');
+
+    return {
+      configured: true,
+      checked: Array.isArray(nodes),
+      selector: nodeSelector,
+      matchedNodeNames: matchedNodeNames.slice(0, 10), // 最多显示10个匹配的节点
+      totalNodes: Array.isArray(nodes) ? nodes.length : undefined,
+      message: Array.isArray(nodes)
+        ? matchedNodeNames.length > 0
+          ? `找到 ${matchedNodeNames.length} 个匹配的节点（共 ${nodes.length} 个节点）`
+          : `未找到匹配的节点（共 ${nodes.length} 个节点）`
+        : `已识别节点选择器：${selectorStr}（未自动校验）`
+    };
+  };
+
   const extractResources = (vm: any): DiagnosisResult['resources'] => {
     if (!vm?.spec?.template?.spec?.domain?.resources) {
       return undefined;
@@ -870,6 +964,9 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     if (!Array.isArray(nodes) || nodes.length === 0) return [];
 
     const eligibleNodes: any[] = [];
+
+    // 获取节点选择器（优先级最高）
+    const nodeSelector = vm?.spec?.template?.spec?.nodeSelector || {};
 
     // 获取节点亲和性规则
     const nodeAffinity = vm?.spec?.template?.spec?.affinity?.nodeAffinity;
@@ -941,7 +1038,18 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     for (const node of nodes) {
       const labelsObj = getLabels(node);
 
-      // 检查必需节点亲和性
+      // 优先级1: 检查节点选择器（如果配置了，必须完全匹配）
+      let matchesNodeSelector = true;
+      if (Object.keys(nodeSelector).length > 0) {
+        matchesNodeSelector = Object.entries(nodeSelector).every(([key, value]) => {
+          const nodeValue = labelsObj[key];
+          return nodeValue !== undefined && String(nodeValue) === String(value);
+        });
+        // 如果节点选择器不匹配，直接跳过该节点
+        if (!matchesNodeSelector) continue;
+      }
+
+      // 优先级2: 检查必需节点亲和性
       let matchesRequiredAffinity = true;
       if (requiredAffinity?.nodeSelectorTerms) {
         const terms = Array.isArray(requiredAffinity.nodeSelectorTerms) ? requiredAffinity.nodeSelectorTerms : [];
@@ -951,17 +1059,19 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
         }
       }
 
-      // 检查污点容忍
+      // 优先级3: 检查污点容忍
       const tolerates = toleratesTaints(node);
 
-      // 如果满足必需亲和性和污点容忍，则节点符合条件
-      if (matchesRequiredAffinity && tolerates) {
+      // 如果满足节点选择器、必需亲和性和污点容忍，则节点符合条件
+      if (matchesNodeSelector && matchesRequiredAffinity && tolerates) {
         eligibleNodes.push(node);
       }
     }
 
-    // 如果没有必需亲和性，所有节点都符合（只要满足污点容忍）
-    if (!requiredAffinity?.nodeSelectorTerms || requiredAffinity.nodeSelectorTerms.length === 0) {
+    // 如果既没有节点选择器也没有必需亲和性，所有节点都符合（只要满足污点容忍）
+    const hasNodeSelector = Object.keys(nodeSelector).length > 0;
+    const hasRequiredAffinity = requiredAffinity?.nodeSelectorTerms && requiredAffinity.nodeSelectorTerms.length > 0;
+    if (!hasNodeSelector && !hasRequiredAffinity) {
       return nodes.filter((node: any) => toleratesTaints(node));
     }
 
@@ -1270,70 +1380,342 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     const volumes: any[] = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
     if (volumes.length === 0) return [];
 
+    // 识别系统盘（启动盘）
+    const disks = Array.isArray(vm?.spec?.template?.spec?.domain?.devices?.disks) ? vm.spec.template.spec.domain.devices.disks : [];
+    let systemDiskVolumeName = '';
+    
+    // 优先级1: bootOrder === 1 且不是 CDROM
+    let bootDisk = disks.find((d: any) => d.bootOrder === 1 && !d.cdrom);
+    
+    // 优先级2: 名称为 'disk-0' 且不是 CDROM
+    if (!bootDisk) bootDisk = disks.find((d: any) => d.name === 'disk-0' && !d.cdrom);
+    
+    // 优先级3: 名称为 'rootdisk' 且不是 CDROM
+    if (!bootDisk) bootDisk = disks.find((d: any) => d.name === 'rootdisk' && !d.cdrom);
+    
+    // 优先级4: 第一个非 CDROM 磁盘
+    if (!bootDisk && disks.length > 0) bootDisk = disks.find((d: any) => !d.cdrom);
+    
+    if (bootDisk) {
+      systemDiskVolumeName = bootDisk.name || '';
+    }
+
     const claims = volumes
       .filter((v: any) => v?.persistentVolumeClaim?.claimName)
       .map((v: any) => ({
         name: v.name,
         pvcName: String(v.persistentVolumeClaim.claimName),
+        namespace: vmNamespace, // 保存命名空间信息
+        isSystemDisk: v.name === systemDiskVolumeName, // 标记是否为系统盘
       }));
 
     if (claims.length === 0) return [];
+
+    // 检查 VM 的 volumeClaimTemplates annotation，判断是否是动态生成的 PVC
+    const volumeClaimTemplatesStr = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+    let volumeClaimTemplates: any[] = [];
+    if (volumeClaimTemplatesStr) {
+      try {
+        volumeClaimTemplates = JSON.parse(volumeClaimTemplatesStr);
+        if (!Array.isArray(volumeClaimTemplates)) {
+          volumeClaimTemplates = [];
+        }
+      } catch (e) {
+        console.warn('Failed to parse volumeClaimTemplates annotation', e);
+      }
+    }
 
     const normalizePhase = (obj: any): string => {
       const source = obj?.rawData || obj?.data || obj || {};
       return source?.status?.phase || source?.status?.state || obj?.phase || obj?.state || 'Unknown';
     };
 
-    const normalizeMeta = (obj: any): { name: string; namespace: string } => {
-      const source = obj?.rawData || obj?.data || obj || {};
-      const meta = source?.metadata || obj?.metadata || {};
-      return {
-        name: String(meta?.name || obj?.name || '').trim(),
-        namespace: String(meta?.namespace || obj?.namespace || vmNamespace || '').trim(),
-      };
-    };
-
-    const relatedMap = new Map<string, any>();
-    if (Array.isArray(relatedVolumes)) {
-      relatedVolumes.forEach((x: any) => {
-        const m = normalizeMeta(x);
-        if (!m.name || !m.namespace) return;
-        relatedMap.set(`${m.namespace}/${m.name}`, x);
-      });
-    }
-
+    // 总是通过 API 实际检查 PVC 是否真实存在，而不依赖 relatedVolumes 中的数据
     const results = await Promise.allSettled(
       claims.map(async (c) => {
-        const key = `${vmNamespace}/${c.pvcName}`;
-        const related = relatedMap.get(key);
-        if (related) {
-          const phase = normalizePhase(related);
-          const bound = String(phase).toLowerCase() === 'bound';
-          return { ...c, exists: true, checked: true, phase, bound };
-        }
+        // 检查这个 PVC 是否在 volumeClaimTemplates 中（动态生成的 PVC）
+        const isFromTemplate = volumeClaimTemplates.some((t: any) => {
+          const templateName = t?.metadata?.name || t?.name || '';
+          return templateName === c.pvcName;
+        });
 
         try {
-          const detail: any = await fetchHarvesterVolume(cid, vmNamespace, c.pvcName);
+          // 调用 API 验证 PVC 是否真实存在
+          // 使用 silent: true 静默处理 404 错误（PVC 不存在是预期情况，不应该在控制台显示错误）
+          // 使用 skipCache: true 强制刷新，不使用缓存（对于诊断功能，需要获取最新的PVC状态）
+          const detail: any = await fetchHarvesterVolume(cid, c.namespace, c.pvcName, { silent: true, skipCache: true });
+          
+          // 严格验证返回的数据是否真的是我们要查找的 PVC
+          // 检查返回的数据结构
+          if (!detail || (typeof detail !== 'object') || Array.isArray(detail)) {
+            // 返回的数据无效
+            throw new Error('API 返回了无效的数据结构');
+          }
+          
+          // 检查是否为空对象（对于克隆的虚拟机，API可能返回空对象但不会抛出错误）
+          const keys = Object.keys(detail);
+          if (keys.length === 0) {
+            throw new Error('API 返回了空对象，PVC 不存在');
+          }
+          
+          const source = detail?.rawData || detail?.data || detail || {};
+          const metadata = source?.metadata || detail?.metadata || {};
+          
+          // 严格验证 metadata 是否存在且是对象
+          if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+            throw new Error('API 返回的数据中缺少有效的 metadata');
+          }
+          
+          const returnedName = String(metadata?.name || detail?.name || '').trim();
+          const returnedNamespace = String(metadata?.namespace || detail?.namespace || c.namespace || '').trim();
+          
+          // 验证名称是否存在（如果名称为空，说明返回的数据无效）
+          if (!returnedName) {
+            throw new Error('API 返回的数据中没有 PVC 名称');
+          }
+          
+          // 验证名称和命名空间是否匹配
+          if (returnedName !== c.pvcName || returnedNamespace !== c.namespace) {
+            // 返回的数据不匹配，认为 PVC 不存在
+            const suggestions: string[] = [];
+            if (isFromTemplate) {
+              suggestions.push('这个 PVC 是通过 VolumeClaimTemplate 动态生成的，但创建失败了');
+              suggestions.push('可能的原因：');
+              suggestions.push('  1. 存储类（StorageClass）配置错误或不存在');
+              suggestions.push('  2. 资源配额（ResourceQuota）不足');
+              suggestions.push('  3. 存储后端无法创建卷');
+              suggestions.push('  4. 镜像（VMImage）不存在或不可用');
+              suggestions.push('建议操作：');
+              suggestions.push('  1. 检查 VM 事件中是否有 PVC 创建失败的错误');
+              suggestions.push('  2. 检查存储类配置是否正确');
+              suggestions.push('  3. 检查命名空间的资源配额');
+              suggestions.push('  4. 检查镜像是否存在且可用');
+            } else {
+              suggestions.push('这个 PVC 在 VM 配置中被引用，但实际不存在');
+              suggestions.push('可能的原因：');
+              suggestions.push('  1. PVC 已被删除');
+              suggestions.push('  2. PVC 名称配置错误');
+              suggestions.push('  3. PVC 在不同的命名空间');
+              suggestions.push('建议操作：');
+              suggestions.push('  1. 检查 PVC 是否在其他命名空间');
+              suggestions.push('  2. 如果 PVC 已删除，需要重新创建或修改 VM 配置');
+            }
+            
+            return { 
+              ...c, 
+              exists: false, 
+              checked: true, 
+              phase: 'NotFound', 
+              bound: false, 
+              error: `PVC "${c.pvcName}" 在命名空间 "${c.namespace}" 中不存在（API 返回的数据不匹配）`,
+              isFromTemplate,
+              suggestions,
+              apiPath: `/api/clouds/${cid}/resources/harvester/volumes/${c.namespace}/${c.pvcName}`,
+              rawError: `API 返回了数据，但名称不匹配：期望 "${c.pvcName}"，实际 "${returnedName}"`
+            };
+          }
+          
+          // 数据验证通过，提取状态
+          // 再次验证 status 字段是否存在（对于克隆的虚拟机，即使PVC不存在，API也可能返回部分数据）
+          const status = source?.status || detail?.status;
+          if (!status || typeof status !== 'object' || Array.isArray(status)) {
+            // status 不存在或无效，认为 PVC 不存在或状态异常
+            const suggestions: string[] = [];
+            if (isFromTemplate) {
+              suggestions.push('这个 PVC 是通过 VolumeClaimTemplate 动态生成的，但创建失败了');
+              suggestions.push('可能的原因：');
+              suggestions.push('  1. 存储类（StorageClass）配置错误或不存在');
+              suggestions.push('  2. 资源配额（ResourceQuota）不足');
+              suggestions.push('  3. 存储后端无法创建卷');
+              suggestions.push('  4. 镜像（VMImage）不存在或不可用');
+              suggestions.push('建议操作：');
+              suggestions.push('  1. 检查 VM 事件中是否有 PVC 创建失败的错误');
+              suggestions.push('  2. 检查存储类配置是否正确');
+              suggestions.push('  3. 检查命名空间的资源配额');
+              suggestions.push('  4. 检查镜像是否存在且可用');
+            } else {
+              suggestions.push('这个 PVC 在 VM 配置中被引用，但状态信息不完整');
+              suggestions.push('可能的原因：');
+              suggestions.push('  1. PVC 正在创建中');
+              suggestions.push('  2. PVC 创建失败');
+              suggestions.push('  3. PVC 已被删除但配置未更新');
+              suggestions.push('建议操作：');
+              suggestions.push('  1. 检查 PVC 的实际状态');
+              suggestions.push('  2. 如果 PVC 已删除，需要重新创建或修改 VM 配置');
+            }
+            
+            return { 
+              ...c, 
+              exists: false, 
+              checked: true, 
+              phase: 'NotFound', 
+              bound: false, 
+              error: `PVC "${c.pvcName}" 在命名空间 "${c.namespace}" 中不存在或状态不完整（缺少 status 信息）`,
+              isFromTemplate,
+              suggestions,
+              apiPath: `/api/clouds/${cid}/resources/harvester/volumes/${c.namespace}/${c.pvcName}`,
+              rawError: 'API 返回了数据，但缺少有效的 status 字段'
+            };
+          }
+          
           const phase = normalizePhase(detail);
           const bound = String(phase).toLowerCase() === 'bound';
-          return { ...c, exists: true, checked: true, phase, bound };
-        } catch (e: any) {
-          const msg = String(e?.message || e || '').toLowerCase();
-          if (msg.includes('403') || msg.includes('forbidden') || msg.includes('permission')) {
-            return { ...c, exists: false, checked: false, phase: 'Unknown', bound: false };
+          
+          // 检查是否为克隆卷（有 dataSource 或 dataSourceRef）
+          const spec = source?.spec || detail?.spec || {};
+          const hasDataSource = !!(spec.dataSource || spec.dataSourceRef);
+          const dataSourceName = spec.dataSource?.name || spec.dataSourceRef?.name || '';
+          const isClonedVolume = hasDataSource && !!dataSourceName;
+          
+          // 检查 PVC 的 conditions，判断是否真正就绪
+          const conditions = source?.status?.conditions || detail?.status?.conditions || [];
+          const isResizing = conditions.some((cond: any) => 
+            cond.type === 'Resizing' && cond.status === 'True'
+          );
+          const isFsResizePending = conditions.some((cond: any) => 
+            cond.type === 'FileSystemResizePending' && cond.status === 'True'
+          );
+          
+          // PVC 真正就绪的条件：
+          // 1. phase 为 Bound
+          // 2. 没有 Resizing 条件
+          // 3. 没有 FileSystemResizePending 条件
+          const isReady = bound && !isResizing && !isFsResizePending;
+          
+          // 构建状态描述
+          let readyStatus = '';
+          if (!bound) {
+            readyStatus = `PVC 未绑定（当前状态: ${phase}）`;
+          } else if (isResizing) {
+            readyStatus = 'PVC 已绑定，但正在扩容中（Resizing）';
+          } else if (isFsResizePending) {
+            readyStatus = 'PVC 已绑定，但等待文件系统扩容（FileSystemResizePending）';
+          } else {
+            readyStatus = 'PVC 已绑定且就绪';
           }
-          return { ...c, exists: false, checked: true, phase: 'NotFound', bound: false };
+          
+          return { 
+            ...c, 
+            exists: true, 
+            checked: true, 
+            phase, 
+            bound,
+            isReady, // 新增：是否真正就绪
+            isResizing, // 新增：是否正在扩容
+            isFsResizePending, // 新增：是否等待文件系统扩容
+            readyStatus, // 新增：就绪状态描述
+            isFromTemplate,
+            isClonedVolume, // 标记是否为克隆卷
+            dataSourceName, // 源 PVC 名称（如果是克隆卷）
+            apiPath: `/api/clouds/${cid}/resources/harvester/volumes/${c.namespace}/${c.pvcName}`
+          };
+        } catch (e: any) {
+          const errorMsg = e?.message || String(e) || '';
+          const errorMsgLower = errorMsg.toLowerCase();
+          const statusCode = e?.status || e?.response?.status || '';
+          
+          // 判断是权限问题还是 PVC 不存在
+          if (errorMsgLower.includes('403') || errorMsgLower.includes('forbidden') || errorMsgLower.includes('permission') || statusCode === 403) {
+            return { 
+              ...c, 
+              exists: false, 
+              checked: false, 
+              phase: 'Unknown', 
+              bound: false, 
+              error: `权限不足，无法检查命名空间 ${c.namespace} 中的 PVC`,
+              isFromTemplate,
+              apiPath: `/api/clouds/${cid}/resources/harvester/volumes/${c.namespace}/${c.pvcName}`,
+              rawError: errorMsg
+            };
+          }
+          // 404 或其他错误，认为 PVC 不存在
+          if (errorMsgLower.includes('404') || errorMsgLower.includes('not found') || errorMsgLower.includes('不存在') || statusCode === 404) {
+            // 如果是从模板生成的 PVC，提供更具体的建议
+            const suggestions: string[] = [];
+            if (isFromTemplate) {
+              suggestions.push('这个 PVC 是通过 VolumeClaimTemplate 动态生成的，但创建失败了');
+              suggestions.push('可能的原因：');
+              suggestions.push('  1. 存储类（StorageClass）配置错误或不存在');
+              suggestions.push('  2. 资源配额（ResourceQuota）不足');
+              suggestions.push('  3. 存储后端无法创建卷');
+              suggestions.push('  4. 镜像（VMImage）不存在或不可用');
+              suggestions.push('建议操作：');
+              suggestions.push('  1. 检查 VM 事件中是否有 PVC 创建失败的错误');
+              suggestions.push('  2. 检查存储类配置是否正确');
+              suggestions.push('  3. 检查命名空间的资源配额');
+              suggestions.push('  4. 检查镜像是否存在且可用');
+            } else {
+              suggestions.push('这个 PVC 在 VM 配置中被引用，但实际不存在');
+              suggestions.push('');
+              suggestions.push('如何查找这个 PVC：');
+              suggestions.push(`  1. 在命名空间 "${c.namespace}" 中查找所有 PVC：`);
+              suggestions.push(`     kubectl get pvc -n ${c.namespace}`);
+              suggestions.push(`  2. 查找包含 "${c.pvcName}" 的 PVC（可能是部分匹配）：`);
+              suggestions.push(`     kubectl get pvc -n ${c.namespace} | grep "${c.pvcName}"`);
+              suggestions.push(`  3. 如果是克隆的虚拟机，PVC 名称可能是动态生成的，格式为：`);
+              suggestions.push(`     {虚拟机名称}-{卷名称}-{随机后缀}`);
+              suggestions.push(`     可以查找所有以虚拟机名称开头的 PVC：`);
+              suggestions.push(`     kubectl get pvc -n ${c.namespace} | grep "^${c.pvcName.split('-')[0]}"`);
+              suggestions.push('');
+              suggestions.push('可能的原因：');
+              suggestions.push('  1. PVC 正在创建中（克隆时可能需要时间）');
+              suggestions.push('  2. PVC 已被删除');
+              suggestions.push('  3. PVC 名称配置错误或已更改');
+              suggestions.push('  4. PVC 在不同的命名空间');
+              suggestions.push('');
+              suggestions.push('建议操作：');
+              suggestions.push('  1. 等待几分钟，如果是克隆操作，PVC 可能还在创建中');
+              suggestions.push('  2. 检查 VM 的 volumeClaimTemplates 注解，查看预期的 PVC 名称');
+              suggestions.push('  3. 检查命名空间中的所有 PVC，确认是否存在类似的 PVC');
+              suggestions.push('  4. 如果 PVC 已删除，需要重新创建或修改 VM 配置');
+            }
+
+            return { 
+              ...c, 
+              exists: false, 
+              checked: true, 
+              phase: 'NotFound', 
+              bound: false, 
+              error: `PVC "${c.pvcName}" 在命名空间 "${c.namespace}" 中不存在`,
+              isFromTemplate,
+              suggestions,
+              apiPath: `/api/clouds/${cid}/resources/harvester/volumes/${c.namespace}/${c.pvcName}`,
+              rawError: errorMsg
+            };
+          }
+          // 其他错误（如网络错误等）
+          return { 
+            ...c, 
+            exists: false, 
+            checked: true, 
+            phase: 'Unknown', 
+            bound: false, 
+            error: `检查失败: ${errorMsg || '未知错误'}`,
+            isFromTemplate,
+            apiPath: `/api/clouds/${cid}/resources/harvester/volumes/${c.namespace}/${c.pvcName}`,
+            rawError: errorMsg
+          };
         }
       })
     );
 
     return results.map((r) => {
       if (r.status === 'fulfilled') return r.value;
-      return { name: '-', pvcName: '-', exists: false, checked: false, phase: 'Unknown', bound: false };
+      return { 
+        name: '-', 
+        pvcName: '-', 
+        namespace: vmNamespace,
+        exists: false, 
+        checked: false, 
+        phase: 'Unknown', 
+        bound: false, 
+        error: '检查异常',
+        rawError: r.reason?.message || String(r.reason)
+      };
     });
   };
 
-  const analyzeEvents = (events: any[], vmStatus?: any, podInfo?: any): DiagnosisResult['eventAnalysis'] => {
+  const analyzeEvents = (events: any[], vmStatus?: any, podInfo?: any, vm?: any, pvcStatus?: any[]): DiagnosisResult['eventAnalysis'] => {
     if (!events || events.length === 0) {
       // 如果没有事件，但 VM 状态是 Running 且 Pod 存在，认为正常运行
       const vmRunning = vmStatus?.printableStatus === 'Running' || vmStatus?.ready === true;
@@ -1463,21 +1845,165 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     const suggestions: string[] = [];
     let recentPattern = '';
 
-    // 优先级1: 存储卷挂载冲突（最严重，会导致 VM 无法启动）
-    if (volumeConflictErrors.length > 0) {
+    // 优先级0: 检查 PVC 是否存在（对于克隆的虚拟机，PVC 可能根本未创建）
+    // 如果 PVC 不存在，应该优先显示"PVC不存在"而不是"存储卷挂载冲突"
+    const missingPVCs = Array.isArray(pvcStatus) ? pvcStatus.filter((pvc: any) => !pvc.exists && pvc.checked) : [];
+    if (missingPVCs.length > 0) {
+      // PVC 不存在是最严重的问题，优先显示
+      recentPattern = 'PVC 不存在';
+        
+        // 检查是否是克隆的虚拟机
+        const isClonedVM = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+        const isCloned = isClonedVM ? true : false;
+        
+        // 检查 VM 是否已经运行（如果已经运行，说明克隆已经完成，不应该显示"克隆操作正在进行中"）
+        const vmRunning = vmStatus?.printableStatus === 'Running' || vmStatus?.ready === true;
+        const podExists = podInfo?.podName;
+        const vmIsHealthy = vmRunning && podExists;
+        
+        if (isCloned && !vmIsHealthy) {
+          // 只有在克隆的虚拟机且未运行时，才显示"克隆操作正在进行中"
+          suggestions.push('检测到 PVC 不存在：这是克隆的虚拟机，但 PVC 卷没有被创建');
+          suggestions.push('根本原因：克隆操作中，PVC 卷创建失败或尚未完成');
+          missingPVCs.forEach((pvc: any) => {
+            suggestions.push(`缺失的 PVC：${pvc.pvcName}（命名空间：${pvc.namespace}）`);
+            if (pvc.error) {
+              suggestions.push(`  错误信息：${pvc.error}`);
+            }
+            if (pvc.suggestions && Array.isArray(pvc.suggestions) && pvc.suggestions.length > 0) {
+              pvc.suggestions.forEach((s: string) => {
+                suggestions.push(`  ${s}`);
+              });
+            }
+          });
+          suggestions.push('');
+          suggestions.push('克隆虚拟机的 PVC 创建失败通常由以下原因导致：');
+          suggestions.push('  1. 存储类（StorageClass）配置错误或不存在');
+          suggestions.push('  2. 资源配额（ResourceQuota）不足');
+          suggestions.push('  3. 存储后端无法创建卷');
+          suggestions.push('  4. 镜像（VMImage）不存在或不可用');
+          suggestions.push('  5. 克隆操作正在进行中，PVC 可能还在创建中');
+          suggestions.push('');
+          suggestions.push('解决方案：');
+          suggestions.push('  1. 检查 VM 事件中是否有 PVC 创建失败的错误');
+          suggestions.push('  2. 检查存储类配置是否正确：kubectl get storageclass');
+          suggestions.push('  3. 检查命名空间的资源配额：kubectl get resourcequota -n <命名空间>');
+          suggestions.push('  4. 检查镜像是否存在且可用：kubectl get vmimage -n <命名空间>');
+          suggestions.push('  5. 如果是克隆操作，等待几分钟，PVC 可能还在创建中');
+          suggestions.push('  6. 检查 VM 的 volumeClaimTemplates 注解，查看预期的 PVC 配置');
+          suggestions.push('  7. 如果问题持续，检查存储后端（Longhorn）状态');
+        } else if (isCloned && vmIsHealthy) {
+          // 克隆的虚拟机已经运行，但 PVC 不存在，说明是异常情况
+          suggestions.push('检测到 PVC 不存在：这是克隆的虚拟机，但 PVC 卷没有被创建');
+          suggestions.push('根本原因：虽然虚拟机已运行，但配置中引用的 PVC 卷不存在（可能是配置错误或 PVC 被删除）');
+          missingPVCs.forEach((pvc: any) => {
+            suggestions.push(`缺失的 PVC：${pvc.pvcName}（命名空间：${pvc.namespace}）`);
+            if (pvc.error) {
+              suggestions.push(`  错误信息：${pvc.error}`);
+            }
+            if (pvc.suggestions && Array.isArray(pvc.suggestions) && pvc.suggestions.length > 0) {
+              pvc.suggestions.forEach((s: string) => {
+                suggestions.push(`  ${s}`);
+              });
+            }
+          });
+          suggestions.push('');
+          suggestions.push('可能的原因：');
+          suggestions.push('  1. PVC 已被删除但 VM 配置未更新');
+          suggestions.push('  2. PVC 名称配置错误');
+          suggestions.push('  3. PVC 在不同的命名空间');
+          suggestions.push('');
+          suggestions.push('建议操作：');
+          suggestions.push('  1. 检查 PVC 是否在其他命名空间');
+          suggestions.push('  2. 如果 PVC 已删除，需要重新创建或修改 VM 配置');
+          suggestions.push('  3. 检查命名空间中的所有 PVC：kubectl get pvc -n <命名空间>');
+        } else {
+          suggestions.push('检测到 PVC 不存在：VM 配置中引用的 PVC 卷实际不存在');
+          missingPVCs.forEach((pvc: any) => {
+            suggestions.push(`缺失的 PVC：${pvc.pvcName}（命名空间：${pvc.namespace}）`);
+            if (pvc.error) {
+              suggestions.push(`  错误信息：${pvc.error}`);
+            }
+            if (pvc.suggestions && Array.isArray(pvc.suggestions) && pvc.suggestions.length > 0) {
+              pvc.suggestions.forEach((s: string) => {
+                suggestions.push(`  ${s}`);
+              });
+            }
+          });
+          suggestions.push('');
+          suggestions.push('可能的原因：');
+          suggestions.push('  1. PVC 已被删除');
+          suggestions.push('  2. PVC 名称配置错误');
+          suggestions.push('  3. PVC 在不同的命名空间');
+          suggestions.push('  4. PVC 正在创建中');
+          suggestions.push('');
+          suggestions.push('解决方案：');
+          suggestions.push('  1. 检查 PVC 是否在其他命名空间');
+          suggestions.push('  2. 如果 PVC 已删除，需要重新创建或修改 VM 配置');
+          suggestions.push('  3. 检查命名空间中的所有 PVC：kubectl get pvc -n <命名空间>');
+        }
+    }
+    
+    // 优先级1: 存储卷挂载冲突（只有在 PVC 存在且 VM 未运行的情况下才显示）
+    // 如果 PVC 不存在，已经在上面处理了，这里不再重复显示挂载冲突
+    // 如果 VM 已经运行中，说明存储卷已经成功挂载，不应该显示挂载冲突（可能是历史错误）
+    const vmRunning = vmStatus?.printableStatus === 'Running' || vmStatus?.ready === true;
+    const podExists = podInfo?.podName;
+    const vmIsHealthy = vmRunning && podExists;
+    
+    if (volumeConflictErrors.length > 0 && missingPVCs.length === 0 && !vmIsHealthy) {
       recentPattern = '存储卷挂载冲突';
-      suggestions.push('检测到存储卷挂载冲突：卷已挂载到其他节点，无法挂载到新节点');
-      if (volumeConflictDetails.length > 0) {
-        volumeConflictDetails.forEach((detail) => {
-          suggestions.push(`卷 ${detail.volume} 当前挂载在节点 ${detail.currentNode}，尝试挂载到节点 ${detail.targetNode}`);
-        });
+      
+      // 检查是否是克隆的虚拟机
+      const isClonedVM = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+      const isCloned = isClonedVM ? true : false;
+      
+      // 检查 VM 是否已经运行（如果已经运行，说明克隆已经完成，不应该显示"卷正在从源 PVC 克隆数据"）
+      const vmRunningForConflict = vmStatus?.printableStatus === 'Running' || vmStatus?.ready === true;
+      const podExistsForConflict = podInfo?.podName;
+      const vmIsHealthyForConflict = vmRunningForConflict && podExistsForConflict;
+      
+      if (isCloned && !vmIsHealthyForConflict) {
+        // 只有在克隆的虚拟机且未运行时，才显示"卷正在从源 PVC 克隆数据"
+        suggestions.push('检测到存储卷挂载冲突：这是克隆的虚拟机，卷正在从源 PVC 克隆数据');
+        suggestions.push('根本原因：克隆的 PVC 正在从源 PVC 复制数据，但底层存储卷可能仍被源节点占用');
+        if (volumeConflictDetails.length > 0) {
+          volumeConflictDetails.forEach((detail) => {
+            suggestions.push(`冲突详情：存储卷 ${detail.volume} 当前挂载在节点 ${detail.currentNode}，尝试挂载到节点 ${detail.targetNode}`);
+          });
+        }
+        suggestions.push('');
+        suggestions.push('克隆虚拟机的存储卷挂载冲突通常由以下原因导致：');
+        suggestions.push('  1. 新 PVC 正在从源 PVC 克隆数据，克隆过程尚未完成');
+        suggestions.push('  2. 源 PVC 的底层存储卷（Longhorn volume）仍被源虚拟机节点占用');
+        suggestions.push('  3. 对于 RWO（ReadWriteOnce）类型的卷，一个卷只能挂载到一个节点');
+        suggestions.push('  4. 新虚拟机尝试在不同节点启动，但卷仍在源节点上');
+        suggestions.push('');
+        suggestions.push('解决方案：');
+        suggestions.push('  1. 等待 PVC 克隆完成：检查新 PVC 的状态，确保克隆过程已完成');
+        suggestions.push('     kubectl get pvc <新PVC名称> -n <命名空间>');
+        suggestions.push('  2. 检查源 PVC 状态：确认源 PVC 是否仍在源虚拟机上使用');
+        suggestions.push('  3. 等待自动恢复：通常克隆完成后，卷会自动从源节点卸载（可能需要几分钟）');
+        suggestions.push('  4. 检查存储类配置：确认存储类是否支持多节点挂载（RWX）或单节点挂载（RWO）');
+        suggestions.push('  5. 如果问题持续：');
+        suggestions.push('     - 检查 Longhorn 卷状态：kubectl get volumes.longhorn.io -n longhorn-system');
+        suggestions.push('     - 检查 CSI 驱动状态：kubectl get csinode');
+        suggestions.push('     - 考虑手动卸载源节点上的卷（需要先停止源虚拟机）');
+        suggestions.push('  6. 如果问题无法自动恢复，联系管理员检查存储系统状态');
+      } else {
+        suggestions.push('检测到存储卷挂载冲突：卷已挂载到其他节点，无法挂载到新节点');
+        if (volumeConflictDetails.length > 0) {
+          volumeConflictDetails.forEach((detail) => {
+            suggestions.push(`卷 ${detail.volume} 当前挂载在节点 ${detail.currentNode}，尝试挂载到节点 ${detail.targetNode}`);
+          });
+        }
+        suggestions.push('解决方案：');
+        suggestions.push('  1. 检查卷是否仍在旧节点上使用（查看旧节点上的 Pod）');
+        suggestions.push('  2. 如果 VM 已迁移，等待旧节点上的卷自动卸载（通常需要几分钟）');
+        suggestions.push('  3. 如果问题持续，手动检查 CSI 驱动状态：kubectl get csinode');
+        suggestions.push('  4. 检查存储类（StorageClass）配置是否正确');
+        suggestions.push('  5. 如果问题无法自动恢复，考虑重启相关节点的 CSI 驱动或联系管理员');
       }
-      suggestions.push('解决方案：');
-      suggestions.push('  1. 检查卷是否仍在旧节点上使用（查看旧节点上的 Pod）');
-      suggestions.push('  2. 如果 VM 已迁移，等待旧节点上的卷自动卸载（通常需要几分钟）');
-      suggestions.push('  3. 如果问题持续，手动检查 CSI 驱动状态：kubectl get csinode');
-      suggestions.push('  4. 检查存储类（StorageClass）配置是否正确');
-      suggestions.push('  5. 如果问题无法自动恢复，考虑重启相关节点的 CSI 驱动或联系管理员');
     }
     // 优先级2: IP 地址耗尽
     else if (ipExhaustionErrors.length > 0) {
@@ -1502,47 +2028,53 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
       suggestions.push('检查 Multus 网络配置是否正确');
       suggestions.push('检查 Calico/CNI 插件状态');
     }
-    // 优先级3: Pod 创建/删除循环
-    else if (hasCreateDeletePattern) {
+    // 优先级2.5: 如果 VM 正在运行，优先显示正常运行（即使有历史错误）
+    if (vmIsHealthy && !missingPVCs.length) {
+      // VM 正在运行，说明所有问题都已解决，不应该显示历史错误
+      recentPattern = '正常运行';
+      suggestions.push('虚拟机正在正常运行');
+      // 如果有历史错误事件，可以添加提示说明这些是已解决的问题
+      if (volumeConflictErrors.length > 0 || hasCreateDeletePattern) {
+        suggestions.push('');
+        suggestions.push('注意：检测到历史错误事件，但虚拟机当前运行正常，这些错误可能已经自动恢复');
+      }
+    }
+    // 优先级3: Pod 创建/删除循环（只有在 VM 未运行的情况下才显示）
+    else if (hasCreateDeletePattern && !vmIsHealthy) {
       recentPattern = '检测到 Pod 频繁创建/删除循环';
       suggestions.push('Pod 可能在不断重启，检查 Pod 调度状态和资源限制');
       suggestions.push('查看 Pod 日志了解启动失败原因');
       suggestions.push('检查节点资源是否充足');
     } 
     // 其他情况
-    else if (podCreates.length > 0 && podDeletes.length === 0) {
-      // 检查 VM 实际运行状态
-      const vmRunning = vmStatus?.printableStatus === 'Running' || vmStatus?.ready === true;
-      const podExists = podInfo?.podName;
-      
-      if (vmRunning && podExists) {
-        // VM 正在运行且 Pod 存在，认为正常运行
-        recentPattern = '正常运行';
-        suggestions.push('虚拟机正在正常运行');
-      } else {
-        // Pod 已创建但 VM 未运行，可能有问题
-        recentPattern = 'Pod 已创建但可能未正常运行';
-        suggestions.push('检查 Pod 是否处于 Pending 状态（调度失败）');
-        suggestions.push('查看 Pod 事件了解调度失败原因');
-      }
-    } else if (vmiStopped.length > 0) {
+    else if (podCreates.length > 0 && podDeletes.length === 0 && !vmIsHealthy) {
+      // Pod 已创建但 VM 未运行，可能有问题
+      recentPattern = 'Pod 已创建但可能未正常运行';
+      suggestions.push('检查 Pod 是否处于 Pending 状态（调度失败）');
+      suggestions.push('查看 Pod 事件了解调度失败原因');
+    } else if (vmiStopped.length > 0 && !vmIsHealthy) {
       recentPattern = 'VMI 已停止';
       suggestions.push('检查 VMI 停止原因（正常关机或异常退出）');
       suggestions.push('如果 runStrategy 为 Always，VMI 应该自动重启');
-    } else if (podCreates.length === 0 && podDeletes.length === 0) {
+    } else if (podCreates.length === 0 && podDeletes.length === 0 && !vmIsHealthy) {
       recentPattern = '未检测到 Pod 创建事件';
       suggestions.push('VMI 可能尚未创建，检查调度约束和资源需求');
+    } else if (!vmIsHealthy && !missingPVCs.length && volumeConflictErrors.length === 0 && ipExhaustionErrors.length === 0 && networkErrors.length === 0 && !hasCreateDeletePattern) {
+      // 如果没有任何错误但 VM 未运行，显示一般性提示
+      recentPattern = '虚拟机未运行';
+      suggestions.push('检查 VM 状态和事件，了解未运行的原因');
     }
 
     return {
-      podCreateDeleteCycle: hasCreateDeletePattern || ipExhaustionErrors.length > 0 || volumeConflictErrors.length > 0,
+      // 如果 VM 正在运行，不应该标记为 Pod 创建/删除循环（即使有历史错误）
+      podCreateDeleteCycle: !vmIsHealthy && (hasCreateDeletePattern || ipExhaustionErrors.length > 0 || (volumeConflictErrors.length > 0 && missingPVCs.length === 0)),
       podCreateCount: podCreates.length,
       podDeleteCount: podDeletes.length,
       vmiStoppedCount: vmiStopped.length,
       recentPattern,
       suggestions,
       ipExhaustionNodes: ipExhaustionNodes.size > 0 ? Array.from(ipExhaustionNodes) : undefined,
-      volumeConflictDetails: volumeConflictDetails.length > 0 ? volumeConflictDetails : undefined,
+      volumeConflictDetails: volumeConflictDetails.length > 0 && !vmIsHealthy ? volumeConflictDetails : undefined,
     };
   };
 
@@ -1569,6 +2101,54 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     };
   };
 
+  // 刷新事件数据
+  const refreshEvents = useCallback(async () => {
+    if (!active || !cloudId || !namespace || !name || !diagnosis) return;
+
+    setRefreshingEvents(true);
+    try {
+      // 获取 VMI 事件
+      const vmiEventsRes = await fetchHarvesterEvents(cloudId, namespace, name, 'VirtualMachineInstance').catch(() => ({ data: [] }));
+      const vmiEventsData = vmiEventsRes?.data || [];
+
+      // 获取 Pod 事件
+      let podEventsData: any[] = [];
+      try {
+        const allPodEventsRes = await fetchHarvesterEvents(cloudId, namespace, undefined, 'Pod');
+        const allPodEvents = allPodEventsRes?.data || [];
+        const vmNamePattern = new RegExp(`virt-launcher-${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-`, 'i');
+        podEventsData = allPodEvents.filter((e: any) => {
+          const podName = e.involvedObject?.name || '';
+          const message = e.message || '';
+          return vmNamePattern.test(podName) || vmNamePattern.test(message);
+        });
+      } catch (e) {
+        console.warn('获取 Pod 事件失败:', e);
+      }
+
+      // 合并所有事件，按时间排序
+      const allEvents = [...vmiEventsData, ...podEventsData].sort((a: any, b: any) => {
+        const timeA = new Date(a.lastTimestamp || a.firstTimestamp || 0).getTime();
+        const timeB = new Date(b.lastTimestamp || b.firstTimestamp || 0).getTime();
+        return timeB - timeA; // 降序
+      });
+
+      // 重新分析事件
+      const eventAnalysis = analyzeEvents(allEvents, diagnosis.vmStatus, diagnosis.podInfo, record, diagnosis.pvcStatus);
+
+      // 更新诊断结果
+      setDiagnosis(prev => prev ? {
+        ...prev,
+        events: allEvents.slice(0, 30),
+        eventAnalysis
+      } : null);
+    } catch (e: any) {
+      console.error('刷新事件失败:', e);
+    } finally {
+      setRefreshingEvents(false);
+    }
+  }, [active, cloudId, namespace, name, diagnosis, record]);
+
   const getStatusIcon = (status: string, isError: boolean = false) => {
     if (isError) {
       return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
@@ -1587,7 +2167,23 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
 
   // 渲染函数
   const renderVmStatus = (vmStatus: any, isVMError: boolean) => {
-    if (!vmStatus) return <Empty description="无状态信息" />;
+    if (!vmStatus) {
+      return (
+        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+          <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+            <Descriptions.Item label="状态" span={2}>
+              <Space>
+                <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+                <Tag color="warning">无状态信息</Tag>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  无法获取虚拟机状态信息
+                </Text>
+              </Space>
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
+      );
+    }
     return (
       <Card variant="borderless" styles={{ body: { padding: 0 } }}>
         <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
@@ -1775,7 +2371,7 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
                   }}>
                     <Text strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>建议操作：</Text>
                     <ul style={{ margin: 0, paddingLeft: 20 }}>
-                      {podLogs.suggestions.map((suggestion: string, idx: number) => (
+                      {podLogs.suggestions.filter((s: string) => s && s.trim()).map((suggestion: string, idx: number) => (
                         <li key={idx}>
                           <Text style={{ fontSize: 12 }}>{suggestion}</Text>
                         </li>
@@ -1896,6 +2492,112 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
               {Array.isArray(nodeAffinity.matchedNodeNames) && nodeAffinity.matchedNodeNames.length > 0 && (
                 <Descriptions.Item label="示例节点" span={2}>
                   <Text code>{nodeAffinity.matchedNodeNames.join(', ')}</Text>
+                </Descriptions.Item>
+              )}
+            </>
+          )}
+        </Descriptions>
+      </Card>
+    );
+  };
+
+  const renderNodeSelector = (nodeSelector: any) => {
+    if (!nodeSelector) return null;
+    return (
+      <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
+          {!nodeSelector.configured ? (
+            <Descriptions.Item label="节点选择器" span={2}>
+              <Text type="secondary">未配置节点选择器（自动调度）</Text>
+            </Descriptions.Item>
+          ) : (
+            <>
+              <Descriptions.Item label="状态" span={2}>
+                <Space>
+                  {!nodeSelector.checked ? (
+                    <>
+                      <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+                      <Tag color="warning">未自动校验</Tag>
+                    </>
+                  ) : (nodeSelector.matchedNodeNames?.length || 0) > 0 ? (
+                    <>
+                      <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                      <Tag color="success">找到匹配节点</Tag>
+                    </>
+                  ) : (
+                    <>
+                      <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+                      <Tag color="error">未找到匹配节点</Tag>
+                    </>
+                  )}
+                </Space>
+              </Descriptions.Item>
+              <Descriptions.Item label="选择器" span={2}>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  {Object.entries(nodeSelector.selector || {}).map(([key, value]) => (
+                    <Tag key={key} color="blue">
+                      {key}: {String(value)}
+                    </Tag>
+                  ))}
+                </Space>
+              </Descriptions.Item>
+              {nodeSelector.checked ? (
+                <>
+                  <Descriptions.Item label="匹配节点数">
+                    <Text>
+                      <Text strong>{nodeSelector.matchedNodeNames?.length || 0}</Text>
+                      {typeof nodeSelector.totalNodes === 'number' ? ` / ${nodeSelector.totalNodes}` : ''}
+                    </Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="消息">
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {nodeSelector.message}
+                    </Text>
+                  </Descriptions.Item>
+                </>
+              ) : (
+                <Descriptions.Item label="校验状态" span={2}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    节点列表获取失败或无权限，暂无法自动判断是否存在匹配的节点
+                  </Text>
+                </Descriptions.Item>
+              )}
+              {Array.isArray(nodeSelector.matchedNodeNames) && nodeSelector.matchedNodeNames.length > 0 && (
+                <Descriptions.Item label="匹配的节点" span={2}>
+                  <Text code>{nodeSelector.matchedNodeNames.join(', ')}</Text>
+                </Descriptions.Item>
+              )}
+              {nodeSelector.checked && (nodeSelector.matchedNodeNames?.length || 0) === 0 && (
+                <Descriptions.Item label="提示" span={2}>
+                  <Alert
+                    message="未找到匹配的节点"
+                    description={
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                          虚拟机配置了节点选择器，但集群中没有节点满足这些条件。
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                          可能的原因：
+                        </Text>
+                        <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12 }}>
+                          <li>指定的节点不存在或已被删除</li>
+                          <li>节点标签不匹配（例如：kubernetes.io/hostname 指定的节点名不存在）</li>
+                          <li>克隆虚拟机时继承了源虚拟机的节点选择器，但目标节点不可用</li>
+                        </ul>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                          建议操作：
+                        </Text>
+                        <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12 }}>
+                          <li>检查节点选择器配置是否正确</li>
+                          <li>如果是克隆虚拟机，检查是否需要清除节点选择器以允许自动调度</li>
+                          <li>确认指定的节点是否存在且可用</li>
+                        </ul>
+                      </div>
+                    }
+                    type="error"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                  />
                 </Descriptions.Item>
               )}
             </>
@@ -2036,42 +2738,183 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
           {pvcStatus.map((pvc, idx) => (
             <React.Fragment key={idx}>
               <Descriptions.Item label="卷名称">
-                <Text code>{pvc.name}</Text>
+                <Space>
+                  <Text code>{pvc.name}</Text>
+                  {pvc.isSystemDisk && (
+                    <Tag color="blue">系统盘</Tag>
+                  )}
+                  {pvc.isClonedVolume && (
+                    <Tag color="purple">克隆卷</Tag>
+                  )}
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label="PVC 名称">
                 <Text code>{pvc.pvcName}</Text>
               </Descriptions.Item>
+              <Descriptions.Item label="命名空间">
+                <Text code>{pvc.namespace || '未知'}</Text>
+              </Descriptions.Item>
+              {pvc.isClonedVolume && pvc.dataSourceName && (
+                <Descriptions.Item label="源 PVC" span={2}>
+                  <Text code>{pvc.dataSourceName}</Text>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="状态" span={2}>
-                <Space>
-                  {pvc.checked !== true ? (
-                    <>
-                      <ExclamationCircleOutlined style={{ color: '#faad14' }} />
-                      <Tag color="default">未校验</Tag>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        无法获取 PVC 详情（可能无权限或接口不可用）
-                      </Text>
-                    </>
-                  ) : pvc.exists === false ? (
-                    <>
-                      <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-                      <Tag color="error">不存在</Tag>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        PVC 不存在（或当前账号无权限访问该命名空间的 PVC）
-                      </Text>
-                    </>
-                  ) : pvc.bound === true ? (
-                    <>
-                      <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                      <Tag color="success">已绑定</Tag>
-                    </>
-                  ) : (
-                    <>
-                      <ExclamationCircleOutlined style={{ color: '#faad14' }} />
-                      <Tag color="warning">{pvc.phase || 'Unknown'}</Tag>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        PVC 未绑定或处于异常状态
-                      </Text>
-                    </>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Space>
+                    {pvc.checked !== true ? (
+                      <>
+                        <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+                        <Tag color="default">未校验</Tag>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {pvc.error || '无法获取 PVC 详情（可能无权限或接口不可用）'}
+                        </Text>
+                      </>
+                    ) : pvc.exists === false ? (
+                      <>
+                        <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+                        <Tag color="error">不存在</Tag>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {pvc.error || 'PVC 不存在（已通过 API 验证）'}
+                        </Text>
+                      </>
+                    ) : pvc.exists === true && pvc.isReady === true ? (
+                      <>
+                        <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                        <Tag color="success">已就绪</Tag>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {pvc.readyStatus || 'PVC 已绑定且就绪（已通过 API 验证）'}
+                        </Text>
+                      </>
+                    ) : pvc.exists === true && pvc.bound === true ? (
+                      <>
+                        <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+                        <Tag color="warning">
+                          {pvc.isResizing ? '扩容中' : pvc.isFsResizePending ? '等待文件系统扩容' : '已绑定但未就绪'}
+                        </Tag>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {pvc.readyStatus || `PVC 已绑定但未就绪（当前状态: ${pvc.phase}）`}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+                        <Tag color="warning">{pvc.phase || 'Unknown'}</Tag>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          PVC 存在但未绑定或处于异常状态（已通过 API 验证）
+                        </Text>
+                      </>
+                    )}
+                  </Space>
+                  {pvc.exists === true && (
+                    <Space direction="vertical" size={2} style={{ marginLeft: 24, width: '100%' }}>
+                      {pvc.phase && (
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          阶段状态: {pvc.phase}
+                        </Text>
+                      )}
+                      {pvc.isResizing && (
+                        <Text type="warning" style={{ fontSize: 11 }}>
+                          ⚠️ 正在扩容中（Resizing），请等待扩容完成
+                        </Text>
+                      )}
+                      {pvc.isFsResizePending && (
+                        <Text type="warning" style={{ fontSize: 11 }}>
+                          ⚠️ 等待文件系统扩容（FileSystemResizePending），可能需要重启虚拟机
+                        </Text>
+                      )}
+                      {pvc.isReady && (
+                        <Text type="success" style={{ fontSize: 11 }}>
+                          ✓ 存储卷已就绪，可以正常使用
+                        </Text>
+                      )}
+                    </Space>
+                  )}
+                  {/* 显示克隆卷信息提示 */}
+                  {pvc.isClonedVolume && pvc.bound === true && pvc.exists === true && (
+                    <Alert
+                      message={pvc.isSystemDisk ? '克隆虚拟机的系统盘' : '克隆卷'}
+                      description={
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                            {pvc.isSystemDisk 
+                              ? '这是克隆虚拟机的系统盘，已从源 PVC 克隆数据。'
+                              : '这是克隆卷，已从源 PVC 克隆数据。'}
+                          </Text>
+                          {pvc.dataSourceName && (
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              源 PVC: <Text code style={{ fontSize: 12 }}>{pvc.dataSourceName}</Text>
+                            </Text>
+                          )}
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                            注意：虽然 PVC 状态为 Bound，但数据可能仍在克隆中。如果虚拟机无法启动，请检查虚拟卷的克隆进度。
+                          </Text>
+                        </div>
+                      }
+                      type="info"
+                      showIcon
+                      style={{ marginTop: 8 }}
+                    />
+                  )}
+                  {/* 显示详细建议 */}
+                  {pvc.exists === false && pvc.suggestions && pvc.suggestions.length > 0 && (
+                    <Alert
+                      message={pvc.isFromTemplate ? '动态生成的 PVC 创建失败' : 'PVC 不存在'}
+                      description={
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                            {pvc.isFromTemplate 
+                              ? '这个 PVC 是通过 VolumeClaimTemplate 动态生成的，但创建失败了。'
+                              : '这个 PVC 在 VM 配置中被引用，但实际不存在。'}
+                          </Text>
+                          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12 }}>
+                            {pvc.suggestions.filter((s: string) => s && s.trim()).map((suggestion: string, idx: number) => (
+                              <li key={idx} style={{ marginBottom: 4 }}>
+                                <Text style={{ fontSize: 12 }}>{suggestion}</Text>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      }
+                      type="error"
+                      showIcon
+                      style={{ marginTop: 8 }}
+                    />
+                  )}
+                  {/* 显示调试信息 */}
+                  {pvc.exists === false && (
+                    <Collapse size="small" ghost style={{ marginTop: 8 }}>
+                      <Panel 
+                        header={
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            查看技术详情
+                          </Text>
+                        } 
+                        key="debug"
+                      >
+                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          {pvc.isFromTemplate !== undefined && (
+                            <div>
+                              <Text type="secondary" style={{ fontSize: 11 }}>
+                                是否来自模板: {pvc.isFromTemplate ? '是（动态生成）' : '否（静态引用）'}
+                              </Text>
+                            </div>
+                          )}
+                          {pvc.apiPath && (
+                            <div>
+                              <Text type="secondary" style={{ fontSize: 11 }}>API 路径: </Text>
+                              <Text code style={{ fontSize: 11 }}>{pvc.apiPath}</Text>
+                            </div>
+                          )}
+                          {pvc.rawError && (
+                            <div>
+                              <Text type="secondary" style={{ fontSize: 11 }}>错误详情: </Text>
+                              <Text style={{ fontSize: 11, color: '#ff4d4f' }}>{pvc.rawError}</Text>
+                            </div>
+                          )}
+                        </Space>
+                      </Panel>
+                    </Collapse>
                   )}
                 </Space>
               </Descriptions.Item>
@@ -2137,232 +2980,274 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
     }
     return (
       <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Space direction="vertical" style={{ width: '100%', padding: '16px 24px' }}>
+        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
           {/* 显示事件分析摘要 */}
-          <Descriptions column={2} size="small" style={{ marginBottom: 16 }}>
-            <Descriptions.Item label="分析结果">
-              <Space>
-                {eventAnalysis.recentPattern === '正常运行' ? (
-                  <>
-                    <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                    <Tag color="success">{eventAnalysis.recentPattern}</Tag>
-                  </>
-                ) : eventAnalysis.recentPattern === '无事件' ? (
-                  <>
-                    <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                    <Tag color="default">{eventAnalysis.recentPattern}</Tag>
-                  </>
-                ) : eventAnalysis.recentPattern === '存储卷挂载冲突' || 
-                     eventAnalysis.recentPattern === 'IP 地址池耗尽' || 
-                     eventAnalysis.recentPattern === '网络配置错误' ? (
-                  <>
-                    <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-                    <Tag color="error">{eventAnalysis.recentPattern}</Tag>
-                  </>
-                ) : (
-                  <>
-                    <ExclamationCircleOutlined style={{ color: '#faad14' }} />
-                    <Tag color="warning">{eventAnalysis.recentPattern}</Tag>
-                  </>
+          <Descriptions.Item label="分析结果">
+            <Space>
+              {eventAnalysis.recentPattern === '正常运行' ? (
+                <>
+                  <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                  <Tag color="success">{eventAnalysis.recentPattern}</Tag>
+                </>
+              ) : eventAnalysis.recentPattern === '无事件' ? (
+                <>
+                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                  <Tag color="default">{eventAnalysis.recentPattern}</Tag>
+                </>
+              ) : eventAnalysis.recentPattern === '存储卷挂载冲突' || 
+                   eventAnalysis.recentPattern === 'IP 地址池耗尽' || 
+                   eventAnalysis.recentPattern === '网络配置错误' ? (
+                <>
+                  <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+                  <Tag color="error">{eventAnalysis.recentPattern}</Tag>
+                </>
+              ) : (
+                <>
+                  <ExclamationCircleOutlined style={{ color: '#faad14' }} />
+                  <Tag color="warning">{eventAnalysis.recentPattern}</Tag>
+                </>
+              )}
+            </Space>
+          </Descriptions.Item>
+          <Descriptions.Item label="Pod 创建次数">
+            <Text>{eventAnalysis.podCreateCount}</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="Pod 删除次数">
+            <Text>{eventAnalysis.podDeleteCount}</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="VMI 停止次数">
+            <Text>{eventAnalysis.vmiStoppedCount}</Text>
+          </Descriptions.Item>
+
+          {/* 显示详细信息和警告 */}
+          {(eventAnalysis.recentPattern === '存储卷挂载冲突' ||
+            eventAnalysis.recentPattern === 'IP 地址池耗尽' ||
+            eventAnalysis.recentPattern === '网络配置错误' ||
+            (eventAnalysis.podCreateDeleteCycle && 
+             eventAnalysis.recentPattern !== 'IP 地址池耗尽' &&
+             eventAnalysis.recentPattern !== '网络配置错误') ||
+            (eventAnalysis.recentPattern === '正常运行' || eventAnalysis.recentPattern === '无事件')) && (
+            <Descriptions.Item label="详细信息" span={2}>
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {eventAnalysis.recentPattern === '存储卷挂载冲突' && (
+                  <Alert
+                    message="存储卷挂载冲突"
+                    description={
+                      <div>
+                        <Text strong style={{ color: '#ff4d4f' }}>
+                          根本原因：存储卷已挂载到其他节点，无法挂载到新节点
+                        </Text>
+                        <br />
+                        <br />
+                        {eventAnalysis.volumeConflictDetails && eventAnalysis.volumeConflictDetails.length > 0 && (
+                          <>
+                            <Text strong>冲突详情：</Text>
+                            <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                              {eventAnalysis.volumeConflictDetails.map((detail: any, idx: number) => (
+                                <li key={idx} style={{ marginBottom: 8 }}>
+                                  <Text style={{ fontSize: 12 }}>
+                                    存储卷 <Text code>{detail.volume}</Text> 当前挂载在节点{' '}
+                                    <Text code>{detail.currentNode}</Text>，尝试挂载到节点{' '}
+                                    <Text code>{detail.targetNode}</Text>
+                                  </Text>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+                        <Text>
+                          Pod 创建次数: <Text strong>{eventAnalysis.podCreateCount}</Text>，
+                          删除次数: <Text strong>{eventAnalysis.podDeleteCount}</Text>
+                        </Text>
+                      </div>
+                    }
+                    type="error"
+                    showIcon
+                  />
+                )}
+                {eventAnalysis.recentPattern === 'IP 地址池耗尽' && (
+                  <Alert
+                    message="IP 地址池耗尽"
+                    description={
+                      <div>
+                        <Text strong style={{ color: '#ff4d4f' }}>
+                          根本原因：Calico IP 地址池已用完，无法为新 Pod 分配 IP 地址
+                        </Text>
+                        <br />
+                        <br />
+                        <Text>
+                          Pod 创建次数: <Text strong>{eventAnalysis.podCreateCount}</Text>，
+                          删除次数: <Text strong>{eventAnalysis.podDeleteCount}</Text>
+                        </Text>
+                        {eventAnalysis.ipExhaustionNodes && eventAnalysis.ipExhaustionNodes.length > 0 && (
+                          <>
+                            <br />
+                            <br />
+                            <Text>
+                              相关节点: <Text code>{eventAnalysis.ipExhaustionNodes.join(', ')}</Text>
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                              注意：IP 地址耗尽通常是集群级别问题，可能影响所有节点。上述节点是检测到相关事件的节点。
+                            </Text>
+                          </>
+                        )}
+                        {(!eventAnalysis.ipExhaustionNodes || eventAnalysis.ipExhaustionNodes.length === 0) && (
+                          <>
+                            <br />
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              注意：IP 地址耗尽通常是集群级别问题，影响所有节点。由于 Pod 可能尚未调度，无法从事件中提取具体节点信息。
+                            </Text>
+                          </>
+                        )}
+                      </div>
+                    }
+                    type="error"
+                    showIcon
+                  />
+                )}
+                {eventAnalysis.recentPattern === '网络配置错误' && (
+                  <Alert
+                    message="网络配置错误"
+                    description={
+                      <div>
+                        <Text>
+                          Pod 创建次数: <Text strong>{eventAnalysis.podCreateCount}</Text>，
+                          删除次数: <Text strong>{eventAnalysis.podDeleteCount}</Text>
+                        </Text>
+                      </div>
+                    }
+                    type="error"
+                    showIcon
+                  />
+                )}
+                {eventAnalysis.podCreateDeleteCycle && 
+                 eventAnalysis.recentPattern !== 'IP 地址池耗尽' &&
+                 eventAnalysis.recentPattern !== '网络配置错误' && (
+                  <Alert
+                    message="检测到 Pod 频繁创建/删除循环"
+                    description={
+                      <div>
+                        <Text>
+                          Pod 创建次数: <Text strong>{eventAnalysis.podCreateCount}</Text>，
+                          删除次数: <Text strong>{eventAnalysis.podDeleteCount}</Text>
+                        </Text>
+                      </div>
+                    }
+                    type="error"
+                    showIcon
+                  />
+                )}
+                {/* 显示正常运行或无事件的信息 */}
+                {(eventAnalysis.recentPattern === '正常运行' || eventAnalysis.recentPattern === '无事件') && 
+                 !eventAnalysis.podCreateDeleteCycle && (
+                  <Alert
+                    message={eventAnalysis.recentPattern === '正常运行' ? '事件分析正常' : '无事件记录'}
+                    description={
+                      <div>
+                        <Text>
+                          {eventAnalysis.recentPattern === '正常运行' 
+                            ? '未检测到异常事件，虚拟机运行状态正常'
+                            : '当前没有相关事件记录，可能是虚拟机刚创建或事件已被清理'}
+                        </Text>
+                        {eventAnalysis.podCreateCount > 0 && (
+                          <div style={{ marginTop: 8 }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              Pod 创建次数: {eventAnalysis.podCreateCount}，
+                              删除次数: {eventAnalysis.podDeleteCount}
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                    }
+                    type={eventAnalysis.recentPattern === '正常运行' ? 'success' : 'info'}
+                    showIcon
+                  />
+                )}
+                {/* 建议操作 */}
+                {eventAnalysis.suggestions.length > 0 && (
+                  <div style={{ 
+                    padding: '12px', 
+                    background: eventAnalysis.recentPattern === '正常运行' ? '#f6ffed' : '#fff1f0',
+                    borderRadius: 4,
+                    border: `1px solid ${eventAnalysis.recentPattern === '正常运行' ? '#b7eb8f' : '#ffccc7'}`
+                  }}>
+                    <Text strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>建议操作：</Text>
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                      {eventAnalysis.suggestions.filter((s: string) => s && s.trim()).map((suggestion: string, idx: number) => (
+                        <li key={idx}>
+                          <Text style={{ fontSize: 12 }}>{suggestion}</Text>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </Space>
             </Descriptions.Item>
-            <Descriptions.Item label="Pod 创建次数">
-              <Text>{eventAnalysis.podCreateCount}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="Pod 删除次数">
-              <Text>{eventAnalysis.podDeleteCount}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="VMI 停止次数">
-              <Text>{eventAnalysis.vmiStoppedCount}</Text>
-            </Descriptions.Item>
-          </Descriptions>
-
-          {eventAnalysis.recentPattern === '存储卷挂载冲突' && (
-            <Alert
-              message="存储卷挂载冲突"
-              description={
-                <div>
-                  <Text strong style={{ color: '#ff4d4f' }}>
-                    根本原因：存储卷已挂载到其他节点，无法挂载到新节点
-                  </Text>
-                  <br />
-                  <br />
-                  {eventAnalysis.volumeConflictDetails && eventAnalysis.volumeConflictDetails.length > 0 && (
-                    <>
-                      <Text strong>冲突详情：</Text>
-                      <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-                        {eventAnalysis.volumeConflictDetails.map((detail: any, idx: number) => (
-                          <li key={idx} style={{ marginBottom: 8 }}>
-                            <Text style={{ fontSize: 12 }}>
-                              存储卷 <Text code>{detail.volume}</Text> 当前挂载在节点{' '}
-                              <Text code>{detail.currentNode}</Text>，尝试挂载到节点{' '}
-                              <Text code>{detail.targetNode}</Text>
-                            </Text>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  <Text>
-                    Pod 创建次数: <Text strong>{eventAnalysis.podCreateCount}</Text>，
-                    删除次数: <Text strong>{eventAnalysis.podDeleteCount}</Text>
-                  </Text>
-                </div>
-              }
-              type="error"
-              showIcon
-            />
           )}
-          {eventAnalysis.recentPattern === 'IP 地址池耗尽' && (
-            <Alert
-              message="IP 地址池耗尽"
-              description={
-                <div>
-                  <Text strong style={{ color: '#ff4d4f' }}>
-                    根本原因：Calico IP 地址池已用完，无法为新 Pod 分配 IP 地址
-                  </Text>
-                  <br />
-                  <br />
-                  <Text>
-                    Pod 创建次数: <Text strong>{eventAnalysis.podCreateCount}</Text>，
-                    删除次数: <Text strong>{eventAnalysis.podDeleteCount}</Text>
-                  </Text>
-                  {eventAnalysis.ipExhaustionNodes && eventAnalysis.ipExhaustionNodes.length > 0 && (
-                    <>
-                      <br />
-                      <br />
-                      <Text>
-                        相关节点: <Text code>{eventAnalysis.ipExhaustionNodes.join(', ')}</Text>
-                      </Text>
-                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                        注意：IP 地址耗尽通常是集群级别问题，可能影响所有节点。上述节点是检测到相关事件的节点。
-                      </Text>
-                    </>
-                  )}
-                  {(!eventAnalysis.ipExhaustionNodes || eventAnalysis.ipExhaustionNodes.length === 0) && (
-                    <>
-                      <br />
-                      <br />
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        注意：IP 地址耗尽通常是集群级别问题，影响所有节点。由于 Pod 可能尚未调度，无法从事件中提取具体节点信息。
-                      </Text>
-                    </>
-                  )}
-                </div>
-              }
-              type="error"
-              showIcon
-            />
-          )}
-          {eventAnalysis.recentPattern === '网络配置错误' && (
-            <Alert
-              message="网络配置错误"
-              description={
-                <div>
-                  <Text>
-                    Pod 创建次数: <Text strong>{eventAnalysis.podCreateCount}</Text>，
-                    删除次数: <Text strong>{eventAnalysis.podDeleteCount}</Text>
-                  </Text>
-                </div>
-              }
-              type="error"
-              showIcon
-            />
-          )}
-          {eventAnalysis.podCreateDeleteCycle && 
-           eventAnalysis.recentPattern !== 'IP 地址池耗尽' &&
-           eventAnalysis.recentPattern !== '网络配置错误' && (
-            <Alert
-              message="检测到 Pod 频繁创建/删除循环"
-              description={
-                <div>
-                  <Text>
-                    Pod 创建次数: <Text strong>{eventAnalysis.podCreateCount}</Text>，
-                    删除次数: <Text strong>{eventAnalysis.podDeleteCount}</Text>
-                  </Text>
-                </div>
-              }
-              type="error"
-              showIcon
-            />
-          )}
-          {/* 显示正常运行或无事件的信息 */}
-          {(eventAnalysis.recentPattern === '正常运行' || eventAnalysis.recentPattern === '无事件') && 
-           !eventAnalysis.podCreateDeleteCycle && (
-            <Alert
-              message={eventAnalysis.recentPattern === '正常运行' ? '事件分析正常' : '无事件记录'}
-              description={
-                <div>
-                  <Text>
-                    {eventAnalysis.recentPattern === '正常运行' 
-                      ? '未检测到异常事件，虚拟机运行状态正常'
-                      : '当前没有相关事件记录，可能是虚拟机刚创建或事件已被清理'}
-                  </Text>
-                  {eventAnalysis.podCreateCount > 0 && (
-                    <div style={{ marginTop: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        Pod 创建次数: {eventAnalysis.podCreateCount}，
-                        删除次数: {eventAnalysis.podDeleteCount}
-                      </Text>
-                    </div>
-                  )}
-                </div>
-              }
-              type={eventAnalysis.recentPattern === '正常运行' ? 'success' : 'info'}
-              showIcon
-            />
-          )}
-          {eventAnalysis.suggestions.length > 0 && (
-            <div>
-              <Text strong>建议操作：</Text>
-              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-                {eventAnalysis.suggestions.map((suggestion: string, idx: number) => (
-                  <li key={idx}>
-                    <Text style={{ fontSize: 12 }}>{suggestion}</Text>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {/* 事件列表 */}
           {events && events.length > 0 ? (
-            <Collapse size="small" ghost>
-              <Panel header={`查看最近事件 (${events.length} 条)`} key="events">
-                <Space direction="vertical" style={{ width: '100%' }} size="small">
-                  {events.slice(0, 10).map((event: any, idx: number) => (
-                    <div key={idx} style={{ 
-                      padding: '8px', 
-                      background: event.type === 'Warning' ? '#fff7e6' : '#f6ffed',
-                      borderRadius: 4,
-                      borderLeft: `3px solid ${event.type === 'Warning' ? '#faad14' : '#52c41a'}`
-                    }}>
-                      <Space>
-                        {event.type === 'Warning' ? (
-                          <WarningOutlined style={{ color: '#faad14' }} />
-                        ) : (
-                          <InfoCircleOutlined style={{ color: '#52c41a' }} />
-                        )}
-                        <Text strong>{event.reason}</Text>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {new Date(event.lastTimestamp || event.firstTimestamp || 0).toLocaleString()}
-                        </Text>
+            <Descriptions.Item label="最近事件" span={2}>
+              <div style={{ border: '1px solid #d9d9d9', borderRadius: 4 }}>
+                <Collapse size="small" ghost>
+                  <Panel 
+                    header={
+                      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                        <span>查看最近事件 ({events.length} 条)</span>
+                        <Button 
+                          type="text" 
+                          size="small" 
+                          icon={<ReloadOutlined />} 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            refreshEvents();
+                          }}
+                          loading={refreshingEvents}
+                          style={{ fontSize: 12 }}
+                        >
+                          刷新
+                        </Button>
                       </Space>
-                      <div style={{ marginTop: 4, paddingLeft: 24 }}>
-                        <Text style={{ fontSize: 12 }}>{event.message}</Text>
-                      </div>
-                    </div>
-                  ))}
-                </Space>
-              </Panel>
-            </Collapse>
+                    } 
+                    key="events"
+                  >
+                    <Space direction="vertical" style={{ width: '100%' }} size="small">
+                      {events.slice(0, 10).map((event: any, idx: number) => (
+                        <div key={idx} style={{ 
+                          padding: '8px', 
+                          background: event.type === 'Warning' ? '#fff7e6' : '#f6ffed',
+                          borderRadius: 4,
+                          borderLeft: `3px solid ${event.type === 'Warning' ? '#faad14' : '#52c41a'}`
+                        }}>
+                          <Space>
+                            {event.type === 'Warning' ? (
+                              <WarningOutlined style={{ color: '#faad14' }} />
+                            ) : (
+                              <InfoCircleOutlined style={{ color: '#52c41a' }} />
+                            )}
+                            <Text strong>{event.reason}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {new Date(event.lastTimestamp || event.firstTimestamp || 0).toLocaleString()}
+                            </Text>
+                          </Space>
+                          <div style={{ marginTop: 4, paddingLeft: 24 }}>
+                            <Text style={{ fontSize: 12 }}>{event.message}</Text>
+                          </div>
+                        </div>
+                      ))}
+                    </Space>
+                  </Panel>
+                </Collapse>
+              </div>
+            </Descriptions.Item>
           ) : (
-            <div>
+            <Descriptions.Item label="事件记录" span={2}>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 暂无事件记录
               </Text>
-            </div>
+            </Descriptions.Item>
           )}
-        </Space>
+        </Descriptions>
       </Card>
     );
   };
@@ -2370,45 +3255,106 @@ const HarvesterVmDiagnosisTab: React.FC<HarvesterVmDiagnosisTabProps> = ({
   const renderSummary = (diagnosis: DiagnosisResult, isVMError: boolean, vmiStatus: any) => {
     return (
       <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-        <Space direction="vertical" style={{ width: '100%', padding: '16px 24px' }}>
+        <Descriptions column={2} size="small" style={{ padding: '16px 24px' }}>
           {isVMError && (
-            <Alert
-              message="检测到问题"
-              description={
-                <div>
-                  <Paragraph style={{ marginBottom: 8 }}>
-                    根据当前状态，可能的原因包括：
-                  </Paragraph>
+            <Descriptions.Item label="诊断结果" span={2}>
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Alert
+                  message="检测到问题"
+                  description={
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                        根据当前状态，可能的原因包括：
+                      </Text>
+                      <ul style={{ margin: 0, paddingLeft: 20 }}>
+                        {diagnosis.nodeAffinity?.required && (
+                          <li>
+                            <Text style={{ fontSize: 12 }}>
+                              节点亲和性不满足：需要节点标签 <Text code>{diagnosis.nodeAffinity.label}</Text>
+                            </Text>
+                          </li>
+                        )}
+                        {!vmiStatus && (
+                          <li>
+                            <Text style={{ fontSize: 12 }}>
+                              VMI 未创建：可能是调度失败，检查节点资源和标签
+                            </Text>
+                          </li>
+                        )}
+                        {diagnosis.pvcStatus && diagnosis.pvcStatus.length > 0 && (
+                          <li>
+                            <Text style={{ fontSize: 12 }}>
+                              检查 PVC 状态：确保所有 PVC 已创建且已绑定
+                            </Text>
+                          </li>
+                        )}
+                        {diagnosis.networkStatus?.multusNetworks && diagnosis.networkStatus.multusNetworks.length > 0 && (
+                          <li>
+                            <Text style={{ fontSize: 12 }}>
+                              检查 Multus 网络配置：确保网络配置存在
+                            </Text>
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  }
+                  type="warning"
+                  showIcon
+                />
+                <div style={{ 
+                  padding: '12px', 
+                  background: '#fff7e6',
+                  borderRadius: 4,
+                  border: '1px solid #ffe58f'
+                }}>
+                  <Text strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>建议操作：</Text>
                   <ul style={{ margin: 0, paddingLeft: 20 }}>
-                    {diagnosis.nodeAffinity?.required && (
-                      <li>节点亲和性不满足：需要节点标签 {diagnosis.nodeAffinity.label}</li>
-                    )}
-                    {!vmiStatus && (
-                      <li>VMI 未创建：可能是调度失败，检查节点资源和标签</li>
-                    )}
-                    {diagnosis.pvcStatus && diagnosis.pvcStatus.length > 0 && (
-                      <li>检查 PVC 状态：确保所有 PVC 已创建且已绑定</li>
-                    )}
-                    {diagnosis.networkStatus?.multusNetworks && diagnosis.networkStatus.multusNetworks.length > 0 && (
-                      <li>检查 Multus 网络配置：确保网络配置存在</li>
-                    )}
+                    <li>
+                      <Text style={{ fontSize: 12 }}>查看"事件"标签页获取详细错误信息</Text>
+                    </li>
+                    <li>
+                      <Text style={{ fontSize: 12 }}>查看"日志"标签页查看 Pod 日志</Text>
+                    </li>
+                    <li>
+                      <Text style={{ fontSize: 12 }}>检查节点资源是否充足</Text>
+                    </li>
+                    <li>
+                      <Text style={{ fontSize: 12 }}>检查节点标签是否符合要求</Text>
+                    </li>
                   </ul>
                 </div>
-              }
-              type="warning"
-              showIcon
-            />
+              </Space>
+            </Descriptions.Item>
           )}
-          <div>
-            <Text strong>建议操作：</Text>
-            <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-              <li>查看"事件"标签页获取详细错误信息</li>
-              <li>查看"日志"标签页查看 Pod 日志</li>
-              <li>检查节点资源是否充足</li>
-              <li>检查节点标签是否符合要求</li>
-            </ul>
-          </div>
-        </Space>
+          {!isVMError && (
+            <Descriptions.Item label="诊断结果" span={2}>
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Alert
+                  message="诊断完成"
+                  description="未检测到明显问题，虚拟机状态正常"
+                  type="success"
+                  showIcon
+                />
+                <div style={{ 
+                  padding: '12px', 
+                  background: '#f6ffed',
+                  borderRadius: 4,
+                  border: '1px solid #b7eb8f'
+                }}>
+                  <Text strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>建议操作：</Text>
+                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                    <li>
+                      <Text style={{ fontSize: 12 }}>如仍有问题，可查看"事件"和"日志"标签页获取详细信息</Text>
+                    </li>
+                    <li>
+                      <Text style={{ fontSize: 12 }}>定期检查节点资源使用情况</Text>
+                    </li>
+                  </ul>
+                </div>
+              </Space>
+            </Descriptions.Item>
+          )}
+        </Descriptions>
       </Card>
     );
   };

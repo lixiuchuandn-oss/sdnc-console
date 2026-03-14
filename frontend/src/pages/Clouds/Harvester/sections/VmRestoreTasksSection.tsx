@@ -382,6 +382,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
     >
       <Table
         className="std-table"
+        bordered={false}
         rowKey={(r: any) => r.key}
         columns={columns}
         dataSource={filtered}

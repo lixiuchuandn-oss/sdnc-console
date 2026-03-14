@@ -8,10 +8,11 @@ import { apiRequest, apiPost, apiPatch, apiDelete as apiDeleteUnified } from './
 const base = (cloudId: string) => `/api/clouds/${encodeURIComponent(cloudId)}/logging`;
 
 // 包装统一 API 函数，保持向后兼容的返回格式 { data, ok, error }
-async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal }): Promise<{ data: T | null; ok: boolean; error?: string }> {
+async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal; silent?: boolean }): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
     // 注意：统一 API 函数目前不支持 signal，但保留参数以保持接口兼容
-    const data = await apiRequest(url, { skipCache: false });
+    // 如果设置了 silent，传递给 apiRequest 以静默处理预期的 404 错误
+    const data = await apiRequest(url, { skipCache: false, silent: options?.silent });
     return { data, ok: true };
   } catch (e: any) {
     const errorMsg = e?.message || e?.error || '请求失败';
@@ -212,9 +213,10 @@ export async function fetchHarvesterVmPod(
   options?: { signal?: AbortSignal }
 ): Promise<{ podName: string }> {
   const params = new URLSearchParams({ namespace, vmName });
+  // 使用 silent 选项，避免在控制台显示 404 错误（Pod 不存在是预期情况）
   const result = await apiGet<{ podName: string }>(
     `${base(cloudId)}/harvester/vm-pod?${params}`,
-    options
+    { ...options, silent: true }
   );
   if (!result.ok || !result.data?.podName) {
     throw new Error(result.error || '未找到 virt-launcher Pod');

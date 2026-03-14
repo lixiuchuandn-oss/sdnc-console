@@ -377,10 +377,14 @@ export const createHarvesterVirtualMachineRestore = async (cloudId: string, name
  * 通过链接获取 Harvester 资源
  * @param cloudId 云环境 ID
  * @param path 资源路径
+ * @param force 是否强制刷新，默认 false
  * @returns Promise<any>
  */
-export const fetchHarvesterResourceByLink = async (cloudId: string, path: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/proxy?path=${encodeURIComponent(path)}`);
+export const fetchHarvesterResourceByLink = async (cloudId: string, path: string, force = false) => {
+  const params = new URLSearchParams();
+  params.append('path', path);
+  if (force) params.append('force', 'true');
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/proxy?${params.toString()}`);
 };
 
 /**
@@ -395,7 +399,7 @@ export const deleteHarvesterResourceByLink = async (cloudId: string, path: strin
 
 export const fetchHarvesterVirtualMachineRestores = async (cloudId: string, force = false) => {
   const path = `/apis/harvesterhci.io/v1beta1/virtualmachinerestores`;
-  return await fetchHarvesterResourceByLink(cloudId, path);
+  return await fetchHarvesterResourceByLink(cloudId, path, force);
 };
 
 export const deleteHarvesterVirtualMachineRestore = async (cloudId: string, namespace: string, name: string) => {
@@ -790,8 +794,11 @@ export const attachHarvesterVolumeToVm = async (
  * @param name 卷名称
  * @returns Promise<any>
  */
-export const fetchHarvesterVolume = async (cloudId: string, namespace: string, name: string) => {
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+export const fetchHarvesterVolume = async (cloudId: string, namespace: string, name: string, options?: { silent?: boolean; skipCache?: boolean }) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/volumes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, { 
+    silent: options?.silent,
+    skipCache: options?.skipCache 
+  });
 };
 
 /**

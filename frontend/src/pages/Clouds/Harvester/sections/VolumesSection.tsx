@@ -65,7 +65,7 @@
  */
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge } from 'antd';
+import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge, Tag } from 'antd';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined, HddOutlined } from '@ant-design/icons';
@@ -388,6 +388,36 @@ const VolumesSection: React.FC<Props> = ({
     }
   }), [vms]);
 
+  // [系统盘识别辅助函数]
+  const checkIsSystemDisk = useCallback((r: VolumeView, vm: any): boolean => {
+    if (!vm) return false;
+    
+    const pvcName = r.name;
+    const vmVolumes = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
+    const vmDisks = Array.isArray(vm?.spec?.template?.spec?.domain?.devices?.disks)
+      ? vm.spec.template.spec.domain.devices.disks
+      : [];
+    const volEntry = vmVolumes.find((v: any) => v?.persistentVolumeClaim?.claimName === pvcName);
+    const volName = volEntry?.name || '';
+    
+    if (!volName) return false;
+    
+    const diskEntry = vmDisks.find((d: any) => d?.name === volName);
+    if (!diskEntry || diskEntry.cdrom) return false;
+    
+    // 策略1: bootOrder === 1
+    if (Number(diskEntry.bootOrder) === 1) return true;
+    // 策略2: 名称为 'disk-0'
+    if (volName === 'disk-0') return true;
+    // 策略3: 名称为 'rootdisk'
+    if (volName === 'rootdisk') return true;
+    // 策略4: 如果只有一个非 CDROM 磁盘，则认为是系统盘
+    const nonCdromDisks = vmDisks.filter((d: any) => !d.cdrom);
+    if (nonCdromDisks.length === 1 && nonCdromDisks[0]?.name === volName) return true;
+    
+    return false;
+  }, []);
+
   // ----------------------------------------------------------------
   // [数据处理] 归一化与视图转换
   // [标签] #数据处理 #数据转换 #useMemo
@@ -482,22 +512,30 @@ const VolumesSection: React.FC<Props> = ({
     const kw = keyword.trim().toLowerCase();
     const st = statusFilter.trim().toLowerCase();
     return dataSource.filter(item => {
-      // 关键字搜索：优先匹配别名，其次匹配名称
+      // 关键字搜索：支持匹配 3 个列（显示名称/ID/PV 名称）
+      // - 显示名称列：alias 或 name
+      // - 云盘ID：name（PVC metadata.name）
+      // - PV 名称：pvName（PVC spec.volumeName）
       if (kw) {
-        const displayName = String(item.alias || item.name || '').toLowerCase();
-        if (!displayName.includes(kw)) return false;
+        const alias = String(item.alias || '').toLowerCase();
+        const name = String(item.name || '').toLowerCase();
+        const pvName = String(item.pvName || '').toLowerCase();
+        if (!alias.includes(kw) && !name.includes(kw) && !pvName.includes(kw)) return false;
       }
       // 状态筛选
       if (st && item.phase.toLowerCase() !== st) return false;
       
       // [系统资源过滤]
+      // 系统卷 = 系统命名空间下的卷
       // 1. 租户模式: 强制过滤系统命名空间和公共命名空间
       if (isTenant) {
         if (isSystemNamespace(item.namespace) || isPublicNamespace(item.namespace)) return false;
       }
       
-      // 2. 非租户模式: 始终过滤系统命名空间和系统存储类
-      if (!isTenant && (isSystemNamespace(item.namespace) || isSystemStorageClass(item.storageClass))) return false;
+      // 2. 非租户模式: 只过滤系统命名空间
+      if (!isTenant) {
+        if (isSystemNamespace(item.namespace)) return false;
+      }
 
       // 命名空间筛选
       if (nsFilter && item.namespace !== nsFilter) return false;
@@ -506,7 +544,7 @@ const VolumesSection: React.FC<Props> = ({
 
       return true;
     });
-  }, [dataSource, keyword, statusFilter, nsFilter, scFilter]);
+  }, [dataSource, keyword, statusFilter, nsFilter, scFilter, isTenant]);
 
   // 生成命名空间下拉选项
   const [fetchedNsOptions, setFetchedNsOptions] = useState<string[]>([]);
@@ -680,7 +718,13 @@ const VolumesSection: React.FC<Props> = ({
       return;
     }
     
-    // 2. 尝试解析磁盘名称 (diskName)
+    // 2. 检查是否为系统盘
+    if (checkIsSystemDisk(r, vm)) {
+      message.warning('系统盘不支持通过此入口卸载，如需变更请使用重建/镜像等高级操作。');
+      return;
+    }
+    
+    // 3. 尝试解析磁盘名称 (diskName)
     const pvcName = r.name;
     const vmVolumes = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
     const vmDisks = Array.isArray(vm?.spec?.template?.spec?.domain?.devices?.disks)
@@ -689,15 +733,6 @@ const VolumesSection: React.FC<Props> = ({
     // 在 VM spec 里找对应 claimName 的卷
     const volEntry = vmVolumes.find((v: any) => v?.persistentVolumeClaim?.claimName === pvcName);
     const volName = volEntry?.name || '';
-
-    // 如果该卷对应的磁盘是系统盘（bootOrder=1），则禁止通过此入口卸载
-    if (volName) {
-      const diskEntry = vmDisks.find((d: any) => d?.name === volName);
-      if (diskEntry && Number(diskEntry.bootOrder) === 1) {
-        message.warning('系统盘不支持通过此入口卸载，如需变更请使用重建/镜像等高级操作。');
-        return;
-      }
-    }
     // 或者从 Extra Map 里找
     const mappedName = vm?.Extra?.VolumeMap?.[pvcName] || '';
     const diskName = volName || mappedName || '';
@@ -755,7 +790,7 @@ const VolumesSection: React.FC<Props> = ({
         }
       }
     });
-  }, [vms, onRefresh, SafeRead, cloudId, message, modal]);
+  }, [vms, onRefresh, SafeRead, cloudId, message, modal, checkIsSystemDisk]);
 
   // ----------------------------------------------------------------
   // [表格列配置] Table Columns
@@ -766,12 +801,17 @@ const VolumesSection: React.FC<Props> = ({
       title: '云盘名称 (PVC)', 
       dataIndex: 'name',
       key: 'name', 
-      render: (_: string, r: VolumeView) => (
-        <span>
-          <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-          {r.alias || r.name}
-        </span>
-      )
+      render: (_: string, r: VolumeView) => {
+        const vm = SafeRead.attachedVm(r);
+        const isSystemDisk = checkIsSystemDisk(r, vm);
+        return (
+          <span>
+            <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
+            {r.alias || r.name}
+            {isSystemDisk && <Tag color="blue" style={{ marginLeft: 8 }}>系统盘</Tag>}
+          </span>
+        );
+      }
     },
     { 
       title: '云盘ID', 
@@ -858,6 +898,17 @@ const VolumesSection: React.FC<Props> = ({
       key: 'size', 
       render: (bytes: number) => gbText(bytes) 
     },
+    {
+      title: '创建时间',
+      dataIndex: 'creationTimestamp',
+      key: 'creationTimestamp',
+      sorter: (a: VolumeView, b: VolumeView) => {
+        const ta = a?.creationTimestamp ? new Date(a.creationTimestamp).getTime() : 0;
+        const tb = b?.creationTimestamp ? new Date(b.creationTimestamp).getTime() : 0;
+        return ta - tb;
+      },
+      render: (v: string) => <span className="text-secondary">{v ? new Date(v).toLocaleString() : '-'}</span>
+    },
     { 
       title: '操作', 
       key: 'actions', 
@@ -865,24 +916,7 @@ const VolumesSection: React.FC<Props> = ({
       fixed: 'right' as const,
       render: (_: any, r: VolumeView) => {
         const vm = SafeRead.attachedVm(r);
-
-        // 识别当前卷在 VM 内是否为系统盘（bootOrder=1）
-        let isSystemDisk = false;
-        if (vm) {
-          const pvcName = r.name;
-          const vmVolumes = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
-          const vmDisks = Array.isArray(vm?.spec?.template?.spec?.domain?.devices?.disks)
-            ? vm.spec.template.spec.domain.devices.disks
-            : [];
-          const volEntry = vmVolumes.find((v: any) => v?.persistentVolumeClaim?.claimName === pvcName);
-          const volName = volEntry?.name || '';
-          if (volName) {
-            const diskEntry = vmDisks.find((d: any) => d?.name === volName);
-            if (diskEntry && Number(diskEntry.bootOrder) === 1) {
-              isSystemDisk = true;
-            }
-          }
-        }
+        const isSystemDisk = checkIsSystemDisk(r, vm);
 
         const items: any[] = [
           // 1. 资源详情
@@ -981,7 +1015,7 @@ const VolumesSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant]);
+  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, checkIsSystemDisk]);
 
   // ----------------------------------------------------------------
   // [渲染] Render

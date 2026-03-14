@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Modal, Select, Popconfirm, message, Dropdown, Typography } from 'antd';
 // 引入各个资源模块组件
 import NodesSection from './sections/NodesSection';
@@ -83,7 +83,6 @@ const statusTag = (s?: string) => {
  */
 const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string }> = ({ cloudId, defaultProvider }) => {
   const navigate = useNavigate();
-  const location = useLocation();
   const { user } = useAuth();
   const { hasFeature } = useLicense();
   const ovnVpcEnabled = hasFeature('network.ovn.vpc');
@@ -413,6 +412,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               }, force);
             }
             break;
+          case 'scheduleVmBackups':
+            if (checkPerm('clouds.backups:read')) {
+              loadResource('scheduleVmBackups', () => fetchHarvesterScheduleVmBackups(cloudId, force), (json) => {
+                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                setHarvesterScheduleVmBackups(Array.isArray(list) ? list : []);
+                setRawScheduleVmBackups(json || null);
+              }, force);
+            }
+            break;
           case 'ssh_keys':
             if (checkPerm('clouds.sshkeys:read')) {
               loadResource('sshKeys', () => fetchHarvesterSshKeys(cloudId, force), (json) => {
@@ -645,26 +653,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   // --- 初始化 Effect ---
   // 仅在组件挂载或 cloudId 变化时加载核心资源
   useEffect(() => { loadEssentials(); }, [cloudId]);
-
-  // 监听 URL hash 变化，自动切换 tab
-  useEffect(() => {
-    const hash = location.hash.replace('#', '');
-    if (!hash) return;
-    
-    // 处理双层 hash，如 #backups_group#vm_clones
-    const parts = hash.split('#');
-    const outerTab = parts[0];
-    const innerTab = parts[1];
-    
-    if (outerTab === 'backups_group') {
-      handleTabChange('backups_group');
-      if (innerTab === 'vm_clones' || innerTab === 'vm_snapshots' || innerTab === 'backups') {
-        setTimeout(() => {
-          setBackupsGroupActiveKey(innerTab);
-        }, 100);
-      }
-    }
-  }, [location.hash]); // 添加 cloudId 作为依赖，确保每次 cloudId 变化时重新注册
 
   /**
    * 处理 Tab 切换事件，实现按需加载
@@ -1772,7 +1760,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '定时策略',
                       children: (
                         <>
-                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={() => loadTabResource('scheduleVmBackups', true)} />
+                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={(force = true) => loadTabResource('scheduleVmBackups', force)} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawScheduleVmBackups, null, 2)}</pre>

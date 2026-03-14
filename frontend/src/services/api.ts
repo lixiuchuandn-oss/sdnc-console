@@ -90,7 +90,7 @@ const parseErrorResponse = async (response: Response) => {
 };
 
 // 通用请求函数（带缓存、去重、重试）
-export const apiRequest = async (endpoint: string, options?: { skipCache?: boolean }) => {
+export const apiRequest = async (endpoint: string, options?: { skipCache?: boolean; silent?: boolean }) => {
   try {
     return await requestManager(
       {
@@ -106,8 +106,16 @@ export const apiRequest = async (endpoint: string, options?: { skipCache?: boole
       },
       API_BASE_URL
     );
-  } catch (error) {
-    console.error(`API请求失败 ${endpoint}:`, error);
+  } catch (error: any) {
+    // 如果是预期的 404 错误且设置了 silent，不记录到控制台
+    // 这对于诊断功能很重要，因为 Pod 不存在、PVC 不存在是预期的情况
+    const is404 = error?.status === 404 || 
+                  error?.message?.includes('404') || 
+                  error?.message?.includes('Not Found') ||
+                  error?.message?.includes('未找到');
+    if (!is404 || !options?.silent) {
+      console.error(`API请求失败 ${endpoint}:`, error);
+    }
     throw error;
   }
 };

@@ -54,11 +54,6 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
   }, [open, form, srcNamespace, srcName]);
 
   const handleOk = async () => {
-    // 检查源 VM 是否在运行（在 try 块外部定义，以便在 catch 块中使用）
-    const sourceVmRunning = sourceVm?.status?.printableStatus === 'Running' || 
-                            sourceVm?.status?.ready === true ||
-                            sourceVm?.status?.phase === 'Running';
-
     try {
       const values = await form.validateFields();
       const targetName = String(values.name || '').trim();
@@ -67,10 +62,9 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
 
       setLoading(true);
 
-      // 克隆时，将新 VM 的 runStrategy 设置为 Halted，避免在卷克隆完成前启动
-      // 这样可以避免存储卷挂载冲突（卷还在克隆中时，VM 不应该尝试启动）
-      // 用户可以在卷克隆完成后手动启动新 VM
-      const runStrategy = 'Halted';
+      // 克隆时使用 Manual runStrategy，避免卷未就绪时自动启动导致 VM 一直处于启动中状态
+      // 等待卷就绪后，用户可以手动启动 VM
+      const runStrategy = 'Manual';
 
       // 使用 Harvester 标准的直接克隆方式
       await harvesterVmAction(
@@ -137,10 +131,9 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
       }
 
       // 立即关闭弹窗，不阻塞用户
-      const sourceVmStatus = sourceVmRunning ? '（源虚拟机正在运行）' : '';
       message.success({
-        content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 已创建为停止状态${sourceVmStatus}，卷克隆可能需要几分钟时间。卷克隆完成后，您需要手动启动新虚拟机。您可以在「快照/备份 → 克隆任务」中查看进度。`,
-        duration: 10,
+        content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 正在后台创建中，卷克隆可能需要几分钟时间。您可以在「快照/备份 → 克隆任务」中查看进度。`,
+        duration: 8,
       });
       onSuccess?.({ namespace: srcNamespace, name: targetName });
       onCancel();
@@ -193,10 +186,9 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
           console.warn('Failed to add clone task annotation:', e);
         }
 
-        const sourceVmStatus = sourceVmRunning ? '（源虚拟机正在运行）' : '';
         message.warning({
-          content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 已创建为停止状态${sourceVmStatus}，卷正在克隆（这是正常过程）。卷克隆完成后，您需要手动启动新虚拟机。您可以在「快照/备份 → 克隆任务」中查看进度。`,
-          duration: 10,
+          content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 正在后台创建中，卷正在克隆（这是正常过程）。您可以在「快照/备份 → 克隆任务」中查看进度。`,
+          duration: 8,
         });
         if (targetName) {
           onSuccess?.({ namespace: srcNamespace, name: targetName });
@@ -222,7 +214,7 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
     >
       <Alert
         message="使用标准克隆方式"
-        description="将直接克隆虚拟机和所有卷，无需创建快照，速度更快。新虚拟机将以停止状态创建，避免在卷克隆完成前启动导致存储卷挂载冲突。卷克隆可能需要几分钟时间，完成后您需要手动启动新虚拟机。您可以在「快照/备份 → 克隆任务」中查看卷克隆进度。"
+        description="将直接克隆虚拟机和所有卷，无需创建快照，速度更快。克隆任务提交后将在后台进行，卷克隆可能需要几分钟时间。克隆完成后，新虚拟机将处于停止状态，等待卷就绪后您可以手动启动。您可以在「快照/备份 → 克隆任务」中查看进度，在「云主机」标签页查看虚拟机状态。"
         type="info"
         showIcon
         style={{ marginBottom: 16 }}

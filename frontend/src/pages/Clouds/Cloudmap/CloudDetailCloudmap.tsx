@@ -147,6 +147,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const [nsFilter, setNsFilter] = useState<string>(''); // 命名空间筛选值
   const [nodeFilter, setNodeFilter] = useState<string>(''); // 节点筛选值
   const [showLog, setShowLog] = useState<boolean>(false); // 是否显示原始 JSON 日志
+  const [activeTabKey, setActiveTabKey] = useState<string>('overview');
+  const [backupsGroupActiveKey, setBackupsGroupActiveKey] = useState<string>('backups');
 
   // --- 原始数据缓存 (用于日志展示) ---
   const [rawEcs, setRawEcs] = useState<any | null>(null);
@@ -210,7 +212,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
     if (nadsLoading) return;
     setNadsLoading(true);
     try {
-      const nadsJson = await fetchHarvesterNads(cloudId, force);
+      const skipSync = silent || false;
+      const nadsJson = await fetchHarvesterNads(cloudId, force, skipSync);
       const nadsList: any[] = (nadsJson as any)?.data?.items || [];
       setHarvesterNads(Array.isArray(nadsList) ? nadsList : []);
       setRawNads(nadsJson || null);
@@ -229,17 +232,24 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
    * @param cb 数据回调处理函数
    * @param force 是否强制刷新 (忽略缓存)
    */
+  const REQUEST_TIMEOUT = 30000;
   const loadResource = async (key: string, fn: () => Promise<any>, cb: (json: any) => void, force = false) => {
     // 如果非强制刷新且已加载过，直接跳过
     if (!force && loadedRef.current.has(key)) return;
     
     setResourceLoading(prev => ({ ...prev, [key]: true }));
     try {
-      const json = await fn();
-      cb(json);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(`请求超时: ${key} (${REQUEST_TIMEOUT}ms)`)), REQUEST_TIMEOUT);
+      });
+      const json = await Promise.race([fn(), timeoutPromise]);
+      cb(json as any);
       loadedRef.current.add(key);
-    } catch (e) {
-      console.warn(`Failed to load ${key}`, e);
+    } catch (e: any) {
+      console.warn(`Failed to load ${key}:`, e?.message || e);
+      try {
+        cb(null);
+      } catch {}
     } finally {
       setResourceLoading(prev => ({ ...prev, [key]: false }));
     }
@@ -274,16 +284,23 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       }, force);
       
       // Kube-OVN 基础网络资源
-      loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force), (json) => {
-        const list: any[] = (json as any)?.data?.items || [];
-        setKubeOvnVpcs(Array.isArray(list) ? list : []);
-        setRawVpcs(json || null);
-      }, force);
-      loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force), (json) => {
-        const list: any[] = (json as any)?.data?.items || [];
-        setKubeOvnSubnets(Array.isArray(list) ? list : []);
-        setRawSubnets(json || null);
-      }, force);
+      if (ovnVpcEnabled) {
+        loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force), (json) => {
+          const list: any[] = (json as any)?.data?.items || [];
+          setKubeOvnVpcs(Array.isArray(list) ? list : []);
+          setRawVpcs(json || null);
+        }, force);
+        loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force), (json) => {
+          const list: any[] = (json as any)?.data?.items || [];
+          setKubeOvnSubnets(Array.isArray(list) ? list : []);
+          setRawSubnets(json || null);
+        }, force);
+      } else {
+        setKubeOvnVpcs([]);
+        setKubeOvnSubnets([]);
+        setRawVpcs(null);
+        setRawSubnets(null);
+      }
     }
 
     if (checkPerm('clouds.images:read')) {
@@ -636,10 +653,17 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   // --- SSE 实时数据更新 Effect ---
   // 建立 EventSource 连接，监听 VM 状态变化
   useEffect(() => {
+    let es: EventSource | null = null;
     try {
-      const token = getToken() || '';
-      const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-      const es = new EventSource(url);
+      const token = getToken();
+      if (!token) {
+        console.warn('[SSE] No auth token found, skipping connection.');
+        return;
+      }
+      const urlObj = new URL(`${API_BASE_URL}/api/clouds/${cloudId}/resources/ecs/stream`);
+      urlObj.searchParams.append('token', token);
+      urlObj.searchParams.append('t', String(Date.now()));
+      es = new EventSource(urlObj.toString());
       
       // 全量 VM 列表更新
       es.addEventListener('vms', (ev: MessageEvent) => {
@@ -718,8 +742,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
         // SSE 连接丢失，浏览器会自动重连
       };
       
-      return () => { try { es.close(); } catch {} };
-    } catch {}
+    } catch (e) {
+      console.error('[SSE] Init failed', e);
+    }
+    return () => { try { es?.close(); } catch {} };
   }, [cloudId]);
 
   // --- 定时刷新 VM 状态缓冲 ---
@@ -918,8 +944,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       <Tabs
           type="card"
           destroyInactiveTabPane
-          defaultActiveKey="overview"
-          onChange={handleTabChange}
+          activeKey={activeTabKey}
+          onChange={(key) => {
+            setActiveTabKey(key);
+            handleTabChange(key);
+          }}
           items={[
             {
               key: 'overview',
@@ -1428,8 +1457,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                 <Tabs
                   type="line"
                   destroyInactiveTabPane
-                  defaultActiveKey="backups"
-                  onChange={handleTabChange}
+                  activeKey={backupsGroupActiveKey}
+                  onChange={(key) => {
+                    setBackupsGroupActiveKey(key);
+                    handleTabChange(key);
+                  }}
                   items={[
                     {
                       key: 'backups',
