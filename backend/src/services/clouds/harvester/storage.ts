@@ -183,7 +183,15 @@ export const listHarvesterAvailableVolumesStandard = async (
         );
       const attached = state === 'attached' || inUse;
       const pvcName = v?.status?.kubernetesStatus?.pvcName || '';
-      return { name, pvcName, namespace: ns, size, state, attached };
+      return { 
+        name, 
+        pvcName, 
+        namespace: ns, 
+        size, 
+        state, 
+        attached,
+        workloadsStatus: workloads, // [修复] 保留 workloadsStatus 信息，用于过滤回收站虚拟机的卷
+      };
     })
     // [逻辑过滤] 仅保留未挂载且符合命名空间的卷
     .filter((x: any) => !x.attached)

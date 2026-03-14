@@ -20,7 +20,7 @@ interface MonitoringAlertsProps {
 
 const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'leased_lines_admin';
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
 
   // 站内实时告警列表
   const [alertsLoading, setAlertsLoading] = useState(false);

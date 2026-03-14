@@ -644,8 +644,7 @@ const VolumesSection: React.FC<Props> = ({
     attachForm.resetFields();
     attachForm.setFieldsValue({ 
       instanceId: vm ? vm.InstanceId : undefined, 
-      diskName: r.name, 
-      bus: 'virtio' 
+      diskName: r.name
     });
     setAttachOpen(true);
   }, [vms, onRefresh, SafeRead, attachForm]);
@@ -1207,7 +1206,6 @@ const VolumesSection: React.FC<Props> = ({
 
             await attachHarvesterVolumeToVmByName(cloudId, vmNamespace, finalName, {
               diskName: computedDiskName,
-              bus: v.bus || 'virtio',
               pvcNamespace: currentRecord.namespace,
               pvcName: currentRecord.name
             });
@@ -1244,9 +1242,6 @@ const VolumesSection: React.FC<Props> = ({
               style={{ width: '100%' }} 
               notFoundContent={currentRecord?.namespace ? `命名空间 "${currentRecord.namespace}" 下没有可用的云主机` : '请先选择PVC'}
             />
-          </Form.Item>
-          <Form.Item label="总线" name="bus" initialValue="virtio">
-            <Select options={['virtio', 'sata', 'scsi'].map(v => ({ value: v, label: v }))} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="命名空间"><Input value={currentRecord?.namespace} disabled /></Form.Item>
           <Form.Item label="PVC"><Input value={currentRecord?.name} disabled /></Form.Item>

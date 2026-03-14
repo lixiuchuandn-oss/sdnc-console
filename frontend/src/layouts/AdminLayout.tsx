@@ -31,14 +31,14 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Input, Divider, Typography, Space, Tag, Badge, App, Select, Dropdown, Tooltip, Spin, Empty } from 'antd';
+import { Layout, Menu, Button, Input, Divider, Typography, Space, Tag, Badge, App, Select, Dropdown, Tooltip, Spin, Empty, Modal, Form } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   CodeOutlined, UserOutlined, SettingOutlined, MenuUnfoldOutlined, MenuFoldOutlined, CaretDownOutlined,
   ApiOutlined, DatabaseOutlined, BellOutlined, CloudServerOutlined, DeploymentUnitOutlined,
   AppstoreOutlined, LogoutOutlined, CodeFilled, DatabaseFilled, SearchOutlined,
   SafetyCertificateOutlined,
-  AliyunOutlined, AmazonOutlined, GoogleOutlined, CheckCircleFilled, StopFilled
+  AliyunOutlined, AmazonOutlined, GoogleOutlined, CheckCircleFilled, StopFilled, LockOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useLicense } from '../contexts/LicenseContext';
@@ -47,7 +47,7 @@ import { getRequiredActionForPath, hasPermissionForAction } from '../utils/acces
 import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../constants/navigation';
 import { routeSpecs } from '../routes/RouteSpec';
 import { iconOf } from '../components/PageContainer';
-import { fetchClouds } from '../services/api';
+import { fetchClouds, apiPost } from '../services/api';
 import '../pages/Dashboard/Dashboard.css';
 
 const { Header, Sider, Content } = Layout;
@@ -98,6 +98,34 @@ const AdminLayout: React.FC = () => {
   const [searchText, setSearchText] = useState(''); // 搜索关键词
   const [searchActiveIndex, setSearchActiveIndex] = useState(0); // 当前选中的搜索结果索引
   const { message } = App.useApp(); // Ant Design 消息提示
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [changePasswordSaving, setChangePasswordSaving] = useState(false);
+  const [changePasswordForm] = Form.useForm();
+
+  const openChangePassword = () => {
+    changePasswordForm.resetFields();
+    setChangePasswordOpen(true);
+  };
+
+  const submitChangePassword = async () => {
+    try {
+      const values = await changePasswordForm.validateFields();
+      setChangePasswordSaving(true);
+      await apiPost('/api/users/me/password', {
+        oldPassword: String(values.oldPassword || ''),
+        newPassword: String(values.newPassword || ''),
+      });
+      message.success('密码修改成功，请重新登录');
+      setChangePasswordOpen(false);
+      logout();
+      navigate('/admin/login');
+    } catch (e: any) {
+      if (Array.isArray(e?.errorFields) && e.errorFields.length > 0) return;
+      message.error(e?.message || '修改密码失败');
+    } finally {
+      setChangePasswordSaving(false);
+    }
+  };
 
   // ============================================================================
   // 【权限控制】Permission Control
@@ -183,7 +211,7 @@ const AdminLayout: React.FC = () => {
               >
                 {(() => {
                   const full = String(user.fullName || '').trim();
-                  const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
+                  const shouldUseUsername = !full || /\?/.test(full);
                   return shouldUseUsername ? (user.username || '') : full;
                 })()}
               </span>
@@ -208,6 +236,17 @@ const AdminLayout: React.FC = () => {
             </div>
 
             <Divider type="vertical" style={{ height: 24, margin: 0, borderColor: '#e8e8e8' }} />
+
+            {user.role !== 'tenant' && (
+              <Tooltip title="修改密码">
+                <Button
+                  type="text"
+                  icon={<LockOutlined style={{ color: '#595959', fontSize: 16 }} />}
+                  onClick={openChangePassword}
+                  style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                />
+              </Tooltip>
+            )}
 
             <Tooltip title="退出登录">
               <Button 
@@ -529,7 +568,7 @@ const AdminLayout: React.FC = () => {
           <UserOutlined style={{color:'#fff',fontSize:18,marginRight:6}} />
           {(() => {
             const full = String(user.fullName || '').trim();
-            const shouldUseUsername = (user.role === 'leased_lines_admin') || !full || /\?/.test(full);
+            const shouldUseUsername = !full || /\?/.test(full);
             const display = shouldUseUsername ? (user.username || '') : full;
             
             return (
@@ -541,6 +580,16 @@ const AdminLayout: React.FC = () => {
             );
           })()}
           </div>
+          {user.role !== 'tenant' && (
+            <Button
+              type="link"
+              size="small"
+              onClick={openChangePassword}
+              style={{ color: '#fff', padding: 0 }}
+            >
+              修改密码
+            </Button>
+          )}
           <Button style={{color:'#1062fe',borderRadius:16,fontSize:12}} size="small" onClick={handleLogout}>Logout</Button>
         </>)}
       </div>
@@ -817,6 +866,52 @@ const AdminLayout: React.FC = () => {
       {/* 根据路径选择 Header 组件 */}
       {isProConsole ? <ProHeader /> : <StandardHeader />}
       <>
+        <Modal
+          title="修改密码"
+          open={changePasswordOpen}
+          onCancel={() => setChangePasswordOpen(false)}
+          onOk={submitChangePassword}
+          confirmLoading={changePasswordSaving}
+          okText="确认修改"
+          cancelText="取消"
+          destroyOnClose
+        >
+          <Form form={changePasswordForm} layout="vertical">
+            <Form.Item
+              label="原密码"
+              name="oldPassword"
+              rules={[{ required: true, message: '请输入原密码' }]}
+            >
+              <Input.Password autoComplete="current-password" />
+            </Form.Item>
+            <Form.Item
+              label="新密码"
+              name="newPassword"
+              rules={[
+                { required: true, message: '请输入新密码' },
+                { min: 8, max: 64, message: '密码长度需为 8-64 位' },
+              ]}
+            >
+              <Input.Password autoComplete="new-password" />
+            </Form.Item>
+            <Form.Item
+              label="确认新密码"
+              name="confirmPassword"
+              dependencies={['newPassword']}
+              rules={[
+                { required: true, message: '请再次输入新密码' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
+                    return Promise.reject(new Error('两次输入的新密码不一致'));
+                  },
+                }),
+              ]}
+            >
+              <Input.Password autoComplete="new-password" />
+            </Form.Item>
+          </Form>
+        </Modal>
         {/* 全局搜索弹窗 */}
         {/* 检索关键词: search modal dialog 搜索弹窗 */}
         {searchOpen && (

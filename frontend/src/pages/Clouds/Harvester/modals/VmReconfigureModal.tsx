@@ -200,7 +200,7 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
             form={form} 
             currentCpu={currentCpu} 
             currentMemory={currentMemory}
-            // 这里用“是否已配置热扩容”来决定界面布局和表单校验
+            // 这里用"是否已配置热扩容"来决定界面布局和表单校验
             isHotPlugEnabledOnVm={isHotPlugConfiguredOnVmVal}
             isRestartRequired={isRestartRequired}
             maxSockets={maxSockets}
@@ -211,11 +211,10 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
         );
       case 'hotplug_settings':
         return (
-          <HotPlugSettings
-            form={form}
-            currentCpu={currentCpu}
+          <HotPlugSettings 
+            form={form} 
+            currentCpu={currentCpu} 
             currentMemory={currentMemory}
-            // 这里使用“已配置”状态来控制 UI 展示（例如提示“已开启热扩容，上限不可修改”）
             isHotPlugEnabledOnVm={isHotPlugConfiguredOnVmVal}
             maxSockets={maxSockets}
             maxMemory={maxMemory}
@@ -446,9 +445,6 @@ const VmReconfigureModal: React.FC<Props> = (props) => {
               buttonText = "提交（热扩容）";
            }
         }
-    } else if (selectedKey === 'hotplug_settings') {
-        // 热扩容设置：变更热扩容开关需要重启
-        buttonText = "提交（需要重启）";
     }
     return { alertMessage: messageNode, okText: buttonText };
   }, [selectedKey, cpu, memory, currentCpu, currentMemory, isHotPlugActiveOnVmVal, maxSockets, maxMemory]);

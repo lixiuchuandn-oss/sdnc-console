@@ -285,17 +285,6 @@ AppDataSource.initialize()
       console.warn('启动 VR 列表同步任务失败:', e);
     }
 
-    // 启动回收站清理任务
-    try {
-      const { RecycleBinCleanupService } = await import('./services/clouds/harvester/recycleBinCleanup');
-      // 延迟 30s 启动，避免和启动时的数据库操作冲突
-      setTimeout(() => {
-        RecycleBinCleanupService.getInstance().startCleanupJob();
-      }, 30000);
-    } catch (e) {
-      console.warn('启动回收站清理任务失败:', e);
-    }
-
     // WebSocket 服务实例
     let sshWss: any = null;
     let vncWss: any = null;

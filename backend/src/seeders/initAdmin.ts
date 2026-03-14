@@ -6,6 +6,15 @@ export async function initializeAdmin() {
   try {
     const userRepository = AppDataSource.getRepository(User);
 
+    try {
+      await userRepository
+        .createQueryBuilder()
+        .update(User)
+        .set({ role: UserRole.ADMIN })
+        .where('role = :legacy', { legacy: 'leased_lines_admin' })
+        .execute();
+    } catch {}
+
     const existingAdmin = await userRepository.findOne({
       where: { role: UserRole.SUPER_ADMIN },
     });

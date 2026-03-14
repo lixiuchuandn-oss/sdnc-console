@@ -38,7 +38,7 @@
  * ==============================================================================
  */
 
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Table, Select, Button, Dropdown, Modal, Input, Badge, App, Checkbox, Tag, Tabs, Tooltip, Alert, Cascader } from 'antd';
@@ -134,6 +134,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
   const [saveTemplateModalOpen, setSaveTemplateModalOpen] = useState(false);
   const [saveTemplateVm, setSaveTemplateVm] = useState<any>(null);
+
 
   // [弹窗控制] 备份与快照
   const [vmBackupModalVisible, setVmBackupModalVisible] = useState(false);
@@ -1394,9 +1395,24 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       
       const { isFsPending, isResizing } = checkResizeStatus(r);
       
+      // 检查是否是克隆中的 VM
+      const cloneTaskAnno = r?.metadata?.annotations?.['tower.io/cloneTask'];
+      const isCloning = !!cloneTaskAnno;
+      let cloneInfo: any = null;
+      if (isCloning) {
+        try {
+          cloneInfo = JSON.parse(cloneTaskAnno);
+        } catch (e) {
+          // 忽略解析错误
+        }
+      }
+      
+      // 判断克隆是否完成（VM Ready 且所有 PVC Bound）
+      const isCloneCompleted = isCloning && (k === 'running' || k === 'stopped');
+      
       return (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
             <Badge status={status as any} text={
               <span>
                 {cnVmStatus(s)}
@@ -1421,6 +1437,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
               <Tooltip title="重要实例 (防删保护)">
                 <SafetyCertificateFilled style={{ color: '#faad14', marginLeft: 8, fontSize: 14 }} />
               </Tooltip>
+            )}
+            {isCloning && !isCloneCompleted && (
+              <Tag color="processing" style={{ marginLeft: 4 }}>克隆中</Tag>
             )}
           </div>
         </div>
@@ -1517,9 +1536,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // ----------------------------------------------------------------
         // 1. 基础信息与访问
         // ----------------------------------------------------------------
-        { key: 'detail', label:'实例详情', onClick: () => handleShowMetadata(r, 'detail') },
-        { key: 'clone', label:'克隆', onClick: () => handleClone(r) },
-        
+        { key: 'detail', label:'实例详情', onClick: () => handleShowMetadata(r, 'detail') },        
         // 运维模式下的 YAML 查看
         ...(!isTenant ? [
             { key: 'detail_ops', label: '运维信息', onClick: () => handleShowMetadata(r, 'detail', true) }
@@ -1780,13 +1797,14 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         onCancel={() => setCloneModalVisible(false)}
         onSuccess={() => {
           setCloneModalVisible(false);
-          message.success('克隆任务已提交，可在「快照/备份 → 克隆任务」中查看进度');
+          // 成功消息已在 VmCloneModal 中显示，这里不再重复显示
           onRefresh && onRefresh(true);
         }}
         cloudId={cloudId}
         sourceVm={cloneSourceVm}
         existingVms={vms}
       />
+
 
       {/* 热迁移弹窗 */}
       <HarvesterMigrateModal

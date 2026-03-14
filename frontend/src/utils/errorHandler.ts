@@ -46,6 +46,7 @@ export const handleApiError = (
     const msg = String(raw || '').trim();
     if (!msg) return raw;
     const lower = msg.toLowerCase();
+    // VM 运行策略为 Halted 时的重启限制
     if (
       /runstategy\s+halted.*manual restart/i.test(msg) ||
       /runstrategy\s+halted.*manual restart/i.test(msg) ||
@@ -60,6 +61,16 @@ export const handleApiError = (
       const head = vm ? `实例 ${vm} ` : '实例 ';
       return `${head}运行策略为 Halted（保持停止），不支持重启。请先启动实例或将运行策略调整为允许运行后再重试。`;
     }
+
+    // Harvester VM 正在备份中，禁止停止/重启
+    if (lower.includes('vmbackup in progress for vm')) {
+      let vm = '';
+      const m = msg.match(/vmbackup in progress for vm\s+([^\s,]+)/i);
+      if (m?.[1]) vm = String(m[1]);
+      const head = vm ? `实例 ${vm} ` : '实例 ';
+      return `${head}当前正在执行备份任务，Harvester 暂不允许停止或重启。请等待备份完成或删除正在进行的备份后再重试。`;
+    }
+
     return raw;
   };
 
@@ -71,7 +82,14 @@ export const handleApiError = (
     const { status, data } = error.response;
     apiError.status = status;
     apiError.data = data;
-    apiError.message = translateKnownMessage(data?.message || data?.error || getStatusMessage(status));
+
+    // 优先使用更详细的 error 字段翻译某些 Harvester 特殊错误（例如 vmbackup in progress）
+    const rawError: string | undefined = typeof data?.error === 'string' ? data.error : undefined;
+    if (rawError && rawError.toLowerCase().includes('vmbackup in progress for vm')) {
+      apiError.message = translateKnownMessage(rawError);
+    } else {
+      apiError.message = translateKnownMessage(data?.message || data?.error || getStatusMessage(status));
+    }
     
     // 特殊状态码处理
     handleSpecialStatus(status, apiError.message);

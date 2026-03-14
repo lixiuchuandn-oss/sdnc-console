@@ -5,7 +5,8 @@ import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/ic
 import PageDetailSection from '../../../../components/PageDetailSection';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterBackup, deleteHarvesterVirtualMachineRestore, fetchHarvesterBackups, fetchHarvesterVirtualMachineRestores } from '../../../../services/harvesterApi';
-import { isPublicNamespace, isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { apiRequest } from '../../../../services/api';
+import { isPublicNamespace, isSystemNamespace, calculateVmCloneProgress, estimateVmCloneProgress } from '../../../../utils/harvesterUtils';
 
 type Props = {
   cloudId: string;
@@ -44,6 +45,9 @@ const getSnapshotStatus = (raw: any) => {
   return { phase: 'pending', text: '未就绪' as const };
 };
 
+// 使用共享的进度计算函数
+const calculateCloneProgress = calculateVmCloneProgress;
+
 const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -51,6 +55,8 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
   const [loading, setLoading] = useState(false);
   const [backups, setBackups] = useState<any[]>([]);
   const [restores, setRestores] = useState<any[]>([]);
+  const [vms, setVms] = useState<any[]>([]);
+  const [vmProgressCache, setVmProgressCache] = useState<Map<string, { progress: number; phase: string; text: string }>>(new Map());
 
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
@@ -87,6 +93,37 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       });
   }, [restores]);
 
+  // 识别标准克隆方式的 VM
+  const normalizeStandardCloneVms = useMemo(() => {
+    const list = Array.isArray(vms) ? vms : [];
+    return list
+      .map((v: any) => {
+        const raw = v?.rawData || v?.metadata ? v : null;
+        if (!raw) return null;
+        const cloneTaskAnno = raw?.metadata?.annotations?.['tower.io/cloneTask'];
+        if (!cloneTaskAnno) return null;
+        
+        try {
+          const cloneInfo = JSON.parse(cloneTaskAnno);
+          if (cloneInfo.cloneType === 'standard') {
+            return {
+              vm: raw,
+              cloneInfo,
+              namespace: raw?.metadata?.namespace || '',
+              name: raw?.metadata?.name || '',
+              targetVm: raw?.metadata?.name || '',
+              sourceVm: cloneInfo.sourceVmName || cloneInfo.sourceVm?.split('/')?.[1] || '-',
+              sourceVmNamespace: cloneInfo.sourceVmNamespace || cloneInfo.sourceVm?.split('/')?.[0] || '',
+            };
+          }
+        } catch (e) {
+          // 忽略解析错误
+        }
+        return null;
+      })
+      .filter((x: any) => x !== null);
+  }, [vms]);
+
   const dataSource = useMemo(() => {
     const rows: any[] = [];
     const backupIndex = new Map<string, any>();
@@ -96,6 +133,7 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       if (ns && name) backupIndex.set(`${ns}/${name}`, b);
     });
 
+    // 添加旧的快照+恢复方式的克隆任务
     normalizeRestores.forEach((r: any) => {
       const ns = String(r?.metadata?.namespace || '');
       const name = String(r?.metadata?.name || '');
@@ -114,6 +152,7 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         sourceVm: sourceVm || '-',
         restoreRaw: r,
         backupRaw: backup,
+        cloneType: 'snapshot-restore',
         creationTimestamp: r?.metadata?.creationTimestamp || backup?.metadata?.creationTimestamp || '',
       });
     });
@@ -136,7 +175,34 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         sourceVm: String(b?.spec?.source?.name || '-') || '-',
         restoreRaw: null,
         backupRaw: b,
+        cloneType: 'snapshot-restore',
         creationTimestamp: b?.metadata?.creationTimestamp || '',
+      });
+    });
+
+    // 添加标准克隆方式的 VM
+    normalizeStandardCloneVms.forEach((item: any) => {
+      const vm = item.vm;
+      const ns = item.namespace;
+      const name = item.name;
+      const progressInfo = vmProgressCache.get(`${ns}/${name}`) || { progress: 0, phase: 'pending', text: '进行中' };
+      
+      rows.push({
+        key: vm?.metadata?.uid || `${ns}/${name}`,
+        namespace: ns,
+        restoreName: '-',
+        targetVm: item.targetVm,
+        backupName: '-',
+        sourceVm: item.sourceVm,
+        restoreRaw: null,
+        backupRaw: null,
+        vmRaw: vm,
+        cloneType: 'standard',
+        cloneInfo: item.cloneInfo,
+        progress: progressInfo.progress,
+        progressPhase: progressInfo.phase,
+        progressText: progressInfo.text,
+        creationTimestamp: vm?.metadata?.creationTimestamp || item.cloneInfo?.createdAt || '',
       });
     });
 
@@ -146,7 +212,7 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       return Number.isFinite(n) ? n : 0;
     };
     return rows.sort((a, b) => parseTs(b.creationTimestamp) - parseTs(a.creationTimestamp));
-  }, [normalizeBackups, normalizeRestores]);
+  }, [normalizeBackups, normalizeRestores, normalizeStandardCloneVms, vmProgressCache]);
 
   const filtered = useMemo(() => {
     let d = dataSource;
@@ -158,14 +224,22 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
     }
     if (statusFilter !== 'all') {
       d = d.filter((x: any) => {
-        const bk = x.backupRaw;
-        const rs = x.restoreRaw;
-        const bkSt = bk ? getSnapshotStatus(bk) : { phase: 'pending' };
-        const rsSt = rs ? getRestoreStatus(rs) : { phase: 'pending' };
-        if (statusFilter === 'pending') return bkSt.phase === 'pending' || rsSt.phase === 'pending';
-        if (statusFilter === 'failed') return bkSt.phase === 'failed' || rsSt.phase === 'failed';
-        if (statusFilter === 'ready') return (bkSt.phase === 'ready' && (rs ? rsSt.phase === 'ready' : true));
-        return true;
+        if (x.cloneType === 'standard') {
+          const phase = x.progressPhase || 'pending';
+          if (statusFilter === 'pending') return phase === 'pending';
+          if (statusFilter === 'failed') return phase === 'failed';
+          if (statusFilter === 'ready') return phase === 'ready';
+          return true;
+        } else {
+          const bk = x.backupRaw;
+          const rs = x.restoreRaw;
+          const bkSt = bk ? getSnapshotStatus(bk) : { phase: 'pending' };
+          const rsSt = rs ? getRestoreStatus(rs) : { phase: 'pending' };
+          if (statusFilter === 'pending') return bkSt.phase === 'pending' || rsSt.phase === 'pending';
+          if (statusFilter === 'failed') return bkSt.phase === 'failed' || rsSt.phase === 'failed';
+          if (statusFilter === 'ready') return (bkSt.phase === 'ready' && (rs ? rsSt.phase === 'ready' : true));
+          return true;
+        }
       });
     }
     if (keyword) {
@@ -186,14 +260,69 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
   const refresh = useCallback(async (force = true) => {
     setLoading(true);
     try {
-      const [bkRes, rsRes] = await Promise.all([
+      const [bkRes, rsRes, vmsRes] = await Promise.all([
         fetchHarvesterBackups(cloudId, force, false),
         fetchHarvesterVirtualMachineRestores(cloudId, force),
+        apiRequest(`/api/clouds/${cloudId}/resources/ecs${force ? '?force=true' : ''}`),
       ]);
       const bkItems: any[] = Array.isArray((bkRes as any)?.data?.items) ? (bkRes as any).data.items : [];
       const rsItems: any[] = Array.isArray((rsRes as any)?.items) ? (rsRes as any).items : Array.isArray((rsRes as any)?.data?.items) ? (rsRes as any).data.items : [];
+      const vmsItems: any[] = Array.isArray((vmsRes as any)?.data) ? (vmsRes as any).data : [];
+      
       setBackups(bkItems);
       setRestores(rsItems);
+      setVms(vmsItems);
+
+      // 计算标准克隆方式的进度（异步，不阻塞刷新）
+      const standardCloneVms = vmsItems.filter((v: any) => {
+        const raw = v?.rawData || v?.metadata ? v : null;
+        if (!raw) return false;
+        const cloneTaskAnno = raw?.metadata?.annotations?.['tower.io/cloneTask'];
+        if (!cloneTaskAnno) return false;
+        try {
+          const cloneInfo = JSON.parse(cloneTaskAnno);
+          return cloneInfo.cloneType === 'standard';
+        } catch {
+          return false;
+        }
+      });
+
+      // 先设置初始进度（基于 VM 状态快速估算，与 calculateVmCloneProgress 逻辑保持一致）
+      const initialProgressMap = new Map<string, { progress: number; phase: string; text: string }>();
+      standardCloneVms.forEach((v: any) => {
+        const raw = v?.rawData || v?.metadata ? v : null;
+        if (!raw) return;
+        const ns = raw?.metadata?.namespace || '';
+        const name = raw?.metadata?.name || '';
+        const key = `${ns}/${name}`;
+        // 使用统一的估算函数，确保与 calculateVmCloneProgress 逻辑一致
+        const estimatedProgress = estimateVmCloneProgress(raw);
+        initialProgressMap.set(key, estimatedProgress);
+      });
+      setVmProgressCache(initialProgressMap);
+
+      // 然后异步计算精确进度（不阻塞）
+      Promise.all(
+        standardCloneVms.map(async (v: any) => {
+          const raw = v?.rawData || v?.metadata ? v : null;
+          if (!raw) return;
+          const ns = raw?.metadata?.namespace || '';
+          const name = raw?.metadata?.name || '';
+          const key = `${ns}/${name}`;
+          try {
+            const progress = await calculateCloneProgress(raw, cloudId);
+            setVmProgressCache((prev) => {
+              const newMap = new Map(prev);
+              newMap.set(key, progress);
+              return newMap;
+            });
+          } catch (e) {
+            // 忽略错误，保持初始进度
+          }
+        })
+      ).catch(() => {
+        // 忽略所有错误
+      });
     } catch (e: any) {
       message.error(e?.message || '刷新失败');
     } finally {
@@ -246,6 +375,10 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
 
   useEffect(() => {
     const hasPending = filtered.some((x: any) => {
+      if (x.cloneType === 'standard') {
+        const phase = x.progressPhase || 'pending';
+        return phase === 'pending';
+      }
       const bk = x.backupRaw;
       const rs = x.restoreRaw;
       const bkSt = bk ? getSnapshotStatus(bk) : { phase: 'pending' };
@@ -273,6 +406,7 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       title: '克隆点',
       key: 'backupStatus',
       render: (_: any, r: any) => {
+        if (r.cloneType === 'standard') return <Badge status="default" text="标准克隆" />;
         if (!r.backupRaw) return <Badge status="default" text="-" />;
         const st = getSnapshotStatus(r.backupRaw);
         if (st.phase === 'ready') return <Badge status="success" text={st.text} />;
@@ -281,9 +415,20 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       },
     },
     {
-      title: '恢复',
+      title: '恢复/状态',
       key: 'restoreStatus',
       render: (_: any, r: any) => {
+        if (r.cloneType === 'standard') {
+          const phase = r.progressPhase || 'pending';
+          const text = r.progressText || '进行中';
+          if (phase === 'ready') {
+            return <Badge status="success" text={text} />;
+          }
+          if (phase === 'failed') {
+            return <Badge status="error" text="失败" />;
+          }
+          return <Badge status="processing" text={text} />;
+        }
         if (!r.restoreRaw) return <Badge status="default" text="-" />;
         const st = getRestoreStatus(r.restoreRaw);
         if (st.phase === 'ready') return <Badge status="success" text={st.text} />;
@@ -307,6 +452,15 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       render: (_: any, r: any) => {
         const ns = String(r.namespace || '');
         const items: MenuProps['items'] = [
+          ...(r.cloneType === 'standard' && r.vmRaw ? [{
+            key: 'vm_detail',
+            label: '虚拟机详情',
+            onClick: () => {
+              const name = String(r.targetVm || '');
+              const view = `/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(ns)}/virtualmachines/${encodeURIComponent(name)}`;
+              openDrawer(r.vmRaw, 'VirtualMachine', view, 'detail');
+            }
+          }] : []),
           ...(r.backupRaw ? [{
             key: 'backup_detail',
             label: '克隆点详情',
@@ -326,7 +480,7 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
             }
           }] : []),
           { type: 'divider' },
-          { key: 'delete', label: '删除任务', danger: true, onClick: () => deleteTask(r) },
+          ...(r.cloneType === 'standard' ? [] : [{ key: 'delete', label: '删除任务', danger: true, onClick: () => deleteTask(r) }]),
         ];
         return (
           <Dropdown menu={{ items }} trigger={['click']}>
@@ -380,12 +534,9 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         </>
       }
     >
-      <div style={{ marginBottom: 8 }}>
-        <Tag color="blue">说明：克隆任务是「创建 VM 快照」+「恢复为新 VM」的组合过程，耗时与磁盘数据量相关。</Tag>
-      </div>
+
       <Table
         className="std-table"
-        bordered
         rowKey={(r: any) => r.key}
         columns={columns}
         dataSource={filtered}

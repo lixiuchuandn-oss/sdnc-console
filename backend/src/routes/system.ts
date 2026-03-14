@@ -15,7 +15,6 @@ import fs from 'fs';
 import path from 'path';
 import { getDifyConfig, setDifyConfig } from '../config/runtimeConfig';
 import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
-import { RecycleBinCleanupService } from '../services/clouds/harvester/recycleBinCleanup';
 import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
@@ -63,55 +62,13 @@ router.get('/settings/:key', (req, res) => {
 // 更新单个系统设置项
 // - value 来源于请求体，内部统一转成字符串保存
 // - 适合存储一些轻量级的全局配置，例如开关、字符串参数等
-// - 如果更新的是回收站清理周期配置，会自动重启清理任务
 router.patch('/settings/:key', (req, res) => {
   const key = req.params.key;
   const { value } = req.body;
   
   try {
-    // Validate recycleBin.cleanupInterval
-    if (key === 'recycleBin.cleanupInterval') {
-      const val = String(value || '').trim();
-      if (!val) {
-        return res.status(400).json({ error: 'Cleanup interval cannot be empty' });
-      }
-      // Check format
-      const isHours = /^(\d+(?:\.\d+)?)\s*h(?:ours?)?$/i.test(val);
-      const isDays = /^(\d+(?:\.\d+)?)\s*d(?:ays?)?$/i.test(val);
-      const isNumber = /^(\d+(?:\.\d+)?)$/.test(val);
-      
-      if (!isHours && !isDays && !isNumber) {
-        return res.status(400).json({ error: 'Invalid cleanup interval format. Use number (hours), "Nh", or "Nd".' });
-      }
-      
-      // Check minimum value (1 hour)
-      let hours = 0;
-      if (isHours) {
-        const match = val.match(/^(\d+(?:\.\d+)?)/);
-        if (match) hours = parseFloat(match[1]);
-      } else if (isDays) {
-        const match = val.match(/^(\d+(?:\.\d+)?)/);
-        if (match) hours = parseFloat(match[1]) * 24;
-      } else if (isNumber) {
-        hours = parseFloat(val);
-      }
-      
-      if (hours < 1) {
-        return res.status(400).json({ error: 'Cleanup interval must be at least 1 hour' });
-      }
-    }
-
     setSystemSetting(key, String(value || ''));
-    
-    // 如果更新的是回收站清理周期配置，重新加载清理任务
-    if (key === 'recycleBin.cleanupInterval') {
-      try {
-        RecycleBinCleanupService.getInstance().reloadConfig();
-      } catch (e: any) {
-        console.warn('[SystemSettings] 重新加载回收站清理任务失败:', e?.message || e);
-      }
-    }
-    
+
     res.json({ data: { key, value: String(value || '') } });
   } catch (e: any) {
     res.status(500).json({ error: e?.message || 'Failed to update setting' });
@@ -463,10 +420,14 @@ router.get('/rbac/roles', async (req, res) => {
         name: r.name,
         type: SYSTEM_ROLES.includes(r.name) ? '系统策略' : '自定义策略',
         description: r.description,
+        scope: r.scope,
+        status: r.status,
+        permissions: r.permissions,
         actions: Array.isArray(actions) ? actions : [],
         groups: [], // Calculated on frontend
         conditions,
-        createdAt: r.createdAt
+        createdAt: r.createdAt,
+        updatedAt: (r as any).updatedAt
       };
     });
     res.json(list);

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Modal, Select, Popconfirm, message, Dropdown, Typography } from 'antd';
 // 引入各个资源模块组件
 import NodesSection from './sections/NodesSection';
@@ -42,7 +42,6 @@ import TemplatesSection from './sections/TemplatesSection';
 import ScheduleVmBackupsSection from './sections/ScheduleVmBackupsSection';
 import VmCloneTasksSection from './sections/VmCloneTasksSection';
 import VmRestoreTasksSection from './sections/VmRestoreTasksSection';
-import VmCreateTasksSection from './sections/VmCreateTasksSection';
 import EipSection from './kube-ovn/EipSection';
 import FipSection from './kube-ovn/FipSection';
 import SnatSection from './kube-ovn/SnatSection';
@@ -84,6 +83,7 @@ const statusTag = (s?: string) => {
  */
 const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string }> = ({ cloudId, defaultProvider }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { hasFeature } = useLicense();
   const ovnVpcEnabled = hasFeature('network.ovn.vpc');
@@ -124,6 +124,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   // --- 次要/按需加载资源数据 ---
   const [harvesterSnapshots, setHarvesterSnapshots] = useState<any[]>([]); // 卷快照
   const [harvesterBackups, setHarvesterBackups] = useState<any[]>([]); // 虚拟机备份
+  const [backupsGroupActiveKey, setBackupsGroupActiveKey] = useState<string>('backups'); // 备份组内层 tab 的 activeKey
   const [harvesterSshKeys, setHarvesterSshKeys] = useState<any[]>([]); // SSH 密钥
   const [harvesterCloudInits, setHarvesterCloudInits] = useState<any[]>([]); // CloudInit 配置
   const [harvesterIngresses, setHarvesterIngresses] = useState<any[]>([]); // Ingress 路由
@@ -644,6 +645,26 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   // --- 初始化 Effect ---
   // 仅在组件挂载或 cloudId 变化时加载核心资源
   useEffect(() => { loadEssentials(); }, [cloudId]);
+
+  // 监听 URL hash 变化，自动切换 tab
+  useEffect(() => {
+    const hash = location.hash.replace('#', '');
+    if (!hash) return;
+    
+    // 处理双层 hash，如 #backups_group#vm_clones
+    const parts = hash.split('#');
+    const outerTab = parts[0];
+    const innerTab = parts[1];
+    
+    if (outerTab === 'backups_group') {
+      handleTabChange('backups_group');
+      if (innerTab === 'vm_clones' || innerTab === 'vm_snapshots' || innerTab === 'backups') {
+        setTimeout(() => {
+          setBackupsGroupActiveKey(innerTab);
+        }, 100);
+      }
+    }
+  }, [location.hash]); // 添加 cloudId 作为依赖，确保每次 cloudId 变化时重新注册
 
   /**
    * 处理 Tab 切换事件，实现按需加载
@@ -1676,8 +1697,11 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 <Tabs
                   type="line"
                   destroyOnHidden
-                  defaultActiveKey="backups"
-                  onChange={handleTabChange}
+                  activeKey={backupsGroupActiveKey}
+                  onChange={(key) => {
+                    setBackupsGroupActiveKey(key);
+                    handleTabChange(key);
+                  }}
                   items={[
                     {
                       key: 'backups',
@@ -1769,13 +1793,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: '恢复任务',
                       children: (
                         <VmRestoreTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
-                      )
-                    },
-                    {
-                      key: 'vm_creates',
-                      label: '新建任务',
-                      children: (
-                        <VmCreateTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
                       )
                     }
                   ]}

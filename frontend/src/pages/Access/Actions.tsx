@@ -5,8 +5,6 @@ import {
   Drawer, 
   Form, 
   Input, 
-  Row, 
-  Col, 
   Select, 
   Space, 
   Table, 
@@ -24,9 +22,6 @@ import {
   ApiOutlined, 
   ReloadOutlined, 
   CopyOutlined, 
-  CheckCircleOutlined, 
-  ClockCircleOutlined,
-  AppstoreOutlined,
   TableOutlined,
   UnorderedListOutlined,
   CloseOutlined,
@@ -65,7 +60,7 @@ interface PermissionAction {
   apis: ApiEndpoint[];
 }
 
-type ViewMode = 'card' | 'table' | 'list';
+type ViewMode = 'table' | 'list';
 type StatusFilter = 'all' | 'bound' | 'draft';
 
 // ==================== 工具函数 ====================
@@ -109,7 +104,7 @@ const AccessActionsPage: React.FC = () => {
   const [groupFilter, setGroupFilter] = useState<string>('all');
   const [featureFilter, setFeatureFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [viewMode, setViewMode] = useState<ViewMode>('card');
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [selectedPermission, setSelectedPermission] = useState<PermissionAction | null>(null);
   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
   
@@ -229,15 +224,6 @@ const AccessActionsPage: React.FC = () => {
       return true;
     });
   }, [permissions, searchKeyword, platformFilter, groupFilter, featureFilter, statusFilter]);
-
-  // ==================== 统计信息 ====================
-  const statistics = useMemo(() => {
-    const total = filteredPermissions.length;
-    const bound = filteredPermissions.filter(p => p.status === 'bound').length;
-    const draft = total - bound;
-    const usageRate = total > 0 ? Math.round((bound / total) * 100) : 0;
-    return { total, bound, draft, usageRate };
-  }, [filteredPermissions]);
 
   // ==================== 树形数据生成 ====================
   const treeData = useMemo(() => {
@@ -389,79 +375,6 @@ const AccessActionsPage: React.FC = () => {
   }, [filterForm]);
 
   // ==================== 渲染函数 ====================
-  const renderPermissionCard = (perm: PermissionAction) => (
-    <Card
-      key={perm.id}
-      hoverable
-      style={{ 
-        marginBottom: 16,
-        borderRadius: 8,
-        transition: 'all 0.3s',
-        cursor: 'pointer',
-        height: '100%'
-      }}
-      bodyStyle={{ padding: 16 }}
-      onClick={() => handleViewDetail(perm)}
-      actions={[
-        <Tooltip title="查看详情" key="detail">
-          <FileTextOutlined onClick={(e) => {
-            e.stopPropagation();
-            handleViewDetail(perm);
-          }} />
-        </Tooltip>,
-        <Tooltip title="复制权限" key="copy">
-          <CopyOutlined 
-            onClick={(e) => {
-              e.stopPropagation();
-              handleCopyAction(perm.action);
-            }}
-          />
-        </Tooltip>
-      ]}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-        <Title level={5} style={{ margin: 0, fontSize: 14, fontWeight: 600, flex: 1 }}>
-          {perm.action}
-        </Title>
-        <Tag 
-          color={perm.status === 'bound' ? 'success' : 'warning'} 
-          icon={perm.status === 'bound' ? <CheckCircleOutlined /> : <ClockCircleOutlined />}
-        >
-          {perm.status === 'bound' ? '已绑定' : '策划'}
-        </Tag>
-      </div>
-      
-      <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-        {perm.description}
-      </Text>
-
-      <Space size={8} wrap style={{ marginBottom: 12 }}>
-        <Tag icon={<FolderOutlined />} color="purple">{perm.group}</Tag>
-        <Tag icon={<FunctionOutlined />} color="blue">{perm.feature}</Tag>
-        <Tag icon={<GlobalOutlined />} color="cyan">{perm.platform}</Tag>
-      </Space>
-
-      {perm.apiCount > 0 && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            <ApiOutlined /> 关联API ({perm.apiCount})
-          </Text>
-          <div style={{ marginTop: 8 }}>
-            {perm.apis.slice(0, 2).map((api, idx) => (
-              <Tag key={idx} color={getMethodColor(api.method)} style={{ marginBottom: 4, fontSize: 11 }}>
-                {api.method} {api.path.length > 30 ? api.path.substring(0, 30) + '...' : api.path}
-              </Tag>
-            ))}
-            {perm.apiCount > 2 && (
-              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                +{perm.apiCount - 2} 更多
-              </Text>
-            )}
-          </div>
-        </div>
-      )}
-    </Card>
-  );
 
   // 表格列定义
   const tableColumns = useMemo(() => [
@@ -538,60 +451,6 @@ const AccessActionsPage: React.FC = () => {
 
   return (
     <PageContainer titleLevel={3} asCard={false}>
-      {/* 统计卡片 */}
-      <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} md={6}>
-          <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <Text type="secondary" style={{ fontSize: 14 }}>权限总数</Text>
-                <div style={{ fontSize: 24, fontWeight: 600, marginTop: 8 }}>{statistics.total}</div>
-              </div>
-              <AppstoreOutlined style={{ fontSize: 32, color: '#1890ff', opacity: 0.3 }} />
-            </div>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={6}>
-          <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <Text type="secondary" style={{ fontSize: 14 }}>已绑定</Text>
-                <div style={{ fontSize: 24, fontWeight: 600, marginTop: 8, color: '#52c41a' }}>
-                  {statistics.bound} <Text type="secondary" style={{ fontSize: 14 }}>({statistics.usageRate}%)</Text>
-                </div>
-              </div>
-              <CheckCircleOutlined style={{ fontSize: 32, color: '#52c41a', opacity: 0.3 }} />
-            </div>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={6}>
-          <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <Text type="secondary" style={{ fontSize: 14 }}>策划中</Text>
-                <div style={{ fontSize: 24, fontWeight: 600, marginTop: 8, color: '#faad14' }}>
-                  {statistics.draft}
-                </div>
-              </div>
-              <ClockCircleOutlined style={{ fontSize: 32, color: '#faad14', opacity: 0.3 }} />
-            </div>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={6}>
-          <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <Text type="secondary" style={{ fontSize: 14 }}>使用率</Text>
-                <div style={{ fontSize: 24, fontWeight: 600, marginTop: 8, color: '#1890ff' }}>
-                  {statistics.usageRate}%
-                </div>
-              </div>
-              <ApiOutlined style={{ fontSize: 32, color: '#1890ff', opacity: 0.3 }} />
-            </div>
-          </Card>
-        </Col>
-      </Row>
-
       <div style={{ display: 'flex', gap: 16 }}>
         {/* 左侧导航树 */}
         <div style={{ width: 280, minWidth: 280, flex: '0 0 280px', borderRight: '1px solid #f0f0f0', paddingRight: 16 }}>
@@ -622,10 +481,10 @@ const AccessActionsPage: React.FC = () => {
         {/* 中间主内容区 */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* 工具栏 */}
-          <div className="page-toolbar" style={{ marginBottom: 16 }}>
+          <div className="page-toolbar">
             <Form
               layout="vertical"
-              style={{ display: 'flex', alignItems: 'flex-end', rowGap: 12, columnGap: 12, flexWrap: 'wrap' }}
+              className="toolbar-container"
               form={filterForm}
               initialValues={{ 
                 keyword: '',
@@ -702,14 +561,6 @@ const AccessActionsPage: React.FC = () => {
               description="暂无权限数据"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
-          ) : viewMode === 'card' ? (
-            <Row gutter={[16, 16]}>
-              {filteredPermissions.map(perm => (
-                <Col xs={24} sm={12} lg={8} key={perm.id}>
-                  {renderPermissionCard(perm)}
-                </Col>
-              ))}
-            </Row>
           ) : viewMode === 'table' ? (
             <Table
               className="std-table"

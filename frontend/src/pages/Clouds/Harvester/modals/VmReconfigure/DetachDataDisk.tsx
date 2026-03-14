@@ -64,7 +64,7 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
         // 过滤掉系统盘（bootOrder=1）
         if (diskInfo?.bootOrder === 1) return null;
         
-        // 获取容量信息（使用与虚拟卷详情页相同的数据源逻辑）
+        // 获取容量/文件类型等信息（使用与虚拟卷详情页相同的数据源逻辑）
         let capacityStr = '-';
         if (pvcSource && pvcSource.length > 0) {
           const pvc = pvcSource.find((p: any) => {
@@ -82,6 +82,13 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
             const scName = actualPvc?.spec?.storageClassName || pvc?.storageClassName || '-';
             const accessModes = actualPvc?.spec?.accessModes;
             const accessStr = formatAccessModes(accessModes);
+            const volumeMode = String(actualPvc?.spec?.volumeMode || '').toLowerCase();
+            const fileType =
+              volumeMode === 'block'
+                ? '块设备 (Block)'
+                : volumeMode === 'filesystem'
+                ? '文件系统 (Filesystem)'
+                : volumeMode || '-';
             return {
               key: v.name,
               name: v.name,
@@ -89,6 +96,7 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
               capacity: capacityStr,
               storageClassName: scName,
               accessModes: accessStr,
+              fileType,
               bus: diskInfo?.disk?.bus || '-',
               bootOrder: diskInfo?.bootOrder,
               hotpluggable: !!(v?.hotpluggable || diskInfo?.hotpluggable),
@@ -103,6 +111,7 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
           capacity: capacityStr,
           storageClassName: '-',
           accessModes: '-',
+          fileType: '-',
           bus: diskInfo?.disk?.bus || '-',
           bootOrder: diskInfo?.bootOrder,
           hotpluggable: !!(v?.hotpluggable || diskInfo?.hotpluggable),
@@ -149,7 +158,7 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
 
   const renderDiskCard = (item: any) => {
     const bus = String(item?.bus || '-');
-    const effectText = item?.hotpluggable ? '热插拔（无需重启）' : '非热插拔（需重启）';
+  const fileType = String(item?.fileType || '-');
     return (
       <Card
         size="small"
@@ -202,8 +211,8 @@ const DetachDataDisk: React.FC<Props> = ({ record, onDetach, onRefresh, loading 
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="生效方式" style={{ marginBottom: 0 }}>
-              <Input value={effectText} disabled readOnly />
+            <Form.Item label="文件类型" style={{ marginBottom: 0 }}>
+              <Input value={fileType} disabled readOnly />
             </Form.Item>
           </Col>
         </Row>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Form, Input, InputNumber, Select, Alert, Descriptions, Tag, Row, Col, Segmented } from 'antd';
+import { Form, Input, InputNumber, Select, Alert, Descriptions, Tag, Row, Col, Radio } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { FormInstance } from 'antd/es/form';
 
@@ -31,6 +31,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
   const diskSource = Form.useWatch('newDiskSource', form);
   const existingPvc = Form.useWatch('existingPvcName', form);
   const diskAccessMode = Form.useWatch('newDiskAccessMode', form);
+  const diskMode = Form.useWatch('newDiskMode', form) || 'spec'; // spec: 配置添加(需重启), hotplug: 在线热插拔
 
   const getPvcName = (p: any) => p?.rawData?.metadata?.name || p?.metadata?.name || p?.name || '';
   const getPvcNs = (p: any) => p?.rawData?.metadata?.namespace || p?.metadata?.namespace || p?.namespace || '';
@@ -60,6 +61,10 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
       </Form.Item>
       {/* 注册磁盘来源字段：用于 Segmented 受控切换 + useWatch 正常刷新 */}
       <Form.Item name="newDiskSource" initialValue="create" hidden>
+        <Input />
+      </Form.Item>
+      {/* 添加方式：配置添加(需重启) / 在线热插拔 */}
+      <Form.Item name="newDiskMode" initialValue="spec" hidden>
         <Input />
       </Form.Item>
 
@@ -92,15 +97,10 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
           <div style={{ lineHeight: '32px' }}>磁盘来源</div>
         </Col>
         <Col span={18}>
-          {/* 不用 Radio.Group，改为 Segmented（两段切换按钮） */}
-          <Segmented
+          <Radio.Group
             value={diskSource || 'create'}
-            options={[
-              { label: '创建新磁盘', value: 'create' },
-              { label: '选择已有磁盘', value: 'existing' },
-            ]}
-            onChange={(val) => {
-              const v = String(val);
+            onChange={(e) => {
+              const v = String(e.target.value);
               form.setFieldsValue({ newDiskSource: v });
               if (v === 'create') {
                 // 切回创建模式：重置选择状态
@@ -110,7 +110,10 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
                 form.setFieldsValue({ newDiskCreated: false });
               }
             }}
-          />
+          >
+            <Radio.Button value="create">创建新磁盘</Radio.Button>
+            <Radio.Button value="existing">选择已有磁盘</Radio.Button>
+          </Radio.Group>
           <div style={{ marginBottom: 24 }} />
         </Col>
       </Row>
@@ -241,6 +244,35 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
         </>
       )}
 
+      {/* 添加方式：配置添加(需重启) / 在线热插拔 */}
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: '32px' }}>添加方式</div>
+        </Col>
+        <Col span={18}>
+          <Radio.Group
+            value={diskMode}
+            onChange={(e) => {
+              const v = String(e.target.value);
+              // 在线热插拔：总线固定为 SCSI
+              if (v === 'hotplug') {
+                form.setFieldsValue({ newDiskMode: v, newDiskBus: 'scsi' });
+              } else {
+                form.setFieldsValue({ newDiskMode: v });
+              }
+            }}
+          >
+            <Radio value="spec">配置添加（需重启）</Radio>
+            <Radio value="hotplug">在线热插拔</Radio>
+          </Radio.Group>
+          <div style={{ marginBottom: 24, color: '#999', fontSize: 12 }}>
+            {diskMode === 'hotplug'
+              ? '在线热插拔：仅支持运行中的虚拟机，总线类型固定为 SCSI。'
+              : '配置添加：修改虚拟机规格模板，支持自定义总线类型，保存后需重启生效。'}
+          </div>
+        </Col>
+      </Row>
+
       {diskSource === 'create' && (
         <Row gutter={12} style={{ marginBottom: 0 }}>
           <Col span={6}>
@@ -280,7 +312,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
             rules={[{ required: true, message: '请选择总线类型' }]}
             noStyle
           >
-            <Select style={{ width: '100%' }}>
+            <Select style={{ width: '100%' }} disabled={diskMode === 'hotplug'}>
               <Select.Option value="virtio">VirtIO</Select.Option>
               <Select.Option value="scsi">SCSI</Select.Option>
               <Select.Option value="sata">SATA</Select.Option>

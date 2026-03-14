@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Form, message, Modal } from 'antd';
 import yaml from 'js-yaml';
 import { 
-  updateHarvesterVmSpec, createHarvesterVolume, attachHarvesterVolumeToVmByName, 
+  updateHarvesterVmSpec, createHarvesterVolume, attachHarvesterVolumeToVm, attachHarvesterVolumeToVmByName, 
   fetchHarvesterGpuResources, fetchHarvesterUsbResources, patchHarvesterVm, fetchHarvesterNads,
   fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterImages, fetchHarvesterStorageClasses,
   fetchHarvesterVolume, fetchHarvesterVmDetail, updateHarvesterVolume, fetchHarvesterVolumes,
@@ -1420,7 +1420,8 @@ export const useVmReconfigure = (props: any) => {
           }
 
           await updateHarvesterVmSpec(cloudId, namespace, vmName, advancedPayload);
-          void maybePromptRestart(namespace, vmName);
+          message.success('性能设置已更新');
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'change_os': {
@@ -1573,7 +1574,7 @@ export const useVmReconfigure = (props: any) => {
             gpuNodeName: mode === 'none' ? null : gpuNodeName,
           });
           message.success('GPU配置已更新');
-          void maybePromptRestart(namespace, vmName);
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'change_node_scheduling': {
@@ -1632,7 +1633,7 @@ export const useVmReconfigure = (props: any) => {
           
           await updateHarvesterVmSpec(cloudId, namespace, vmName, updateParams);
           message.success('节点调度配置已更新');
-          void maybePromptRestart(namespace, vmName);
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'change_node_affinity': {
@@ -1683,14 +1684,14 @@ export const useVmReconfigure = (props: any) => {
           
           await updateHarvesterVmSpec(cloudId, namespace, vmName, { affinity: nodeAffinity });
           message.success('节点亲和性配置已更新');
-          void maybePromptRestart(namespace, vmName);
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'change_usb': {
           const names = Array.isArray(values.usbResourceNames) ? values.usbResourceNames : [];
           await updateHarvesterVmSpec(cloudId, namespace, vmName, { usbResourceNames: names });
           message.success('USB配置已更新');
-          void maybePromptRestart(namespace, vmName);
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'vm_policy': {
@@ -1698,6 +1699,7 @@ export const useVmReconfigure = (props: any) => {
           const es = values.evictionStrategy ? String(values.evictionStrategy) : null;
           await updateHarvesterVmSpec(cloudId, namespace, vmName, { runStrategy: rs, evictionStrategy: es });
           message.success('策略配置已更新');
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'change_primary_nic': {
@@ -1996,7 +1998,7 @@ export const useVmReconfigure = (props: any) => {
            }
 
            await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
-           void maybePromptRestart(namespace, vmName);
+           openRestartConfirm(namespace, vmName, false);
            break;
         }
         // ... other cases
@@ -2072,7 +2074,7 @@ export const useVmReconfigure = (props: any) => {
     if (diskCreating || diskAttaching) return;
     setDiskAttaching(true);
     try {
-      const values = await form.validateFields(['newDiskName', 'newDiskCreated', 'newDiskBus']);
+      const values = await form.validateFields(['newDiskName', 'newDiskCreated', 'newDiskBus', 'newDiskMode']);
       const vmName = record?.metadata?.name;
       const namespace = record?.metadata?.namespace;
       if (!vmName || !namespace) throw new Error('无法解析虚拟机信息');
@@ -2089,13 +2091,55 @@ export const useVmReconfigure = (props: any) => {
 
       const created = !!values.newDiskCreated;
       if (!created) {
-        message.warning('请先创建磁盘');
+        message.warning('请先创建磁盘或选择已有磁盘');
         return;
       }
 
       const volName = values.newDiskName;
+      const mode = values.newDiskMode || 'spec';
 
-      // 通过修改 VM 规格模板挂载数据盘（支持自定义总线类型，需重启生效）
+      if (mode === 'hotplug') {
+        // 在线热插拔：仅支持运行中的虚拟机，总线类型固定为 SCSI
+        const vmStatus = (latestVm || record)?.status?.printableStatus;
+        if (vmStatus !== 'Running') {
+          message.warning('仅支持在【运行中】的虚拟机上执行在线热插拔，请先启动虚拟机。');
+          return;
+        }
+
+        // NAD 依赖检查沿用其他任务的逻辑
+        {
+          const currentNetworks = activeRecord?.spec?.template?.spec?.networks || record?.spec?.template?.spec?.networks || [];
+          const nadList = await ensureNadsLoaded();
+          const missing = getMissingNadsFromNetworks(currentNetworks, String(namespace || 'default'), nadList);
+          if (missing.length > 0) {
+            message.error(`挂载失败：虚拟机网卡引用的 NAD 不存在：${missing.join(', ')}。请先在【变更网卡】中修复后再执行在线热插拔。`);
+            return;
+          }
+        }
+
+        // 使用 InstanceId 格式（namespace/name）调用标准 addVolume 接口：
+        // - 后端会等待 PVC Bound
+        // - 调用 Harvester 原生 addVolume 动作（总线类型由 Harvester 固定为 SCSI）
+        await attachHarvesterVolumeToVm(cloudId, `${namespace}/${vmName}`, {
+          name: volName,
+          pvcName: volName,
+          pvcNamespace: namespace,
+        });
+
+        try {
+          const updated = await fetchAggregatedVm(namespace, vmName);
+          setLatestVm(updated);
+        } catch (e: any) {
+          console.warn('在线热插拔后刷新 VM 数据失败:', e);
+        }
+
+        message.success('数据盘已在线热插拔成功（SCSI，总线）');
+        try { onOk?.(true); } catch {}
+        onClose?.();
+        return;
+      }
+
+      // 配置添加：通过修改 VM 规格模板挂载数据盘（支持自定义总线类型，需重启生效）
       {
         const vmSpecSource = latestVm || record;
         const vmSpec = vmSpecSource?.spec || {};
@@ -2242,8 +2286,7 @@ export const useVmReconfigure = (props: any) => {
         name: diskName,
       });
 
-      // 检查是否需要重启（添加/删除卷通常会触发 RestartRequired）
-      // 使用聚合接口刷新，确保包含 related.volumes 数据
+      // 使用聚合接口刷新，确保 DetachDataDisk 组件能获取到最新 related.volumes
       try {
         const res: any = await fetchHarvesterVMAggregated(cloudId, namespace, vmName);
         // [兼容返回结构] 支持 { data: { vm, related } } 与 { vm, related } 两种形态
@@ -2255,21 +2298,18 @@ export const useVmReconfigure = (props: any) => {
           updatedVm.related = data.related;
         }
         
-        const conditions = updatedVm?.status?.conditions || [];
-        const needsRestart = conditions.some(
-          (c: any) => c.type === 'RestartRequired' && c.status === 'True'
-        );
-        
-        if (needsRestart) {
-          message.warning('解绑成功，设置已保存。需要重启虚拟机后生效，您可以选择立即重启或稍后重启');
-        } else {
-          message.success('解绑成功');
-        }
         setLatestVm(updatedVm);
       } catch (refreshErr: any) {
         console.warn('刷新VM数据失败:', refreshErr);
-        message.success('解绑成功（设置已保存，请检查是否需要重启）');
+        // 刷新失败不影响后续重启提示
       }
+
+      // 为避免依赖 RestartRequired 条件的时序问题，统一按“需重启”处理
+      message.success('解绑成功，设置已保存，需要重启虚拟机后生效');
+      setTimeout(() => {
+        openRestartConfirm(namespace, vmName, false);
+      }, 300);
+
       // 通知上层刷新（VM + volumes）
       try { onOk?.(true); } catch {}
     } catch (e: any) {

@@ -64,11 +64,10 @@
  * ==============================================================================
  */
 
-import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { Table, Space, message, Modal, Tooltip, App, Badge, Tag, Input, Select, Button, Form, InputNumber, Typography, Checkbox } from 'antd';
-import { DeleteOutlined, ClockCircleOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import React, { useMemo, useCallback, useState } from 'react';
+import { Table, Space, message, Modal, Tooltip, App, Badge, Input, Select, Button, Typography, Checkbox } from 'antd';
+import { DeleteOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from '../../../../services/harvesterApi';
-import { getSystemSetting, updateSystemSetting } from '../../../../services/systemApi';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { cnVmStatus } from '../../../../utils/harvesterUtils';
@@ -125,12 +124,6 @@ const RecycleBinSection: React.FC<Props> = ({
   const [drawerVisible, setDrawerVisible] = useState(false); // 抽屉是否可见
   const [currentDrawerRecord, setCurrentDrawerRecord] = useState<any>(null); // 当前查看的 VM 记录
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail'); // 抽屉当前激活的标签页
-
-  // [清理周期设置模态框状态] 控制清理间隔配置对话框
-  // 注意: cleanupSettingsModalVisible 已废弃，使用 configOpen 替代
-  const [cleanupSettingsModalVisible, setCleanupSettingsModalVisible] = useState(false); // 已废弃
-  const [cleanupSettingsLoading, setCleanupSettingsLoading] = useState(false); // 已废弃
-  const [cleanupSettingsForm] = Form.useForm(); // 已废弃
 
   // ==========================================
   // [数据处理] 2. 数据过滤与转换 (Data Processing)
@@ -588,47 +581,6 @@ const RecycleBinSection: React.FC<Props> = ({
     return filteredVms.find((v: any) => SafeRead.uid(v) === currentId) || currentDrawerRecord;
   }, [filteredVms, currentDrawerRecord, SafeRead]);
 
-  // ==========================================
-  // [业务逻辑] 5. 回收站特有功能 (Recycle Bin Features)
-  // ==========================================
-  
-  /**
-   * 计算距离自动清理的剩余时间
-   * 
-   * 这是回收站的核心功能之一，显示每个 VM 还有多久会被自动清理
-   * 
-   * @param expiresAtStr - 过期时间字符串（ISO 格式），存储在 metadata.annotations['tower.io/deletion-expires']
-   * @returns 倒计时信息对象:
-   *   - expired: 是否已过期
-   *   - days: 剩余天数
-   *   - hours: 剩余小时数
-   *   - minutes: 剩余分钟数
-   *   - text: 格式化后的文本（如 "2天5小时" 或 "3小时30分钟"）
-   * 
-   * @example
-   * getTimeRemaining("2024-01-01T12:00:00Z") => { expired: false, days: 2, hours: 5, text: "2天5小时" }
-   */
-  const getTimeRemaining = useCallback((expiresAtStr: string) => {
-    if (!expiresAtStr) return null;
-    const expiresAt = new Date(expiresAtStr);
-    const now = new Date();
-    const diff = expiresAt.getTime() - now.getTime();
-    
-    if (diff <= 0) return { expired: true, text: '已过期' };
-    
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
-    return {
-      expired: false,
-      days,
-      hours,
-      minutes,
-      text: days > 0 ? `${days}天${hours}小时` : `${hours}小时${minutes}分钟`
-    };
-  }, []);
-
   /**
    * 恢复虚拟机
    * 
@@ -668,78 +620,6 @@ const RecycleBinSection: React.FC<Props> = ({
     setDrawerActiveTab(tab);
     setDrawerVisible(true);
   }, []);
-
-  // ==========================================
-  // [配置管理] 6. 清理周期配置 (Cleanup Interval Config)
-  // ==========================================
-  
-  /**
-   * 清理周期配置状态
-   * 
-   * 用于配置自动清理任务的执行间隔（1-168小时）
-   * 配置保存在系统设置中，影响后端清理任务的执行频率
-   */
-  const [configOpen, setConfigOpen] = useState(false); // 配置对话框是否打开
-  const [configLoading, setConfigLoading] = useState(false); // 保存配置时的加载状态
-  const [configForm] = Form.useForm(); // 配置表单实例
-
-  /**
-   * 组件挂载时加载清理周期配置
-   * 
-   * 从系统设置中读取 'recycleBin.cleanupInterval' 的值
-   * 支持多种格式: "24h", "1d", "24" 等
-   * 解析后设置到表单中
-   * 
-   * 注意: 使用 mounted 标志防止组件卸载后更新状态
-   */
-  useEffect(() => {
-    let mounted = true;
-    const fetchConfig = async () => {
-      try {
-        const res = await getSystemSetting('recycleBin.cleanupInterval');
-        if (!mounted) return;
-        
-        const rawVal = res?.data?.value ?? res?.value ?? (typeof res?.data === 'string' ? res.data : undefined);
-        let hours = 24;
-        if (rawVal) {
-          const s = String(rawVal).trim().toLowerCase();
-          const matchH = s.match(/^(\d+(?:\.\d+)?)\s*h(?:ours?)?$/);
-          const matchD = s.match(/^(\d+(?:\.\d+)?)\s*d(?:ays?)?$/);
-          const matchN = s.match(/^(\d+(?:\.\d+)?)$/);
-          
-          if (matchH) hours = parseFloat(matchH[1]);
-          else if (matchD) hours = parseFloat(matchD[1]) * 24;
-          else if (matchN) hours = parseFloat(matchN[1]);
-        }
-        configForm.setFieldsValue({ intervalHours: Math.max(1, Math.round(hours)) });
-      } catch (e) {
-        console.warn('Failed to load cleanup interval', e);
-      }
-    };
-    fetchConfig();
-    return () => { mounted = false; };
-  }, []); // Only run once on mount
-
-  /**
-   * 保存清理周期配置
-   * 
-   * 将用户输入的间隔（小时）转换为 "Xh" 格式并保存到系统设置
-   * 保存成功后关闭对话框并显示成功提示
-   */
-  const handleSaveConfig = async () => {
-    try {
-      const values = await configForm.validateFields();
-      setConfigLoading(true);
-      const val = `${values.intervalHours}h`;
-      await updateSystemSetting('recycleBin.cleanupInterval', val);
-      message.success('配置已保存');
-      setConfigOpen(false);
-    } catch (e: any) {
-      if (!e?.errorFields) message.error(`保存失败: ${e.message}`);
-    } finally {
-      setConfigLoading(false);
-    }
-  };
 
   /**
    * 彻底删除虚拟机
@@ -1051,34 +931,6 @@ const RecycleBinSection: React.FC<Props> = ({
         return <span className="std-time">{`${year}-${month}-${day} ${hours}:${minutes}:${seconds}`}</span>;
       },
     },
-    /**
-     * [回收站特有列] 剩余时间
-     * 
-     * 显示距离自动清理的倒计时
-     * - 从 metadata.annotations['tower.io/deletion-expires'] 读取过期时间
-     * - 使用 getTimeRemaining 计算剩余时间
-     * - 已过期显示红色"已过期"标签
-     * - 未过期显示倒计时文本和时钟图标
-     */
-    {
-      title: '剩余时间',
-      key: 'timeRemaining',
-      render: (_: any, r: any) => {
-        const expiresAtStr = r?.metadata?.annotations?.['tower.io/deletion-expires'];
-        if (!expiresAtStr) return '-';
-        const timeRemaining = getTimeRemaining(expiresAtStr);
-        if (!timeRemaining) return '-';
-        if (timeRemaining.expired) {
-          return <Tag color="red">已过期</Tag>;
-        }
-        return (
-          <Space>
-            <ClockCircleOutlined />
-            <span>{timeRemaining.text}</span>
-          </Space>
-        );
-      },
-    },
     {
       title: '操作',
       key: 'actions',
@@ -1112,7 +964,7 @@ const RecycleBinSection: React.FC<Props> = ({
     },
     ];
     return cols;
-  }, [SafeRead, getTimeRemaining, handleRestore, handleForceDelete, handleShowOpsinfo, isTenant]);
+  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, isTenant]);
 
   /**
    * 使用 useTableColumnSettings hook 管理列显示/隐藏
@@ -1203,9 +1055,6 @@ const RecycleBinSection: React.FC<Props> = ({
          * 3. 刷新按钮 - 手动刷新数据列表
          */
         <div className="toolbar-actions">
-          <Button type="primary"  onClick={() => setConfigOpen(true)}>
-            设定清理间隔
-          </Button>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey="harvester_recycle_bin_table"
@@ -1265,61 +1114,6 @@ const RecycleBinSection: React.FC<Props> = ({
           onRefresh={onRefresh}
         />
       )}
-
-      {/* 
-        ========================================
-        清理周期配置对话框 (Cleanup Interval Config Modal)
-        ========================================
-        
-        用于配置自动清理任务的执行间隔:
-        - 范围: 1-168 小时
-        - 默认: 24 小时
-        - 配置保存在系统设置中，影响后端清理任务的执行频率
-        
-        注意: destroyOnHidden={false} 保持表单状态，避免重复加载配置
-      */}
-      <Modal
-        title="配置自动清理"
-        open={configOpen}
-        onOk={handleSaveConfig}
-        onCancel={() => {
-          setConfigOpen(false);
-          // Do not reset fields here, to keep the loaded value for next open
-          // configForm.resetFields(); 
-        }}
-        confirmLoading={configLoading}
-        okText="保存"
-        cancelText="取消"
-        destroyOnHidden={false}
-      >
-        <Form
-          form={configForm}
-          layout="vertical"
-          style={{ marginTop: 16 }}
-        >
-          <Form.Item required={true} label="清理周期" style={{ marginBottom: 24 }}>
-            <Space>
-              <span>每间隔</span>
-              <Form.Item
-                name="intervalHours"
-                noStyle
-                rules={[
-                  { required: true, message: '请输入执行间隔' },
-                  { type: 'number', min: 1, max: 168, message: '范围 1-168 小时' }
-                ]}
-              >
-                <InputNumber
-                  min={1}
-                  max={168}
-                  style={{ width: '120px' }}
-                  placeholder="24"
-                />
-              </Form.Item>
-              <span>小时，执行一次过期虚拟机清理任务</span>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
     </PageDetailSection>
   );
 };

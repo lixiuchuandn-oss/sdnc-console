@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Form, Input, Steps, Alert, Descriptions, Typography, Space } from 'antd';
-import { createHarvesterVirtualMachineBackup, createHarvesterVirtualMachineRestore } from '../../../../services/harvesterApi';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Modal, Form, Input, Alert, message } from 'antd';
+import { harvesterVmAction, patchHarvesterVm, fetchHarvesterVmDetail } from '../../../../services/harvesterApi';
 
 interface Props {
   open: boolean;
@@ -10,8 +10,6 @@ interface Props {
   sourceVm: any;
   existingVms?: any[];
 }
-
-type Phase = 'form' | 'running' | 'success' | 'error';
 
 const toK8sName = (raw: string, maxLen = 63) => {
   const s = String(raw || '')
@@ -29,13 +27,7 @@ const toK8sName = (raw: string, maxLen = 63) => {
 
 const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sourceVm, existingVms }) => {
   const [form] = Form.useForm();
-  const [phase, setPhase] = useState<Phase>('form');
-  const [runningStep, setRunningStep] = useState(0);
-  const [errorStep, setErrorStep] = useState<number | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [snapshotName, setSnapshotName] = useState<string>('');
-  const [restoreName, setRestoreName] = useState<string>('');
-  const stopRef = useRef(false);
+  const [loading, setLoading] = useState(false);
 
   const srcNamespace = String(sourceVm?.metadata?.namespace || sourceVm?.namespace || '').trim();
   const srcName = String(sourceVm?.metadata?.name || sourceVm?.name || '').trim();
@@ -51,198 +43,222 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
     return set;
   }, [existingVms]);
 
-  const steps = useMemo(() => ['提交克隆点', '提交恢复任务'], []);
-
   useEffect(() => {
     if (!open) return;
-    stopRef.current = false;
-    setPhase('form');
-    setRunningStep(0);
-    setErrorStep(null);
-    setErrorMessage('');
-    setSnapshotName('');
-    setRestoreName('');
-
+    form.resetFields();
     const now = Date.now();
     const base = srcName ? `${srcName}-clone-${String(now).slice(-4)}` : `vm-clone-${String(now).slice(-4)}`;
-    form.resetFields();
     form.setFieldsValue({
       name: toK8sName(base) || '',
     });
   }, [open, form, srcNamespace, srcName]);
 
-  const close = () => {
-    stopRef.current = true;
-    onCancel();
-  };
-
-  const okText = useMemo(() => {
-    if (phase === 'form') return '克隆';
-    if (phase === 'running') return '执行中';
-    return '关闭';
-  }, [phase]);
-
-  const okDisabled = phase === 'running';
-
-  const canCancel = true;
-
   const handleOk = async () => {
-    if (phase === 'success' || phase === 'error') {
-      close();
-      return;
-    }
-    if (phase !== 'form') return;
+    // 检查源 VM 是否在运行（在 try 块外部定义，以便在 catch 块中使用）
+    const sourceVmRunning = sourceVm?.status?.printableStatus === 'Running' || 
+                            sourceVm?.status?.ready === true ||
+                            sourceVm?.status?.phase === 'Running';
 
-    let stepIndex = 0;
     try {
       const values = await form.validateFields();
       const targetName = String(values.name || '').trim();
       if (!srcName) throw new Error('无法解析源虚拟机名称');
       if (!srcNamespace) throw new Error('无法解析源虚拟机命名空间');
 
-      setPhase('running');
-      setRunningStep(stepIndex);
-      setErrorStep(null);
-      setErrorMessage('');
+      setLoading(true);
 
-      const snap = toK8sName(`clone-${srcName}-${Date.now()}`);
-      if (!snap) throw new Error('无法生成快照名称');
-      setSnapshotName(snap);
+      // 克隆时，将新 VM 的 runStrategy 设置为 Halted，避免在卷克隆完成前启动
+      // 这样可以避免存储卷挂载冲突（卷还在克隆中时，VM 不应该尝试启动）
+      // 用户可以在卷克隆完成后手动启动新 VM
+      const runStrategy = 'Halted';
 
-      await createHarvesterVirtualMachineBackup(cloudId, srcNamespace, {
-        name: snap,
-        vmName: srcName,
-        type: 'snapshot',
-        alias: snap,
+      // 使用 Harvester 标准的直接克隆方式
+      await harvesterVmAction(
+        cloudId,
+        srcNamespace,
+        srcName,
+        'clone',
+        {
+          targetVm: targetName,
+          runStrategy: runStrategy
+        }
+      );
+
+      // 等待 VM 创建后，添加克隆任务标记
+      try {
+        // 等待一小段时间让 VM 创建
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // 尝试获取新创建的 VM
+        let retries = 3;
+        while (retries > 0) {
+          try {
+            const newVm = await fetchHarvesterVmDetail(cloudId, srcNamespace, targetName);
+            if (newVm) {
+              // 给新 VM 添加克隆任务标记
+              const cloneTaskAnnotation = JSON.stringify({
+                sourceVm: `${srcNamespace}/${srcName}`,
+                sourceVmName: srcName,
+                sourceVmNamespace: srcNamespace,
+                cloneType: 'standard',
+                createdAt: new Date().toISOString(),
+              });
+              
+              await patchHarvesterVm(
+                cloudId,
+                srcNamespace,
+                targetName,
+                {
+                  metadata: {
+                    annotations: {
+                      'tower.io/cloneTask': cloneTaskAnnotation,
+                    },
+                  },
+                }
+              );
+              break;
+            }
+          } catch (e: any) {
+            if (e?.status === 404 || e?.message?.includes('not found')) {
+              retries--;
+              if (retries > 0) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                continue;
+              }
+            }
+            // 如果添加注解失败，不影响克隆流程，只记录错误
+            console.warn('Failed to add clone task annotation:', e);
+            break;
+          }
+        }
+      } catch (e: any) {
+        // 添加注解失败不影响克隆流程
+        console.warn('Failed to add clone task annotation:', e);
+      }
+
+      // 立即关闭弹窗，不阻塞用户
+      const sourceVmStatus = sourceVmRunning ? '（源虚拟机正在运行）' : '';
+      message.success({
+        content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 已创建为停止状态${sourceVmStatus}，卷克隆可能需要几分钟时间。卷克隆完成后，您需要手动启动新虚拟机。您可以在「快照/备份 → 克隆任务」中查看进度。`,
+        duration: 10,
       });
-
-      if (stopRef.current) return;
-      stepIndex = 1;
-      setRunningStep(stepIndex);
-
-      const restore = toK8sName(`clone-${targetName}-${Date.now()}`);
-      if (!restore) throw new Error('无法生成恢复任务名称');
-      setRestoreName(restore);
-
-      const payload: any = {
-        apiVersion: 'harvesterhci.io/v1beta1',
-        kind: 'VirtualMachineRestore',
-        metadata: {
-          name: restore,
-          namespace: srcNamespace,
-          annotations: {
-            'tower.io/description': 'Created via Compute Tower',
-            'tower.io/cloneTask': 'true',
-            'tower.io/cloneSourceVm': `${srcNamespace}/${srcName}`,
-            'tower.io/cloneTargetVm': `${srcNamespace}/${targetName}`,
-          },
-        },
-        spec: {
-          target: {
-            apiGroup: 'kubevirt.io',
-            kind: 'VirtualMachine',
-            name: targetName,
-          },
-          virtualMachineBackupName: snap,
-          virtualMachineBackupNamespace: srcNamespace,
-          newVM: true,
-        },
-      };
-
-      await createHarvesterVirtualMachineRestore(cloudId, srcNamespace, payload);
-
-      setPhase('success');
       onSuccess?.({ namespace: srcNamespace, name: targetName });
+      onCancel();
     } catch (e: any) {
-      const msg = String(e?.message || '克隆失败');
-      setPhase('error');
-      setErrorMessage(msg);
-      setErrorStep(stepIndex);
+      const errorMsg = String(e?.message || '未知错误');
+      // 如果是卷未就绪错误，说明任务已提交，只是卷还在克隆中
+      if (errorMsg.includes('not ready for workloads') || errorMsg.includes('AttachVolume')) {
+        const targetName = String(form.getFieldValue('name') || '').trim();
+        // 即使出现错误，也尝试添加克隆标记
+        try {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          let retries = 3;
+          while (retries > 0) {
+            try {
+              const newVm = await fetchHarvesterVmDetail(cloudId, srcNamespace, targetName);
+              if (newVm) {
+                const cloneTaskAnnotation = JSON.stringify({
+                  sourceVm: `${srcNamespace}/${srcName}`,
+                  sourceVmName: srcName,
+                  sourceVmNamespace: srcNamespace,
+                  cloneType: 'standard',
+                  createdAt: new Date().toISOString(),
+                });
+                await patchHarvesterVm(
+                  cloudId,
+                  srcNamespace,
+                  targetName,
+                  {
+                    metadata: {
+                      annotations: {
+                        'tower.io/cloneTask': cloneTaskAnnotation,
+                      },
+                    },
+                  }
+                );
+                break;
+              }
+            } catch (e: any) {
+              if (e?.status === 404 || e?.message?.includes('not found')) {
+                retries--;
+                if (retries > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  continue;
+                }
+              }
+              break;
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to add clone task annotation:', e);
+        }
+
+        const sourceVmStatus = sourceVmRunning ? '（源虚拟机正在运行）' : '';
+        message.warning({
+          content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 已创建为停止状态${sourceVmStatus}，卷正在克隆（这是正常过程）。卷克隆完成后，您需要手动启动新虚拟机。您可以在「快照/备份 → 克隆任务」中查看进度。`,
+          duration: 10,
+        });
+        if (targetName) {
+          onSuccess?.({ namespace: srcNamespace, name: targetName });
+        }
+        onCancel();
+      } else {
+        message.error(`克隆失败: ${errorMsg}`);
+      }
+    } finally {
+      setLoading(false);
     }
   };
-
-  const stepItems = useMemo(() => {
-    return steps.map((title, idx) => {
-      const isErr = phase === 'error' && errorStep === idx;
-      const isDone = (phase === 'success' && idx < steps.length) || (phase === 'running' && idx < runningStep);
-      const isCurrent = phase === 'running' && idx === runningStep;
-      const status: any = isErr ? 'error' : isDone ? 'finish' : isCurrent ? 'process' : 'wait';
-      return { title, status };
-    });
-  }, [steps, phase, errorStep, runningStep]);
-
-  const body = (
-    <>
-      {phase === 'form' ? (
-        <Form form={form} layout="vertical">
-          <Form.Item label="源虚拟机">
-            <Input value={srcAlias ? `${srcAlias} (${srcNamespace}/${srcName})` : `${srcNamespace}/${srcName}`} disabled />
-          </Form.Item>
-
-          <Form.Item label="目标命名空间">
-            <Input value={srcNamespace || '-'} disabled />
-          </Form.Item>
-
-          <Form.Item
-            name="name"
-            label="新虚拟机名称"
-            rules={[
-              { required: true, message: '请输入新虚拟机名称' },
-              {
-                validator: async (_, value) => {
-                  const name = String(value || '').trim();
-                  if (!name) return Promise.resolve();
-                  if (name === srcName) return Promise.reject(new Error('新名称不能与源虚拟机相同'));
-                  if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name)) {
-                    return Promise.reject(new Error('名称仅支持小写字母、数字和-，且不能以-开头/结尾'));
-                  }
-                  if (name.length > 63) return Promise.reject(new Error('名称长度不能超过 63'));
-                  if (existingNameSet.has(`${srcNamespace}/${name}`)) return Promise.reject(new Error('该命名空间下已存在同名虚拟机'));
-                  return Promise.resolve();
-                },
-              },
-            ]}
-          >
-            <Input placeholder="例如：my-vm-clone" />
-          </Form.Item>
-        </Form>
-      ) : (
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Steps size="small" items={stepItems} />
-
-          {phase === 'error' ? <Alert type="error" showIcon message={errorMessage || '克隆失败'} /> : null}
-          {phase === 'success' ? <Alert type="success" showIcon message="克隆成功" /> : null}
-
-          <Descriptions size="small" column={1} bordered>
-            <Descriptions.Item label="源虚拟机">{`${srcNamespace}/${srcName}`}</Descriptions.Item>
-            <Descriptions.Item label="快照任务">{snapshotName || '-'}</Descriptions.Item>
-            <Descriptions.Item label="恢复任务">{restoreName || '-'}</Descriptions.Item>
-            <Descriptions.Item label="新虚拟机">{`${srcNamespace}/${form.getFieldValue('name') || '-'}`}</Descriptions.Item>
-          </Descriptions>
-
-          {phase === 'running' ? (
-            <Typography.Text type="secondary">任务已提交，后续进度请在「克隆任务」中查看。</Typography.Text>
-          ) : null}
-        </Space>
-      )}
-    </>
-  );
 
   return (
     <Modal
       title="克隆虚拟机"
       open={open}
-      onCancel={close}
+      onCancel={onCancel}
       onOk={handleOk}
-      okText={okText}
-      cancelText={phase === 'form' ? '取消' : '关闭'}
-      okButtonProps={{ disabled: okDisabled }}
-      cancelButtonProps={{ disabled: !canCancel }}
-      maskClosable={canCancel}
-      destroyOnHidden
+      confirmLoading={loading}
+      destroyOnClose
       width={560}
     >
-      {body}
+      <Alert
+        message="使用标准克隆方式"
+        description="将直接克隆虚拟机和所有卷，无需创建快照，速度更快。新虚拟机将以停止状态创建，避免在卷克隆完成前启动导致存储卷挂载冲突。卷克隆可能需要几分钟时间，完成后您需要手动启动新虚拟机。您可以在「快照/备份 → 克隆任务」中查看卷克隆进度。"
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+      />
+      <Form form={form} layout="vertical">
+        <Form.Item label="源虚拟机">
+          <Input value={srcAlias ? `${srcAlias} (${srcNamespace}/${srcName})` : `${srcNamespace}/${srcName}`} disabled />
+        </Form.Item>
+
+        <Form.Item label="目标命名空间">
+          <Input value={srcNamespace || '-'} disabled />
+        </Form.Item>
+
+        <Form.Item
+          name="name"
+          label="新虚拟机名称"
+          rules={[
+            { required: true, message: '请输入新虚拟机名称' },
+            {
+              validator: async (_, value) => {
+                const name = String(value || '').trim();
+                if (!name) return Promise.resolve();
+                if (name === srcName) return Promise.reject(new Error('新名称不能与源虚拟机相同'));
+                if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name)) {
+                  return Promise.reject(new Error('名称仅支持小写字母、数字和-，且不能以-开头/结尾'));
+                }
+                if (name.length > 63) return Promise.reject(new Error('名称长度不能超过 63'));
+                if (existingNameSet.has(`${srcNamespace}/${name}`)) return Promise.reject(new Error('该命名空间下已存在同名虚拟机'));
+                return Promise.resolve();
+              },
+            },
+          ]}
+        >
+          <Input placeholder="例如：my-vm-clone" />
+        </Form.Item>
+      </Form>
     </Modal>
   );
 };

@@ -134,11 +134,136 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                         if (idxB !== -1) return 1;
                         return 0;
                     })
-                    .map(([key, value]) => {
+                    .flatMap(([key, value]) => {
                     // Skip complex objects/arrays for cleaner display, or JSON stringify them
                     // Skip rawData as it's too large usually
                     // Skip links as they are technical metadata (HATEOAS) and pollute the UI
-                    if (key === 'rawData' || key === 'links') return null;
+                    if (key === 'rawData' || key === 'links') return [];
+                    
+                    // 对于 status 字段，如果是快照/备份资源，优先显示关键信息
+                    if (key === 'status' && value && typeof value === 'object' && !Array.isArray(value)) {
+                      const status = value as any;
+                      // 检查是否是 VirtualMachineBackup 的 status
+                      if ('readyToUse' in status || 'volumeBackups' in status || 'conditions' in status) {
+                        const items: React.ReactElement[] = [];
+                        items.push(
+                          <Descriptions.Item key="status-readyToUse" label="状态 - ReadyToUse">
+                            <span style={{ 
+                              color: status.readyToUse ? '#52c41a' : '#faad14',
+                              fontWeight: 'bold'
+                            }}>
+                              {status.readyToUse ? '✓ 就绪' : '✗ 未就绪'}
+                            </span>
+                          </Descriptions.Item>
+                        );
+                        if (status.error) {
+                          items.push(
+                            <Descriptions.Item key="status-error" label="状态 - 错误">
+                              <div style={{ color: '#ff4d4f' }}>
+                                <div><strong>时间:</strong> {status.error.time || '-'}</div>
+                                <div><strong>消息:</strong> {status.error.message || '-'}</div>
+                              </div>
+                            </Descriptions.Item>
+                          );
+                        }
+                        // 显示 Conditions，即使为空也显示提示
+                        if (status.conditions !== undefined) {
+                          if (Array.isArray(status.conditions) && status.conditions.length > 0) {
+                            items.push(
+                              <Descriptions.Item key="status-conditions" label="状态 - Conditions">
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                  {status.conditions.map((cond: any, idx: number) => (
+                                    <div key={idx} style={{ 
+                                      padding: '8px', 
+                                      background: '#f5f5f5', 
+                                      borderRadius: '4px',
+                                      borderLeft: cond.status === 'True' ? '3px solid #52c41a' : cond.status === 'False' ? '3px solid #ff4d4f' : '3px solid #faad14'
+                                    }}>
+                                      <div><strong>类型:</strong> {cond.type || '-'}</div>
+                                      <div><strong>状态:</strong> {cond.status || '-'}</div>
+                                      {cond.reason && <div><strong>原因:</strong> {cond.reason}</div>}
+                                      {cond.message && <div><strong>消息:</strong> {cond.message}</div>}
+                                      {cond.lastTransitionTime && <div><strong>最后变更:</strong> {cond.lastTransitionTime}</div>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </Descriptions.Item>
+                            );
+                          } else {
+                            items.push(
+                              <Descriptions.Item key="status-conditions-empty" label="状态 - Conditions">
+                                <div style={{ color: '#999', fontStyle: 'italic' }}>
+                                  {Array.isArray(status.conditions) ? '暂无条件信息' : '条件信息未初始化'}
+                                </div>
+                              </Descriptions.Item>
+                            );
+                          }
+                        }
+                        if (status.volumeBackups && Array.isArray(status.volumeBackups) && status.volumeBackups.length > 0) {
+                          items.push(
+                            <Descriptions.Item key="status-volumeBackups" label="状态 - VolumeBackups">
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {status.volumeBackups.map((vb: any, idx: number) => (
+                                  <div key={idx} style={{ 
+                                    padding: '8px', 
+                                    background: '#f5f5f5', 
+                                    borderRadius: '4px',
+                                    borderLeft: vb.readyToUse ? '3px solid #52c41a' : '3px solid #faad14'
+                                  }}>
+                                    <div><strong>名称:</strong> {vb.name || '-'}</div>
+                                    <div><strong>就绪:</strong> {vb.readyToUse ? '✓ 是' : '✗ 否'}</div>
+                                    {vb.volumeName && <div><strong>卷名:</strong> {vb.volumeName}</div>}
+                                    {vb.progress !== undefined && <div><strong>进度:</strong> {vb.progress}%</div>}
+                                    {vb.error && (
+                                      <div style={{ color: '#ff4d4f', marginTop: '4px' }}>
+                                        <strong>错误:</strong> {vb.error.message || JSON.stringify(vb.error)}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </Descriptions.Item>
+                          );
+                        }
+                        if (status.progress !== undefined) {
+                          items.push(
+                            <Descriptions.Item key="status-progress" label="状态 - 进度">
+                              <span>{status.progress}%</span>
+                            </Descriptions.Item>
+                          );
+                        }
+                        if (status.creationTime) {
+                          items.push(
+                            <Descriptions.Item key="status-creationTime" label="状态 - 创建时间">
+                              <span>{status.creationTime}</span>
+                            </Descriptions.Item>
+                          );
+                        }
+                        // 如果 volumeBackups 存在但是空数组，也要显示
+                        if (status.volumeBackups !== undefined && (!Array.isArray(status.volumeBackups) || status.volumeBackups.length === 0)) {
+                          items.push(
+                            <Descriptions.Item key="status-volumeBackups-empty" label="状态 - VolumeBackups">
+                              <div style={{ color: '#faad14', fontStyle: 'italic' }}>
+                                {Array.isArray(status.volumeBackups) ? '暂无卷备份数据' : '卷备份数据未初始化'}
+                              </div>
+                            </Descriptions.Item>
+                          );
+                        }
+                        // 显示 status 的其他字段（排除已特殊处理的字段）
+                        Object.entries(status)
+                          .filter(([sk]) => !['readyToUse', 'error', 'conditions', 'volumeBackups', 'progress', 'creationTime'].includes(sk))
+                          .forEach(([sk, sv]) => {
+                            items.push(
+                              <Descriptions.Item key={`status-${sk}`} label={`状态 - ${sk}`}>
+                                {typeof sv === 'object' && sv !== null 
+                                  ? <pre style={{ margin: 0, fontSize: 12, maxHeight: 200, overflow: 'auto' }}>{JSON.stringify(sv, null, 2)}</pre>
+                                  : String(sv)}
+                              </Descriptions.Item>
+                            );
+                          });
+                        return items;
+                      }
+                    }
                     
                     let displayValue: React.ReactNode = String(value);
                     if (typeof value === 'object' && value !== null) {
@@ -204,10 +329,10 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
               </div>
             ),
           },
-          ...((record?.links?.view) ? [{
+          ...(record?.links?.view ? [{
             key: 'view_link',
             label: '实时数据 (View Link)',
-            children: <ViewLinkTab cloudId={cloudId} viewLink={record?.links?.view} active={activeTab === 'view_link'} />
+            children: <ViewLinkTab cloudId={cloudId} viewLink={record.links.view} active={activeTab === 'view_link'} />
           }] : []),
         ]}
       />

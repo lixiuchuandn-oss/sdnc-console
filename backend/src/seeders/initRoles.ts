@@ -88,51 +88,61 @@ export async function initializeRoles() {
   try {
     const repo = AppDataSource.getRepository(RBACRole);
 
+    const ensureRole = async (spec: {
+      name: string;
+      description: string;
+      scope: 'system' | 'tenant';
+      permissions: string[];
+      status: 'active' | 'inactive';
+    }) => {
+      const existed = await repo.findOne({ where: { name: spec.name } });
+      const nextPerms = JSON.stringify(spec.permissions);
+      if (!existed) {
+        await repo.save(
+          repo.create({
+            name: spec.name,
+            description: spec.description,
+            scope: spec.scope,
+            permissions: nextPerms,
+            status: spec.status,
+          }),
+        );
+      }
+    };
+
     // 1. Super Admin
-    const superAdmin = await repo.findOne({ where: { name: 'Super Admin' } });
-    if (!superAdmin) {
-      await repo.save(repo.create({
-        name: 'Super Admin',
-        description: '拥有系统所有权限的超级管理员',
-        scope: 'system',
-        permissions: JSON.stringify(['*']),
-        status: 'active'
-      }));
-      console.log('Role "Super Admin" created.');
-    }
+    await ensureRole({
+      name: 'Super Admin',
+      description: '拥有系统所有权限的超级管理员',
+      scope: 'system',
+      permissions: ['*'],
+      status: 'active',
+    });
 
     // 2. Tenant Admin
-    const tenantAdmin = await repo.findOne({ where: { name: 'Tenant Admin' } });
-    if (!tenantAdmin) {
-      await repo.save(repo.create({
-        name: 'Tenant Admin',
-        description: '租户管理员，拥有租户内的管理权限',
-        scope: 'tenant',
-        permissions: JSON.stringify([
-            'clouds.instances:read', 
-            'clouds.instances:write',
-            'clouds.console:read', 
-            'clouds.console:write',
-            'networks.vpcs:read',
-            'networks.vpcs:write'
-        ]),
-        status: 'active'
-      }));
-      console.log('Role "Tenant Admin" created.');
-    }
+    await ensureRole({
+      name: 'Tenant Admin',
+      description: '租户管理员，拥有租户内的管理权限',
+      scope: 'tenant',
+      permissions: [
+        'clouds.instances:read',
+        'clouds.instances:write',
+        'clouds.console:read',
+        'clouds.console:write',
+        'networks.vpcs:read',
+        'networks.vpcs:write',
+      ],
+      status: 'active',
+    });
     
     // 3. User (Standard User)
-    const userRole = await repo.findOne({ where: { name: 'User' } });
-    if (!userRole) {
-        await repo.save(repo.create({
-            name: 'User',
-            description: '普通用户，拥有基础查看权限',
-            scope: 'tenant',
-            permissions: JSON.stringify(['clouds.console:read', 'clouds.instances:read']),
-            status: 'active'
-        }));
-        console.log('Role "User" created.');
-    }
+    await ensureRole({
+      name: 'User',
+      description: '普通用户，拥有基础查看权限',
+      scope: 'tenant',
+      permissions: ['clouds.console:read', 'clouds.instances:read'],
+      status: 'active',
+    });
 
     // =========================================================================
     // 三权分立默认角色
@@ -143,66 +153,54 @@ export async function initializeRoles() {
     // 4. 三权-审计员
     // 仅具备各分组的只读权限
     const auditorRoleName = '三权-审计员';
-    const auditor = await repo.findOne({ where: { name: auditorRoleName } });
-    if (!auditor) {
-        await repo.save(repo.create({
-            name: auditorRoleName,
-            description: '仅具备各分组的只读权限，用于安全审计与合规检查',
-            scope: 'system',
-            permissions: JSON.stringify(allRead),
-            status: 'active'
-        }));
-        console.log(`Role "${auditorRoleName}" created.`);
-    }
+    await ensureRole({
+      name: auditorRoleName,
+      description: '仅具备各分组的只读权限，用于安全审计与合规检查',
+      scope: 'system',
+      permissions: allRead,
+      status: 'active',
+    });
 
     // 5. 三权-运维操作员
     // 具备运维相关分组的写入权限，并具备全局只读权限
     const opsRoleName = '三权-运维操作员';
-    const ops = await repo.findOne({ where: { name: opsRoleName } });
-    if (!ops) {
-        const opsWrites = CURATED_PERMISSIONS.filter(p => 
-            p.endsWith(':write') && (
-                p.startsWith('clouds.') || 
-                p.startsWith('networks.') || 
-                p.startsWith('security.') || 
-                p.startsWith('secops.') || 
-                p.startsWith('ops.')
-            )
-        );
-        const opsPerms = Array.from(new Set([...allRead, ...opsWrites]));
-        await repo.save(repo.create({
-            name: opsRoleName,
-            description: '具备运维相关分组的写入权限，并具备全局只读权限',
-            scope: 'system',
-            permissions: JSON.stringify(opsPerms),
-            status: 'active'
-        }));
-        console.log(`Role "${opsRoleName}" created.`);
-    }
+    const opsWrites = CURATED_PERMISSIONS.filter(
+      (p) =>
+        p.endsWith(':write') &&
+        (p.startsWith('clouds.') ||
+          p.startsWith('networks.') ||
+          p.startsWith('security.') ||
+          p.startsWith('secops.') ||
+          p.startsWith('ops.')),
+    );
+    const opsPerms = Array.from(new Set([...allRead, ...opsWrites]));
+    await ensureRole({
+      name: opsRoleName,
+      description: '具备运维相关分组的写入权限，并具备全局只读权限',
+      scope: 'system',
+      permissions: opsPerms,
+      status: 'active',
+    });
 
     // 6. 三权-策略管理员
     // 具备管理分组的写入权限，并具备全局只读权限
     const policyRoleName = '三权-策略管理员';
-    const policy = await repo.findOne({ where: { name: policyRoleName } });
-    if (!policy) {
-        const mgmtWrites = CURATED_PERMISSIONS.filter(p => 
-            p.endsWith(':write') && (
-                p.startsWith('tenants') || 
-                p.startsWith('users') || 
-                p.startsWith('user-spaces') || 
-                p.startsWith('system.')
-            )
-        );
-        const policyPerms = Array.from(new Set([...allRead, ...mgmtWrites]));
-        await repo.save(repo.create({
-            name: policyRoleName,
-            description: '具备管理分组的写入权限，并具备全局只读权限；用于策略与资源管理',
-            scope: 'system',
-            permissions: JSON.stringify(policyPerms),
-            status: 'active'
-        }));
-        console.log(`Role "${policyRoleName}" created.`);
-    }
+    const mgmtWrites = CURATED_PERMISSIONS.filter(
+      (p) =>
+        p.endsWith(':write') &&
+        (p.startsWith('tenants') ||
+          p.startsWith('users') ||
+          p.startsWith('user-spaces') ||
+          p.startsWith('system.')),
+    );
+    const policyPerms = Array.from(new Set([...allRead, ...mgmtWrites]));
+    await ensureRole({
+      name: policyRoleName,
+      description: '具备管理分组的写入权限，并具备全局只读权限；用于策略与资源管理',
+      scope: 'system',
+      permissions: policyPerms,
+      status: 'active',
+    });
 
   } catch (error) {
     console.error('初始化角色失败:', error);

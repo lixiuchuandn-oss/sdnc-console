@@ -40,7 +40,6 @@ import TemplatesSection from '../Harvester/sections/TemplatesSection';
 import ScheduleVmBackupsSection from '../Harvester/sections/ScheduleVmBackupsSection';
 import VmCloneTasksSection from '../Harvester/sections/VmCloneTasksSection';
 import VmRestoreTasksSection from '../Harvester/sections/VmRestoreTasksSection';
-import VmCreateTasksSection from '../Harvester/sections/VmCreateTasksSection';
 import EipSection from '../Harvester/kube-ovn/EipSection';
 import FipSection from '../Harvester/kube-ovn/FipSection';
 import MonitoringOverview from '../Harvester/Monitoring/MonitoringOverview';
@@ -1474,13 +1473,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: '恢复任务',
                       children: (
                         <VmRestoreTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
-                      )
-                    },
-                    {
-                      key: 'vm_creates',
-                      label: '新建任务',
-                      children: (
-                        <VmCreateTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
                       )
                     }
                   ]}

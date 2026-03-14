@@ -11,8 +11,8 @@ import { Cloud } from './Cloud';
 
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
+  ADMIN = 'admin',
   TENANT = 'tenant',
-  LEASED_LINES_ADMIN = 'leased_lines_admin',
 }
 
 export enum UserStatus {

@@ -11,7 +11,7 @@ interface User {
   username: string;
   email: string;
   fullName: string;
-  role: 'super_admin' | 'tenant' | 'leased_lines_admin';
+  role: 'super_admin' | 'admin' | 'tenant';
   tenantRole?: string;
   status: 'active' | 'inactive' | 'suspended';
   permissions?: string[];

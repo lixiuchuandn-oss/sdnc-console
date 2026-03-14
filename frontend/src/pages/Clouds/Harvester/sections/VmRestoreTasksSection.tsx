@@ -32,8 +32,11 @@ const getRestoreStatus = (raw: any) => {
   const conds: any[] = Array.isArray(raw?.status?.conditions) ? raw.status.conditions : [];
   const ready = conds.some((c: any) => String(c?.type || '').toLowerCase() === 'ready' && String(c?.status || '').toLowerCase() === 'true');
   const completed = conds.some((c: any) => String(c?.type || '').toLowerCase() === 'completed' && String(c?.status || '').toLowerCase() === 'true');
-  const progress = typeof raw?.status?.progress === 'number' ? raw.status.progress : (ready || completed ? 100 : 0);
   if (ready || completed) return { phase: 'ready', text: '完成' as const, progress: 100 };
+  
+  // 如果任务正在进行中但 progress 为 0 或未定义，显示中间值 70% 而不是 0%
+  const rawProgress = typeof raw?.status?.progress === 'number' ? raw.status.progress : undefined;
+  const progress = rawProgress !== undefined ? rawProgress : 70; // 默认显示 70% 表示进行中
   return { phase: 'pending', text: '进行中' as const, progress: Math.max(0, Math.min(100, progress)) };
 };
 
@@ -231,9 +234,10 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       return;
     }
     if (!timerRef.current) {
+      // 改为 5 秒轮询，与备份快照保持一致
       timerRef.current = setInterval(() => {
         refresh(true);
-      }, 10000);
+      }, 5000);
     }
     return () => {};
   }, [filtered, refresh]);
@@ -282,7 +286,9 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         if (st.phase === 'ready') {
           return <Progress percent={100} status="success" size="small" />;
         }
-        return <Progress percent={st.progress} status="active" size="small" />;
+        // 如果进度为 0 但任务正在进行中，显示 70% 而不是 0%
+        const displayProgress = st.progress === 0 && st.phase === 'pending' ? 70 : st.progress;
+        return <Progress percent={displayProgress} status="active" size="small" />;
       },
     },
     {
@@ -374,12 +380,8 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         </>
       }
     >
-      <div style={{ marginBottom: 8 }}>
-        <Tag color="blue">说明：恢复任务用于从备份或快照恢复虚拟机，支持新建虚拟机或替换现有虚拟机。</Tag>
-      </div>
       <Table
         className="std-table"
-        bordered
         rowKey={(r: any) => r.key}
         columns={columns}
         dataSource={filtered}

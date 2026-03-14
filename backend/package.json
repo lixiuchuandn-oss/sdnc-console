@@ -7,6 +7,7 @@
     "dev": "set \"PORT=5001\" && nodemon --exec ts-node --transpile-only src/index.ts",
     "build": "tsc",
     "start": "set \"PORT=5001\" && node dist/src/index.js",
+    "db:init": "ts-node --transpile-only src/scripts/dbInit.ts",
     "test": "jest"
   },
   "dependencies": {

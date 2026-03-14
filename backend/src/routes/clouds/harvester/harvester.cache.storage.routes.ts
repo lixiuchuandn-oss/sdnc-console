@@ -63,6 +63,7 @@ import { HarvesterImageInventory } from '../../../entities/harvester/HarvesterIm
 import { HarvesterSnapshotInventory } from '../../../entities/harvester/HarvesterSnapshotInventory';
 import { HarvesterBackupInventory } from '../../../entities/harvester/HarvesterBackupInventory';
 import { HarvesterScheduleVmBackupInventory } from '../../../entities/harvester/HarvesterScheduleVmBackupInventory';
+import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory';
 import {
   harvesterAddVolumeToVM,
   harvesterRemoveVolumeFromVM,
@@ -426,6 +427,27 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
 
         const dbItems = await repo.find({ where });
 
+        // [修复] 查询所有虚拟机，提取所有被虚拟机使用的 PVC
+        // 无论虚拟机是否运行、是否在回收站，只要卷在 VM spec 中定义，就不应该出现在"可用卷"列表中
+        const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
+        const allVms = await vmRepo.find({ where: { cloudId: id } });
+        
+        // 构建所有被虚拟机使用的 PVC 集合（使用 namespace/pvcName 作为键）
+        const usedPvcSet = new Set<string>();
+        allVms.forEach((vm) => {
+          const vmData = vm.rawData || {};
+          const vmNs = vmData?.metadata?.namespace || vm.namespace || '';
+          
+          // 从 VM spec.template.spec.volumes 中提取所有 PVC
+          const volumes = vmData?.spec?.template?.spec?.volumes || [];
+          volumes.forEach((vol: any) => {
+            const claimName = vol?.persistentVolumeClaim?.claimName;
+            if (claimName && vmNs) {
+              usedPvcSet.add(`${vmNs}/${claimName}`);
+            }
+          });
+        });
+
         const base = (cloud.endpoint || '').replace(/\/+$/, '');
         let origin = base;
         try {
@@ -469,6 +491,11 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             const attached = state === 'attached' || inUse;
             const pvcName = v?.status?.kubernetesStatus?.pvcName || name;
 
+            // [修复] 检查卷是否被任何虚拟机使用（无论虚拟机是否运行、是否在回收站）
+            // 只要卷在某个 VM 的 spec.template.spec.volumes 中定义，就认为它"属于"这个 VM
+            const pvcKey = `${ns}/${pvcName}`;
+            const isUsedByVm = usedPvcSet.has(pvcKey);
+
             const viewUrl = `${origin}/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`;
 
             return {
@@ -479,13 +506,14 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
               size,
               state,
               attached,
+              isUsedByVm, // 标记是否被虚拟机使用
               links: { view: viewUrl },
             };
           })
           .filter((x: any) => {
-            // [筛选规则] 只返回 Bound 且未挂载的卷
+            // [筛选规则] 只返回 Bound 且未挂载的卷，并且未被任何虚拟机使用
             const isBound = String(x.state).toLowerCase() === 'bound';
-            return isBound && !x.attached;
+            return isBound && !x.attached && !x.isUsedByVm;
           });
 
         res.json({ message: '查询成功', data: { items } });

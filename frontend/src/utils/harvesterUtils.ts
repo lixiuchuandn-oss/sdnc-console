@@ -11,10 +11,15 @@
  *    - cnVmStatus：将 Harvester / KubeVirt VM 的状态字符串转换为中文可读文案
  *
  * 3. 集群实体 ID 生成（仅 Harvester 使用）：
- *    - generateHarvesterEntityId：生成统一规范的“集群实体 ID”，形如 id-{实体缩写}-{11位随机字符串}
+ *    - generateHarvesterEntityId：生成统一规范的"集群实体 ID"，形如 id-{实体缩写}-{11位随机字符串}
  *      主要用于我们自行创建的 K8s/CRD 实体（如 Harvester VM 的 vmid），
  *      其他云厂商（阿里云、华为云等）的 VM ID 则直接使用云平台返回的 InstanceId。
+ *
+ * 4. 克隆进度计算：
+ *    - calculateVmCloneProgress：计算虚拟机克隆的进度百分比和状态
  */
+
+import { fetchHarvesterVolume } from '../services/harvesterApi';
 
 /**
  * 判断命名空间是否为 Harvester 系统命名空间
@@ -183,4 +188,115 @@ export const generateHarvesterEntityId = (entity: string): string => {
   }
   rand = rand.substring(0, 11);
   return `id-${e}-${rand}`;
+};
+
+/**
+ * 同步估算虚拟机克隆的初始进度（不查询 PVC 状态）
+ * 
+ * 用于在异步计算精确进度之前显示一个合理的初始值
+ * 逻辑与 calculateVmCloneProgress 保持一致，但不查询 PVC 状态
+ * 
+ * @param vm 虚拟机对象
+ * @returns 进度信息 { progress: 0-100, phase: 'pending'|'ready'|'failed', text: string }
+ */
+export const estimateVmCloneProgress = (
+  vm: any
+): { progress: number; phase: 'pending' | 'ready' | 'failed'; text: string } => {
+  try {
+    const ready = vm?.status?.ready || false;
+    const volumes = vm?.spec?.template?.spec?.volumes || [];
+    const pvcVolumes = volumes.filter((v: any) => v.persistentVolumeClaim);
+    
+    // 没有 PVC，直接检查 VM 状态
+    if (pvcVolumes.length === 0) {
+      if (ready) {
+        return { progress: 100, phase: 'ready', text: '完成' };
+      }
+      return { progress: 50, phase: 'pending', text: '进行中' };
+    }
+
+    // 有 PVC 的情况：
+    // - 如果 VM Ready，可能是 85%（所有 PVC Bound 但刚 Ready）或 100%（完全完成）
+    //   为了保守起见，如果 Ready 但不确定 PVC 状态，显示 85%
+    // - 如果 VM 未 Ready，显示基础进度 30%
+    if (ready) {
+      // 保守估计：即使 Ready，也可能只是 PVC Bound 完成，显示 85%
+      // 实际精确进度会通过异步计算更新
+      return { progress: 85, phase: 'pending', text: '进行中' };
+    }
+    
+    // VM 未 Ready，显示基础进度
+    return { progress: 30, phase: 'pending', text: '进行中' };
+  } catch (e) {
+    return { progress: 0, phase: 'pending', text: '进行中' };
+  }
+};
+
+/**
+ * 计算虚拟机克隆的进度
+ * 
+ * 进度计算逻辑：
+ * 1. 如果没有 PVC，直接检查 VM Ready 状态（50% 或 100%）
+ * 2. 如果有 PVC：
+ *    - 基础进度 30%（VM 创建）
+ *    - PVC Bound 进度：30% + (boundCount / totalPVC) * 55%（最多到 85%）
+ *    - VM Ready：85% + 15% = 100%
+ * 
+ * @param vm 虚拟机对象
+ * @param cloudId 云平台 ID
+ * @returns 进度信息 { progress: 0-100, phase: 'pending'|'ready'|'failed', text: string }
+ */
+export const calculateVmCloneProgress = async (
+  vm: any,
+  cloudId: string
+): Promise<{ progress: number; phase: 'pending' | 'ready' | 'failed'; text: string }> => {
+  try {
+    const ready = vm?.status?.ready || false;
+    const volumes = vm?.spec?.template?.spec?.volumes || [];
+    const pvcVolumes = volumes.filter((v: any) => v.persistentVolumeClaim);
+    
+    // 没有 PVC，直接检查 VM 状态
+    if (pvcVolumes.length === 0) {
+      if (ready) {
+        return { progress: 100, phase: 'ready', text: '完成' };
+      }
+      return { progress: 50, phase: 'pending', text: '进行中' };
+    }
+
+    // 检查所有 PVC 是否 Bound
+    let boundCount = 0;
+    let allBound = true;
+    const namespace = vm?.metadata?.namespace || '';
+    
+    for (const vol of pvcVolumes) {
+      try {
+        const pvcName = vol.persistentVolumeClaim.claimName;
+        const pvc = await fetchHarvesterVolume(cloudId, namespace, pvcName);
+        const phase = pvc?.status?.phase || '';
+        if (phase === 'Bound') {
+          boundCount++;
+        } else {
+          allBound = false;
+        }
+      } catch (e) {
+        allBound = false;
+      }
+    }
+
+    // 所有 PVC Bound 且 VM Ready = 完成
+    if (allBound && ready) {
+      return { progress: 100, phase: 'ready', text: '完成' };
+    }
+    
+    // 所有 PVC Bound 但 VM 未 Ready = 85%
+    if (allBound) {
+      return { progress: 85, phase: 'pending', text: '进行中' };
+    }
+    
+    // 部分 PVC Bound = 30% + (boundCount / total) * 55%
+    const progress = 30 + Math.floor((boundCount / pvcVolumes.length) * 55);
+    return { progress, phase: 'pending', text: '进行中' };
+  } catch (e) {
+    return { progress: 0, phase: 'pending', text: '进行中' };
+  }
 };

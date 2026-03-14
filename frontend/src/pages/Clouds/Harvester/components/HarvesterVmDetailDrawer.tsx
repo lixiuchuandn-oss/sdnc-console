@@ -62,7 +62,6 @@ import HarvesterVmLogsTab from './HarvesterVmLogsTab';
 import HarvesterVmDiagnosisTab from './HarvesterVmDiagnosisTab';
 import { OsIcon } from '../../../../components/OsIcon';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
-import VmHotplugModal from '../modals/VmHotplugModal';
 import { getToken } from '../../../../utils/tokenStorage';
 
 /**
@@ -96,7 +95,6 @@ interface HarvesterVmDetailDrawerProps {
   onTabChange?: (key: string) => void;
   onRefresh?: (force?: boolean) => void;
   onOpenReconfigure?: (vm: any) => void;
-  onOpenHotplug?: (vm: any) => void;
   onBackup?: (vm: any) => void;
   onSnapshot?: (vm: any) => void;
   onClone?: (vm: any) => void;
@@ -116,7 +114,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   onTabChange: propOnTabChange,
   onRefresh,
   onOpenReconfigure,
-  onOpenHotplug,
   onBackup,
   onSnapshot,
   onClone,
@@ -130,7 +127,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [hotplugModalOpen, setHotplugModalOpen] = useState(false);
 
   // [状态同步] 抽屉内部统一使用 vmData 作为渲染/动作的数据源
   // 详细解释：
@@ -1220,21 +1216,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) 
       },
       { 
-        key: 'hotplug', 
-        label: '热插拔', 
-        icon: <ThunderboltOutlined />, 
-        disabled: !isRunning,
-        title: !isRunning ? '只有运行中的实例才能进行热插拔操作' : undefined,
-        onClick: () => {
-          if (onOpenHotplug) {
-            onOpenHotplug(vmData);
-          } else {
-            // 如果没有外部回调，使用内部状态管理
-            setHotplugModalOpen(true);
-          }
-        }
-      },
-      { 
         key: 'migrate', 
         label: '热迁移', 
         icon: <ExportOutlined />, 
@@ -2039,17 +2020,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         5. 弹窗组件
         ========================================
       */}
-      <VmHotplugModal
-        open={hotplugModalOpen}
-        cloudId={cloudId}
-        record={vmData}
-        onClose={() => setHotplugModalOpen(false)}
-        onOk={() => {
-          setHotplugModalOpen(false);
-          fetchAggregated(false);
-          onRefresh && onRefresh();
-        }}
-      />
       <VmSaveAsTemplateModal
         open={showTemplateModal}
         onClose={() => setShowTemplateModal(false)}

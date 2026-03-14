@@ -51,6 +51,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
   // 详情抽屉
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
+  const [drawerActiveTab, setDrawerActiveTab] = useState<string>('detail');
   
   // 列设置状态
   const [visibleColumns, setVisibleColumns] = useState<any>();
@@ -123,7 +124,11 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
     }
     if (keyword) {
       const k = keyword.toLowerCase();
-      d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
+      d = d.filter((x: any) => 
+        x.name.toLowerCase().includes(k) || 
+        x.namespace.toLowerCase().includes(k) ||
+        (x.alias && x.alias !== '-' && x.alias.toLowerCase().includes(k))
+      );
     }
     return d;
   }, [dataSource, keyword, statusFilter, isTenant]);
@@ -222,7 +227,37 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
           items.push({
             key: 'opsinfo',
             label: '运维信息',
-            onClick: () => { setDrawerRecord(record.raw); setDrawerVisible(true); }
+            onClick: () => { 
+              // 确保传递完整的 rawData，包含 status 信息
+              const rawRecord = record.raw || record.rawData || record;
+              
+              // 创建新对象，避免直接修改原对象，并确保深度复制 links
+              const recordWithLink = {
+                ...rawRecord,
+                links: rawRecord.links ? { ...rawRecord.links } : {}
+              };
+              
+              // 生成 view link（如果不存在）
+              if (!recordWithLink.links.view) {
+                const ns = recordWithLink.metadata?.namespace || recordWithLink.namespace;
+                const name = recordWithLink.metadata?.name || recordWithLink.name;
+                if (ns && name) {
+                  // VirtualMachineBackup 的 API 路径
+                  recordWithLink.links.view = `/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/virtualmachinebackups/${encodeURIComponent(name)}`;
+                }
+              }
+              
+              // 调试：确保 view link 已设置
+              console.log('[BackupsSection] Setting drawer record with view link:', {
+                hasLinks: !!recordWithLink.links,
+                viewLink: recordWithLink.links?.view,
+                namespace: recordWithLink.metadata?.namespace || recordWithLink.namespace,
+                name: recordWithLink.metadata?.name || recordWithLink.name
+              });
+              
+              setDrawerRecord(recordWithLink); 
+              setDrawerVisible(true); 
+            }
           });
           items.push({ type: 'divider' });
         }
@@ -252,12 +287,12 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
     <PageDetailSection asCard={false}>
       <div key="toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <div key="toolbar-left" style={{ display: 'flex', gap: 8 }}>
-          {/* 关键字搜索：按名称 / 命名空间模糊匹配 */}
+          {/* 关键字搜索：按名称 / 别名 / 命名空间模糊匹配 */}
           <Input
             key="keyword-search"
             className="toolbar-search"
-            placeholder="关键字"
-            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            placeholder="搜索名称、别名或命名空间"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' } } />}
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
             allowClear
@@ -318,6 +353,8 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         resourceType={type === 'backup' ? 'VmBackup' : 'VmSnapshot'}
         record={drawerRecord}
         cloudId={cloudId}
+        activeTab={drawerActiveTab}
+        onTabChange={setDrawerActiveTab}
       />
       <VmBackupCreateModal
         key="create-modal"

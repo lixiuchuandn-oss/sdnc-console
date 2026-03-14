@@ -16,7 +16,7 @@ type SysUser = {
   username: string;
   email: string;
   fullName: string;
-  role: 'super_admin' | 'tenant' | 'leased_lines_admin';
+  role: 'super_admin' | 'admin' | 'tenant';
   status: 'active' | 'inactive' | 'suspended';
   createdAt?: string;
   builtIn?: boolean;
@@ -153,7 +153,7 @@ const AccessUsersPage: React.FC = () => {
   const fetchRoles = async () => {
     try {
       const json = await apiRequest('/api/system/rbac/roles');
-      setRoles(Array.isArray(json?.roles) ? json.roles : []);
+      setRoles(Array.isArray(json) ? json : (Array.isArray(json?.roles) ? json.roles : []));
     } catch {}
   };
 
@@ -206,7 +206,19 @@ const AccessUsersPage: React.FC = () => {
 
   const handleCreate = React.useCallback(async (values: any) => {
     try {
-      await apiPost('/api/users', values);
+      const roleIds: string[] = Array.isArray(values?.rbacRoleIds) ? values.rbacRoleIds : [];
+      const created = await apiPost('/api/users', {
+        username: values.username,
+        email: values.email,
+        password: values.password,
+        fullName: values.fullName,
+      });
+      const userId = String(created?.id || '').trim();
+      if (userId && roleIds.length > 0) {
+        for (const roleId of roleIds) {
+          await apiPost('/api/system/rbac/assignments', { roleId, userType: 'system', userId });
+        }
+      }
       message.success('系统用户创建成功');
       setCreateOpen(false);
       createForm.resetFields();
@@ -280,8 +292,19 @@ const AccessUsersPage: React.FC = () => {
         <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}> 
           <Input.Password placeholder="至少 8 位密码" />
         </Form.Item>
-        <Form.Item name="role" label="系统角色" rules={[{ required: true, message: '请选择系统角色' }]}> 
-          <Select placeholder="请选择系统角色" options={[{ value:'super_admin', label:'超级管理员' }, { value:'leased_lines_admin', label:'管理员' }]} />
+        <Form.Item name="rbacRoleIds" label="初始权限角色">
+          <Select
+            mode="multiple"
+            allowClear
+            placeholder="可选：直接选择系统权限角色作为初始权限"
+            options={roles
+              .filter(r => r.scope === 'system')
+              .map(r => ({
+                value: r.id,
+                label: r.description ? `${r.name}（${r.description}）` : r.name,
+                disabled: String(r.status || 'active') !== 'active',
+              }))}
+          />
         </Form.Item>
       </StdFormModal>
 

@@ -46,6 +46,7 @@ import {
   syncVmVolumeSize,
 } from '../../../services/clouds/harvester/client';
 import { getJsonOnce, requestJson } from '../../../services/clouds/harvester/utils';
+import { listKubevirtVMsRaw } from '../../../services/clouds/harvester/vm';
 import {
   checkTenantAccess,
   fetchCloudOr404,
@@ -926,7 +927,38 @@ export const registerHarvesterDirectStorageRoutes = (
           { namespace: '' },
         );
 
-        let items = itemsRaw;
+        // [修复] 查询所有虚拟机，提取所有被虚拟机使用的 PVC
+        // 无论虚拟机是否运行、是否在回收站，只要卷在 VM spec 中定义，就不应该出现在"可用卷"列表中
+        let usedPvcSet = new Set<string>();
+        try {
+          const allVms = await listKubevirtVMsRaw({
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey || '',
+            insecure,
+          });
+          allVms.forEach((vm: any) => {
+            const vmNs = vm?.metadata?.namespace || '';
+            
+            // 从 VM spec.template.spec.volumes 中提取所有 PVC
+            const volumes = vm?.spec?.template?.spec?.volumes || [];
+            volumes.forEach((vol: any) => {
+              const claimName = vol?.persistentVolumeClaim?.claimName;
+              if (claimName && vmNs) {
+                usedPvcSet.add(`${vmNs}/${claimName}`);
+              }
+            });
+          });
+        } catch (e: any) {
+          console.warn('[available-volumes] 查询虚拟机列表失败，跳过卷使用检查', e.message);
+        }
+
+        // [修复] 过滤被虚拟机使用的卷
+        let items = itemsRaw.map((vol: any) => {
+          const pvcKey = `${vol.namespace}/${vol.pvcName || vol.name}`;
+          const isUsedByVm = usedPvcSet.has(pvcKey);
+          return { ...vol, isUsedByVm };
+        }).filter((vol: any) => !vol.isUsedByVm);
+
         if (isTenant) {
           if (tenantNamespace) {
             items = items.filter((i: any) =>

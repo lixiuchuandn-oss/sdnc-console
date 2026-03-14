@@ -710,22 +710,17 @@ export const harvesterDeleteVM = async (
     console.warn('[DeleteVM] Failed to read VM info before deletion. Associated resources may not be deleted.', e);
   }
 
-  // 2. 软删除：将VM移入回收站（添加Finalizer和Annotation标记）
-  // 不直接删除，而是标记为"待删除"状态，7天后自动删除
-  const protectionDays = 7; // 默认保护期7天
+  // 2. 软删除：将VM移入回收站（添加 Finalizer 与标记）
+  // 不直接删除；真正删除需要在回收站中执行“彻底删除”
   const deletedAt = new Date();
-  const expiresAt = new Date(deletedAt.getTime() + protectionDays * 24 * 60 * 60 * 1000);
   
   const recycleBinFinalizer = 'tower.io/recycle-bin';
   const deletionTimestamp = deletedAt.toISOString();
-  const expirationTimestamp = expiresAt.toISOString();
   
   try {
     // 获取当前VM
     const currentVm = await getHarvesterVM({ endpoint, token, insecure }, path.namespace, path.name);
     const finalizers = currentVm?.metadata?.finalizers || [];
-    const annotations = currentVm?.metadata?.annotations || {};
-    const labels = currentVm?.metadata?.labels || {};
     
     // 检查是否已经在回收站中
     if (finalizers.includes(recycleBinFinalizer)) {
@@ -760,32 +755,11 @@ export const harvesterDeleteVM = async (
       }
     }
     
-    // 添加回收站Finalizer（防止被真正删除）
-    const newFinalizers = [...finalizers, recycleBinFinalizer];
-    
-    // 添加删除时间标记
-    const newAnnotations = {
-      ...annotations,
-      'tower.io/deletion-scheduled': deletionTimestamp,
-      'tower.io/deletion-expires': expirationTimestamp,
-      'tower.io/deletion-protection-days': String(protectionDays),
-    };
-    
-    // 添加删除状态标签
-    const newLabels = {
-      ...labels,
-      'tower.io/recycle-bin': 'true',
-      'tower.io/deletion-status': 'pending',
-    };
-    
     // 使用JSON Patch更新VM
     const patchBody = [
       { op: 'add', path: '/metadata/finalizers/-', value: recycleBinFinalizer },
       { op: 'add', path: '/metadata/annotations/tower.io~1deletion-scheduled', value: deletionTimestamp },
-      { op: 'add', path: '/metadata/annotations/tower.io~1deletion-expires', value: expirationTimestamp },
-      { op: 'add', path: '/metadata/annotations/tower.io~1deletion-protection-days', value: String(protectionDays) },
       { op: 'add', path: '/metadata/labels/tower.io~1recycle-bin', value: 'true' },
-      { op: 'add', path: '/metadata/labels/tower.io~1deletion-status', value: 'pending' },
     ];
     
     const patchUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachines/${encodeURIComponent(path.name)}`;
@@ -797,7 +771,6 @@ export const harvesterDeleteVM = async (
       namespace: path.namespace, 
       name: path.name,
       deletedAt: deletionTimestamp,
-      expiresAt: expirationTimestamp
     });
 
     await harvesterEnsureVmStopped(
@@ -809,9 +782,8 @@ export const harvesterDeleteVM = async (
     return {
       vm: currentVm,
       status: 'Recycled',
-      message: `虚拟机已移入回收站，将在 ${protectionDays} 天后自动删除`,
+      message: '虚拟机已移入回收站',
       deletedAt: deletionTimestamp,
-      expiresAt: expirationTimestamp,
       workflow: 'recycle-bin'
     };
   } catch (e: any) {

@@ -121,7 +121,7 @@ interface LogsOutputConfigProps {
 
 const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'leased_lines_admin';
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
 
   const [list, setList] = useState<OutputItem[]>([]);
   const [loading, setLoading] = useState(false);

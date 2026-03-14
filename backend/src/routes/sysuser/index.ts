@@ -236,6 +236,47 @@ router.put('/me', async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.post('/me/password', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: '未授权' });
+    }
+
+    if ((req.user as any).isTenantUser || (req.user as any).role === 'tenant') {
+      return res.status(403).json({ message: '租户用户暂不支持此接口' });
+    }
+
+    const { oldPassword, newPassword } = req.body || {};
+    const oldPwd = String(oldPassword || '').trim();
+    const newPwd = String(newPassword || '').trim();
+
+    if (!oldPwd || !newPwd) {
+      return res.status(400).json({ message: '缺少 oldPassword 或 newPassword' });
+    }
+    if (newPwd.length < 8 || newPwd.length > 64) {
+      return res.status(400).json({ message: '新密码长度需为 8-64 位' });
+    }
+
+    const userRepository = AppDataSource.getRepository(User);
+    const user = await userRepository.findOne({ where: { id: req.user.id } });
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
+
+    const ok = await bcrypt.compare(oldPwd, user.password);
+    if (!ok) {
+      return res.status(400).json({ message: '原密码错误' });
+    }
+
+    user.password = await bcrypt.hash(newPwd, 10);
+    await userRepository.save(user);
+
+    res.json({ message: '密码修改成功' });
+  } catch (error) {
+    res.status(500).json({ message: '修改密码失败' });
+  }
+});
+
 // 超级管理员：更新用户状态
 router.put('/:id/status', async (req: AuthRequest, res: Response) => {
   try {
@@ -270,15 +311,18 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
       return res.status(403).json({ message: '权限不足' });
     }
-    const { username, email, password, fullName, role = UserRole.LEASED_LINES_ADMIN } = req.body;
+    const { username, email, password, fullName, role } = req.body;
     if (!username?.trim() || !email?.trim() || !password?.trim() || !fullName?.trim()) {
       return res.status(400).json({ message: '缺少必填字段：username/email/password/fullName' });
+    }
+    if (role && String(role) !== UserRole.ADMIN) {
+      return res.status(400).json({ message: '创建系统用户时不允许指定为超级管理员，请先创建管理员后再按需赋权' });
     }
     const userRepository = AppDataSource.getRepository(User);
     const existed = await userRepository.findOne({ where: [{ username }, { email }] });
     if (existed) return res.status(400).json({ message: '用户名或邮箱已存在' });
     const hashed = await bcrypt.hash(password, 10);
-    const user = userRepository.create({ username, email, password: hashed, fullName, role });
+    const user = userRepository.create({ username, email, password: hashed, fullName, role: UserRole.ADMIN });
     const saved = await userRepository.save(user);
     res
       .status(201)
@@ -369,4 +413,3 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: '更新用户失败', error: String(e) });
   }
 });
-
