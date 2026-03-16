@@ -155,7 +155,9 @@ if (fs.existsSync(staticPath)) {
 // - 方便运维/用户从 Web 界面直接获取上传工具
 app.get('/api/tools/cloudmap-uploader.exe', (req, res) => {
     try {
-      const toolPath = path.join('d:', 'ComputeTower', 'Compute.Tower', 'tools', 'harvester-uploader', 'CloudmapUploader.exe');
+      const toolPath =
+        process.env.CLOUDMAP_UPLOADER_PATH ||
+        path.join(process.cwd(), 'tools', 'harvester-uploader', 'CloudmapUploader.exe');
       console.log(`[Download] Requesting tool at: ${toolPath}`);
       if (fs.existsSync(toolPath)) {
         console.log(`[Download] File exists, sending...`);
