@@ -1327,7 +1327,10 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
         } catch {
           origin = base.replace(/\/v[0-9].*$/, '');
         }
-        const urlPath = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
+        const urlV1beta1 = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
+          namespace,
+        )}/virtualmachineimages`;
+        const urlV1 = `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
           namespace,
         )}/virtualmachineimages`;
         const body = {
@@ -1346,7 +1349,12 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             storageClassParameters: storageClassParameters || {},
           },
         };
-        const json = await requestJson('POST', urlPath, cloud.secretKey || '', insecure, body);
+        let json: any;
+        try {
+          json = await requestJson('POST', urlV1beta1, cloud.secretKey || '', insecure, body);
+        } catch {
+          json = await requestJson('POST', urlV1, cloud.secretKey || '', insecure, body);
+        }
         
         // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
         // 注意：只有当返回数据包含 metadata.uid 时才入库，避免空字符串导致唯一索引冲突

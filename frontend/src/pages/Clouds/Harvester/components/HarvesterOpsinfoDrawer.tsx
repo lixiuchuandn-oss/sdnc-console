@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Drawer, Tabs, Descriptions } from 'antd';
-import yaml from 'js-yaml';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
-import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
 
 export interface HarvesterResourceDrawerProps {
   open: boolean;
@@ -87,10 +85,6 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
     cloudId,
     forceOpsMode,
   } = props;
-
-  if (resourceType === 'VirtualMachine' && !forceOpsMode) {
-    return <HarvesterVmDetailDrawer {...props} />;
-  }
 
   const drawerTitle = record 
     ? `${resourceType}: ${record.metadata?.name || record.name || ''}`

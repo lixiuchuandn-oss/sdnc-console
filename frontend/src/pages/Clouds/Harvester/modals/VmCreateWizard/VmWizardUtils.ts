@@ -908,23 +908,27 @@ export const buildHarvesterVmPayload = (params: {
                     resources: {
                         limits: (function () {
                           const obj: any = {};
-                          
-                          // CPU Limit
+                          // CPU 总 vCPU = sockets × cores × threads；limit 必须为该乘积
+                          const totalCpu = sockets * cores * threads;
+                          // CPU Limit（开启热扩容时设为热扩容上限即 maxSockets×cores×threads，否则按自定义或与 Request 一致）
                           if (!v.cpuBurstUnlimited && !v.dedicatedCPUPlacement) {
-                            if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) {
+                            if (hotExpandEnabled) {
+                              const maxSockets = sockets * 4;
+                              obj.cpu = String(maxSockets * cores * threads);
+                            } else if (typeof v.cpuLimit === 'number' && v.cpuLimit > 0) {
                               obj.cpu = String(v.cpuLimit);
-                            } else if (!hotExpandEnabled) {
-                              // 仅在未开启热扩容时，默认设置 Limit = Request
-                              // 开启热扩容时，不设置 Limit，避免限制扩容能力或触发后端自动调整 Guest 内存
-                              obj.cpu = String(cpu);
+                            } else {
+                              obj.cpu = String(totalCpu);
                             }
                           }
 
-                          // Memory Limit
+                          // Memory Limit（开启热扩容时设为热扩容上限，否则按自定义或与 Request 一致）
                           if (!v.memoryBurstUnlimited) {
-                            if (typeof v.memoryLimitGi === 'number' && v.memoryLimitGi > 0) {
+                            if (hotExpandEnabled) {
+                              obj.memory = `${actualMemGi * 4}Gi`;
+                            } else if (typeof v.memoryLimitGi === 'number' && v.memoryLimitGi > 0) {
                               obj.memory = `${v.memoryLimitGi}Gi`;
-                            } else if (!hotExpandEnabled) {
+                            } else {
                               obj.memory = memory;
                             }
                           }

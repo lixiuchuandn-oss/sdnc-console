@@ -75,6 +75,7 @@ import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHar
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import HarvesterVolumeDetailDrawer from '../components/HarvesterVolumeDetailDrawer';
 
 import { isSystemNamespace, isSystemStorageClass, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
@@ -294,10 +295,11 @@ const VolumesSection: React.FC<Props> = ({
   const [editOpen, setEditOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   
-  // 详情抽屉控制
+  // 详情 / 运维信息抽屉控制
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
+  const [detailOpsMode, setDetailOpsMode] = useState(false); // false: 云盘详情; true: 运维信息
 
   const { message, modal } = App.useApp();
 
@@ -595,19 +597,10 @@ const VolumesSection: React.FC<Props> = ({
   // ----------------------------------------------------------------
   
   /**
-   * [处理函数] handleOpenDrawer - 打开资源详情抽屉
-   * [标签] #详情查看 #抽屉
-   * 
-   * [功能]
-   * 打开 HarvesterResourceDrawer 展示卷的详细信息。
-   * 
-   * [注意事项]
-   * 必须确保传入的对象包含 `kind` 和 `metadata`，
-   * 否则抽屉组件无法正确请求 K8s 事件 API。
-   * 
-   * [位置] 第 465-480 行
+   * [处理函数] handleOpenVolumeDetail - 打开云盘详情抽屉
+   * [标签] #详情查看 #云盘详情
    */
-  const handleOpenDrawer = useCallback(async (record: VolumeView, tab: string = 'detail') => {
+  const handleOpenVolumeDetail = useCallback((record: VolumeView, tab: string = 'detail') => {
     const raw = record.raw || {};
     if (!raw.kind) raw.kind = 'PersistentVolumeClaim';
     if (!raw.metadata) {
@@ -615,12 +608,33 @@ const VolumesSection: React.FC<Props> = ({
         name: record.name,
         namespace: record.namespace,
         uid: record.key,
-        creationTimestamp: record.creationTimestamp
+        creationTimestamp: record.creationTimestamp,
       };
     }
-
     setDetailRecord(raw);
     setDetailActiveTab(tab);
+    setDetailOpsMode(false);
+    setDetailVisible(true);
+  }, []);
+
+  /**
+   * [处理函数] handleOpenOpsDrawer - 打开运维信息抽屉
+   * [标签] #运维信息 #抽屉
+   */
+  const handleOpenOpsDrawer = useCallback((record: VolumeView, tab: string = 'detail') => {
+    const raw = record.raw || {};
+    if (!raw.kind) raw.kind = 'PersistentVolumeClaim';
+    if (!raw.metadata) {
+      raw.metadata = {
+        name: record.name,
+        namespace: record.namespace,
+        uid: record.key,
+        creationTimestamp: record.creationTimestamp,
+      };
+    }
+    setDetailRecord(raw);
+    setDetailActiveTab(tab);
+    setDetailOpsMode(true);
     setDetailVisible(true);
   }, []);
 
@@ -805,9 +819,15 @@ const VolumesSection: React.FC<Props> = ({
         const vm = SafeRead.attachedVm(r);
         const isSystemDisk = checkIsSystemDisk(r, vm);
         return (
-          <span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-            {r.alias || r.name}
+            <span
+              className="cell-link"
+              onClick={() => handleOpenVolumeDetail(r, 'detail')}
+              style={{ cursor: 'pointer' }}
+            >
+              {r.alias || r.name}
+            </span>
             {isSystemDisk && <Tag color="blue" style={{ marginLeft: 8 }}>系统盘</Tag>}
           </span>
         );
@@ -919,8 +939,11 @@ const VolumesSection: React.FC<Props> = ({
         const isSystemDisk = checkIsSystemDisk(r, vm);
 
         const items: any[] = [
-          // 1. 资源详情
-          ...(!isTenant ? [{ key: 'detail', label: '运维信息', onClick: () => handleOpenDrawer(r, 'detail') }] : []),
+          // 1. 资源详情 / 运维信息
+          ...(!isTenant ? [
+            { key: 'volume_detail', label: '卷详情', onClick: () => handleOpenVolumeDetail(r, 'detail') },
+            { key: 'detail', label: '运维信息', onClick: () => handleOpenOpsDrawer(r, 'detail') },
+          ] : []),
           
           // 2. 基础管理
           { 
@@ -1015,7 +1038,7 @@ const VolumesSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh, handleOpenDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, checkIsSystemDisk]);
+  ], [cloudId, vms, storageClasses, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, checkIsSystemDisk]);
 
   // ----------------------------------------------------------------
   // [渲染] Render
@@ -1420,9 +1443,17 @@ const VolumesSection: React.FC<Props> = ({
           </Form.Item>
       </StdFormModal>
 
-      {/* 7. 详情抽屉 */}
+      {/* 7. 详情 / 运维信息抽屉 */}
+      <HarvesterVolumeDetailDrawer
+        open={detailVisible && !detailOpsMode}
+        onClose={() => setDetailVisible(false)}
+        record={detailRecord}
+        cloudId={cloudId}
+        activeTab={detailActiveTab}
+        onTabChange={setDetailActiveTab}
+      />
       <HarvesterResourceDrawer
-        open={detailVisible}
+        open={detailVisible && detailOpsMode}
         onClose={() => setDetailVisible(false)}
         resourceType="PersistentVolumeClaim"
         record={detailRecord}

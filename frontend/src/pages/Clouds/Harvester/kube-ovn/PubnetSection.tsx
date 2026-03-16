@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Button, Table, Segmented, Modal, Form, Input, Select, message, Tag, Space, Popconfirm, Card, Alert, Tooltip, Badge } from 'antd';
 import { ReloadOutlined, PlusOutlined, DeleteOutlined, InfoCircleOutlined, ThunderboltOutlined, PartitionOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import { 
     createKubeOvnSubnet, 
     deleteKubeOvnSubnet, 
@@ -96,26 +98,22 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
             const res = await fetchKubeOvnSubnets(cloudId, force, skipSync);
             const items = Array.isArray(res?.data?.items) ? res.data.items : [];
             
-            // 过滤出属于公共网络的子网 (必须绑定 VLAN 或 Provider，排除纯 Overlay/VPC 子网)
+            // 仅展示扁平网络（Underlay）的公共子网：绑定 VLAN 或 Provider，且必须属于默认网桥 ovn-cluster，排除 VPC 子网
+            const defaultVpc = 'ovn-cluster';
             const publicSubnets = items.filter((item: any) => {
-                // 1. spec.vlan 必须存在且非空字符串
+                const vpc = (item.spec?.vpc || '').trim();
+                const isDefaultVpc = !vpc || vpc === defaultVpc;
+                if (!isDefaultVpc) return false;
+
                 const vlan = item.spec?.vlan;
-                const hasVlan = vlan && vlan.trim() !== '';
-                
-                // 2. spec.provider 必须存在且非空字符串，且不能是默认的 'ovn' 或以 '.ovn' 结尾
-                // Kube-OVN 的 Overlay 子网会自动生成类似 "subnet-name.default.ovn" 的 provider
+                const hasVlan = vlan && String(vlan).trim() !== '';
                 const provider = item.spec?.provider;
-                const hasProvider = provider && 
-                                   provider.trim() !== '' && 
-                                   provider !== 'ovn' && 
-                                   !provider.endsWith('.ovn');
-                
-                // 3. 排除 join 子网 (通常是 Kube-OVN 内部使用的)
+                const hasProvider = provider &&
+                    String(provider).trim() !== '' &&
+                    provider !== 'ovn' &&
+                    !String(provider).endsWith('.ovn');
                 const isJoin = item.metadata?.name === 'join';
-                
-                // 逻辑: (有有效 VLAN 或 有有效 Provider) 且 不是内部子网
-                // 注意: 默认情况下，如果没有指定 vlan/provider，或者 provider='ovn'，Kube-OVN 会创建 Overlay 网络。
-                // 我们只展示物理网络 (Underlay)，即必须显式绑定了 VLAN 或 物理 Provider。
+
                 return (hasVlan || hasProvider) && !isJoin;
             });
             
@@ -234,7 +232,7 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
     return (
         <div>
             <Alert 
-                message="仅展示绑定了 VLAN 或 Provider Network 的公共子网。" 
+                message="仅展示扁平网络（ovn-cluster）下绑定了 VLAN 或 Provider Network 的公共子网，不包含 VPC 子网。" 
                 type="info" 
                 showIcon 
                 style={{ marginBottom: 16 }} 
@@ -331,6 +329,8 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
 // - 必须绑定一个 Provider Network 才能生效。
 // ====================================================================================================
 const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, isActive }) => {
+    const { user } = useAuth();
+    const canCreateVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
     const [data, setData] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [isModalVisible, setIsModalVisible] = useState(false);
@@ -439,7 +439,7 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
                     <a className="toolbar-reset-btn" onClick={() => { setKeyword(''); setProviderFilter(undefined); fetchData(); }}>重置</a>
                 </div>
                 <div className="toolbar-actions">
-                    <Button type="primary" onClick={() => setIsModalVisible(true)}>创建 VLAN</Button>
+                    {canCreateVlan && <Button type="primary" onClick={() => setIsModalVisible(true)}>创建 VLAN</Button>}
                     <Button icon={<ReloadOutlined />} onClick={() => fetchData()} loading={loading} />
                 </div>
             </div>

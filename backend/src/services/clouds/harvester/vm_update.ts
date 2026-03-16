@@ -495,14 +495,14 @@ const updateHarvesterVMSpecInternal = async (
               if (!spec.maxMemory) {
                   throw new Error('maxMemory is required when enabling hot plug');
               }
+              // 同步 resources.limits 为热扩容上限；CPU limit = 总 vCPU = maxSockets×cores×threads（热扩容下已为 cores=1, threads=1）
+              ensureResources();
+              const maxCpuTotal = targetMaxSockets * (domain.cpu.cores ?? 1) * (domain.cpu.threads ?? 1);
+              (domain.resources.limits as any).cpu = String(maxCpuTotal);
+              (domain.resources.limits as any).memory = spec.maxMemory;
           } else {
-              // [Harvester 兼容] 移除 Annotation（设置为 null 表示删除）
+              // 关闭热扩容：仅移除热扩容注解，不修改 maxSockets/maxGuest/limits，避免 admission 报错
               patch.metadata.annotations['harvesterhci.io/enableCPUAndMemoryHotplug'] = null;
-              
-              // [Harvester 兼容] 复刻 Harvester mutator.go 第379-380行逻辑：
-              // 只有在未启用热扩容时，才设置 maxSockets = 1
-              ensureCpu();
-              domain.cpu.maxSockets = 1;
           }
       }
 
@@ -1387,13 +1387,16 @@ const updateHarvesterVMSpecInternal = async (
           if (!spec.maxMemory) {
               throw new Error('maxMemory is required when enabling hot plug');
           }
+          // 同步 resources.limits 为热扩容上限；CPU limit = 总 vCPU = maxSockets×cores×threads（热扩容下已为 cores=1, threads=1）
+          {
+              ensureResources();
+              const maxCpuTotal = targetMaxSockets * (domain.cpu.cores ?? 1) * (domain.cpu.threads ?? 1);
+              (domain.resources.limits as any).cpu = String(maxCpuTotal);
+              (domain.resources.limits as any).memory = spec.maxMemory;
+          }
       } else {
-          // [Harvester 兼容] 移除 Annotation
+          // 关闭热扩容：仅移除热扩容注解，不修改 maxSockets/maxGuest/limits，避免 admission 报错
           delete newSpec.metadata.annotations['harvesterhci.io/enableCPUAndMemoryHotplug'];
-          
-          // [Harvester 兼容] 复刻 Harvester mutator.go 第379-380行逻辑：
-          // 只有在未启用热扩容时，才设置 maxSockets = 1
-          domain.cpu.maxSockets = 1;
       }
   }
 

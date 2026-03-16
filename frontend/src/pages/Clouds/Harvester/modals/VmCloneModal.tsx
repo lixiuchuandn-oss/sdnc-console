@@ -132,7 +132,7 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
 
       // 立即关闭弹窗，不阻塞用户
       message.success({
-        content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 正在后台创建中，卷克隆可能需要几分钟时间。您可以在「快照/备份 → 克隆任务」中查看进度。`,
+        content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 正在后台创建中，卷克隆可能需要几分钟。请在「云主机」列表中查看该虚拟机，状态列会显示「克隆: 进行中」或「克隆: 完成」。`,
         duration: 8,
       });
       onSuccess?.({ namespace: srcNamespace, name: targetName });
@@ -187,7 +187,7 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
         }
 
         message.warning({
-          content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 正在后台创建中，卷正在克隆（这是正常过程）。您可以在「快照/备份 → 克隆任务」中查看进度。`,
+          content: `克隆任务已提交！新虚拟机 ${srcNamespace}/${targetName} 正在后台创建中，卷正在克隆（这是正常过程）。请在「云主机」列表中查看该虚拟机，状态列会显示「克隆: 进行中」或「克隆: 完成」。`,
           duration: 8,
         });
         if (targetName) {
@@ -214,7 +214,7 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
     >
       <Alert
         message="使用标准克隆方式"
-        description="将直接克隆虚拟机和所有卷，无需创建快照，速度更快。克隆任务提交后将在后台进行，卷克隆可能需要几分钟时间。克隆完成后，新虚拟机将处于停止状态，等待卷就绪后您可以手动启动。您可以在「快照/备份 → 克隆任务」中查看进度，在「云主机」标签页查看虚拟机状态。"
+        description="将直接克隆虚拟机和所有卷，无需创建快照，速度更快。克隆任务提交后将在后台进行，卷克隆可能需要几分钟。克隆完成后，新虚拟机将处于停止状态，等待卷就绪后您可手动启动。在「云主机」列表中，该虚拟机的状态列会显示「克隆: 进行中」或「克隆: 完成」。"
         type="info"
         showIcon
         style={{ marginBottom: 16 }}

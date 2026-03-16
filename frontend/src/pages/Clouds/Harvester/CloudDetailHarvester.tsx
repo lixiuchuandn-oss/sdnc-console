@@ -40,7 +40,6 @@ import VmSection from './sections/VmSection';
 import RecycleBinSection from './sections/RecycleBinSection';
 import TemplatesSection from './sections/TemplatesSection';
 import ScheduleVmBackupsSection from './sections/ScheduleVmBackupsSection';
-import VmCloneTasksSection from './sections/VmCloneTasksSection';
 import VmRestoreTasksSection from './sections/VmRestoreTasksSection';
 import EipSection from './kube-ovn/EipSection';
 import FipSection from './kube-ovn/FipSection';
@@ -1767,13 +1766,6 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             </div>
                           )}
                         </>
-                      )
-                    },
-                    {
-                      key: 'vm_clones',
-                      label: '克隆任务',
-                      children: (
-                        <VmCloneTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
                       )
                     },
                     {

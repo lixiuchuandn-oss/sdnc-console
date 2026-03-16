@@ -65,13 +65,7 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
         where: { userType: isTenant ? 'tenant' : 'system', userId: user.id },
       });
       const roleIds = assigns.map((a) => a.roleId);
-
-      // If tenant user has a custom role (UUID), include it
-      if (isTenant && user.role && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.role)) {
-        if (!roleIds.includes(user.role)) {
-          roleIds.push(user.role);
-        }
-      }
+      // 权限完全由 RoleAssignment 计算，不再使用 TenantUser.role 参与权限
 
       let perms: string[] = [];
       if (roleIds.length) {

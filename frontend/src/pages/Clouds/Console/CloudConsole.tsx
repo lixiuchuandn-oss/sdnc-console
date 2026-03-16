@@ -6,7 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
-import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchHarvesterLoadBalancers, fetchHarvesterStorageClasses, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, fetchHarvesterVolumes, fetchHarvesterImages } from '../../../services/harvesterApi';
+import { fetchHarvesterNamespaces, fetchHarvesterTemplates, fetchHarvesterSshKeys, fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterCloudInits, fetchHarvesterGpuResources, fetchHarvesterIPPools, fetchHarvesterLoadBalancers, fetchHarvesterStorageClasses, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, fetchHarvesterVolumes, fetchHarvesterImages, fetchHarvesterNads } from '../../../services/harvesterApi';
 import { 
   fetchClouds, fetchCloudProviderEcs, API_BASE_URL,
   startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs,
@@ -720,25 +720,27 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
-  // 加载网络附件定义 (NADs) - 即扁平网络
-  const loadNads = async (cloudId?: string) => {
+  // 加载网络附件定义 (NADs) - 即扁平网络 / VLAN 网络；与 Cloudmap 详情页一致走 harvester/nads，支持 force 强制刷新
+  const loadNads = async (cloudId?: string, force = false, silent = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
 
-    setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
-      const json = await apiRequest(`/api/clouds/${cid}/resources/nads`);
+      const json = await fetchHarvesterNads(cid, force, silent);
       if (json?.data?.items) {
-          setNads(json.data.items);
+        setNads(json.data.items);
       } else {
-          setNads([]);
+        setNads([]);
       }
     } catch (e: any) {
       console.error('[CloudConsole] loadNads error:', e);
       setNads([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1319,7 +1321,7 @@ const CloudConsolePage: React.FC = () => {
                     onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
                     onRefreshGpus={() => loadGpus(currentCloudId)}
                     onRefreshIPPools={() => loadIPPools(currentCloudId)}
-                    onRefreshNads={() => loadNads(currentCloudId)}
+                    onRefreshNads={(force?, silent?) => loadNads(currentCloudId, force, silent)}
                     onRefreshLbs={() => loadLbrules(currentCloudId)}
                     onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
                     onRefreshEips={() => loadEips(currentCloudId)}
@@ -1393,7 +1395,7 @@ const CloudConsolePage: React.FC = () => {
                     onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
                     onRefreshGpus={() => loadGpus(currentCloudId)}
                     onRefreshIPPools={() => loadIPPools(currentCloudId)}
-                    onRefreshNads={() => loadNads(currentCloudId)}
+                    onRefreshNads={(force?, silent?) => loadNads(currentCloudId, force, silent)}
                     onRefreshLbs={() => loadLbrules(currentCloudId)}
                     onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
                     onRefreshEips={() => loadEips(currentCloudId)}

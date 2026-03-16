@@ -38,7 +38,6 @@ import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
 import VmSection from '../Harvester/sections/VmSection';
 import TemplatesSection from '../Harvester/sections/TemplatesSection';
 import ScheduleVmBackupsSection from '../Harvester/sections/ScheduleVmBackupsSection';
-import VmCloneTasksSection from '../Harvester/sections/VmCloneTasksSection';
 import VmRestoreTasksSection from '../Harvester/sections/VmRestoreTasksSection';
 import EipSection from '../Harvester/kube-ovn/EipSection';
 import FipSection from '../Harvester/kube-ovn/FipSection';
@@ -1494,13 +1493,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
-                      key: 'vm_clones',
-                      label: '克隆任务',
-                      children: (
-                        <VmCloneTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
-                      )
-                    },
-                    {
                       key: 'vm_restores',
                       label: '恢复任务',
                       children: (
@@ -1526,7 +1518,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: 'VLAN 网络',
                       children: (
                         <>
-                          <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} />
+                          <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} onlyBridge />
                           <DebugJSON data={rawNads} show={showLog} />
                         </>
                       )

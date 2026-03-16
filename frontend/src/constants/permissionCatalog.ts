@@ -163,6 +163,8 @@ function inferLabel(prefix: string): string {
     'route-entries': '路由条目',
     'nat-gateways': 'NAT网关',
     'route-tables': '路由表',
+    'vlans': 'VLAN (L2)',
+    'ippools': 'IP 地址池',
     'console': '云主机控制台',
     'dashboard': '仪表盘',
     'users': '子用户管理',

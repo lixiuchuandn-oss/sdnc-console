@@ -12,15 +12,16 @@ interface HarvesterEventsTabProps {
   kind?: string;
 }
 
-const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record, active }) => {
+const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record, active, kind: propKind }) => {
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const kind = propKind ?? 'VirtualMachineInstance';
 
   useEffect(() => {
     if (active && cloudId && record) {
         loadEvents();
     }
-  }, [active, cloudId, record]);
+  }, [active, cloudId, record, kind]);
 
   const loadEvents = async () => {
       setLoading(true);
@@ -31,7 +32,7 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
           const name = record.metadata?.name || record.name;
 
           if (ns && name) {
-             const res = await fetchHarvesterEvents(cloudId!, ns, name, 'VirtualMachineInstance');
+             const res = await fetchHarvesterEvents(cloudId!, ns, name, kind);
              // Sort by lastTimestamp desc
              const sorted = (res?.data || []).sort((a: any, b: any) => {
                  return new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime();

@@ -49,11 +49,12 @@ import { detachHarvesterVolumeFromVm, fetchHarvesterVncUrl, stopHarvesterVm, sta
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import HarvesterVmDetailDrawer from '../components/HarvesterVmDetailDrawer';
 import HarvesterMigrateModal from '../modals/HarvesterMigrateModal';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmCloneModal from '../modals/VmCloneModal';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
-import { isPublicNamespace, cnVmStatus, VM_STATUS_MAP } from '../../../../utils/harvesterUtils';
+import { isPublicNamespace, cnVmStatus, VM_STATUS_MAP, getVmCloneTaskStatus } from '../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../components/OsIcon';
 
 /**
@@ -808,7 +809,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     });
   }, [vms, nsValue, nodeValue, keyword, statusFilter, SafeRead, tenantOrgPath, namespaces, isTenant]);
 
-  // 计算当前抽屉需要显示的记录
+  // 计算当前抽屉需要显示的记录（详情与运维信息共用当前选中 VM）
   const drawerRecord = useMemo(() => {
     if (!currentMetadata) return null;
     const currentId = getIid(currentMetadata);
@@ -820,11 +821,19 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   // [事件处理] 5. 单个操作事件 (Single Actions)
   // ==========================================
 
-  // [事件] 显示资源详情抽屉
-  const handleShowMetadata = useCallback(async (record: any, tab: string = 'detail', opsMode: boolean = false) => {
+  // [事件] 显示虚拟机详情抽屉（HarvesterVmDetailDrawer）
+  const handleShowVmDetail = useCallback((record: any, tab: string = 'detail') => {
     setCurrentMetadata(record);
     setMetadataActiveTab(tab);
-    setMetadataOpsMode(opsMode);
+    setMetadataOpsMode(false);
+    setMetadataModalVisible(true);
+  }, []);
+
+  // [事件] 显示运维信息抽屉（HarvesterResourceDrawer）
+  const handleShowOpsinfo = useCallback((record: any, tab: string = 'detail') => {
+    setCurrentMetadata(record);
+    setMetadataActiveTab(tab);
+    setMetadataOpsMode(true);
     setMetadataModalVisible(true);
   }, []);
 
@@ -1362,8 +1371,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         { title: '云主机名称', key: 'name',  fixed: 'left' as any, ellipsis: true, render: (_: any, r: any) => {
       const text = SafeRead.name(r) || '-';
       const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
-      
-      // 检查是否是克隆虚拟机
+      const finalizers = r?.metadata?.finalizers || [];
+      const isImportant = finalizers.includes('tower.io/deletion-protection') || r?.metadata?.labels?.['tower.io/important'] === 'true';
+
       const cloneTaskAnno = r?.metadata?.annotations?.['tower.io/cloneTask'];
       let cloneInfo: any = null;
       if (cloneTaskAnno) {
@@ -1376,25 +1386,21 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const isCloned = !!cloneInfo;
       const sourceVmName = cloneInfo?.sourceVmName || cloneInfo?.sourceVm?.split('/')?.[1] || '';
       const sourceVmNamespace = cloneInfo?.sourceVmNamespace || cloneInfo?.sourceVm?.split('/')?.[0] || '';
-      
+
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <OsIcon osName={osName} style={{ marginRight: 8 }} />
-          <span className="cell-link" onClick={() => handleShowMetadata(r, 'detail')}>
+          <span className="cell-link" onClick={() => handleShowVmDetail(r, 'detail')}>
             {text}
           </span>
+          {isImportant && (
+            <Tooltip title="重要实例 (防删保护)">
+              <SafetyCertificateFilled style={{ color: '#faad14', fontSize: 14 }} />
+            </Tooltip>
+          )}
           {isCloned && (
-            <Tooltip 
-              title={sourceVmName ? `克隆自: ${sourceVmNamespace}/${sourceVmName}` : '克隆虚拟机'}
-              placement="top"
-            >
-              <Tag 
-                color="blue" 
-                icon={<CopyOutlined />}
-                style={{ marginLeft: 4, cursor: 'help' }}
-              >
-                克隆
-              </Tag>
+            <Tooltip title={sourceVmName ? `克隆自: ${sourceVmNamespace}/${sourceVmName}` : '克隆虚拟机'} placement="top">
+              <Tag color="blue"  style={{ marginLeft: 4, cursor: 'help' }}>克隆</Tag>
             </Tooltip>
           )}
         </span>
@@ -1407,52 +1413,41 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
     { title: '状态', key: 'status', fixed: 'left' as any, render: (_: any, r: any) => {
       const s = String(SafeRead.status(r));
       const k = s.toLowerCase();
-      // [Feature] 检查重要实例标记
-      const finalizers = r?.metadata?.finalizers || [];
-      const isImportant = finalizers.includes('tower.io/deletion-protection') || r?.metadata?.labels?.['tower.io/important'] === 'true';
-
-      // [逻辑] 状态颜色映射
-      const status = (function(){
-        if (k==='running') return 'success';
-        if (k==='starting') return 'processing';
-        if (k==='migrating') return 'processing';
-        if (k==='stopping') return 'warning';
-        if (k==='terminating') return 'warning';
-        if (k==='error' || k==='errorunschedulable') return 'error';
+      const statusColor = (function(){
+        if (k === 'running') return 'success';
+        if (k === 'starting' || k === 'migrating') return 'processing';
+        if (k === 'stopping' || k === 'terminating') return 'warning';
+        if (k === 'error' || k === 'errorunschedulable') return 'error';
         return 'default';
       })();
-      
       const { isFsPending, isResizing } = checkResizeStatus(r);
-      
+      const hasCloneTask = !!r?.metadata?.annotations?.['tower.io/cloneTask'];
+      const cloneStatus = hasCloneTask ? getVmCloneTaskStatus(r) : null;
+
+      const tagStyle = { marginTop: 2, fontSize: 12 };
+      const hasExtra = isResizing || isFsPending || cloneStatus;
+
       return (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-            <Badge status={status as any} text={
-              <span>
-                {cnVmStatus(s)}
-                {isResizing && <span style={{ color: '#1890ff', marginLeft: 4 }}>[系统盘扩容中]</span>}
-                {isFsPending && (
-                  <>
-                    <span style={{ color: '#faad14', marginLeft: 4 }}>[系统盘待扩容]</span>
-                    <Button 
-                        type="link" 
-                        size="small" 
-                        className="cell-link"
-                        style={{ padding: 0, height: 'auto', fontSize: 12, marginLeft: 6 }}
-                        onClick={(e) => { e.stopPropagation(); setResizeGuideVisible(true); }}
-                    >
-                        扩容指南
-                    </Button>
-                  </>
-                )}
-              </span>
-            } />
-            {isImportant && (
-              <Tooltip title="重要实例 (防删保护)">
-                <SafetyCertificateFilled style={{ color: '#faad14', marginLeft: 8, fontSize: 14 }} />
-              </Tooltip>
-            )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <Badge status={statusColor as any} text={cnVmStatus(s)} />
           </div>
+          {hasExtra && (
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+              {isResizing && <Tag style={tagStyle} color="processing">系统盘扩容中</Tag>}
+              {isFsPending && (
+                <>
+                  <Tag style={tagStyle} color="warning">系统盘待扩容</Tag>
+                  <Button type="link" size="small" className="cell-link" style={{ padding: 0, height: 'auto', fontSize: 12 }} onClick={(e) => { e.stopPropagation(); setResizeGuideVisible(true); }}>扩容指南</Button>
+                </>
+              )}
+              {cloneStatus && (
+                <Tooltip title="该虚拟机由克隆创建，此处显示克隆卷是否就绪">
+                  <Tag style={tagStyle} color={cloneStatus.phase === 'ready' ? 'success' : 'processing'}>克隆{cloneStatus.phase === 'ready' ? '完成' : '进行中'}</Tag>
+                </Tooltip>
+              )}
+            </div>
+          )}
         </div>
       );
     } },
@@ -1548,10 +1543,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // ----------------------------------------------------------------
         // 1. 基础信息与访问
         // ----------------------------------------------------------------
-        { key: 'detail', label:'实例详情', onClick: () => handleShowMetadata(r, 'detail') },        
-        // 运维模式下的 YAML 查看
+        { key: 'detail', label:'实例详情', onClick: () => handleShowVmDetail(r, 'detail') },        
+        // 运维模式下的 YAML / 原始对象查看
         ...(!isTenant ? [
-            { key: 'detail_ops', label: '运维信息', onClick: () => handleShowMetadata(r, 'detail', true) }
+            { key: 'detail_ops', label: '运维信息', onClick: () => handleShowOpsinfo(r, 'detail') }
         ] : []),
 
         // VNC 控制台
@@ -1644,7 +1639,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       ];
       return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }} />;
     } },
-  ], [handleShowMetadata, handleClone, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant, handleMigrate, handleAbortMigration]);
+  ], [handleShowVmDetail, handleShowOpsinfo, handleClone, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant, handleMigrate, handleAbortMigration]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vm_table_v3');
@@ -1788,19 +1783,17 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         ========================================
       */}
       
-      {/* 资源详情抽屉 */}
-      <HarvesterResourceDrawer
-        open={metadataModalVisible}
+      {/* 虚拟机详情抽屉（实例详情） */}
+      <HarvesterVmDetailDrawer
+        open={metadataModalVisible && !metadataOpsMode}
         onClose={() => setMetadataModalVisible(false)}
-        resourceType="VirtualMachine"
-        forceOpsMode={metadataOpsMode}
         record={drawerRecord}
-        activeTab={metadataActiveTab}
-        onTabChange={setMetadataActiveTab}
         cloudId={cloudId}
         namespaces={namespaces}
         volumes={volumes}
         images={images}
+        activeTab={metadataActiveTab}
+        onTabChange={setMetadataActiveTab}
         onRefresh={onRefresh}
         onOpenReconfigure={onOpenReconfigure}
         onBackup={handleBackup}
@@ -1808,6 +1801,17 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         onClone={handleClone}
         onMigrate={handleMigrate}
         onDelete={handleDeleteConfirm}
+      />
+
+      {/* 运维信息抽屉（YAML / 原始对象 / 实例摘要） */}
+      <HarvesterResourceDrawer
+        open={metadataModalVisible && metadataOpsMode}
+        onClose={() => setMetadataModalVisible(false)}
+        resourceType="VirtualMachine"
+        record={drawerRecord}
+        activeTab={metadataActiveTab}
+        onTabChange={setMetadataActiveTab}
+        cloudId={cloudId}
       />
       
       {/* 备份/快照创建弹窗 */}

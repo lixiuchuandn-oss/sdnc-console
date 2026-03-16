@@ -122,7 +122,7 @@ interface Props {
   onRefreshCloudInits?: () => void;
   onRefreshGpus?: () => void;
   onRefreshIPPools?: () => void;
-  onRefreshNads?: () => void;
+  onRefreshNads?: (force?: boolean, silent?: boolean) => void;
   onRefreshLbs?: () => void;
   onRefreshVpcs?: () => void;
   onRefreshEips?: () => void;
@@ -479,6 +479,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
             cloudId={cloudId}
             isTenant={isTenantUser}
             bordered={bordered}
+            onlyBridge
           />
         );
       case 'lb':

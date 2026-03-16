@@ -182,13 +182,14 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
 
     const path = String((req.baseUrl || '') + (req.path || '')).toLowerCase();
     const actionBase = (() => {
-      if (
+      // 云主机控制台：所有控制台/VNC/SSH 相关请求统一走 clouds.console，且按写权限（建立连接）校验
+      const isConsolePath =
         path.includes('/csm/security/domain/attach/callonsso') ||
         (path.includes('/csm/security/virtual-elements') && path.endsWith('/console')) ||
-        path.endsWith('/vnc-url')
-      ) {
-        // 特殊逻辑：获取控制台/VNC 地址虽然是 GET 请求，但本质上是“建立远程连接”，
-        // 因此强制归类为 Write 权限（clouds.console:write），与普通查询列表的 Read 权限区分开。
+        path.endsWith('/vnc-url') ||
+        path.includes('/vnc-url') ||
+        (path.includes('/resources/ecs') && (path.includes('/vnc') || path.includes('/console') || path.includes('/ssh')));
+      if (isConsolePath) {
         isRead = false;
         return 'clouds.console';
       }
@@ -211,6 +212,8 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
       if (path.includes('/resources/route-entries')) return 'clouds.route-entries';
       if (path.includes('/resources/disks')) return 'clouds.disks';
       if (path.includes('/resources/snapshots')) return 'clouds.snapshots';
+      if (path.includes('/resources/vlans')) return 'clouds.vlans';
+      if (path.includes('/resources/ippools')) return 'clouds.ippools';
       return 'clouds';
     })();
 
@@ -919,12 +922,11 @@ router.post(
         return res.status(403).json({ message: `已达到最大云资源连接数限制 (${maxAccounts})。请联系管理员升级授权。` });
       }
 
-      // 2. Check provider whitelist (if not multi-cloud)
+      // 2. 未启用多云时仅允许 CloudMap 类资源池（默认授权、导入授权但未含 platform.multi-cloud 均适用）
       const provider = String(config?.provider || '').toLowerCase();
       if (!isMultiCloud) {
-        // Default license only supports cloudmap types (including harvester which is underlying)
-        const allowedInDefault = ['cloudmap.private', 'cloudmap.edge', 'cloudmap.csm', 'harvester'];
-        if (!allowedInDefault.includes(provider)) {
+        const allowedWithoutMultiCloud = ['cloudmap.private', 'cloudmap.edge', 'cloudmap.csm', 'harvester'];
+        if (!allowedWithoutMultiCloud.includes(provider)) {
           return res.status(403).json({ message: '当前授权仅支持接入 CloudMap 类型的资源池。需接入多云资源请升级授权。' });
         }
       }

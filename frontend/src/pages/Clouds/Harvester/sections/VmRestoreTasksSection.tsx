@@ -339,8 +339,6 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
               openDrawer(r.restoreRaw, 'VirtualMachineRestore', view, 'detail');
             }
           }] : []),
-          { type: 'divider' },
-          { key: 'delete', label: '删除任务', danger: true, onClick: () => deleteTask(r) },
         ];
         return (
           <Dropdown menu={{ items }} trigger={['click']}>

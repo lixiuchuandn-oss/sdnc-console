@@ -74,7 +74,7 @@ const MetricCard:React.FC<{title:string;total:number;unit?:string;used:number;mi
     <Card styles={{ body: { padding:12 } }} style={{ borderRadius:6, border: '1px solid #1677ff' }}>
       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
         <span style={{ fontWeight:600, fontSize:13 }}>{title}</span>
-        <span style={{ color:'#8c8c8c', fontSize:12 }}>总{unit} {total}{unit}</span>
+        <span style={{ color:'#8c8c8c', fontSize:12 }}>总共 {total}{unit}</span>
       </div>
       <div style={{ height:8, background:trail, borderRadius:4, overflow:'hidden', marginBottom:8 }}>
         <div style={{ width:`${percent}%`, height:'100%', background:mainColor }} />

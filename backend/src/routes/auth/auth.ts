@@ -116,27 +116,18 @@ router.post('/login', async (req: Request, res: Response) => {
     if (role === 'tenant') {
       await tenantRepo.save(loginUser);
       
-      // Fetch permissions for tenant user role
+      // Fetch permissions for tenant user（完全由 RoleAssignment 计算）
       try {
-        const trId = (loginUser as TenantUser).role;
         const assignRepo = AppDataSource.getRepository(RoleAssignment);
         const roleRepo = AppDataSource.getRepository(RBACRole);
         
-        // 1. Get explicit assignments
+        // 权限完全由 RoleAssignment 计算
         const assigns = await assignRepo.find({
           where: { userType: 'tenant', userId: loginUser.id },
         });
         const roleIds = assigns.map((a) => a.roleId);
 
-        // 2. Include primary role if it's a UUID (custom role)
-        // Check if UUID v4 format roughly
-        if (trId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trId)) {
-           if (!roleIds.includes(trId)) {
-             roleIds.push(trId);
-           }
-        }
-
-        // 3. Fetch all roles and merge permissions
+        // Fetch all roles and merge permissions
         if (roleIds.length > 0) {
            const roles = await roleRepo.find({ where: { id: In(roleIds) } });
            for (const r of roles) {
@@ -166,18 +157,47 @@ router.post('/login', async (req: Request, res: Response) => {
       { expiresIn: '24h' },
     );
 
+    // 租户用户：补充租户/组织 ID 与名称，以便前端右上角登录后立即显示；用 null 占位保证 JSON 中一定带这四键（undefined 会被 JSON.stringify 省略）
+    let tenantId: string | null = null;
+    let organizationId: string | null = null;
+    let tenantName: string | null = null;
+    let organizationName: string | null = null;
+    if (role === 'tenant') {
+      const tu = loginUser as TenantUser;
+      tenantId = tu.tenantId ?? null;
+      organizationId = tu.organizationId ?? null;
+      try {
+        const fullUser = await tenantRepo.findOne({
+          where: { id: loginUser.id },
+          relations: ['tenant', 'organization'],
+        });
+        if (fullUser?.tenant?.name) tenantName = fullUser.tenant.name;
+        if (fullUser?.organization?.name) organizationName = fullUser.organization.name;
+      } catch (e) {
+        console.warn('Failed to fetch tenant/org names for login response', e);
+      }
+    }
+
+    const userPayload: Record<string, any> = {
+      id: loginUser.id,
+      username: loginUser.username,
+      email: loginUser.email,
+      fullName: loginUser.fullName,
+      role,
+      tenantRole: role === 'tenant' ? (loginUser as TenantUser).role : undefined,
+      permissions,
+    };
+    if (role === 'tenant') {
+      userPayload.tenantId = tenantId;
+      userPayload.organizationId = organizationId;
+      userPayload.tenantName = tenantName;
+      userPayload.organizationName = organizationName;
+    }
+
     res.json({
       message: '登录成功',
       token,
-      user: {
-        id: loginUser.id,
-        username: loginUser.username,
-        email: loginUser.email,
-        fullName: loginUser.fullName,
-        role,
-        tenantRole: role === 'tenant' ? (loginUser as TenantUser).role : undefined,
-        permissions,
-      },
+      user: userPayload,
     });
   } catch (error: any) {
     res.status(500).json({ message: '登录失败', error: error.message });

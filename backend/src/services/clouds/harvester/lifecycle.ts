@@ -754,14 +754,39 @@ export const harvesterDeleteVM = async (
         });
       }
     }
-    
-    // 使用JSON Patch更新VM
-    const patchBody = [
-      { op: 'add', path: '/metadata/finalizers/-', value: recycleBinFinalizer },
-      { op: 'add', path: '/metadata/annotations/tower.io~1deletion-scheduled', value: deletionTimestamp },
-      { op: 'add', path: '/metadata/labels/tower.io~1recycle-bin', value: 'true' },
-    ];
-    
+
+    // 使用 JSON Patch 更新 VM。注意：当 metadata.annotations 或 metadata.labels 为 null/不存在时，
+    // 直接 add 到子路径会触发 Kubernetes API 返回 422（如通过备份/快照新建的虚拟机），需先确保父对象存在。
+    const patchBody: Array<{ op: string; path: string; value?: unknown }> = [];
+    const finals = currentVm?.metadata?.finalizers;
+    if (Array.isArray(finals) && finals.length > 0) {
+      patchBody.push({ op: 'add', path: '/metadata/finalizers/-', value: recycleBinFinalizer });
+    } else {
+      patchBody.push({ op: 'add', path: '/metadata/finalizers', value: [recycleBinFinalizer] });
+    }
+    const annotations = currentVm?.metadata?.annotations;
+    if (annotations != null && typeof annotations === 'object') {
+      const key = 'tower.io/deletion-scheduled';
+      if (Object.prototype.hasOwnProperty.call(annotations, key)) {
+        patchBody.push({ op: 'replace', path: '/metadata/annotations/tower.io~1deletion-scheduled', value: deletionTimestamp });
+      } else {
+        patchBody.push({ op: 'add', path: '/metadata/annotations/tower.io~1deletion-scheduled', value: deletionTimestamp });
+      }
+    } else {
+      patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/deletion-scheduled': deletionTimestamp } });
+    }
+    const labels = currentVm?.metadata?.labels;
+    if (labels != null && typeof labels === 'object') {
+      const key = 'tower.io/recycle-bin';
+      if (Object.prototype.hasOwnProperty.call(labels, key)) {
+        patchBody.push({ op: 'replace', path: '/metadata/labels/tower.io~1recycle-bin', value: 'true' });
+      } else {
+        patchBody.push({ op: 'add', path: '/metadata/labels/tower.io~1recycle-bin', value: 'true' });
+      }
+    } else {
+      patchBody.push({ op: 'add', path: '/metadata/labels', value: { 'tower.io/recycle-bin': 'true' } });
+    }
+
     const patchUrl = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachines/${encodeURIComponent(path.name)}`;
     await requestJson('PATCH', patchUrl, token, insecure, patchBody, {
       'Content-Type': 'application/json-patch+json'

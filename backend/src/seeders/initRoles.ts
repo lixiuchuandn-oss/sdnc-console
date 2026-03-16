@@ -41,6 +41,10 @@ const CURATED_PERMISSIONS = [
     'clouds.route-entries:write',
     'clouds.nat-gateways:read',
     'clouds.nat-gateways:write',
+    'clouds.vlans:read',
+    'clouds.vlans:write',
+    'clouds.ippools:read',
+    'clouds.ippools:write',
     // 云主机控制台
     'clouds.console:read',
     'clouds.console:write',
@@ -119,7 +123,7 @@ export async function initializeRoles() {
       status: 'active',
     });
 
-    // 2. Tenant Admin
+    // 2. Tenant Admin（租户侧禁止创建 VLAN 网络、VLAN 地址池，仅只读）
     await ensureRole({
       name: 'Tenant Admin',
       description: '租户管理员，拥有租户内的管理权限',
@@ -131,16 +135,18 @@ export async function initializeRoles() {
         'clouds.console:write',
         'networks.vpcs:read',
         'networks.vpcs:write',
+        'clouds.vlans:read',
+        'clouds.ippools:read',
       ],
       status: 'active',
     });
-    
+
     // 3. User (Standard User)
     await ensureRole({
       name: 'User',
       description: '普通用户，拥有基础查看权限',
       scope: 'tenant',
-      permissions: ['clouds.console:read', 'clouds.instances:read'],
+      permissions: ['clouds.console:read', 'clouds.instances:read', 'clouds.vlans:read', 'clouds.ippools:read'],
       status: 'active',
     });
 

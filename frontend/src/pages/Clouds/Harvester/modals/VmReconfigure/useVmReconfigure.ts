@@ -1419,7 +1419,7 @@ export const useVmReconfigure = (props: any) => {
           
           await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
           message.success('热扩容设置已提交');
-          void maybePromptRestart(namespace, vmName);
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'cpu_advanced': {
@@ -1458,7 +1458,7 @@ export const useVmReconfigure = (props: any) => {
 
           await updateHarvesterVmSpec(cloudId, namespace, vmName, advancedPayload);
           message.success('性能设置已更新');
-          void maybePromptRestart(namespace, vmName);
+          openRestartConfirm(namespace, vmName, false);
           break;
         }
         case 'change_os': {

@@ -63,6 +63,37 @@ import { getJsonOnce, requestJson, watchJsonStream } from '../../../services/clo
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
 /**
+ * 检查克隆目标 VM 所用 PVC 是否全部 Bound，用于克隆任务结束状态判断。
+ * @returns true 表示全部 Bound（克隆卷已就绪），false 表示有未 Bound 或请求失败
+ */
+async function checkClonePvcsBound(
+  origin: string,
+  token: string,
+  insecure: boolean,
+  namespace: string,
+  claimNames: string[],
+): Promise<boolean> {
+  if (!namespace || !Array.isArray(claimNames) || claimNames.length === 0) return true;
+  try {
+    const results = await Promise.all(
+      claimNames.map(async (name) => {
+        try {
+          const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims/${encodeURIComponent(name)}`;
+          const pvc = await getJsonOnce(url, token, insecure, true);
+          const phase = String(pvc?.status?.phase || '').toLowerCase();
+          return phase === 'bound';
+        } catch {
+          return false;
+        }
+      }),
+    );
+    return results.every(Boolean);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 将 Harvester VM 相关路由注册到传入的 Express Router 上。
  *
  * 设计要点：
@@ -332,6 +363,35 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
             vmi: vmi,
           };
         });
+
+        // 克隆任务状态：对带 tower.io/cloneTask 且 cloneType=standard 的 VM 查询其 PVC 是否全部 Bound
+        await Promise.all(
+          data.map(async (row: any) => {
+            const cloneAnno = row?.metadata?.annotations?.['tower.io/cloneTask'];
+            if (!cloneAnno) return;
+            let isStandardClone = false;
+            try {
+              const info = JSON.parse(cloneAnno);
+              isStandardClone = info?.cloneType === 'standard';
+            } catch {
+              return;
+            }
+            if (!isStandardClone) return;
+            const ns = row.namespace || '';
+            const claims: string[] = Array.isArray(row.volumeClaims) ? row.volumeClaims : [];
+            if (claims.length === 0) {
+              row.clonePvcsReady = true;
+              return;
+            }
+            row.clonePvcsReady = await checkClonePvcsBound(
+              origin,
+              cloud.secretKey || '',
+              insecure,
+              ns,
+              claims,
+            );
+          }),
+        );
 
         const capabilities = {
           isHarvester: true,

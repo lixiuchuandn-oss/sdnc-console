@@ -6,7 +6,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterBackup, deleteHarvesterVirtualMachineRestore, fetchHarvesterBackups, fetchHarvesterVirtualMachineRestores } from '../../../../services/harvesterApi';
 import { apiRequest } from '../../../../services/api';
-import { isPublicNamespace, isSystemNamespace, calculateVmCloneProgress, estimateVmCloneProgress } from '../../../../utils/harvesterUtils';
+import { isPublicNamespace, isSystemNamespace, getVmCloneTaskStatus } from '../../../../utils/harvesterUtils';
 
 type Props = {
   cloudId: string;
@@ -45,9 +45,6 @@ const getSnapshotStatus = (raw: any) => {
   return { phase: 'pending', text: '未就绪' as const };
 };
 
-// 使用共享的进度计算函数
-const calculateCloneProgress = calculateVmCloneProgress;
-
 const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -56,7 +53,6 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
   const [backups, setBackups] = useState<any[]>([]);
   const [restores, setRestores] = useState<any[]>([]);
   const [vms, setVms] = useState<any[]>([]);
-  const [vmProgressCache, setVmProgressCache] = useState<Map<string, { progress: number; phase: string; text: string }>>(new Map());
 
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
@@ -180,13 +176,13 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       });
     });
 
-    // 添加标准克隆方式的 VM
+    // 添加标准克隆方式的 VM（仅根据 VM 状态判断任务是否结束）
     normalizeStandardCloneVms.forEach((item: any) => {
       const vm = item.vm;
       const ns = item.namespace;
       const name = item.name;
-      const progressInfo = vmProgressCache.get(`${ns}/${name}`) || { progress: 0, phase: 'pending', text: '进行中' };
-      
+      const taskStatus = getVmCloneTaskStatus(vm);
+
       rows.push({
         key: vm?.metadata?.uid || `${ns}/${name}`,
         namespace: ns,
@@ -199,9 +195,8 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         vmRaw: vm,
         cloneType: 'standard',
         cloneInfo: item.cloneInfo,
-        progress: progressInfo.progress,
-        progressPhase: progressInfo.phase,
-        progressText: progressInfo.text,
+        progressPhase: taskStatus.phase,
+        progressText: taskStatus.text,
         creationTimestamp: vm?.metadata?.creationTimestamp || item.cloneInfo?.createdAt || '',
       });
     });
@@ -212,7 +207,7 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       return Number.isFinite(n) ? n : 0;
     };
     return rows.sort((a, b) => parseTs(b.creationTimestamp) - parseTs(a.creationTimestamp));
-  }, [normalizeBackups, normalizeRestores, normalizeStandardCloneVms, vmProgressCache]);
+  }, [normalizeBackups, normalizeRestores, normalizeStandardCloneVms]);
 
   const filtered = useMemo(() => {
     let d = dataSource;
@@ -272,57 +267,6 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       setBackups(bkItems);
       setRestores(rsItems);
       setVms(vmsItems);
-
-      // 计算标准克隆方式的进度（异步，不阻塞刷新）
-      const standardCloneVms = vmsItems.filter((v: any) => {
-        const raw = v?.rawData || v?.metadata ? v : null;
-        if (!raw) return false;
-        const cloneTaskAnno = raw?.metadata?.annotations?.['tower.io/cloneTask'];
-        if (!cloneTaskAnno) return false;
-        try {
-          const cloneInfo = JSON.parse(cloneTaskAnno);
-          return cloneInfo.cloneType === 'standard';
-        } catch {
-          return false;
-        }
-      });
-
-      // 先设置初始进度（基于 VM 状态快速估算，与 calculateVmCloneProgress 逻辑保持一致）
-      const initialProgressMap = new Map<string, { progress: number; phase: string; text: string }>();
-      standardCloneVms.forEach((v: any) => {
-        const raw = v?.rawData || v?.metadata ? v : null;
-        if (!raw) return;
-        const ns = raw?.metadata?.namespace || '';
-        const name = raw?.metadata?.name || '';
-        const key = `${ns}/${name}`;
-        // 使用统一的估算函数，确保与 calculateVmCloneProgress 逻辑一致
-        const estimatedProgress = estimateVmCloneProgress(raw);
-        initialProgressMap.set(key, estimatedProgress);
-      });
-      setVmProgressCache(initialProgressMap);
-
-      // 然后异步计算精确进度（不阻塞）
-      Promise.all(
-        standardCloneVms.map(async (v: any) => {
-          const raw = v?.rawData || v?.metadata ? v : null;
-          if (!raw) return;
-          const ns = raw?.metadata?.namespace || '';
-          const name = raw?.metadata?.name || '';
-          const key = `${ns}/${name}`;
-          try {
-            const progress = await calculateCloneProgress(raw, cloudId);
-            setVmProgressCache((prev) => {
-              const newMap = new Map(prev);
-              newMap.set(key, progress);
-              return newMap;
-            });
-          } catch (e) {
-            // 忽略错误，保持初始进度
-          }
-        })
-      ).catch(() => {
-        // 忽略所有错误
-      });
     } catch (e: any) {
       message.error(e?.message || '刷新失败');
     } finally {

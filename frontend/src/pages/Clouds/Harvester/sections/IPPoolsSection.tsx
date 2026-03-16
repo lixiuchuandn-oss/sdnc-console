@@ -16,6 +16,8 @@ import IPPoolCreateModal from '../modals/IPPoolCreateModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterIpPool } from '../../../../services/harvesterApi';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 组件入参说明
@@ -34,7 +36,8 @@ interface Props {
 }
 
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true }) => {
-  // 工具栏状态：关键字搜索、命名空间筛选、创建弹窗、详情抽屉
+  const { user } = useAuth();
+  const canCreate = hasPermissionForAction(user?.permissions || [], 'clouds.ippools:write');
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [createVisible, setCreateVisible] = useState(false);
@@ -394,7 +397,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
           {selectedRowKeys.length > 0 && (
             <Button danger onClick={handleBatchDelete}>批量删除</Button>
           )}
-          <Button type="primary" onClick={() => setCreateVisible(true)}>创建地址池</Button>
+          {canCreate && <Button type="primary" onClick={() => setCreateVisible(true)}>创建地址池</Button>}
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}></Button>
         </>
       }

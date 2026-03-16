@@ -15,11 +15,9 @@
  *      主要用于我们自行创建的 K8s/CRD 实体（如 Harvester VM 的 vmid），
  *      其他云厂商（阿里云、华为云等）的 VM ID 则直接使用云平台返回的 InstanceId。
  *
- * 4. 克隆进度计算：
- *    - calculateVmCloneProgress：计算虚拟机克隆的进度百分比和状态
+ * 4. 克隆任务结束状态判断：
+ *    - getVmCloneTaskStatus：仅判断标准克隆任务是否已结束（完成/进行中），不做进度计算、不判失败
  */
-
-import { fetchHarvesterVolume } from '../services/harvesterApi';
 
 /**
  * 判断命名空间是否为 Harvester 系统命名空间
@@ -191,112 +189,43 @@ export const generateHarvesterEntityId = (entity: string): string => {
 };
 
 /**
- * 同步估算虚拟机克隆的初始进度（不查询 PVC 状态）
- * 
- * 用于在异步计算精确进度之前显示一个合理的初始值
- * 逻辑与 calculateVmCloneProgress 保持一致，但不查询 PVC 状态
- * 
- * @param vm 虚拟机对象
- * @returns 进度信息 { progress: 0-100, phase: 'pending'|'ready'|'failed', text: string }
+ * 判断虚拟机标准克隆任务是否已结束（仅做结束状态判断，不做进度计算）
+ *
+ * 优先使用后端返回的 clonePvcsReady（克隆目标 VM 的磁盘 PVC 是否全部 Bound）：
+ * - clonePvcsReady === true → 完成
+ * - clonePvcsReady === false → 进行中
+ *
+ * 若无 clonePvcsReady（兼容旧数据），则依据 VM 是否已 Running 判断完成，其余均为进行中。
+ * 不根据 VM 错误状态判「克隆失败」——VM 调度失败等不等于克隆失败，克隆只区分「卷就绪/未就绪」。
+ *
+ * @param vm 虚拟机对象（含 status，或后端附带的 clonePvcsReady）
+ * @returns { phase: 'pending'|'ready', text: string } 仅返回完成或进行中，不返回失败
  */
-export const estimateVmCloneProgress = (
+export const getVmCloneTaskStatus = (
   vm: any
-): { progress: number; phase: 'pending' | 'ready' | 'failed'; text: string } => {
+): { phase: 'pending' | 'ready'; text: string } => {
   try {
-    const ready = vm?.status?.ready || false;
-    const volumes = vm?.spec?.template?.spec?.volumes || [];
-    const pvcVolumes = volumes.filter((v: any) => v.persistentVolumeClaim);
-    
-    // 没有 PVC，直接检查 VM 状态
-    if (pvcVolumes.length === 0) {
-      if (ready) {
-        return { progress: 100, phase: 'ready', text: '完成' };
-      }
-      return { progress: 50, phase: 'pending', text: '进行中' };
+    // 优先使用后端基于 PVC 状态判断的结果（克隆目标 VM 的磁盘是否全部 Bound）
+    if (vm?.clonePvcsReady === true) {
+      return { phase: 'ready', text: '完成' };
+    }
+    if (vm?.clonePvcsReady === false) {
+      return { phase: 'pending', text: '进行中' };
     }
 
-    // 有 PVC 的情况：
-    // - 如果 VM Ready，可能是 85%（所有 PVC Bound 但刚 Ready）或 100%（完全完成）
-    //   为了保守起见，如果 Ready 但不确定 PVC 状态，显示 85%
-    // - 如果 VM 未 Ready，显示基础进度 30%
-    if (ready) {
-      // 保守估计：即使 Ready，也可能只是 PVC Bound 完成，显示 85%
-      // 实际精确进度会通过异步计算更新
-      return { progress: 85, phase: 'pending', text: '进行中' };
+    // 兼容：无 clonePvcsReady 时，仅用 VM 是否已运行判断完成，其余一律进行中（不判失败）
+    const status = vm?.status;
+    const ready = status?.ready === true;
+    const conditions: any[] = Array.isArray(status?.conditions) ? status.conditions : [];
+    const readyCond = conditions.find((c: any) => String(c?.type || '').toLowerCase() === 'ready');
+    const readyByCond = readyCond && String(readyCond.status || '').toLowerCase() === 'true';
+    const printable = String(status?.printableStatus || '').trim();
+    if (ready || readyByCond || printable === 'Running') {
+      return { phase: 'ready', text: '完成' };
     }
-    
-    // VM 未 Ready，显示基础进度
-    return { progress: 30, phase: 'pending', text: '进行中' };
+
+    return { phase: 'pending', text: '进行中' };
   } catch (e) {
-    return { progress: 0, phase: 'pending', text: '进行中' };
-  }
-};
-
-/**
- * 计算虚拟机克隆的进度
- * 
- * 进度计算逻辑：
- * 1. 如果没有 PVC，直接检查 VM Ready 状态（50% 或 100%）
- * 2. 如果有 PVC：
- *    - 基础进度 30%（VM 创建）
- *    - PVC Bound 进度：30% + (boundCount / totalPVC) * 55%（最多到 85%）
- *    - VM Ready：85% + 15% = 100%
- * 
- * @param vm 虚拟机对象
- * @param cloudId 云平台 ID
- * @returns 进度信息 { progress: 0-100, phase: 'pending'|'ready'|'failed', text: string }
- */
-export const calculateVmCloneProgress = async (
-  vm: any,
-  cloudId: string
-): Promise<{ progress: number; phase: 'pending' | 'ready' | 'failed'; text: string }> => {
-  try {
-    const ready = vm?.status?.ready || false;
-    const volumes = vm?.spec?.template?.spec?.volumes || [];
-    const pvcVolumes = volumes.filter((v: any) => v.persistentVolumeClaim);
-    
-    // 没有 PVC，直接检查 VM 状态
-    if (pvcVolumes.length === 0) {
-      if (ready) {
-        return { progress: 100, phase: 'ready', text: '完成' };
-      }
-      return { progress: 50, phase: 'pending', text: '进行中' };
-    }
-
-    // 检查所有 PVC 是否 Bound
-    let boundCount = 0;
-    let allBound = true;
-    const namespace = vm?.metadata?.namespace || '';
-    
-    for (const vol of pvcVolumes) {
-      try {
-        const pvcName = vol.persistentVolumeClaim.claimName;
-        const pvc = await fetchHarvesterVolume(cloudId, namespace, pvcName);
-        const phase = pvc?.status?.phase || '';
-        if (phase === 'Bound') {
-          boundCount++;
-        } else {
-          allBound = false;
-        }
-      } catch (e) {
-        allBound = false;
-      }
-    }
-
-    // 所有 PVC Bound 且 VM Ready = 完成
-    if (allBound && ready) {
-      return { progress: 100, phase: 'ready', text: '完成' };
-    }
-    
-    // 所有 PVC Bound 但 VM 未 Ready = 85%
-    if (allBound) {
-      return { progress: 85, phase: 'pending', text: '进行中' };
-    }
-    
-    // 部分 PVC Bound = 30% + (boundCount / total) * 55%
-    const progress = 30 + Math.floor((boundCount / pvcVolumes.length) * 55);
-    return { progress, phase: 'pending', text: '进行中' };
-  } catch (e) {
-    return { progress: 0, phase: 'pending', text: '进行中' };
+    return { phase: 'pending', text: '进行中' };
   }
 };

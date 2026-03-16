@@ -67,11 +67,12 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   const [loading, setLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [formData, setFormData] = useState<any>(null);
-  const { license, loading: licenseLoading } = useLicense();
+  const { license, loading: licenseLoading, hasFeature } = useLicense();
+
+  // 仅允许 CloudMap 私有云：试用 或 未开通多云 时，统一跳过选择云平台、禁止回退、禁用资源类型
+  const isCloudMapOnly = license?.payload?.type === 'trial' || !hasFeature('platform.multi-cloud');
 
   // [权限/功能开关] 开放平台检查
-  // 仅允许列表中定义的云平台进行接入操作
-  // 未在列表中的平台将在界面上显示为禁用状态
   const isOpenProvider = (id: string) => {
     return ['aliyun', 'huaweicloud', 'harvester', 'cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'].includes(id);
   };
@@ -88,23 +89,18 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
     }));
   }, []);
 
-  // [试用版判断] 如果是基础授权基础版（试用/Trial），自动跳过选择云平台步骤
-  // 直接进入私有云-cloudmap类型的配置云账号页面
+  // 试用或未开通多云：跳过选择云平台，直接进入 CloudMap 私有云配置
   useEffect(() => {
-    if (visible && !licenseLoading && license?.payload?.type === 'trial') {
-      // 查找 cloudmap.private 提供商
+    if (visible && !licenseLoading && isCloudMapOnly) {
       const cloudmapProvider = cloudProviders.find(p => p.id === 'cloudmap.private');
       if (cloudmapProvider) {
         setPoolType('private');
         setSelectedProvider(cloudmapProvider);
-        setCurrentStep(1); // 跳过步骤0，直接进入配置页面
-        // 设置 ignoreTls 默认值为 true
-        setTimeout(() => {
-          form.setFieldsValue({ ignoreTls: true });
-        }, 200);
+        setCurrentStep(1);
+        setTimeout(() => form.setFieldsValue({ ignoreTls: true }), 200);
       }
     }
-  }, [visible, licenseLoading, license]);
+  }, [visible, licenseLoading, isCloudMapOnly]);
 
   // [默认值设置] 当选择 provider 后，设置 ignoreTls 默认值为 true
   useEffect(() => {
@@ -192,10 +188,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
   };
 
   const handlePrev = () => {
-    // [试用版限制] 如果是试用版且当前在步骤1，不允许返回到步骤0（选择云平台）
-    if (currentStep === 1 && license?.payload?.type === 'trial') {
-      return; // 阻止返回
-    }
+    if (currentStep === 1 && isCloudMapOnly) return;
     setCurrentStep(currentStep - 1);
     if (currentStep === 1) {
       setSelectedProvider(null);
@@ -556,7 +549,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
               }}
             >
               <Form.Item name="type" label="资源类型" initialValue={poolType} rules={[{ required:true }]}> 
-                <Select disabled={license?.payload?.type === 'trial'}>
+                <Select disabled={isCloudMapOnly}>
                   <Option value="central">公有云</Option>
                   <Option value="private">私有云</Option>
                   <Option value="edge">边缘计算</Option>
@@ -899,7 +892,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess 
             <div className="wizard-preview-actions">
               <Space>
                 <Button onClick={handleCancel}>取消</Button>
-                {currentStep > 0 && !(currentStep === 1 && license?.payload?.type === 'trial') && (
+                {currentStep > 0 && !(currentStep === 1 && isCloudMapOnly) && (
                   <Button onClick={handlePrev}>上一步</Button>
                 )}
                 {currentStep === 0 && selectedProvider && (

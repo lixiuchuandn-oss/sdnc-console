@@ -20,6 +20,8 @@ import { ProtectionObject } from '../../entities/ProtectionObject';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
 import { createHarvesterNamespace } from '../../services/clouds/harvester/client';
 import bcrypt from 'bcryptjs';
+import { RoleAssignment } from '../../entities/RoleAssignment';
+import { RBACRole } from '../../entities/RBACRole';
 
 // 租户与组织/用户/资源池管理路由：
 // - 提供租户的增删改查接口
@@ -738,13 +740,32 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
       email,
       fullName,
       password: hashedPassword,
-      role: role || 'user',
+      role: 'user', // 仅保留默认占位，真实角色仅存 RoleAssignment
       organizationId: orgId,
       tenantId,
       status: 'active',
     });
 
     const savedUser = await userRepository.save(user);
+
+    // 创建时分配的角色只写入 rbac_role_assignments，权限与「分配角色」均以此为准
+    const roleId = typeof role === 'string' ? role.trim() : '';
+    if (roleId) {
+      try {
+        const roleRepo = AppDataSource.getRepository(RBACRole);
+        const rbacRole = await roleRepo.findOne({ where: { id: roleId } });
+        if (rbacRole && rbacRole.scope === 'tenant' && rbacRole.status === 'active') {
+          const assignRepo = AppDataSource.getRepository(RoleAssignment);
+          const existed = await assignRepo.findOne({ where: { roleId: roleId, userType: 'tenant', userId: savedUser.id } });
+          if (!existed) {
+            const row = assignRepo.create({ roleId: roleId, userType: 'tenant', userId: savedUser.id });
+            await assignRepo.save(row);
+          }
+        }
+      } catch (e) {
+        console.error('创建用户时写入 RBAC 分配失败（不影响用户创建）:', e);
+      }
+    }
 
     // 返回时不包含密码字段，避免泄露
     const { password: _, ...userWithoutPassword } = savedUser;
@@ -756,12 +777,12 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
 });
 
 // 更新租户用户信息：
-// - 支持更新邮箱/姓名/密码/角色/状态
+// - 支持更新邮箱/姓名/密码/状态（角色仅通过「分配角色」接口维护）
 // - 更新密码时重新进行哈希
 router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
   try {
     const { tenantId, orgId, userId } = req.params;
-    const { email, fullName, password, role, status } = req.body;
+    const { email, fullName, password, status } = req.body;
 
     const userRepository = AppDataSource.getRepository(TenantUser);
     const tenantUser = await userRepository.findOne({
@@ -788,9 +809,7 @@ router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => 
     if (password) {
       tenantUser.password = await bcrypt.hash(password, 10);
     }
-    if (role) {
-      tenantUser.role = role;
-    }
+    // 角色变更仅通过「分配角色」接口（RoleAssignment）维护，此处不再写入 TenantUser.role
     if (status) tenantUser.status = status;
 
     const updatedUser = await userRepository.save(tenantUser);

@@ -136,6 +136,10 @@ router.get('/rbac/actions', async (_req, res) => {
     'clouds.route-entries:write',
     'clouds.nat-gateways:read',
     'clouds.nat-gateways:write',
+    'clouds.vlans:read',
+    'clouds.vlans:write',
+    'clouds.ippools:read',
+    'clouds.ippools:write',
     // 云主机控制台
     'clouds.console:read',
     'clouds.console:write',

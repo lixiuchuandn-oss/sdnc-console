@@ -57,9 +57,11 @@ type Props = {
   isTenant?: boolean;
   /** 是否显示表格边框，默认 true */
   bordered?: boolean;
+  /** 仅展示 bridge 类型 NAD（扁平网络 / VLAN 网络）：为 true 时排除 kube-ovn 等，网桥信息列才有意义 */
+  onlyBridge?: boolean;
 };
 
-const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true }) => {
+const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true, onlyBridge = false }) => {
   // ==================== 状态管理 ====================
   
   /** 过滤条件：关键字搜索（匹配网络名称或命名空间） */
@@ -568,8 +570,16 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             _type: config?.type,
             _cniVersion: config?.cniVersion
         };
-    }).filter((x: any) => String(x?._type || '').toLowerCase().trim() !== 'ovn');
-  }, [nads]);
+    })
+    .filter((x: any) => String(x?._type || '').toLowerCase().trim() !== 'ovn')
+    .filter((x: any) => !onlyBridge || String(x?._type || '').toLowerCase().trim() === 'bridge')
+    // 按 UID 或 namespace/name 去重，避免删除后接口/缓存返回重复项导致同一 key 两条记录（如 mgmt 出现两条）
+    .filter((x: any, idx: number, arr: any[]) => {
+      const key = x?.metadata?.uid || `${x?._namespace || ''}/${x?._name || ''}`;
+      const firstIdx = arr.findIndex((y: any) => (y?.metadata?.uid || `${y?._namespace || ''}/${y?._name || ''}`) === key);
+      return firstIdx === idx;
+    });
+  }, [nads, onlyBridge]);
 
   /**
    * 过滤逻辑
@@ -721,9 +731,10 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       title: '网桥信息', 
       key: 'bridgeInfo', 
       render: (_: any, r: any) => {
+          const tp = String(r._type || '').toLowerCase().trim();
+          if (tp !== 'bridge') return <span className="text-secondary">—</span>;
           const br = r._bridge || '-';
-          const tp = r._type || '-';
-          return <span>{br} <span>({tp})</span></span>;
+          return <span>{br} <span className="text-secondary">(bridge)</span></span>;
       }
     },
     { 
@@ -838,7 +849,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       <Table
         className="std-table"
         bordered={false}
-        rowKey={(r: any) => r?.metadata?.uid || `${r?._namespace}/${r?._name}` || Math.random().toString(36).slice(2)}
+        rowKey={(r: any) => r?.metadata?.uid || `${r?._namespace ?? ''}/${r?._name ?? ''}` || 'unknown'}
         rowSelection={rowSelection}
         columns={tableColumns}
         dataSource={filteredData}

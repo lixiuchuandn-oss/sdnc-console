@@ -729,25 +729,16 @@ const OrgManagePage: React.FC = () => {
   const userColumns: ColumnsType<TenantUser> = React.useMemo(() => [
     { title: '用户名', dataIndex: 'username', key: 'username' },
     { title: '角色', dataIndex: 'role', key: 'role', render: (_: any, row: TenantUser) => {
-      // 预置角色（Legacy）映射
-      const badgeClasses: Record<string, string> = { admin: 'std-badge std-badge-error', user: 'std-badge std-badge-info', viewer: 'std-badge std-badge-success' };
-      const labels: Record<string, string> = { admin: '管理员', user: '用户', viewer: '查看者' };
-      
       const roleNameMap: Record<string, string> = {
         'Super Admin': '超级管理员',
         'Tenant Admin': '租户管理员',
         'User': '普通用户'
       };
-
-      const cls = badgeClasses[row.role] || 'std-badge std-badge-default';
-      // 尝试从预置映射获取，或从租户角色库动态查找名称，最后回落到 ID
-      const match = tenantRoles.find(r => r.id === row.role);
-      const label = labels[row.role] || (match ? (roleNameMap[match.name] || match.name) : row.role);
-
+      // 仅展示 RBAC 分配角色（RoleAssignment），避免与 TenantUser.role 重复显示
       const assigned = rolesByUser[row.id] || [];
+      if (assigned.length === 0) return <span style={{ color: '#999' }}>未分配</span>;
       return (
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-          <span className={cls}>{label}</span>
           {assigned.map(it => (
             <span key={`${row.id}-${it.id}`} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
               <span className="std-badge std-badge-default">{roleNameMap[it.name] || it.name}</span>
