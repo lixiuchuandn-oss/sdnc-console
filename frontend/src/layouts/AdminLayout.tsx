@@ -149,10 +149,16 @@ const AdminLayout: React.FC = () => {
     const pure = String(p || '').split('?')[0];
     if (!user) return false;
     const role = String(user.role || '').toLowerCase();
-    if (role === 'super_admin' || role === 'admin') return true;
+    // 只有 super_admin 才跳过权限检查，admin 也需要检查权限（与后端保持一致）
+    if (role === 'super_admin') return true;
     const act = getRequiredActionForPath(pure);
     const perms = Array.isArray(user.permissions) ? user.permissions : [];
-    return hasPermissionForAction(perms, act);
+    const hasAccess = hasPermissionForAction(perms, act);
+    // 开发环境调试
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[canAccessPath] Path: "${pure}", Action: "${act}", Permissions:`, perms, `HasAccess: ${hasAccess}`);
+    }
+    return hasAccess;
   };
 
   /**

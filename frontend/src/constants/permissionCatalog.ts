@@ -147,8 +147,38 @@ function inferLabel(prefix: string): string {
   const parts = prefix.split('.');
   const lastPart = parts[parts.length - 1];
   
-  // 常见映射
+  // 完整前缀映射（优先级最高，用于特殊情况的完整前缀）
+  const fullPrefixMap: Record<string, string> = {
+    'ops.dashboard': '运维仪表盘',
+    'ops': '运维平台',
+    'system.rbac': 'RBAC 权限管理',
+    'system.roles': '角色管理',
+    'system.roles.assignments': '角色分配',
+    'system.actions': '权限原子',
+    'networks.cen': '云企业网 (CEN)',
+    'networks.cen.attachments': 'CEN 连接',
+    'networks.security-domain': '安全域',
+    'networks.srv6': 'SRv6',
+    'networks.vr-config': 'VR 配置',
+    'networks.acl': '访问控制列表',
+    'security.services': '安全服务',
+    'security.logs': '安全日志',
+    'security.policies': '安全策略',
+    'security.apps': '安全应用',
+    'secops.dashboard': '安全运营仪表盘',
+    'secops.alerts': '安全告警',
+    'secops.rules': '安全规则',
+  };
+  
+  // 如果完整前缀有映射，直接返回
+  if (fullPrefixMap[prefix]) {
+    return fullPrefixMap[prefix];
+  }
+  
+  // 常见映射（lastPart 映射）
   const labelMap: Record<string, string> = {
+    // 基础资源
+    'clouds': '资源池管理',
     'instances': '云主机',
     'vpcs': 'VPC',
     'eips': '弹性公网IP',
@@ -156,6 +186,10 @@ function inferLabel(prefix: string): string {
     'security-groups': '安全组',
     'load-balancers': '负载均衡',
     'images': '镜像',
+    'sshkeys': 'SSH 密钥',
+    'nads': 'NAD (网络附件定义)',
+    'schedules': '定时备份策略',
+    'namespaces': '命名空间',
     'vswitches': '交换机',
     'enis': '弹性网卡',
     'network-acls': '网络ACL',
@@ -167,18 +201,53 @@ function inferLabel(prefix: string): string {
     'ippools': 'IP 地址池',
     'console': '云主机控制台',
     'dashboard': '仪表盘',
+    // 用户与租户
     'users': '子用户管理',
     'user-spaces': '用户空间',
+    'tenants': '租户管理',
+    // 权限管理
     'roles': '角色管理',
     'actions': '权限原子',
+    'rbac': 'RBAC 权限管理',
+    'assignments': '角色分配',
+    // 网络相关
+    'cen': '云企业网 (CEN)',
+    'attachments': 'CEN 连接',
+    'security-domain': '安全域',
+    'srv6': 'SRv6',
+    'vr-config': 'VR 配置',
+    'acl': '访问控制列表',
+    // 安全服务
+    'services': '安全服务',
+    'logs': '安全日志',
+    'policies': '安全策略',
+    'apps': '安全应用',
+    // 安全运营
+    'alerts': '安全告警',
+    'rules': '安全规则',
   };
   
   if (labelMap[lastPart]) {
     return labelMap[lastPart];
   }
   
-  // 如果没有映射，返回前缀本身
-  return prefix;
+  // 如果还是没有映射，尝试将 lastPart 转换为友好的中文名称
+  // 将连字符和驼峰命名转换为空格，然后首字母大写
+  const friendlyName = lastPart
+    .replace(/-/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+  
+  // 如果转换后的名称和原始 lastPart 相同，说明可能是单个单词，直接返回
+  // 否则返回转换后的友好名称
+  if (friendlyName === lastPart) {
+    // 如果还是找不到，返回前缀本身（但这种情况应该很少）
+    return prefix;
+  }
+  
+  return friendlyName;
 }
 
 // ============================================================================

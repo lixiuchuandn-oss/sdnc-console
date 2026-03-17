@@ -1298,9 +1298,9 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                                 }
 
                                 await deleteCloudProviderEcs(cloudId, iid, deleteVolumes); 
-                                message.success('虚拟机已移入回收站，7天后自动删除'); 
+                                message.success('虚拟机已移入回收站，到期后自动删除'); 
                                 apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
-                              } catch(e:any){ message.error(e?.message||'删除失败'); } 
+                              } catch(e:any){ message.error(e?.message||'移入回收站失败'); } 
                             }}
                             images={harvesterImages}
                             namespaces={harvesterNamespaces}

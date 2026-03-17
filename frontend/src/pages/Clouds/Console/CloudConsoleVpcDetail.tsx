@@ -28,9 +28,10 @@ interface Props {
   loading?: boolean;
   isHarvester?: boolean;
   onRefresh?: () => void;
-  onRefreshVolumes?: () => void;
+  onRefreshVolumes?: (force?: boolean, silent?: boolean) => void;
   onRefreshSnapshots?: () => void;
   onRefreshBackups?: () => void;
+  onRefreshStorageClasses?: () => void; // 刷新存储类列表的回调
   // Action Handlers passed from parent
   onOpenReconfigure: (vm: any) => void;
   onStart: (iid: string) => void;
@@ -60,6 +61,7 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
   onRefreshVolumes,
   onRefreshSnapshots,
   onRefreshBackups,
+  onRefreshStorageClasses,
   onOpenReconfigure,
   onStart,
   onStop,
@@ -253,6 +255,13 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
         loadNetworkRules();
     }
   }, [activeCategory, activeResource, loadNetworkRules]);
+
+  // 当切换到 volume 资源时，如果存储类为空，自动加载
+  useEffect(() => {
+    if (activeResource === 'volume' && storageClasses.length === 0 && onRefreshStorageClasses) {
+      onRefreshStorageClasses();
+    }
+  }, [activeResource, storageClasses.length, onRefreshStorageClasses]);
 
   // Tab 配置 - 与 CloudConsoleHarvester 保持一致的结构
   const tabConfig = useMemo(() => [

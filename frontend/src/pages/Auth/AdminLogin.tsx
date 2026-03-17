@@ -34,21 +34,23 @@ const AdminLogin: React.FC = () => {
       const loggedInUser = await login(values.username, values.password);
       message.success('登录成功');
       const role = String((loggedInUser as any)?.role || '').toLowerCase();
+      const perms = Array.isArray((loggedInUser as any).permissions) ? (loggedInUser as any).permissions : [];
+      
+      // 如果是 admin 用户，优先检查 favorite cloud
       if (role === 'super_admin' || role === 'admin') {
         try {
           const fav = await getSystemSetting('favorite.cloudId');
           const cloudId = String(fav?.value || '').trim();
           if (cloudId) {
             navigate(`/admin/clouds/${cloudId}`);
-          } else {
-            navigate('/admin/dashboard');
+            return;
           }
         } catch {
-          navigate('/admin/dashboard');
+          // 如果获取 favorite 失败，继续使用 getDefaultAdminPath
         }
-        return;
       }
-      const perms = Array.isArray((loggedInUser as any).permissions) ? (loggedInUser as any).permissions : [];
+      
+      // 统一使用 getDefaultAdminPath（包括 admin 用户）
       const target = getDefaultAdminPath(perms);
       navigate(target);
     } catch (error) {

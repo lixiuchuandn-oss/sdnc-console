@@ -994,17 +994,17 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       width: 500,
       content: (
         <div style={{ marginTop: 16 }}>
-          <p>确定要将实例 <b>{SafeRead.name(r)}</b> 移入回收站吗？</p>
+          <p>确定要将虚拟机 <b>{SafeRead.name(r)}</b> 移入回收站吗？</p>
           {isRunning && (
             <div style={{ marginBottom: 16, color: '#ff4d4f', background: '#fff1f0', padding: '8px 12px', border: '1px solid #ffccc7', borderRadius: 4 }}>
               <WarningOutlined style={{ marginRight: 8 }} />
-              警告：实例正在运行中。删除操作将强制终止实例。建议先停止实例。
+              警告：虚拟机正在运行中。删除操作将强制终止虚拟机。建议先停止虚拟机。
             </div>
           )}
           
           <div style={{ marginBottom: 16, color: '#1890ff', background: '#e6f7ff', padding: '8px 12px', border: '1px solid #91d5ff', borderRadius: 4 }}>
             <InfoCircleOutlined style={{ marginRight: 8 }} />
-            虚拟机实例将被移入回收站，您可以在回收站中恢复或立即删除。
+            虚拟机将被移入回收站，您可以在回收站中恢复或彻底删除。
           </div>     
           
           {volumeNames && (
@@ -1012,7 +1012,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
                 <div style={{ fontWeight: 500, marginBottom: 4 }}>关联的数据卷 (PVC):</div>
                 <div style={{ color: 'rgba(0,0,0,0.65)' }}>{volumeNames}</div>
                 <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                  注意：移入回收站时不会删除关联卷。如需删除卷，请在回收站中执行彻底删除操作。
+                  注意：移入回收站时不会删除关联的数据卷 (PVC)。如需删除数据卷，请在回收站中执行彻底删除操作。
                 </div>
               </div>
           )}
@@ -1311,7 +1311,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           <p>确定要将选中的 {selectedKeys.length} 台虚拟机移入回收站吗？</p>
           <div style={{ marginBottom: 16, color: '#1890ff', background: '#e6f7ff', padding: '8px 12px', border: '1px solid #91d5ff', borderRadius: 4 }}>
             <InfoCircleOutlined style={{ marginRight: 8 }} />
-            虚拟机将被移入回收站，可在回收站中恢复或彻底删除。移入回收站时不会删除关联卷（PVC）。
+            虚拟机将被移入回收站，您可以在回收站中恢复或彻底删除。移入回收站时不会删除关联的数据卷 (PVC)。
           </div>
         </div>
       ),
@@ -1345,9 +1345,9 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           const ok = results.filter((x) => x.ok).length;
           const fail = results.filter((x) => !x.ok);
 
-          if (ok > 0) message.success(`已移入回收站 ${ok} 台`);
+          if (ok > 0) message.success(`已成功将 ${ok} 台虚拟机移入回收站`);
           if (protectedTargets.length > 0)
-            message.warning(`已跳过重要实例 ${protectedTargets.length} 台（受防删保护）`);
+            message.warning(`已跳过重要虚拟机 ${protectedTargets.length} 台（受防删保护）`);
           if (fail.length > 0) {
             console.error('Batch recycle-bin errors:', fail);
             message.error(`移入回收站失败 ${fail.length} 台：${fail.map((f) => f.iid).join(', ')}`);

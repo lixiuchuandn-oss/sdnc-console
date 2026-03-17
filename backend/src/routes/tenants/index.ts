@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { AppDataSource } from '../../config/database';
 import { In } from 'typeorm';
 import { Tenant } from '../../entities/Tenant';
@@ -22,6 +22,8 @@ import { createHarvesterNamespace } from '../../services/clouds/harvester/client
 import bcrypt from 'bcryptjs';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { RBACRole } from '../../entities/RBACRole';
+import { UserRole } from '../../entities/User';
+import { checkPermission, hasAnyPermission } from '../../utils/permission';
 
 // 租户与组织/用户/资源池管理路由：
 // - 提供租户的增删改查接口
@@ -30,9 +32,40 @@ import { RBACRole } from '../../entities/RBACRole';
 // - 负责为组织分配云资源池，并在 Harvester 上创建/删除对应 Namespace 与 UserSpace/Quota
 const router = Router();
 
+// 权限检查中间件：检查租户管理相关权限
+// - 读操作（GET/HEAD）需要 tenants:read 权限
+// - 写操作（POST/PUT/PATCH/DELETE）需要 tenants:write 权限
+// - 使用统一的权限检查函数，支持通配符匹配（如 tenants:read 包含 tenants.users:read）
+const checkTenantPermission = (req: AuthRequest, res: Response, next: any) => {
+  try {
+    const role: any = (req.user as any)?.role;
+    const perms: string[] = Array.isArray((req.user as any)?.permissions)
+      ? (req.user as any)?.permissions
+      : [];
+    if (role === UserRole.SUPER_ADMIN) return next();
+
+    const method = String(req.method || 'GET').toUpperCase();
+    const isRead = method === 'GET' || method === 'HEAD';
+    // 支持多个权限选项，使用 hasAnyPermission 检查（类似 clouds 模块的做法）
+    const need = isRead
+      ? ['tenants:read']
+      : ['tenants:write'];
+
+    // 使用统一的权限检查函数，支持通配符匹配
+    const ok = hasAnyPermission(perms, need);
+    if (!ok) {
+      const required = need[0];
+      return res.status(403).json({ message: `权限不足：需要 ${required}` });
+    }
+    next();
+  } catch {
+    return res.status(403).json({ message: '权限不足' });
+  }
+};
+
 // 获取可分配的资源池列表：
 // - 由于存在 /:id 等参数化路由，为避免路由匹配冲突，该接口必须放在前面
-router.get('/available-resource-pools', async (req, res) => {
+router.get('/available-resource-pools', checkTenantPermission, async (req, res) => {
   try {
     console.log('获取可分配资源池列表请求');
     const cloudRepository = AppDataSource.getRepository(Cloud);
@@ -49,7 +82,7 @@ router.get('/available-resource-pools', async (req, res) => {
 });
 
 // 获取所有租户列表
-router.get('/', async (req, res) => {
+router.get('/', checkTenantPermission, async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
     const tenants = await tenantRepository.find({
@@ -66,7 +99,7 @@ router.get('/', async (req, res) => {
 // 创建租户：
 // - 创建 Tenant 记录
 // - 同时为其创建一个一级根组织（Root Organization），并回写 rootOrganizationId
-router.post('/', async (req, res) => {
+router.post('/', checkTenantPermission, async (req, res) => {
   try {
     const { name, description } = req.body;
 
@@ -118,7 +151,7 @@ router.post('/', async (req, res) => {
 });
 
 // 获取单个租户详情
-router.get('/:id', async (req, res) => {
+router.get('/:id', checkTenantPermission, async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
     const tenant = await tenantRepository.findOne({
@@ -137,7 +170,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // 更新租户基本信息（名称/描述/状态）
-router.put('/:id', async (req, res) => {
+router.put('/:id', checkTenantPermission, async (req, res) => {
   try {
     const { name, description, status } = req.body;
     const tenantRepository = AppDataSource.getRepository(Tenant);
@@ -170,7 +203,7 @@ router.put('/:id', async (req, res) => {
 // - 级联删除租户下所有组织、资源池分配与租户用户
 // - 如果租户下存在资源绑定，禁止删除
 // - 注意：与业务强关联的其它实体（如专线、防护策略等）需在对应模块中单独处理
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', checkTenantPermission, async (req, res) => {
   try {
     const tenantRepository = AppDataSource.getRepository(Tenant);
     const organizationRepository = AppDataSource.getRepository(Organization);
@@ -346,7 +379,7 @@ router.delete('/:id', async (req, res) => {
 // 获取租户的组织树：
 // - 将同一租户下的所有 Organization 转换为树形结构
 // - 按 level/parentId/orderIndex/createdAt 排序，保证层级与展示顺序稳定
-router.get('/:id/organizations', async (req, res) => {
+router.get('/:id/organizations', checkTenantPermission, async (req, res) => {
   try {
     const organizationRepository = AppDataSource.getRepository(Organization);
     const organizations = await organizationRepository.find({
@@ -389,7 +422,7 @@ router.get('/:id/organizations', async (req, res) => {
 // 创建组织：
 // - 支持创建任意层级（1~4 级），超过 4 级则拒绝
 // - 根据 parentId 决定 level，并为同级节点自动计算 orderIndex
-router.post('/:id/organizations', async (req, res) => {
+router.post('/:id/organizations', checkTenantPermission, async (req, res) => {
   try {
     const { name, description, parentId } = req.body;
     const tenantId = req.params.id;
@@ -449,9 +482,9 @@ router.post('/:id/organizations', async (req, res) => {
 });
 
 // 更新组织（名称/描述/父级/顺序）：
-// - 支持更改父级，从而实现组织树中的“拖拽移动”
+// - 支持更改父级，从而实现组织树中的"拖拽移动"
 // - 对同一父级下的节点重新排序，保证 orderIndex 连续
-router.put('/organizations/:orgId', async (req, res) => {
+router.put('/organizations/:orgId', checkTenantPermission, async (req, res) => {
   try {
     const { orgId } = req.params;
     const { name, description, parentId, orderIndex } = req.body as {
@@ -528,7 +561,7 @@ router.put('/organizations/:orgId', async (req, res) => {
 // - 对目标组织及其所有子孙组织进行级联删除
 // - 同时删除对应组织上的资源池分配与租户用户
 // - 如果组织下有资源绑定，禁止删除
-router.delete('/organizations/:orgId', async (req, res) => {
+router.delete('/organizations/:orgId', checkTenantPermission, async (req, res) => {
   try {
     const { orgId } = req.params;
     const organizationRepository = AppDataSource.getRepository(Organization);
@@ -673,7 +706,7 @@ router.delete('/organizations/:orgId', async (req, res) => {
 });
 
 // 获取某租户下的所有用户
-router.get('/:tenantId/users', async (req, res) => {
+router.get('/:tenantId/users', checkTenantPermission, async (req, res) => {
   try {
     const userRepository = AppDataSource.getRepository(TenantUser);
     const users = await userRepository.find({
@@ -691,7 +724,7 @@ router.get('/:tenantId/users', async (req, res) => {
 });
 
 // 获取某组织下的用户列表（附带租户维度过滤）
-router.get('/:tenantId/organizations/:orgId/users', async (req, res) => {
+router.get('/:tenantId/organizations/:orgId/users', checkTenantPermission, async (req, res) => {
   try {
     const userRepository = AppDataSource.getRepository(TenantUser);
     const users = await userRepository.find({
@@ -712,7 +745,7 @@ router.get('/:tenantId/organizations/:orgId/users', async (req, res) => {
 // 创建租户用户：
 // - 用户挂载到指定组织与租户
 // - 使用 bcrypt 对密码进行哈希存储
-router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
+router.post('/:tenantId/organizations/:orgId/users', checkTenantPermission, async (req, res) => {
   try {
     const { username, email, fullName, password, role } = req.body;
     const { tenantId, orgId } = req.params;
@@ -832,7 +865,7 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
 // 更新租户用户信息：
 // - 支持更新邮箱/姓名/密码/状态（角色仅通过「分配角色」接口维护）
 // - 更新密码时重新进行哈希
-router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
+router.put('/:tenantId/organizations/:orgId/users/:userId', checkTenantPermission, async (req, res) => {
   try {
     const { tenantId, orgId, userId } = req.params;
     const { email, fullName, password, status } = req.body;
@@ -876,7 +909,7 @@ router.put('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => 
 });
 
 // 删除租户用户
-router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) => {
+router.delete('/:tenantId/organizations/:orgId/users/:userId', checkTenantPermission, async (req, res) => {
   try {
     const { tenantId, orgId, userId } = req.params;
 
@@ -903,7 +936,7 @@ router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) 
 });
 
 // 为组织分配资源池
-router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res) => {
+router.post('/organizations/:orgId/resource-pools', checkTenantPermission, async (req: AuthRequest, res) => {
   try {
     const { orgId } = req.params;
     const { resourcePoolIds, permissions, namespace, withCloudPublic, withDefault } = req.body;
@@ -1119,7 +1152,7 @@ router.post('/organizations/:orgId/resource-pools', async (req: AuthRequest, res
 });
 
 // 获取组织的资源池分配
-router.get('/organizations/:orgId/resource-pools', async (req, res) => {
+router.get('/organizations/:orgId/resource-pools', checkTenantPermission, async (req, res) => {
   try {
     const { orgId } = req.params;
 
@@ -1159,7 +1192,7 @@ router.get('/organizations/:orgId/resource-pools', async (req, res) => {
 });
 
 // 移除组织的资源池分配
-router.delete('/organizations/:orgId/resource-pools/:poolId', async (req, res) => {
+router.delete('/organizations/:orgId/resource-pools/:poolId', checkTenantPermission, async (req, res) => {
   try {
     const { orgId, poolId } = req.params;
 

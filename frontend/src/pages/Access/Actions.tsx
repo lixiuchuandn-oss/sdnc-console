@@ -19,11 +19,8 @@ import {
   Spin
 } from 'antd';
 import { 
-  ApiOutlined, 
   ReloadOutlined, 
   CopyOutlined, 
-  TableOutlined,
-  UnorderedListOutlined,
   CloseOutlined,
   FileTextOutlined,
   GlobalOutlined,
@@ -33,7 +30,7 @@ import {
 } from '@ant-design/icons';
 import { routeSpecs } from '../../routes/RouteSpec';
 import PageContainer from '../../components/PageContainer';
-import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
+import { PLATFORMS, PLATFORM_LABELS } from '../../constants/navigation';
 import { platformOf, groupOf, featureLabelOf } from '../../constants/permissionCatalog';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
@@ -60,7 +57,6 @@ interface PermissionAction {
   apis: ApiEndpoint[];
 }
 
-type ViewMode = 'table' | 'list';
 type StatusFilter = 'all' | 'bound' | 'draft';
 
 // ==================== 工具函数 ====================
@@ -104,7 +100,6 @@ const AccessActionsPage: React.FC = () => {
   const [groupFilter, setGroupFilter] = useState<string>('all');
   const [featureFilter, setFeatureFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [selectedPermission, setSelectedPermission] = useState<PermissionAction | null>(null);
   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
   
@@ -273,12 +268,7 @@ const AccessActionsPage: React.FC = () => {
     // 生成树节点
     const groupNodes = Object.entries(structure).map(([groupName, features]) => {
       const featureNodes = Object.entries(features).map(([featureName, perms]) => ({
-        title: (
-          <span>
-            {featureName}
-            <Badge count={perms.length} style={{ marginLeft: 8 }} />
-          </span>
-        ),
+        title: featureName,
         key: `feature:${groupName}:${featureName}`,
         icon: <FunctionOutlined />,
         children: perms.map(perm => ({
@@ -289,14 +279,8 @@ const AccessActionsPage: React.FC = () => {
         })),
       }));
 
-      const totalCount = Object.values(features).flat().length;
       return {
-        title: (
-          <span>
-            {groupName}
-            <Badge count={totalCount} style={{ marginLeft: 8 }} />
-          </span>
-        ),
+        title: groupName,
         key: `group:${groupName}`,
         icon: <FolderOutlined />,
         children: featureNodes,
@@ -525,25 +509,7 @@ const AccessActionsPage: React.FC = () => {
               </Form.Item>
             </Form>
             <Space className="toolbar-actions">
-              <Button.Group>
-                <Tooltip title="表格视图">
-                  <Button 
-                    type={viewMode === 'table' ? 'primary' : 'default'}
-                    icon={<TableOutlined />} 
-                    onClick={() => setViewMode('table')}
-                  />
-                </Tooltip>
-                <Tooltip title="列表视图">
-                  <Button 
-                    type={viewMode === 'list' ? 'primary' : 'default'}
-                    icon={<UnorderedListOutlined />} 
-                    onClick={() => setViewMode('list')}
-                  />
-                </Tooltip>
-              </Button.Group>
-              {viewMode === 'table' && (
-                <TableColumnSettingsButton allColumns={tableColumns} settingsKey="access_actions_table" />
-              )}
+              <TableColumnSettingsButton allColumns={tableColumns} settingsKey="access_actions_table" />
               <Button icon={<ReloadOutlined />} onClick={loadPermissions} loading={loading} />
             </Space>
           </div>
@@ -561,7 +527,7 @@ const AccessActionsPage: React.FC = () => {
               description="暂无权限数据"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
-          ) : viewMode === 'table' ? (
+          ) : (
             <Table
               className="std-table"
               rowKey="id"
@@ -573,35 +539,12 @@ const AccessActionsPage: React.FC = () => {
                 showTotal: (total) => `共 ${total} 条`,
               }}
               scroll={{ x: 'max-content' }}
-              bordered
+              bordered={false}
               onRow={(record) => ({
                 onClick: () => handleViewDetail(record),
                 style: { cursor: 'pointer' }
               })}
             />
-          ) : (
-            <div>
-              {filteredPermissions.map(perm => (
-                <Card
-                  key={perm.id}
-                  size="small"
-                  style={{ marginBottom: 8, cursor: 'pointer' }}
-                  onClick={() => handleViewDetail(perm)}
-                >
-                  <Space>
-                    <Tag color={perm.status === 'bound' ? 'success' : 'warning'}>
-                      {perm.status === 'bound' ? '已绑定' : '策划'}
-                    </Tag>
-                    <Text strong>{perm.action}</Text>
-                    <Text type="secondary">-</Text>
-                    <Text>{perm.description}</Text>
-                    <Text type="secondary" style={{ marginLeft: 'auto' }}>
-                      {perm.group} / {perm.feature}
-                    </Text>
-                  </Space>
-                </Card>
-              ))}
-            </div>
           )}
         </div>
       </div>

@@ -14,6 +14,7 @@ import { User, UserRole } from '../entities/User';
 import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
 import { licenseService } from '../services/LicenseService';
 import { hasAnyPermission } from '../utils/permission';
+import { determineActionBaseFromPath, recordPermissionMapping } from '../utils/routePermissionMapping';
 
 // 多云接入与资源池路由：
 // - 管理云资源池（Cloud）对象的增删改查与连通性测试
@@ -185,48 +186,35 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
     const method = String(req.method || 'GET').toUpperCase();
     let isRead = method === 'GET' || method === 'HEAD';
 
-    const path = String((req.baseUrl || '') + (req.path || '')).toLowerCase();
-    const actionBase = (() => {
-      // 云主机控制台：所有控制台/VNC/SSH 相关请求统一走 clouds.console，且按写权限（建立连接）校验
-      const isConsolePath =
-        path.includes('/csm/security/domain/attach/callonsso') ||
-        (path.includes('/csm/security/virtual-elements') && path.endsWith('/console')) ||
-        path.endsWith('/vnc-url') ||
-        path.includes('/vnc-url') ||
-        (path.includes('/resources/ecs') && (path.includes('/vnc') || path.includes('/console') || path.includes('/ssh')));
-      if (isConsolePath) {
-        isRead = false;
-        return 'clouds.console';
-      }
-      if (
-        path.includes('/resources/ecs') ||
-        path.includes('/inventory/instances') ||
-        path.includes('/resources/ecs-all')
-      )
-        return 'clouds.instances';
-      if (path.includes('/resources/vpcs')) return 'clouds.vpcs';
-      if (path.includes('/resources/vswitches') || path.includes('/resources/subnets'))
-        return 'clouds.vswitches';
-      if (path.includes('/resources/security-groups')) return 'clouds.security-groups';
-      if (path.includes('/resources/enis')) return 'clouds.enis';
-      if (path.includes('/resources/network-acls')) return 'clouds.network-acls';
-      if (path.includes('/resources/eips')) return 'clouds.eips';
-      if (path.includes('/resources/loadbalancers')) return 'clouds.load-balancers';
-      if (path.includes('/resources/nat-gateways')) return 'clouds.nat-gateways';
-      if (path.includes('/resources/route-tables')) return 'clouds.route-tables';
-      if (path.includes('/resources/route-entries')) return 'clouds.route-entries';
-      if (path.includes('/resources/disks')) return 'clouds.disks';
-      if (path.includes('/resources/snapshots')) return 'clouds.snapshots';
-      if (path.includes('/resources/vlans')) return 'clouds.vlans';
-      if (path.includes('/resources/ippools')) return 'clouds.ippools';
-      return 'clouds';
-    })();
+    const fullPath = String((req.baseUrl || '') + (req.path || ''));
+    const path = fullPath.toLowerCase();
+    
+    // 云主机控制台：所有控制台/VNC/SSH 相关请求统一走 clouds.console，且按写权限（建立连接）校验
+    // 注意：这部分逻辑需要在 determineActionBaseFromPath 之前处理，因为控制台路径可能包含 /resources/ecs
+    const isConsolePath =
+      path.includes('/csm/security/domain/attach/callonsso') ||
+      (path.includes('/csm/security/virtual-elements') && path.endsWith('/console')) ||
+      path.endsWith('/vnc-url') ||
+      path.includes('/vnc-url') ||
+      (path.includes('/resources/ecs') && (path.includes('/vnc') || path.includes('/console') || path.includes('/ssh')));
+    
+    let actionBase: string;
+    if (isConsolePath) {
+      isRead = false;
+      actionBase = 'clouds.console';
+    } else {
+      // 使用统一的路径匹配逻辑
+      actionBase = determineActionBaseFromPath(fullPath);
+    }
+    
+    // 记录权限-API 映射关系（运行时收集）
+    recordPermissionMapping(req.method, fullPath, actionBase, isRead);
 
     const need = isRead
       ? [`${actionBase}:read`, 'clouds:read']
       : [`${actionBase}:write`, 'clouds:write'];
 
-    // 特殊场景：前端在访问实例/控制台等页面时，需要先“列出云资源”以供选择，
+    // 特殊场景：前端在访问实例/控制台等页面时，需要先"列出云资源"以供选择，
     // 因此如果用户拥有 clouds.console:read 或 clouds.instances:read 等权限，
     // 也允许访问 GET /clouds 列表接口，避免额外赋予 clouds:read。
     if (actionBase === 'clouds' && isRead) {
@@ -237,7 +225,9 @@ const checkAdminPermission = (req: AuthRequest, res: Response, next: any) => {
     // 使用统一的权限检查函数，支持通配符匹配
     const ok = hasAnyPermission(perms, need);
     if (!ok) {
-      const required = need[0];
+      // 优先显示细粒度权限，而不是粗粒度权限（如 clouds.instances:write 而不是 clouds:write）
+      // 这样用户知道需要分配哪个具体权限，而不是更宽泛的权限
+      const required = need[0]; // need[0] 是细粒度权限（如 clouds.instances:write）
       return res.status(403).json({ message: `权限不足：需要 ${required}` });
     }
     next();

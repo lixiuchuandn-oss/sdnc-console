@@ -59,7 +59,7 @@ import { syncHarvesterLoadBalancers, syncHarvesterLoadBalancerIPPools, syncKubeO
  * - GET    /:id/resources/ovnsnatrules                             获取 SNAT 规则
  * - GET    /:id/resources/ovndnatrules                             获取 DNAT 规则
  * - GET    /:id/resources/services                                 获取 Service 列表 (基于 LB)
- * - DELETE /:id/resources/harvester/services/:namespace/:name      删除 Service
+ * - DELETE /:id/resources/harvester-loadbalancers/:namespace/:name 删除负载均衡
  * - GET    /:id/resources/ippools                                  获取 IP Pool 列表
  * - POST   /:id/resources/ippools                                  创建 IP Pool
  * - DELETE /:id/resources/ippools/:name                            删除 IP Pool
@@ -2424,11 +2424,11 @@ export const registerHarvesterDirectNetworkRoutes = (
   );
 
   /**
-   * [DELETE] /:id/resources/harvester/services/:namespace/:name
-   * 删除 Service。
+   * [DELETE] /:id/resources/harvester-loadbalancers/:namespace/:name
+   * 删除 Harvester 负载均衡（LoadBalancer CRD）。
    */
   router.delete(
-    '/:id/resources/harvester/services/:namespace/:name',
+    '/:id/resources/harvester-loadbalancers/:namespace/:name',
     checkAdminPermission,
     async (req: any, res: Response, next: any) => {
       try {

@@ -113,17 +113,20 @@ router.post('/login', async (req: Request, res: Response) => {
     (loginUser as any).lastLoginAt = new Date();
     
     let permissions: string[] = [];
-    if (role === 'tenant') {
-      await tenantRepo.save(loginUser);
-      
-      // Fetch permissions for tenant user（完全由 RoleAssignment 计算）
+    
+    // 如果是超级管理员，直接赋予所有权限
+    if (role === 'super_admin') {
+      permissions = ['*'];
+    } else {
+      // Fetch permissions for both tenant and system users（完全由 RoleAssignment 计算）
       try {
         const assignRepo = AppDataSource.getRepository(RoleAssignment);
         const roleRepo = AppDataSource.getRepository(RBACRole);
+        const userType = role === 'tenant' ? 'tenant' : 'system';
         
         // 权限完全由 RoleAssignment 计算
         const assigns = await assignRepo.find({
-          where: { userType: 'tenant', userId: loginUser.id },
+          where: { userType, userId: loginUser.id },
         });
         const roleIds = assigns.map((a) => a.roleId);
 
@@ -131,6 +134,10 @@ router.post('/login', async (req: Request, res: Response) => {
         if (roleIds.length > 0) {
            const roles = await roleRepo.find({ where: { id: In(roleIds) } });
            for (const r of roles) {
+             // 只聚合活跃角色的权限，过滤掉禁用角色
+             if (r.status !== 'active') {
+               continue;
+             }
              if (r.permissions) {
                try {
                  const raw = JSON.parse(r.permissions);
@@ -142,11 +149,21 @@ router.post('/login', async (req: Request, res: Response) => {
            }
         }
         
+        // 租户用户额外添加默认权限
+        if (role === 'tenant') {
+          permissions = permissions.concat(['clouds.console:read']);
+        }
+        
         // Deduplicate
         permissions = Array.from(new Set(permissions));
       } catch (e) {
-        console.warn('Failed to fetch permissions for tenant user', e);
+        console.warn(`Failed to fetch permissions for ${role} user`, e);
       }
+    }
+    
+    // 保存用户
+    if (role === 'tenant') {
+      await tenantRepo.save(loginUser);
     } else {
       await userRepository.save(loginUser);
     }

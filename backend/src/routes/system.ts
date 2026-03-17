@@ -9,10 +9,11 @@
 // 1. 这里的接口一般挂载在 /api/system 前缀下，由后端入口统一加上鉴权中间件；
 // 2. RBAC 相关接口依赖数据库中的 RBACRole、RoleAssignment、TenantUser 等实体；
 // 3. 文件扫描与日志上传相关逻辑依赖后端运行目录（process.cwd()）以及 runtimeConfig 中的目录配置。
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
+import { determineActionBaseFromPath, getRuntimePermissionMapping } from '../utils/routePermissionMapping';
 import { getDifyConfig, setDifyConfig } from '../config/runtimeConfig';
 import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
 import { AppDataSource } from '../config/database';
@@ -22,9 +23,38 @@ import { TenantUser } from '../entities/TenantUser';
 import { User, UserRole } from '../entities/User';
 import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdownRecord';
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
+import { AuthRequest } from '../middleware/auth';
+import { checkPermission } from '../utils/permission';
 
 // 全局系统路由实例，后续所有 /system 相关子路径都挂在该 Router 上
 const router = Router();
+
+// 权限检查中间件：检查权限管理相关权限
+// - 读操作（GET/HEAD）需要 system.rbac:read 或 system.roles:read 权限
+// - 写操作（POST/PUT/PATCH/DELETE）需要 system.rbac:write 或 system.roles:write 权限
+const checkRbacPermission = (req: AuthRequest, res: Response, next: any) => {
+  try {
+    const role: any = (req.user as any)?.role;
+    const perms: string[] = Array.isArray((req.user as any)?.permissions)
+      ? (req.user as any)?.permissions
+      : [];
+    if (role === UserRole.SUPER_ADMIN) return next();
+
+    const method = String(req.method || 'GET').toUpperCase();
+    const isRead = method === 'GET' || method === 'HEAD';
+    const required = isRead 
+      ? ['system.rbac:read', 'system.roles:read']
+      : ['system.rbac:write', 'system.roles:write'];
+
+    const hasPermission = required.some(perm => checkPermission(perms, perm));
+    if (!hasPermission) {
+      return res.status(403).json({ message: `权限不足：需要 ${required[0]} 或 ${required[1]}` });
+    }
+    next();
+  } catch {
+    return res.status(403).json({ message: '权限不足' });
+  }
+};
 
 // 读取当前 Dify（AI 工作流）集成配置
 // 用于前端系统设置页面展示当前配置，返回时会对 apiKey 进行脱敏处理
@@ -146,17 +176,20 @@ router.get('/recycle-bin/shutdown-records', async (req, res) => {
   }
 });
 
-// 动态扫描系统中所有“权限原子”（action）以及对应的接口明细
+// 动态扫描系统中所有"权限原子"（action）以及对应的接口明细
 // 输出内容主要用于：
 // - RBAC 策略配置页面列出所有可用动作（actions）
 // - 结合 details 字段，让前端展示每个动作对应了哪些具体接口（method + path）
-router.get('/rbac/actions', async (_req, res) => {
+router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
   // candidates：最终去重后的动作列表，例如 'clouds.instances:read'
   const candidates: string[] = [];
   // scanned：通过静态扫描从代码中发现的原始动作字符串
   const scanned: string[] = [];
   // details：动作 -> 对应的接口列表（包含 HTTP 方法、路径、定义所在文件）
   const details: Record<string, Array<{ method: string; path: string; file: string }>> = {};
+  
+  // 获取运行时收集的权限-API 映射
+  const runtimeMapping = getRuntimePermissionMapping();
   const add = (x: string) => {
     if (x && !candidates.includes(x)) candidates.push(x);
   };
@@ -195,6 +228,14 @@ router.get('/rbac/actions', async (_req, res) => {
     'clouds.load-balancers:write',
     'clouds.images:read',
     'clouds.images:write',
+    'clouds.sshkeys:read',
+    'clouds.sshkeys:write',
+    'clouds.nads:read',
+    'clouds.nads:write',
+    'clouds.schedules:read',
+    'clouds.schedules:write',
+    'clouds.namespaces:read',
+    'clouds.namespaces:write',
     'clouds.vswitches:read',
     'clouds.vswitches:write',
     'clouds.enis:read',
@@ -203,6 +244,8 @@ router.get('/rbac/actions', async (_req, res) => {
     'clouds.network-acls:write',
     'clouds.snapshots:read',
     'clouds.snapshots:write',
+    'clouds.route-tables:read',
+    'clouds.route-tables:write',
     'clouds.route-entries:read',
     'clouds.route-entries:write',
     'clouds.nat-gateways:read',
@@ -249,6 +292,14 @@ router.get('/rbac/actions', async (_req, res) => {
     'secops.alerts:write',
     'secops.rules:read',
     'secops.rules:write',
+    // 权限管理（RBAC）
+    'system.rbac:read',
+    'system.rbac:write',
+    'system.roles:read',
+    'system.roles:write',
+    'system.roles.assignments:read',
+    'system.roles.assignments:write',
+    'system.actions:read',
   ];
   curated.forEach(addScanned);
 
@@ -411,40 +462,19 @@ router.get('/rbac/actions', async (_req, res) => {
           };
 
           const rel = path.relative(process.cwd(), full).replace(/\\/g, '/');
+          // 尝试匹配路由文件名，支持嵌套路径（如 routes/clouds/harvester/xxx.ts）
           const routeNameMatch = rel.match(/routes\/([^\/\.]+)/);
           const routeName = routeNameMatch ? routeNameMatch[1] : '';
           const base = baseMap[routeName] || '';
           if (base) {
-            // 针对每个发现的路由定义，根据文件名与路径推导“动作前缀”（actionBase）
-            // 目前只对 clouds 路由做了较细粒度的拆分，其余可以按需要扩展
+            // 针对每个发现的路由定义，根据文件名与路径推导"动作前缀"（actionBase）
+            // 目前主要对 clouds 路由做了较细粒度的拆分，其他路由按需扩展
             for (const r of routes) {
               const fullPath = normalizeFullPath(base, r.path || '');
-              const p = fullPath.toLowerCase();
               let actionBase = '';
               if (routeName === 'clouds') {
-                if (
-                  p.includes('/resources/ecs') ||
-                  p.includes('/inventory/instances') ||
-                  p.includes('/resources/ecs-all')
-                )
-                  actionBase = 'clouds.instances';
-                else if (p.includes('/resources/vpcs')) actionBase = 'clouds.vpcs';
-                else if (p.includes('/resources/vswitches') || p.includes('/resources/subnets'))
-                  actionBase = 'clouds.vswitches';
-                else if (p.includes('/resources/security-groups'))
-                  actionBase = 'clouds.security-groups';
-                else if (p.includes('/resources/enis')) actionBase = 'clouds.enis';
-                else if (p.includes('/resources/network-acls')) actionBase = 'clouds.network-acls';
-                else if (p.includes('/resources/eips')) actionBase = 'clouds.eips';
-                else if (p.includes('/resources/loadbalancers'))
-                  actionBase = 'clouds.load-balancers';
-                else if (p.includes('/resources/nat-gateways')) actionBase = 'clouds.nat-gateways';
-                else if (p.includes('/resources/route-tables')) actionBase = 'clouds.route-tables';
-                else if (p.includes('/resources/route-entries'))
-                  actionBase = 'clouds.route-entries';
-                else if (p.includes('/resources/disks')) actionBase = 'clouds.disks';
-                else if (p.includes('/resources/snapshots')) actionBase = 'clouds.snapshots';
-                else actionBase = 'clouds';
+                // 使用统一的路径匹配逻辑
+                actionBase = determineActionBaseFromPath(fullPath);
               }
               if (!actionBase) continue;
               const verb = /^get|head$/i.test(r.method) ? 'read' : 'write';
@@ -458,15 +488,36 @@ router.get('/rbac/actions', async (_req, res) => {
     } catch {}
   };
   await tryScan(path.join(process.cwd(), 'src', 'routes'));
+  // 合并运行时收集的映射关系到 details
+  // 运行时映射的优先级低于静态扫描（静态扫描包含文件信息，更准确）
+  Object.entries(runtimeMapping).forEach(([action, endpoints]) => {
+    if (!details[action]) {
+      details[action] = [];
+    }
+    // 只添加不重复的端点（避免运行时映射覆盖静态扫描的结果）
+    endpoints.forEach(ep => {
+      const exists = details[action].some(
+        existing => existing.method === ep.method && existing.path === ep.path
+      );
+      if (!exists) {
+        details[action].push({
+          method: ep.method,
+          path: ep.path,
+          file: ep.file || 'runtime',
+        });
+      }
+    });
+  });
+  
   res.json({ actions: candidates.sort(), scanned: scanned.sort(), details });
 });
 
 // RBAC 角色（策略）列表查询
 // 将数据库中的 RBACRole 记录转换为前端所需的策略格式：
 // - actions：权限原子数组
-// - type：区分“系统策略”和“自定义策略”
+// - type：区分"系统策略"和"自定义策略"
 // - conditions：预留条件字段，由前端/后端共同约定结构
-router.get('/rbac/roles', async (req, res) => {
+router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
   try {
     const roleRepo = AppDataSource.getRepository(RBACRole);
     const roles = await roleRepo.find({
@@ -516,10 +567,11 @@ router.get('/rbac/roles', async (req, res) => {
 // - description：说明文本
 // - scope：作用域（默认为 'system'，可根据业务扩展）
 // - permissions：权限原子数组，将以 JSON 字符串形式存入数据库
-router.post('/rbac/roles', async (req: any, res) => {
+router.post('/rbac/roles', checkRbacPermission, async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
-    const hasPerm = Array.isArray(req.user?.permissions) && req.user.permissions.includes('system.roles:write');
+    const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+    const hasPerm = checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
     if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { name, description, scope = 'system', permissions = [] } = req.body as any;
@@ -543,10 +595,11 @@ router.post('/rbac/roles', async (req: any, res) => {
 
 // 更新角色（仅超级管理员或拥有 system.roles:write 权限）
 // 支持增量更新 name/description/scope/status/permissions
-router.put('/rbac/roles/:id', async (req: any, res) => {
+router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
-    const hasPerm = Array.isArray(req.user?.permissions) && req.user.permissions.includes('system.roles:write');
+    const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+    const hasPerm = checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
     if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
@@ -572,10 +625,11 @@ router.put('/rbac/roles/:id', async (req: any, res) => {
 
 // 更新角色权限（仅超级管理员或拥有 system.roles:write 权限）
 // 专门用于更新角色的权限列表，接收 permissions 数组
-router.patch('/rbac/roles/:id/permissions', async (req: any, res) => {
+router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
-    const hasPerm = Array.isArray(req.user?.permissions) && req.user.permissions.includes('system.roles:write');
+    const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+    const hasPerm = checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
     if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
@@ -602,10 +656,11 @@ router.patch('/rbac/roles/:id/permissions', async (req: any, res) => {
 // 删除前会做安全检查：
 // - 是否仍被 RoleAssignment 引用
 // - 是否仍有 TenantUser 的 role 字段指向该角色
-router.delete('/rbac/roles/:id', async (req: any, res) => {
+router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
-    const hasPerm = Array.isArray(req.user?.permissions) && req.user.permissions.includes('system.roles:write');
+    const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+    const hasPerm = checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
     if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
@@ -633,11 +688,14 @@ router.delete('/rbac/roles/:id', async (req: any, res) => {
   }
 });
 
-// 为用户分配角色（仅超级管理员）
+// 为用户分配角色（仅超级管理员或拥有 system.roles.assignments:write 权限）
 // 支持多种 userType（如 'tenant' / 'system' 等），具体含义由业务约定
-router.post('/rbac/assignments', async (req: any, res) => {
+router.post('/rbac/assignments', checkRbacPermission, async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+    const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
+    const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+    const hasPerm = checkPermission(perms, 'system.roles.assignments:write') || checkPermission(perms, 'system.rbac:write');
+    if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { roleId, userType, userId } = req.body as any;
     if (!roleId || !userType || !userId) return res.status(400).json({ message: '缺少必要参数' });
@@ -696,7 +754,7 @@ router.post('/rbac/assignments', async (req: any, res) => {
 
 // 查询某个用户的角色分配列表
 // - 通过 query.userType + query.userId 来限定查询范围
-router.get('/rbac/assignments', async (req: any, res) => {
+router.get('/rbac/assignments', checkRbacPermission, async (req: any, res) => {
   try {
     const { userType, userId } = req.query as any;
     if (!userType || !userId) {
@@ -714,10 +772,13 @@ router.get('/rbac/assignments', async (req: any, res) => {
   }
 });
 
-// 取消某条角色分配记录（仅超级管理员）
-router.delete('/rbac/assignments/:id', async (req: any, res) => {
+// 取消某条角色分配记录（仅超级管理员或拥有 system.roles.assignments:write 权限）
+router.delete('/rbac/assignments/:id', checkRbacPermission, async (req: any, res) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN)
+    const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
+    const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+    const hasPerm = checkPermission(perms, 'system.roles.assignments:write') || checkPermission(perms, 'system.rbac:write');
+    if (!isSuper && !hasPerm)
       return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const assignRepo = AppDataSource.getRepository(RoleAssignment);

@@ -532,14 +532,14 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载虚拟卷 (PVC) 列表
-  const loadPvcs = async (cloudId?: string) => {
+  const loadPvcs = async (cloudId?: string, force: boolean = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
 
     setLoading(true);
     setError(null);
     try {
-      const json = await fetchHarvesterVolumes(cid);
+      const json = await fetchHarvesterVolumes(cid, force);
       const items: any[] = Array.isArray((json as any)?.data?.items) 
           ? (json as any).data.items 
           : (Array.isArray((json as any)?.items) ? (json as any).items : []);
@@ -1156,6 +1156,10 @@ const CloudConsolePage: React.FC = () => {
                     if (key.startsWith('vpc-')) {
                        // 选中 VPC 时，右侧显示 VPC 详情，不再通过 Tab 切换
                        setSelectedVpc(key.replace(/^vpc-/, ''));
+                       // 预加载存储类数据（创建云盘时需要）
+                       if (currentCloudId && storageClasses.length === 0) {
+                         loadStorageClasses(currentCloudId);
+                       }
                     } else if (key === 'group-cloudmap' || key === 'group-harvester') {
                        // 点击一级目录节点: 切换展开/收起状态
                        setExpandedKeys((prev) => {
@@ -1250,9 +1254,10 @@ const CloudConsolePage: React.FC = () => {
                     loading={loading}
                     isHarvester={!!caps?.isHarvester}
                     onRefresh={() => loadEcs(currentCloudId, true)}
-                    onRefreshVolumes={() => loadPvcs(currentCloudId)}
+                    onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
                     onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
                     onRefreshBackups={() => loadBackups(currentCloudId)}
+                    onRefreshStorageClasses={() => loadStorageClasses(currentCloudId)}
                     onOpenReconfigure={(vm) => {
                       setReconfVm(vm);
                       setReconfVisible(true);
@@ -1313,7 +1318,7 @@ const CloudConsolePage: React.FC = () => {
                     }}
                     onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
-                    onRefreshVolumes={() => loadPvcs(currentCloudId)}
+                    onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
                     onRefreshImages={() => loadImages(currentCloudId)}
                     onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
                     onRefreshBackups={() => loadBackups(currentCloudId)}
@@ -1387,7 +1392,7 @@ const CloudConsolePage: React.FC = () => {
                     }}
                     onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
-                    onRefreshVolumes={() => loadPvcs(currentCloudId)}
+                    onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
                     onRefreshImages={() => loadImages(currentCloudId)}
                     onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
                     onRefreshBackups={() => loadBackups(currentCloudId)}

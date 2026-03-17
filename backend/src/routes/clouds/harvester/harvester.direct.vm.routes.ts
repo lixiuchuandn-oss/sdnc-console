@@ -818,13 +818,8 @@ export const registerHarvesterDirectVmRoutes = (
           return res
             .status(403)
             .json({ message: 'Access denied to this resource pool' });
-        if (isTenant) {
-          const p = (req.user as any)?.permissions || [];
-          if (!p.includes('clouds.console:write'))
-            return res.status(403).json({
-              message: 'Permission denied: Requires clouds.console:write',
-            });
-        }
+        // 权限检查已由 checkAdminPermission 中间件统一处理，路径 /resources/ecs/:instanceId/restore 会被识别为 clouds.instances:write
+        // 移除额外的 clouds.console:write 检查，因为恢复 VM 不是控制台访问操作
 
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -868,13 +863,8 @@ export const registerHarvesterDirectVmRoutes = (
           return res
             .status(403)
             .json({ message: 'Access denied to this resource pool' });
-        if (isTenant) {
-          const p = (req.user as any)?.permissions || [];
-          if (!p.includes('clouds.console:write'))
-            return res.status(403).json({
-              message: 'Permission denied: Requires clouds.console:write',
-            });
-        }
+        // 权限检查已由 checkAdminPermission 中间件统一处理，路径 /resources/ecs/:instanceId/force 会被识别为 clouds.instances:write
+        // 移除额外的 clouds.console:write 检查，因为强制删除 VM 不是控制台访问操作
 
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;

@@ -70,6 +70,11 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'CNMC',
     group: '资源控制台',
     title: '资源池管理',
+    requiredActions: {
+      page: 'clouds:read',
+      read: 'clouds:read',
+      write: 'clouds:write'
+    },
     breadcrumbLabel: '资源池管理',
     subtitle: '统一管理各云资源池的状态与资源，支持监控与运维。',
     icon: 'CloudUploadOutlined',
@@ -133,6 +138,11 @@ export const routeSpecs: RouteSpec[] = [
     subtitle: '列出后端提供的 API 级别功能点，供策略组合与角色授权使用。',
     icon: 'ApiOutlined',
     order: 0,
+    requiredActions: {
+      page: 'system.actions:read',
+      read: 'system.actions:read',
+      write: 'system.actions:read'
+    },
     requiredFeature: 'sys.rbac-advanced'
   },
   {
@@ -146,6 +156,11 @@ export const routeSpecs: RouteSpec[] = [
     subtitle: '角色用于将权限策略批量授权给用户或租户，便于统一管理与快速复用。',
     icon: 'SolutionOutlined',
     order: 2,
+    requiredActions: {
+      page: 'system.roles:read',
+      read: 'system.roles:read',
+      write: 'system.roles:write'
+    },
     requiredFeature: 'sys.rbac-advanced'
   },
   {

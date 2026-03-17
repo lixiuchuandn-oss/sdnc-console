@@ -248,9 +248,12 @@ const AdminIndex: React.FC = () => {
   }, [user?.id, isAdmin]);
 
   if (loading || !user || (isAdmin && !favoriteReady)) return <></>;
-  const target = isAdmin
-    ? (favoriteCloudId ? `/admin/clouds/${favoriteCloudId}` : '/admin/dashboard')
-    : getDefaultAdminPath(perms);
+  // 优先使用 favorite cloud（如果有）
+  if (isAdmin && favoriteCloudId) {
+    return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
+  }
+  // 其他情况统一使用 getDefaultAdminPath（包括 admin 用户）
+  const target = getDefaultAdminPath(perms);
   return <Navigate to={target} replace />;
 };
 

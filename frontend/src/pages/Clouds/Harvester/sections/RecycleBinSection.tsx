@@ -682,7 +682,7 @@ const RecycleBinSection: React.FC<Props> = ({
                      同步删除关联卷 (PVC)
                    </Checkbox>
                    <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>
-                     注意：勾选后将永久删除关联的数据卷，数据无法找回。
+                     注意：勾选后将永久删除关联的数据卷 (PVC)，数据无法找回。
                    </div>
                 </div>
               </div>
@@ -695,10 +695,10 @@ const RecycleBinSection: React.FC<Props> = ({
       onOk: async () => {
         try {
           await forceDeleteHarvesterVm(cloudId, instanceId, shouldDeleteVolumes);
-          message.success('删除成功');
+          message.success('虚拟机已彻底删除');
           onRefresh(true);
         } catch (e: any) {
-          message.error(`删除失败: ${e.message}`);
+          message.error(`彻底删除失败: ${e.message}`);
         }
       },
     });

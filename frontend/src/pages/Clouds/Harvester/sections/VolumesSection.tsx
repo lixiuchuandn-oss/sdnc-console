@@ -1131,15 +1131,18 @@ const VolumesSection: React.FC<Props> = ({
           <Button 
             icon={<ReloadOutlined />} 
             onClick={async () => {
-              // 刷新主数据
+              // 优先刷新主数据（volumes），确保用户看到的主要数据先更新
               onRefresh?.(true);
-              // 同时刷新命名空间列表，确保下拉选项包含最新数据
-              try {
-                const res: any = await fetchHarvesterNamespaces(cloudId, true, true);
-                const items: any[] = res?.data?.items || res?.items || [];
-                const list = items.map((x: any) => x?.metadata?.name || x?.name).filter((s: any) => !!s);
-                setFetchedNsOptions(list);
-              } catch {}
+              // 异步刷新命名空间列表（不影响主数据刷新），确保下拉选项包含最新数据
+              // 使用 setTimeout 延迟执行，避免阻塞主数据刷新
+              setTimeout(async () => {
+                try {
+                  const res: any = await fetchHarvesterNamespaces(cloudId, true, true);
+                  const items: any[] = res?.data?.items || res?.items || [];
+                  const list = items.map((x: any) => x?.metadata?.name || x?.name).filter((s: any) => !!s);
+                  setFetchedNsOptions(list);
+                } catch {}
+              }, 100);
             }} 
             loading={loading} 
           />

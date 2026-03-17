@@ -1322,7 +1322,7 @@ export const deleteHarvesterIngress = async (cloudId: string, namespace: string,
  * @returns Promise<any>
  */
 export const deleteHarvesterService = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester-loadbalancers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 };
 
 /**
