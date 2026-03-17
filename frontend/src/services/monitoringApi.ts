@@ -134,6 +134,11 @@ export function fetchAlertsRules(
   return apiGet(`${base(cloudId)}/alerts-rules${q ? `?${q}` : ''}`, options);
 }
 
+export function fetchVirtualMachines(cloudId: string, options?: { signal?: AbortSignal }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet(`${base(cloudId)}/virtualmachines`, options);
+}
+
 export function fetchVirtualMachineInstances(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiGet(`${base(cloudId)}/virtualmachineinstances`, options);

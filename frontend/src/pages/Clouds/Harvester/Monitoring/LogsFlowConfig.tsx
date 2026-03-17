@@ -124,7 +124,7 @@ interface LogsFlowConfigProps {
 
 const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin';
 
   const [configList, setConfigList] = useState<FlowItem[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
@@ -590,7 +590,7 @@ const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered={false}
+          bordered
           rowKey={(row: FlowItem) => row.id ?? `${row.metadata?.namespace ?? ''}/${row.metadata?.name ?? ''}`}
           loading={configLoading}
           columns={allColumns}
@@ -598,8 +598,10 @@ const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
           rowSelection={rowSelection}
           scroll={{ x: 1000 }}
           pagination={{
-            size: 'small',
-            showTotal: (total) => `共 ${total} 条`,
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total: number, range: [number, number]) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+            pageSizeOptions: ['10', '20', '50'],
           }}
         />
       </PageDetailSection>

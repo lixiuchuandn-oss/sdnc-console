@@ -957,24 +957,19 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           }
           toolbarRight={
             <>
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
-              <Button icon={<UploadOutlined />} onClick={() => message.info('功能开发中')}>导入YAML告警规则</Button>
-              <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>新增通知策略</Button>              <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
             </>
           }
         >
           <Table
             className="std-table"
-            bordered={false}
+            bordered
             rowKey={(row) => row.id ?? row.metadata?.name ?? String(Math.random())}
             loading={configLoading}
             columns={configColumns}
             dataSource={filteredConfigList}
             scroll={{ x: 1000 }}
-            pagination={{
-              size: 'small',
-              showTotal: (total) => `共 ${total} 条`,
-            }}
+            pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
           />
         </PageDetailSection>
       </div>

@@ -122,7 +122,7 @@ interface LogsOutputConfigProps {
 
 const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin';
 
   const [list, setList] = useState<OutputItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -557,7 +557,7 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered={false}
+          bordered
           rowKey={(row: OutputItem) => row.id ?? `${row.metadata?.namespace ?? ''}/${row.metadata?.name ?? ''}`}
           loading={loading}
           columns={columns}
@@ -565,8 +565,10 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
           rowSelection={rowSelection}
           scroll={{ x: 900 }}
           pagination={{
-            size: 'small',
-            showTotal: (total) => `共 ${total} 条`,
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total: number, range: [number, number]) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+            pageSizeOptions: ['10', '20', '50'],
           }}
         />
       </PageDetailSection>

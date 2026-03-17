@@ -5,6 +5,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   fetchAlertsRules,
   fetchBlockDevices,
+  fetchVirtualMachines,
   fetchVirtualMachineInstances,
 } from '../../../../services/monitoringApi';
 
@@ -14,6 +15,7 @@ const POLL_INTERVAL_ERROR_SEC = 15;
 export interface DashboardSlowDataState {
   alertsRules: unknown;
   blockDevices: unknown;
+  virtualMachines: unknown;
   vmInstances: unknown;
   loading: boolean;
   error: string | null;
@@ -23,6 +25,7 @@ export function useDashboardSlowData(cloudId: string | undefined): DashboardSlow
   const [state, setState] = useState<DashboardSlowDataState>({
     alertsRules: null,
     blockDevices: null,
+    virtualMachines: null,
     vmInstances: null,
     loading: !!cloudId,
     error: null,
@@ -51,20 +54,24 @@ export function useDashboardSlowData(cloudId: string | undefined): DashboardSlow
       Promise.all([
         fetchAlertsRules(cloudId, opts),
         fetchBlockDevices(cloudId, opts),
+        fetchVirtualMachines(cloudId, opts),
         fetchVirtualMachineInstances(cloudId, opts),
       ])
-        .then(([alertsRes, blockRes, vmiRes]) => {
+        .then(([alertsRes, blockRes, vmRes, vmiRes]) => {
           if (!mountedRef.current || signal.aborted) return;
           const errMsg = !alertsRes.ok
             ? alertsRes.error
             : !blockRes.ok
               ? blockRes.error
-              : !vmiRes.ok
-                ? vmiRes.error
-                : null;
+              : !vmRes.ok
+                ? vmRes.error
+                : !vmiRes.ok
+                  ? vmiRes.error
+                  : null;
           setState({
             alertsRules: alertsRes.ok ? alertsRes.data : null,
             blockDevices: blockRes.ok ? blockRes.data : null,
+            virtualMachines: vmRes.ok ? vmRes.data : null,
             vmInstances: vmiRes.ok ? vmiRes.data : null,
             loading: false,
             error: errMsg ?? null,

@@ -294,16 +294,13 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered={false}
+          bordered
           rowKey={(r) => `${r.namespace ?? ''}-${r.name}`}
           loading={loading}
           columns={columns}
           dataSource={filteredSecrets}
           scroll={{ x: 500 }}
-          pagination={{
-            size: 'small',
-            showTotal: (total) => `共 ${total} 条`,
-          }}
+          pagination={{ showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, pageSizeOptions: ['20', '50', '100'] }}
         />
       </PageDetailSection>
 

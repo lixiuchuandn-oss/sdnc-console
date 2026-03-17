@@ -20,7 +20,7 @@ interface MonitoringAlertsProps {
 
 const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin';
 
   // 站内实时告警列表
   const [alertsLoading, setAlertsLoading] = useState(false);
@@ -325,7 +325,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered={false}
+          bordered
           rowKey={(row: ParsedAlert) => row.id}
           loading={alertsLoading}
           columns={alertTableDisplayColumns}
@@ -337,14 +337,15 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
                   current: alertPage,
                   pageSize: alertPageSize,
                   total: alertTotal,
-                  size: 'small',
-                  showTotal: (total) => `共 ${total} 条`,
+                  showSizeChanger: true,
+                  showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+                  pageSizeOptions: ['10', '20', '50'],
                   onChange: (page, size) => {
                     setAlertPage(page);
                     if (size) setAlertPageSize(size);
                   },
                 }
-              : { size: 'small', showTotal: (t) => `共 ${t} 条` }
+              : { pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }
           }
         />
       </PageDetailSection>

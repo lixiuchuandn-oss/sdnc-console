@@ -112,17 +112,28 @@ async function requireTenantAccess(
 
 const PAGESIZE = 'pagesize=100000';
 const EXCLUDE = 'exclude=metadata.managedFields';
+const CATTLE_MONITORING_SYSTEM_NS = 'cattle-monitoring-system';
+const WEBSITE_RECEIVER_NAME = 'website-receiver';
 const ALERTMANAGER_PATH =
-  'api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-alertmanager:9093/proxy/api/v2/alerts';
+  `api/v1/namespaces/${CATTLE_MONITORING_SYSTEM_NS}/services/http:rancher-monitoring-alertmanager:9093/proxy/api/v2/alerts`;
 const PROMETHEUS_QUERY_RANGE_PATH =
-  'api/v1/namespaces/cattle-monitoring-system/services/http:rancher-monitoring-prometheus:9090/proxy/api/v1/query_range';
+  `api/v1/namespaces/${CATTLE_MONITORING_SYSTEM_NS}/services/http:rancher-monitoring-prometheus:9090/proxy/api/v1/query_range`;
 
-const DINGTALK_CONFIGMAP_NS = 'cattle-monitoring-system';
+const DINGTALK_CONFIGMAP_NS = CATTLE_MONITORING_SYSTEM_NS;
 const DINGTALK_CONFIGMAP_NAME = 'alertmanager-webhook-dingtalk';
 const DINGTALK_CONFIG_KEY = 'config.yaml';
 
 const MONITORING_RECEIVER_SECRET_LABEL = 'monitoring-receiver-secret';
 
+function isWebsiteReceiverInMonitoringNs(receiverName: unknown): boolean {
+  const name = String(receiverName ?? '').trim();
+  const prefix = `${CATTLE_MONITORING_SYSTEM_NS}/`;
+  const suffix = `/${WEBSITE_RECEIVER_NAME}`;
+  if (!name.startsWith(prefix) || !name.endsWith(suffix)) return false;
+  // prefix 与 suffix 之间必须是一个 segment（alertmanagerconfig name），不能包含 '/'
+  const middle = name.slice(prefix.length, name.length - suffix.length);
+  return middle !== '' && !middle.includes('/');
+}
 
 /** 是否为资源池不可达（网络/超时），此时可返回空数据避免前端反复 500 */
 function isUnreachableError(e: any): boolean {
@@ -177,6 +188,20 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       if (isUnreachableError(e)) return res.status(200).json({ data: [] });
       const status = (e as any).status || 500;
       res.status(status).json({ message: e?.message || '请求节点指标失败' });
+    }
+  });
+
+  router.get('/:id/monitoring/virtualmachines', async (req: any, res: Response) => {
+    try {
+      const conn = await getCloudAndConn(req.params.id, res);
+      if (!conn) return;
+      const url = `${conn.origin}/v1/harvester/kubevirt.io.virtualmachines?${PAGESIZE}&${EXCLUDE}`;
+      const data = await getJsonOnce(url, conn.token, conn.insecure, true);
+      res.json(data);
+    } catch (e: any) {
+      if (isUnreachableError(e)) return res.status(200).json({ data: [] });
+      const status = (e as any).status || 500;
+      res.status(status).json({ message: e?.message || '请求虚拟机失败' });
     }
   });
 
@@ -256,11 +281,17 @@ export function registerMonitoringRoutes(router: Router, _checkAdminPermission: 
       const query = new URLSearchParams();
       query.set('silenced', 'false');
       query.set('inhibited', 'false');
-      query.set('receiver', 'cattle-monitoring-system/default-alertmanager-config/website-receiver');
       const url = `${conn.origin}/${ALERTMANAGER_PATH}?${query.toString()}`;
+      console.log('alertmanager url: ', url);
       const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
       // 源接口返回告警数组，每条含 labels.namespace，过滤按 labels.namespace 做
       let list: any[] = Array.isArray(raw) ? raw : (raw?.data ?? []) || [];
+      // 仅保留 cattle-monitoring-system 命名空间下，任意 AlertmanagerConfig 的 website-receiver 告警
+      // receivers[].name 形如：cattle-monitoring-system/<alertmanagerconfig-name>/website-receiver
+      list = list.filter((item: any) => {
+        const receivers = Array.isArray(item?.receivers) ? item.receivers : [];
+        return receivers.some((r: any) => isWebsiteReceiverInMonitoringNs(r?.name));
+      });
 
       if (!tenant.isAdmin && tenant.namespaces.length > 0) {
         const allowedSet = new Set(tenant.namespaces);

@@ -225,7 +225,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
     try {
       if (isClusterNs) {
         // 1. 集群级：仅加载 cattle-logging-system 命名空间下的 ClusterFlow
-        const clusterRes = await fetchClusterflows(cloudId);
+        const clusterRes = await fetchClusterflows(cloudId, { skipCache: true });
         const clusterListRaw = clusterRes.ok && clusterRes.data ? normalizeListPayload(clusterRes.data) : [];
         const clusterList = clusterListRaw.map((item: ClusterFlowItem) => ({
           ...item,
@@ -237,7 +237,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         setConfigList(clusterList);
       } else {
         // 2. 命名空间级：仅加载指定命名空间下的 Flow（通过 Tower logging API）
-        const flowsRes = await fetchFlows(cloudId, { namespace: ns });
+        const flowsRes = await fetchFlows(cloudId, { namespace: ns, skipCache: true });
         const flowsList: ClusterFlowItem[] =
           flowsRes.ok && flowsRes.data ? normalizeListPayload(flowsRes.data) : [];
         if (!flowsRes.ok) {
@@ -255,7 +255,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
     setOutputLoading(true);
     const isClusterNs = !namespace || namespace === LOGGING_NS;
     if (isClusterNs) {
-      const { data, ok } = await fetchClusteroutputs(cloudId);
+      const { data, ok } = await fetchClusteroutputs(cloudId, { skipCache: true });
       setOutputLoading(false);
       if (!ok) {
         setOutputItems([]);
@@ -272,7 +272,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
           .filter(Boolean) as Array<{ name: string; logType: string }>
       );
     } else {
-      const { data, ok } = await fetchOutputs(cloudId, { namespace });
+      const { data, ok } = await fetchOutputs(cloudId, { namespace, skipCache: true });
       setOutputLoading(false);
       if (!ok) {
         setOutputItems([]);
@@ -615,8 +615,25 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
 
   const allColumns: ColumnsType<ClusterFlowItem> = useMemo(
     () => [
-      { title: '采集配置名称', dataIndex: ['metadata', 'name'], key: 'name', width: 200, fixed: 'left', render: (v: string) => v || '-' },
-      { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', width: 200, render: (v: string) => v || '-' },
+      {
+        title: '采集配置名称',
+        dataIndex: ['metadata', 'name'],
+        key: 'name',
+        width: 200,
+        fixed: 'left',
+        onHeaderCell: () => ({ style: { minWidth: 160 } }),
+        onCell: () => ({ style: { minWidth: 160 } }),
+        render: (v: string) => v || '-',
+      },
+      {
+        title: '命名空间',
+        dataIndex: ['metadata', 'namespace'],
+        key: 'namespace',
+        width: 200,
+        onHeaderCell: () => ({ style: { minWidth: 200 } }),
+        onCell: () => ({ style: { minWidth: 200 } }),
+        render: (v: string) => v || '-',
+      },
       {
         title: (
           <Space size={4}>
@@ -696,6 +713,8 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         ),
         key: '日志管道状态',
         width: 180,
+        onHeaderCell: () => ({ style: { minWidth: 160 } }),
+        onCell: () => ({ style: { minWidth: 160 } }),
         render: (_, row) => renderStatus(row),
       },
       {
@@ -802,15 +821,17 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered={false}
+          bordered
           rowKey={(row: ClusterFlowItem) => row.id ?? row.metadata?.name ?? String(Math.random())}
           loading={configLoading}
           columns={displayColumns}
           dataSource={filteredList}
           scroll={{ x: 1400 }}
           pagination={{
-            size: 'small',
-            showTotal: (total) => `共 ${total} 条`,
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total: number, range: [number, number]) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+            pageSizeOptions: ['10', '20', '50'],
           }}
         />
       </PageDetailSection>

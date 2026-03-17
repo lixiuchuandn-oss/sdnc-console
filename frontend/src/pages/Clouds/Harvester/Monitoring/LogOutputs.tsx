@@ -236,23 +236,34 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
     setLoading(true);
     const isClusterNs = !namespaceFilter || namespaceFilter === LOGGING_NS;
     if (isClusterNs) {
-      const { data, ok, error } = await fetchClusteroutputs(cloudId);
+      // Modal.info({
+      //   title: '正在加载日志接收端列表',
+      //   content: '正在获取集群级日志接收端（ClusterOutput）列表…',
+      // });
+      const { data, ok, error } = await fetchClusteroutputs(cloudId, { skipCache: true });
       setLoading(false);
       if (!ok) {
         message.error(error || '加载列表失败');
         setList([]);
         return;
       }
-      setList(normalizeClusterOutputList(data));
+      const normalized = normalizeClusterOutputList(data);
+      setList(normalized);
     } else {
-      const { data, ok, error } = await fetchOutputs(cloudId, { namespace: namespaceFilter });
+      // Modal.info({
+      //   title: '正在加载日志接收端列表',
+      //   content: `正在获取命名空间 ${namespaceFilter} 下日志接收端（Output）列表…`,
+      // });
+      const { data, ok, error } = await fetchOutputs(cloudId, { namespace: namespaceFilter, skipCache: true });
       setLoading(false);
       if (!ok) {
         message.error(error || '加载列表失败');
         setList([]);
         return;
       }
-      setList(normalizeOutputList(data));
+      const items = (data as any)?.items;
+      const normalized = normalizeOutputList(data);
+      setList(normalized);
     }
   }, [cloudId, namespaceFilter]);
 
@@ -712,7 +723,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         loadList();
       } else message.error(error || '删除失败');
     },
-    [cloudId, loadList]
+    [cloudId, loadList, namespaceFilter]
   );
 
   const filteredList = useMemo(() => {
@@ -921,15 +932,17 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered={false}
+          bordered
           rowKey={(row: ClusterOutputItem) => row.id ?? row.metadata?.name ?? String(Math.random())}
           loading={loading}
           columns={columns}
           dataSource={filteredList}
           scroll={{ x: 900 }}
           pagination={{
-            size: 'small',
-            showTotal: (total) => `共 ${total} 条`,
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total: number, range: [number, number]) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+            pageSizeOptions: ['10', '20', '50'],
           }}
         />
       </PageDetailSection>

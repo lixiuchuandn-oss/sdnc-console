@@ -117,7 +117,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
 
   const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     const { user } = useAuth();
-    const isAdmin = user?.role === 'super_admin';
+    const isAdmin = user?.role === 'admin';
     const { formNamespaceOptions, namespaceLoading, configNsFilter, setConfigNsFilter, namespaceList, tenantNamespaces } = useMonitoring();
 
     const [namespaceOptions, setNamespaceOptions] = useState<{ label: string; value: string }[]>([]);
@@ -980,7 +980,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
         >
           <Table<ReceiverItem>
             className="std-table"
-            bordered={false}
+            bordered
             rowKey={(record) => record.key}
             loading={loading}
             columns={columns}

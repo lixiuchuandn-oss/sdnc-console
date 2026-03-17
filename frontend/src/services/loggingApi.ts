@@ -3,16 +3,15 @@
  * 按 cloudId 请求 /api/clouds/:id/logging/*
  * 设计文档：plan/设计-监控服务-集群日志配置.md、设计-监控服务-资源组日志外发.md
  */
-import { apiRequest, apiPost, apiPatch, apiDelete as apiDeleteUnified } from './api';
+import { apiRequest, apiPost, apiPut, apiDelete as apiDeleteUnified } from './api';
 
 const base = (cloudId: string) => `/api/clouds/${encodeURIComponent(cloudId)}/logging`;
 
 // 包装统一 API 函数，保持向后兼容的返回格式 { data, ok, error }
-async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal; silent?: boolean }): Promise<{ data: T | null; ok: boolean; error?: string }> {
+async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal; skipCache?: boolean }): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
-    // 注意：统一 API 函数目前不支持 signal，但保留参数以保持接口兼容
-    // 如果设置了 silent，传递给 apiRequest 以静默处理预期的 404 错误
-    const data = await apiRequest(url, { skipCache: false, silent: options?.silent });
+    // logging 模块读取接口强制不走缓存（实时获取）
+    const data = await apiRequest(url, { skipCache: true });
     return { data, ok: true };
   } catch (e: any) {
     const errorMsg = e?.message || e?.error || '请求失败';
@@ -22,9 +21,9 @@ async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal
 
 async function apiPostPut<T = unknown>(url: string, method: 'POST' | 'PUT', body: unknown): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
-    const data = method === 'POST' 
+    const data = method === 'POST'
       ? await apiPost(url, body)
-      : await apiPatch(url, body);
+      : await apiPut(url, body);
     return { data, ok: true };
   } catch (e: any) {
     const errorMsg = e?.message || e?.error || '请求失败';
@@ -42,7 +41,7 @@ async function apiDelete(url: string): Promise<{ ok: boolean; error?: string }> 
   }
 }
 
-export function fetchClusterflows(cloudId: string, options?: { signal?: AbortSignal }) {
+export function fetchClusterflows(cloudId: string, options?: { signal?: AbortSignal; skipCache?: boolean }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiGet(`${base(cloudId)}/clusterflows`, options);
 }
@@ -67,7 +66,7 @@ export function deleteClusterflow(cloudId: string, name: string) {
   return apiDelete(`${base(cloudId)}/clusterflows/${encodeURIComponent(name)}`);
 }
 
-export function fetchClusteroutputs(cloudId: string, options?: { signal?: AbortSignal }) {
+export function fetchClusteroutputs(cloudId: string, options?: { signal?: AbortSignal; skipCache?: boolean }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   return apiGet(`${base(cloudId)}/clusteroutputs`, options);
 }
@@ -97,17 +96,23 @@ export function fetchLoggingNodes(cloudId: string, options?: { signal?: AbortSig
   return apiGet(`${base(cloudId)}/nodes`, options);
 }
 
+/** 预置日志采集端模板（YAML），供「日志采集端」页展示 */
+export function fetchLoggingTemplates(cloudId: string, options?: { signal?: AbortSignal; skipCache?: boolean }) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiGet<{ yaml?: string }>(`${base(cloudId)}/templates`, options);
+}
+
 // ---------- 资源组日志外发（Output，namespaced）----------
 
 export function fetchOutputs(
   cloudId: string,
-  options?: { signal?: AbortSignal; namespace?: string }
+  options?: { signal?: AbortSignal; namespace?: string; skipCache?: boolean }
 ) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  const params = new URLSearchParams();
-  if (options?.namespace) params.set('namespace', options.namespace);
-  const q = params.toString();
-  return apiGet(`${base(cloudId)}/outputs${q ? `?${q}` : ''}`, options);
+  const ns = (options?.namespace ?? '').toString().trim();
+  // 兼容：不传 namespace 时拉取全量；传 namespace 时走 path 参数
+  const url = `${base(cloudId)}/outputs${ns ? `/${encodeURIComponent(ns)}` : ''}`;
+  return apiGet(url, options);
 }
 
 export function fetchOutputDetail(
@@ -153,7 +158,7 @@ export function deleteOutput(cloudId: string, namespace: string, name: string) {
 
 export function fetchFlows(
   cloudId: string,
-  options?: { signal?: AbortSignal; namespace?: string }
+  options?: { signal?: AbortSignal; namespace?: string; skipCache?: boolean }
 ) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
   const params = new URLSearchParams();
@@ -213,10 +218,9 @@ export async function fetchHarvesterVmPod(
   options?: { signal?: AbortSignal }
 ): Promise<{ podName: string }> {
   const params = new URLSearchParams({ namespace, vmName });
-  // 使用 silent 选项，避免在控制台显示 404 错误（Pod 不存在是预期情况）
   const result = await apiGet<{ podName: string }>(
     `${base(cloudId)}/harvester/vm-pod?${params}`,
-    { ...options, silent: true }
+    options
   );
   if (!result.ok || !result.data?.podName) {
     throw new Error(result.error || '未找到 virt-launcher Pod');

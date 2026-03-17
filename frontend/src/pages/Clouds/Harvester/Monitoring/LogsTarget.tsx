@@ -112,7 +112,7 @@ const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     >
       <Table
         className="std-table"
-        bordered={false}
+        bordered
         size="middle"
         rowKey="id"
         columns={allColumns}

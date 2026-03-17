@@ -503,6 +503,7 @@ spec:
       const url = harvesterNs
         ? `${conn.origin}/${HARVESTER_FLOW_BASE}/${encodeURIComponent(harvesterNs)}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`
         : `${conn.origin}/${HARVESTER_FLOW_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
+      console.log('flow url: ', url);
       const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
       // Harvester collection 可能返回 { items: [...] } 或 { data: [...] } 或直接是数组
       const list: any[] = Array.isArray(raw?.items)
@@ -645,6 +646,38 @@ spec:
       if (queryNs) {
         list = list.filter((item: any) => getNs(item) === queryNs);
       }
+      res.json({ items: list });
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || '请求失败' });
+    }
+  });
+
+  router.get('/:id/logging/outputs/:namespace', async (req: any, res: Response) => {
+    try {
+      const namespace = (req.params?.namespace ?? '').toString().trim();
+      if (!namespace) return res.status(400).json({ message: '缺少命名空间' });
+
+      const conn = await getCloudAndConn(req.params.id, res);
+      if (!conn) return;
+      const tenant = await getTenantAccess(req, req.params.id);
+      if (!tenant.allowed) return res.status(403).json({ message: '无权访问' });
+      if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(namespace)) {
+        return res.status(403).json({ message: '无权访问该命名空间' });
+      }
+
+      const url = `${conn.origin}/${HARVESTER_OUTPUT_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
+      const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
+      const getNs = (item: any) =>
+        (item?.metadata?.namespace ?? item?.data?.metadata?.namespace ?? '').toString().trim();
+      let list: any[] = Array.isArray((raw as any)?.data)
+        ? (raw as any).data
+        : Array.isArray((raw as any)?.items)
+          ? (raw as any).items
+          : Array.isArray(raw)
+            ? raw
+            : [];
+
+      list = list.filter((item: any) => getNs(item) === namespace);
       res.json({ items: list });
     } catch (e: any) {
       res.status(500).json({ message: e?.message || '请求失败' });

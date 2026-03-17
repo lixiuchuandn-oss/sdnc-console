@@ -195,15 +195,16 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
     >
       <Table
         className="std-table"
-        bordered={false}
+        bordered
         rowKey={(row, i) => `${row.groupName}-${row.name}-${i}`}
         loading={loading}
         columns={displayColumns}
         dataSource={filteredRules}
         scroll={{ x: 1200 }}
         pagination={{
-          size: 'small',
+          showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条`,
+          pageSizeOptions: ['20', '50', '100'],
         }}
       />
     </PageDetailSection>
