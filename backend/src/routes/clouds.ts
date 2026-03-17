@@ -95,7 +95,12 @@ const testCloudConnectionUnified = async (args: {
       token: args.config?.apiToken || args.config?.token || args.secretKey || '',
       insecure: !!args.config?.ignoreTls,
     });
-    return { ok: !!t.ok, message: t.message || '' };
+    // 对于 Cloudmap 资源池，将 "Harvester" 字样替换为更通用的提示
+    let message = t.message || '';
+    if (message.includes('Harvester')) {
+      message = message.replace(/Harvester/g, 'Cloudmap');
+    }
+    return { ok: !!t.ok, message };
   }
   if (provider === 'harvester') {
     const t = await testHarvesterConnection({
