@@ -1253,7 +1253,7 @@ const CloudConsolePage: React.FC = () => {
                     storageClasses={storageClasses}
                     loading={loading}
                     isHarvester={!!caps?.isHarvester}
-                    onRefresh={() => loadEcs(currentCloudId, true)}
+                    onRefresh={(force?: boolean) => loadEcs(currentCloudId, !!force || true)} // 默认传递 force=true 确保强制刷新
                     onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
                     onRefreshSnapshots={() => loadSnapshots(currentCloudId)}
                     onRefreshBackups={() => loadBackups(currentCloudId)}
@@ -1314,7 +1314,7 @@ const CloudConsolePage: React.FC = () => {
                     
                     onRefreshVms={() => {
                       loadEcs(currentCloudId, true);
-                      loadPvcs(currentCloudId);
+                      loadPvcs(currentCloudId, true); // 传递 force=true 确保强制刷新，获取最新数据
                     }}
                     onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
@@ -1388,7 +1388,7 @@ const CloudConsolePage: React.FC = () => {
                     
                     onRefreshVms={() => {
                       loadEcs(currentCloudId, true);
-                      loadPvcs(currentCloudId);
+                      loadPvcs(currentCloudId, true); // 传递 force=true 确保强制刷新，获取最新数据
                     }}
                     onRefreshTemplates={(force) => loadTemplates(currentCloudId, !!force)}
                     onRefreshSshKeys={() => loadSshKeys(currentCloudId)}

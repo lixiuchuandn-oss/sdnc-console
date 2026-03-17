@@ -27,7 +27,7 @@ interface Props {
   storageClasses?: any[];
   loading?: boolean;
   isHarvester?: boolean;
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
   onRefreshVolumes?: (force?: boolean, silent?: boolean) => void;
   onRefreshSnapshots?: () => void;
   onRefreshBackups?: () => void;
@@ -321,7 +321,11 @@ const CloudConsoleVpcDetail: React.FC<Props> = ({
             nodeValue={nodeValue}
             onNsChange={setNsValue}
             onNodeChange={setNodeValue}
-            onRefresh={onRefresh || (() => {})}
+            onRefresh={(force?: boolean) => {
+              if (onRefresh) {
+                onRefresh(force);
+              }
+            }}
             onOpenReconfigure={onOpenReconfigure}
             onStart={onStart}
             onStop={onStop}
