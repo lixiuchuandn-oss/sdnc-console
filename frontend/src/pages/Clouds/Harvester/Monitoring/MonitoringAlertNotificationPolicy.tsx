@@ -971,7 +971,10 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             columns={configColumns}
             dataSource={filteredConfigList}
             scroll={{ x: 1000 }}
-            pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
+            pagination={{
+              size: 'small',
+              showTotal: (total) => `共 ${total} 条`,
+            }}
           />
         </PageDetailSection>
       </div>

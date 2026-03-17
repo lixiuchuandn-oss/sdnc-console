@@ -34,7 +34,7 @@ import {
 } from '../../../../services/loggingApi';
 import { fetchAllowedNamespaces } from '../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { LOGGING_API_VERSION } from './constants';
 
 const FLOW_TYPE_OPTIONS = [
   { label: 'Logging', value: 'Logging' },
@@ -124,7 +124,7 @@ interface LogsFlowConfigProps {
 
 const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const isAdmin = user?.role === 'super_admin';
 
   const [configList, setConfigList] = useState<FlowItem[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
@@ -323,12 +323,14 @@ const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
     const flowType = (values.flowType ?? 'Logging') as string;
     const includeHosts = (Array.isArray(values.includeHosts) ? values.includeHosts : []).filter((h: string) => (h ?? '').toString().trim());
     const excludeHosts = (Array.isArray(values.excludeHosts) ? values.excludeHosts : []).filter((h: string) => (h ?? '').toString().trim());
-    const matchPayload: Array<{ select?: { hosts?: string[]; labels?: Record<string, string> }; exclude?: { hosts?: string[] } }> = [];
-    if (includeHosts.length) matchPayload.push({ select: { hosts: includeHosts } });
-    if (excludeHosts.length) matchPayload.push({ exclude: { hosts: excludeHosts } });
-    if (flowType === 'Event') {
-      matchPayload.push({ select: { labels: { [EVENT_TAILER_LABEL]: EVENT_TAILER_VALUE } } });
-    }
+    // 所有 match 规则放在同一条：一个 select（hosts + labels）+ 一个 exclude（hosts）
+    const selectEntry: { hosts?: string[]; labels?: Record<string, string> } = {};
+    if (includeHosts.length) selectEntry.hosts = includeHosts;
+    if (flowType === 'Event') selectEntry.labels = { [EVENT_TAILER_LABEL]: EVENT_TAILER_VALUE };
+    const singleMatch: { select?: { hosts?: string[]; labels?: Record<string, string> }; exclude?: { hosts?: string[] } } = {};
+    if (Object.keys(selectEntry).length > 0) singleMatch.select = selectEntry;
+    if (excludeHosts.length) singleMatch.exclude = { hosts: excludeHosts };
+    const matchPayload = Object.keys(singleMatch).length > 0 ? [singleMatch] : [];
 
     const spec: FlowItem['spec'] = {
       ...(localOutputRefs.length > 0 ? { localOutputRefs } : {}),
@@ -337,14 +339,22 @@ const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
     };
     if (flowType === 'Audit') spec.loggingRef = AUDIT_LOGGING_REF;
 
+    const metadata: Record<string, unknown> = {
+      name,
+      namespace,
+      ...(values.description ? { annotations: { description: String(values.description).trim() } } : {}),
+    };
+    // 更新时拉取最新 resourceVersion/uid，避免 409 Conflict
+    if (editingRecord?.metadata?.name && editingRecord?.metadata?.namespace) {
+      const { data: latest } = await fetchFlowDetail(cloudId, editingRecord.metadata.namespace, editingRecord.metadata.name);
+      const latestMeta = (latest as any)?.metadata;
+      if (latestMeta?.resourceVersion != null) metadata.resourceVersion = latestMeta.resourceVersion;
+      if (latestMeta?.uid != null) metadata.uid = latestMeta.uid;
+    }
     const payload = {
-      apiVersion: 'logging.banzaicloud.io/v1beta1',
+      apiVersion: LOGGING_API_VERSION,
       kind: 'Flow',
-      metadata: {
-        name,
-        namespace,
-        ...(values.description ? { annotations: { description: String(values.description).trim() } } : {}),
-      },
+      metadata,
       spec,
     };
 
@@ -588,10 +598,8 @@ const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
           rowSelection={rowSelection}
           scroll={{ x: 1000 }}
           pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total: number, range: [number, number]) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-            pageSizeOptions: ['10', '20', '50'],
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
           }}
         />
       </PageDetailSection>

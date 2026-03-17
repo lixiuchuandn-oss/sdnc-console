@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button, Descriptions, Dropdown, Form, Input, message, Modal, Select, Space, Tag, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import { EllipsisOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
-import { vrApi, fetchVrCachePageList, getVRRoles } from '../../../services/virtualRouterApi';
+import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import { fetchCloudProviderVpcs, fetchTenants, fetchOrganizationsByTenant, apiRequest } from '../../../services/api';
 import { listSecurityDomains, createSecurityDomain, updateSecurityDomain, deleteSecurityDomain, SecurityDomainPayload } from '../../../services/securityDomainApi';
 import { getDomainClass, netClassLabel, netClassColor } from '../../../utils/netClass';
@@ -436,13 +436,6 @@ const SecurityDomainPage: React.FC = () => {
     createForm.resetFields();
   };
 
-  const openChangeVr = (record: SecurityDomain) => {
-    setSelectedDomainForVr(record);
-    setChangeVrOpen(true);
-    // Pass tenantId to load specific VRs
-    loadVRList(record.tenantId);
-    changeVrForm.setFieldsValue({ vrUuid: record.vrUuid });
-  };
 
   const handleChangeVrSubmit = async () => {
     if (!selectedDomainForVr) return;
@@ -465,35 +458,44 @@ const SecurityDomainPage: React.FC = () => {
     }
   };
 
-  const handleUnbindVr = (record: SecurityDomain) => {
-    Modal.confirm({
-      title: '确认解绑 VR',
-      content: '解绑 VR 实例将清除相关的网络配置（ENI/IP），是否继续？',
-      onOk: async () => {
-        try {
-          await updateSecurityDomain(record.id, {
-            vrUuid: '',
-            vrName: null,
-            vrInstanceIds: null,
-            vrPublicEniIds: null,
-            vrPrivateEniIds: null,
-            vrPublicIp: null,
-            vrPrivateIp: null,
-            vrPublicEip: null,
-            vrPublicSubnetCidr: null,
-            vrPrivateSubnetCidr: null
-          } as any);
-          message.success('VR 实例已解绑');
-          reloadDomains();
-        } catch (e) {
-          console.error('Unbind VR failed', e);
-          message.error('解绑失败');
-        }
-      }
-    });
-  };
 
   const columns = useMemo(() => {
+    const handleUnbindVrCallback = (record: SecurityDomain) => {
+      Modal.confirm({
+        title: '确认解绑 VR',
+        content: '解绑 VR 实例将清除相关的网络配置（ENI/IP），是否继续？',
+        onOk: async () => {
+          try {
+            await updateSecurityDomain(record.id, {
+              vrUuid: '',
+              vrName: null,
+              vrInstanceIds: null,
+              vrPublicEniIds: null,
+              vrPrivateEniIds: null,
+              vrPublicIp: null,
+              vrPrivateIp: null,
+              vrPublicEip: null,
+              vrPublicSubnetCidr: null,
+              vrPrivateSubnetCidr: null
+            } as any);
+            message.success('VR 实例已解绑');
+            reloadDomains();
+          } catch (e) {
+            console.error('Unbind VR failed', e);
+            message.error('解绑失败');
+          }
+        }
+      });
+    };
+
+    const openChangeVrCallback = (record: SecurityDomain) => {
+      setSelectedDomainForVr(record);
+      setChangeVrOpen(true);
+      // Pass tenantId to load specific VRs
+      loadVRList(record.tenantId);
+      changeVrForm.setFieldsValue({ vrUuid: record.vrUuid });
+    };
+
     return [
       {
         title: '名称',
@@ -627,8 +629,8 @@ const SecurityDomainPage: React.FC = () => {
           const onMenuClick: MenuProps['onClick'] = ({ key }) => {
             if (key === 'detail') return openDetail(record);
             if (key === 'edit') return openEdit(record);
-            if (key === 'changeVr') return openChangeVr(record);
-            if (key === 'unbindVr') return handleUnbindVr(record);
+            if (key === 'changeVr') return openChangeVrCallback(record);
+            if (key === 'unbindVr') return handleUnbindVrCallback(record);
             if (key === 'delete') return removeDomain(record);
           };
           return (
@@ -639,7 +641,7 @@ const SecurityDomainPage: React.FC = () => {
         },
       },
     ];
-  }, [createForm, vrOptions, vrCeOptions, openEdit, removeDomain]);
+  }, [createForm, vrOptions, vrCeOptions, openEdit, removeDomain, tenants]);
 
   return (
     <PageContainer
@@ -671,7 +673,10 @@ const SecurityDomainPage: React.FC = () => {
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),
         },
-        pagination: { pageSize: 8, showSizeChanger: true, pageSizeOptions: ['8', '16', '32'] },
+        pagination: {
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        },
       }}
       toolbarLeft={
         <Form

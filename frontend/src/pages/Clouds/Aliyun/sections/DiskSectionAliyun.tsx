@@ -384,7 +384,10 @@ const DiskSectionAliyun: React.FC<Props> = ({ cloudId, instance, disks, onSetDis
         rowKey={(r: any, idx: number | undefined) => String(getDiskId(r) || idx || 0)}
         columns={columns as any}
         dataSource={myDisks}
-        pagination={{ pageSize: 10, size: 'default', showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
         scroll={{ x: 1100 }}
       />
     </PageDetailSection>

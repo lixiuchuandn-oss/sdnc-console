@@ -498,7 +498,10 @@ const SecurityApps: React.FC = () => {
           selectedRowKeys,
           onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
         },
-        pagination: { pageSize: 10, showSizeChanger: true },
+        pagination: {
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        },
         scroll: { x: 'max-content' }
       }}
       defaultHiddenColumns={['strategies', 'version', 'owner']}

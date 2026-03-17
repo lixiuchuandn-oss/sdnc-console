@@ -116,7 +116,11 @@ const VRDomainTableSelector = ({ value, onChange, dataSource, showActions, onAdd
         ]}
         rowKey="id"
         size="small"
-        pagination={{ pageSize: 8, size: 'small', showSizeChanger: true, ...(tableProps?.pagination || {}) }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+          ...(tableProps?.pagination || {}),
+        }}
         scroll={tableProps?.scroll}
         style={{ ...(tableProps?.style || {}) }}
         {...tableProps}

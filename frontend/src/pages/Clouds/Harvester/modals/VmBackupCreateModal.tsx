@@ -141,12 +141,13 @@ const VmBackupCreateModal: React.FC<Props> = ({
       >
         <Form.Item
           name="name"
-          label="名称"
+          label="显示名称（别名）"
           rules={[
-            { required: true, message: '请输入名称' }
+            { required: true, message: '请输入显示名称' }
           ]}
+          tooltip="用于显示的友好名称，支持中文。K8s资源名称将自动生成（格式：id-vmb-随机字符串 或 id-vms-随机字符串）"
         >
-          <Input placeholder="请输入名称" />
+          <Input placeholder="例如：生产环境备份-2024" />
         </Form.Item>
 
         <Form.Item

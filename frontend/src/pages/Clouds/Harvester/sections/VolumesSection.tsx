@@ -1159,9 +1159,8 @@ const VolumesSection: React.FC<Props> = ({
         loading={loading}
         scroll={{ x: 'max-content' }}
         pagination={{
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
 

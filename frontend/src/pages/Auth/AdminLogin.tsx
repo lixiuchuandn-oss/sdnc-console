@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDefaultAdminPath } from '../../utils/accessMapping';
 import { getSystemSetting } from '../../services/systemApi';
+import { useSettings } from '../../contexts/SettingsContext';
 import './Login.css';
 
 const AdminLogin: React.FC = () => {
@@ -14,6 +15,18 @@ const AdminLogin: React.FC = () => {
   const [form] = Form.useForm();
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { settings } = useSettings();
+  const enableParticleBackground = settings.loginEnableParticleBackground ?? true; // 默认启用
+  
+  // 获取背景颜色设置
+  const backgroundColor = settings.loginBackgroundColor || '#1062FE';
+  const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
+  const gradientEnd = settings.loginBackgroundGradientEnd || backgroundColor;
+  const useGradient = gradientStart !== gradientEnd;
+  
+  // 获取按钮颜色设置
+  const buttonColor = settings.loginButtonColor || '#1890ff';
+  const buttonHoverColor = settings.loginButtonHoverColor || '#40a9ff';
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -49,10 +62,26 @@ const AdminLogin: React.FC = () => {
     // 表单验证失败，由 Ant Design Form 自动处理错误提示
   };
 
+  // 将十六进制颜色转换为RGB
+  const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 16, g: 98, b: 254 };
+  };
+
   useEffect(() => {
+    // 如果禁用了粒子背景，不执行动画
+    if (!enableParticleBackground) return;
+    
     const canvasEl = canvasRef.current;
     const containerEl = containerRef.current;
     if (!canvasEl || !containerEl) return;
+    
+    // 获取背景颜色的RGB值（使用渐变起始颜色）
+    const bgRgb = hexToRgb(gradientStart);
     const ctxEl = canvasEl.getContext('2d');
     if (!ctxEl) return;
     const canvasNN = canvasEl as HTMLCanvasElement;
@@ -120,7 +149,7 @@ const AdminLogin: React.FC = () => {
           const v = fbm(nx * 5, ny * 5, t);
           const m0 = Math.max(0, Math.min(1, v));
           const m = m0 * m0 * (3 - 2 * m0);
-          const br = 16, bg = 98, bb = 254;
+          const br = bgRgb.r, bg = bgRgb.g, bb = bgRgb.b;
           const r = Math.round(br + (255 - br) * m);
           const g = Math.round(bg + (255 - bg) * m);
           const b = Math.round(bb + (255 - bb) * m);
@@ -142,15 +171,22 @@ const AdminLogin: React.FC = () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
     };
-  }, []);
+  }, [enableParticleBackground, gradientStart]);
+
+  // 动态样式
+  const containerStyle: React.CSSProperties = {
+    background: useGradient 
+      ? `linear-gradient(135deg, ${gradientStart} 0%, ${gradientEnd} 100%)`
+      : backgroundColor,
+  };
 
   return (
-    <div className="login-container" ref={containerRef}>
-      <canvas className="particle-canvas" ref={canvasRef} />
+    <div className="login-container" ref={containerRef} style={containerStyle}>
+      {enableParticleBackground && <canvas className="particle-canvas" ref={canvasRef} />}
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">Compute Tower</h1>
-          <p className="login-subtitle">后台管理登录</p>
+          <h1 className="login-title">{settings.loginTitle || 'Compute Tower'}</h1>
+          <p className="login-subtitle">{settings.loginSubtitle || '后台管理登录'}</p>
         </div>
         <Card className="login-card" variant="borderless" style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}>
           <Form
@@ -167,7 +203,28 @@ const AdminLogin: React.FC = () => {
             <Form.Item name="username" rules={[{ required: true, message: '请输入用户名!' }]}><Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username"/></Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码!' }]}><Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password"/></Form.Item>
             <Form.Item>
-              <Button type="primary" htmlType="submit" loading={loading} block size="large">登录</Button>
+              <Button 
+                type="primary" 
+                htmlType="submit" 
+                loading={loading} 
+                block 
+                size="large"
+                style={{
+                  background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
+                  border: 'none !important',
+                  boxShadow: `0 4px 12px ${buttonColor}40 !important`,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.setProperty('background', `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`, 'important');
+                  e.currentTarget.style.setProperty('box-shadow', `0 6px 16px ${buttonHoverColor}60`, 'important');
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.setProperty('background', `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`, 'important');
+                  e.currentTarget.style.setProperty('box-shadow', `0 4px 12px ${buttonColor}40`, 'important');
+                }}
+              >
+                登录
+              </Button>
             </Form.Item>
           </Form>
         </Card>

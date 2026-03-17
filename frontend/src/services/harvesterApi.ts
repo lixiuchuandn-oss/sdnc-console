@@ -94,7 +94,9 @@ export const fetchHarvesterScheduleVmBackups = async (cloudId: string, force = f
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const queryString = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${queryString ? `?${queryString}` : ''}`);
+  const url = `/api/clouds/${cloudId}/resources/harvester/schedulevmbackups${queryString ? `?${queryString}` : ''}`;
+  // force=true 时，显式传递 skipCache=true 确保跳过前端缓存和去重
+  return await apiRequest(url, { skipCache: force });
 };
 
 /**
@@ -152,6 +154,31 @@ export const fetchHarvesterBackups = async (cloudId: string, force = false, skip
  */
 export const fetchHarvesterMigrations = async (cloudId: string, force = false) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/migrations${force ? '?force=true' : ''}`);
+};
+
+/**
+ * 查询回收站自动关机记录
+ * @param params 查询参数
+ * @returns Promise<any>
+ */
+export const getRecycleBinShutdownRecords = async (params?: {
+  cloudId?: string;
+  status?: string;
+  startTime?: string;
+  endTime?: string;
+  page?: number;
+  pageSize?: number;
+}) => {
+  const queryParams = new URLSearchParams();
+  if (params?.cloudId) queryParams.append('cloudId', params.cloudId);
+  if (params?.status) queryParams.append('status', params.status);
+  if (params?.startTime) queryParams.append('startTime', params.startTime);
+  if (params?.endTime) queryParams.append('endTime', params.endTime);
+  if (params?.page) queryParams.append('page', String(params.page));
+  if (params?.pageSize) queryParams.append('pageSize', String(params.pageSize));
+  
+  const queryString = queryParams.toString();
+  return await apiRequest(`/api/system/recycle-bin/shutdown-records${queryString ? `?${queryString}` : ''}`);
 };
  
 /**

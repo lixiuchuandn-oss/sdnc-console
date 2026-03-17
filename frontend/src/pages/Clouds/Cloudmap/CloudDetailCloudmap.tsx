@@ -10,7 +10,7 @@ import KubeOvnVpcsSection from '../Harvester/kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from '../Harvester/kube-ovn/SubnetsSection';
 import KubeOvnPublicNetworksSection from '../Harvester/kube-ovn/PubnetSection';
 import GpusSection from '../Harvester/sections/GpusSection';
-import MigrationsSection from '../Harvester/sections/MigrationsSection';
+import TasksSection from '../Harvester/sections/TasksSection';
 import StorageClassesSection from '../Harvester/sections/StorageClassesSection';
 import SnapshotsSection from '../Harvester/sections/SnapshotsSection';
 import BackupsSection from '../Harvester/sections/BackupsSection';
@@ -45,6 +45,7 @@ import MonitoringOverview from '../Harvester/Monitoring/MonitoringOverview';
 import MonitoringAlerts from '../Harvester/Monitoring/MonitoringAlerts';
 import LogsConfig from '../Harvester/Monitoring/LogsConfig';
 import LogOutputs from '../Harvester/Monitoring/LogOutputs';
+import LogsTarget from '../Harvester/Monitoring/LogsTarget';
 import LogsFlowConfig from '../Harvester/Monitoring/LogsFlowConfig';
 import LogsOutputConfig from '../Harvester/Monitoring/LogsOutputConfig';
 import MonitoringPrometheusRules from '../Harvester/Monitoring/MonitoringPrometheusRules';
@@ -52,6 +53,7 @@ import MonitoringAlertNotificationPolicy from '../Harvester/Monitoring/Monitorin
 import MonitoringAlertNotificationTargets from '../Harvester/Monitoring/MonitoringAlertNotificationTargets';
 import MonitoringAlertSecrets from '../Harvester/Monitoring/MonitoringAlertSecrets';
 import { MonitoringProvider } from '../Harvester/Monitoring/context/MonitoringContext';
+import { LoggingProvider } from '../Harvester/Monitoring/context/LoggingContext';
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
 import { getToken } from '../../../utils/tokenStorage';
@@ -236,6 +238,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
     // 如果非强制刷新且已加载过，直接跳过
     if (!force && loadedRef.current.has(key)) return;
     
+    // 强制刷新时，清除已加载标记，确保重新加载
+    if (force && loadedRef.current.has(key)) {
+      loadedRef.current.delete(key);
+    }
+    
     setResourceLoading(prev => ({ ...prev, [key]: true }));
     try {
       const timeoutPromise = new Promise((_, reject) => {
@@ -243,7 +250,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       });
       const json = await Promise.race([fn(), timeoutPromise]);
       cb(json as any);
-      loadedRef.current.add(key);
+      // 强制刷新时，不更新 loadedRef，确保下次还能刷新
+      // 非强制刷新时，标记为已加载，避免重复请求
+      if (!force) {
+        loadedRef.current.add(key);
+      }
     } catch (e: any) {
       console.warn(`Failed to load ${key}:`, e?.message || e);
       try {
@@ -1377,16 +1388,16 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
-                      key: 'migrations',
-                      label: '迁移记录',
-                      children: <MigrationsSection cloudId={cloudId} />
+                      key: 'tasks',
+                      label: '任务记录',
+                      children: <TasksSection cloudId={cloudId} />
                     }
                   ].filter((i:any) => {
                       if (i.key === 'ecs') return checkPerm('clouds.instances:read');
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
                       if (i.key === 'ssh_keys') return checkPerm('clouds.sshkeys:read');
                       if (i.key === 'cloud_inits') return checkPerm('clouds.cloudinits:read');
-                      if (i.key === 'migrations') return checkPerm('clouds.instances:read');
+                      if (i.key === 'tasks') return checkPerm('clouds.instances:read');
                       return true;
                   })}
                 />
@@ -1487,7 +1498,25 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: '定时策略',
                       children: (
                         <>
-                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={() => loadTabResource('scheduleVmBackups', true)} vms={ecs} />
+                          <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={async (force = true, silent = false) => {
+                            const skipSync = false;
+                            if (checkPerm('clouds.backups:read')) {
+                              if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: true }));
+                              try {
+                                if (force && !skipSync) {
+                                  try { await apiPost(`/api/clouds/${cloudId}/sync`); } catch {}
+                                }
+                                const json = await fetchHarvesterScheduleVmBackups(cloudId, force, skipSync);
+                                const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                                setHarvesterScheduleVmBackups(Array.isArray(list) ? list : []);
+                                setRawScheduleVmBackups(json || null);
+                              } catch (e) {
+                                console.warn('Failed to load schedule vm backups', e);
+                              } finally {
+                                if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: false }));
+                              }
+                            }
+                          }} vms={ecs} />
                           <DebugJSON data={rawScheduleVmBackups} show={showLog} />
                         </>
                       )
@@ -1697,34 +1726,31 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
               key: 'logs-config',
               label: '日志管理',
               children: (
-                <Tabs
-                  defaultActiveKey="logs-config"
-                  tabPosition="top"
-                  type="line"
-                  destroyInactiveTabPane
-                  items={[
-                    {
-                      key: 'logs-config',
-                      label: '集群日志配置',
-                      children: <LogsConfig cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'log-outputs',
-                      label: '集群日志外发',
-                      children: <LogOutputs cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'logs-flow-config',
-                      label: '租户日志配置',
-                      children: <LogsFlowConfig cloudId={cloudId} />,
-                    },
-                    {
-                      key: 'logs-output-config',
-                      label: '租户日志外发',
-                      children: <LogsOutputConfig cloudId={cloudId} />,
-                    },
-                  ]}
-                />
+                <LoggingProvider cloudId={cloudId}>
+                  <Tabs
+                    defaultActiveKey="logs-config"
+                    tabPosition="top"
+                    type="line"
+                    destroyInactiveTabPane
+                    items={[
+                      {
+                        key: 'logs-target',
+                        label: '日志采集对象',
+                        children: <LogsTarget cloudId={cloudId} />,
+                      }, 
+                      {
+                        key: 'log-outputs',
+                        label: '日志接收端',
+                        children: <LogOutputs cloudId={cloudId} />,
+                      },   
+                      {
+                        key: 'logs-flow-config',
+                        label: '日志采集配置',
+                        children: <LogsConfig cloudId={cloudId} />,
+                      }
+                    ]}
+                  />
+                </LoggingProvider>
               )
             }
           ]}

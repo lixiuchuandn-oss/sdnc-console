@@ -274,6 +274,14 @@ AppDataSource.initialize()
     await initializeAdmin();
     // 初始化默认角色
     await initializeRoles();
+    
+    // 初始化数据库表（如果不存在则创建）
+    try {
+      const { ensureRecycleBinTables } = await import('./config/database');
+      await ensureRecycleBinTables();
+    } catch (e) {
+      console.warn('初始化回收站表失败:', e);
+    }
 
     // 启动云资源同步任务
     try {
@@ -292,6 +300,18 @@ AppDataSource.initialize()
       }, 10000);
     } catch (e) {
       console.warn('启动 VR 列表同步任务失败:', e);
+    }
+
+    // 启动回收站定时任务
+    try {
+      const { RecycleBinTaskService } = await import('./services/clouds/harvester/RecycleBinTaskService');
+      // 延迟 15s 启动，避免和启动时的数据库操作冲突
+      setTimeout(() => {
+        console.log('[App] 启动回收站定时任务服务...');
+        RecycleBinTaskService.getInstance().startTasks();
+      }, 15000);
+    } catch (e) {
+      console.error('启动回收站定时任务失败:', e);
     }
 
     // WebSocket 服务实例

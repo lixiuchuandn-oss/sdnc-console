@@ -453,7 +453,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         dataSource={filtered}
         pagination={{
           size: 'small',
-          showQuickJumper: false,
+          showTotal: (total) => `共 ${total} 条`,
         }}
         columns={tableColumns}
       />

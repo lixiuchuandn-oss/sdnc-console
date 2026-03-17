@@ -919,7 +919,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsHostsDisplay as any}
                   dataSource={filteredPhysicalElements}
                   loading={loading}
-                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawPhysical, null, 2)}</pre></div>)}
               </>
@@ -979,7 +982,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsVRoutersDisplay as any}
                   dataSource={filteredVRouters}
                   rowKey={(r: any) => r.vrouter_id || r.id || r.Id || r.uuid || Math.random().toString()}
-                  pagination={{ showSizeChanger: true, pageSize: 10, pageSizeOptions: [10, 20, 50, 100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                   loading={loading}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVRouters, null, 2)}</pre></div>)}
@@ -1083,7 +1089,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsAssetsDisplay as any}
                   dataSource={filteredAssets}
                   rowKey={(r: any) => r.network_id || r.id || r.Id || r.uuid || Math.random().toString()}
-                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                   loading={loading}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawAssets, null, 2)}</pre></div>)}
@@ -1244,7 +1253,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsVirtualDisplay as any}
                   dataSource={filteredVirtualElements}
                   loading={loading}
-                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVirtual, null, 2)}</pre></div>)}
               </>
@@ -1338,7 +1350,10 @@ const CloudDetailCsm: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                   columns={columnsGroupsDisplay as any}
                   dataSource={filteredGroups}
                   loading={loading}
-                  pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+                  pagination={{
+                    size: 'small',
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                 />
                 {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawGroups, null, 2)}</pre></div>)}
               </>

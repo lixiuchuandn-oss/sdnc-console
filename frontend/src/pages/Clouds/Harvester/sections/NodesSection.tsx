@@ -380,7 +380,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
       loading={loading}
       pagination={{
         size: 'small',
-        showQuickJumper: false,
+        showTotal: (total) => `共 ${total} 条`,
       }}
     />
     <HarvesterResourceDrawer

@@ -207,9 +207,9 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
         dataSource={filtered}
         columns={tableColumns}
         loading={loading}
-        pagination={{ 
-          size: 'small', 
-          showQuickJumper: false,
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
         }}
         expandable={{ expandedRowRender }}
       />

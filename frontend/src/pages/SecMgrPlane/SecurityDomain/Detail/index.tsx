@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Descriptions, Table, Tag, Empty, Typography, Space, Input, Select, Row, Col, Card, Statistic, Badge, Drawer, message, Button, Modal, Form } from 'antd';
+import { Descriptions, Table, Tag, Typography, Space, Input, Select, Row, Col, Card, Statistic, Badge, Drawer, message, Button, Modal, Form } from 'antd';
 
 import {
   GlobalOutlined,
@@ -9,20 +9,12 @@ import {
   AppstoreOutlined,
   SafetyCertificateOutlined,
   NodeIndexOutlined,
-  SettingOutlined,
-  EllipsisOutlined,
-  PlusOutlined,
-  DeploymentUnitOutlined,
   DashboardOutlined,
   ApartmentOutlined,
   SwapOutlined,
   SecurityScanOutlined,
   StopOutlined,
   DesktopOutlined,
-  GatewayOutlined,
-  PartitionOutlined, 
-  FullscreenOutlined,
-  ClusterOutlined,
   EditOutlined,
   DisconnectOutlined
 } from '@ant-design/icons';
@@ -31,7 +23,7 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { getSecurityDomain, updateSecurityDomain } from '../../../../services/securityDomainApi';
 import { SecurityDomain } from '../index';
-import { apiPost, fetchCsmElementGroups, fetchCloudProviderEcs, fetchCsmVRPageList } from '../../../../services/api';
+import { apiPost, fetchCsmElementGroups, fetchCloudProviderEcs } from '../../../../services/api';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
 
 const { Title } = Typography;
@@ -164,7 +156,7 @@ const SecurityDomainDetail: React.FC = () => {
         }
       })
       .catch(() => {});
-  }, [data?.appInstances, (data as any)?.cloudId]);
+  }, [data]);
 
   useEffect(() => {
     const cloudId = String((data as any)?.cloudId || '').trim();
@@ -190,7 +182,7 @@ const SecurityDomainDetail: React.FC = () => {
       })
       .catch(() => setCsmElementGroupMap({}))
       .finally(() => setCsmElementGroupsLoading(false));
-  }, [data?.cloudId, (data as any)?.securityServices?.length]);
+  }, [data]);
 
 
 
@@ -530,7 +522,10 @@ const SecurityDomainDetail: React.FC = () => {
           locale={{ emptyText: '暂无关联级联通道' }} 
           bordered
           size="middle"
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -557,7 +552,10 @@ const SecurityDomainDetail: React.FC = () => {
           locale={{ emptyText: '暂无关联 SRv6 隧道' }} 
           bordered
           size="middle"
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -582,7 +580,10 @@ const SecurityDomainDetail: React.FC = () => {
           locale={{ emptyText: '暂无关联 IPsec VPN' }} 
           bordered
           size="middle"
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -608,7 +609,10 @@ const SecurityDomainDetail: React.FC = () => {
           rowKey="id"
           locale={{ emptyText: '暂无关联 NAT 实例' }} 
           bordered
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -636,7 +640,10 @@ const SecurityDomainDetail: React.FC = () => {
           rowKey="id"
           locale={{ emptyText: '暂无关联网络 ACL 实例' }} 
           bordered
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -661,7 +668,10 @@ const SecurityDomainDetail: React.FC = () => {
           rowKey="id"
           locale={{ emptyText: '暂无关联旁路阻断策略实例' }} 
           bordered
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -700,7 +710,10 @@ const SecurityDomainDetail: React.FC = () => {
           rowKey="id"
           locale={{ emptyText: '暂无关联云主机实例' }} 
           bordered
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -803,7 +816,10 @@ const SecurityDomainDetail: React.FC = () => {
           locale={{ emptyText: '暂无关联应用实例' }} 
           bordered
           size="middle"
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -1012,7 +1028,10 @@ const SecurityDomainDetail: React.FC = () => {
           locale={{ emptyText: '暂无关联安全服务' }} 
           bordered
           size="middle"
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );
@@ -1077,7 +1096,10 @@ const SecurityDomainDetail: React.FC = () => {
           locale={{ emptyText: '暂无关联服务链' }} 
           bordered
           size="middle"
-          pagination={{ pageSize: 10, size: 'default' }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
     );

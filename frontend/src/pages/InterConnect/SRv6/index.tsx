@@ -323,7 +323,10 @@ const SRv6Page: React.FC = () => {
         columns: columns,
         dataSource: filteredTunnels,
         rowKey: (r: Srv6TunnelRow) => r.id,
-        pagination: { pageSize: 10 },
+        pagination: {
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        },
         loading: loading,
         scroll: { x: 'max-content' },
         bordered: true

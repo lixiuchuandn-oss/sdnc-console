@@ -421,9 +421,8 @@ const SnapshotsSection: React.FC<Props> = ({
           onChange: setSelectedRowKeys,
         }}
         pagination={{
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
       <VolumeSnapshotRestoreModal

@@ -231,7 +231,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
         loading={loading}
         pagination={{
           size: 'small',
-          showQuickJumper: false,
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
 

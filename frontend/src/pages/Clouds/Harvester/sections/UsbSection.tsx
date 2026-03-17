@@ -190,7 +190,10 @@ const UsbSection: React.FC<Props> = ({ cloudId, vms, loading = false, onRefresh,
         dataSource={rows}
         loading={loading}
         rowKey="key"
-        pagination={{ pageSize: 10, showSizeChanger: true }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
       />
     </PageDetailSection>
   );

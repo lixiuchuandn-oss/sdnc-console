@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 // 页面说明：
 // 组织管理页（租户上下文），提供以下能力：
 // 1）左侧组织树：支持搜索、重命名、添加子组织、删除组织等操作；
@@ -168,7 +168,6 @@ const OrgManagePage: React.FC = () => {
         r.scope === 'tenant' && 
         String(r.status || 'active') === 'active'
       );
-      console.log('[OrgManage] 加载租户角色:', { total: list.length, filtered: filtered.length, roles: filtered });
       setTenantRoles(filtered);
       // 兼容响应结构差异：
       // - 有的接口返回 { roles: [] }，有的直接返回数组；统一归一化为 list
@@ -254,7 +253,7 @@ const OrgManagePage: React.FC = () => {
     }
   };
 
-  const openRoleAssign = async (user: TenantUser) => {
+  const openRoleAssign = useCallback(async (user: TenantUser) => {
     try {
       const rawData = await apiRequest(
         `/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(user.id)}`,
@@ -276,7 +275,7 @@ const OrgManagePage: React.FC = () => {
       setRoleAssignSelected(list.map(it => it.roleId));
       setRoleAssignOpen(true);
     } catch {}
-  };
+  }, []);
 
   useEffect(() => {
     const run = async () => {
@@ -345,7 +344,7 @@ const OrgManagePage: React.FC = () => {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
+  const handleDeleteUser = useCallback(async (userId: string) => {
     if (!tenantId || !selectedOrg) return;
     try {
       await apiDelete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${userId}`);
@@ -355,7 +354,7 @@ const OrgManagePage: React.FC = () => {
       const msg = e?.response?.data?.message || '删除用户失败';
       messageApi.error(msg);
     }
-  };
+  }, [tenantId, selectedOrg, messageApi]);
   // 删除用户：
   // - 依赖当前选中组织上下文；成功后刷新用户列表
 
@@ -387,7 +386,7 @@ const OrgManagePage: React.FC = () => {
     }
   };
 
-  const handleRemoveAssignment = async (poolId: string) => {
+  const handleRemoveAssignment = useCallback(async (poolId: string) => {
     if (!selectedOrg) return;
     try {
       await apiDelete(`/api/tenants/organizations/${selectedOrg.id}/resource-pools/${poolId}`);
@@ -465,7 +464,7 @@ const OrgManagePage: React.FC = () => {
         message.error(errorMsg);
       }
     }
-  };
+  }, [selectedOrg, modal]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -732,7 +731,7 @@ const OrgManagePage: React.FC = () => {
     return recur(orgs);
   };
 
-  const userColumns: ColumnsType<TenantUser> = React.useMemo(() => [
+  const userColumns: ColumnsType<TenantUser> = useMemo(() => [
     { title: '用户名', dataIndex: 'username', key: 'username' },
     { title: '角色', dataIndex: 'role', key: 'role', render: (_: any, row: TenantUser) => {
       const roleNameMap: Record<string, string> = {
@@ -761,7 +760,7 @@ const OrgManagePage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_, record: TenantUser) => (
+      render: (_: any, record: TenantUser) => (
         <Dropdown
           menu={{
             items: [
@@ -787,7 +786,7 @@ const OrgManagePage: React.FC = () => {
         </Dropdown>
       ),
     }
-  ], [tenantRoles, rolesByUser, openRoleAssign, handleDeleteUser, modal]);
+  ], [rolesByUser, openRoleAssign, handleDeleteUser, modal, tenantRoles]);
 
   const { displayColumns: userDisplayColumns } = useTableColumnSettings(userColumns, 'org_manage_users');
 
@@ -1006,12 +1005,9 @@ const OrgManagePage: React.FC = () => {
                       }) : users)}
                       className="std-table"
                       rowKey="id"
-                      pagination={{ 
-                        size: 'small', 
-                        showSizeChanger: true, 
-                        pageSize: 10,
-                        pageSizeOptions: ['10', '20', '50', '100'],
-                        showQuickJumper: false 
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
                       bordered
@@ -1074,12 +1070,9 @@ const OrgManagePage: React.FC = () => {
                       }))}
                       className="std-table"
                       rowKey="id"
-                      pagination={{ 
-                        size: 'small', 
-                        showSizeChanger: true, 
-                        pageSize: 10,
-                        pageSizeOptions: ['10', '20', '50', '100'],
-                        showQuickJumper: false 
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
                       bordered
@@ -1137,12 +1130,9 @@ const OrgManagePage: React.FC = () => {
                       }))}
                       className="std-table"
                       rowKey="id"
-                      pagination={{ 
-                        size: 'small', 
-                        showSizeChanger: true, 
-                        pageSize: 10,
-                        pageSizeOptions: ['10', '20', '50', '100'],
-                        showQuickJumper: false 
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
                       bordered
@@ -1203,12 +1193,9 @@ const OrgManagePage: React.FC = () => {
                       }))}
                       className="std-table"
                       rowKey="id"
-                      pagination={{ 
-                        size: 'small', 
-                        showSizeChanger: true, 
-                        pageSize: 10,
-                        pageSizeOptions: ['10', '20', '50', '100'],
-                        showQuickJumper: false 
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
                       bordered
@@ -1292,12 +1279,9 @@ const OrgManagePage: React.FC = () => {
                           loading={sdnVrLoading}
                           rowKey={(r: any) => r.vr_unique_id || r.uuid || r.id}
                           dataSource={sdnVrs}
-                          pagination={{ 
-                            size: 'small', 
-                            showSizeChanger: true, 
-                            pageSize: 5,
-                            pageSizeOptions: ['5', '10', '20'],
-                            showQuickJumper: false 
+                          pagination={{
+                            size: 'small',
+                            showTotal: (total) => `共 ${total} 条`,
                           }}
                           columns={[
                             { title: '名称', dataIndex: 'name', key: 'name' },
@@ -1344,12 +1328,9 @@ const OrgManagePage: React.FC = () => {
                           loading={securityLoading}
                           rowKey={(r: any) => r.id || r._id}
                           dataSource={protectionObjects}
-                          pagination={{ 
-                            size: 'small', 
-                            showSizeChanger: true, 
-                            pageSize: 5,
-                            pageSizeOptions: ['5', '10', '20'],
-                            showQuickJumper: false 
+                          pagination={{
+                            size: 'small',
+                            showTotal: (total) => `共 ${total} 条`,
                           }}
                           columns={[
                             { title: '名称', dataIndex: 'name', key: 'name' },
@@ -1367,12 +1348,9 @@ const OrgManagePage: React.FC = () => {
                           loading={securityLoading}
                           rowKey={(r: any) => r.id || r._id}
                           dataSource={securityChains}
-                          pagination={{ 
-                            size: 'small', 
-                            showSizeChanger: true, 
-                            pageSize: 5,
-                            pageSizeOptions: ['5', '10', '20'],
-                            showQuickJumper: false 
+                          pagination={{
+                            size: 'small',
+                            showTotal: (total) => `共 ${total} 条`,
                           }}
                           columns={[
                             { title: '名称', dataIndex: 'name', key: 'name' },

@@ -34,6 +34,7 @@ import {
 import { fetchAllowedNamespaces } from '../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { LOGGING_API_VERSION } from './constants';
 
 const PROVIDER_OPTIONS = [
   { label: 'Syslog', value: 'syslog' },
@@ -121,7 +122,7 @@ interface LogsOutputConfigProps {
 
 const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const isAdmin = user?.role === 'super_admin';
 
   const [list, setList] = useState<OutputItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -304,7 +305,7 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
 
     const spec = buildSpecFromForm(values, editingRecord);
     const payload = {
-      apiVersion: 'logging.banzaicloud.io/v1beta1',
+      apiVersion: LOGGING_API_VERSION,
       kind: 'Output',
       metadata: {
         name,
@@ -564,10 +565,8 @@ const LogsOutputConfig: React.FC<LogsOutputConfigProps> = ({ cloudId }) => {
           rowSelection={rowSelection}
           scroll={{ x: 900 }}
           pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total: number, range: [number, number]) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-            pageSizeOptions: ['10', '20', '50'],
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
           }}
         />
       </PageDetailSection>

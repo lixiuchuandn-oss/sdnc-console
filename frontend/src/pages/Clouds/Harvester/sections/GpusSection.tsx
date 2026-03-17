@@ -273,7 +273,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
           loading={loading || refreshing}
           pagination={{
             size: 'small',
-            showQuickJumper: false,
+            showTotal: (total) => `共 ${total} 条`,
           }}
           rowKey={(r: any) => {
             const rid = r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.metadata?.name || '';

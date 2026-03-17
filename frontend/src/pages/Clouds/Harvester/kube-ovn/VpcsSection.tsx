@@ -737,7 +737,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         columns={tableColumns}
         dataSource={dataSource}
         loading={loading}
-        pagination={{ size: 'small', showQuickJumper: false }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
         expandable={{
           expandedRowRender: renderExpandedRow,
           rowExpandable: () => true,

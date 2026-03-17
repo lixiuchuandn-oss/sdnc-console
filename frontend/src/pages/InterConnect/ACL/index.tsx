@@ -515,7 +515,10 @@ const ACLPage: React.FC = () => {
           rowKey="id"
           loading={groupsLoading}
           bordered
-          pagination={{ pageSize: 10 }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
           expandable={{
             expandedRowRender: (record) => (
               <div style={{ margin: 0 }}>
@@ -541,7 +544,10 @@ const ACLPage: React.FC = () => {
           rowKey="id"
           loading={rulesLoading}
           bordered
-          pagination={{ pageSize: 20 }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
           scroll={{ x: 'max-content' }}
         />
       )}

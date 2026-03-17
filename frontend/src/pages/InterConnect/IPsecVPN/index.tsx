@@ -401,7 +401,10 @@ const IPsecVPNPage: React.FC = () => {
           return matchKw && matchStatus && matchIke && matchLocalIp && matchPeerGw;
         }),
         rowKey: "id",
-        pagination: { pageSize: 10, showSizeChanger: true },
+        pagination: {
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        },
         loading: loading,
         bordered: true,
         scroll: { x: 'max-content' }

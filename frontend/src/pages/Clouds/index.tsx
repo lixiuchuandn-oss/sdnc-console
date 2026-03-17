@@ -624,10 +624,7 @@ const Clouds: React.FC = () => {
         }}
         pagination={{
           size: 'small',
-          showSizeChanger: true,
-          pageSize: 10,
-          pageSizeOptions: ['10', '20', '50', '100'],
-          showQuickJumper: false
+          showTotal: (total) => `共 ${total} 条`,
         }}
         scroll={{ x: 'max-content' }}
         tableLayout="auto"

@@ -48,10 +48,13 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
     form.resetFields();
     const now = Date.now();
     const base = srcName ? `${srcName}-clone-${String(now).slice(-4)}` : `vm-clone-${String(now).slice(-4)}`;
+    const defaultK8sName = toK8sName(base) || '';
+    const defaultDisplayName = srcAlias ? `${srcAlias}-克隆` : '';
     form.setFieldsValue({
-      name: toK8sName(base) || '',
+      name: defaultK8sName,
+      displayName: defaultDisplayName,
     });
-  }, [open, form, srcNamespace, srcName]);
+  }, [open, form, srcNamespace, srcName, srcAlias]);
 
   const handleOk = async () => {
     try {
@@ -78,7 +81,7 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
         }
       );
 
-      // 等待 VM 创建后，添加克隆任务标记
+      // 等待 VM 创建后，添加克隆任务标记和别名
       try {
         // 等待一小段时间让 VM 创建
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -89,14 +92,22 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
           try {
             const newVm = await fetchHarvesterVmDetail(cloudId, srcNamespace, targetName);
             if (newVm) {
-              // 给新 VM 添加克隆任务标记
-              const cloneTaskAnnotation = JSON.stringify({
-                sourceVm: `${srcNamespace}/${srcName}`,
-                sourceVmName: srcName,
-                sourceVmNamespace: srcNamespace,
-                cloneType: 'standard',
-                createdAt: new Date().toISOString(),
-              });
+              // 准备要设置的注解
+              const annotations: any = {
+                'tower.io/cloneTask': JSON.stringify({
+                  sourceVm: `${srcNamespace}/${srcName}`,
+                  sourceVmName: srcName,
+                  sourceVmNamespace: srcNamespace,
+                  cloneType: 'standard',
+                  createdAt: new Date().toISOString(),
+                }),
+              };
+              
+              // 如果用户输入了显示名称，设置为别名
+              const displayName = String(values.displayName || '').trim();
+              if (displayName) {
+                annotations['tower.io/alias'] = displayName;
+              }
               
               await patchHarvesterVm(
                 cloudId,
@@ -104,9 +115,7 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
                 targetName,
                 {
                   metadata: {
-                    annotations: {
-                      'tower.io/cloneTask': cloneTaskAnnotation,
-                    },
+                    annotations,
                   },
                 }
               );
@@ -142,7 +151,7 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
       // 如果是卷未就绪错误，说明任务已提交，只是卷还在克隆中
       if (errorMsg.includes('not ready for workloads') || errorMsg.includes('AttachVolume')) {
         const targetName = String(form.getFieldValue('name') || '').trim();
-        // 即使出现错误，也尝试添加克隆标记
+        // 即使出现错误，也尝试添加克隆标记和别名
         try {
           await new Promise(resolve => setTimeout(resolve, 2000));
           let retries = 3;
@@ -150,22 +159,29 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
             try {
               const newVm = await fetchHarvesterVmDetail(cloudId, srcNamespace, targetName);
               if (newVm) {
-                const cloneTaskAnnotation = JSON.stringify({
-                  sourceVm: `${srcNamespace}/${srcName}`,
-                  sourceVmName: srcName,
-                  sourceVmNamespace: srcNamespace,
-                  cloneType: 'standard',
-                  createdAt: new Date().toISOString(),
-                });
+                const annotations: any = {
+                  'tower.io/cloneTask': JSON.stringify({
+                    sourceVm: `${srcNamespace}/${srcName}`,
+                    sourceVmName: srcName,
+                    sourceVmNamespace: srcNamespace,
+                    cloneType: 'standard',
+                    createdAt: new Date().toISOString(),
+                  }),
+                };
+                
+                // 如果用户输入了显示名称，设置为别名
+                const displayName = String(form.getFieldValue('displayName') || '').trim();
+                if (displayName) {
+                  annotations['tower.io/alias'] = displayName;
+                }
+                
                 await patchHarvesterVm(
                   cloudId,
                   srcNamespace,
                   targetName,
                   {
                     metadata: {
-                      annotations: {
-                        'tower.io/cloneTask': cloneTaskAnnotation,
-                      },
+                      annotations,
                     },
                   }
                 );
@@ -230,9 +246,9 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
 
         <Form.Item
           name="name"
-          label="新虚拟机名称"
+          label="K8s 资源名称"
           rules={[
-            { required: true, message: '请输入新虚拟机名称' },
+            { required: true, message: '请输入K8s资源名称' },
             {
               validator: async (_, value) => {
                 const name = String(value || '').trim();
@@ -247,8 +263,16 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
               },
             },
           ]}
+          tooltip="Kubernetes 资源名称，仅支持小写字母、数字和连字符"
         >
           <Input placeholder="例如：my-vm-clone" />
+        </Form.Item>
+        <Form.Item
+          name="displayName"
+          label="显示名称（别名）"
+          tooltip="用于显示的友好名称，支持中文。如果不填写，将使用K8s资源名称"
+        >
+          <Input placeholder="例如：测试虚拟机-克隆" />
         </Form.Item>
       </Form>
     </Modal>

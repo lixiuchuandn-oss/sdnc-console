@@ -280,7 +280,10 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
                 })} 
                 rowKey={(r) => r.metadata.name} 
                 loading={loading}
-                pagination={{ size: 'small', showQuickJumper: false }}
+                pagination={{
+                  size: 'small',
+                  showTotal: (total) => `共 ${total} 条`,
+                }}
             />
 
             {/* Create Modal */}
@@ -455,7 +458,10 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
                 })} 
                 rowKey={(r) => r.metadata.name} 
                 loading={loading}
-                pagination={{ size: 'small', showQuickJumper: false }}
+                pagination={{
+                  size: 'small',
+                  showTotal: (total) => `共 ${total} 条`,
+                }}
             />
 
             {/* Create Modal */}
@@ -860,7 +866,10 @@ const ProviderNetworkList: React.FC<{ cloudId: string; isActive: boolean }> = ({
                 rowKey={(r) => r.metadata.name} 
                 loading={loading}
                 bordered={false}
-                pagination={{ size: 'small', showQuickJumper: false }}
+                pagination={{
+                  size: 'small',
+                  showTotal: (total) => `共 ${total} 条`,
+                }}
             />
 
             {/* Create Modal */}

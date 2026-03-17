@@ -3,13 +3,13 @@
  * 表格展示 PrometheusRule 解析后的所有规则（来自 GET prometheusrules?datasource=prometheus）
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Dropdown, Input, Select, Space, Table, Typography } from 'antd';
+import { Button, Input, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import TableColumnSettings from '../../../../components/TableColumnSettings';
 import { fetchPrometheusRules, fetchPrometheusRulesGroups, type PrometheusRuleItem } from '../../../../services/monitoringApi';
-import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
+import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS, SEVERITY_CRITICAL, SEVERITY_WARNING, SEVERITY_MAP } from './constants';
 
 interface MonitoringPrometheusRulesProps {
   cloudId: string;
@@ -91,12 +91,12 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
       title: '等级',
       dataIndex: 'severity',
       key: 'severity',
-      width: 90,
+      width: 100,
       render: (severity: string) => {
         const s = String(severity ?? '').toLowerCase();
-        const isCritical = s === 'critical';
+        const isCritical = s === SEVERITY_CRITICAL;
         const color = isCritical ? CRITICAL_COLOR : WARNING_COLOR;
-        const label = isCritical ? '严重' : s === 'warning' ? '警告' : severity || '-';
+        const label = isCritical ? SEVERITY_MAP.SEVERITY_CRITICAL : s === SEVERITY_WARNING ? SEVERITY_MAP.SEVERITY_WARNING : severity || '-';
         return (
           <Space size={6} style={{ alignItems: 'center' }}>
             <span
@@ -202,9 +202,8 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
         dataSource={filteredRules}
         scroll={{ x: 1200 }}
         pagination={{
-          showSizeChanger: true,
+          size: 'small',
           showTotal: (total) => `共 ${total} 条`,
-          pageSizeOptions: ['20', '50', '100'],
         }}
       />
     </PageDetailSection>

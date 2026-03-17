@@ -20,6 +20,8 @@ import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
 import { TenantUser } from '../entities/TenantUser';
 import { User, UserRole } from '../entities/User';
+import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdownRecord';
+import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
 
 // 全局系统路由实例，后续所有 /system 相关子路径都挂在该 Router 上
 const router = Router();
@@ -69,9 +71,78 @@ router.patch('/settings/:key', (req, res) => {
   try {
     setSystemSetting(key, String(value || ''));
 
+    // 如果更新的是回收站任务相关配置，重新调度任务
+    if (key === 'harvester.recycle_bin.shutdown_interval_hours') {
+      try {
+        RecycleBinTaskService.getInstance().rescheduleShutdownTask();
+        console.log('[System] 回收站关机任务间隔已更新，已重新调度任务');
+      } catch (e: any) {
+        console.error('[System] 重新调度回收站任务失败:', e);
+        // 不阻止设置更新，只记录错误
+      }
+    }
+
     res.json({ data: { key, value: String(value || '') } });
   } catch (e: any) {
     res.status(500).json({ error: e?.message || 'Failed to update setting' });
+  }
+});
+
+// 查询回收站自动关机记录
+// - 支持分页、筛选（云平台、状态、时间范围）
+router.get('/recycle-bin/shutdown-records', async (req, res) => {
+  try {
+    const { 
+      cloudId, 
+      status, 
+      startTime, 
+      endTime, 
+      page = '1', 
+      pageSize = '20' 
+    } = req.query;
+
+    const recordRepo = AppDataSource.getRepository(RecycleBinShutdownRecord);
+    const queryBuilder = recordRepo.createQueryBuilder('record');
+
+    // 筛选条件
+    if (cloudId) {
+      queryBuilder.andWhere('record.cloudId = :cloudId', { cloudId });
+    }
+    if (status) {
+      queryBuilder.andWhere('record.status = :status', { status });
+    }
+    if (startTime) {
+      queryBuilder.andWhere('record.shutdownAt >= :startTime', { startTime });
+    }
+    if (endTime) {
+      queryBuilder.andWhere('record.shutdownAt <= :endTime', { endTime });
+    }
+
+    // 排序：按关机时间倒序
+    queryBuilder.orderBy('record.shutdownAt', 'DESC');
+
+    // 分页
+    const pageNum = parseInt(String(page), 10) || 1;
+    const size = parseInt(String(pageSize), 10) || 20;
+    const skip = (pageNum - 1) * size;
+
+    queryBuilder.skip(skip).take(size);
+
+    const [records, total] = await queryBuilder.getManyAndCount();
+
+    res.json({
+      data: {
+        records,
+        pagination: {
+          page: pageNum,
+          pageSize: size,
+          total,
+          totalPages: Math.ceil(total / size),
+        },
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || '查询关机记录失败' });
   }
 });
 

@@ -383,10 +383,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         scroll={{ x: 'max-content' }}
         pagination={{
           size: 'small',
-          showSizeChanger: true,
-          pageSize: 10,
-          pageSizeOptions: ['10', '20', '50', '100'],
-          showQuickJumper: false
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
 

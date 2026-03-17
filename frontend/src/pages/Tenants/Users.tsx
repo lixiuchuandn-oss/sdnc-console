@@ -148,6 +148,7 @@ const UserManagement: React.FC = () => {
     fetchTenantUsers();
     fetchTenants();
     fetchRoles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const availableRolesRef = useRef(availableRoles);
@@ -231,6 +232,7 @@ const UserManagement: React.FC = () => {
     } catch (error: any) {
       messageApi.error(error.response?.data?.message || '删除用户失败');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageApi]);
 
   // Batch Delete
@@ -405,7 +407,14 @@ const UserManagement: React.FC = () => {
             <Option value="active">活跃</Option>
             <Option value="inactive">非活跃</Option>
           </Select></Form.Item>
-          <a className="toolbar-reset-btn" onClick={()=>{filterForm.resetFields(); setSearchText(''); setSelectedTenant(''); setSelectedRole(''); setSelectedStatus('');}}>重置</a>
+          <button
+            type="button"
+            className="toolbar-reset-btn"
+            onClick={()=>{filterForm.resetFields(); setSearchText(''); setSelectedTenant(''); setSelectedRole(''); setSelectedStatus('');}}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            重置
+          </button>
         </Form>
         <div className="toolbar-actions">
           <Button type="primary" icon={<UserAddOutlined />} onClick={() => setCreateModalOpen(true)}>
@@ -437,13 +446,12 @@ const UserManagement: React.FC = () => {
           selectedRowKeys,
           onChange: setSelectedRowKeys,
         }}
-        pagination={{ 
-          size: 'small', 
-          showSizeChanger: true, 
+        pagination={{
+          size: 'small',
+          showSizeChanger: true,
           pageSize: 20,
           pageSizeOptions: ['10', '20', '50', '100'],
-          showQuickJumper: false,
-          showTotal:(total,range)=>`第 ${range[0]}-${range[1]} 条，共 ${total} 条记录`
+          showTotal: (total) => `共 ${total} 条`,
         }}
         bordered={false}
         scroll={{ 

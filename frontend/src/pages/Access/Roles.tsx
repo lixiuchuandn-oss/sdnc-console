@@ -262,7 +262,10 @@ const AccessRolesPage: React.FC = () => {
           return matchKw && matchType;
         })}
         columns={displayedColumns}
-        pagination={{ size: 'small', showSizeChanger: true, pageSize: 10, pageSizeOptions: ['10','20','50','100'], showQuickJumper: false }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
         scroll={{ x: 'max-content' }}
         bordered={false}
       />

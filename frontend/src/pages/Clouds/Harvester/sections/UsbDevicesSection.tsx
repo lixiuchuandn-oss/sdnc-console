@@ -199,7 +199,10 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
           loading={!!loading || refreshing}
           columns={tableColumns as any}
           dataSource={filtered}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
           locale={{ emptyText: '暂无数据' }}
           scroll={{ x: 1400 }}
         />

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Button, Input, App, Upload, Image, Typography, ColorPicker } from 'antd';
-import { BgColorsOutlined, UploadOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Card, Form, Button, Input, App, Upload, Image, Typography, ColorPicker, Switch } from 'antd';
+import { BgColorsOutlined, UploadOutlined, DeleteOutlined, LoginOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { useSettings } from '../../contexts/SettingsContext';
 
@@ -9,6 +9,7 @@ const GeneralSettings: React.FC = () => {
   const [themeForm] = Form.useForm();
   const [sidebarForm] = Form.useForm();
   const [contentCardForm] = Form.useForm();
+  const [loginForm] = Form.useForm();
   const { settings, updateSetting, loading } = useSettings();
   const [previewIcon, setPreviewIcon] = useState<string | undefined>(undefined);
 
@@ -28,8 +29,18 @@ const GeneralSettings: React.FC = () => {
     contentCardForm.setFieldsValue({
       primaryColor: settings.primaryColor || '#1677ff',
     });
+    loginForm.setFieldsValue({
+      loginTitle: settings.loginTitle || 'Compute Tower',
+      loginSubtitle: settings.loginSubtitle || '后台管理登录',
+      loginBackgroundColor: settings.loginBackgroundColor || '#1062FE',
+      loginBackgroundGradientStart: settings.loginBackgroundGradientStart || '#1062FE',
+      loginBackgroundGradientEnd: settings.loginBackgroundGradientEnd || '#1062FE',
+      loginEnableParticleBackground: settings.loginEnableParticleBackground ?? false,
+      loginButtonColor: settings.loginButtonColor || '#1890ff',
+      loginButtonHoverColor: settings.loginButtonHoverColor || '#40a9ff',
+    });
     setPreviewIcon(settings.headerIcon);
-  }, [settings, themeForm, sidebarForm, contentCardForm]);
+  }, [settings, themeForm, sidebarForm, contentCardForm, loginForm]);
 
   const handleSaveTheme = async (values: any) => {
     // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
@@ -138,6 +149,50 @@ const GeneralSettings: React.FC = () => {
       await updateSetting('sidebarMenuItemSelectedIconColor', hexColor);
     }
     message.success('侧边栏设置已保存');
+  };
+
+  const handleSaveLogin = async (values: any) => {
+    // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
+    const getHexString = (color: any, defaultValue: string): string => {
+      if (!color) return defaultValue;
+      if (typeof color === 'string') {
+        return color.startsWith('#') ? color : `#${color}`;
+      }
+      if (color && typeof color.toHexString === 'function') {
+        return color.toHexString();
+      }
+      if (color && color.hex) {
+        return color.hex.startsWith('#') ? color.hex : `#${color.hex}`;
+      }
+      return defaultValue;
+    };
+    
+    if (values.loginTitle !== undefined) await updateSetting('loginTitle', values.loginTitle);
+    if (values.loginSubtitle !== undefined) await updateSetting('loginSubtitle', values.loginSubtitle);
+    if (values.loginBackgroundColor !== undefined) {
+      const hexColor = getHexString(values.loginBackgroundColor, '#1062FE');
+      await updateSetting('loginBackgroundColor', hexColor);
+    }
+    if (values.loginBackgroundGradientStart !== undefined) {
+      const hexColor = getHexString(values.loginBackgroundGradientStart, '#1062FE');
+      await updateSetting('loginBackgroundGradientStart', hexColor);
+    }
+    if (values.loginBackgroundGradientEnd !== undefined) {
+      const hexColor = getHexString(values.loginBackgroundGradientEnd, '#1062FE');
+      await updateSetting('loginBackgroundGradientEnd', hexColor);
+    }
+    if (values.loginEnableParticleBackground !== undefined) {
+      await updateSetting('loginEnableParticleBackground', values.loginEnableParticleBackground);
+    }
+    if (values.loginButtonColor !== undefined) {
+      const hexColor = getHexString(values.loginButtonColor, '#1890ff');
+      await updateSetting('loginButtonColor', hexColor);
+    }
+    if (values.loginButtonHoverColor !== undefined) {
+      const hexColor = getHexString(values.loginButtonHoverColor, '#40a9ff');
+      await updateSetting('loginButtonHoverColor', hexColor);
+    }
+    message.success('登录页设置已保存');
   };
 
   return (
@@ -385,6 +440,144 @@ const GeneralSettings: React.FC = () => {
                       '#1890ff',
                       '#096dd9',
                       '#0050b3',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button>
+            </Form.Item>
+          </Form>
+        </Card>
+
+        <Card title={<span><LoginOutlined style={{ marginRight: 8 }} />登录页个性化设置</span>} style={{ marginBottom: 24 }}>
+          <Form 
+            form={loginForm}
+            layout="vertical" 
+            className="general-settings-form"
+            style={{ maxWidth: 360 }} 
+            onFinish={handleSaveLogin}
+            initialValues={{ 
+              loginTitle: settings.loginTitle || 'Compute Tower',
+              loginSubtitle: settings.loginSubtitle || '后台管理登录',
+              loginBackgroundColor: settings.loginBackgroundColor || '#1062FE',
+              loginBackgroundGradientStart: settings.loginBackgroundGradientStart || '#1062FE',
+              loginBackgroundGradientEnd: settings.loginBackgroundGradientEnd || '#1062FE',
+              loginEnableParticleBackground: settings.loginEnableParticleBackground ?? true,
+              loginButtonColor: settings.loginButtonColor || '#1890ff',
+              loginButtonHoverColor: settings.loginButtonHoverColor || '#40a9ff',
+            }}
+          >
+            <Form.Item label="登录页标题 (Login Title)" name="loginTitle">
+              <Input placeholder="Compute Tower" style={{ width: 260 }} />
+            </Form.Item>
+            <Form.Item label="登录页副标题 (Login Subtitle)" name="loginSubtitle">
+              <Input placeholder="后台管理登录" style={{ width: 260 }} />
+            </Form.Item>
+            <Form.Item label="背景颜色 (Background Color)" name="loginBackgroundColor">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#1062FE',
+                      '#1677ff',
+                      '#1890ff',
+                      '#52c41a',
+                      '#fa8c16',
+                      '#f5222d',
+                      '#722ed1',
+                      '#eb2f96',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="背景渐变起始颜色 (Gradient Start)" name="loginBackgroundGradientStart">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#1062FE',
+                      '#1677ff',
+                      '#1890ff',
+                      '#0A4CC0',
+                      '#52c41a',
+                      '#fa8c16',
+                      '#f5222d',
+                      '#722ed1',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="背景渐变结束颜色 (Gradient End)" name="loginBackgroundGradientEnd">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#1062FE',
+                      '#1B64ED',
+                      '#4096ff',
+                      '#40a9ff',
+                      '#73d13d',
+                      '#ffa940',
+                      '#ff7875',
+                      '#9254de',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="启用动态粒子背景 (Enable Particle Background)" name="loginEnableParticleBackground" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item label="登录按钮颜色 (Login Button Color)" name="loginButtonColor">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#1890ff',
+                      '#1677ff',
+                      '#4096ff',
+                      '#40a9ff',
+                      '#52c41a',
+                      '#fa8c16',
+                      '#f5222d',
+                      '#722ed1',
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="按钮悬停效果颜色 (Button Hover Color)" name="loginButtonHoverColor">
+              <ColorPicker 
+                showText 
+                format="hex"
+                presets={[
+                  {
+                    label: '预设颜色',
+                    colors: [
+                      '#40a9ff',
+                      '#1890ff',
+                      '#69c0ff',
+                      '#91d5ff',
+                      '#73d13d',
+                      '#ffa940',
+                      '#ff7875',
+                      '#f759ab',
                     ],
                   },
                 ]}

@@ -40,3 +40,70 @@ export async function enableWalMode() {
     console.warn('[Database] 启用 WAL 模式失败:', error);
   }
 }
+
+/**
+ * 确保回收站相关表存在，如果不存在则创建
+ */
+export async function ensureRecycleBinTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      console.warn('[Database] 数据库未初始化，无法创建回收站表');
+      return;
+    }
+
+    // 检查表是否存在
+    const tableExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='recycle_bin_shutdown_records'`
+    );
+
+    if (tableExists.length === 0) {
+      console.log('[Database] 创建回收站关机记录表...');
+      
+      // 创建表
+      await AppDataSource.query(`
+        CREATE TABLE "recycle_bin_shutdown_records" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "cloudName" varchar NOT NULL,
+          "namespace" varchar NOT NULL,
+          "name" varchar NOT NULL,
+          "instanceId" varchar NOT NULL,
+          "uid" varchar NOT NULL,
+          "shutdownAt" datetime NOT NULL,
+          "status" varchar NOT NULL,
+          "errorMessage" varchar,
+          "previousStatus" varchar,
+          "taskId" varchar
+        )
+      `);
+
+      // 创建索引
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_recycle_bin_shutdown_records_cloudId_namespace_name" 
+        ON "recycle_bin_shutdown_records" ("cloudId", "namespace", "name")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_recycle_bin_shutdown_records_shutdownAt" 
+        ON "recycle_bin_shutdown_records" ("shutdownAt")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_recycle_bin_shutdown_records_status" 
+        ON "recycle_bin_shutdown_records" ("status")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_recycle_bin_shutdown_records_cloudId" 
+        ON "recycle_bin_shutdown_records" ("cloudId")
+      `);
+
+      console.log('[Database] 回收站关机记录表创建成功');
+    } else {
+      console.log('[Database] 回收站关机记录表已存在');
+    }
+  } catch (error) {
+    console.error('[Database] 创建回收站表失败:', error);
+    throw error;
+  }
+}

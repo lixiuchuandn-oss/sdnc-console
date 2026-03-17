@@ -134,7 +134,10 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
           loading={!!loading || refreshing}
           columns={tableColumns}
           dataSource={filtered}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
           locale={{ emptyText: '暂无数据' }}
           scroll={{ x: 1200 }}
         />

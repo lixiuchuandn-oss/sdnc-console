@@ -173,7 +173,7 @@ const CloudInitsSection: React.FC<Props> = ({
         loading={loading}
         pagination={{
           size: 'small',
-          showQuickJumper: false,
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
     </PageDetailSection>

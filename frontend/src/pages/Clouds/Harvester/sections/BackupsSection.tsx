@@ -342,9 +342,8 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
         loading={loading}
         pagination={{
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
       <HarvesterResourceDrawer

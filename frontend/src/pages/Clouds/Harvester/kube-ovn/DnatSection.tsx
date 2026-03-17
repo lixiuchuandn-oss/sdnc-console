@@ -244,7 +244,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({ cloudId, dnatRules, ei
           rowKey={r => r.metadata?.uid} 
           pagination={{
             size: 'small',
-            showQuickJumper: false
+            showTotal: (total) => `共 ${total} 条`,
           }}
         />
       </PageDetailSection>

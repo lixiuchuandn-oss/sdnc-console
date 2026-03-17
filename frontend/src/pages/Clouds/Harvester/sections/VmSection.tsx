@@ -1773,7 +1773,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         }}
         pagination={{
           size: 'small',
-          showQuickJumper: false,
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
       

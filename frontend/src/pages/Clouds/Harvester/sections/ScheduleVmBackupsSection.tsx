@@ -570,9 +570,8 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         rowKey={(record: any) => record.key || record.id || `${record.namespace}-${record.name}`}
         loading={loading}
         pagination={{
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
       </PageDetailSection>
@@ -597,7 +596,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
           // 设置轮询目标，等待后端创建完成
           setPollingTarget(created);
           
-          // [乐观创建] 立即在列表里造一个假数据，让用户觉得“秒创建”
+          // [乐观创建] 立即在列表里造一个假数据，让用户觉得"秒创建"
           const vm = (vms || []).find((x: any) => {
             const vmNs = x?.metadata?.namespace || x?.namespace;
             const vmName = x?.metadata?.name || x?.name;
@@ -605,10 +604,12 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
           });
           const vmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || (vm?.name || vm?.metadata?.name) || created.vmName || '-';
           const now = new Date().toISOString();
+          // 使用从创建结果中获取的K8s资源名称，如果没有则使用'-'作为占位符
+          const resourceName = created.resourceName || '-';
           const optimistic = {
             key: `opt-${Date.now()}`,
             name: created.alias,
-            id: '-', // ID 还不知道，先填个横杠
+            id: resourceName, // 使用真实的K8s资源名称
             namespace: created.namespace,
             vmAlias,
             vmName: created.vmName,
@@ -619,9 +620,13 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
             suspended: created.suspend,
             creationTimestamp: now,
             age: '0 分钟',
-            // raw 是部分数据，凑合用
+            // raw 是部分数据，包含真实的K8s资源名称
             raw: {
-               metadata: { namespace: created.namespace, name: '-', annotations: { 'tower.io/alias': created.alias } },
+               metadata: { 
+                 namespace: created.namespace, 
+                 name: resourceName, // 使用真实的K8s资源名称
+                 annotations: { 'tower.io/alias': created.alias } 
+               },
                spec: { suspend: created.suspend, cron: created.cron, retain: created.retain }
             }
           };

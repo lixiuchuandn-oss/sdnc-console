@@ -66,7 +66,7 @@
 
 import React, { useMemo, useCallback, useState } from 'react';
 import { Table, Space, message, Modal, Tooltip, App, Badge, Input, Select, Button, Typography, Checkbox } from 'antd';
-import { DeleteOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import { DeleteOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined, SettingOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from '../../../../services/harvesterApi';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -75,6 +75,7 @@ import { OsIcon } from '../../../../components/OsIcon';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import RecycleBinTaskConfigModal from '../modals/RecycleBinTaskConfigModal';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -124,6 +125,9 @@ const RecycleBinSection: React.FC<Props> = ({
   const [drawerVisible, setDrawerVisible] = useState(false); // 抽屉是否可见
   const [currentDrawerRecord, setCurrentDrawerRecord] = useState<any>(null); // 当前查看的 VM 记录
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail'); // 抽屉当前激活的标签页
+
+  // [配置模态框状态] 控制任务配置模态框的显示
+  const [configModalVisible, setConfigModalVisible] = useState(false);
 
   // ==========================================
   // [数据处理] 2. 数据过滤与转换 (Data Processing)
@@ -1055,6 +1059,12 @@ const RecycleBinSection: React.FC<Props> = ({
          * 3. 刷新按钮 - 手动刷新数据列表
          */
         <div className="toolbar-actions">
+          <Button
+            type="primary"
+            onClick={() => setConfigModalVisible(true)}
+          >
+            任务配置
+          </Button>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey="harvester_recycle_bin_table"
@@ -1073,9 +1083,7 @@ const RecycleBinSection: React.FC<Props> = ({
         scroll={{ x: 'max-content' }}
         pagination={{
           size: 'small',
-          pageSize: 20,
-          showSizeChanger: true,
-          showQuickJumper: false,
+          showTotal: (total) => `共 ${total} 条`,
         }}
         locale={{
           emptyText: '回收站为空',
@@ -1114,6 +1122,13 @@ const RecycleBinSection: React.FC<Props> = ({
           onRefresh={onRefresh}
         />
       )}
+      <RecycleBinTaskConfigModal
+        open={configModalVisible}
+        onClose={() => setConfigModalVisible(false)}
+        onSuccess={() => {
+          console.log('回收站任务配置已更新');
+        }}
+      />
     </PageDetailSection>
   );
 };

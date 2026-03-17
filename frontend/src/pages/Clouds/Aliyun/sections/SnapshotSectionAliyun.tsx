@@ -242,7 +242,10 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
         rowKey={(r: any) => r?.SnapshotId || r?.id} 
         dataSource={filtered} 
         columns={columns as any} 
-        pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }} 
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }} 
         scroll={{ x: 1000 }}
       />
     </PageDetailSection>

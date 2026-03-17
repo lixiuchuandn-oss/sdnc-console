@@ -33,6 +33,7 @@ interface Props {
     retain: number;
     maxFailure: number;
     suspend: boolean;
+    resourceName?: string; // K8s资源名称（metadata.name）
   }) => void;
   cloudId: string;
   initialNamespace?: string;
@@ -170,8 +171,10 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
     try {
       const values = await form.validateFields();
       setLoading(true);
-      await createHarvesterScheduleVmBackup(cloudId, values);
+      const result = await createHarvesterScheduleVmBackup(cloudId, values);
       message.success('创建成功');
+      // 从返回结果中提取K8s资源名称（metadata.name）
+      const resourceName = result?.metadata?.name || result?.data?.metadata?.name || '';
       onSuccess({
         namespace: values.namespace,
         alias: values.name,
@@ -180,7 +183,8 @@ const ScheduleVmBackupCreateModal: React.FC<Props> = ({ open, onCancel, onSucces
         cron: values.cron,
         retain: values.retain,
         maxFailure: values.maxFailure,
-        suspend: values.suspend
+        suspend: values.suspend,
+        resourceName: resourceName // 传递K8s资源名称
       });
     } catch (e: any) {
       let errorMsg = e.message || '创建失败';

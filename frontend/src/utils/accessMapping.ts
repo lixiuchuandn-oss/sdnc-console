@@ -13,7 +13,6 @@ export const PATH_PERMISSION_MAPPING = [
   { path: '/admin/sec-mgr-plane/security-domain', action: 'networks.security-domain:read' },
   { path: '/admin/sec-mgr-plane/cascade-channels', action: 'sec-mgr-plane.cascade-channels:read' },
   { path: '/admin/sec-mgr-plane/apps', action: 'security.services:read' },
-  { path: '/admin/alarms', action: 'secops.alerts:read' },
   { path: '/admin/access', action: 'access:read' },
   { path: '/admin/coming-soon', action: 'ops:read' },
   { path: '/admin/soc/overview', action: 'secops.dashboard:read' },

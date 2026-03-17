@@ -129,7 +129,7 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
         loading={loading}
         pagination={{
           size: 'small',
-          showQuickJumper: false,
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
     </PageDetailSection>

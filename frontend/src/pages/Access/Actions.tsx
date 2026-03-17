@@ -568,12 +568,9 @@ const AccessActionsPage: React.FC = () => {
               loading={loading}
               dataSource={filteredPermissions}
               columns={displayColumns as any}
-              pagination={{ 
-                pageSize: 20, 
-                showSizeChanger: true, 
-                pageSizeOptions: ['10', '20', '50', '100'], 
+              pagination={{
                 size: 'small',
-                showTotal: (total) => `共 ${total} 条`
+                showTotal: (total) => `共 ${total} 条`,
               }}
               scroll={{ x: 'max-content' }}
               bordered

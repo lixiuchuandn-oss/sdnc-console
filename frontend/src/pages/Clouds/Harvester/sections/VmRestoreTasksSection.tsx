@@ -10,6 +10,7 @@ import { isPublicNamespace, isSystemNamespace } from '../../../../utils/harveste
 type Props = {
   cloudId: string;
   isTenant?: boolean;
+  vms?: any[]; // 虚拟机列表，用于查找别名
 };
 
 const isFailedByConditions = (raw: any) => {
@@ -48,7 +49,7 @@ const getBackupStatus = (raw: any) => {
   return { phase: 'pending', text: '未就绪' as const };
 };
 
-const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
+const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -109,12 +110,48 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       const resourceType = backup?.spec?.type || 'backup';
       const restoreStatus = getRestoreStatus(r);
 
+      // 获取源虚拟机别名
+      let sourceVmAlias = '-';
+      if (sourceVm && sourceVm !== '-') {
+        try {
+          const vm = (vms || []).find((vm: any) => {
+            const vmNs = vm?.metadata?.namespace || vm?.namespace;
+            const vmName = vm?.metadata?.name || vm?.name;
+            return vmNs === ns && vmName === sourceVm;
+          });
+          if (vm) {
+            sourceVmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || sourceVm || '-';
+          } else {
+            sourceVmAlias = sourceVm;
+          }
+        } catch {}
+      }
+
+      // 获取目标虚拟机别名
+      let targetVmAlias = '-';
+      if (target && target !== '-') {
+        try {
+          const vm = (vms || []).find((vm: any) => {
+            const vmNs = vm?.metadata?.namespace || vm?.namespace;
+            const vmName = vm?.metadata?.name || vm?.name;
+            return vmNs === ns && vmName === target;
+          });
+          if (vm) {
+            targetVmAlias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.alias || target || '-';
+          } else {
+            targetVmAlias = target;
+          }
+        } catch {}
+      }
+
       return {
         key: r?.metadata?.uid || `${ns}/${name}`,
         namespace: ns,
         restoreName: name,
         targetVm: target || '-',
+        targetVmAlias: targetVmAlias,
         sourceVm: sourceVm || '-',
+        sourceVmAlias: sourceVmAlias,
         backupName: backupName || '-',
         restoreMode: restoreMode === 'new' ? '新建' : '替换',
         resourceType: resourceType === 'snapshot' ? '快照' : '备份',
@@ -131,7 +168,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
       };
       return parseTs(b.creationTimestamp) - parseTs(a.creationTimestamp);
     });
-  }, [normalizeRestores, backupIndex]);
+  }, [normalizeRestores, backupIndex, vms]);
 
   const filtered = useMemo(() => {
     let d = dataSource;
@@ -156,7 +193,9 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         return (
           String(x.namespace || '').toLowerCase().includes(k) ||
           String(x.sourceVm || '').toLowerCase().includes(k) ||
+          String(x.sourceVmAlias || '').toLowerCase().includes(k) ||
           String(x.targetVm || '').toLowerCase().includes(k) ||
+          String(x.targetVmAlias || '').toLowerCase().includes(k) ||
           String(x.backupName || '').toLowerCase().includes(k) ||
           String(x.restoreName || '').toLowerCase().includes(k)
         );
@@ -258,8 +297,28 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
 
   const columns: any[] = [
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', ellipsis: true },
-    { title: '源虚拟机', dataIndex: 'sourceVm', key: 'sourceVm', ellipsis: true },
-    { title: '目标虚拟机', dataIndex: 'targetVm', key: 'targetVm', ellipsis: true },
+    { 
+      title: '源虚拟机', 
+      key: 'sourceVm', 
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        if (r.sourceVmAlias && r.sourceVmAlias !== r.sourceVm && r.sourceVmAlias !== '-') {
+          return `${r.sourceVmAlias} (${r.sourceVm})`;
+        }
+        return r.sourceVm || '-';
+      }
+    },
+    { 
+      title: '目标虚拟机', 
+      key: 'targetVm', 
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        if (r.targetVmAlias && r.targetVmAlias !== r.targetVm && r.targetVmAlias !== '-') {
+          return `${r.targetVmAlias} (${r.targetVm})`;
+        }
+        return r.targetVm || '-';
+      }
+    },
     { 
       title: '恢复模式', 
       dataIndex: 'restoreMode', 
@@ -399,7 +458,10 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         columns={columns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ size: 'small', showQuickJumper: false }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
       />
 
       <HarvesterResourceDrawer

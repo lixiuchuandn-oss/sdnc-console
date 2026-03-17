@@ -293,7 +293,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
         loading={loading}
         pagination={{
           size: 'small',
-          showQuickJumper: false,
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
       <HarvesterResourceDrawer

@@ -17,6 +17,14 @@ interface Settings {
   sidebarMenuItemSelectedColor?: string; // 侧边栏菜单项选中状态背景颜色
   sidebarMenuItemSelectedTextColor?: string; // 侧边栏菜单项选中状态文字颜色
   sidebarMenuItemSelectedIconColor?: string; // 侧边栏菜单项选中状态图标颜色
+  loginTitle?: string; // 登录页标题
+  loginSubtitle?: string; // 登录页副标题
+  loginBackgroundColor?: string; // 登录页背景颜色
+  loginBackgroundGradientStart?: string; // 登录页背景渐变起始颜色
+  loginBackgroundGradientEnd?: string; // 登录页背景渐变结束颜色
+  loginEnableParticleBackground?: boolean; // 是否启用动态粒子背景
+  loginButtonColor?: string; // 登录按钮颜色
+  loginButtonHoverColor?: string; // 登录按钮悬停颜色
   emailNotify: boolean;
   smsNotify: boolean;
   network: {
@@ -86,6 +94,49 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return '#1677ff';
       }
       // 确保有 # 前缀
+      return val.startsWith('#') ? val : `#${val}`;
+    })(),
+    loginTitle: localStorage.getItem('app_login_title') || 'Compute Tower',
+    loginSubtitle: localStorage.getItem('app_login_subtitle') || '后台管理登录',
+    loginBackgroundColor: (() => {
+      const val = localStorage.getItem('app_login_background_color');
+      if (!val || !val.trim()) {
+        return '#1062FE';
+      }
+      return val.startsWith('#') ? val : `#${val}`;
+    })(),
+    loginBackgroundGradientStart: (() => {
+      const val = localStorage.getItem('app_login_background_gradient_start');
+      if (!val || !val.trim()) {
+        return '#1062FE';
+      }
+      return val.startsWith('#') ? val : `#${val}`;
+    })(),
+    loginBackgroundGradientEnd: (() => {
+      const val = localStorage.getItem('app_login_background_gradient_end');
+      if (!val || !val.trim()) {
+        return '#1062FE';
+      }
+      return val.startsWith('#') ? val : `#${val}`;
+    })(),
+    loginEnableParticleBackground: (() => {
+      const val = localStorage.getItem('app_login_enable_particle_background');
+      // 如果 localStorage 中没有值，默认启用（因为当前平台默认启用）
+      if (val === null) return true;
+      return val === 'true';
+    })(),
+    loginButtonColor: (() => {
+      const val = localStorage.getItem('app_login_button_color');
+      if (!val || !val.trim()) {
+        return '#1890ff';
+      }
+      return val.startsWith('#') ? val : `#${val}`;
+    })(),
+    loginButtonHoverColor: (() => {
+      const val = localStorage.getItem('app_login_button_hover_color');
+      if (!val || !val.trim()) {
+        return '#40a9ff';
+      }
       return val.startsWith('#') ? val : `#${val}`;
     })(),
     emailNotify: true,
@@ -181,6 +232,35 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // 确保保存的是有效的 hex 颜色字符串
       const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1677ff');
       localStorage.setItem('app_sidebar_menu_item_selected_icon_color', hexColor);
+    }
+    if (key === 'loginTitle') {
+      localStorage.setItem('app_login_title', value);
+    }
+    if (key === 'loginSubtitle') {
+      localStorage.setItem('app_login_subtitle', value);
+    }
+    if (key === 'loginBackgroundColor') {
+      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1062FE');
+      localStorage.setItem('app_login_background_color', hexColor);
+    }
+    if (key === 'loginBackgroundGradientStart') {
+      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1062FE');
+      localStorage.setItem('app_login_background_gradient_start', hexColor);
+    }
+    if (key === 'loginBackgroundGradientEnd') {
+      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1062FE');
+      localStorage.setItem('app_login_background_gradient_end', hexColor);
+    }
+    if (key === 'loginEnableParticleBackground') {
+      localStorage.setItem('app_login_enable_particle_background', String(value));
+    }
+    if (key === 'loginButtonColor') {
+      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1890ff');
+      localStorage.setItem('app_login_button_color', hexColor);
+    }
+    if (key === 'loginButtonHoverColor') {
+      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#40a9ff');
+      localStorage.setItem('app_login_button_hover_color', hexColor);
     }
 
     // Remote persistence for others

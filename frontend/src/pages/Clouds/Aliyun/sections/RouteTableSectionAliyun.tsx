@@ -121,7 +121,10 @@ const RouteTableSectionAliyun: React.FC<RouteTableSectionAliyunProps> = ({ cloud
         rowKey={(r: any) => r.RouteTableId || r.id}
         dataSource={filteredRouteTables}
         columns={columns as any}
-        pagination={{ pageSize: 10, size: 'default' }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
       />
     </>
   );

@@ -315,7 +315,10 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
         columns={columnsDisplay}
         dataSource={filteredItems}
         loading={loading}
-        pagination={{ showSizeChanger:true, pageSize:10, pageSizeOptions:[10,20,50,100] }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
       />
       {showLog && (<div style={{ marginTop: 12 }}><pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(raw, null, 2)}</pre></div>)}
     </>

@@ -469,10 +469,11 @@ html, body, #root {
 }
 
 /* UI Norm: In Modal forms, ensure spacing below help/extra text */
-.ant-modal .ant-form-item-explain,
+/* 已移除 margin-bottom，由 Ant Design 默认样式控制 */
+/* .ant-modal .ant-form-item-explain,
 .ant-modal .ant-form-item-extra {
   margin-bottom: 24px;
-}
+} */
 
 /* 
  * 带行号的文本区域 (LinedTextArea)

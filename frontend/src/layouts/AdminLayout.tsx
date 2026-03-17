@@ -177,7 +177,7 @@ const AdminLayout: React.FC = () => {
    * 
    * 【功能模块】
    * 1. 左侧：Logo、页面内搜索
-   * 2. 右侧：告警中心、用户信息、登出按钮
+   * 2. 右侧：用户信息、登出按钮
    */
   const ProHeader: React.FC = () => (
     <Header style={{ background:'#fff', color:'#1f2a44', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 50, lineHeight:'50px', boxShadow:'0 2px 8px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
@@ -190,12 +190,6 @@ const AdminLayout: React.FC = () => {
       </div>
 
       <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
-        <Tooltip title="告警中心">
-          <Badge size="small" offset={[-2, 2]}>
-             <BellOutlined style={{color:'#555555',fontSize:16, cursor:'pointer'}} onClick={()=>navigate('/admin/alarms')} />
-          </Badge>
-        </Tooltip>
-        
         {user && (
           <div style={{ display:'flex', alignItems:'center', gap: 12 }}>
             <div style={{ display:'flex', alignItems:'center', gap: 8, flexWrap:'nowrap', whiteSpace:'nowrap' }}>
@@ -429,7 +423,7 @@ const AdminLayout: React.FC = () => {
    * 【功能模块】
    * 1. 左侧：Logo、平台切换下拉菜单
    * 2. 中间：全局搜索框（Ctrl+K）
-   * 3. 右侧：API 文档、告警中心、系统设置（齿轮图标）、用户信息、登出按钮
+   * 3. 右侧：API 文档、系统设置（齿轮图标）、用户信息、登出按钮
    */
   const StandardHeader: React.FC = () => {
     const headerColor = settings.headerColor || '#0A4CC0';
@@ -561,7 +555,6 @@ const AdminLayout: React.FC = () => {
       </div>
       <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
         <ApiOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/api-docs')} />
-        <BellOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/alarms')} />
         <SettingOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/settings/general')} />
         {user && (<>
           <div>

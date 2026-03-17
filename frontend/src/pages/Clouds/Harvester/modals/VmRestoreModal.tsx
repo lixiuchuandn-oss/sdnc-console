@@ -11,7 +11,7 @@
  */
 import React, { useEffect, useState, useMemo } from 'react';
 import { Modal, Form, Input, message, Alert, Switch, Tooltip, Radio, Select } from 'antd';
-import { createHarvesterVirtualMachineRestore, stopHarvesterVm } from '../../../../services/harvesterApi';
+import { createHarvesterVirtualMachineRestore, stopHarvesterVm, patchHarvesterVm, fetchHarvesterVmDetail } from '../../../../services/harvesterApi';
 
 /**
  * 组件入参
@@ -108,15 +108,19 @@ const VmRestoreModal: React.FC<Props> = ({
       setKeepMacAddress(false);
       const base = sourceVmName || sourceName || 'vm';
       const suggestedNewVmName = `restore-${base}-${Math.floor(Date.now() / 1000)}`;
+      const defaultDisplayName = sourceVmAlias && sourceVmAlias !== '-' && sourceVmAlias !== sourceVmName 
+        ? `${sourceVmAlias}-恢复` 
+        : '';
       form.setFieldsValue({
         name: `restore-${sourceName}-${Math.floor(Date.now() / 1000)}`,
         newVM: true,
         deletionPolicy: 'retain',
         newVmName: suggestedNewVmName,
+        displayName: defaultDisplayName,
         keepMacAddress: false,
       });
     }
-  }, [open, resource, form, sourceName, sourceVmName]);
+  }, [open, resource, form, sourceName, sourceVmName, sourceVmAlias]);
 
   /**
    * 提交创建虚拟机恢复任务：
@@ -187,6 +191,54 @@ const VmRestoreModal: React.FC<Props> = ({
         namespace,
         payload
       );
+
+      // 如果是新建虚拟机且用户输入了显示名称，等待VM创建后设置别名
+      if (values.newVM === true && values.displayName) {
+        const displayName = String(values.displayName || '').trim();
+        if (displayName) {
+          try {
+            // 等待VM创建
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            // 尝试获取新创建的VM并设置别名
+            let retries = 5;
+            while (retries > 0) {
+              try {
+                const newVm = await fetchHarvesterVmDetail(cloudId, namespace, targetName);
+                if (newVm) {
+                  await patchHarvesterVm(
+                    cloudId,
+                    namespace,
+                    targetName,
+                    {
+                      metadata: {
+                        annotations: {
+                          'tower.io/alias': displayName,
+                        },
+                      },
+                    }
+                  );
+                  break;
+                }
+              } catch (e: any) {
+                if (e?.status === 404 || e?.message?.includes('not found')) {
+                  retries--;
+                  if (retries > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    continue;
+                  }
+                }
+                // 设置别名失败不影响恢复流程，只记录警告
+                console.warn('Failed to set alias for restored VM:', e);
+                break;
+              }
+            }
+          } catch (e: any) {
+            // 设置别名失败不影响恢复流程
+            console.warn('Failed to set alias for restored VM:', e);
+          }
+        }
+      }
 
       message.success('恢复任务创建成功');
       // 触发恢复任务创建事件，通知恢复任务列表刷新
@@ -260,14 +312,14 @@ const VmRestoreModal: React.FC<Props> = ({
             </Form.Item>
             <Form.Item
               name="newVmName"
-              label="新虚拟机名称"
+              label="K8s 资源名称"
               rules={[
-                { required: true, message: '请输入新虚拟机名称' },
+                { required: true, message: '请输入K8s资源名称' },
                 {
                   validator: async (_, value) => {
                     const name = String(value || '').trim();
                     if (!name) return;
-                    // [修复] 验证名称格式：仅支持小写字母、数字和-，不支持中文
+                    // 验证名称格式：仅支持小写字母、数字和-，不支持中文
                     if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name)) {
                       throw new Error('名称仅支持小写字母、数字和-，且不能以-开头/结尾，不支持中文');
                     }
@@ -283,8 +335,16 @@ const VmRestoreModal: React.FC<Props> = ({
                   }
                 }
               ]}
+              tooltip="Kubernetes 资源名称，仅支持小写字母、数字和连字符"
             >
-              <Input placeholder="请输入新虚拟机名称（仅支持小写字母、数字和-）" />
+              <Input placeholder="例如：restore-vm-1234567890" />
+            </Form.Item>
+            <Form.Item
+              name="displayName"
+              label="显示名称（别名）"
+              tooltip="用于显示的友好名称，支持中文。如果不填写，将使用K8s资源名称"
+            >
+              <Input placeholder="例如：测试虚拟机-恢复" />
             </Form.Item>
           </>
         )}

@@ -300,7 +300,10 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
           columns={columns}
           dataSource={filteredSecrets}
           scroll={{ x: 500 }}
-          pagination={{ showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, pageSizeOptions: ['20', '50', '100'] }}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
         />
       </PageDetailSection>
 

@@ -21,7 +21,7 @@
  *    - 取消迁移 (Abort Migration): 终止正在进行的迁移任务
  * 
  * 3. [删除与恢复]:
- *    - 软删除 (Delete): 将 VM 移入回收站，7 天后自动删除
+ *    - 软删除 (Delete): 将 VM 移入回收站，X 天后自动删除
  *    - 强制删除 (Force Delete): 从回收站中真正删除 VM 及关联资源
  *    - 恢复 (Restore): 从回收站中恢复 VM
  * 
@@ -40,6 +40,7 @@
 
 import { HarvesterTestParams } from './types';
 import { requestJson, getJsonOnce } from './utils';
+import { getSystemSetting } from '../../../config/systemSettings';
 import { listHarvesterVMsStandard, getHarvesterVM } from './vm';
 import { updateHarvesterVMSpec } from './vm_update';
 import { deleteHarvesterPVC } from './storage';
@@ -711,11 +712,20 @@ export const harvesterDeleteVM = async (
   }
 
   // 2. 软删除：将VM移入回收站（添加 Finalizer 与标记）
-  // 不直接删除；真正删除需要在回收站中执行“彻底删除”
+  // 不直接删除；真正删除需要在回收站中执行"彻底删除"
   const deletedAt = new Date();
   
   const recycleBinFinalizer = 'tower.io/recycle-bin';
   const deletionTimestamp = deletedAt.toISOString();
+  
+  // 读取保留时长配置（默认 7 天）
+  const retentionDays = parseInt(
+    getSystemSetting('harvester.recycle_bin.retention_days') || '7',
+    10
+  );
+  const expiresAt = new Date(deletedAt);
+  expiresAt.setDate(expiresAt.getDate() + Math.max(1, retentionDays));
+  const expiresTimestamp = expiresAt.toISOString();
   
   try {
     // 获取当前VM
@@ -766,14 +776,38 @@ export const harvesterDeleteVM = async (
     }
     const annotations = currentVm?.metadata?.annotations;
     if (annotations != null && typeof annotations === 'object') {
-      const key = 'tower.io/deletion-scheduled';
-      if (Object.prototype.hasOwnProperty.call(annotations, key)) {
+      // 删除时间
+      const scheduledKey = 'tower.io/deletion-scheduled';
+      if (Object.prototype.hasOwnProperty.call(annotations, scheduledKey)) {
         patchBody.push({ op: 'replace', path: '/metadata/annotations/tower.io~1deletion-scheduled', value: deletionTimestamp });
       } else {
         patchBody.push({ op: 'add', path: '/metadata/annotations/tower.io~1deletion-scheduled', value: deletionTimestamp });
       }
+      // 过期时间
+      const expiresKey = 'tower.io/deletion-expires';
+      if (Object.prototype.hasOwnProperty.call(annotations, expiresKey)) {
+        patchBody.push({ op: 'replace', path: '/metadata/annotations/tower.io~1deletion-expires', value: expiresTimestamp });
+      } else {
+        patchBody.push({ op: 'add', path: '/metadata/annotations/tower.io~1deletion-expires', value: expiresTimestamp });
+      }
+      // 保留天数
+      const protectionDaysKey = 'tower.io/deletion-protection-days';
+      const protectionDaysValue = String(retentionDays);
+      if (Object.prototype.hasOwnProperty.call(annotations, protectionDaysKey)) {
+        patchBody.push({ op: 'replace', path: '/metadata/annotations/tower.io~1deletion-protection-days', value: protectionDaysValue });
+      } else {
+        patchBody.push({ op: 'add', path: '/metadata/annotations/tower.io~1deletion-protection-days', value: protectionDaysValue });
+      }
     } else {
-      patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/deletion-scheduled': deletionTimestamp } });
+      patchBody.push({ 
+        op: 'add', 
+        path: '/metadata/annotations', 
+        value: { 
+          'tower.io/deletion-scheduled': deletionTimestamp,
+          'tower.io/deletion-expires': expiresTimestamp,
+          'tower.io/deletion-protection-days': String(retentionDays),
+        } 
+      });
     }
     const labels = currentVm?.metadata?.labels;
     if (labels != null && typeof labels === 'object') {

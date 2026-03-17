@@ -1044,7 +1044,10 @@ const CenDetailPage: React.FC = () => {
               bordered
               rowKey="id"
               dataSource={filteredAttachments}
-              pagination={{ pageSize: 10, size: 'default' }}
+              pagination={{
+                size: 'small',
+                showTotal: (total) => `共 ${total} 条`,
+              }}
               locale={{ emptyText: '暂无已挂载安全域' }}
               columns={[
                 {
@@ -1163,7 +1166,10 @@ const CenDetailPage: React.FC = () => {
                 { title: '本端子网', dataIndex: 'localVrLanSubnet', key: 'localVrLanSubnet' },
                 { title: '对端子网', dataIndex: 'peerVrLanSubnet', key: 'peerVrLanSubnet' },
               ]}
-              pagination={{ pageSize: 10 }}
+              pagination={{
+                size: 'small',
+                showTotal: (total) => `共 ${total} 条`,
+              }}
             />
           </PageDetailSection>
         )
@@ -1211,7 +1217,10 @@ const CenDetailPage: React.FC = () => {
               bordered
               rowKey="id"
               dataSource={filteredApps}
-              pagination={{ pageSize: 10, size: 'default' }}
+              pagination={{
+                size: 'small',
+                showTotal: (total) => `共 ${total} 条`,
+              }}
               locale={{ emptyText: '暂无关联应用' }}
               columns={[
                 { title: '名称', dataIndex: 'name', key: 'name' },
@@ -1261,7 +1270,10 @@ const CenDetailPage: React.FC = () => {
               bordered
               rowKey="id"
               dataSource={filteredServices}
-              pagination={{ pageSize: 10, size: 'default' }}
+              pagination={{
+                size: 'small',
+                showTotal: (total) => `共 ${total} 条`,
+              }}
               locale={{ emptyText: '暂无关联安全服务' }}
               columns={[
                 { title: '名称', key: 'name', ellipsis: true, render: (_: any, r: any) => String(pick(r, ['name', 'vm_group_name', 'vmGroupName', 'groupName', 'securityServiceName', 'serviceName', 'title', 'displayName']) ?? '-') },
@@ -1330,7 +1342,10 @@ const CenDetailPage: React.FC = () => {
               rowKey="created_at"
               dataSource={filteredThreats}
               loading={threatLoading}
-              pagination={{ pageSize: 10 }}
+              pagination={{
+                size: 'small',
+                showTotal: (total) => `共 ${total} 条`,
+              }}
               locale={{ emptyText: '暂无威胁事件' }}
               columns={[
                 { title: '威胁名称', dataIndex: 'tname', key: 'tname', render: (t: string) => t || '生成中' },

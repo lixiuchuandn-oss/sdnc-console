@@ -1219,9 +1219,7 @@ const VRPage: React.FC = () => {
         dataSource: filteredVRs,
         rowKey: (r: VRRow) => r.uuid || r.id || r.vm_id || Math.random().toString(36).slice(2),
         pagination: {
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          pageSizeOptions: ['10', '20', '50', '100'],
+          size: 'small',
           showTotal: (total: number) => `共 ${total} 条`,
         },
         loading: loading,

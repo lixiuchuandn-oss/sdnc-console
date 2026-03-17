@@ -32,7 +32,6 @@ const AuditLogs = lazy(() => import('./pages/Settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/Settings/AdvancedSettings'));
 
 const LicenseSettingsPage = lazy(() => import('./pages/Settings/LicenseSettings'));
-const Alarms = lazy(() => import('./pages/Alarms/index'));
 const SRv6Page = lazy(() => import('./pages/InterConnect/SRv6/index'));
 const SRv6CreatePage = lazy(() => import('./pages/InterConnect/SRv6/Create'));
 const IPsecVPNPage = lazy(() => import('./pages/InterConnect/IPsecVPN/index'));
@@ -157,7 +156,6 @@ const AppRoutes: React.FC = () => {
           <Route path="sec-mgr-plane/cascade-channels/:id" element={<CENDetailPage />} />
           <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
           <Route path="sec-mgr-plane/security-services" element={<SecurityServices />} />
-          <Route path="alarms" element={<Alarms />} />
           <Route path="api-docs" element={<ApiDocs />} />
           {/* AI SOC Integration Placeholders */}
           <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC总览" module="situation_overview" />} />

@@ -289,7 +289,10 @@ const NATPage: React.FC = () => {
         columns: columns,
         rowKey: "id",
         loading: loading,
-        pagination: { pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50'] },
+        pagination: {
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        },
         scroll: { x: 'max-content' },
         bordered: true
       }}

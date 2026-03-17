@@ -20,7 +20,7 @@ interface MonitoringAlertsProps {
 
 const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const isAdmin = user?.role === 'super_admin';
 
   // 站内实时告警列表
   const [alertsLoading, setAlertsLoading] = useState(false);
@@ -177,7 +177,21 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         render: (level: 'critical' | 'warning') => renderLevel(level),
       },
       { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150, render: (v: string) => v || '-' },
-      { title: '节点', dataIndex: 'node', key: 'node', width: 140, render: (v: string) => v || '-' },
+      {
+        title: '节点',
+        dataIndex: 'node',
+        key: 'node',
+        width: 140,
+        render: (_: string, row) => {
+          if (row.node) return row.node;
+          const inst = (row.instance ?? '').toString().trim();
+          if (!inst) return '-';
+          // 从 instance 中提取 IP（去掉端口号和多余部分）
+          const firstPart = inst.split(',')[0] ?? inst;
+          const host = firstPart.split(':')[0]?.trim() ?? '';
+          return host || '-';
+        },
+      },
       {
         title: '规则组',
         key: 'groupDescription',
@@ -260,7 +274,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
               value={dataSourceFilter}
               onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
               options={[{ label: 'Prometheus', value: 'prometheus' }]}
-              style={{ minWidth: 120 }}
+              style={{ minWidth: 150 }}
             />
             <Select
               placeholder="级别"
@@ -268,6 +282,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
               value={levelFilter || undefined}
               onChange={(v) => setLevelFilter(v ?? '')}
               options={LEVEL_FILTER_OPTIONS}
+              style={{ width: 120 }}
             />
             <Select
               placeholder="命名空间"
@@ -322,15 +337,14 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
                   current: alertPage,
                   pageSize: alertPageSize,
                   total: alertTotal,
-                  showSizeChanger: true,
-                  showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-                  pageSizeOptions: ['10', '20', '50'],
+                  size: 'small',
+                  showTotal: (total) => `共 ${total} 条`,
                   onChange: (page, size) => {
                     setAlertPage(page);
                     if (size) setAlertPageSize(size);
                   },
                 }
-              : { pageSize: 10, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }
+              : { size: 'small', showTotal: (t) => `共 ${t} 条` }
           }
         />
       </PageDetailSection>

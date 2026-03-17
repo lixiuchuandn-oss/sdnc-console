@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Table, Input, Descriptions, Badge, Tag, DatePicker, Form, Select } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
@@ -23,7 +23,6 @@ interface AuditLog {
 const AuditLogs: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<AuditLog[]>([]);
-  const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [searchText, setSearchText] = useState('');
@@ -45,7 +44,6 @@ const AuditLogs: React.FC = () => {
       const res = await apiRequest(endpoint);
       // apiRequest 直接返回后端 JSON 数据
       setData(res?.items || []);
-      setTotal(res?.total || 0);
     } catch (error) {
       console.error('Failed to fetch audit logs', error);
     } finally {
@@ -85,7 +83,7 @@ const AuditLogs: React.FC = () => {
     
     // 从路径中提取动作
     // 匹配模式：POST /api/clouds/.../resources/ecs/.../start
-    const vmActionMatch = action.match(/\/resources\/(?:ecs|harvester\/vms)\/([^\/]+)\/(start|stop|reboot|softreboot|pause|unpause|migrate|restore)/i);
+    const vmActionMatch = action.match(/\/resources\/(?:ecs|harvester\/vms)\/([^/]+)\/(start|stop|reboot|softreboot|pause|unpause|migrate|restore)/i);
     if (vmActionMatch) {
       return `${vmActionMatch[2].toUpperCase()} VM`;
     }
@@ -116,7 +114,7 @@ const AuditLogs: React.FC = () => {
     const method = methodMatch ? methodMatch[1] : '';
     
     // 尝试从路径中提取资源类型
-    const pathMatch = action.match(/\/resources\/([^\/]+)/i);
+    const pathMatch = action.match(/\/resources\/([^/]+)/i);
     if (pathMatch) {
       let resource = pathMatch[1].toUpperCase();
       // 将 harvester/vms 识别为 VM
@@ -145,7 +143,7 @@ const AuditLogs: React.FC = () => {
   };
 
   // 将动作英文转换为中文
-  const formatActionToChinese = (action: string): string => {
+  const formatActionToChinese = useCallback((action: string): string => {
     const englishAction = formatAction(action);
     // 提取动作关键词
     const actionWords = englishAction.split(' ');
@@ -168,7 +166,7 @@ const AuditLogs: React.FC = () => {
     else if (englishAction.includes('CLOUD')) translated.push('云资源池');
     
     return translated.length > 0 ? translated.join(' ') : englishAction;
-  };
+  }, []);
 
   // 获取所有唯一的动作类型（用于筛选）
   const actionFilterOptions = useMemo(() => {
@@ -181,7 +179,7 @@ const AuditLogs: React.FC = () => {
       label: formatActionToChinese(action),
       value: action,
     }));
-  }, [data]);
+  }, [data, formatActionToChinese]);
 
   // 从action或details中提取资源类型
   const extractResourceType = (action: string, resourceType?: string, details?: string): string => {
@@ -234,7 +232,7 @@ const AuditLogs: React.FC = () => {
     }
     
     // 从action中提取资源ID
-    const idMatch = action.match(/\/resources\/(?:ecs|harvester\/vms)\/([^\/\s]+)/i);
+    const idMatch = action.match(/\/resources\/(?:ecs|harvester\/vms)\/([^/\s]+)/i);
     if (idMatch) {
       try {
         return decodeURIComponent(idMatch[1]);
@@ -248,7 +246,7 @@ const AuditLogs: React.FC = () => {
       try {
         const detailsObj = JSON.parse(details);
         const path = detailsObj.path || '';
-        const pathMatch = path.match(/\/resources\/(?:ecs|harvester\/vms)\/([^\/]+)/i);
+        const pathMatch = path.match(/\/resources\/(?:ecs|harvester\/vms)\/([^/]+)/i);
         if (pathMatch) {
           try {
             return decodeURIComponent(pathMatch[1]);
@@ -433,12 +431,12 @@ const AuditLogs: React.FC = () => {
       if (details.path) {
         const pathInfo: string[] = [];
         // 提取云资源池ID
-        const cloudIdMatch = details.path.match(/\/clouds\/([^\/]+)/);
+        const cloudIdMatch = details.path.match(/\/clouds\/([^/]+)/);
         if (cloudIdMatch) {
           pathInfo.push(`云资源池ID: ${cloudIdMatch[1]}`);
         }
         // 提取资源ID
-        const resourceIdMatch = details.path.match(/\/resources\/[^\/]+\/([^\/]+)/);
+        const resourceIdMatch = details.path.match(/\/resources\/[^/]+\/([^/]+)/);
         if (resourceIdMatch) {
           try {
             const decodedId = decodeURIComponent(resourceIdMatch[1]);
@@ -681,7 +679,8 @@ const AuditLogs: React.FC = () => {
             />
           </Form.Item>
           <Form.Item>
-            <a
+            <button
+              type="button"
               className="toolbar-reset-btn"
               onClick={() => {
                 filterForm.resetFields();
@@ -690,9 +689,10 @@ const AuditLogs: React.FC = () => {
                 setDateRange(null);
                 setCurrentPage(1);
               }}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
             >
               重置
-            </a>
+            </button>
           </Form.Item>
         </Form>
       }
@@ -700,14 +700,13 @@ const AuditLogs: React.FC = () => {
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         columns={columns}
         dataSource={filteredData}
         rowKey="id"
         loading={loading}
         pagination={{
           size: 'small',
-          showQuickJumper: false,
           current: currentPage,
           pageSize: pageSize,
           total: filteredData.length,
@@ -717,6 +716,7 @@ const AuditLogs: React.FC = () => {
           },
           showSizeChanger: true,
           pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (total) => `共 ${total} 条`,
         }}
         expandable={{
           expandedRowRender: (record) => renderExpandedDetails(record.details || ''),

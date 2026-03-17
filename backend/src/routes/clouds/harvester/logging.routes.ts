@@ -30,6 +30,7 @@ async function getCloudAndConn(
     return null;
   }
   const provider = String((cloud as any)?.config?.provider || '').toLowerCase();
+
   const isHarvesterLike = [
     'harvester',
     'cloudmap',
@@ -109,11 +110,13 @@ async function getTenantAccess(
   };
 }
 
-const CLUSTERFLOW_BASE = 'apis/logging.banzaicloud.io/v1beta1/clusterflows';
-const CLUSTEROUTPUT_BASE =
-  'apis/logging.banzaicloud.io/v1beta1/clusteroutputs';
-const FLOW_BASE = 'apis/logging.banzaicloud.io/v1beta1/flows';
-const OUTPUT_BASE = 'apis/logging.banzaicloud.io/v1beta1/outputs';
+const CATTLE_LOGGING_SYSTEM_NS = 'cattle-logging-system';
+const LOG_PAGESIZE = 'pagesize=100000';
+const LOG_EXCLUDE = 'exclude=metadata.managedFields';
+const HARVESTER_CLUSTERFLOW_BASE = 'v1/harvester/logging.banzaicloud.io.clusterflows';
+const HARVESTER_CLUSTEROUTPUT_BASE = 'v1/harvester/logging.banzaicloud.io.clusteroutputs';
+const HARVESTER_FLOW_BASE = 'v1/harvester/logging.banzaicloud.io.flows';
+const HARVESTER_OUTPUT_BASE = 'v1/harvester/logging.banzaicloud.io.outputs';
 
 export function registerLoggingRoutes(
   router: Router,
@@ -129,7 +132,7 @@ export function registerLoggingRoutes(
         if (!tenant.allowed)
           return res.status(403).json({ message: '无权访问' });
 
-        const url = `${conn.origin}/${CLUSTERFLOW_BASE}?limit=1000`;
+        const url = `${conn.origin}/${HARVESTER_CLUSTERFLOW_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
         const data = await getJsonOnce(url, conn.token, conn.insecure, true);
         res.json(data);
       } catch (e: any) {
@@ -148,7 +151,9 @@ export function registerLoggingRoutes(
         if (!tenant.allowed)
           return res.status(403).json({ message: '无权访问' });
 
-        const url = `${conn.origin}/${CLUSTERFLOW_BASE}/${req.params.name}`;
+        const url = `${conn.origin}/${HARVESTER_CLUSTERFLOW_BASE}/${encodeURIComponent(
+          CATTLE_LOGGING_SYSTEM_NS,
+        )}/${encodeURIComponent(req.params.name)}`;
         const data = await getJsonOnce(url, conn.token, conn.insecure, true);
         res.json(data);
       } catch (e: any) {
@@ -169,13 +174,17 @@ export function registerLoggingRoutes(
             .status(403)
             .json({ message: '仅管理员可操作集群日志' });
 
-        const url = `${conn.origin}/${CLUSTERFLOW_BASE}`;
+        const body = req.body || {};
+        body.metadata = body.metadata || {};
+        body.metadata.namespace = CATTLE_LOGGING_SYSTEM_NS;
+
+        const url = `${conn.origin}/${HARVESTER_CLUSTERFLOW_BASE}`;
         const data = await requestJson(
           'POST',
           url,
           conn.token,
           conn.insecure,
-          req.body,
+          body,
         );
         res.status(201).json(data);
       } catch (e: any) {
@@ -196,13 +205,18 @@ export function registerLoggingRoutes(
             .status(403)
             .json({ message: '仅管理员可操作集群日志' });
 
-        const url = `${conn.origin}/${CLUSTERFLOW_BASE}/${req.params.name}`;
+        const url = `${conn.origin}/${HARVESTER_CLUSTERFLOW_BASE}/${encodeURIComponent(
+          CATTLE_LOGGING_SYSTEM_NS,
+        )}/${encodeURIComponent(req.params.name)}`;
+        const body = req.body || {};
+        body.metadata = body.metadata || {};
+        body.metadata.namespace = CATTLE_LOGGING_SYSTEM_NS;
         const data = await requestJson(
           'PUT',
           url,
           conn.token,
           conn.insecure,
-          req.body,
+          body,
         );
         res.json(data);
       } catch (e: any) {
@@ -223,7 +237,9 @@ export function registerLoggingRoutes(
             .status(403)
             .json({ message: '仅管理员可操作集群日志' });
 
-        const url = `${conn.origin}/${CLUSTERFLOW_BASE}/${req.params.name}`;
+        const url = `${conn.origin}/${HARVESTER_CLUSTERFLOW_BASE}/${encodeURIComponent(
+          CATTLE_LOGGING_SYSTEM_NS,
+        )}/${encodeURIComponent(req.params.name)}`;
         await requestJson(
           'DELETE',
           url,
@@ -232,6 +248,12 @@ export function registerLoggingRoutes(
         );
         res.status(204).send();
       } catch (e: any) {
+        if (e?.status) {
+          return res.status(e.status).json({
+            message: e?.message || '删除失败',
+            details: e?.body,
+          });
+        }
         res.status(500).json({ message: e?.message || '删除失败' });
       }
     },
@@ -247,8 +269,21 @@ export function registerLoggingRoutes(
         if (!tenant.allowed)
           return res.status(403).json({ message: '无权访问' });
 
-        const url = `${conn.origin}/${CLUSTEROUTPUT_BASE}?limit=1000`;
-        const data = await getJsonOnce(url, conn.token, conn.insecure, true);
+        const url = `${conn.origin}/${HARVESTER_CLUSTEROUTPUT_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
+        const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
+        const DESCRIPTION_ANNOTATION = 'cloudhci.io/description';
+        const items = Array.isArray((raw as any)?.data) ? (raw as any).data : Array.isArray((raw as any)?.items) ? (raw as any).items : [];
+        const mapped = items.map((item: any) => {
+          const meta = item?.metadata ?? {};
+          const annotations = meta.annotations ?? {};
+          const description = annotations[DESCRIPTION_ANNOTATION] ?? annotations.description ?? '';
+          return { ...item, description };
+        });
+        const data = Array.isArray((raw as any)?.data)
+          ? { ...(raw as any), data: mapped }
+          : Array.isArray((raw as any)?.items)
+            ? { ...(raw as any), items: mapped }
+            : raw;
         res.json(data);
       } catch (e: any) {
         res.status(500).json({ message: e?.message || '请求失败' });
@@ -259,6 +294,7 @@ export function registerLoggingRoutes(
   router.post(
     '/:id/logging/clusteroutputs',
     async (req: any, res: Response) => {
+      let targetUrl = '';
       try {
         const conn = await getCloudAndConn(req.params.id, res);
         if (!conn) return;
@@ -268,16 +304,32 @@ export function registerLoggingRoutes(
             .status(403)
             .json({ message: '仅管理员可操作集群日志' });
 
-        const url = `${conn.origin}/${CLUSTEROUTPUT_BASE}`;
+        const body = req.body || {};
+        body.metadata = body.metadata || {};
+        body.metadata.namespace = CATTLE_LOGGING_SYSTEM_NS;
+
+        const url = `${conn.origin}/${HARVESTER_CLUSTEROUTPUT_BASE}`;
+        targetUrl = url;
         const data = await requestJson(
           'POST',
           url,
           conn.token,
           conn.insecure,
-          req.body,
+          body,
         );
         res.status(201).json(data);
       } catch (e: any) {
+        if (e?.status) {
+          console.error('[Harvester][clusteroutputs][POST] request failed', {
+            url: targetUrl,
+            status: e.status,
+            body: e.body,
+          });
+          return res.status(e.status).json({
+            message: e?.message || '创建失败',
+            details: { url: targetUrl, body: e?.body },
+          });
+        }
         res.status(500).json({ message: e?.message || '创建失败' });
       }
     },
@@ -295,16 +347,29 @@ export function registerLoggingRoutes(
             .status(403)
             .json({ message: '仅管理员可操作集群日志' });
 
-        const url = `${conn.origin}/${CLUSTEROUTPUT_BASE}/${req.params.name}`;
+        const body = req.body || {};
+        body.metadata = body.metadata || {};
+        body.metadata.namespace = CATTLE_LOGGING_SYSTEM_NS;
+        body.metadata.name = req.params.name;
+
+        const url = `${conn.origin}/${HARVESTER_CLUSTEROUTPUT_BASE}/${encodeURIComponent(
+          CATTLE_LOGGING_SYSTEM_NS,
+        )}/${encodeURIComponent(req.params.name)}`;
         const data = await requestJson(
           'PUT',
           url,
           conn.token,
           conn.insecure,
-          req.body,
+          body,
         );
         res.json(data);
       } catch (e: any) {
+        if (e?.status) {
+          return res.status(e.status).json({
+            message: e?.message || '更新失败',
+            details: e?.body,
+          });
+        }
         res.status(500).json({ message: e?.message || '更新失败' });
       }
     },
@@ -322,7 +387,9 @@ export function registerLoggingRoutes(
             .status(403)
             .json({ message: '仅管理员可操作集群日志' });
 
-        const url = `${conn.origin}/${CLUSTEROUTPUT_BASE}/${req.params.name}`;
+        const url = `${conn.origin}/${HARVESTER_CLUSTEROUTPUT_BASE}/${encodeURIComponent(
+          CATTLE_LOGGING_SYSTEM_NS,
+        )}/${encodeURIComponent(req.params.name)}`;
         await requestJson(
           'DELETE',
           url,
@@ -331,7 +398,55 @@ export function registerLoggingRoutes(
         );
         res.status(204).send();
       } catch (e: any) {
+        if (e?.status) {
+          return res.status(e.status).json({
+            message: e?.message || '删除失败',
+            details: e?.body,
+          });
+        }
         res.status(500).json({ message: e?.message || '删除失败' });
+      }
+    },
+  );
+
+  // 预置日志采集端模板（YAML，供前端「日志采集端」页直接展示）
+  const PRESET_LOGGING_TEMPLATE_YAML = `# 预置日志采集端模板 (Preset Logging Template)
+# 基于 Banzai Cloud Logging Operator：ClusterFlow 定义采集策略，ClusterOutput 定义输出目标
+---
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: ClusterFlow
+metadata:
+  name: default-flow
+  namespace: cattle-logging-system
+spec:
+  match:
+    - select:
+        labels: {}
+  globalOutputRefs:
+    - default-output
+---
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: ClusterOutput
+metadata:
+  name: default-output
+  namespace: cattle-logging-system
+spec:
+  nullout: {}
+`;
+
+  router.get(
+    '/:id/logging/templates',
+    async (req: any, res: Response) => {
+      try {
+        const conn = await getCloudAndConn(req.params.id, res);
+        if (!conn) return;
+        const tenant = await getTenantAccess(req, req.params.id);
+        if (!tenant.allowed) {
+          return res.status(403).json({ message: '无权访问' });
+        }
+        res.json({ yaml: PRESET_LOGGING_TEMPLATE_YAML });
+      } catch (e: any) {
+        res.status(500).json({ message: e?.message || '请求失败' });
       }
     },
   );
@@ -346,7 +461,10 @@ export function registerLoggingRoutes(
         if (!tenant.allowed)
           return res.status(403).json({ message: '无权访问' });
 
-        const url = `${conn.origin}/${CLUSTEROUTPUT_BASE}/${req.params.name}`;
+        // Harvester 详情/更新/删除 需带 namespace：.../clusteroutputs/{namespace}/{name}
+        const url = `${conn.origin}/${HARVESTER_CLUSTEROUTPUT_BASE}/${encodeURIComponent(
+          CATTLE_LOGGING_SYSTEM_NS,
+        )}/${encodeURIComponent(req.params.name)}?${LOG_EXCLUDE}`;
         const data = await getJsonOnce(url, conn.token, conn.insecure, true);
         res.json(data);
       } catch (e: any) {
@@ -363,17 +481,37 @@ export function registerLoggingRoutes(
       const tenant = await getTenantAccess(req, req.params.id);
       if (!tenant.allowed) return res.status(403).json({ message: '无权访问' });
 
-      const url = `${conn.origin}/${FLOW_BASE}?limit=1000`;
-      const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
-      let list: any[] = Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw) ? raw : []);
+      // namespace 优先按查询参数转发到 Harvester；未指定时再按租户的第一个命名空间决定是否加前缀
+      const nsQuery = (req.query?.namespace ?? '').toString().trim();
 
-      if (!tenant.isAdmin && tenant.namespaces.length > 0) {
-        const allowedSet = new Set(tenant.namespaces);
-        list = list.filter((item: any) => {
-          const ns = (item?.metadata?.namespace ?? '').toString().trim();
-          return allowedSet.has(ns);
-        });
+      let harvesterNs: string | undefined;
+      if (nsQuery) {
+        // 显式 namespace：非管理员需校验是否有权访问该命名空间
+        if (!tenant.isAdmin && Array.isArray(tenant.namespaces) && tenant.namespaces.length > 0) {
+          if (!tenant.namespaces.includes(nsQuery)) {
+            return res.status(403).json({ message: '无权访问该命名空间' });
+          }
+        }
+        harvesterNs = nsQuery;
+      } else {
+        // 未指定 namespace：租户时仅使用第一个命名空间前缀；管理员则查询全部
+        const namespaces: string[] = Array.isArray(tenant.namespaces) ? tenant.namespaces : [];
+        const firstNs = (namespaces[0] ?? '').toString().trim();
+        harvesterNs = firstNs || undefined;
       }
+
+      const url = harvesterNs
+        ? `${conn.origin}/${HARVESTER_FLOW_BASE}/${encodeURIComponent(harvesterNs)}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`
+        : `${conn.origin}/${HARVESTER_FLOW_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
+      const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
+      // Harvester collection 可能返回 { items: [...] } 或 { data: [...] } 或直接是数组
+      const list: any[] = Array.isArray(raw?.items)
+        ? raw.items
+        : Array.isArray(raw?.data)
+          ? raw.data
+          : Array.isArray(raw)
+            ? raw
+            : [];
       res.json({ items: list });
     } catch (e: any) {
       res.status(500).json({ message: e?.message || '请求失败' });
@@ -391,7 +529,9 @@ export function registerLoggingRoutes(
         return res.status(403).json({ message: '无权访问该命名空间' });
       }
 
-      const url = `${conn.origin}/apis/logging.banzaicloud.io/v1beta1/namespaces/${namespace}/flows/${name}`;
+      const url = `${conn.origin}/${HARVESTER_FLOW_BASE}/${encodeURIComponent(
+        namespace,
+      )}/${encodeURIComponent(name)}`;
       const data = await getJsonOnce(url, conn.token, conn.insecure, true);
       res.json(data);
     } catch (e: any) {
@@ -413,7 +553,7 @@ export function registerLoggingRoutes(
         return res.status(403).json({ message: '无权操作该命名空间' });
       }
 
-      const url = `${conn.origin}/apis/logging.banzaicloud.io/v1beta1/namespaces/${namespace}/flows`;
+      const url = `${conn.origin}/${HARVESTER_FLOW_BASE}/${encodeURIComponent(namespace)}`;
       const data = await requestJson('POST', url, conn.token, conn.insecure, body);
       res.status(201).json(data);
     } catch (e: any) {
@@ -432,10 +572,26 @@ export function registerLoggingRoutes(
         return res.status(403).json({ message: '无权操作该命名空间' });
       }
 
-      const url = `${conn.origin}/apis/logging.banzaicloud.io/v1beta1/namespaces/${namespace}/flows/${name}`;
+      const url = `${conn.origin}/${HARVESTER_FLOW_BASE}/${encodeURIComponent(
+        namespace,
+      )}/${encodeURIComponent(name)}`;
       const data = await requestJson('PUT', url, conn.token, conn.insecure, req.body);
       res.json(data);
     } catch (e: any) {
+      // 调试用：输出 Harvester 返回的详细错误，便于定位 Flow 更新失败原因
+      // eslint-disable-next-line no-console
+      console.error(
+        '[Logging] Update Flow failed:',
+        e?.status ?? e?.code ?? '',
+        e?.message ?? '',
+        e?.body ?? '',
+      );
+      if (e?.status) {
+        return res.status(e.status).json({
+          message: e?.message || '更新失败',
+          details: e?.body,
+        });
+      }
       res.status(500).json({ message: e?.message || '更新失败' });
     }
   });
@@ -451,7 +607,9 @@ export function registerLoggingRoutes(
         return res.status(403).json({ message: '无权操作该命名空间' });
       }
 
-      const url = `${conn.origin}/apis/logging.banzaicloud.io/v1beta1/namespaces/${namespace}/flows/${name}`;
+      const url = `${conn.origin}/${HARVESTER_FLOW_BASE}/${encodeURIComponent(
+        namespace,
+      )}/${encodeURIComponent(name)}`;
       await requestJson('DELETE', url, conn.token, conn.insecure);
       res.status(204).send();
     } catch (e: any) {
@@ -467,16 +625,25 @@ export function registerLoggingRoutes(
       const tenant = await getTenantAccess(req, req.params.id);
       if (!tenant.allowed) return res.status(403).json({ message: '无权访问' });
 
-      const url = `${conn.origin}/${OUTPUT_BASE}?limit=1000`;
+      const url = `${conn.origin}/${HARVESTER_OUTPUT_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
       const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
-      let list: any[] = Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw) ? raw : []);
+      const getNs = (item: any) =>
+        (item?.metadata?.namespace ?? item?.data?.metadata?.namespace ?? '').toString().trim();
+      let list: any[] = Array.isArray((raw as any)?.data)
+        ? (raw as any).data
+        : Array.isArray((raw as any)?.items)
+          ? (raw as any).items
+          : Array.isArray(raw)
+            ? raw
+            : [];
 
       if (!tenant.isAdmin && tenant.namespaces.length > 0) {
         const allowedSet = new Set(tenant.namespaces);
-        list = list.filter((item: any) => {
-          const ns = (item?.metadata?.namespace ?? '').toString().trim();
-          return allowedSet.has(ns);
-        });
+        list = list.filter((item: any) => allowedSet.has(getNs(item)));
+      }
+      const queryNs = (req.query?.namespace ?? '').toString().trim();
+      if (queryNs) {
+        list = list.filter((item: any) => getNs(item) === queryNs);
       }
       res.json({ items: list });
     } catch (e: any) {
@@ -495,7 +662,9 @@ export function registerLoggingRoutes(
         return res.status(403).json({ message: '无权访问该命名空间' });
       }
 
-      const url = `${conn.origin}/apis/logging.banzaicloud.io/v1beta1/namespaces/${namespace}/outputs/${name}`;
+      const url = `${conn.origin}/${HARVESTER_OUTPUT_BASE}/${encodeURIComponent(
+        namespace,
+      )}/${encodeURIComponent(name)}`;
       const data = await getJsonOnce(url, conn.token, conn.insecure, true);
       res.json(data);
     } catch (e: any) {
@@ -517,7 +686,7 @@ export function registerLoggingRoutes(
         return res.status(403).json({ message: '无权操作该命名空间' });
       }
 
-      const url = `${conn.origin}/apis/logging.banzaicloud.io/v1beta1/namespaces/${namespace}/outputs`;
+      const url = `${conn.origin}/${HARVESTER_OUTPUT_BASE}/${encodeURIComponent(namespace)}`;
       const data = await requestJson('POST', url, conn.token, conn.insecure, body);
       res.status(201).json(data);
     } catch (e: any) {
@@ -536,7 +705,9 @@ export function registerLoggingRoutes(
         return res.status(403).json({ message: '无权操作该命名空间' });
       }
 
-      const url = `${conn.origin}/apis/logging.banzaicloud.io/v1beta1/namespaces/${namespace}/outputs/${name}`;
+      const url = `${conn.origin}/${HARVESTER_OUTPUT_BASE}/${encodeURIComponent(
+        namespace,
+      )}/${encodeURIComponent(name)}`;
       const data = await requestJson('PUT', url, conn.token, conn.insecure, req.body);
       res.json(data);
     } catch (e: any) {
@@ -555,7 +726,9 @@ export function registerLoggingRoutes(
         return res.status(403).json({ message: '无权操作该命名空间' });
       }
 
-      const url = `${conn.origin}/apis/logging.banzaicloud.io/v1beta1/namespaces/${namespace}/outputs/${name}`;
+      const url = `${conn.origin}/${HARVESTER_OUTPUT_BASE}/${encodeURIComponent(
+        namespace,
+      )}/${encodeURIComponent(name)}`;
       await requestJson('DELETE', url, conn.token, conn.insecure);
       res.status(204).send();
     } catch (e: any) {

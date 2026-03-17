@@ -421,7 +421,10 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                   <Table
                     size="small"
                     rowKey={(r:any)=> r?.trace_id || r?.id || `${r?.time || ''}-${r?.operation_id || r?.trace_name || ''}`}
-                    pagination={{ pageSize: 10 }}
+                    pagination={{
+                      size: 'small',
+                      showTotal: (total) => `共 ${total} 条`,
+                    }}
                     dataSource={vmAuditTraces}
                     columns={[
                       { title: '时间', dataIndex: 'time', key: 'time', render:(v:any)=> v || '-' },

@@ -634,6 +634,9 @@ export const getCredentialLabels = (provider?: string) => {
     case 'harvester':
     case 'cloudmap':
       return { akLabel: '访问密钥（可选）', skLabel: 'API令牌（Token）', akPlaceholder: 'Harvester通常无需 Access Key', skPlaceholder: '请输入 API 令牌（Bearer Token）' };
+    case 'cloudmap.private':
+    case 'cloudmap.edge':
+      return { akLabel: '访问密钥', skLabel: 'Cloudmap API 令牌', akPlaceholder: '不需要访问密钥', skPlaceholder: '请输入 Cloudmap API 令牌' };
     default:
       return { akLabel: '访问密钥 (Access Key)', skLabel: '私有密钥 (Secret Key)', akPlaceholder: '请输入访问密钥', skPlaceholder: '请输入私有密钥' };
   }

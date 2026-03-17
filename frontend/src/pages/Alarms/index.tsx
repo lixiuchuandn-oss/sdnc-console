@@ -81,7 +81,10 @@ const Alarms: React.FC = () => {
       {/* table */}
       <div style={{ padding: '0 36px' }}>
         <Card variant="borderless" styles={{ body: { padding: 0 } }}>
-          <Table columns={columns} dataSource={alarms} rowKey="id" loading={loading} pagination={{ showSizeChanger: true, showQuickJumper: true, showTotal: t => `共 ${t} 条记录` }} />
+          <Table columns={columns} dataSource={alarms} rowKey="id" loading={loading} pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }} />
         </Card>
       </div>
     </div>

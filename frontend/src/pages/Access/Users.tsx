@@ -271,7 +271,10 @@ const AccessUsersPage: React.FC = () => {
             disabled: (typeof record.builtIn === 'boolean') ? record.builtIn : (record.username === 'admin'),
           }),
         }}
-        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], size: 'small', showQuickJumper: false }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
         bordered={false}
       />
 

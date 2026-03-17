@@ -361,9 +361,8 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
         rowKey="key"
         loading={loading}
         pagination={{
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
         }}
         rowSelection={rowSelection}
       />

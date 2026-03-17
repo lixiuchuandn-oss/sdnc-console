@@ -1,6 +1,6 @@
 .login-container {
   min-height: 100vh;
-  background: #1062FE;
+  /* background 颜色通过内联样式动态设置 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -40,7 +40,7 @@
 }
 
 .login-subtitle {
-  font-size: 16px;
+  font-size: 20px;
   color: rgba(255, 255, 255, 0.8);
   margin: 0;
   font-weight: 400;
@@ -93,14 +93,12 @@
   border-radius: 8px;
   font-size: 16px;
   font-weight: 500;
-  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+  /* background 和 box-shadow 通过内联样式动态设置 */
   border: none;
-  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
 }
 
 .login-card .ant-btn:hover {
-  background: linear-gradient(135deg, #40a9ff 0%, #1890ff 100%);
-  box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
+  /* background 和 box-shadow 通过内联样式动态设置 */
   transform: translateY(-1px);
 }
 

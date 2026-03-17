@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Row, Col, Select, Switch, Space, Button, message } from 'antd';
 import { CodepenOutlined, EyeOutlined } from '@ant-design/icons';
-import { apiPost, apiPatch } from '../../../../services/api';
+import { apiPost, apiPatch, apiPut } from '../../../../services/api';
 import { 
   Cloud, 
   getProviderName, 
@@ -67,13 +67,17 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
 
   useEffect(() => {
     if (visible && cloud) {
+      const provider = (cloud as any)?.config?.provider as string | undefined;
+      const isCloudmapPrivate = provider === 'cloudmap.private' || provider === 'cloudmap.edge';
+      
       form.setFieldsValue({
         name: cloud.name,
         description: cloud.description,
         region: cloud.region,
         endpoint: cloud.endpoint,
-        accessKey: cloud.accessKey || '', // Pre-fill with redacted key
-        secretKey: cloud.secretKey || '',
+        // 对于 cloudmap.private，apiToken 存储在 secretKey 中，也可能在 config.apiToken 中
+        accessKey: isCloudmapPrivate ? '' : (cloud.accessKey || ''), // Pre-fill with redacted key
+        secretKey: cloud.secretKey || (cloud as any)?.config?.apiToken || '',
         // 高级参数（从 config 预填，如果不存在则默认为 true）
         ignoreTls: cloud?.config?.ignoreTls !== undefined ? !!cloud?.config?.ignoreTls : true,
         harvesterVersion: cloud?.config?.harvesterVersion || 'auto'
@@ -83,6 +87,11 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
 
   const handleEditSubmit = async (values: any) => {
     try {
+      if (!cloud?.id) {
+        message.error('资源池ID不存在，无法更新');
+        return;
+      }
+
       // 过滤掉空的或未修改的accessKey和secretKey
       const submitData: any = {
         name: values.name,
@@ -95,7 +104,11 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
       // If fetched (plain text), it will be different from cloud.accessKey (redacted) -> submit new
       // If modified by user -> submit new
       // If untouched (redacted) -> do not submit
-      if (values.accessKey && values.accessKey !== cloud?.accessKey) {
+      // 对于 cloudmap.private 和 cloudmap.edge，不提交 accessKey
+      const provider = (cloud as any)?.config?.provider as string | undefined;
+      const isCloudmapPrivate = provider === 'cloudmap.private' || provider === 'cloudmap.edge';
+      
+      if (!isCloudmapPrivate && values.accessKey && values.accessKey !== cloud?.accessKey) {
         submitData.accessKey = values.accessKey;
       }
       if (values.secretKey && values.secretKey !== cloud?.secretKey) {
@@ -104,19 +117,28 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
 
       // 合并更新 config（保持 provider 不变）
       const prevCfg = (cloud as any)?.config || {};
+      
       submitData.config = {
         ...prevCfg,
         ignoreTls: !!values.ignoreTls,
-        harvesterVersion: values.harvesterVersion || prevCfg.harvesterVersion || 'auto',
+        // 对于 cloudmap.private 和 cloudmap.edge，强制使用 1.6 版本
+        harvesterVersion: isCloudmapPrivate ? '1.6' : (values.harvesterVersion || prevCfg.harvesterVersion || 'auto'),
         provider: prevCfg.provider
       };
       
-      await apiPatch(`/api/clouds/${cloud?.id}`, submitData);
+      // 后端使用 PUT 方法更新资源池
+      await apiPut(`/api/clouds/${cloud.id}`, submitData);
       
       message.success('云资源更新成功');
       onSuccess();
     } catch (error: any) {
-      message.error('更新失败：' + (error?.message || '未知错误'));
+      const errorMessage = error?.response?.data?.message || error?.message || '未知错误';
+      const status = error?.response?.status || error?.status;
+      if (status === 404) {
+        message.error(`更新失败：资源池不存在 (ID: ${cloud?.id})`);
+      } else {
+        message.error('更新失败：' + errorMessage);
+      }
     }
   };
 
@@ -193,12 +215,13 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
             const provider = cloud?.config?.provider as string | undefined;
             const { akLabel, skLabel, akPlaceholder, skPlaceholder } = getCredentialLabels(provider);
             const isHarvester = provider === 'harvester' || provider === 'cloudmap';
+            const isCloudmapPrivate = provider === 'cloudmap.private' || provider === 'cloudmap.edge';
             
             return (
               <>
                 <div className="modal-group-title">认证配置</div>
                 <Row gutter={16}>
-                  {!isHarvester && (
+                  {!isHarvester && !isCloudmapPrivate && (
                     <Col span={12}>
                       <Form.Item
                         name="accessKey"
@@ -226,7 +249,7 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
                       </Form.Item>
                     </Col>
                   )}
-                  <Col span={isHarvester ? 24 : 12}>
+                  <Col span={isHarvester || isCloudmapPrivate ? 24 : 12}>
                     <Form.Item
                       name="secretKey"
                       label={skLabel}

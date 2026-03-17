@@ -243,7 +243,7 @@ export const FipSection: React.FC<FipSectionProps> = ({ cloudId, fips, eips, vpc
           rowKey={r => r.metadata?.uid} 
           pagination={{
             size: 'small',
-            showQuickJumper: false
+            showTotal: (total) => `共 ${total} 条`,
           }}
         />
       </PageDetailSection>

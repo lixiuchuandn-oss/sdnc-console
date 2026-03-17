@@ -486,7 +486,10 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         columns={columns}
         dataSource={filtered}
         loading={loading}
-        pagination={{ size: 'small', showQuickJumper: false }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
       />
 
       <HarvesterResourceDrawer
