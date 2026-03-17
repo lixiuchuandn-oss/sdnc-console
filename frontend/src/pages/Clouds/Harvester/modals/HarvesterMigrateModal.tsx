@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Form, Select, Alert, message, Typography, Table, Space, Row, Col, Input, Progress } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
-import { migrateHarvesterVm, fetchHarvesterResourceByLink, fetchHarvesterNodeDetail } from '../../../../services/harvesterApi';
+import { migrateHarvesterVm, fetchHarvesterResourceByLink, fetchHarvesterNodeDetail, fetchHarvesterVMAggregated } from '../../../../services/harvesterApi';
 
 const { Text } = Typography;
 
@@ -187,6 +187,45 @@ const HarvesterMigrateModal: React.FC<HarvesterMigrateModalProps> = ({
   const handleFinish = async (values: any) => {
     try {
       setLoading(true);
+
+      const vmNs = String(vm?.metadata?.namespace || '').trim();
+      const vmVmName = String(vm?.metadata?.name || '').trim();
+      let latestVm = vm;
+      if (vmNs && vmVmName) {
+        try {
+          const res: any = await fetchHarvesterVMAggregated(cloudId, vmNs, vmVmName);
+          const data = res?.data?.vm ? res.data : res;
+          latestVm = data?.vm || data || vm;
+          if (latestVm && data?.related) {
+            latestVm.related = data.related;
+          }
+        } catch {}
+      }
+
+      const domain = latestVm?.spec?.template?.spec?.domain;
+      const hostDevices = Array.isArray(domain?.devices?.hostDevices) ? domain.devices.hostDevices : [];
+      const gpus = Array.isArray(domain?.devices?.gpus) ? domain.devices.gpus : [];
+      const interfaces = Array.isArray(domain?.devices?.interfaces) ? domain.devices.interfaces : [];
+
+      const isUsbHostDevice = (d: any) => {
+        const n = String(d?.name || '').toLowerCase();
+        const dn = String(d?.deviceName || '').toLowerCase();
+        return n.startsWith('usb') || dn.includes('usb');
+      };
+      const hasUsb = hostDevices.some((d: any) => isUsbHostDevice(d));
+      const hasPciHostDevice = hostDevices.some((d: any) => !isUsbHostDevice(d));
+      const hasGpu = gpus.length > 0;
+      const hasPassthroughNic = interfaces.some((it: any) => !!it?.sriov || !!it?.macvtap);
+
+      const reasons = [
+        hasUsb ? 'USB直通设备' : null,
+        (hasPciHostDevice || hasGpu) ? 'PCI/GPU直通设备' : null,
+        hasPassthroughNic ? '直通网卡(SR-IOV/macvtap)' : null,
+      ].filter(Boolean) as string[];
+
+      if (reasons.length > 0) {
+        throw new Error(`该虚拟机存在${reasons.join('、')}，不支持热迁移`);
+      }
 
       const instanceId = vm?.metadata?.namespace && vm?.metadata?.name 
         ? `${vm.metadata.namespace}/${vm.metadata.name}` 

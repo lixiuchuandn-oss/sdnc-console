@@ -72,6 +72,7 @@ func main() {
 	argNs := flag.String("ns", "default", "Namespace")
 	argName := flag.String("name", "", "Image Name")
 	argFile := flag.String("file", "", "Local File Path")
+	argImageType := flag.String("type", "", "Image Type: disk (qcow2) or iso")
 
 	flag.Parse()
 
@@ -121,6 +122,16 @@ func main() {
 			display = prompt("镜像显示名称 (如 ubuntu-20.04): ")
 		}
 
+		var imageType string
+		if *argImageType != "" {
+			imageType = *argImageType
+		} else {
+			typeInput := prompt("镜像类型 [disk/iso，留空自动推断]: ")
+			if typeInput != "" {
+				imageType = strings.ToLower(typeInput)
+			}
+		}
+
 		var fpath string
 		if *argFile != "" {
 			fpath = *argFile
@@ -134,7 +145,7 @@ func main() {
 			return
 		}
 		fmt.Print("[1/2] 在 Cloudmap 创建镜像记录... ")
-		name, uploadUrl, err := createHarvesterImage(cfg, ns, display)
+		name, uploadUrl, err := createHarvesterImage(cfg, ns, display, imageType)
 		if err != nil {
 			fmt.Printf("失败: %v\n", err)
 			return
@@ -200,6 +211,10 @@ func main() {
 		namespace = "default"
 	}
 	displayName := prompt("显示名称 (如 ubuntu-20.04): ")
+	imageType := prompt("镜像类型 [disk/iso，留空自动推断]: ")
+	if imageType != "" {
+		imageType = strings.ToLower(imageType)
+	}
 	filePath := prompt("本地文件路径 (如 C:\\images\\disk.qcow2): ")
 	filePath = strings.Trim(filePath, "\"'") // 去除拖拽文件可能产生的引号
 
@@ -218,7 +233,7 @@ func main() {
 	
 	// A. Tower 创建
 	fmt.Print("[1/2] 在 Tower 创建记录... ")
-	imgMeta, err := createTowerImage(config, selectedCloud.Id, namespace, displayName)
+	imgMeta, err := createTowerImage(config, selectedCloud.Id, namespace, displayName, imageType)
 	if err != nil {
 		fmt.Printf("失败: %v\n", err)
 		return
@@ -280,8 +295,26 @@ func fetchHarvesterClouds(cfg Config) ([]Cloud, error) {
 	return list, nil
 }
 
-func createTowerImage(cfg Config, cloudId, ns, name string) (*ImageResource, error) {
-	body, _ := json.Marshal(CreateImageRequest{Namespace: ns, DisplayName: name, SourceType: "upload"})
+func createTowerImage(cfg Config, cloudId, ns, name, imageType string) (*ImageResource, error) {
+	// 根据imageType设置diskFormat
+	var diskFormat string
+	if imageType == "iso" {
+		diskFormat = "iso"
+	} else if imageType == "disk" {
+		diskFormat = "qcow2"
+	}
+	
+	payload := CreateImageRequest{Namespace: ns, DisplayName: name, SourceType: "upload"}
+	bodyMap := map[string]interface{}{
+		"namespace":   payload.Namespace,
+		"displayName": payload.DisplayName,
+		"sourceType":  payload.SourceType,
+	}
+	if diskFormat != "" {
+		bodyMap["diskFormat"] = diskFormat
+	}
+	body, _ := json.Marshal(bodyMap)
+	
 	req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/clouds/%s/resources/harvester/images", cfg.TowerURL, cloudId), bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+cfg.TowerToken)
 	req.Header.Set("Content-Type", "application/json")
@@ -352,13 +385,25 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func createHarvesterImage(cfg Config, ns, displayName string) (string, string, error) {
+func createHarvesterImage(cfg Config, ns, displayName, imageType string) (string, string, error) {
 	// 生成合法 name（小写、去空格），加时间戳避免重复
 	base := strings.ToLower(strings.ReplaceAll(displayName, " ", "-"))
 	if base == "" {
 		base = "image"
 	}
 	name := fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+	
+	// 根据imageType设置diskFormat
+	spec := map[string]any{
+		"displayName": displayName,
+		"sourceType":  "upload",
+	}
+	if imageType == "iso" {
+		spec["diskFormat"] = "iso"
+	} else if imageType == "disk" {
+		spec["diskFormat"] = "qcow2"
+	}
+	
 	payload := map[string]any{
 		"apiVersion": "harvesterhci.io/v1beta1",
 		"kind":       "VirtualMachineImage",
@@ -366,10 +411,7 @@ func createHarvesterImage(cfg Config, ns, displayName string) (string, string, e
 			"name":      name,
 			"namespace": ns,
 		},
-		"spec": map[string]any{
-			"displayName": displayName,
-			"sourceType":  "upload",
-		},
+		"spec": spec,
 	}
 	body, _ := json.Marshal(payload)
 	// Try standard K8s API path
@@ -690,6 +732,12 @@ const indexHTML = `<!doctype html>
       <input id="displayName" placeholder="ubuntu-20.04"/>
     </div>
   </div>
+  <label>镜像类型</label>
+  <select id="imageType">
+    <option value="">自动推断</option>
+    <option value="disk">Qcow2（磁盘镜像）</option>
+    <option value="iso">ISO（光盘镜像）</option>
+  </select>
   <label>镜像文件</label>
   <input id="file" type="file"/>
   <div class="actions">
@@ -707,8 +755,11 @@ const indexHTML = `<!doctype html>
       fd.append('harvesterToken', document.getElementById('harvesterToken').value.trim());
       fd.append('namespace', document.getElementById('namespace').value.trim());
       const dn1 = document.getElementById('displayName').value.trim();
-      // const dn2 = document.getElementById('displayName2').value.trim();
       fd.append('displayName', dn1);
+      const imageType = document.getElementById('imageType').value.trim();
+      if (imageType) {
+        fd.append('imageType', imageType);
+      }
       fd.append('file', file);
       const xhr = new XMLHttpRequest();
       xhr.open('POST','/api/upload-direct');
@@ -813,6 +864,7 @@ func startGUI() {
 		harvToken := r.FormValue("harvesterToken")
 		ns := r.FormValue("namespace")
 		display := r.FormValue("displayName")
+		imageType := strings.ToLower(r.FormValue("imageType"))
 		
 		file, header, err := r.FormFile("file")
 		if err != nil {
@@ -823,12 +875,12 @@ func startGUI() {
 		}
 		defer file.Close()
 
-		fmt.Printf("目标: %s, 命名空间: %s, 镜像: %s, 文件: %s (%d bytes)\n", harvUrl, ns, display, header.Filename, header.Size)
+		fmt.Printf("目标: %s, 命名空间: %s, 镜像: %s, 类型: %s, 文件: %s (%d bytes)\n", harvUrl, ns, display, imageType, header.Filename, header.Size)
 
 		cfg := Config{HarvesterHost: normalizeHost(harvUrl), HarvesterToken: harvToken}
 		
 		fmt.Println("正在创建镜像元数据...")
-		name, uploadUrl, err := createHarvesterImage(cfg, ns, display)
+		name, uploadUrl, err := createHarvesterImage(cfg, ns, display, imageType)
 		if err != nil {
 			fmt.Printf("创建镜像失败: %v\n", err)
 			w.WriteHeader(500)

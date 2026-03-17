@@ -267,6 +267,13 @@ const VmRestoreModal: React.FC<Props> = ({
                   validator: async (_, value) => {
                     const name = String(value || '').trim();
                     if (!name) return;
+                    // [修复] 验证名称格式：仅支持小写字母、数字和-，不支持中文
+                    if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name)) {
+                      throw new Error('名称仅支持小写字母、数字和-，且不能以-开头/结尾，不支持中文');
+                    }
+                    if (name.length > 63) {
+                      throw new Error('名称长度不能超过 63 个字符');
+                    }
                     const conflict = (vms || []).some((vm: any) => {
                       const vmNs = vm?.metadata?.namespace || vm?.namespace || '';
                       const vmName = vm?.metadata?.name || vm?.name || '';
@@ -277,7 +284,7 @@ const VmRestoreModal: React.FC<Props> = ({
                 }
               ]}
             >
-              <Input placeholder="请输入新虚拟机名称" />
+              <Input placeholder="请输入新虚拟机名称（仅支持小写字母、数字和-）" />
             </Form.Item>
           </>
         )}
@@ -288,7 +295,8 @@ const VmRestoreModal: React.FC<Props> = ({
           </Form.Item>
         )}
 
-        {resourceType === 'backup' && newVM === false && (
+        {/* [修复] MAC地址保留字段：新建虚拟机时也需要显示 */}
+        {resourceType === 'backup' && (
           <Form.Item 
             name="keepMacAddress" 
             label="MAC 地址保留"

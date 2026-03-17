@@ -1572,7 +1572,25 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'PVC虚拟卷',
                       children: (
                         <>
-                          <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={resourceLoading.volumes} vms={ecs} storageClasses={harvesterStorageClasses} onRefresh={async (force = false, silent = false) => {
+                          <VolumesSection cloudId={cloudId} volumes={harvesterVolumes} loading={resourceLoading.volumes} vms={ecs} storageClasses={harvesterStorageClasses} onRefreshImages={async (force = false, silent = false) => {
+                            const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
+                            setResourceLoading(prev => ({ ...prev, images: true }));
+                            try {
+                              const json = await fetchHarvesterImages(cloudId, force, skipSync);
+                              const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
+                              setHarvesterImages(Array.isArray(list) ? list : []);
+                              setRawImages(json || null);
+                              if (force && !silent) {
+                                message.success(`刷新成功，共 ${list.length} 个镜像`);
+                              }
+                            } catch (e: any) {
+                              if (!silent) {
+                                message.error('刷新失败: ' + (e?.message || '未知错误'));
+                              }
+                            } finally {
+                              setResourceLoading(prev => ({ ...prev, images: false }));
+                            }
+                          }} onRefresh={async (force = false, silent = false) => {
                             const skipSync = silent; // 静默刷新 = 创建后刷新，跳过全量同步
                             setResourceLoading(prev => ({ ...prev, volumes: true }));
                             try {

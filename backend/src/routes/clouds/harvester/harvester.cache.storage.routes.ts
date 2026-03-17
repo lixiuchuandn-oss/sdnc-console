@@ -710,6 +710,54 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           pvcName,
           { displayName, targetStorageClassName },
         );
+        
+        // [数据同步] 导出成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
+        // 注意：只有当返回数据包含 metadata.uid 时才入库，避免空字符串导致唯一索引冲突
+        if (data && data.metadata && data.metadata.uid) {
+          try {
+            const repo = AppDataSource.getRepository(HarvesterImageInventory);
+            const uid = data.metadata.uid;
+            const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
+            
+            if (existing) {
+              // 更新现有记录
+              existing.name = data.metadata?.name || '';
+              existing.namespace = data.metadata?.namespace || namespace;
+              existing.displayName = data.spec?.displayName || displayName || pvcName;
+              existing.progress = data.status?.progress;
+              existing.size = String(data.status?.size || data.status?.downloadedBytes || '0');
+              existing.storageClassName = data.spec?.storageClassName || targetStorageClassName;
+              existing.labels = data.metadata?.labels;
+              existing.annotations = data.metadata?.annotations;
+              existing.rawData = data;
+              await repo.save(existing);
+              console.log(`[Image-Export] 镜像已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+            } else {
+              // 插入新记录
+              const entity = repo.create({
+                cloudId: cloud.id,
+                uid: uid,
+                name: data.metadata?.name || '',
+                namespace: data.metadata?.namespace || namespace,
+                displayName: data.spec?.displayName || displayName || pvcName,
+                progress: data.status?.progress,
+                size: String(data.status?.size || data.status?.downloadedBytes || '0'),
+                storageClassName: data.spec?.storageClassName || targetStorageClassName,
+                labels: data.metadata?.labels,
+                annotations: data.metadata?.annotations,
+                rawData: data,
+              });
+              await repo.save(entity);
+              console.log(`[Image-Export] 镜像已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+            }
+          } catch (e: any) {
+            console.error('[Image-Export] 入库镜像失败:', e?.message || e);
+            // 入库失败不影响导出操作的成功返回
+          }
+        } else if (data && data.metadata && !data.metadata.uid) {
+          console.warn(`[Image-Export] 导出成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || pvcName}`);
+        }
+        
         res.json({ message: '创建镜像任务成功', data });
       } catch (error: any) {
         const status = Number(error?.status || 0);
@@ -1310,6 +1358,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
           displayName,
           sourceType,
           url,
+          diskFormat,
           targetStorageClassName,
           storageClassParameters,
         } = (req.body || {}) as any;
@@ -1345,6 +1394,7 @@ export const registerHarvesterStorageRoutes = (router: Router, checkAdminPermiss
             displayName: displayName || name || 'image',
             sourceType: sourceType || (url ? 'download' : 'upload'),
             url: url || '',
+            ...(diskFormat ? { diskFormat } : {}),
             targetStorageClassName: targetStorageClassName || 'longhorn',
             storageClassParameters: storageClassParameters || {},
           },

@@ -102,6 +102,7 @@ type Props = {
   storageClasses?: any[];
   namespacesOptions?: string[];
   onRefresh?: (force?: boolean, silent?: boolean) => void;
+  onRefreshImages?: (force?: boolean, silent?: boolean) => void; // 刷新镜像列表的回调
   isTenant?: boolean; // 是否为租户模式 (租户模式下强制过滤系统和公共卷)
   bordered?: boolean;
 };
@@ -271,6 +272,7 @@ const VolumesSection: React.FC<Props> = ({
   storageClasses: propStorageClasses, 
   namespacesOptions, 
   onRefresh, 
+  onRefreshImages,
   isTenant
 }) => {
   // ----------------------------------------------------------------
@@ -1318,6 +1320,9 @@ const VolumesSection: React.FC<Props> = ({
             });
             message.success('任务已提交');
             setExportOpen(false);
+            // 刷新镜像列表（导出后已直接入库，使用 force=true 跳过前端缓存，但后端会优先查询数据库）
+            // 静默刷新，不显示提示信息
+            onRefreshImages?.(true, true); // force=true 跳过缓存，silent=true 静默刷新
           } catch (e: any) { message.error(e.message || '导出失败'); }
         }}
       >

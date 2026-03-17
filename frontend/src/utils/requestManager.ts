@@ -169,6 +169,7 @@ async function executeRequest(
       ...headers,
     },
     credentials: 'include',
+    cache: 'no-store',
   };
 
   // 如果是 FormData，不设置 Content-Type（让浏览器自动设置，包括 boundary）

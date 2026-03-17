@@ -635,6 +635,7 @@ export const exportImageFromPVC = async (
       sourceType: 'export-from-volume',
       pvcName,
       pvcNamespace: namespace,
+      diskFormat: 'qcow2',
       ...(opts?.targetStorageClassName
         ? { targetStorageClassName: opts.targetStorageClassName }
         : {}),

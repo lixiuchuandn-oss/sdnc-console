@@ -628,11 +628,17 @@ router.post('/rbac/assignments', async (req: any, res) => {
 router.get('/rbac/assignments', async (req: any, res) => {
   try {
     const { userType, userId } = req.query as any;
-    if (!userType || !userId) return res.status(400).json({ message: '缺少必要参数' });
+    if (!userType || !userId) {
+      console.log(`[GetAssignments] 缺少必要参数: userType=${userType}, userId=${userId}`);
+      return res.status(400).json({ message: '缺少必要参数' });
+    }
+    console.log(`[GetAssignments] 查询角色分配: userType=${userType}, userId=${userId}`);
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
     const rows = await assignRepo.find({ where: { userType, userId } });
+    console.log(`[GetAssignments] 查询结果: 找到 ${rows.length} 条记录`);
     res.json({ assignments: rows });
   } catch (e: any) {
+    console.error(`[GetAssignments] 查询失败:`, e);
     res.status(500).json({ message: '查询分配失败', error: String(e) });
   }
 });

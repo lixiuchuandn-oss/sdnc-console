@@ -256,7 +256,10 @@ const OrgManagePage: React.FC = () => {
 
   const openRoleAssign = async (user: TenantUser) => {
     try {
-      const rawData = await apiRequest(`/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(user.id)}`);
+      const rawData = await apiRequest(
+        `/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(user.id)}`,
+        { skipCache: true }
+      );
       const rawList = Array.isArray(rawData) 
         ? rawData 
         : (Array.isArray((rawData as any)?.assignments) ? (rawData as any).assignments : []);
@@ -280,7 +283,10 @@ const OrgManagePage: React.FC = () => {
       if (!users.length) return;
       try {
         const resps = await Promise.all(users.map(u => 
-          apiRequest(`/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(u.id)}`).catch(() => ({ assignments: [] }))
+          apiRequest(
+            `/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(u.id)}`,
+            { skipCache: true }
+          ).catch(() => ({ assignments: [] }))
         ));
         const next: Record<string, Array<{ id: string; name: string }>> = {};
         users.forEach((u, i) => {

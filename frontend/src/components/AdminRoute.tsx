@@ -58,6 +58,7 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16 }}>
         <div style={{ fontSize:18, color:'#595959' }}>当前授权未包含该功能</div>
         <div style={{ display:'flex', gap:12 }}>
+          <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/clouds')}>进入资源池管理</button>
           <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={()=> navigate('/admin/settings/license')}>查看授权</button>
           <button style={{ padding:'6px 12px', border:'1px solid #d9d9d9', borderRadius:6, background:'#fff', cursor:'pointer' }} onClick={logout}>退出登录</button>
         </div>

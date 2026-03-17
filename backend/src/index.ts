@@ -263,6 +263,13 @@ if (fs.existsSync(path.join(staticPath, 'index.html'))) {
 AppDataSource.initialize()
   .then(async () => {
     console.log('数据库连接成功');
+    // 启用 WAL 模式以提升并发性能
+    try {
+      const { enableWalMode } = await import('./config/database');
+      await enableWalMode();
+    } catch (e) {
+      console.warn('启用 WAL 模式失败:', e);
+    }
     // 初始化管理员账户
     await initializeAdmin();
     // 初始化默认角色

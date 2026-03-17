@@ -140,13 +140,15 @@ export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
 
   const repo = AppDataSource.getRepository(HarvesterImageInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
+    // [修复] listHarvesterImagesStandard 返回的数据中，name 和 namespace 已经提取到顶层
+    // 优先使用顶层的 name 和 namespace，如果没有则从 metadata 中获取
     uid: item.metadata?.uid || item.id,
-    name: item.metadata?.name,
-    namespace: item.metadata?.namespace,
-    displayName: item.spec?.displayName,
-    progress: item.status?.progress,
-    size: String(item.status?.size || item.status?.downloadedBytes || '0'),
-    storageClassName: item.spec?.storageClassName,
+    name: item.name || item.metadata?.name,
+    namespace: item.namespace || item.metadata?.namespace,
+    displayName: item.displayName || item.spec?.displayName,
+    progress: item.status?.progress || 0,
+    size: String(item.size || item.status?.size || item.status?.downloadedBytes || '0'),
+    storageClassName: item.storageClassName || item.spec?.storageClassName,
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
     rawData: item,

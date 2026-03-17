@@ -1419,7 +1419,14 @@ export const useVmReconfigure = (props: any) => {
           
           await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);
           message.success('热扩容设置已提交');
-          openRestartConfirm(namespace, vmName, false);
+          // [修复] 开启热扩容应该无条件提示重启对话框
+          // 只要开启了热扩容（values.enableHotPlug === true），就需要重启生效
+          if (values.enableHotPlug) {
+            openRestartConfirm(namespace, vmName, false);
+          } else {
+            // 关闭热扩容也需要重启生效
+            openRestartConfirm(namespace, vmName, false);
+          }
           break;
         }
         case 'cpu_advanced': {

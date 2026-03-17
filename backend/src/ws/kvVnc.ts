@@ -5,6 +5,7 @@ import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
 import { getJsonOnce } from '../services/clouds/harvester/utils';
 import { UserRole } from '../entities/User';
+import { checkTenantAccess } from '../routes/clouds/harvester/harvester.direct.helpers';
 
 export function createKvVncWss() {
   console.log('[KvVnc] Creating Headless WebSocket Server');
@@ -38,9 +39,10 @@ export function createKvVncWss() {
     const namespace = url.searchParams.get('namespace') || '';
     const name = url.searchParams.get('name') || '';
 
+    let decoded: any = null;
     try {
       if (!token) throw new Error('缺少 token');
-      const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as any;
       if (!decoded || !decoded.role) throw new Error('无效令牌');
       if (!(decoded.role === UserRole.SUPER_ADMIN || decoded.role === 'admin' || decoded.role === UserRole.TENANT)) {
         throw new Error('权限不足');
@@ -63,12 +65,28 @@ export function createKvVncWss() {
       const repo = AppDataSource.getRepository(Cloud);
       const cloud = await repo.findOne({ where: { id: cloudId } });
       if (!cloud) throw new Error('云资源不存在');
+      
+      // [修复] 检查租户对命名空间的访问权限
+      // 构造一个模拟的 req 对象用于权限检查
+      const mockReq: any = { user: decoded };
+      const { allowed, namespace: tenantNamespace } = await checkTenantAccess(mockReq, cloudId);
+      if (!allowed) {
+        throw new Error('Access denied to this resource pool');
+      }
+      
+      // 如果是租户，检查命名空间是否在允许列表中
+      if (tenantNamespace) {
+        const allowedNamespaces = tenantNamespace.split(',').map((ns: string) => ns.trim().toLowerCase());
+        if (!allowedNamespaces.includes(namespace.toLowerCase())) {
+          throw new Error('Access denied to VM in other namespace');
+        }
+      }
       const pv = String((cloud as any)?.config?.provider || '')
         .toLowerCase()
         .trim();
       console.log(`[KvVnc] Cloud Provider Check: id=${cloudId}, provider=${(cloud as any)?.config?.provider}, parsed=${pv}`);
-      const allowed = ['harvester', 'cloudmap.private', 'cloudmap.edge'];
-      if (!allowed.includes(pv)) throw new Error(`仅支持 Harvester/Cloudmap (current: ${pv})`);
+      const allowedProviders = ['harvester', 'cloudmap.private', 'cloudmap.edge'];
+      if (!allowedProviders.includes(pv)) throw new Error(`仅支持 Harvester/Cloudmap (current: ${pv})`);
       const insecure = !!(cloud.config as any)?.ignoreTls;
       const base = String(cloud.endpoint || '').replace(/\/+$/, '');
       let origin = base;

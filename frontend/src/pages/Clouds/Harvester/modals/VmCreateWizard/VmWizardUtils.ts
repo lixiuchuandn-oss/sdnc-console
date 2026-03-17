@@ -1007,6 +1007,15 @@ export const buildHarvesterVmPayload = (params: {
           },
       });
   }
+  // [修复] 创建虚拟机时开启热扩容，需要设置 Annotation 以便列表正确显示
+  // 注意：Annotation 必须设置在 VM 顶层的 metadata.annotations，而不是 spec.template.metadata.annotations
+  // 因为列表显示时检查的是 r?.metadata?.annotations（见 VmSection.tsx:369）
+  if (hotExpandEnabled) {
+      if (!manifest.metadata.annotations) {
+          manifest.metadata.annotations = {};
+      }
+      manifest.metadata.annotations["harvesterhci.io/enableCPUAndMemoryHotplug"] = "true";
+  }
 
   return manifest;
 };

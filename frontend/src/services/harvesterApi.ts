@@ -997,7 +997,7 @@ export const createHarvesterVolume = async (cloudId: string, payload: { namespac
  * @param payload 镜像配置数据，包含命名空间、名称、显示名称、源类型、URL、目标存储类名称和存储类参数
  * @returns Promise<any>
  */
-export const createHarvesterImage = async (cloudId: string, payload: { namespace: string; name?: string; displayName?: string; sourceType?: string; url?: string; targetStorageClassName?: string; storageClassParameters?: Record<string,string> }) => {
+export const createHarvesterImage = async (cloudId: string, payload: { namespace: string; name?: string; displayName?: string; sourceType?: string; url?: string; diskFormat?: string; targetStorageClassName?: string; storageClassParameters?: Record<string,string> }) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/images`, payload);
 };
 

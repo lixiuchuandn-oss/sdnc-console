@@ -717,8 +717,35 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
     const { username, email, fullName, password, role } = req.body;
     const { tenantId, orgId } = req.params;
 
+    console.log(`[CreateUser] 接收请求参数: tenantId=${tenantId}, orgId=${orgId}, username=${username}, role=${role}, roleType=${typeof role}`);
+
     if (!username?.trim() || !email?.trim() || !fullName?.trim() || !password?.trim()) {
       return res.status(400).json({ message: '用户名、邮箱、姓名和密码不能为空' });
+    }
+
+    const roleId = typeof role === 'string' ? role.trim() : '';
+    console.log(`[CreateUser] 处理后的 roleId: "${roleId}", 是否为空: ${!roleId}`);
+    
+    if (roleId) {
+      const roleRepo = AppDataSource.getRepository(RBACRole);
+      const rbacRole = await roleRepo.findOne({ where: { id: roleId } });
+      console.log(`[CreateUser] 查询角色结果: roleId=${roleId}, found=${!!rbacRole}`);
+      if (!rbacRole) {
+        console.error(`[CreateUser] 角色不存在: roleId=${roleId}`);
+        return res.status(400).json({ message: '角色不存在' });
+      }
+      console.log(`[CreateUser] 角色信息: id=${rbacRole.id}, name=${rbacRole.name}, scope=${rbacRole.scope}, status=${rbacRole.status}`);
+      if (rbacRole.scope !== 'tenant') {
+        console.error(`[CreateUser] 角色作用域不匹配: scope=${rbacRole.scope}, 期望=tenant`);
+        return res.status(400).json({ message: '租户用户只能分配租户级角色' });
+      }
+      if (rbacRole.status !== 'active') {
+        console.error(`[CreateUser] 角色状态非活跃: status=${rbacRole.status}`);
+        return res.status(400).json({ message: '无法分配非活跃状态的角色' });
+      }
+      console.log(`[CreateUser] 角色验证通过: roleId=${roleId}`);
+    } else {
+      console.warn(`[CreateUser] 警告: 未提供角色ID，将跳过角色分配`);
     }
 
     const userRepository = AppDataSource.getRepository(TenantUser);
@@ -735,37 +762,63 @@ router.post('/:tenantId/organizations/:orgId/users', async (req, res) => {
     // 加密密码
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = userRepository.create({
-      username,
-      email,
-      fullName,
-      password: hashedPassword,
-      role: 'user', // 仅保留默认占位，真实角色仅存 RoleAssignment
-      organizationId: orgId,
-      tenantId,
-      status: 'active',
-    });
+    const savedUser = await AppDataSource.transaction(async (manager) => {
+      const txUserRepo = manager.getRepository(TenantUser);
+      const txAssignRepo = manager.getRepository(RoleAssignment);
 
-    const savedUser = await userRepository.save(user);
+      const user = txUserRepo.create({
+        username,
+        email,
+        fullName,
+        password: hashedPassword,
+        role: roleId || 'user',
+        organizationId: orgId,
+        tenantId,
+        status: 'active',
+      });
 
-    // 创建时分配的角色只写入 rbac_role_assignments，权限与「分配角色」均以此为准
-    const roleId = typeof role === 'string' ? role.trim() : '';
-    if (roleId) {
-      try {
-        const roleRepo = AppDataSource.getRepository(RBACRole);
-        const rbacRole = await roleRepo.findOne({ where: { id: roleId } });
-        if (rbacRole && rbacRole.scope === 'tenant' && rbacRole.status === 'active') {
-          const assignRepo = AppDataSource.getRepository(RoleAssignment);
-          const existed = await assignRepo.findOne({ where: { roleId: roleId, userType: 'tenant', userId: savedUser.id } });
+      const created = await txUserRepo.save(user);
+      console.log(`[CreateUser] 用户创建成功: userId=${created.id}, username=${username}`);
+
+      if (roleId) {
+        console.log(`[CreateUser] 开始创建角色分配: roleId=${roleId}, userId=${created.id}, userType=tenant`);
+        try {
+          const existed = await txAssignRepo.findOne({
+            where: { roleId: roleId, userType: 'tenant', userId: created.id },
+          });
+          console.log(`[CreateUser] 检查已存在的分配: found=${!!existed}`);
           if (!existed) {
-            const row = assignRepo.create({ roleId: roleId, userType: 'tenant', userId: savedUser.id });
-            await assignRepo.save(row);
+            console.log(`[CreateUser] 创建新的角色分配记录...`);
+            const row = txAssignRepo.create({
+              roleId: roleId,
+              userType: 'tenant',
+              userId: created.id,
+            });
+            console.log(`[CreateUser] 准备保存角色分配:`, JSON.stringify(row, null, 2));
+            const savedAssignment = await txAssignRepo.save(row);
+            console.log(`[CreateUser] 角色分配保存成功: assignmentId=${savedAssignment.id}, roleId=${roleId}, userId=${created.id}`);
+            // 验证保存是否成功
+            const verify = await txAssignRepo.findOne({ where: { id: savedAssignment.id } });
+            if (verify) {
+              console.log(`[CreateUser] 验证成功: 角色分配记录已存在于数据库中`);
+            } else {
+              console.error(`[CreateUser] 验证失败: 角色分配记录保存后立即查询不到！`);
+            }
+          } else {
+            console.log(`[CreateUser] 角色分配已存在: assignmentId=${existed.id}, roleId=${roleId}, userId=${created.id}`);
           }
+        } catch (assignError: any) {
+          console.error(`[CreateUser] 创建角色分配失败:`, assignError);
+          console.error(`[CreateUser] 错误堆栈:`, assignError?.stack);
+          // 抛出错误以回滚整个事务
+          throw new Error(`创建角色分配失败: ${assignError?.message || String(assignError)}`);
         }
-      } catch (e) {
-        console.error('创建用户时写入 RBAC 分配失败（不影响用户创建）:', e);
+      } else {
+        console.log(`[CreateUser] 未提供角色ID，跳过角色分配`);
       }
-    }
+
+      return created;
+    });
 
     // 返回时不包含密码字段，避免泄露
     const { password: _, ...userWithoutPassword } = savedUser;
