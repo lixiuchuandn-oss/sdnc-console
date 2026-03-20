@@ -43,6 +43,8 @@ import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 组件 Props 定义
@@ -74,6 +76,13 @@ const SnapshotsSection: React.FC<Props> = ({
   namespaces = [],
   bordered = true
 }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasSnapshotsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.snapshots:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
+
   // ==============================================================================
   // 1. 状态定义 (State Definitions)
   // ==============================================================================
@@ -171,9 +180,13 @@ const SnapshotsSection: React.FC<Props> = ({
   // [恢复] 打开数据卷恢复弹窗
   // 将当前选中的快照记录传递给 Modal，用于后续的 PVC 恢复操作。
   const handleRestore = useCallback((record: any) => {
+    if (!hasSnapshotsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     setRestoreRecord(record);
     setRestoreVisible(true);
-  }, []);
+  }, [hasSnapshotsWrite]);
 
   // [详情] 打开资源详情抽屉 (HarvesterResourceDrawer)
   // 1. 注入 Kind: 确保 EventsTab 能正确查询 VolumeSnapshot 的事件。
@@ -202,6 +215,10 @@ const SnapshotsSection: React.FC<Props> = ({
   // 这是一个破坏性操作，必须弹出确认框。
   // 成功后触发 onRefresh(true) 强制刷新列表。
   const handleDelete = useCallback((record: any) => {
+    if (!hasSnapshotsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除快照 ${record.alias !== '-' ? record.alias : record.name} (${record.name}) 吗？`,
@@ -217,13 +234,17 @@ const SnapshotsSection: React.FC<Props> = ({
         }
       }
     });
-  }, [cloudId, onRefresh]);
+  }, [cloudId, onRefresh, hasSnapshotsWrite]);
 
   // [批量删除] 处理多选删除逻辑
   // 1. 过滤出选中的数据对象。
   // 2. 使用 Promise.allSettled 并发执行删除请求，而不是串行阻塞。
   // 3. 汇总成功/失败结果并提示用户。
   const handleBatchDelete = () => {
+    if (!hasSnapshotsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter(s => selectedRowKeys.includes(s.key));
     
@@ -302,8 +323,8 @@ const SnapshotsSection: React.FC<Props> = ({
           items.push({ key: 'detail', label: '运维信息', onClick: () => handleOpenDrawer(record, 'detail') });
           items.push({ type: 'divider' as const });
         }
-        items.push({ key: 'restore', label: '恢复', onClick: () => handleRestore(record), disabled: !record.readyToUse });
-        items.push({ key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) });
+        items.push({ key: 'restore', label: '恢复', onClick: () => handleRestore(record), disabled: !record.readyToUse || !hasSnapshotsWrite });
+        items.push({ key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record), disabled: !hasSnapshotsWrite });
         
         return (
           <ResourceActionsDropdown 
@@ -313,7 +334,7 @@ const SnapshotsSection: React.FC<Props> = ({
         );
       },
     },
-  ], [isTenant, handleOpenDrawer, handleRestore, handleDelete]);
+  ], [isTenant, handleOpenDrawer, handleRestore, handleDelete, hasSnapshotsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_volume_snapshots_list');
@@ -328,7 +349,7 @@ const SnapshotsSection: React.FC<Props> = ({
       toolbarLeft={(
         <>
           <Input
-            placeholder="关键字"
+            placeholder="名称/ID"
             className="toolbar-search"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             allowClear
@@ -340,7 +361,7 @@ const SnapshotsSection: React.FC<Props> = ({
               allowClear
               showSearch
               placeholder="命名空间"
-              className="toolbar-filter"
+              className="toolbar-filter-sm"
               value={namespaceFilter || undefined}
               onChange={(v) => setNamespaceFilter(v || '')}
               options={[
@@ -397,11 +418,11 @@ const SnapshotsSection: React.FC<Props> = ({
           <Dropdown
             trigger={["click"]}
             menu={{
-              items: [{ key: 'batchDelete', label: '批量删除', disabled: selectedRowKeys.length === 0, danger: true }],
+              items: [{ key: 'batchDelete', label: '批量删除', disabled: !hasSnapshotsWrite || selectedRowKeys.length === 0, danger: true }],
               onClick: ({ key }) => key === 'batchDelete' && handleBatchDelete()
             }}
           >
-            <Button icon={<EllipsisOutlined />} />
+            <Button icon={<EllipsisOutlined />} disabled={!hasSnapshotsWrite || selectedRowKeys.length === 0} />
           </Dropdown>
           <TableColumnSettingsButton
             allColumns={columns}

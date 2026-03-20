@@ -223,7 +223,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
   const [list, setList] = useState<ClusterOutputItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [namespaceFilter, setNamespaceFilter] = useState<string>(LOGGING_NS);
+  const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailRecord, setDetailRecord] = useState<ClusterOutputItem | null>(null);
@@ -900,7 +900,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
           <>
             <Input 
               allowClear 
-              placeholder="关键字" 
+              placeholder="名称/ID" 
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword} 
               onChange={(e) => setKeyword(e.target.value)} 
@@ -914,14 +914,14 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
               onChange={(v) => setNamespaceFilter(v ?? '')}
               options={namespaceOptions}
               loading={namespaceLoading}
-              style={{ minWidth: 140 }}
+              className="toolbar-filter-sm"
             />
             <button
               type="button"
               className="toolbar-reset-btn"
               onClick={() => {
                 setKeyword('');
-                setNamespaceFilter(LOGGING_NS);
+                setNamespaceFilter('');
               }}
             >
               重置

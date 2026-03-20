@@ -260,27 +260,12 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
           <>
             <Input 
               allowClear 
-              placeholder="关键字" 
+              placeholder="名称/ID" 
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={alertKeyword} 
               onChange={(e) => setAlertKeyword(e.target.value)} 
               onPressEnter={loadAlerts}
               className="toolbar-search"
-            />
-            <Select
-              placeholder="数据源"
-              value={dataSourceFilter}
-              onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
-              options={[{ label: 'Prometheus', value: 'prometheus' }]}
-              style={{ minWidth: 150 }}
-            />
-            <Select
-              placeholder="级别"
-              allowClear
-              value={levelFilter || undefined}
-              onChange={(v) => setLevelFilter(v ?? '')}
-              options={LEVEL_FILTER_OPTIONS}
-              style={{ width: 120 }}
             />
             <Select
               placeholder="命名空间"
@@ -289,6 +274,22 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
               onChange={(v) => setNamespaceFilter(v ?? '')}
               options={namespaceFilterOptions}
               loading={!isAdmin && allowedNsLoading}
+              className="toolbar-filter-sm"
+            />
+            <Select
+              placeholder="数据源"
+              value={dataSourceFilter}
+              onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
+              options={[{ label: 'Prometheus', value: 'prometheus' }]}
+              className="toolbar-filter-sm"
+            />
+            <Select
+              placeholder="级别"
+              allowClear
+              value={levelFilter || undefined}
+              onChange={(v) => setLevelFilter(v ?? '')}
+              options={LEVEL_FILTER_OPTIONS}
+              className="toolbar-filter-sm"
             />
             <button
               type="button"

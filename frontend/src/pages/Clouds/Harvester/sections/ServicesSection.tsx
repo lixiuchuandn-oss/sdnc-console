@@ -34,7 +34,7 @@ interface Props {
 const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant }) => {
   // 工具栏过滤及详情抽屉状态
   const [keyword, setKeyword] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>('All');
+  const [typeFilter, setTypeFilter] = useState<string>('');
   
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
@@ -84,7 +84,7 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
     }
-    if (typeFilter && typeFilter !== 'All') {
+    if (typeFilter) {
       d = d.filter((x: any) => x.type === typeFilter);
     }
     return d;
@@ -167,22 +167,24 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
         <>
           <Input 
             allowClear 
-            placeholder="关键字" 
+            placeholder="服务名/命名空间" 
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={e => { setKeyword(e.target.value); setPagination(p=>({...p, current:1})); }}
             className="toolbar-search" 
           />
           <Select
-            value={typeFilter}
-            onChange={v => { setTypeFilter(v); setPagination(p=>({...p, current:1})); }}
-            options={serviceTypes.map(t => ({ label: t === 'All' ? '所有类型' : t, value: t }))}
+            allowClear
+            placeholder="服务类型"
+            value={typeFilter || undefined}
+            onChange={v => { setTypeFilter(v || ''); setPagination(p=>({...p, current:1})); }}
+            options={serviceTypes.filter(t => t !== 'All').map(t => ({ label: t, value: t }))}
             className="toolbar-filter-sm"
           />
           <button
             type="button"
             className="toolbar-reset-btn"
-            onClick={() => { setKeyword(''); setTypeFilter('All'); setPagination(p=>({...p, current:1})); }}
+            onClick={() => { setKeyword(''); setTypeFilter(''); setPagination(p=>({...p, current:1})); }}
           >
             重置
           </button>

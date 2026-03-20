@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Button, Input, Modal, Space, Table, Tag } from 'antd';
+import { Button, Input, Modal, Select, Space, Table, Tag } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -18,16 +18,39 @@ interface Props {
 
 const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefresh, raw, showLog, bordered = true }) => {
   const [keyword, setKeyword] = useState<string>('');
+  const [nodeFilter, setNodeFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const [refreshing, setRefreshing] = useState(false);
   const [metadataModalVisible, setMetadataModalVisible] = useState(false);
   const [currentMetadata, setCurrentMetadata] = useState<any>(null);
 
+  const getNodeName = (r: any) => String(r?.nodeName || r?.status?.nodeName || '').trim();
+  const getDeviceState = (r: any) => {
+    const rawObj = r?.raw || r?.rawData || r;
+    const st = r?.state || r?.metadata?.state || r?.status?.state || r?.status?.phase || r?.status?.conditions?.[0]?.type;
+    if (st) return String(st).trim();
+    const driver = rawObj?.status?.kernelDriverInUse || rawObj?.kernelDriverInUse;
+    if (typeof driver === 'string' && driver.toLowerCase().includes('vfio')) return '可透传';
+    if (driver) return '占用中';
+    return '-';
+  };
+
+  const nodeOptions = useMemo(
+    () => Array.from(new Set((Array.isArray(devices) ? devices : []).map((r: any) => getNodeName(r)).filter(Boolean))).sort(),
+    [devices],
+  );
+  const statusOptions = useMemo(
+    () => Array.from(new Set((Array.isArray(devices) ? devices : []).map((r: any) => getDeviceState(r)).filter(Boolean))).sort(),
+    [devices],
+  );
+
   const filtered = useMemo(() => {
     const list = Array.isArray(devices) ? devices : [];
     const kw = String(keyword || '').trim().toLowerCase();
-    if (!kw) return list;
+    const nf = String(nodeFilter || '').trim().toLowerCase();
+    const sf = String(statusFilter || '').trim().toLowerCase();
     return list.filter((r: any) => {
-      const node = String(r?.nodeName || r?.status?.nodeName || '').toLowerCase();
+      const node = String(getNodeName(r)).toLowerCase();
       const addr = String(r?.address || r?.pciAddress || r?.status?.pciAddress || r?.status?.address || '').toLowerCase();
       const rn = String(r?.resourceName || r?.status?.resourceName || '').toLowerCase();
       const name = String(r?.name || r?.status?.deviceName || r?.metadata?.name || '').toLowerCase();
@@ -35,6 +58,10 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
       const vendorId = String(r?.vendorId || r?.status?.vendorId || '').toLowerCase();
       const productId = String(r?.productId || r?.deviceId || r?.status?.deviceId || '').toLowerCase();
       const classId = String(r?.classId || r?.status?.classId || '').toLowerCase();
+      const state = String(getDeviceState(r)).toLowerCase();
+      if (nf && node !== nf) return false;
+      if (sf && state !== sf) return false;
+      if (!kw) return true;
       return (
         node.includes(kw) ||
         addr.includes(kw) ||
@@ -46,7 +73,7 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         classId.includes(kw)
       );
     });
-  }, [devices, keyword]);
+  }, [devices, keyword, nodeFilter, statusFilter]);
 
   const handleRefresh = async () => {
     if (!onRefresh) return;
@@ -66,7 +93,6 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
   const columnsAll = useMemo(() => {
     return [
       { title: '节点', key: 'node', width: 160, ellipsis: true, render: (_: any, r: any) => r?.nodeName || r?.status?.nodeName || '-' },
-      { title: '地址', key: 'addr', width: 160, ellipsis: true, render: (_: any, r: any) => r?.address || r?.pciAddress || r?.status?.pciAddress || r?.status?.address || '-' },
       { title: '资源名', key: 'resource', width: 220, ellipsis: true, render: (_: any, r: any) => r?.resourceName || r?.status?.resourceName || '-' },
       { title: '名称', key: 'name', ellipsis: true, render: (_: any, r: any) => r?.name || r?.status?.deviceName || r?.metadata?.name || '-' },
       { title: '状态', key: 'state', width: 120, ellipsis: true, render: (_: any, r: any) => {
@@ -78,15 +104,16 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         if (driver) return '占用中';
         return '-';
       } },
-      { title: 'Class', key: 'classId', width: 90, ellipsis: true, render: (_: any, r: any) => (r?.classId || r?.status?.classId || '-') },
-      { title: 'Vendor', key: 'vendorId', width: 90, ellipsis: true, render: (_: any, r: any) => (r?.vendorId || r?.status?.vendorId || '-') },
-      { title: 'Product', key: 'productId', width: 90, ellipsis: true, render: (_: any, r: any) => (r?.productId || r?.deviceId || r?.status?.deviceId || '-') },
+      { title: '地址', key: 'addr', width: 160, ellipsis: true, render: (_: any, r: any) => r?.address || r?.pciAddress || r?.status?.pciAddress || r?.status?.address || '-' },
+      { title: '厂商', key: 'vendorId', width: 90, ellipsis: true, render: (_: any, r: any) => (r?.vendorId || r?.status?.vendorId || '-') },
+      { title: '设备ID', key: 'productId', width: 90, ellipsis: true, render: (_: any, r: any) => (r?.productId || r?.deviceId || r?.status?.deviceId || '-') },
       {
         title: '描述',
         key: 'desc',
         ellipsis: true,
         render: (_: any, r: any) => r?.description || r?.status?.description || '-',
       },
+      { title: 'ClassID', key: 'classId', width: 90, ellipsis: true, render: (_: any, r: any) => (r?.classId || r?.status?.classId || '-') },
       {
         title: '操作',
         key: 'actions',
@@ -112,14 +139,32 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         bordered={bordered}
         title="PCI 设备"
         toolbarLeft={(
-          <Input
-            allowClear
-            placeholder="搜索 节点/地址/资源名/厂商/设备ID/Class/描述"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-            style={{ width: 360 }}
-          />
+          <>
+            <Input
+              allowClear
+              placeholder="节点/地址"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              className="toolbar-search"
+            />
+            <Select
+              allowClear
+              placeholder="节点"
+              value={nodeFilter || undefined}
+              onChange={(v) => setNodeFilter(v || '')}
+              className="toolbar-filter-sm"
+              options={nodeOptions.map((v) => ({ value: v, label: v }))}
+            />
+            <Select
+              allowClear
+              placeholder="状态"
+              value={statusFilter || undefined}
+              onChange={(v) => setStatusFilter(v || '')}
+              className="toolbar-filter-sm"
+              options={statusOptions.map((v) => ({ value: v, label: v }))}
+            />
+          </>
         )}
         toolbarRight={(
           <Space>

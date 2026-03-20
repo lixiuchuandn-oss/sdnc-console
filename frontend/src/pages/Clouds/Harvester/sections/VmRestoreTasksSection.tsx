@@ -10,6 +10,7 @@ import { isPublicNamespace, isSystemNamespace } from '../../../../utils/harveste
 type Props = {
   cloudId: string;
   isTenant?: boolean;
+  mode?: 'standard' | 'simple';
   vms?: any[]; // 虚拟机列表，用于查找别名
 };
 
@@ -49,10 +50,11 @@ const getBackupStatus = (raw: any) => {
   return { phase: 'pending', text: '未就绪' as const };
 };
 
-const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] }) => {
+const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'standard', vms = [] }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [backups, setBackups] = useState<any[]>([]);
   const [restores, setRestores] = useState<any[]>([]);
@@ -178,7 +180,7 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
         return !isPublicNamespace(ns) && !isSystemNamespace(ns);
       });
     }
-    if (statusFilter !== 'all') {
+    if (statusFilter) {
       d = d.filter((x: any) => {
         const rsSt = x.restoreStatus || { phase: 'pending' };
         if (statusFilter === 'pending') return rsSt.phase === 'pending';
@@ -186,6 +188,9 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
         if (statusFilter === 'ready') return rsSt.phase === 'ready';
         return true;
       });
+    }
+    if (namespaceFilter) {
+      d = d.filter((x: any) => String(x.namespace || '') === namespaceFilter);
     }
     if (keyword) {
       const k = keyword.toLowerCase();
@@ -202,7 +207,19 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
       });
     }
     return d;
-  }, [dataSource, isTenant, keyword, statusFilter]);
+  }, [dataSource, isTenant, keyword, statusFilter, namespaceFilter]);
+
+  const namespaceOptions = useMemo(() => {
+    const set = new Set<string>();
+    dataSource.forEach((x: any) => {
+      const ns = String(x?.namespace || '').trim();
+      if (!ns) return;
+      if (isSystemNamespace(ns)) return;
+      if (isTenant && isPublicNamespace(ns)) return;
+      set.add(ns);
+    });
+    return Array.from(set).sort().map((v) => ({ value: v, label: v }));
+  }, [dataSource, isTenant]);
 
   const refresh = useCallback(async (force = true) => {
     setLoading(true);
@@ -415,19 +432,30 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
         <>
           <Input
             allowClear
-            placeholder="关键字"
+            placeholder="名称/ID"
             className="toolbar-search"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
           />
+          {mode === 'standard' && (
+            <Select
+              allowClear
+              showSearch
+              placeholder="命名空间"
+              className="toolbar-filter-sm"
+              value={namespaceFilter || undefined}
+              onChange={(v) => setNamespaceFilter((v as string) || '')}
+              options={namespaceOptions}
+            />
+          )}
           <Select
+            allowClear
             placeholder="状态"
             className="toolbar-filter-sm"
-            value={statusFilter}
-            onChange={setStatusFilter}
+            value={statusFilter || undefined}
+            onChange={(v) => setStatusFilter((v as string) || '')}
             options={[
-              { value: 'all', label: '全部' },
               { value: 'pending', label: '进行中' },
               { value: 'ready', label: '完成' },
               { value: 'failed', label: '失败' },
@@ -438,7 +466,8 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
-              setStatusFilter('all');
+              setStatusFilter('');
+              setNamespaceFilter('');
             }}
           >
             重置

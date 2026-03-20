@@ -26,6 +26,8 @@ import HarvesterTemplateDetailDrawer from '../components/HarvesterTemplateDetail
 import HarvesterOpsinfoDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import { createHarvesterVmFromTemplate, deleteHarvesterResourceByLink } from '../../../../services/harvesterApi';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * Props 定义
@@ -41,6 +43,7 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean; // 是否为租户模式
+  mode?: 'standard' | 'simple';
   bordered?: boolean;
 }
 
@@ -105,12 +108,19 @@ const TemplatesSection: React.FC<Props> = ({
   loading, 
   onRefresh, 
   isTenant = false,
+  mode = 'standard',
   bordered = true,
 }) => {
   const { modal } = App.useApp();
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasTemplatesWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.templates:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
   
   // [推导] 视图控制变量
-  const showYaml = !isTenant; // 租户模式不显示 YAML
+  const showYaml = !isTenant && mode === 'standard'; // 租户/简易模式不显示 YAML
 
   /**
    * 搜索关键字（受控 Input）
@@ -119,9 +129,9 @@ const TemplatesSection: React.FC<Props> = ({
    */
   const [searchText, setSearchText] = useState('');
   // 命名空间筛选状态
-  const [selectedNamespace, setSelectedNamespace] = useState<string | undefined>(undefined);
+  const [selectedNamespace, setSelectedNamespace] = useState<string>('');
   // 作用域筛选状态：all/public/private
-  const [selectedScope, setSelectedScope] = useState<'all' | 'public' | 'private' | undefined>(undefined);
+  const [selectedScope, setSelectedScope] = useState<'' | 'public' | 'private'>('');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailRecord, setDetailRecord] = useState<any>(null);
@@ -135,6 +145,10 @@ const TemplatesSection: React.FC<Props> = ({
   const [quickCreating, setQuickCreating] = useState(false);
 
   const handleDelete = async (tpl: any) => {
+    if (!hasTemplatesWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     const ns = getTemplateNamespace(tpl);
     const name = getTemplateName(tpl);
     
@@ -159,6 +173,10 @@ const TemplatesSection: React.FC<Props> = ({
   };
 
   const handleBatchDelete = () => {
+    if (!hasTemplatesWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     if (selectedRowKeys.length === 0) return;
 
     modal.confirm({
@@ -190,6 +208,10 @@ const TemplatesSection: React.FC<Props> = ({
   };
 
   const openQuickCreate = (tpl: any) => {
+    if (!hasTemplatesWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     if (!tpl) return;
     setQuickCreateTpl(tpl);
     setQuickCreateName('');
@@ -309,7 +331,7 @@ const TemplatesSection: React.FC<Props> = ({
         );
       }
     },
-    {
+    ...(mode === 'standard' ? [{
       title: '作用域',
       key: 'scope',
       render: (_: any, r: any) => {
@@ -317,12 +339,14 @@ const TemplatesSection: React.FC<Props> = ({
           const isPublic = scope === '公共模板';
           return <Tag color={isPublic ? 'orange' : 'cyan'}>{scope}</Tag>;
       }
-    },
-    {
-      title: '命名空间',
-      key: 'namespace',
-      render: (_: any, r: any) => getTemplateNamespace(r) || '-'
-    },
+    }] : []),
+    ...(mode === 'standard'
+      ? [{
+          title: '命名空间',
+          key: 'namespace',
+          render: (_: any, r: any) => getTemplateNamespace(r) || '-'
+        }]
+      : []),
     {
       title: '描述',
       key: 'description',
@@ -361,7 +385,7 @@ const TemplatesSection: React.FC<Props> = ({
         ];
 
         // 仅在非租户模式下显示运维信息
-        if (!isTenant) {
+        if (!isTenant && mode === 'standard') {
           items.push({
             key: 'ops_info',
             label: '运维信息',
@@ -372,6 +396,7 @@ const TemplatesSection: React.FC<Props> = ({
         items.push({
             key: 'create_vm',
             label: '使用模板创建虚拟机',
+            disabled: !hasTemplatesWrite,
             onClick: () => openQuickCreate(r),
         });
 
@@ -381,6 +406,7 @@ const TemplatesSection: React.FC<Props> = ({
             key: 'delete',
             label: '删除',
             danger: true,
+            disabled: !hasTemplatesWrite,
             onClick: () => handleDelete(r),
           }
         );
@@ -397,7 +423,7 @@ const TemplatesSection: React.FC<Props> = ({
       },
     }
   ],
-    [isTenant, showYaml],
+    [isTenant, showYaml, hasTemplatesWrite, mode],
   );
 
   /**
@@ -443,8 +469,8 @@ const TemplatesSection: React.FC<Props> = ({
       const ns = getTemplateNamespace(t);
       if (selectedNamespace && ns !== selectedNamespace) return false;
       // 1.1 作用域筛选
-      if (selectedScope === 'public' && !isPublicNamespace(ns)) return false;
-      if (selectedScope === 'private' && isPublicNamespace(ns)) return false;
+      if (mode === 'standard' && selectedScope === 'public' && !isPublicNamespace(ns)) return false;
+      if (mode === 'standard' && selectedScope === 'private' && isPublicNamespace(ns)) return false;
 
       // 2. 关键字搜索
       if (searchText) {
@@ -454,50 +480,51 @@ const TemplatesSection: React.FC<Props> = ({
       
       return true;
     });
-  }, [baseData, searchText, selectedNamespace, selectedScope]);
+  }, [baseData, searchText, selectedNamespace, selectedScope, mode]);
 
   return (
       <PageDetailSection
         toolbarLeft={(
           <>
             <Input
-              placeholder="关键字"
+              placeholder="名称/ID"
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
               className="toolbar-search"
               allowClear
             />
-            {!isTenant && (
+            {!isTenant && mode === 'standard' && (
               <Select
                 allowClear
                 showSearch
                 placeholder="命名空间"
-                value={selectedNamespace}
-                onChange={setSelectedNamespace}
+                value={selectedNamespace || undefined}
+                onChange={(v) => setSelectedNamespace((v as string) || '')}
                 options={namespaceOptions}
-                className="toolbar-filter"
+                className="toolbar-filter-sm"
               />
             )}
-            <Select
-              allowClear
-              placeholder="作用域"
-              value={selectedScope}
-              onChange={(val) => setSelectedScope((val as any) || undefined)}
-              options={[
-                { value: 'all', label: '全部' },
-                { value: 'public', label: '公共模板' },
-                { value: 'private', label: '私有模板' },
-              ]}
-              className="toolbar-filter-sm"
-            />
+            {mode === 'standard' && (
+              <Select
+                allowClear
+                placeholder="作用域"
+                value={selectedScope || undefined}
+                onChange={(val) => setSelectedScope((val as any) || '')}
+                options={[
+                  { value: 'public', label: '公共模板' },
+                  { value: 'private', label: '私有模板' },
+                ]}
+                className="toolbar-filter-sm"
+              />
+            )}
             <button
               type="button"
               className="toolbar-reset-btn"
               onClick={() => {
                 setSearchText('');
-                setSelectedNamespace(undefined);
-                setSelectedScope(undefined);
+                setSelectedNamespace('');
+                setSelectedScope('');
               }}
             >
               重置
@@ -510,6 +537,7 @@ const TemplatesSection: React.FC<Props> = ({
               <Button 
                 danger
                 icon={<DeleteOutlined />} 
+                disabled={!hasTemplatesWrite}
                 onClick={handleBatchDelete}
                 style={{ marginRight: 8 }}
               >

@@ -161,14 +161,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
   const [configList, setConfigList] = useState<ClusterFlowItem[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [namespaceFilter, setNamespaceFilter] = useState<string>(() => (isAdmin ? LOGGING_NS : ''));
-  const hasSetAdminDefaultNs = useRef(false);
-  useEffect(() => {
-    if (isAdmin && !hasSetAdminDefaultNs.current) {
-      hasSetAdminDefaultNs.current = true;
-      setNamespaceFilter(LOGGING_NS);
-    }
-  }, [isAdmin]);
+  const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailRecord, setDetailRecord] = useState<ClusterFlowItem | null>(null);
@@ -784,7 +777,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
           <>
             <Input 
               allowClear 
-              placeholder="关键字" 
+              placeholder="名称/ID" 
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword} 
               onChange={(e) => setKeyword(e.target.value)} 
@@ -798,7 +791,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
               onChange={(v) => setNamespaceFilter(v ?? '')}
               options={namespaceOptions}
               loading={namespaceLoading}
-              style={{ minWidth: 140 }}
+              className="toolbar-filter-sm"
             />
             <button
               type="button"

@@ -920,18 +920,11 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
             <>
               <Input 
                 allowClear 
-                placeholder="关键字" 
+                placeholder="名称/ID" 
                 suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                 value={keyword || ''} 
                 onChange={(e) => setKeyword(e.target.value)} 
                 className="toolbar-search"
-              />
-              <Select
-                placeholder="通知方式"
-                value={receiverNameFilter}
-                onChange={(v) => setReceiverNameFilter(v ?? 'email-receiver')}
-                options={RECEIVER_NAME_SELECT_OPTIONS}
-                style={{ minWidth: 120 }}
               />
               <Select
                 placeholder="命名空间"
@@ -940,7 +933,14 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
                 onChange={setConfigNsFilter}
                 loading={namespaceLoading}
                 options={formNamespaceOptions}
-                style={{ width: 250 }}
+                className="toolbar-filter-sm"
+              />
+              <Select
+                placeholder="通知方式"
+                value={receiverNameFilter}
+                onChange={(v) => setReceiverNameFilter(v ?? 'email-receiver')}
+                options={RECEIVER_NAME_SELECT_OPTIONS}
+                className="toolbar-filter-sm"
               />
             </>
           }

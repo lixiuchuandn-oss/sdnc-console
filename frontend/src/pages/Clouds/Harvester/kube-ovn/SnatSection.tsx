@@ -5,6 +5,8 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { createCloudProviderOvnSnatRule, deleteCloudProviderOvnSnatRule } from '../../../../services/harvesterApi';
 import MetadataModal from './MetadataModal';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 interface BaseSectionProps {
   cloudId: string;
@@ -21,6 +23,12 @@ interface SnatSectionProps extends BaseSectionProps {
 }
 
 export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, eips, subnets, loading, onRefresh, bordered = true }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasVpcsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.vpcs:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
   const [isCreateVisible, setIsCreateVisible] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [form] = Form.useForm();
@@ -68,6 +76,10 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
   }, [snatRules]);
 
   const handleCreate = async () => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     try {
       const values = await form.validateFields();
       setCreateLoading(true);
@@ -98,6 +110,10 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
     if (key === 'metadata') {
       setMetadataRecord(record);
     } else if (key === 'delete') {
+      if (!hasVpcsWrite) {
+        message.error('无权限执行该操作');
+        return;
+      }
       Modal.confirm({
         title: '确认删除',
         content: `确定要删除 SNAT 规则 ${record.metadata?.name} 吗？`,
@@ -146,13 +162,13 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
         const menuItems: MenuProps['items'] = [
           { key: 'metadata', label: '查看元数据' },
           { type: 'divider' },
-          { key: 'delete', label: '删除', danger: true }
+          { key: 'delete', label: '删除', danger: true, disabled: !hasVpcsWrite }
         ];
         return (
           <ResourceActionsDropdown 
             items={menuItems} 
             onClick={({ key }) => handleMenuClick(key, r)}
-            buttonProps={{ className: 'row-actions-trigger' }}
+            buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }}
           />
         );
       }
@@ -167,7 +183,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
           <>
             <Input 
               allowClear 
-              placeholder="关键字" 
+              placeholder="名称/ID" 
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword} 
               onChange={(e) => setKeyword(e.target.value)} 
@@ -178,7 +194,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
               placeholder="VPC" 
               value={vpcFilter || undefined} 
               onChange={(v) => setVpcFilter(v || '')} 
-              className="toolbar-filter"
+              className="toolbar-filter-sm"
               options={[
                 { value: '', label: '全部' },
                 ...vpcOptions.map(v => ({ value: v, label: v }))
@@ -198,7 +214,8 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
         )}
         primaryAction={{
           label: '创建SNAT规则',
-          onClick: () => setIsCreateVisible(true)
+          onClick: () => { if (!hasVpcsWrite) return; setIsCreateVisible(true); },
+          disabled: !hasVpcsWrite
         }}
         onRefresh={() => onRefresh(true)}
         refreshLoading={loading}

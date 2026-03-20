@@ -37,7 +37,7 @@ const getVmStatus = (vm: any) => {
 const VmCreateTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [vms, setVms] = useState<any[]>([]);
 
@@ -108,7 +108,7 @@ const VmCreateTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         return !isPublicNamespace(ns) && !isSystemNamespace(ns);
       });
     }
-    if (statusFilter !== 'all') {
+    if (statusFilter) {
       d = d.filter((x: any) => {
         const st = x.status;
         if (statusFilter === 'pending') return st.phase === 'pending';
@@ -254,19 +254,19 @@ const VmCreateTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         <>
           <Input
             allowClear
-            placeholder="关键字"
+            placeholder="名称/ID"
             className="toolbar-search"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
           />
           <Select
+            allowClear
             placeholder="状态"
             className="toolbar-filter-sm"
-            value={statusFilter}
-            onChange={setStatusFilter}
+            value={statusFilter || undefined}
+            onChange={(v) => setStatusFilter((v as string) || '')}
             options={[
-              { value: 'all', label: '全部' },
               { value: 'pending', label: '创建中' },
               { value: 'ready', label: '已完成' },
               { value: 'failed', label: '失败' },
@@ -277,7 +277,7 @@ const VmCreateTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
-              setStatusFilter('all');
+              setStatusFilter('');
             }}
           >
             重置

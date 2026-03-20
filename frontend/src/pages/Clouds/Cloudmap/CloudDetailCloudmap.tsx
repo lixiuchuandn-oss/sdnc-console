@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Tag, Space, Button, Statistic, Row, Col, Alert, Tabs, Descriptions, Modal, Select, Popconfirm, message, Dropdown, Typography } from 'antd';
+import { Tag, Space, Button,  Alert, Tabs, Descriptions, message, Segmented } from 'antd';
 // 引入各个资源模块组件 (注意路径调整，指向 Harvester 目录)
 import NodesSection from '../Harvester/sections/NodesSection';
 import ImagesSection from '../Harvester/sections/ImagesSection';
@@ -10,7 +10,7 @@ import KubeOvnVpcsSection from '../Harvester/kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from '../Harvester/kube-ovn/SubnetsSection';
 import KubeOvnPublicNetworksSection from '../Harvester/kube-ovn/PubnetSection';
 import GpusSection from '../Harvester/sections/GpusSection';
-import TasksSection from '../Harvester/sections/TasksSection';
+import MigrationsSection from '../Harvester/sections/MigrationsSection';
 import StorageClassesSection from '../Harvester/sections/StorageClassesSection';
 import SnapshotsSection from '../Harvester/sections/SnapshotsSection';
 import BackupsSection from '../Harvester/sections/BackupsSection';
@@ -26,7 +26,7 @@ import PciDevicesSection from '../Harvester/sections/PciDevicesSection';
 import UsbDevicesSection from '../Harvester/sections/UsbDevicesSection';
 // 重新编译触发引入
 import NamespacesTab from '../Harvester/sections/NamespacesTab';
-import { CloudUploadOutlined, ArrowLeftOutlined, UnorderedListOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, ArrowLeftOutlined, HomeOutlined, LoginOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -91,6 +91,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const navigate = useNavigate();
   const { user } = useAuth();
   const permissions = user?.permissions;
+  const isTenant = user?.role === 'tenant' || (user as any)?.tenantId;
   // 权限检查辅助函数
   const checkPerm = (act: string) => hasPermissionForAction(permissions || [], act);
   const { hasFeature } = useLicense();
@@ -148,6 +149,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const [nsFilter, setNsFilter] = useState<string>(''); // 命名空间筛选值
   const [nodeFilter, setNodeFilter] = useState<string>(''); // 节点筛选值
   const [showLog, setShowLog] = useState<boolean>(false); // 是否显示原始 JSON 日志
+  const [mode, setMode] = useState<'standard' | 'simple'>('simple'); // 页面显示模式: 标准/简易
   const [activeTabKey, setActiveTabKey] = useState<string>('overview');
   const [backupsGroupActiveKey, setBackupsGroupActiveKey] = useState<string>('backups');
 
@@ -321,7 +323,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       }, force);
     }
 
-    if (checkPerm('clouds.volumes:read')) {
+    if (checkPerm('clouds.disks:read')) {
       loadResource('volumes', () => fetchHarvesterVolumes(cloudId, force), (json) => {
         const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
         setHarvesterVolumes(Array.isArray(list) ? list : []);
@@ -397,7 +399,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             }
             break;
           case 'backups':
-            if (checkPerm('clouds.backups:read')) {
+            if (checkPerm('clouds.ecs:read')) {
               loadResource('backups', () => fetchHarvesterBackups(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterBackups(Array.isArray(list) ? list : []);
@@ -869,6 +871,14 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
     }
   };
 
+  useEffect(() => {
+    // 切换到简易模式时，若当前处于被隐藏分组，则自动回到概览
+    if (mode !== 'simple') return;
+    if (['monitoring-alerts', 'network_group', 'logs-config'].includes(activeTabKey)) {
+      setActiveTabKey('overview');
+    }
+  }, [mode, activeTabKey]);
+
   return (
     <PageDetailContainer
       breadcrumbs={[
@@ -881,22 +891,17 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
       title={`${providerName} ${cloud?.name || '-'}`}
       titleLevel={3}
       extra={
-        <Space>
+        <Space size="small">
+          <Segmented
+            options={[
+              { label: '简易', value: 'simple' },
+              { label: '标准', value: 'standard' },
+            ]}
+            value={mode}
+            onChange={(value) => setMode(value as 'standard' | 'simple')}
+          />
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/admin/clouds')}></Button>
-          <Dropdown
-          menu={{
-            items: [
-              { key: 'refresh', label: '资源刷新' },
-              { key: 'toggleLog', label: (showLog ? '隐藏日志' : '显示日志') },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'refresh') { loadAll(true); return; }
-              if (key === 'toggleLog') { setShowLog(v => !v); return; }
-            },
-          }}
-        >
-          <Button icon={<UnorderedListOutlined />} />
-        </Dropdown>
+          <Button icon={<ReloadOutlined />} onClick={() => loadAll(true)} />
       </Space>
       }
       asCard={false}
@@ -1079,7 +1084,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                         }} 
                         showLog={showLog} 
                         raw={rawNamespaces}
-                        isTenant={user?.role === 'tenant' || (user as any)?.tenantId}
+                        isTenant={isTenant}
                       />
                     },
                     {
@@ -1094,7 +1099,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     },
                     {
                       key: 'ingresses',
-                      label: 'Ingress 路由',
+                      label: 'Ingress',
                       children: (
                         <>
                           <IngressesSection cloudId={cloudId} ingresses={harvesterIngresses} loading={resourceLoading.ingresses} onRefresh={() => loadTabResource('ingresses', true)} />
@@ -1118,13 +1123,16 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       children: (<PciDevicesSection cloudId={cloudId} devices={harvesterPciDevices} loading={resourceLoading.pciDevices} onRefresh={() => loadTabResource('pci_devices', true)} raw={rawPciDevices} showLog={showLog} bordered={false} />)
                     },
                   ].filter((i:any) => {
+                      if (mode === 'simple') {
+                        return ['cluster_nodes', 'storage_classes', 'gpu', 'cluster_usb'].includes(i.key);
+                      }
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.nodes:read');
                       if (i.key === 'cluster_services') return checkPerm('clouds.services:read');
                       if (i.key === 'cluster_networks') return checkPerm('clouds.networks:read');
                       if (i.key === 'cluster_usb') return checkPerm('clouds.ecs:read');
                       if (i.key === 'cluster_pci') return checkPerm('clouds.ecs:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
-                      if (i.key === 'storage_classes') return checkPerm('clouds.volumes:read');
+                      if (i.key === 'storage_classes') return checkPerm('clouds.disks:read');
                       if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read');
                       if (i.key === 'gpu') return checkPerm('clouds.ecs:read');
                       return true;
@@ -1150,6 +1158,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                           <VmSection
                             vms={ecs}
                             loading={resourceLoading.ecs}
+                            mode={mode}
                             namespacesOptions={namespacesOptions}
                             nodesOptions={nodesOptions}
                             cloudId={cloudId}
@@ -1167,7 +1176,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                                     setHarvesterImages(json?.data?.items || []);
                                   }, true);
                                 }
-                                if (checkPerm('clouds.volumes:read')) {
+                                if (checkPerm('clouds.disks:read')) {
                                   loadResource('volumes', () => fetchHarvesterVolumes(cloudId, true), (json) => {
                                     setHarvesterVolumes(json?.data?.items || []);
                                   }, true);
@@ -1328,11 +1337,21 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
+                      key: 'images',
+                      label: '云主机镜像',
+                      children: (
+                        <>
+                          <ImagesSection cloudId={cloudId} images={harvesterImages} loading={resourceLoading.images} onRefresh={() => loadResource('images', () => fetchHarvesterImages(cloudId, true), (json) => setHarvesterImages(json?.data?.items || []), true)} mode={mode} />
+                          <DebugJSON data={rawImages} show={showLog} />
+                        </>
+                      )
+                    },
+                    {
                       key: 'templates',
                       label: '云主机模板',
                       children: (
                         <>
-                          <TemplatesSection cloudId={cloudId} templates={harvesterTemplates} loading={resourceLoading.templates} onRefresh={() => loadTabResource('templates', true)} />
+                          <TemplatesSection cloudId={cloudId} templates={harvesterTemplates} loading={resourceLoading.templates} onRefresh={() => loadTabResource('templates', true)} mode={mode} />
                           <DebugJSON data={rawTemplates} show={showLog} />
                         </>
                       )
@@ -1342,7 +1361,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: 'SSH 密钥',
                       children: (
                         <>
-                          <SshKeysSection cloudId={cloudId} sshKeys={harvesterSshKeys} loading={resourceLoading.sshKeys} onRefresh={() => loadTabResource('ssh_keys', true)} />
+                          <SshKeysSection cloudId={cloudId} sshKeys={harvesterSshKeys} loading={resourceLoading.sshKeys} onRefresh={() => loadTabResource('ssh_keys', true)} mode={mode} />
                           <DebugJSON data={rawSshKeys} show={showLog} />
                         </>
                       )
@@ -1352,7 +1371,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: 'Cloud Init',
                       children: (
                         <>
-                          <CloudInitsSection cloudId={cloudId} cloudInits={harvesterCloudInits} loading={resourceLoading.cloudInits} onRefresh={() => loadTabResource('cloud_inits', true)} />
+                          <CloudInitsSection cloudId={cloudId} cloudInits={harvesterCloudInits} loading={resourceLoading.cloudInits} onRefresh={() => loadTabResource('cloud_inits', true)} mode={mode} />
                           <DebugJSON data={rawCloudInits} show={showLog} />
                         </>
                       )
@@ -1366,6 +1385,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                             vms={ecs}
                             loading={resourceLoading.ecs}
                             cloudId={cloudId}
+                            mode={mode}
                             onRefresh={() => {
                               apiPost(`/api/clouds/${cloudId}/sync`).catch(console.warn).finally(() => refreshVms());
                             }}
@@ -1388,16 +1408,18 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
-                      key: 'tasks',
-                      label: '任务记录',
-                      children: <TasksSection cloudId={cloudId} />
+                      key: 'migrations',
+                      label: '迁移记录',
+                      children: <MigrationsSection cloudId={cloudId} mode={mode} />
                     }
                   ].filter((i:any) => {
+                      if (mode === 'simple' && ['ssh_keys', 'cloud_inits', 'migrations'].includes(i.key)) return false;
                       if (i.key === 'ecs') return checkPerm('clouds.ecs:read');
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
+                      if (i.key === 'images') return checkPerm('clouds.images:read');
                       if (i.key === 'ssh_keys') return checkPerm('clouds.sshkeys:read');
                       if (i.key === 'cloud_inits') return checkPerm('clouds.cloudinits:read');
-                      if (i.key === 'tasks') return checkPerm('clouds.ecs:read');
+                      if (i.key === 'migrations') return checkPerm('clouds.ecs:read');
                       return true;
                   })}
                 />
@@ -1431,16 +1453,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
-                      key: 'images',
-                      label: '镜像',
-                      children: (
-                        <>
-                          <ImagesSection cloudId={cloudId} images={harvesterImages} loading={resourceLoading.images} onRefresh={() => loadResource('images', () => fetchHarvesterImages(cloudId, true), (json) => setHarvesterImages(json?.data?.items || []), true)} />
-                          <DebugJSON data={rawImages} show={showLog} />
-                        </>
-                      )
-                    },
-                    {
                       key: 'snapshots',
                       label: '云盘快照',
                       children: (
@@ -1451,10 +1463,9 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                   ].filter((i:any) => {
-                      if (i.key === 'volumes') return checkPerm('clouds.volumes:read');
-                      if (i.key === 'images') return checkPerm('clouds.images:read');
+                      if (i.key === 'volumes') return checkPerm('clouds.disks:read');
                       if (i.key === 'snapshots') return checkPerm('clouds.snapshots:read');
-                      if (i.key === 'backups_group') return checkPerm('clouds.backups:read');
+                      if (i.key === 'backups_group') return checkPerm('clouds.ecs:read');
                       return true;
                   })}
                 />
@@ -1478,7 +1489,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: '云主机备份',
                       children: (
                         <>
-                          <BackupsSection cloudId={cloudId} backups={harvesterBackups} loading={resourceLoading.backups} onRefresh={() => loadTabResource('backups', true)} namespaces={harvesterNamespaces} vms={ecs} type="backup" />
+                          <BackupsSection cloudId={cloudId} backups={harvesterBackups} loading={resourceLoading.backups} onRefresh={() => loadTabResource('backups', true)} namespaces={harvesterNamespaces} vms={ecs} type="backup" mode={mode} />
                           <DebugJSON data={rawBackups} show={showLog} />
                         </>
                       )
@@ -1488,7 +1499,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       label: '云主机快照',
                       children: (
                         <>
-                          <BackupsSection cloudId={cloudId} backups={harvesterBackups} loading={resourceLoading.backups} onRefresh={() => loadTabResource('backups', true)} namespaces={harvesterNamespaces} vms={ecs} type="snapshot" />
+                          <BackupsSection cloudId={cloudId} backups={harvesterBackups} loading={resourceLoading.backups} onRefresh={() => loadTabResource('backups', true)} namespaces={harvesterNamespaces} vms={ecs} type="snapshot" mode={mode} />
                           <DebugJSON data={rawBackups} show={showLog} />
                         </>
                       )
@@ -1500,7 +1511,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                         <>
                           <ScheduleVmBackupsSection cloudId={cloudId} data={harvesterScheduleVmBackups} loading={resourceLoading.scheduleVmBackups} onRefresh={async (force = true, silent = false) => {
                             const skipSync = false;
-                            if (checkPerm('clouds.backups:read')) {
+                            if (checkPerm('clouds.ecs:read')) {
                               if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: true }));
                               try {
                                 if (force && !skipSync) {
@@ -1516,7 +1527,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                                 if (!silent) setResourceLoading(prev => ({ ...prev, scheduleVmBackups: false }));
                               }
                             }
-                          }} vms={ecs} />
+                          }} vms={ecs} mode={mode} />
                           <DebugJSON data={rawScheduleVmBackups} show={showLog} />
                         </>
                       )
@@ -1525,7 +1536,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       key: 'vm_restores',
                       label: '恢复任务',
                       children: (
-                        <VmRestoreTasksSection cloudId={cloudId} isTenant={user?.role === 'tenant' || (user as any)?.tenantId} />
+                        <VmRestoreTasksSection cloudId={cloudId} isTenant={isTenant} mode={mode} />
                       )
                     }
                   ]}
@@ -1534,7 +1545,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             },
             {
               key: 'network_group',
-              label: '扁平网络',
+              label: '附加网络 (NAD)',
               children: (
                 <Tabs
                   type="line"
@@ -1583,7 +1594,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             },
             ...(ovnVpcEnabled ? [{
               key: 'kube_ovn_group',
-              label: '虚拟专有云 VPC',
+              label: '虚拟专有云 (VPC)',
               children: (
                 <Tabs
                   type="line"
@@ -1753,7 +1764,10 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                 </LoggingProvider>
               )
             }
-          ]}
+          ].filter((i: any) => {
+            if (mode !== 'simple') return true;
+            return !['monitoring-alerts', 'storage_group', 'network_group', 'logs-config'].includes(i.key);
+          })}
       />
     </PageDetailContainer>
   );

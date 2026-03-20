@@ -62,7 +62,6 @@ const WebSSHPage = lazy(() => import('./pages/Clouds/WebSSH'));
 const CloudConsolePage = lazy(() => import('./pages/Clouds/Console/CloudConsole'));
 const HarvesterVNCPage = lazy(() => import('./pages/Clouds/Harvester/HarvesterVNC'));
 const OrgManagePage = lazy(() => import('./pages/Tenants/OrgManage'));
-const ApiDocs = lazy(() => import('./pages/ApiDocs'));
 const VmCreateWizardModal = lazy(() => import('./pages/Clouds/Harvester/modals/VmCreateWizardModal'));
 const AiSocPlaceholder = lazy(() => import('./pages/SecOps/AiSocPlaceholder'));
 const AiSocFrame = lazy(() => import('./pages/SecOps/AiSocFrame'));
@@ -155,7 +154,6 @@ const AppRoutes: React.FC = () => {
           <Route path="sec-mgr-plane/cascade-channels/:id" element={<CENDetailPage />} />
           <Route path="sec-mgr-plane/apps" element={<SecurityApps />} />
           <Route path="sec-mgr-plane/security-services" element={<SecurityServices />} />
-          <Route path="api-docs" element={<ApiDocs />} />
           {/* AI SOC Integration Placeholders */}
           <Route path="aisoc/situation/overview" element={<AiSocPlaceholder title="AI SOC总览" module="situation_overview" />} />
           <Route path="aisoc/data-source" element={<AiSocFrame path="data-source" />} />

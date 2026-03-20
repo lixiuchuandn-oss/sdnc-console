@@ -1009,7 +1009,7 @@ const OrgManagePage: React.FC = () => {
                         showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
-                      bordered
+                      bordered={false}
                     />
                   </div>
                 ) : (
@@ -1074,7 +1074,7 @@ const OrgManagePage: React.FC = () => {
                         showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
-                      bordered
+                      bordered={false}
                     />
                   </div>
                 ) : (
@@ -1134,7 +1134,7 @@ const OrgManagePage: React.FC = () => {
                         showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
-                      bordered
+                      bordered={false}
                     />
                   </div>
                 ) : (
@@ -1197,7 +1197,7 @@ const OrgManagePage: React.FC = () => {
                         showTotal: (total) => `共 ${total} 条`,
                       }}
                       size="small"
-                      bordered
+                      bordered={false}
                     />
                   </div>
                 ) : (
@@ -1274,7 +1274,7 @@ const OrgManagePage: React.FC = () => {
                         <Table
                           className="std-table"
                           size="small"
-                          bordered
+                          bordered={false}
                           loading={sdnVrLoading}
                           rowKey={(r: any) => r.vr_unique_id || r.uuid || r.id}
                           dataSource={sdnVrs}
@@ -1323,7 +1323,7 @@ const OrgManagePage: React.FC = () => {
                         <Table
                           className="std-table"
                           size="small"
-                          bordered
+                          bordered={false}
                           loading={securityLoading}
                           rowKey={(r: any) => r.id || r._id}
                           dataSource={protectionObjects}
@@ -1343,7 +1343,7 @@ const OrgManagePage: React.FC = () => {
                         <Table
                           className="std-table"
                           size="small"
-                          bordered
+                          bordered={false}
                           loading={securityLoading}
                           rowKey={(r: any) => r.id || r._id}
                           dataSource={securityChains}

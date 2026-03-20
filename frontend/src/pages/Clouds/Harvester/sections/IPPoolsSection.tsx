@@ -365,7 +365,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
         <Space>
           <Input
             className="toolbar-search"
-            placeholder="关键字"
+            placeholder="名称/ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
@@ -377,6 +377,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
             value={nsFilter || undefined}
             onChange={(v) => setNsFilter(v || '')}
             allowClear
+            className="toolbar-filter-sm"
             style={{ width: 150 }}
             options={namespaceOptions}
           />

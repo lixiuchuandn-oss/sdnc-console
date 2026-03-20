@@ -4,10 +4,11 @@
  * 将各条规则聚合为可读的“host -> path”描述，并支持关键字过滤与手动刷新。
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Tag, Button, message, Input } from 'antd';
+import { Table, Button, Input } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 
 /**
  * 组件入参说明
@@ -68,29 +69,14 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
   /**
    * 表格列定义
    * - 规则列采用 ellipsis 展示，内容较长时不影响整体表格宽度
-   * - 操作列当前仅提供删除占位（实际删除能力未开放）
    */
-  const columns = [
+  const allColumns = [
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
     { title: '规则', dataIndex: 'rules', key: 'rules', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp' },
-    {
-      title: '操作',
-      key: 'action',
-      width: 80,
-      align: 'left' as const,
-      fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown 
-          buttonProps={{ className: 'row-actions-trigger' }}
-          items={[
-            { key: 'delete', label: '删除', danger: true, onClick: () => message.info('暂不支持删除') }
-          ]}
-        />
-      ),
-    },
   ];
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_ingresses_table');
 
   return (
     <PageDetailSection
@@ -99,7 +85,7 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
         <>
           <Input
             className="toolbar-search"
-            placeholder="关键字"
+            placeholder="名称/命名空间"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
@@ -116,15 +102,21 @@ const IngressesSection: React.FC<Props> = ({ cloudId, ingresses, loading, onRefr
           </button>
         </>
       )}
-      toolbarRight={
-        <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
-      }
+      toolbarRight={(
+        <div className="toolbar-actions">
+          <TableColumnSettingsButton
+            allColumns={allColumns}
+            settingsKey="harvester_ingresses_table"
+          />
+          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
+        </div>
+      )}
     >
       <Table
         className="std-table"
         bordered={false}
         dataSource={filteredData}
-        columns={columns}
+        columns={tableColumns}
         rowKey="key"
         loading={loading}
         pagination={{

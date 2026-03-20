@@ -9,6 +9,8 @@ import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { createKubeOvnSubnet, deleteKubeOvnSubnet, updateKubeOvnSubnet } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 type Props = {
   subnets: any[];
@@ -20,6 +22,12 @@ type Props = {
 };
 
 const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading, onRefresh, onRefreshNads, showYaml = true }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasVpcsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.vpcs:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
   const { id: cloudId } = useParams<{ id: string }>();
   const [keyword, setKeyword] = useState<string>('');
   const [vpc, setVpc] = useState<string | undefined>(undefined);
@@ -100,6 +108,10 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   }, [subnets, keyword, vpc, protocol, nat, dhcp]);
 
   const handleSubmit = async () => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     try {
       const values = await form.validateFields();
       setSubmitting(true);
@@ -166,6 +178,10 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   };
 
   const handleEdit = (record: any) => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     setIsEditMode(true);
     setCurrentSubnet(record);
     
@@ -195,6 +211,10 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   };
 
   const handleDelete = async (name: string) => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     let usingVms: string[] = [];
     try {
       const ecsRes = await fetchCloudProviderEcs(cloudId!, true);
@@ -263,7 +283,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       title: '子网名称', 
       key: 'name', 
       render: (_: any, r: any) => (
-        <span className="cell-link" onClick={() => handleEdit(r)}>
+        <span className={hasVpcsWrite ? "cell-link" : ""} onClick={() => { if (!hasVpcsWrite) return; handleEdit(r); }}>
           {r?.name || r?.metadata?.name}
         </span>
       )
@@ -321,6 +341,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
             { 
               key: 'edit', 
               label: '编辑', 
+              disabled: !hasVpcsWrite,
               onClick: () => handleEdit(r) 
             },
             { type: 'divider' },
@@ -328,13 +349,14 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
               key: 'delete', 
               label: '删除', 
               danger: true, 
+              disabled: !hasVpcsWrite,
               onClick: () => handleDelete(name) 
             }
-          ]} buttonProps={{ className: 'row-actions-trigger' }} />
+          ]} buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }} />
         );
       } 
     }
-  ], [showYaml]);
+  ], [showYaml, hasVpcsWrite]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_subnets_table');
@@ -344,8 +366,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="搜索名称" value={keyword} onChange={(e)=> setKeyword(e.target.value)} className="toolbar-search" />
-          <Select allowClear placeholder="VPC" options={vpcOptions} value={vpc} onChange={(v)=> setVpc(v)} className="toolbar-filter" />
+          <Input allowClear placeholder="名称/ID" value={keyword} onChange={(e)=> setKeyword(e.target.value)} className="toolbar-search" />
+          <Select allowClear placeholder="VPC" options={vpcOptions} value={vpc} onChange={(v)=> setVpc(v)} className="toolbar-filter-sm" />
           <Select allowClear placeholder="协议" options={protocolOptions} value={protocol} onChange={(v)=> setProtocol(v)} className="toolbar-filter-sm" />
           <Select allowClear placeholder="NAT" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={nat} onChange={(v)=> setNat(v)} className="toolbar-filter-sm" />
           <Select allowClear placeholder="DHCP" options={[{ label:'启用', value:'on' }, { label:'关闭', value:'off' }]} value={dhcp} onChange={(v)=> setDhcp(v)} className="toolbar-filter-sm" />
@@ -366,7 +388,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       )}
       toolbarRight={(
         <>
-          <Button type="primary" onClick={() => { setIsEditMode(false); setCurrentSubnet(null); form.resetFields(); setIsModalOpen(true); }}>新建子网</Button>
+          <Button type="primary" disabled={!hasVpcsWrite} onClick={() => { if (!hasVpcsWrite) return; setIsEditMode(false); setCurrentSubnet(null); form.resetFields(); setIsModalOpen(true); }}>新建子网</Button>
           <TableColumnSettingsButton 
             allColumns={allColumns} 
             settingsKey="harvester_subnets_table"

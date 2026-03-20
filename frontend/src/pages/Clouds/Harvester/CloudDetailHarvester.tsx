@@ -12,7 +12,7 @@ import KubeOvnPublicNetworksSection from './kube-ovn/PubnetSection';
 import GpusSection from './sections/GpusSection';
 import PciDevicesSection from './sections/PciDevicesSection';
 import UsbDevicesSection from './sections/UsbDevicesSection';
-import TasksSection from './sections/TasksSection';
+import MigrationsSection from './sections/MigrationsSection';
 import StorageClassesSection from './sections/StorageClassesSection';
 import SnapshotsSection from './sections/SnapshotsSection';
 import BackupsSection from './sections/BackupsSection';
@@ -1168,7 +1168,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     },
                     {
                       key: 'ingresses',
-                      label: 'Ingress 路由',
+                      label: 'Ingress',
                       children: (
                         <>
                           <IngressesSection cloudId={cloudId} ingresses={harvesterIngresses} loading={resourceLoading.ingresses} onRefresh={(force = true, silent = false) => {
@@ -1562,16 +1562,16 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       )
                     },
                     {
-                      key: 'tasks',
-                      label: '任务记录',
-                      children: <TasksSection cloudId={cloudId} />
+                      key: 'migrations',
+                      label: '迁移记录',
+                      children: <MigrationsSection cloudId={cloudId} />
                     }
                   ].filter((i:any) => {
                       if (i.key === 'ecs') return checkPerm('clouds.ecs:read');
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
                       if (i.key === 'ssh_keys') return checkPerm('clouds.sshkeys:read');
                       if (i.key === 'cloud_inits') return checkPerm('clouds.cloudinits:read');
-                      if (i.key === 'tasks') return checkPerm('clouds.ecs:read');
+                      if (i.key === 'migrations') return checkPerm('clouds.ecs:read');
                       return true;
                   })}
                 />

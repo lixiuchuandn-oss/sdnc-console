@@ -38,6 +38,8 @@ import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import NadCreateModal from '../modals/NadCreateModal';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 组件入参类型定义
@@ -63,6 +65,18 @@ type Props = {
 };
 
 const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, isTenant, bordered = true, onlyBridge = false }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasNadsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.nads:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
+  const ensureNadsWrite = () => {
+    if (hasNadsWrite) return true;
+    message.error('当前账号没有附加网络操作权限（需要 clouds.nads:write 或 clouds:write 权限）');
+    return false;
+  };
+
   // ==================== 状态管理 ====================
   
   /** 过滤条件：关键字搜索（匹配网络名称或命名空间） */
@@ -211,6 +225,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * @param record - NAD 记录对象
    */
   const handleDelete = async (record: any) => {
+    if (!ensureNadsWrite()) return;
+
     // 租户不能删除公共命名空间的资源
     const isPublic = isPublicNamespace(record._namespace);
     if (isTenant && isPublic) {
@@ -293,6 +309,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
    * - 删除失败时显示错误信息，但不影响其他网络的删除
    */
   const handleBatchDelete = async () => {
+    if (!ensureNadsWrite()) return;
     if (selectedRowKeys.length === 0) return;
 
     // 从过滤后的数据中获取选中的记录
@@ -644,7 +661,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     selectedRowKeys,
     onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
     getCheckboxProps: (record: any) => ({
-      disabled: isSystemNamespace(record._namespace) || (isTenant && isPublicNamespace(record._namespace)),
+      disabled: !hasNadsWrite || isSystemNamespace(record._namespace) || (isTenant && isPublicNamespace(record._namespace)),
     }),
   };
 
@@ -768,10 +785,10 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             disabled: deleteDisabled,
             onClick: () => handleDelete(r) 
           });
-          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasNadsWrite }} />;
       } 
     },
-  ], []);
+  ], [hasNadsWrite, isTenant]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nads_table');
@@ -783,7 +800,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
         <>
           <Input 
             allowClear 
-            placeholder="关键字" 
+            placeholder="名称/ID" 
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
@@ -795,7 +812,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
               placeholder="命名空间" 
               value={nsFilter || undefined} 
               onChange={(v) => setNsFilter(v || '')} 
-              className="toolbar-filter"
+              className="toolbar-filter-sm"
               options={[{ value: '', label: '全部命名空间' }, ...nsOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
             />
           )}
@@ -804,7 +821,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
             placeholder="IP分配方式" 
             value={ipamFilter || undefined} 
             onChange={(v) => setIpamFilter(v || '')} 
-            className="toolbar-filter"
+            className="toolbar-filter-sm"
             options={[{ value: '', label: '全部IP分配方式' }, ...ipamOptions.map(s => ({ value: s.toLowerCase(), label: s }))]} 
           />
           <button
@@ -822,14 +839,23 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
       )}
       toolbarRight={(
         <>
-          <Button type="primary" onClick={() => setCreateVisible(true)}>创建网络</Button>
+          <Button
+            type="primary"
+            disabled={!hasNadsWrite}
+            onClick={() => {
+              if (!ensureNadsWrite()) return;
+              setCreateVisible(true);
+            }}
+          >
+            创建网络
+          </Button>
           <Dropdown
             menu={{
               items: [
                 { 
                   key: 'batchDelete', 
                   label: '批量删除', 
-                  disabled: selectedRowKeys.length === 0 
+                  disabled: !hasNadsWrite || selectedRowKeys.length === 0 
                 },
               ],
               onClick: ({ key }) => {
@@ -837,7 +863,7 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
               },
             }}
           >
-            <Button icon={<EllipsisOutlined />} />
+            <Button icon={<EllipsisOutlined />} disabled={!hasNadsWrite || selectedRowKeys.length === 0} />
           </Dropdown>
           <TableColumnSettingsButton 
             allColumns={allColumns} 

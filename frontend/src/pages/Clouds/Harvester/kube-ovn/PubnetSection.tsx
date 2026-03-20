@@ -242,7 +242,7 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
                 <div className="toolbar-container">
                     <Input 
                         allowClear 
-                        placeholder="关键字" 
+                        placeholder="名称/ID" 
                         value={keyword} 
                         onChange={(e) => setKeyword(e.target.value)} 
                         className="toolbar-search" 
@@ -250,6 +250,7 @@ const SubnetList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId,
                     <Select
                         allowClear
                         placeholder="筛选 VLAN"
+                        className="toolbar-filter-sm"
                         style={{ width: 180, marginRight: 8 }}
                         value={vlanFilter}
                         onChange={setVlanFilter}
@@ -421,7 +422,7 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
                 <div className="toolbar-container">
                     <Input 
                         allowClear 
-                        placeholder="关键字" 
+                        placeholder="名称/ID" 
                         value={keyword} 
                         onChange={(e) => setKeyword(e.target.value)} 
                         className="toolbar-search" 
@@ -429,6 +430,7 @@ const VlanList: React.FC<{ cloudId: string; isActive: boolean }> = ({ cloudId, i
                     <Select
                         allowClear
                         placeholder="筛选 Provider"
+                        className="toolbar-filter-sm"
                         style={{ width: 180, marginRight: 8 }}
                         value={providerFilter}
                         onChange={setProviderFilter}

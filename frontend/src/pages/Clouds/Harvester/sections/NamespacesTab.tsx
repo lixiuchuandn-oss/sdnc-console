@@ -11,6 +11,8 @@ import StdFormModal from '../../../../components/StdFormModal';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 组件属性定义
@@ -53,6 +55,13 @@ const phaseBadge = (phase?: string) => {
  * 展示命名空间列表，提供创建、编辑、删除及详情查看功能
  */
 const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = false, onRefresh, showLog, raw, isTenant }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasNamespacesWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.namespaces:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
+
   // === 状态管理 ===
   // 搜索关键字
   const [keyword, setKeyword] = useState('');
@@ -60,10 +69,10 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
   const [creating, setCreating] = useState<boolean>(false);
   // 当前正在编辑的命名空间对象 (null 表示新建)
   const [editingNamespace, setEditingNamespace] = useState<any>(null);
-  // 类型过滤器: all(全部) | system(系统) | user(业务)
-  const [filterType, setFilterType] = useState<string>('all');
-  // 状态过滤器: all(全部) | Active | Terminating
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  // 类型过滤器: ''(全部) | system(系统) | user(业务)
+  const [filterType, setFilterType] = useState<string>('');
+  // 状态过滤器: ''(全部) | Active | Terminating
+  const [filterStatus, setFilterStatus] = useState<string>('');
   
   // === 详情抽屉状态 ===
   const [detailVisible, setDetailVisible] = useState(false);
@@ -108,7 +117,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     let res = Array.isArray(namespaces) ? namespaces : [];
 
     // 1. 类型过滤 (系统/业务)
-    if (filterType !== 'all') {
+    if (filterType) {
       res = res.filter((r: any) => {
         const name = r?.metadata?.name || r?.name || '';
         const isSys = isSystemNamespace(name);
@@ -117,7 +126,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
     }
 
     // 2. 状态过滤 (Active/Terminating)
-    if (filterStatus !== 'all') {
+    if (filterStatus) {
       res = res.filter((r: any) => {
         const phase = r?.status?.phase || 'Unknown';
         return phase === filterStatus;
@@ -143,6 +152,10 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
    * 解析 ResourceQuota 和 ContainerDefaultResourceLimit 并回填到表单
    */
   const handleEdit = (record: any) => {
+    if (!hasNamespacesWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     setEditingNamespace(record);
     const name = record?.metadata?.name || record?.name;
     const labels = record?.metadata?.labels || {};
@@ -165,6 +178,10 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
    * 处理表单提交 (创建/更新)
    */
   const handleCreate = async (values: any) => {
+    if (!hasNamespacesWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     try {
       const v = values;
       const name = String(v.name || '');
@@ -375,27 +392,29 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
         <>
           <Input
             allowClear
-            placeholder="关键字（名称/标签）"
+            placeholder="名称/标签"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
           <Select
-            value={filterType}
-            onChange={setFilterType}
+            allowClear
+            placeholder="命名空间类型"
+            value={filterType || undefined}
+            onChange={(v) => setFilterType(v || '')}
             options={[
-              { label: '所有类型', value: 'all' },
               { label: '系统', value: 'system' },
               { label: '业务', value: 'user' },
             ]}
             className="toolbar-filter-sm"
           />
           <Select
-            value={filterStatus}
-            onChange={setFilterStatus}
+            allowClear
+            placeholder="命名空间状态"
+            value={filterStatus || undefined}
+            onChange={(v) => setFilterStatus(v || '')}
             options={[
-              { label: '所有状态', value: 'all' },
               { label: 'Active', value: 'Active' },
               { label: 'Terminating', value: 'Terminating' },
             ]}
@@ -406,8 +425,8 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
-              setFilterType('all');
-              setFilterStatus('all');
+              setFilterType('');
+              setFilterStatus('');
             }}
           >
             重置
@@ -417,7 +436,7 @@ const NamespacesTab: React.FC<Props> = ({ cloudId, namespaces = [], loading = fa
       // === 工具栏右侧：操作按钮 ===
       toolbarRight={
         <>
-          <Button type="primary" onClick={() => { form.resetFields(); setCreating(true); }}>新增命名空间</Button>
+          <Button type="primary" disabled={!hasNamespacesWrite} onClick={() => { if (!hasNamespacesWrite) return; form.resetFields(); setCreating(true); }}>新增命名空间</Button>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey="harvester_namespaces_table_v3"

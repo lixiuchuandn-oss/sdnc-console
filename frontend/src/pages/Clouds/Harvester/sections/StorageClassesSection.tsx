@@ -17,7 +17,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions } from 'antd';
+import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions, Select } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -63,6 +63,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
    * - 匹配字段：名称（metadata.name）与 provisioner
    */
   const [keyword, setKeyword] = useState<string>('');
+  const [provisionerFilter, setProvisionerFilter] = useState<string>('');
+  const [reclaimPolicyFilter, setReclaimPolicyFilter] = useState<string>('');
   
   /**
    * HarvesterResourceDrawer 抽屉相关状态
@@ -171,6 +173,29 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_storageclasses_table');
 
+  const provisionerOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (Array.isArray(storageClasses) ? storageClasses : [])
+            .map((r: any) => String(r?.provisioner || '').trim())
+            .filter(Boolean),
+        ),
+      ).sort(),
+    [storageClasses],
+  );
+  const reclaimPolicyOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (Array.isArray(storageClasses) ? storageClasses : [])
+            .map((r: any) => String(r?.reclaimPolicy || '').trim())
+            .filter(Boolean),
+        ),
+      ).sort(),
+    [storageClasses],
+  );
+
   /**
    * 过滤后的数据源（filtered）
    *
@@ -182,13 +207,18 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
    */
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
+    const pf = provisionerFilter.trim().toLowerCase();
+    const rf = reclaimPolicyFilter.trim().toLowerCase();
     return (Array.isArray(storageClasses) ? storageClasses : []).filter((r: any) => {
       const name = String(r?.metadata?.name || r?.name || '').toLowerCase();
       const provisioner = String(r?.provisioner || '').toLowerCase();
+      const reclaimPolicy = String(r?.reclaimPolicy || '').toLowerCase();
       if (kw && !(name.includes(kw) || provisioner.includes(kw))) return false;
+      if (pf && provisioner !== pf) return false;
+      if (rf && reclaimPolicy !== rf) return false;
       return true;
     });
-  }, [storageClasses, keyword]);
+  }, [storageClasses, keyword, provisionerFilter, reclaimPolicyFilter]);
 
   return (
     <PageDetailSection
@@ -197,16 +227,36 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
         <>
           <Input 
             allowClear 
-            placeholder="关键字" 
+            placeholder="名称/驱动" 
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
             className="toolbar-search" 
           />
+          <Select
+            allowClear
+            placeholder="驱动类型"
+            value={provisionerFilter || undefined}
+            onChange={(v) => setProvisionerFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={provisionerOptions.map((p) => ({ value: p, label: p }))}
+          />
+          <Select
+            allowClear
+            placeholder="回收策略"
+            value={reclaimPolicyFilter || undefined}
+            onChange={(v) => setReclaimPolicyFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={reclaimPolicyOptions.map((p) => ({ value: p, label: p }))}
+          />
           <button
             type="button"
             className="toolbar-reset-btn"
-            onClick={() => setKeyword('')}
+            onClick={() => {
+              setKeyword('');
+              setProvisionerFilter('');
+              setReclaimPolicyFilter('');
+            }}
           >
             重置
           </button>

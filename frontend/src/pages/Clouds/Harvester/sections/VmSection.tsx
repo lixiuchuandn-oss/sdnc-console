@@ -96,6 +96,7 @@ type Props = {
   namespaces?: any[];
   volumes?: any[]; 
   isTenant?: boolean;
+  mode?: 'standard' | 'simple';
   bordered?: boolean; // New prop to control table border explicitly
   disableColumnSettings?: boolean; // 禁用列设置组件，避免在某些场景下导致死锁
 };
@@ -104,12 +105,20 @@ type Props = {
  * [组件定义] VmSection
  * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, bordered = true, disableColumnSettings = false }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, mode = 'standard', bordered = true, disableColumnSettings = false }) => {
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
+  // 路由跳转：用于跳转到“创建实例”等页面
   const navigate = useNavigate();
+  // 当前路由位置：用于在跳转时携带 backgroundLocation，支持返回/抽屉等交互
   const location = useLocation();
+  // 当前登录用户：包含 permissions 等信息
   const { user } = useAuth();
+  // 创建虚拟机权限：需要 clouds.ecs:write 或 clouds:write（包含 ecs:write 的继承）
+  const hasVmCreatePermission = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return hasPermissionForAction(perms, 'clouds.ecs:write') || hasPermissionForAction(perms, 'clouds:write');
+  }, [user?.permissions]);
   
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
@@ -1467,9 +1476,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         </div>
       );
     } },
-    { title: '命名空间', key: 'namespace', ellipsis: true, render: (_: any, r: any) => SafeRead.namespace(r) || '-' },
-    { title: '租户', key: 'tenant', ellipsis: true, render: (_: any, r: any) => SafeRead.tenant(r) || '-' },
-    { title: '组织', key: 'organization', ellipsis: true, render: (_: any, r: any) => SafeRead.organization(r) },
+    ...(mode === 'standard' ? [
+      { title: '命名空间', key: 'namespace', ellipsis: true, render: (_: any, r: any) => SafeRead.namespace(r) || '-' },
+      { title: '租户', key: 'tenant', ellipsis: true, render: (_: any, r: any) => SafeRead.tenant(r) || '-' },
+      { title: '组织', key: 'organization', ellipsis: true, render: (_: any, r: any) => SafeRead.organization(r) },
+    ] : []),
     { title: '节点', key: 'node',  ellipsis: true, render: (_: any, r: any) => {
       const node = String(SafeRead.node(r)).trim();
       return node ? <Tag color="blue">{node}</Tag> : '-';
@@ -1490,7 +1501,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const isEnabled = SafeRead.isHotPlugEnabled(r);
       return isEnabled ? <Tag color="success">已开启</Tag> : <Tag>未开启</Tag>;
     } },
-    { title: '说明', key: 'memSpec', ellipsis: true, render: (_: any, r: any) => SafeRead.memSpec(r) },
     { title: '镜像', key: 'image', ellipsis: true, render: (_: any, r: any) => {
         const displayName = SafeRead.imageDisplayName(r);
         const img = SafeRead.image(r);
@@ -1557,13 +1567,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
       // 权限检查：检查用户是否有云主机相关权限
       const perms = (user?.permissions ?? []) as string[];
-      const hasEcsRead = hasPermissionForAction(perms, 'clouds.ecs:read') || 
+      const hasEcsRead = hasPermissionForAction(perms, 'clouds.ecs:read') ||
                          hasPermissionForAction(perms, 'clouds:read');
       const hasEcsWrite = hasPermissionForAction(perms, 'clouds.ecs:write') || 
                           hasPermissionForAction(perms, 'clouds:write');
       const hasConsoleRead = hasPermissionForAction(perms, 'clouds.console:read');
-      
-      // 如果没有任何权限，禁用行操作按钮
       const hasAnyPermission = hasEcsRead || hasEcsWrite || hasConsoleRead;
 
       const items: any[] = [
@@ -1572,7 +1580,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         // ----------------------------------------------------------------
         { key: 'detail', label:'实例详情', onClick: () => handleShowVmDetail(r, 'detail') },        
         // 运维模式下的 YAML / 原始对象查看
-        ...(!isTenant ? [
+        ...(!isTenant && mode === 'standard' ? [
             { key: 'detail_ops', label: '运维信息', onClick: () => handleShowOpsinfo(r, 'detail') }
         ] : []),
 
@@ -1659,20 +1667,28 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           key: 'delete', 
           label: '删除', 
           danger: true, 
-          disabled: isImportant,
+          disabled: !hasEcsWrite || isImportant,
           tooltip: isImportant ? '重要实例受保护，无法删除' : undefined,
-          onClick: () => handleDeleteConfirm(r) 
+          onClick: () => {
+            if (!hasEcsWrite) {
+              message.error('无权限执行该操作');
+              return;
+            }
+            handleDeleteConfirm(r);
+          } 
         },
       ];
       return (
-        <ResourceActionsDropdown 
-          items={items} 
-          buttonProps={{ 
-            className: 'row-actions-trigger', 
-            style: { margin: 0 },
-            disabled: !hasAnyPermission
-          }} 
-        />
+        <span>
+          <ResourceActionsDropdown 
+            items={items} 
+            buttonProps={{ 
+              className: 'row-actions-trigger', 
+              style: { margin: 0 },
+              disabled: !hasEcsWrite
+            }} 
+          />
+        </span>
       );
     } },
   ], [handleShowVmDetail, handleShowOpsinfo, handleClone, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant, handleMigrate, handleAbortMigration]);
@@ -1695,11 +1711,11 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       <div key="toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         {/* 左侧：筛选器 */}
         <div key="toolbar-left" style={{ display: 'flex', gap: 8 }}>
-          <Input key="keyword" allowClear placeholder="关键字" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
-          {!isTenant && (
+          <Input key="keyword" allowClear placeholder="名称/ID" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+          {!isTenant && mode === 'standard' && (
             <Cascader
               key="tenant-org-filter"
-              className="toolbar-filter"
+              className="toolbar-filter-sm"
               placeholder="组织/租户"
               options={tenantOrgOptions}
               value={tenantOrgPath}
@@ -1708,10 +1724,10 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
               allowClear
             />
           )}
-          {!isTenant && (
+          {!isTenant && mode === 'standard' && (
             <Select
             key="ns-filter"
-            className="toolbar-filter"
+            className="toolbar-filter-sm"
             placeholder="命名空间"
             value={nsValue || undefined}
             onChange={(v)=> onNsChange(v || undefined)}
@@ -1729,7 +1745,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           <Select
             key="node-filter"
             className="toolbar-filter-sm"
-            placeholder="选择节点"
+            placeholder="节点"
             value={nodeValue || undefined}
             onChange={(v)=> onNodeChange(v || undefined)}
             allowClear
@@ -1739,7 +1755,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           <Select
             key="status-filter"
             className="toolbar-filter-sm"
-            placeholder="云主机状态"
+            placeholder="状态"
             value={statusFilter || undefined}
             onChange={(v)=> setStatusFilter(v || '')}
             allowClear
@@ -1764,39 +1780,54 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         <div key="toolbar-right" className="toolbar-actions">
           <Button 
             key="create-btn" 
-            type="primary" 
+            type="primary"
+            disabled={!hasVmCreatePermission}
             onClick={() => {
-              // 权限检查：创建虚拟机需要 clouds.ecs:write 或 clouds:write 权限
-              // 注意：clouds:write 包含 clouds.ecs:write（权限继承）
-              // 如果没有这些权限，路由守卫或按钮检查会阻止打开创建向导
-              const perms = (user?.permissions ?? []) as string[];
-              // clouds:write 包含 clouds.ecs:write（权限继承）
-              const hasEcsWrite = hasPermissionForAction(perms, 'clouds.ecs:write') || 
-                                  hasPermissionForAction(perms, 'clouds:write');
-              
-              if (!hasEcsWrite) {
-                message.error('当前账号没有创建虚拟机的权限（需要 clouds.ecs:write 或 clouds:write 权限）');
-                return;
-              }
+              if (!hasVmCreatePermission) return;
               navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location, isTenant } });
             }}
           >
             创建实例
           </Button>
-          <Dropdown
-            key="batch-actions"
-            menu={{
-              items: [
-                { key:'batchStop', label:'批量停止', disabled: selectedKeys.length===0 },
-                { key:'batchReboot', label:'批量重启', disabled: selectedKeys.length===0 },
-                { type: 'divider' },
-                { key:'batchDelete', label:<span style={{ color:'#ff4d4f' }}>批量删除</span>, disabled: selectedKeys.length===0 },
-              ],
-              onClick: ({ key }) => { if (key==='batchStop') batchStop(); if (key==='batchReboot') batchReboot(); if (key==='batchDelete') batchDelete(); },
-            }}
+          <Tooltip
+            title={
+              !hasVmCreatePermission
+                ? undefined
+                : selectedKeys.length === 0
+                  ? '请先选择实例'
+                  : undefined
+            }
           >
-            <Button icon={<EllipsisOutlined />}></Button>
-          </Dropdown>
+            <span>
+              <Dropdown
+                key="batch-actions"
+                trigger={['click']}
+                menu={{
+                  items: [
+                    { key:'batchStop', label:'批量停止', disabled: !hasVmCreatePermission || selectedKeys.length===0 },
+                    { key:'batchReboot', label:'批量重启', disabled: !hasVmCreatePermission || selectedKeys.length===0 },
+                    { type: 'divider' },
+                    { key:'batchDelete', label:<span style={{ color:'#ff4d4f' }}>批量删除</span>, disabled: !hasVmCreatePermission || selectedKeys.length===0 },
+                  ],
+                  onClick: ({ key }) => {
+                    if (!hasVmCreatePermission) {
+                      message.error('无权限执行批量操作');
+                      return;
+                    }
+                    if (selectedKeys.length === 0) {
+                      message.warning('请先选择实例');
+                      return;
+                    }
+                    if (key==='batchStop') batchStop();
+                    if (key==='batchReboot') batchReboot();
+                    if (key==='batchDelete') batchDelete();
+                  },
+                }}
+              >
+                <Button icon={<EllipsisOutlined />} disabled={!hasVmCreatePermission || selectedKeys.length===0}></Button>
+              </Dropdown>
+            </span>
+          </Tooltip>
           {!disableColumnSettings && (
             <TableColumnSettingsButton
               key="col-settings"

@@ -38,6 +38,8 @@ import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * [组件参数定义]
@@ -82,6 +84,7 @@ interface Props {
    * 租户模式：隐藏运维信息入口
    */
   isTenant?: boolean;
+  mode?: 'standard' | 'simple';
 }
 
 /**
@@ -113,8 +116,21 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   vmId, 
   defaultHiddenColumns, 
   isTenant,
+  mode = 'standard',
   bordered = true
 }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasSchedulesWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.schedules:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
+  const ensureSchedulesWrite = useCallback(() => {
+    if (hasSchedulesWrite) return true;
+    message.error('当前账号没有定时策略操作权限（需要 clouds.schedules:write 或 clouds:write 权限）');
+    return false;
+  }, [hasSchedulesWrite]);
+
   // ==============================================================================
   // 1. 本地状态管理 (Local State)
   // ==============================================================================
@@ -123,6 +139,8 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   const [keyword, setKeyword] = useState<string>('');
   // 下拉框选中的类型（全部 / 备份 / 快照）
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
+  // 命名空间筛选
+  const [namespaceFilter, setNamespaceFilter] = useState<string | undefined>(undefined);
   
   // 控制各种弹窗的显示/隐藏
   const [drawerVisible, setDrawerVisible] = useState(false); // 侧边详情抽屉
@@ -238,6 +256,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
 
   // 处理“停用/启用”点击
   const handleSuspend = useCallback(async (record: any) => {
+    if (!ensureSchedulesWrite()) return;
     try {
       const newSuspend = !record.suspended;
       // 发请求给后端
@@ -256,10 +275,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
     } catch (e: any) {
       message.error(`操作失败: ${e.message}`);
     }
-  }, [cloudId, onRefresh]);
+  }, [cloudId, onRefresh, ensureSchedulesWrite]);
 
   // 处理“删除”点击
   const handleDelete = useCallback((record: any) => {
+    if (!ensureSchedulesWrite()) return;
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除定时备份策略 ${record.name} (${record.id}) 吗？此操作不可恢复。`,
@@ -282,7 +302,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         }
       }
     });
-  }, [cloudId, onRefresh]);
+  }, [cloudId, onRefresh, ensureSchedulesWrite]);
 
   // ==============================================================================
   // 5. 数据处理与渲染准备 (Data Processing)
@@ -383,6 +403,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
     if (typeFilter && typeFilter !== 'all') {
       d = d.filter((x: any) => x.type === typeFilter);
     }
+    if (namespaceFilter) {
+      d = d.filter((x: any) => x.namespace === namespaceFilter);
+    }
     // 关键字过滤 (名称 或 命名空间)
     if (keyword) {
       const k = keyword.toLowerCase();
@@ -393,7 +416,17 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       d = d.filter((x: any) => x.vmName === vmId);
     }
     return d;
-  }, [dataSource, keyword, typeFilter, vmId]);
+  }, [dataSource, keyword, typeFilter, vmId, namespaceFilter]);
+
+  const namespaceOptions = useMemo(() => {
+    const set = new Set<string>();
+    dataSource.forEach((x: any) => {
+      const ns = String(x?.namespace || '').trim();
+      if (!ns) return;
+      set.add(ns);
+    });
+    return Array.from(set).sort().map((v) => ({ value: v, label: v }));
+  }, [dataSource]);
 
   /**
    * [表格列定义]
@@ -473,11 +506,13 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
          items.push({
            key: 'edit',
            label: '策略修改',
+           disabled: !hasSchedulesWrite,
            onClick: () => { setCurrentRecord(r); setEditModalVisible(true); }
          });
          items.push({
            key: 'suspend',
            label: r.suspended ? '启用' : '停用',
+           disabled: !hasSchedulesWrite,
            onClick: () => handleSuspend(r)
          });
          items.push({
@@ -488,6 +523,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
            key: 'delete',
            label: '删除',
            danger: true,
+           disabled: !hasSchedulesWrite,
            onClick: () => handleDelete(r)
          });
 
@@ -501,7 +537,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       );
       }
     }
-  ], [handleDelete, handleSuspend, isTenant]);
+  ], [handleDelete, handleSuspend, isTenant, hasSchedulesWrite]);
 
   // 用户自定义的列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_schedule_backups_list', defaultHiddenColumns);
@@ -516,12 +552,24 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
             <Input
               key="schedule-search"
               className="toolbar-search"
-              placeholder="关键字"
+              placeholder="名称/ID"
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword}
               onChange={e => setKeyword(e.target.value)}
               allowClear
             />
+            {mode === 'standard' && (
+              <Select
+                key="schedule-namespace-filter"
+                className="toolbar-filter-sm"
+                allowClear
+                showSearch
+                placeholder="命名空间"
+                value={namespaceFilter}
+                onChange={setNamespaceFilter}
+                options={namespaceOptions}
+              />
+            )}
             <Select
               key="schedule-type-filter"
               className="toolbar-filter-sm"
@@ -541,6 +589,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
               onClick={() => {
                 setKeyword('');
                 setTypeFilter(undefined);
+                setNamespaceFilter(undefined);
               }}
             >
               重置
@@ -550,7 +599,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         // 右侧工具栏：创建按钮 + 列设置 + 刷新
         toolbarRight={(
            <div className="toolbar-actions">
-             <Button key="create-btn" type="primary" onClick={() => setCreateModalVisible(true)}>创建定时策略</Button>
+             <Button key="create-btn" type="primary" disabled={!hasSchedulesWrite} onClick={() => { if (!ensureSchedulesWrite()) return; setCreateModalVisible(true); }}>创建定时策略</Button>
              <TableColumnSettingsButton
                key="col-settings"
                allColumns={columns}

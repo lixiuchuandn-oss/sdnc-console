@@ -65,7 +65,7 @@
  */
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge, Tag } from 'antd';
+import { Table, Input, Select, Button, Dropdown, Modal, Form, App, InputNumber, Checkbox, Tabs, Badge, Tag, Tooltip } from 'antd';
 import { rebootCloudProviderEcs } from '../../../../services/api';
 import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlined, SearchOutlined, HddOutlined } from '@ant-design/icons';
@@ -74,6 +74,8 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume, fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterVolumeDetailDrawer from '../components/HarvesterVolumeDetailDrawer';
@@ -276,6 +278,19 @@ const VolumesSection: React.FC<Props> = ({
   onRefreshImages,
   isTenant
 }) => {
+  const { message, modal } = App.useApp();
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasDisksWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.disks:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
+  const ensureDisksWrite = useCallback(() => {
+    if (hasDisksWrite) return true;
+    message.error('当前账号没有云盘操作权限（需要 clouds.disks:write 或 clouds:write 权限）');
+    return false;
+  }, [hasDisksWrite]);
+
   // ----------------------------------------------------------------
   // [状态管理] State
   // [标签] #状态管理 #useState
@@ -303,8 +318,6 @@ const VolumesSection: React.FC<Props> = ({
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
   const [detailOpsMode, setDetailOpsMode] = useState(false); // false: 云盘详情; true: 运维信息
-
-  const { message, modal } = App.useApp();
 
   // 表单实例
   const [createForm] = Form.useForm();
@@ -650,6 +663,7 @@ const VolumesSection: React.FC<Props> = ({
    * [位置] 第 485-507 行
    */
   const handleBatchDelete = () => {
+    if (!ensureDisksWrite()) return;
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter(v => selectedRowKeys.includes(v.key));
     
@@ -688,6 +702,7 @@ const VolumesSection: React.FC<Props> = ({
    * [位置] 第 512-527 行
    */
   const handleAttach = useCallback((r: VolumeView) => {
+    if (!ensureDisksWrite()) return;
     // 防止页面刚加载完 VM 数据还没同步过来
     if (!vms || vms.length === 0) {
       onRefresh?.(true);
@@ -701,7 +716,7 @@ const VolumesSection: React.FC<Props> = ({
       diskName: r.name
     });
     setAttachOpen(true);
-  }, [vms, onRefresh, SafeRead, attachForm]);
+  }, [vms, onRefresh, SafeRead, attachForm, ensureDisksWrite]);
 
   /**
    * [处理函数] handleDetach - 卸载卷
@@ -721,6 +736,7 @@ const VolumesSection: React.FC<Props> = ({
    * [位置] 第 537-614 行
    */
   const handleDetach = useCallback(async (r: VolumeView) => {
+    if (!ensureDisksWrite()) return;
     // 1. 数据检查
     if (!vms || vms.length === 0) {
       onRefresh?.();
@@ -806,7 +822,7 @@ const VolumesSection: React.FC<Props> = ({
         }
       }
     });
-  }, [vms, onRefresh, SafeRead, cloudId, message, modal, checkIsSystemDisk]);
+  }, [vms, onRefresh, SafeRead, cloudId, message, modal, checkIsSystemDisk, ensureDisksWrite]);
 
   // ----------------------------------------------------------------
   // [表格列配置] Table Columns
@@ -951,7 +967,9 @@ const VolumesSection: React.FC<Props> = ({
           { 
             key: 'edit', 
             label: '编辑配置', 
+            disabled: !hasDisksWrite,
             onClick: () => { 
+              if (!ensureDisksWrite()) return;
               setCurrentRecord(r); 
               editForm.resetFields(); 
               editForm.setFieldsValue({ 
@@ -963,7 +981,7 @@ const VolumesSection: React.FC<Props> = ({
           { 
             key: 'attach', 
             label: '挂载到虚拟机', 
-            disabled: !!vm, 
+            disabled: !!vm || !hasDisksWrite, 
             onClick: () => handleAttach(r) 
           },
           
@@ -971,7 +989,9 @@ const VolumesSection: React.FC<Props> = ({
           { 
             key: 'export', 
             label: '导出为镜像', 
+            disabled: !hasDisksWrite,
             onClick: () => { 
+              if (!ensureDisksWrite()) return;
               setCurrentRecord(r); 
               exportForm.resetFields(); 
               const scNames = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
@@ -983,7 +1003,9 @@ const VolumesSection: React.FC<Props> = ({
           { 
             key: 'snapshot', 
             label: '创建快照', 
+            disabled: !hasDisksWrite,
             onClick: () => { 
+              if (!ensureDisksWrite()) return;
               setCurrentRecord(r); 
               snapshotForm.resetFields(); 
               // 生成带随机后缀的快照名称以避免冲突
@@ -995,7 +1017,9 @@ const VolumesSection: React.FC<Props> = ({
           { 
             key: 'clone', 
             label: '克隆虚拟卷', 
+            disabled: !hasDisksWrite,
             onClick: () => { 
+              if (!ensureDisksWrite()) return;
               setCurrentRecord(r); 
               cloneForm.resetFields(); 
               cloneForm.setFieldsValue({ 
@@ -1012,14 +1036,16 @@ const VolumesSection: React.FC<Props> = ({
             key: 'detach', 
             label: '从云主机卸载', 
             danger: true, 
-            disabled: isSystemDisk,
+            disabled: isSystemDisk || !hasDisksWrite,
             onClick: () => handleDetach(r) 
           }] : []),
           { 
             key: 'delete', 
             label: '删除', 
             danger: true, 
+            disabled: !hasDisksWrite,
             onClick: () => {
+              if (!ensureDisksWrite()) return;
               modal.confirm({ 
                 title: `确认删除卷 ${r.name}？`, 
                 content: '删除后无法恢复。', 
@@ -1037,10 +1063,10 @@ const VolumesSection: React.FC<Props> = ({
             } 
           }
         ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasDisksWrite }} />;
       } 
     },
-  ], [cloudId, vms, storageClasses, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, checkIsSystemDisk]);
+  ], [cloudId, vms, storageClasses, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, checkIsSystemDisk, hasDisksWrite, ensureDisksWrite]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_volumes_table', ['namespace', 'volumeMode']);
@@ -1056,7 +1082,7 @@ const VolumesSection: React.FC<Props> = ({
         <>
           <Input 
             allowClear 
-            placeholder="关键字" 
+            placeholder="名称/ID" 
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} 
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
@@ -1066,13 +1092,13 @@ const VolumesSection: React.FC<Props> = ({
             <Select
               allowClear showSearch placeholder="命名空间"
               value={nsFilter || undefined} onChange={(v) => setNsFilter(v || '')}
-              className="toolbar-filter" options={[{ value: '', label: '全部' }, ...nsOptions]}
+              className="toolbar-filter-sm" options={[{ value: '', label: '全部' }, ...nsOptions]}
             />
           )}
           <Select
             allowClear showSearch placeholder="存储类"
             value={scFilter || undefined} onChange={(v) => setScFilter(v || '')}
-            className="toolbar-filter" 
+            className="toolbar-filter-sm" 
             options={[{ value: '', label: '全部' }, ...dataSource.map(v => v.storageClass).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map(s => ({ value: s, label: s }))]}
           />
           <Select
@@ -1096,7 +1122,8 @@ const VolumesSection: React.FC<Props> = ({
       )}
       toolbarRight={(
         <>
-          <Button type="primary" onClick={() => { 
+          <Button type="primary" disabled={!hasDisksWrite} onClick={() => { 
+            if (!ensureDisksWrite()) return;
             createForm.resetFields(); 
             const scNames = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
             // 优先选择 longhorn，然后选择包含 longhorn 的存储类
@@ -1116,15 +1143,37 @@ const VolumesSection: React.FC<Props> = ({
             }); 
             setCreateOpen(true); 
           }}>创建卷</Button>
-          <Dropdown
-            trigger={["click"]}
-            menu={{
-              items: [{ key: 'batchDelete', label: '批量删除', disabled: selectedRowKeys.length === 0, danger: true }],
-              onClick: ({ key }) => key === 'batchDelete' && handleBatchDelete()
-            }}
+          <Tooltip
+            title={
+              !hasDisksWrite
+                ? undefined
+                : selectedRowKeys.length === 0
+                  ? '请先选择云盘'
+                  : undefined
+            }
           >
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
+            <span>
+              <Dropdown
+                trigger={["click"]}
+                menu={{
+                  items: [{ key: 'batchDelete', label: '批量删除', disabled: !hasDisksWrite || selectedRowKeys.length === 0, danger: true }],
+                  onClick: ({ key }) => {
+                    if (!hasDisksWrite) {
+                      message.error('当前账号没有批量操作云盘的权限（需要 clouds.disks:write 或 clouds:write 权限）');
+                      return;
+                    }
+                    if (selectedRowKeys.length === 0) {
+                      message.warning('请先选择云盘');
+                      return;
+                    }
+                    if (key === 'batchDelete') handleBatchDelete();
+                  }
+                }}
+              >
+                <Button icon={<EllipsisOutlined />} disabled={!hasDisksWrite || selectedRowKeys.length === 0} />
+              </Dropdown>
+            </span>
+          </Tooltip>
           <TableColumnSettingsButton 
             allColumns={allColumns} 
             settingsKey="harvester_volumes_table"

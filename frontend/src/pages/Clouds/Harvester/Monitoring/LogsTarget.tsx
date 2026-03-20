@@ -42,6 +42,8 @@ const LOG_TYPE_TIP = (
 
 const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [keyword, setKeyword] = useState('');
+  const [logTypeFilter, setLogTypeFilter] = useState<string>('');
+  const [scopeFilter, setScopeFilter] = useState<string>('');
 
   const allColumns: ColumnsType<LogCollectionTarget> = [
     { title: '采集对象名称', dataIndex: 'id', key: 'id', width: 200, render: (v: string) => v || '-' },
@@ -85,8 +87,10 @@ const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   const filteredTargets = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    if (!k) return PRESET_LOG_TARGETS;
     return PRESET_LOG_TARGETS.filter((row) => {
+      if (logTypeFilter && row.logType !== logTypeFilter) return false;
+      if (scopeFilter && row.scope !== scopeFilter) return false;
+      if (!k) return true;
       const nameHit = row.name.toLowerCase().includes(k);
       const idHit = row.id.toLowerCase().includes(k);
       const descHit = row.description.toLowerCase().includes(k);
@@ -97,7 +101,7 @@ const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       const kindHit = (row.kind ?? '').toLowerCase().includes(k);
       return nameHit || idHit || descHit || logTypeHit || scopeHit || kindHit;
     });
-  }, [keyword]);
+  }, [keyword, logTypeFilter, scopeFilter]);
 
   if (!cloudId) return null;
 
@@ -108,11 +112,30 @@ const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         <>
           <Input 
             allowClear 
-            placeholder="关键字" 
+            placeholder="名称/ID" 
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
             className="toolbar-search"
+          />
+          <Select
+            allowClear
+            placeholder="日志类型"
+            value={logTypeFilter || undefined}
+            onChange={(v) => setLogTypeFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={LOG_TYPE_OPTIONS}
+          />
+          <Select
+            allowClear
+            placeholder="采集范围"
+            value={scopeFilter || undefined}
+            onChange={(v) => setScopeFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={[
+              { label: LOG_SCOPE_MAP.LOG_SCOPE_CLUSTER, value: LOG_SCOPE_CLUSTER },
+              { label: LOG_SCOPE_MAP.LOG_SCOPE_NAMESPACE, value: LOG_SCOPE_NAMESPACE },
+            ]}
           />
         </>
       }

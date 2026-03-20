@@ -535,7 +535,7 @@ const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
         toolbarLeft={
           <Space wrap>
             <Input.Search
-              placeholder="请输入名称或命名空间"
+              placeholder="名称/ID"
               allowClear
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
@@ -549,6 +549,7 @@ const LogsFlowConfig: React.FC<LogsFlowConfigProps> = ({ cloudId }) => {
               onChange={(v) => setNamespaceFilter(v ?? '')}
               options={namespaceOptions}
               loading={namespaceLoading}
+              className="toolbar-filter-sm"
               style={{ width: 160 }}
             />
             <button

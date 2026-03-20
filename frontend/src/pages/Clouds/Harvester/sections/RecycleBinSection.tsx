@@ -65,17 +65,20 @@
  */
 
 import React, { useMemo, useCallback, useState } from 'react';
-import { Table, Space, message, Modal, Tooltip, App, Badge, Input, Select, Button, Typography, Checkbox } from 'antd';
+import { Table, Space, message, Modal, Tooltip, App, Badge, Input, Select, Button, Typography, Checkbox, Drawer } from 'antd';
 import { DeleteOutlined, SafetyCertificateFilled, SearchOutlined, ReloadOutlined, WarningOutlined, SettingOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from '../../../../services/harvesterApi';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import { cnVmStatus } from '../../../../utils/harvesterUtils';
+import { cnVmStatus, isSystemNamespace } from '../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../components/OsIcon';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import RecycleBinTaskConfigModal from '../modals/RecycleBinTaskConfigModal';
+import RecycleBinRecordsSection from './RecycleBinRecordsSection';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -98,6 +101,7 @@ interface Props {
   volumes?: any[];
   images?: any[];
   isTenant?: boolean;
+  mode?: 'standard' | 'simple';
 }
 
 const RecycleBinSection: React.FC<Props> = ({ 
@@ -108,13 +112,19 @@ const RecycleBinSection: React.FC<Props> = ({
   namespaces = [],
   volumes = [],
   images = [],
-  isTenant = false 
+  isTenant = false,
+  mode = 'standard'
 }) => {
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
   // ==========================================
   
   const { modal } = App.useApp(); // Ant Design App 上下文，用于显示确认对话框
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasEcsWrite = useMemo(() => {
+    return hasPermissionForAction(perms, 'clouds.ecs:write') || hasPermissionForAction(perms, 'clouds:write');
+  }, [perms]);
 
   // [筛选状态] 用户输入的筛选条件
   const [keyword, setKeyword] = useState<string>(''); // 关键字搜索（名称/ID/命名空间）
@@ -128,6 +138,7 @@ const RecycleBinSection: React.FC<Props> = ({
 
   // [配置模态框状态] 控制任务配置模态框的显示
   const [configModalVisible, setConfigModalVisible] = useState(false);
+  const [recordsDrawerVisible, setRecordsDrawerVisible] = useState(false);
 
   // ==========================================
   // [数据处理] 2. 数据过滤与转换 (Data Processing)
@@ -498,7 +509,7 @@ const RecycleBinSection: React.FC<Props> = ({
   const namespaceOptions = useMemo(() => {
     const uniqueNamespaces = Array.from(new Set(recycledVms.map((vm: any) => {
       return vm?.metadata?.namespace || vm?.namespace || '';
-    }).filter(Boolean)));
+    }).filter((ns: string) => Boolean(ns) && !isSystemNamespace(ns))));
     return uniqueNamespaces.map((ns: string) => ({ value: ns, label: ns }));
   }, [recycledVms]);
 
@@ -597,6 +608,10 @@ const RecycleBinSection: React.FC<Props> = ({
    * @param r - 要恢复的虚拟机对象
    */
   const handleRestore = useCallback(async (r: any) => {
+    if (!hasEcsWrite) {
+      message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+      return;
+    }
     const ns = r?.metadata?.namespace || r?.namespace || '';
     const name = r?.metadata?.name || r?.InstanceId?.split('/')[1] || '';
     const instanceId = `${ns}/${name}`;
@@ -608,7 +623,7 @@ const RecycleBinSection: React.FC<Props> = ({
     } catch (e: any) {
       message.error(`恢复失败: ${e.message}`);
     }
-  }, [cloudId, onRefresh]);
+  }, [cloudId, hasEcsWrite, onRefresh]);
 
   /**
    * 显示运维信息抽屉
@@ -649,6 +664,10 @@ const RecycleBinSection: React.FC<Props> = ({
    * 因为 Checkbox 的 onChange 在对话框渲染时执行，而 onOk 在用户确认时执行
    */
   const handleForceDelete = useCallback(async (r: any) => {
+    if (!hasEcsWrite) {
+      message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+      return;
+    }
     const ns = r?.metadata?.namespace || r?.namespace || '';
     const name = r?.metadata?.name || r?.InstanceId?.split('/')[1] || '';
     const instanceId = `${ns}/${name}`;
@@ -702,7 +721,7 @@ const RecycleBinSection: React.FC<Props> = ({
         }
       },
     });
-  }, [cloudId, onRefresh, modal, SafeRead]);
+  }, [cloudId, hasEcsWrite, onRefresh, modal, SafeRead]);
 
   // ==========================================
   // [表格定义] 7. 表格列配置 (Table Columns)
@@ -782,24 +801,26 @@ const RecycleBinSection: React.FC<Props> = ({
         return <Badge status={status as any} text={cnVmStatus(s)} />;
       },
     },
-    {
-      title: '命名空间',
-      key: 'namespace',
-      ellipsis: true,
-      render: (_: any, r: any) => SafeRead.namespace(r) || '-',
-    },
-    {
-      title: '租户',
-      key: 'tenant',
-      ellipsis: true,
-      render: (_: any, r: any) => SafeRead.tenant(r) || '-',
-    },
-    {
-      title: '组织',
-      key: 'organization',
-      ellipsis: true,
-      render: (_: any, r: any) => SafeRead.organization(r) || '-',
-    },
+    ...(mode === 'standard' ? [
+      {
+        title: '命名空间',
+        key: 'namespace',
+        ellipsis: true,
+        render: (_: any, r: any) => SafeRead.namespace(r) || '-',
+      },
+      {
+        title: '租户',
+        key: 'tenant',
+        ellipsis: true,
+        render: (_: any, r: any) => SafeRead.tenant(r) || '-',
+      },
+      {
+        title: '组织',
+        key: 'organization',
+        ellipsis: true,
+        render: (_: any, r: any) => SafeRead.organization(r) || '-',
+      },
+    ] : []),
     {
       title: '节点',
       key: 'node',
@@ -941,13 +962,14 @@ const RecycleBinSection: React.FC<Props> = ({
       width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
+        const hasAnyPermission = hasEcsWrite;
         const items: any[] = [
           {
             key: 'restore',
             label: '恢复',
             onClick: () => handleRestore(r),
           },
-          ...(!isTenant ? [
+          ...(!isTenant && mode === 'standard' ? [
             { type: 'divider' },
             {
               key: 'opsinfo',
@@ -963,12 +985,18 @@ const RecycleBinSection: React.FC<Props> = ({
             onClick: () => handleForceDelete(r),
           },
         ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }} />;
+        return (
+          <Tooltip title={undefined}>
+            <span>
+              <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 }, disabled: !hasAnyPermission }} />
+            </span>
+          </Tooltip>
+        );
       },
     },
     ];
     return cols;
-  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, isTenant]);
+  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, hasEcsWrite, isTenant, mode]);
 
   /**
    * 使用 useTableColumnSettings hook 管理列显示/隐藏
@@ -1009,21 +1037,21 @@ const RecycleBinSection: React.FC<Props> = ({
         <>
           <Input
             allowClear
-            placeholder="关键字"
+            placeholder="名称/ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
-          {!isTenant && namespaceOptions.length > 0 && (
+          {!isTenant && mode === 'standard' && namespaceOptions.length > 0 && (
             <Select
               allowClear
               showSearch
               placeholder="命名空间"
               value={namespaceFilter || undefined}
               onChange={(v) => setNamespaceFilter(v || '')}
-              className="toolbar-filter"
-              options={[{ value: '', label: '全部' }, ...namespaceOptions]}
+              className="toolbar-filter-sm"
+              options={namespaceOptions}
             />
           )}
           {statusOptions.length > 0 && (
@@ -1033,7 +1061,7 @@ const RecycleBinSection: React.FC<Props> = ({
               value={statusFilter || undefined}
               onChange={(v) => setStatusFilter(v || '')}
               className="toolbar-filter-sm"
-              options={[{ value: '', label: '全部' }, ...statusOptions]}
+              options={statusOptions}
             />
           )}
           <button
@@ -1059,11 +1087,25 @@ const RecycleBinSection: React.FC<Props> = ({
          * 3. 刷新按钮 - 手动刷新数据列表
          */
         <div className="toolbar-actions">
-          <Button
-            type="primary"
-            onClick={() => setConfigModalVisible(true)}
-          >
-            任务配置
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                type="primary"
+                disabled={!hasEcsWrite}
+                onClick={() => {
+                  if (!hasEcsWrite) {
+                    message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+                    return;
+                  }
+                  setConfigModalVisible(true);
+                }}
+              >
+                任务配置
+              </Button>
+            </span>
+          </Tooltip>
+          <Button onClick={() => setRecordsDrawerVisible(true)}>
+            回收站记录
           </Button>
           <TableColumnSettingsButton
             allColumns={allColumns}
@@ -1129,6 +1171,15 @@ const RecycleBinSection: React.FC<Props> = ({
           console.log('回收站任务配置已更新');
         }}
       />
+      <Drawer
+        title="回收站记录"
+        width={1200}
+        open={recordsDrawerVisible}
+        onClose={() => setRecordsDrawerVisible(false)}
+        destroyOnHidden
+      >
+        <RecycleBinRecordsSection cloudId={cloudId} />
+      </Drawer>
     </PageDetailSection>
   );
 };

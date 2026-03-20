@@ -9,6 +9,8 @@ import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc, createHarvesterNad } from '../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 接口定义
@@ -87,6 +89,12 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   bordered = true,
   showYaml = true,
 }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasVpcsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.vpcs:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
   // --- State ---
   const { id: paramCloudId } = useParams<{ id: string }>();
   const cloudId = propCloudId || paramCloudId;
@@ -172,6 +180,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   // --- Logic ---
   
   const handleOpenCreateVpc = () => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     setIsEditVpc(false);
     setCurrentVpc(null);
     form.resetFields();
@@ -179,6 +191,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   };
 
   const handleEditVpc = (record: any) => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     const name = SafeRead.name(record);
     const alias = SafeRead.alias(record) || name;
     const namespaces = SafeRead.vpcNamespaces(record);
@@ -201,6 +217,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   };
 
   const handleVpcModalSubmit = async () => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     try {
       const values = await form.validateFields();
       if (!cloudId) {
@@ -251,6 +271,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   };
 
   const handleOpenCreateSubnet = (record: any) => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     const vpcName = SafeRead.name(record);
     const ns = SafeRead.vpcNamespace(record); // 使用新的提取逻辑
     setTargetVpc(vpcName);
@@ -270,6 +294,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   };
 
   const handleEditSubnet = (record: any) => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     const name = SafeRead.name(record);
     const alias = SafeRead.alias(record) || name; // Use alias if available, fallback to name
     const vpcName = SafeRead.subnetVpc(record);
@@ -302,6 +330,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   };
 
   const handleSubnetModalSubmit = async () => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     try {
       const values = await subnetForm.validateFields();
       if (!cloudId) {
@@ -419,6 +451,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   };
 
   const handleDelete = (record: any) => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     const name = SafeRead.name(record);
     if (!cloudId || !name) return;
 
@@ -439,6 +475,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   };
 
   const handleDeleteSubnet = (record: any) => {
+    if (!hasVpcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     const name = SafeRead.name(record);
     if (!cloudId || !name) return;
 
@@ -561,12 +601,12 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       fixed: 'right' as const,
       render: (_: any, r: any) => {
         const items = [
-          { key: 'edit', label: '编辑子网', onClick: () => handleEditSubnet(r) },
+          { key: 'edit', label: '编辑子网', disabled: !hasVpcsWrite, onClick: () => handleEditSubnet(r) },
           ...(showYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Subnet') }] : []),
           { type: 'divider' as const },
-          { key: 'delete', label: '删除', danger: true, onClick: () => handleDeleteSubnet(r) },
+          { key: 'delete', label: '删除', danger: true, disabled: !hasVpcsWrite, onClick: () => handleDeleteSubnet(r) },
         ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }} />;
       },
     },
   ];
@@ -640,18 +680,18 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         const name = SafeRead.name(r);
         const isSystem = name === 'ovn-cluster' || name === 'ovn-vpc-external-network';
         const items = [
-          { key: 'edit', label: '编辑VPC', onClick: () => handleEditVpc(r) },
-          { key: 'createSubnet', label: '添加子网', onClick: () => handleOpenCreateSubnet(r) },
+          { key: 'edit', label: '编辑VPC', disabled: !hasVpcsWrite, onClick: () => handleEditVpc(r) },
+          { key: 'createSubnet', label: '添加子网', disabled: !hasVpcsWrite, onClick: () => handleOpenCreateSubnet(r) },
           ...(showYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Vpc') }] : []),
           ...(!isSystem ? [
             { type: 'divider' as const },
-            { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(r) }
+            { key: 'delete', label: '删除', danger: true, disabled: !hasVpcsWrite, onClick: () => handleDelete(r) }
           ] : []),
         ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }} />;
       },
     },
-  ], [cloudId, onRefresh]);
+  ], [cloudId, onRefresh, hasVpcsWrite]);
 
   // --- Render Helpers ---
 
@@ -694,13 +734,13 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         <Space>
           <Input 
             className="toolbar-search"
-            placeholder="搜索 VPC 名称或 UID" 
+            placeholder="名称/ID" 
             value={searchText} 
             onChange={(e) => setSearchText(e.target.value)} 
             allowClear
           />
           <Select
-            className="toolbar-filter"
+            className="toolbar-filter-sm"
             placeholder="选择命名空间"
             allowClear
             showSearch
@@ -723,7 +763,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       )}
       toolbarRight={(
         <div className="toolbar-actions">
-          <Button type="primary" onClick={handleOpenCreateVpc}>创建 VPC</Button>
+          <Button type="primary" disabled={!hasVpcsWrite} onClick={handleOpenCreateVpc}>创建 VPC</Button>
           <TableColumnSettingsButton 
             allColumns={allColumns} 
             settingsKey="harvester_vpcs_table"

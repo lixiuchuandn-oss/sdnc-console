@@ -8,8 +8,8 @@
  * - 针对运行中迁移任务执行“取消”操作（需要写权限）
  */
 import React, { useMemo, useState, useEffect } from 'react';
-import { Table, Badge, Input, Button, Dropdown, message, Space, Popconfirm } from 'antd';
-import { ReloadOutlined, SearchOutlined, DeleteOutlined, EllipsisOutlined, SwapRightOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { Table, Badge, Input, Button, Select, message, Space, Popconfirm } from 'antd';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { fetchHarvesterMigrations, fetchHarvesterMigrationsDirect, abortHarvesterMigration } from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -18,6 +18,7 @@ import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import dayjs from 'dayjs';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import type { ColumnsType } from 'antd/es/table';
 
 /**
@@ -69,14 +70,17 @@ const SafeMig = {
 interface Props {
   cloudId: string;
   onRefresh?: () => void;
+  mode?: 'standard' | 'simple';
 }
 
-const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
+const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, mode = 'standard' }) => {
   // 加载状态与数据源
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
   // 关键字过滤
   const [keyword, setKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [namespaceFilter, setNamespaceFilter] = useState('');
   // 当前登录用户，用于权限判断
   const { user } = useAuth();
   // 详情抽屉状态
@@ -169,13 +173,27 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
    * - 匹配迁移任务名称或关联虚拟机名称
    */
   const filteredData = useMemo(() => {
-    if (!keyword) return data;
-    const k = keyword.toLowerCase();
-    return data.filter((item: any) => 
-      item.metadata?.name?.toLowerCase().includes(k) || 
-      item.spec?.vmiName?.toLowerCase().includes(k)
-    );
-  }, [data, keyword]);
+    const k = keyword.trim().toLowerCase();
+    return data.filter((item: any) => {
+      const ns = String(SafeMig.namespace(item) || '');
+      const phase = String(SafeMig.phase(item) || '');
+      if (namespaceFilter && ns !== namespaceFilter) return false;
+      if (statusFilter && phase !== statusFilter) return false;
+      if (!k) return true;
+      const taskId = String(item?.metadata?.name || '').toLowerCase();
+      const vmName = String(item?.spec?.vmiName || '').toLowerCase();
+      return taskId.includes(k) || vmName.includes(k);
+    });
+  }, [data, keyword, statusFilter, namespaceFilter]);
+
+  const statusOptions = useMemo(
+    () => Array.from(new Set(data.map((item: any) => String(SafeMig.phase(item) || '').trim()).filter(Boolean))).sort(),
+    [data]
+  );
+  const namespaceOptions = useMemo(
+    () => Array.from(new Set(data.map((item: any) => String(SafeMig.namespace(item) || '').trim()).filter((ns) => ns && !isSystemNamespace(ns)))).sort(),
+    [data]
+  );
 
   /**
    * 表格列定义
@@ -216,11 +234,11 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
       key: 'targetNode',
       render: (_: any, r: any) => SafeMig.targetNode(r)
     },
-    {
+    ...(mode === 'standard' ? [{
       title: '命名空间',
       key: 'namespace',
       render: (_: any, r: any) => SafeMig.namespace(r)
-    },
+    }] : []),
     {
       title: '创建时间',
       key: 'createdAt',
@@ -251,7 +269,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
         return <Space size="small">{actions}</Space>;
       }
     }
-  ], [user]);
+  ], [user, mode]);
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_migrations_table');
 
@@ -262,17 +280,38 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
         <>
           <Input 
             allowClear
-            placeholder="关键字"
+            placeholder="任务ID/虚拟机"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
+          />
+          {mode === 'standard' && (
+            <Select
+              allowClear
+              showSearch
+              placeholder="命名空间"
+              value={namespaceFilter || undefined}
+              onChange={(v) => setNamespaceFilter(v || '')}
+              className="toolbar-filter-sm"
+              options={namespaceOptions.map((v) => ({ value: v, label: v }))}
+            />
+          )}
+          <Select
+            allowClear
+            placeholder="状态"
+            value={statusFilter || undefined}
+            onChange={(v) => setStatusFilter(v || '')}
+            className="toolbar-filter-sm"
+            options={statusOptions.map((v) => ({ value: v, label: v }))}
           />
           <button
             type="button"
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
+              setNamespaceFilter('');
+              setStatusFilter('');
             }}
           >
             重置

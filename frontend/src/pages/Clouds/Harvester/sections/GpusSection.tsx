@@ -31,9 +31,10 @@ interface Props {
 
 const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, raw, showLog }) => {
   // 筛选条件：类型、状态与关键字
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [bindFilter, setBindFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [bindFilter, setBindFilter] = useState<string>('');
+  const [nodeFilter, setNodeFilter] = useState<string>('');
   const [keyword, setKeyword] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
@@ -54,7 +55,12 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
    */
   const filtered = useMemo(() => {
     const arr = Array.isArray(resources) ? resources : [];
-    const byType = typeFilter === 'all' ? arr : arr.filter((x: any) => String(x?.type) === typeFilter);
+    const getNode = (r: any) => String(r?.node || r?.status?.nodeName || r?.spec?.nodeName || r?.raw?.status?.nodeName || '').trim().toLowerCase();
+    const byType = !typeFilter ? arr : arr.filter((x: any) => String(x?.type) === typeFilter);
+    const byNode = byType.filter((r: any) => {
+      if (!nodeFilter) return true;
+      return getNode(r) === String(nodeFilter).toLowerCase();
+    });
     const getState = (r: any) => {
       const s = r?.state || r?.metadata?.state || r?.status?.state || r?.raw?.metadata?.state || {};
       const name = String(s?.name || '').toLowerCase();
@@ -62,8 +68,8 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
       const transitioning = !!s?.transitioning;
       return { name, error, transitioning };
     };
-    const byStatus = byType.filter((r: any) => {
-      if (statusFilter === 'all') return true;
+    const byStatus = byNode.filter((r: any) => {
+      if (!statusFilter) return true;
       const s = getState(r);
       if (statusFilter === 'active') return s.name === 'active' && !s.error && !s.transitioning;
       if (statusFilter === 'inactive') return s.name === 'inactive';
@@ -72,7 +78,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
       return true;
     });
     const byBind = byStatus.filter((r: any) => {
-      if (bindFilter === 'all') return true;
+      if (!bindFilter) return true;
       if (bindFilter === 'bound') return !!r?.claimed;
       if (bindFilter === 'unbound') return !r?.claimed;
       return true;
@@ -82,7 +88,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     return byBind.filter((r: any) => {
       const rid = String(r?.resourceName || r?.status?.resourceName || r?.raw?.status?.resourceName || '').toLowerCase();
       const nm = String(r?.name || r?.status?.deviceName || r?.raw?.status?.deviceName || '').toLowerCase();
-      const node = String(r?.node || r?.status?.nodeName || r?.raw?.status?.nodeName || '').toLowerCase();
+      const node = getNode(r);
       const desc = String(r?.raw?.status?.description || r?.status?.description || '').toLowerCase();
       const bindTo = String(r?.bindingTo || '').toLowerCase();
       const claimName = String(r?.claimName || '').toLowerCase();
@@ -93,7 +99,19 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
       const vendorId = String(r?.raw?.status?.vendorId || r?.status?.vendorId || '').toLowerCase();
       return rid.includes(kw) || nm.includes(kw) || node.includes(kw) || addr.includes(kw) || desc.includes(kw) || vendorId.includes(kw) || bindTo.includes(kw) || claimName.includes(kw) || claimedBy.includes(kw);
     });
-  }, [resources, typeFilter, statusFilter, bindFilter, keyword]);
+  }, [resources, typeFilter, nodeFilter, statusFilter, bindFilter, keyword]);
+
+  const nodeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (Array.isArray(resources) ? resources : [])
+            .map((r: any) => String(r?.node || r?.status?.nodeName || r?.spec?.nodeName || r?.raw?.status?.nodeName || '').trim())
+            .filter(Boolean),
+        ),
+      ).sort(),
+    [resources],
+  );
 
   /**
    * 根据厂商 ID 映射常见 GPU 厂商名称
@@ -132,38 +150,28 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     return m === 'passthrough' ? <Tag color="blue">直通</Tag> : m === 'vgpu' ? <Tag color="green">vGPU</Tag> : m === 'sriov' ? <Tag color="purple">SR-IOV</Tag> : <Tag>未知</Tag>;
   }, [deriveType]);
 
+  const renderUnifiedStateTag = useCallback((rawState?: string) => {
+    const s = String(rawState || '').toLowerCase();
+    if (s === 'active' || s === 'enabled') return <Tag color="green">活跃</Tag>;
+    if (s === 'inactive' || s === 'disabled') return <Tag color="default">非活跃</Tag>;
+    if (s === 'transitioning') return <Tag color="blue">变更中</Tag>;
+    if (s === 'error' || s === 'failed') return <Tag color="red">异常</Tag>;
+    if (!s) return '-';
+    return <Tag>{rawState}</Tag>;
+  }, []);
+
   /**
    * 表格列定义
    * - 针对不同数据源做了较多兜底读取，保证列表对多来源数据具备兼容性
    * - 操作列提供元数据查看与 SourceData 跳转
    */
   const allColumns = useMemo(() => [
-    { title: '类型', key: 'type', render: (_: any, r: any) => typeTag(r) },
-    { title: '资源名', key: 'resourceName', render: (_: any, r: any) => r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.raw?.status?.resourceName || '-' },
-    { title: '设备名', key: 'name', render: (_: any, r: any) => r?.name || r?.status?.deviceName || r?.spec?.deviceName || r?.metadata?.name || r?.raw?.status?.deviceName || '-' },
     { title: '节点', key: 'node', render: (_: any, r: any) => r?.node || r?.status?.nodeName || r?.spec?.nodeName || r?.raw?.status?.nodeName || '-' },
-    { title: '配额', key: 'quota', render: (_: any, r: any) => {
-      const q = r?.quota;
-      const alloc = q?.allocatable;
-      const used = q?.used;
-      const free = q?.free;
-      if (typeof alloc === 'number' && typeof free === 'number') return `${free}/${alloc}`;
-      if (typeof alloc === 'number') return `${alloc}`;
-      if (typeof free === 'number') return `${free}`;
-      return '-';
-    } },
-    { title: '绑定到', key: 'binding', render: (_: any, r: any) => {
-      if (!r?.claimed) return <Tag>未绑定</Tag>;
-      // 优先显示VM信息（如果GPU挂载到虚拟机）
-      if (r?.vmInfo) {
-        const vmInfo = r.vmInfo;
-        const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
-        const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
-        return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
-      }
-      // 否则显示Claim信息
-      const txt = r?.bindingTo || r?.claimedBy || r?.claimName || '已绑定';
-      return <span style={{ wordBreak: 'break-word' }}>{String(txt)}</span>;
+    { title: '资源名', key: 'resourceName', render: (_: any, r: any) => r?.resourceName || r?.status?.resourceName || r?.spec?.resourceName || r?.raw?.status?.resourceName || '-' },
+    { title: '名称', key: 'name', render: (_: any, r: any) => r?.name || r?.status?.deviceName || r?.spec?.deviceName || r?.metadata?.name || r?.raw?.status?.deviceName || '-' },
+    { title: '状态', key: 'state', render: (_: any, r: any) => {
+      const s = r?.state?.name || r?.metadata?.state?.name || r?.status?.state?.name || r?.raw?.metadata?.state?.name || '';
+      return renderUnifiedStateTag(s);
     } },
     { title: 'PCI地址', key: 'pci', render: (_: any, r: any) => {
       const fieldsArr = (r?.metadata?.fields || r?.fields);
@@ -172,17 +180,31 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     } },
     { title: '厂商', key: 'vendor', render: (_: any, r: any) => vendorName(r?.raw?.status?.vendorId || r?.status?.vendorId) },
     { title: '设备ID', key: 'deviceId', render: (_: any, r: any) => r?.raw?.status?.deviceId || r?.status?.deviceId || '-' },
+    { title: '描述', key: 'desc', render: (_: any, r: any) => r?.raw?.status?.description || r?.status?.description || '-' },
+    { title: '绑定到', key: 'binding', render: (_: any, r: any) => {
+      if (!r?.claimed) return <Tag>未绑定</Tag>;
+      if (r?.vmInfo) {
+        const vmInfo = r.vmInfo;
+        const displayName = vmInfo.vmDisplayName || vmInfo.vmName;
+        const vmText = `${displayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`;
+        return <span style={{ wordBreak: 'break-word' }}>{vmText}</span>;
+      }
+      const txt = r?.bindingTo || r?.claimedBy || r?.claimName || '已绑定';
+      return <span style={{ wordBreak: 'break-word' }}>{String(txt)}</span>;
+    } },
+    { title: '类型', key: 'type', render: (_: any, r: any) => typeTag(r) },
+    { title: '配额', key: 'quota', render: (_: any, r: any) => {
+      const q = r?.quota;
+      const alloc = q?.allocatable;
+      const free = q?.free;
+      if (typeof alloc === 'number' && typeof free === 'number') return `${free}/${alloc}`;
+      if (typeof alloc === 'number') return `${alloc}`;
+      if (typeof free === 'number') return `${free}`;
+      return '-';
+    } },
     { title: 'ClassID', key: 'classId', render: (_: any, r: any) => r?.raw?.status?.classId || r?.status?.classId || '-' },
     { title: '驱动', key: 'driver', render: (_: any, r: any) => r?.raw?.status?.kernelDriverInUse || r?.status?.kernelDriverInUse || '-' },
     { title: 'IOMMU组', key: 'iommu', render: (_: any, r: any) => r?.raw?.status?.iommuGroup || r?.status?.iommuGroup || '-' },
-    { title: '描述', key: 'desc', render: (_: any, r: any) => r?.raw?.status?.description || r?.status?.description || '-' },
-    { title: '状态', key: 'state', render: (_: any, r: any) => {
-      const s = r?.state?.name || r?.metadata?.state?.name || r?.status?.state?.name || r?.raw?.metadata?.state?.name || '';
-      if (!s) return '-';
-      const lower = String(s).toLowerCase();
-      const color = lower === 'active' ? 'green' : lower === 'inactive' ? 'default' : 'blue';
-      return <Tag color={color}>{s}</Tag>;
-    } },
     {
       title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_: any, r: any) => {
         const items = [
@@ -193,7 +215,7 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       }
     }
-  ], [handleShowMetadata, typeTag, vendorName]);
+  ], [handleShowMetadata, typeTag, vendorName, renderUnifiedStateTag]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_gpus_table');
@@ -206,48 +228,60 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
         asCard={false}
         toolbarLeft={(
           <>
-            <Input allowClear placeholder="关键字" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
+            <Input allowClear placeholder="名称/设备名" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} className="toolbar-search" value={keyword} onChange={(e)=> setKeyword(e.target.value)} />
             <Select
-              value={typeFilter}
+              allowClear
+              placeholder="节点"
+              value={nodeFilter || undefined}
               className="toolbar-filter-sm"
-              options={[
-                { value: 'all', label: '全部' },
-                { value: 'passthrough', label: '直通 GPU' },
-                { value: 'vgpu', label: 'vGPU' },
-                { value: 'sriov', label: 'SR-IOV GPU' }
-              ]}
-              onChange={(v) => setTypeFilter(v)}
+              options={nodeOptions.map((n) => ({ value: n, label: n }))}
+              onChange={(v) => setNodeFilter(v || '')}
             />
             <Select
-              value={statusFilter}
+              allowClear
+              placeholder="状态"
+              value={statusFilter || undefined}
               className="toolbar-filter-sm"
               options={[
-                { value: 'all', label: '全部状态' },
                 { value: 'active', label: '活跃' },
                 { value: 'inactive', label: '非活跃' },
                 { value: 'transitioning', label: '变更中' },
                 { value: 'error', label: '异常/错误' }
               ]}
-              onChange={(v) => setStatusFilter(v)}
+              onChange={(v) => setStatusFilter(v || '')}
             />
             <Select
-              value={bindFilter}
+              allowClear
+              placeholder="GPU类型"
+              value={typeFilter || undefined}
               className="toolbar-filter-sm"
               options={[
-                { value: 'all', label: '全部绑定' },
+                { value: 'passthrough', label: '直通 GPU' },
+                { value: 'vgpu', label: 'vGPU' },
+                { value: 'sriov', label: 'SR-IOV GPU' }
+              ]}
+              onChange={(v) => setTypeFilter(v || '')}
+            />
+            <Select
+              allowClear
+              placeholder="绑定状态"
+              value={bindFilter || undefined}
+              className="toolbar-filter-sm"
+              options={[
                 { value: 'bound', label: '已绑定' },
                 { value: 'unbound', label: '未绑定' },
               ]}
-              onChange={(v) => setBindFilter(v)}
+              onChange={(v) => setBindFilter(v || '')}
             />
             <button
               type="button"
               className="toolbar-reset-btn"
               onClick={() => {
                 setKeyword('');
-                setTypeFilter('all');
-                setStatusFilter('all');
-                setBindFilter('all');
+                setNodeFilter('');
+                setTypeFilter('');
+                setStatusFilter('');
+                setBindFilter('');
               }}
             >
               重置

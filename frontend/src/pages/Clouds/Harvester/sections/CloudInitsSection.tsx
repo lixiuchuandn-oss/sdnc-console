@@ -4,13 +4,15 @@
  * 支持按名称/命名空间关键字过滤、列显示配置及手动刷新。
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Button, message, Input } from 'antd';
+import { Table, Button, message, Input, Select } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 组件入参说明
@@ -25,6 +27,7 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
+  mode?: 'standard' | 'simple';
 }
 
 const CloudInitsSection: React.FC<Props> = ({ 
@@ -32,10 +35,18 @@ const CloudInitsSection: React.FC<Props> = ({
   cloudInits, 
   loading, 
   onRefresh,
-  isTenant = false
+  isTenant = false,
+  mode = 'standard'
 }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasCloudInitsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.cloudinits:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
   // 搜索关键字，仅在前端做简单的名称/命名空间模糊匹配
   const [keyword, setKeyword] = useState<string>('');
+  const [namespaceFilter, setNamespaceFilter] = useState<string>('');
 
   /**
    * 将后端返回的数据统一转换为表格可使用的扁平结构
@@ -55,19 +66,34 @@ const CloudInitsSection: React.FC<Props> = ({
     });
   }, [cloudInits]);
 
+  const baseData = useMemo(() => {
+    return dataSource.filter((x: any) => {
+      const ns = (x.namespace || '').toLowerCase();
+      if (isTenant) {
+        return !isSystemNamespace(ns) && !isPublicNamespace(ns);
+      }
+      return !isSystemNamespace(ns);
+    });
+  }, [dataSource, isTenant]);
+
+  const namespaceOptions = useMemo(() => {
+    const nsSet = new Set<string>();
+    baseData.forEach((item: any) => {
+      const ns = item.namespace;
+      if (ns && !isSystemNamespace(ns)) nsSet.add(ns);
+    });
+    return Array.from(nsSet).sort().map((ns) => ({ value: ns, label: ns }));
+  }, [baseData]);
+
   /**
    * 前端过滤逻辑
    * - 仅基于关键字对名称和命名空间做包含匹配
    */
   const filteredData = useMemo(() => {
-    let d = dataSource;
-    
-    // 租户模式：过滤系统命名空间和公共命名空间
-    if (isTenant) {
-      d = d.filter((x: any) => {
-        const ns = (x.namespace || '').toLowerCase();
-        return !isSystemNamespace(ns) && !isPublicNamespace(ns);
-      });
+    let d = baseData;
+
+    if (namespaceFilter) {
+      d = d.filter((x: any) => x.namespace === namespaceFilter);
     }
 
     if (keyword) {
@@ -75,7 +101,7 @@ const CloudInitsSection: React.FC<Props> = ({
       d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
     }
     return d;
-  }, [dataSource, keyword, isTenant]);
+  }, [baseData, keyword, namespaceFilter]);
 
   /**
    * 表格列定义
@@ -89,7 +115,7 @@ const CloudInitsSection: React.FC<Props> = ({
       key: 'name', 
       render: (text: string) => <span>{text}</span>
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 },
+    ...(mode === 'standard' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 }] : []),
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', width: 180, className: 'std-time' },
     {
@@ -101,7 +127,7 @@ const CloudInitsSection: React.FC<Props> = ({
         const items: any[] = [];
 
         // 非租户模式显示运维信息入口
-        if (!isTenant) {
+        if (!isTenant && mode === 'standard') {
           items.push({ 
             key: 'opsinfo', 
             label: '运维信息', 
@@ -114,18 +140,25 @@ const CloudInitsSection: React.FC<Props> = ({
           key: 'delete', 
           label: '删除', 
           danger: true, 
-          onClick: () => message.info('暂不支持删除') 
+          disabled: !hasCloudInitsWrite,
+          onClick: () => {
+            if (!hasCloudInitsWrite) {
+              message.error('无权限执行该操作');
+              return;
+            }
+            message.info('暂不支持删除');
+          } 
         });
 
         return (
           <ResourceActionsDropdown 
-            buttonProps={{ className: 'row-actions-trigger' }}
+            buttonProps={{ className: 'row-actions-trigger', disabled: !hasCloudInitsWrite }}
             items={items}
           />
         );
       },
     },
-  ], [isTenant]);
+  ], [isTenant, hasCloudInitsWrite, mode]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(columns, 'harvester_cloudinits_table');
@@ -138,17 +171,29 @@ const CloudInitsSection: React.FC<Props> = ({
         <>
         <Input 
             allowClear 
-            placeholder="关键字" 
+            placeholder="名称/ID" 
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             className="toolbar-search" 
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
         />
+          {!isTenant && mode === 'standard' && (
+            <Select
+              allowClear
+              showSearch
+              placeholder="命名空间"
+              className="toolbar-filter-sm"
+              options={namespaceOptions}
+              value={namespaceFilter || undefined}
+              onChange={(v) => setNamespaceFilter((v as string) || '')}
+            />
+          )}
           <button
             type="button"
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
+              setNamespaceFilter('');
             }}
           >
             重置

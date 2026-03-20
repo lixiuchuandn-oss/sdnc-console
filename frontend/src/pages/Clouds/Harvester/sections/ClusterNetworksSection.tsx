@@ -163,7 +163,7 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
         <>
           <Input 
             allowClear 
-            placeholder="关键字" 
+            placeholder="名称" 
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
@@ -176,7 +176,6 @@ const ClusterNetworksSection: React.FC<Props> = ({ clusterNetworks, loading, onR
             onChange={(v) => setStatusFilter(v || '')}
             className="toolbar-filter-sm"
             options={[
-              { label: '全部', value: '' },
               { label: 'Active', value: 'active' },
               { label: 'Unknown', value: 'unknown' },
             ]}

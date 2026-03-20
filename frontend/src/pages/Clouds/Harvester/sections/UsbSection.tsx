@@ -170,7 +170,7 @@ const UsbSection: React.FC<Props> = ({ cloudId, vms, loading = false, onRefresh,
       toolbarLeft={(
         <Input
           allowClear
-          placeholder="搜索虚拟机/命名空间/USB 设备"
+          placeholder="虚拟机/USB设备"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}

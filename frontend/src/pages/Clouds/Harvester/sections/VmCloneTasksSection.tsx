@@ -48,7 +48,7 @@ const getSnapshotStatus = (raw: any) => {
 const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [backups, setBackups] = useState<any[]>([]);
   const [restores, setRestores] = useState<any[]>([]);
@@ -217,7 +217,7 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         return !isPublicNamespace(ns) && !isSystemNamespace(ns);
       });
     }
-    if (statusFilter !== 'all') {
+    if (statusFilter) {
       d = d.filter((x: any) => {
         if (x.cloneType === 'standard') {
           const phase = x.progressPhase || 'pending';
@@ -442,19 +442,19 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
         <>
           <Input
             allowClear
-            placeholder="关键字"
+            placeholder="名称/ID"
             className="toolbar-search"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
           />
           <Select
+            allowClear
             placeholder="状态"
             className="toolbar-filter-sm"
-            value={statusFilter}
-            onChange={setStatusFilter}
+            value={statusFilter || undefined}
+            onChange={(v) => setStatusFilter((v as string) || '')}
             options={[
-              { value: 'all', label: '全部' },
               { value: 'pending', label: '进行中' },
               { value: 'ready', label: '完成' },
               { value: 'failed', label: '失败' },
@@ -465,7 +465,7 @@ const VmCloneTasksSection: React.FC<Props> = ({ cloudId, isTenant }) => {
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
-              setStatusFilter('all');
+              setStatusFilter('');
             }}
           >
             重置

@@ -927,18 +927,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             <>
               <Input 
                 allowClear 
-                placeholder="关键字" 
+                placeholder="名称/ID" 
                 suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                 value={keyword} 
                 onChange={(e) => setKeyword(e.target.value)} 
                 className="toolbar-search"
-              />
-              <Select
-                placeholder="数据源"
-                value={dataSourceFilter}
-                onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
-                options={[{ label: 'Prometheus', value: 'prometheus' }]}
-                style={{ minWidth: 120 }}
               />
               <Select
                 placeholder="命名空间"
@@ -947,7 +940,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 onChange={setConfigNsFilter}
                 loading={namespaceLoading}
                 options={[{ label: '全部', value: undefined }, ...formNamespaceOptions]}
-                style={{ width: 250 }}
+                className="toolbar-filter-sm"
+              />
+              <Select
+                placeholder="数据源"
+                value={dataSourceFilter}
+                onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
+                options={[{ label: 'Prometheus', value: 'prometheus' }]}
+                className="toolbar-filter-sm"
               />
               <button
                 type="button"

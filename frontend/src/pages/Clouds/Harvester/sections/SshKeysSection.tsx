@@ -8,7 +8,7 @@
  * 当前仅提供删除占位操作（实际删除能力尚未开放）。
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Button, message, Input, Select, Checkbox, Modal, Dropdown } from 'antd';
+import { Table, Button, message, Input, Select, Modal, Dropdown } from 'antd';
 import { ReloadOutlined, SearchOutlined, EllipsisOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -18,6 +18,8 @@ import SshKeyCreateModal from '../modals/SshKeyCreateModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import { deleteHarvesterSshKey } from '../../../../services/harvesterApi';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 组件入参说明
@@ -33,6 +35,7 @@ interface Props {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
 
   isTenant?: boolean;
+  mode?: 'standard' | 'simple';
   bordered?: boolean;
 }
 
@@ -42,12 +45,18 @@ const SshKeysSection: React.FC<Props> = ({
   loading, 
   onRefresh,
   isTenant,
+  mode = 'standard',
   bordered = true
 }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasSshKeysWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.sshkeys:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
   // 关键字搜索，仅用于前端过滤名称/命名空间
   const [keyword, setKeyword] = useState<string>('');
-  const [namespaceFilter, setNamespaceFilter] = useState<string>();
-  const [showSystemResources, setShowSystemResources] = useState<boolean>(false);
+  const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
@@ -90,14 +99,14 @@ const SshKeysSection: React.FC<Props> = ({
         return !isSystemNamespace(ns) && !isPublicNamespace(ns);
       }
 
-      // 2. 管理员模式: 根据开关决定是否显示系统命名空间
-      if (!showSystemResources && isSystemNamespace(ns)) {
+      // 2. 管理员模式: 不展示系统命名空间资源
+      if (isSystemNamespace(ns)) {
         return false;
       }
 
       return true;
     });
-  }, [dataSource, isTenant, showSystemResources]);
+  }, [dataSource, isTenant]);
 
   /**
    * 提取所有可用的命名空间选项
@@ -135,6 +144,10 @@ const SshKeysSection: React.FC<Props> = ({
   }, [baseData, keyword, namespaceFilter]);
 
   const handleBatchDelete = () => {
+    if (!hasSshKeysWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     if (selectedRowKeys.length === 0) return;
     
     Modal.confirm({
@@ -205,7 +218,7 @@ const SshKeysSection: React.FC<Props> = ({
       copyable: true,
       render: (text: string) => <span className="std-code">{text}</span>
     },
-    { title: '命名空间', dataIndex: 'namespace', key: 'namespace' },
+    ...(mode === 'standard' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }] : []),
     { title: '创建时间', dataIndex: 'creationTimestamp', key: 'creationTimestamp', className: 'std-time' },
     {
       title: '操作',
@@ -216,7 +229,7 @@ const SshKeysSection: React.FC<Props> = ({
         const items: any[] = [];
 
         // 仅在非租户模式下添加详情入口
-        if (!isTenant) {
+        if (!isTenant && mode === 'standard') {
           items.push({ 
             key: 'opsinfo', 
             label: '运维信息', 
@@ -229,7 +242,12 @@ const SshKeysSection: React.FC<Props> = ({
           key: 'delete', 
           label: '删除', 
           danger: true, 
+          disabled: !hasSshKeysWrite,
           onClick: () => {
+            if (!hasSshKeysWrite) {
+              message.error('无权限执行该操作');
+              return;
+            }
             Modal.confirm({
               title: `确认删除密钥 ${record.name}?`,
               content: '此操作不可恢复。',
@@ -252,12 +270,12 @@ const SshKeysSection: React.FC<Props> = ({
         return (
           <ResourceActionsDropdown 
             items={items}
-            buttonProps={{ className: 'row-actions-trigger' }}
+            buttonProps={{ className: 'row-actions-trigger', disabled: !hasSshKeysWrite }}
           />
         );
       },
     },
-  ], [isTenant]);
+  ], [isTenant, hasSshKeysWrite, mode]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(columns, 'harvester_ssh_keys_table');
@@ -270,40 +288,29 @@ const SshKeysSection: React.FC<Props> = ({
         <>
           <Input 
             allowClear 
-            placeholder="关键字"  
+            placeholder="名称/ID"  
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             className="toolbar-search" 
             value={keyword} 
             onChange={(e)=> setKeyword(e.target.value)} 
           />
-          {!isTenant && (
+          {!isTenant && mode === 'standard' && (
             <Select
               placeholder="命名空间"
-              className="toolbar-filter" 
+              className="toolbar-filter-sm" 
               allowClear
               showSearch
               options={namespaceOptions}
-              value={namespaceFilter}
-              onChange={setNamespaceFilter}
+              value={namespaceFilter || undefined}
+              onChange={(v) => setNamespaceFilter((v as string) || '')}
             />
-          )}
-          {!isTenant && (
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Checkbox 
-                checked={showSystemResources} 
-                onChange={(e: any) => setShowSystemResources(e.target.checked)}
-              >
-                显示系统资源
-              </Checkbox>
-            </div>
           )}
           <button
             type="button"
             className="toolbar-reset-btn"
             onClick={() => {
               setKeyword('');
-              setNamespaceFilter(undefined);
-              setShowSystemResources(false);
+              setNamespaceFilter('');
             }}
           >
             重置
@@ -312,20 +319,20 @@ const SshKeysSection: React.FC<Props> = ({
       )}
       toolbarRight={(
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => setCreateModalVisible(true)}>创建</Button>
+          <Button type="primary" disabled={!hasSshKeysWrite} onClick={() => { if (!hasSshKeysWrite) return; setCreateModalVisible(true); }}>创建</Button>
           <Dropdown 
             menu={{ 
               items: [{ 
                 key: 'delete', 
                 label: '批量删除', 
                 danger: true, 
-                disabled: selectedRowKeys.length === 0,
+                disabled: !hasSshKeysWrite || selectedRowKeys.length === 0,
                 onClick: handleBatchDelete
               }] 
             }} 
             trigger={['click']}
           >
-            <Button icon={<EllipsisOutlined />} />
+            <Button icon={<EllipsisOutlined />} disabled={!hasSshKeysWrite || selectedRowKeys.length === 0} />
           </Dropdown>
           <TableColumnSettingsButton 
             allColumns={columns} 

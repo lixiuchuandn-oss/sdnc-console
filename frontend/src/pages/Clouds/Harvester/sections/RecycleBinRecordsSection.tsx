@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Table, Badge, Input, Button, Select, DatePicker, Space, message } from 'antd';
+import { Table, Badge, Input, Button, Select, DatePicker, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -227,19 +227,18 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
         <>
           <Input
             allowClear
-            placeholder="关键字（云平台/虚拟机/命名空间）"
+            placeholder="虚拟机/实例ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
-            style={{ width: 250 }}
           />
           <Select
-            placeholder="状态"
             allowClear
+            placeholder="状态"
             value={statusFilter || undefined}
             onChange={(value) => setStatusFilter(value || '')}
-            style={{ width: 120, marginLeft: 8 }}
+            className="toolbar-filter-sm"
           >
             <Select.Option value="success">成功</Select.Option>
             <Select.Option value="failed">失败</Select.Option>
@@ -248,8 +247,8 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
           <RangePicker
             value={dateRange}
             onChange={(dates) => setDateRange(dates as [Dayjs | null, Dayjs | null])}
-            style={{ marginLeft: 8 }}
             format="YYYY-MM-DD"
+            className="toolbar-filter"
           />
           <button
             type="button"
@@ -259,7 +258,6 @@ const RecycleBinRecordsSection: React.FC<Props> = ({ cloudId }) => {
               setStatusFilter('');
               setDateRange([null, null]);
             }}
-            style={{ marginLeft: 8 }}
           >
             重置
           </button>

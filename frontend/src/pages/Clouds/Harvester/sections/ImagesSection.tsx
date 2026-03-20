@@ -26,7 +26,7 @@
  * - 外部: 依赖 `fetchHarvesterStorageClasses` 获取存储类选项。
  */
 import React, { useMemo, useState } from 'react';
-import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Descriptions, Modal, Row, Col, Tabs, Typography, Steps, Alert, Card } from 'antd';
+import { Table, Input, Select, Tag, Button, message, Form, Dropdown, Descriptions, Modal, Row, Col, Tabs, Typography, Steps, Alert, Card, Tooltip } from 'antd';
 import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
@@ -38,6 +38,8 @@ import { API_BASE_URL } from '../../../../services/api';
 import { deleteHarvesterImage, createHarvesterImage, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 组件入参说明
@@ -53,10 +55,23 @@ type Props = {
   onRefresh?: (force?: boolean, silent?: boolean) => void;
 
   isTenant?: boolean;
+  mode?: 'standard' | 'simple';
   bordered?: boolean;
 };
 
-const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false, bordered = true }) => {
+const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, isTenant = false, mode = 'standard', bordered = true }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasImagesWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.images:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
+  const ensureImagesWrite = () => {
+    if (hasImagesWrite) return true;
+    message.error('当前账号没有镜像操作权限（需要 clouds.images:write 或 clouds:write 权限）');
+    return false;
+  };
+
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>(''); // 默认不过滤，显示所有类型
@@ -202,7 +217,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
 
   const filtered = useMemo(() => {
     // 如果没有过滤条件，直接返回所有镜像
-    const hasFilters = keyword.trim() || statusFilter || typeFilter || osFilter || scopeFilter;
+    const hasFilters = keyword.trim() || (mode === 'standard' ? statusFilter : '') || typeFilter || osFilter || (mode === 'standard' ? scopeFilter : '');
     if (!hasFilters && !isTenant) {
       return Array.isArray(images) ? images : [];
     }
@@ -220,8 +235,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       }
 
       // Scope Filter - 只有用户主动选择时才过滤
-      if (scopeFilter === 'public' && !isPublicNamespace(ns)) return false;
-      if (scopeFilter === 'private') {
+      if (mode === 'standard' && scopeFilter === 'public' && !isPublicNamespace(ns)) return false;
+      if (mode === 'standard' && scopeFilter === 'private') {
         // Private: 非公共且非系统
         if (isPublicNamespace(ns) || isSystemNamespace(ns)) return false;
       }
@@ -243,7 +258,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       }
       
       // 状态过滤 - 只有用户选择时才过滤
-      if (st) {
+      if (mode === 'standard' && st) {
         const stateValue = r?.state || (typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status)) || '';
         const key = String(stateValue).toLowerCase();
         if (key !== st) return false;
@@ -264,7 +279,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       }
       return true;
     });
-  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant]);
+  }, [images, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant, mode]);
 
   const statusOptions = ['imported','pending','downloading','ready','failed','unknown'];
   const osOptions = [
@@ -307,6 +322,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
    * - 针对每个镜像调用删除接口，并统计成功/失败数量
    */
   const batchDelete = async () => {
+    if (!ensureImagesWrite()) return;
     if (!Array.isArray(images) || selectedKeys.length === 0) return;
     Modal.confirm({
       title: '确认批量删除所选镜像？',
@@ -353,8 +369,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     } },
     { title: '镜像ID', key: 'resource_name', render: (_:any, r:any)=> <span className="text-secondary">{r?.name || r?.metadata?.name || '-'}</span> },
     { title: '命名空间', key: 'namespace', render: (_:any, r:any)=> getNs(r) },
-    { title: '作用域', key: 'scope', render: (_:any, r:any)=> isPublicNamespace(getNs(r)) ? '公共镜像' : '私有镜像' },
-    { title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) },
+    ...(mode === 'standard' ? [{ title: '作用域', key: 'scope', render: (_:any, r:any)=> isPublicNamespace(getNs(r)) ? '公共镜像' : '私有镜像' }] : []),
+    ...(mode === 'standard' ? [{ title: '状态', key: 'status', render: (_:any, r:any)=> statusBadge(typeof r?.status === 'string' ? r.status : (r?.status?.phase || r?.status?.status || 'Unknown')) }] : []),
     { title: '镜像类型', key: 'image_kind', render: (_:any, r:any)=> {
         const kind = resolveImageKind(r);
         const text = kind === 'iso' ? 'ISO' : kind === 'disk' ? 'Qcow2' : '其他';
@@ -389,6 +405,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
 
       const handleDownload = () => { if (download) window.open(download, '_blank'); };
       const handleDelete = async () => { 
+          if (!ensureImagesWrite()) return;
           if (name) { 
               try {
                   await deleteHarvesterImage(cloudId, ns, name); 
@@ -402,17 +419,17 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
 
       return (
         <ResourceActionsDropdown 
-          buttonProps={{ className: 'row-actions-trigger' }}
+          buttonProps={{ className: 'row-actions-trigger', disabled: !hasImagesWrite }}
           items={[
             ...(!isTenant ? [{ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
-            { key: 'delete', label: '删除', danger: true, onClick: () => Modal.confirm({ title: `删除 ${name}?`, onOk: handleDelete }) },
+            { key: 'delete', label: '删除', danger: true, disabled: !hasImagesWrite, onClick: () => Modal.confirm({ title: `删除 ${name}?`, onOk: handleDelete }) },
           ]} 
         />
       );
     } },
-  ], [cloudId, onRefresh, isTenant]);
+  ], [cloudId, onRefresh, isTenant, hasImagesWrite, mode]);
 
   // 列显示设置（需要在 allColumns 定义之后）
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');
@@ -423,6 +440,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
    * - 创建成功后刷新列表并关闭弹窗
    */
   const handleCreate = async () => {
+    if (!ensureImagesWrite()) return;
     try {
       const v = await form.validateFields();
       // 根据镜像类型设置 diskFormat
@@ -459,34 +477,37 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       asCard={false}
       toolbarLeft={(
         <>
-          <Input allowClear placeholder="关键字" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
-          <Select
-            allowClear
-            placeholder="作用域"
-            value={scopeFilter || undefined}
-            onChange={(v)=> setScopeFilter(v || '')}
-            className="toolbar-filter-sm"
-            options={[
-              { value: '', label: '全部' },
-              { value: 'public', label: '公共镜像' },
-              { value: 'private', label: '私有镜像' },
-            ]}
-          />
-          <Select
-            allowClear
-            placeholder="镜像状态"
-            value={statusFilter || undefined}
-            onChange={(v)=> setStatusFilter(v || '')}
-            className="toolbar-filter-sm"
-            options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
-          />
+          <Input allowClear placeholder="名称/命名空间" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} value={keyword} onChange={(e)=>setKeyword(e.target.value)} className="toolbar-search" />
+          {mode === 'standard' && (
+            <Select
+              allowClear
+              placeholder="作用域"
+              value={scopeFilter || undefined}
+              onChange={(v)=> setScopeFilter(v || '')}
+              className="toolbar-filter-sm"
+              options={[
+                { value: '', label: '全部' },
+                { value: 'public', label: '公共镜像' },
+                { value: 'private', label: '私有镜像' },
+              ]}
+            />
+          )}
+          {mode === 'standard' && (
+            <Select
+              allowClear
+              placeholder="镜像状态"
+              value={statusFilter || undefined}
+              onChange={(v)=> setStatusFilter(v || '')}
+              className="toolbar-filter-sm"
+              options={[{ value: '', label: '全部' }, ...statusOptions.map(k=> ({ value: k, label: cnStatus(k) }))]}
+            />
+          )}
           <Select
             allowClear
             placeholder="镜像类型"
             value={typeFilter || undefined}
             onChange={(v)=> setTypeFilter(v || '')}
             className="toolbar-filter-sm"
-            style={{ minWidth: 200 }}
             options={[
               { value: '', label: '全部' },
               { value: 'iso', label: 'ISO' },
@@ -519,18 +540,40 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       )}
       toolbarRight={(
         <>
-          <Button type="primary" onClick={()=> { form.resetFields(); setCreating(true); }}>新增镜像</Button>
-          <Dropdown
-            menu={{
-              items: [
-                { type: 'divider' },
-                { key: 'batchDelete', label: '批量删除', disabled: selectedKeys.length === 0 },
-              ],
-              onClick: ({ key }) => { if (key === 'batchDelete') batchDelete(); },
-            }}
+          <Button type="primary" disabled={!hasImagesWrite} onClick={()=> { if (!ensureImagesWrite()) return; form.resetFields(); setCreating(true); }}>新增镜像</Button>
+          <Tooltip
+            title={
+              !hasImagesWrite
+                ? undefined
+                : selectedKeys.length === 0
+                  ? '请先选择镜像'
+                  : undefined
+            }
           >
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
+            <span>
+              <Dropdown
+                menu={{
+                  items: [
+                    { type: 'divider' },
+                    { key: 'batchDelete', label: '批量删除', disabled: !hasImagesWrite || selectedKeys.length === 0 },
+                  ],
+                  onClick: ({ key }) => {
+                    if (!hasImagesWrite) {
+                      message.error('当前账号没有批量操作镜像的权限（需要 clouds.images:write 或 clouds:write 权限）');
+                      return;
+                    }
+                    if (selectedKeys.length === 0) {
+                      message.warning('请先选择镜像');
+                      return;
+                    }
+                    if (key === 'batchDelete') batchDelete();
+                  },
+                }}
+              >
+                <Button icon={<EllipsisOutlined />} disabled={!hasImagesWrite || selectedKeys.length === 0} />
+              </Dropdown>
+            </span>
+          </Tooltip>
           <TableColumnSettingsButton 
             allColumns={allColumns} 
             settingsKey="harvester_images_table"

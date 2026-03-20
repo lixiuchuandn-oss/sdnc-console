@@ -129,7 +129,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
         <>
           <Input 
             allowClear 
-            placeholder="关键字" 
+            placeholder="名称/ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword} 
             onChange={(e) => setKeyword(e.target.value)} 
@@ -140,7 +140,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
             value={dataSourceFilter}
             onChange={(v) => setDataSourceFilter(v ?? 'prometheus')}
             options={[{ label: 'Prometheus', value: 'prometheus' }]}
-            style={{ minWidth: 120 }}
+            className="toolbar-filter-sm"
           />
           <Select
             placeholder="告警分组"
@@ -148,7 +148,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
             value={groupFilter || undefined}
             onChange={(v) => setGroupFilter(v ?? '')}
             options={groupFilterOptions}
-            style={{ minWidth: 160 }}
+            className="toolbar-filter-sm"
           />
           <Select
             placeholder="级别"
@@ -156,7 +156,7 @@ const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ c
             value={levelFilter || undefined}
             onChange={(v) => setLevelFilter(v ?? '')}
             options={LEVEL_FILTER_OPTIONS}
-            style={{ minWidth: 100 }}
+            className="toolbar-filter-sm"
           />
           <button
             type="button"

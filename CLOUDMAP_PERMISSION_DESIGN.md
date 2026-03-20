@@ -504,6 +504,146 @@ describe('Cloudmap Permission Control', () => {
 - 说明如何为新资源类型添加权限控制
 - 提供权限检查最佳实践
 
+### 6.5 待整改按钮全量清单（核对用）
+
+> **用途**：实施与验收时逐项勾选。**待整改**含义：须为该入口单独绑定 `read` / `write`（及租户场景下的 `clouds.console:write` 等），禁止仅用「`hasEcsRead || hasEcsWrite || hasConsoleRead`（hasAnyPermission）」控制整组操作菜单，导致只读用户仍可见写操作。  
+> **范围**：`frontend/src/pages/Clouds/Harvester` 及文档 §4.2 所列组件；若界面文案与代码不一致，以代码为准。  
+> **图例**：✅ 已按 write/read 区分 · ⚠️ 待整改 · 📌 只读入口用 read
+
+#### 6.5.1 云主机 — `sections/VmSection.tsx`
+
+| # | 入口位置 | 按钮/菜单文案（或 key） | 建议权限 | 状态 |
+|---|----------|-------------------------|----------|------|
+| 1 | 工具栏 | 创建实例 | `clouds.ecs:write` 或 `clouds:write` | ✅ 已实现点击校验 |
+| 2 | 工具栏 Dropdown | 批量停止 | `clouds.ecs:write` 或 `clouds:write` | ⚠️ 待加 write 禁用/拦截 |
+| 3 | 工具栏 Dropdown | 批量重启 | 同上 | ⚠️ |
+| 4 | 工具栏 Dropdown | 批量删除 | 同上 | ⚠️ |
+| 5 | 工具栏 | 刷新 | `clouds.ecs:read` 或继承 read | 📌 建议明确 read |
+| 6 | 工具栏 | 列设置 | UI 偏好，可与 read 同级或不限 | 📌 可选 |
+| 7 | 表格行 `ResourceActionsDropdown` | 打开详情 / 详情抽屉（vm_detail 等） | `clouds.ecs:read` 等 | 📌 逐项 `disabled` 绑定 read |
+| 8 | 同上 | Web VNC / 控制台类 | `clouds.console:read` 打开；若后端按 write 校验则叠加 write | ⚠️ 与 §5.2.1 租户规则对齐 |
+| 9 | 同上 | 运维信息 / 原始 YAML（只读查看） | `clouds.ecs:read` | 📌 |
+| 10 | 同上 | 重新配置 | `clouds.ecs:write` | ⚠️ |
+| 11 | 同上 | 启动 | `clouds.ecs:write` | ⚠️ |
+| 12 | 同上 | 停止 / 强制停止 | `clouds.ecs:write` | ⚠️ |
+| 13 | 同上 | 重启 | `clouds.ecs:write` | ⚠️ |
+| 14 | 同上 | 软重启（若有） | `clouds.ecs:write` | ⚠️ |
+| 15 | 同上 | 暂停 | `clouds.ecs:write` | ⚠️ |
+| 16 | 同上 | 恢复（取消暂停） | `clouds.ecs:write` | ⚠️ |
+| 17 | 同上 | 热迁移 | `clouds.ecs:write` | ⚠️ |
+| 18 | 同上 | 中止迁移 | `clouds.ecs:write` | ⚠️ |
+| 19 | 同上 | 设为重要实例 / 取消重要标记 | `clouds.ecs:write` | ⚠️ |
+| 20 | 同上 | 备份 | `clouds.ecs:write`（及快照/备份 API 映射） | ⚠️ |
+| 21 | 同上 | 快照 | `clouds.snapshots:write` 或 `clouds.ecs:write`（与 registry 一致） | ⚠️ |
+| 22 | 同上 | 克隆 | `clouds.ecs:write` | ⚠️ |
+| 23 | 同上 | 另存为模板 / 保存为模板 | `clouds.ecs:write` | ⚠️ |
+| 24 | 同上 | 删除 | `clouds.ecs:write` | ⚠️ |
+| 25 | 同上 | 磁盘扩容指南（仅说明 Modal） | `clouds.ecs:read` | 📌 |
+| 26 | 同上 | 从虚拟机分离数据卷 / 删卷相关 | `clouds.ecs:write` 或 `clouds.disks:write`（与 API 一致） | ⚠️ |
+| 27 | 行操作按钮容器 | `buttonProps.disabled` 仅用 `hasAnyPermission` | 应拆为：无 read 且无 write 时禁用整钮；菜单内分项 | ⚠️ 核心问题见 §2.2.2 |
+
+#### 6.5.2 云主机详情抽屉 — `components/HarvesterVmDetailDrawer.tsx`
+
+| # | 入口位置 | 按钮/菜单文案 | 建议权限 | 状态 |
+|---|----------|---------------|----------|------|
+| 1 | 标题区 | 刷新 | read | 📌 |
+| 2 | 工具栏 | 打开终端 | `clouds.console:write` 或按后端实际校验 | ⚠️ |
+| 3 | 工具栏 | 开机 | `clouds.ecs:write` | ⚠️ |
+| 4 | 工具栏 | 关机 | `clouds.ecs:write` | ⚠️ |
+| 5 | 工具栏 | 重启 | `clouds.ecs:write` | ⚠️ |
+| 6 | 工具栏 | 暂停 | `clouds.ecs:write` | ⚠️ |
+| 7 | 工具栏 | 恢复 | `clouds.ecs:write` | ⚠️ |
+| 8 | 工具栏 Dropdown「更多」 | 备份 | `clouds.ecs:write` | ⚠️ |
+| 9 | 同上 | 快照 | `clouds.snapshots:write` 或 `clouds.ecs:write` | ⚠️ |
+| 10 | 同上 | 克隆 | `clouds.ecs:write` | ⚠️ |
+| 11 | 同上 | 保存为模板 | `clouds.ecs:write` | ⚠️ |
+| 12 | 同上 | 资源变配 | `clouds.ecs:write` | ⚠️ |
+| 13 | 同上 | 热迁移 / 中止迁移 | `clouds.ecs:write` | ⚠️ |
+| 14 | 同上 | 弹出 CD-ROM | `clouds.ecs:write` | ⚠️ |
+| 15 | 同上 | 强制停止 | `clouds.ecs:write` | ⚠️ |
+| 16 | 同上 | 删除 | `clouds.ecs:write` | ⚠️ |
+| 17 | Tab 内（备份/快照/磁盘等） | 恢复、删除备份、创建定时策略等写操作 | 按 §4.2 `clouds.ecs` / `clouds.schedules` / `clouds.snapshots` | ⚠️ 需逐 Tab 核对 |
+
+#### 6.5.3 文档 §4.2 所列其他 Section（行操作/工具栏/弹窗内按钮）
+
+以下文件内：**凡创建、编辑、删除、挂载、卸载、启停、上传、恢复、启用/停用策略**等均为 **write**；**仅查看、打开只读详情/运维信息**为 **read**。请为每个 `Button` / `Dropdown` / `ResourceActionsDropdown` 项补齐与下表一致的权限变量。
+
+| 文件（相对 `frontend/src/pages/Clouds/Harvester`） | Read 权限 | Write 权限 | 待整改说明 |
+|---------------------------------------------------|-----------|------------|------------|
+| `sections/VolumesSection.tsx` | `clouds.disks:read` | `clouds.disks:write` | 创建卷、挂载/卸载、删除、扩容提交等全部写入口 |
+| `sections/ImagesSection.tsx` | `clouds.images:read` | `clouds.images:write` | 上传、删除、编辑等 |
+| `sections/NamespacesTab.tsx` 或命名空间 Tab 实现路径 | `clouds.namespaces:read` | `clouds.namespaces:write` | 创建/编辑/删除命名空间 |
+| `kube-ovn/VpcsSection.tsx` | `clouds.vpcs:read` | `clouds.vpcs:write` | VPC 创建/编辑/删除及行操作 |
+| `kube-ovn/SubnetsSection.tsx`（若存在） | `clouds.vpcs:read` | `clouds.vpcs:write` | 子网 CRUD |
+| `sections/SshKeysSection.tsx` | `clouds.sshkeys:read` | `clouds.sshkeys:write` | 创建/删除密钥 |
+| `sections/SnapshotsSection.tsx` | `clouds.snapshots:read` | `clouds.snapshots:write` | 创建/恢复/删除快照 |
+| 备份列表 `sections/*Backup*` 或等价 | `clouds.ecs:read` | `clouds.ecs:write` | 恢复/删除备份 |
+| `sections/ScheduleVmBackupsSection.tsx` | `clouds.schedules:read` | `clouds.schedules:write` | 策略修改、启用/停用、删除；运维信息只读项用 read |
+| `pages/.../CloudConsole.tsx`（若独立页） | `clouds.console:read` | `clouds.console:write` | 控制台交互 |
+
+#### 6.5.4 扩展与集群级模块（同样禁止「仅有 read 却展示写按钮」）
+
+| 文件/模块 | 典型写操作入口 | 建议权限（与 `registry` 对齐） | 状态 |
+|-----------|----------------|-------------------------------|------|
+| `sections/TemplatesSection.tsx` | 创建/删除/从模板部署等 | `clouds.ecs:write` 或独立 templates 权限（若有） | ⚠️ |
+| `sections/RecycleBinSection.tsx` | 恢复、彻底删除 | `clouds.ecs:write` 或资源级 write | ⚠️ |
+| `sections/VmCreateTasksSection.tsx` | 取消、重试等 | `clouds.ecs:write` | ⚠️ |
+| `sections/IPPoolsSection.tsx` | 创建地址池、删除 | `clouds.ippools:write`（已有创建示例时需统一行操作） | ⚠️ |
+| `sections/UsbDevicesSection.tsx` | 设为直通 / 设为非直通 | write（集群或 USB 资源写权限） | ⚠️ |
+| 同上 | 查看 MetaData | read | 📌 |
+| `sections/GpusSection.tsx` | 绑定/解绑等写操作 | 与后端路由权限一致 | ⚠️ |
+| `sections/ServicesSection.tsx`、`Ingresses`、`LoadBalancers` 等 | 创建/编辑/删除 | 按 `registry` 推断的 `clouds.*` | ⚠️ |
+| `sections/CloudInitsSection.tsx` | 创建/删除 CloudInit | 按实际 API 映射 | ⚠️ |
+| `sections/NodesSection.tsx` | 维护模式、驱逐等写操作 | 按实际 API 映射 | ⚠️ |
+| `sections/MigrationsSection.tsx` | 中止等写操作 | `clouds.ecs:write` 等 | ⚠️ |
+| `kube-ovn/EipSection.tsx`、`FipSection.tsx`、`SnatSection.tsx`、`DnatSection.tsx` | 创建/绑定/删除规则 | `clouds.vpcs:write` 或 OVN 专用权限 | ⚠️ |
+| `CloudDetailHarvester.tsx` | Tab 可见性与内部按钮一致 | 避免无 write 仍可进入仅写 Tab | ⚠️ 可选增强 |
+
+#### 6.5.5 Cloudmap 入口页（若与 Harvester 分离）
+
+| 文件 | 说明 |
+|------|------|
+| `frontend/src/pages/Clouds/Cloudmap/CloudDetailCloudmap.tsx` | 若内嵌或跳转至上述 Section，权限应与 Harvester 详情页一致；单独存在的创建/管理按钮按 `clouds` / `clouds.ecs` 等补齐。 |
+
+#### 6.5.6 验收勾选原则
+
+1. 只读角色：所有标 ⚠️ write 的按钮应禁用或隐藏；点击 read 项正常。  
+2. 读写角色：read/write 项均可达（租户另验 `clouds.console:write`）。  
+3. 每完成一个文件，将上表对应行「状态」改为 ✅ 并在 PR 中注明。
+
+### 6.6 当前整改进度（2026-03-20）
+
+> 本节用于记录本轮“Cloudmap 资源池详情页按钮级权限控制”实际落地情况。  
+> 口径统一为：**无 write 时禁用写按钮/行操作入口（不展开）**；**Tooltip 不展示“当前账号没有...”文案**；**异常点击保留 `message.error` 兜底**。
+
+#### 6.6.1 已完成（✅）
+
+- ✅ `sections/VmSection.tsx`：创建、批量、行操作入口、删除等写动作按 `clouds.ecs:write`/`clouds:write` 控制。
+- ✅ `components/HarvesterVmDetailDrawer.tsx`：工具栏与更多菜单写动作按 write 控制；异常点击保留错误提示。
+- ✅ `components/HarvesterVmBackupTab.tsx`：恢复/删除/创建类动作按 write 控制。
+- ✅ `sections/RecycleBinSection.tsx`：恢复、彻底删除、任务配置等按 write 控制。
+- ✅ `sections/VolumesSection.tsx`：创建、批量删除、编辑、挂载/卸载、导出、快照、克隆、删除按 `clouds.disks:write` 控制。
+- ✅ `sections/ImagesSection.tsx`：创建、批量删除、删除按 `clouds.images:write` 控制。
+- ✅ `sections/ScheduleVmBackupsSection.tsx`：创建、编辑、启停、删除按 `clouds.schedules:write` 控制。
+- ✅ `sections/BackupsSection.tsx`：创建、恢复、删除按 `clouds.ecs:write` 控制。
+- ✅ `sections/SnapshotsSection.tsx`：恢复、删除、批量删除按 `clouds.snapshots:write` 控制。
+- ✅ `sections/SshKeysSection.tsx`：创建、删除、批量删除按 `clouds.sshkeys:write` 控制。
+- ✅ `sections/CloudInitsSection.tsx`：写操作入口按 `clouds.cloudinits:write` 控制（删除功能当前为占位）。
+- ✅ `sections/TemplatesSection.tsx`：模板建机、删除、批量删除按 `clouds.templates:write` 控制。
+- ✅ `sections/NamespacesTab.tsx`：新增/编辑按 `clouds.namespaces:write` 控制（当前无删除功能）。
+- ✅ `sections/NadsSection.tsx`：创建网络、批量删除、行删除菜单入口按 `clouds.nads:write` 控制。
+- ✅ `kube-ovn/VpcsSection.tsx`：创建/编辑/删除 VPC、新增/编辑/删除子网按 `clouds.vpcs:write` 控制。
+- ✅ `kube-ovn/SubnetsSection.tsx`：新建/编辑/删除子网按 `clouds.vpcs:write` 控制。
+- ✅ `kube-ovn/EipSection.tsx`：创建/删除按 `clouds.vpcs:write` 控制。
+- ✅ `kube-ovn/FipSection.tsx`：创建/删除按 `clouds.vpcs:write` 控制。
+- ✅ `kube-ovn/SnatSection.tsx`：创建/删除按 `clouds.vpcs:write` 控制。
+- ✅ `kube-ovn/DnatSection.tsx`：创建/删除按 `clouds.vpcs:write` 控制。
+
+#### 6.6.2 本轮同步修正（✅）
+
+- ✅ `pages/Clouds/Cloudmap/CloudDetailCloudmap.tsx` 权限 key 对齐：`clouds.volumes:read` -> `clouds.disks:read`；`clouds.backups:read` -> `clouds.ecs:read`。
+- ✅ `NamespacesTab` 需求口径修正：当前页面仅有创建/编辑，不包含删除命名空间操作。
+
 ---
 
 ## 7. 权限配置示例

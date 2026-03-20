@@ -35,7 +35,7 @@ import { Layout, Button, Input, Divider, Typography, Space, Tag, App, Dropdown, 
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   CodeOutlined, UserOutlined, SettingOutlined, CaretDownOutlined,
-  ApiOutlined, DatabaseOutlined, CloudServerOutlined, DeploymentUnitOutlined,
+  DatabaseOutlined, CloudServerOutlined, DeploymentUnitOutlined,
   AppstoreOutlined, LogoutOutlined, DatabaseFilled, SearchOutlined,
   SafetyCertificateOutlined,
   AliyunOutlined, AmazonOutlined, GoogleOutlined, CheckCircleFilled, StopFilled, LockOutlined
@@ -592,7 +592,6 @@ const AdminLayout: React.FC = () => {
         </div>
       </div>
       <div style={{ display:'flex',alignItems:'center',gap:16, height:'100%' }}>
-        <ApiOutlined style={{color:'#fff',fontSize:18}} onClick={()=>navigate('/admin/api-docs')} />
         <SettingOutlined style={{color:'#fff',fontSize:18}} onClick={()=>{
           // 找到 SETTINGS 平台的第一个可访问页面
           const settingsCenter = visibleCenters.find((c: any) => c.key === '/admin/cen_settings');
@@ -1228,8 +1227,8 @@ const AdminLayout: React.FC = () => {
           }
         `}</style>
         {/* 侧边栏菜单 */}
-        {/* 在特定页面隐藏侧边栏：资源控制台、API 文档 */}
-        {!(location.pathname.includes('/admin/clouds/ecs') || location.pathname.includes('/admin/clouds/console') || location.pathname.includes('/admin/api-docs')) && (
+        {/* 在特定页面隐藏侧边栏：资源控制台 */}
+        {!(location.pathname.includes('/admin/clouds/ecs') || location.pathname.includes('/admin/clouds/console')) && (
           <AdminSidebar
             collapsed={collapsed}
             onCollapse={(next) => setCollapsed(next)}

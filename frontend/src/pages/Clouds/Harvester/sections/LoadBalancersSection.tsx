@@ -307,7 +307,7 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
         <Space>
           <Input
             className="toolbar-search"
-            placeholder="关键字"
+            placeholder="名称/ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
@@ -319,6 +319,7 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
             value={nsFilter || undefined}
             onChange={(v) => setNsFilter(v || '')}
             allowClear
+            className="toolbar-filter-sm"
             style={{ width: 150 }}
             options={namespaceOptions}
           />
@@ -327,6 +328,7 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
             value={ipamFilter || undefined}
             onChange={(v) => setIpamFilter(v || '')}
             allowClear
+            className="toolbar-filter-sm"
             style={{ width: 150 }}
             options={ipamOptions}
           />

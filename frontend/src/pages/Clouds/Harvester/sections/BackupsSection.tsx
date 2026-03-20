@@ -14,6 +14,8 @@ import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isPublicNamespace, isSystemNamespace } from '../../../../utils/harvesterUtils';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * 组件入参
@@ -35,14 +37,23 @@ interface Props {
   type?: 'backup' | 'snapshot';
   vmId?: string;
   isTenant?: boolean;
+  mode?: 'standard' | 'simple';
   bordered?: boolean;
 }
 
-const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant, bordered = true }) => {
+const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant, mode = 'standard', bordered = true }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasEcsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.ecs:write') || hasPermissionForAction(perms, 'clouds:write'),
+    [perms],
+  );
   // 关键字搜索
   const [keyword, setKeyword] = useState<string>('');
   // 状态过滤：all / ready / not_ready
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  // 命名空间过滤
+  const [namespaceFilter, setNamespaceFilter] = useState<string | undefined>(undefined);
   // 创建备份/快照弹窗可见性
   const [createModalVisible, setCreateModalVisible] = useState(false);
   // 恢复弹窗可见性
@@ -122,6 +133,9 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       const isReady = statusFilter === 'ready';
       d = d.filter((x: any) => !!x.readyToUse === isReady);
     }
+    if (namespaceFilter) {
+      d = d.filter((x: any) => x.namespace === namespaceFilter);
+    }
     if (keyword) {
       const k = keyword.toLowerCase();
       d = d.filter((x: any) => 
@@ -131,13 +145,29 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
       );
     }
     return d;
-  }, [dataSource, keyword, statusFilter, isTenant]);
+  }, [dataSource, keyword, statusFilter, isTenant, namespaceFilter]);
+
+  const namespaceOptions = useMemo(() => {
+    const set = new Set<string>();
+    dataSource.forEach((x: any) => {
+      const ns = String(x?.namespace || '');
+      if (!ns) return;
+      if (isSystemNamespace(ns)) return;
+      if (isTenant && isPublicNamespace(ns)) return;
+      set.add(ns);
+    });
+    return Array.from(set).sort().map((ns) => ({ label: ns, value: ns }));
+  }, [dataSource, isTenant]);
 
   /**
    * 删除单个备份 / 快照
    * 弹出确认框后调用后端删除接口，成功后触发刷新
    */
   const handleDelete = useCallback((record: any) => {
+    if (!hasEcsWrite) {
+      message.error('无权限执行该操作');
+      return;
+    }
     Modal.confirm({
       title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
       content: `确定要删除${type === 'backup' ? '备份' : '快照'} ${record.alias || record.name} 吗？`,
@@ -154,7 +184,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         }
       },
     });
-  }, [type, cloudId, onRefresh]);
+  }, [type, cloudId, onRefresh, hasEcsWrite]);
 
   /**
    * 表格列定义
@@ -265,23 +295,27 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         items.push({
           key: 'restore',
           label: '恢复',
-          disabled: !record.readyToUse,
+          disabled: !record.readyToUse || !hasEcsWrite,
           onClick: () => {
+            if (!hasEcsWrite) {
+              message.error('无权限执行该操作');
+              return;
+            }
             setCurrentSnapshot(record);
             setRestoreModalVisible(true);
           }
         });
         items.push({ type: 'divider' });
-        items.push({ key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) });
+        items.push({ key: 'delete', label: '删除', danger: true, disabled: !hasEcsWrite, onClick: () => handleDelete(record) });
         
         return (
           <Dropdown menu={{ items }} trigger={['click']}>
-            <Button icon={<EllipsisOutlined />} className="row-actions-trigger" type="text" />
+            <Button icon={<EllipsisOutlined />} className="row-actions-trigger" type="text" disabled={!hasEcsWrite} />
           </Dropdown>
         );
       },
     },
-  ], [handleDelete, isTenant]);
+  ], [handleDelete, isTenant, hasEcsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, `harvester_${type}_list`);
@@ -290,16 +324,28 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
     <PageDetailSection asCard={false}>
       <div key="toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <div key="toolbar-left" style={{ display: 'flex', gap: 8 }}>
-          {/* 关键字搜索：按名称 / 别名 / 命名空间模糊匹配 */}
+          {/* 关键字搜索：按名称 / 别名 / ID 模糊匹配 */}
           <Input
             key="keyword-search"
             className="toolbar-search"
-            placeholder="搜索名称、别名或命名空间"
+            placeholder="名称/ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' } } />}
             value={keyword}
             onChange={e => setKeyword(e.target.value)}
             allowClear
           />
+          {mode === 'standard' && (
+            <Select
+              key="namespace-filter"
+              allowClear
+              showSearch
+              className="toolbar-filter-sm"
+              placeholder="命名空间"
+              value={namespaceFilter}
+              onChange={setNamespaceFilter}
+              options={namespaceOptions}
+            />
+          )}
           {/* 状态过滤：全部 / Ready / NotReady */}
           <Select
             key="status-filter"
@@ -320,13 +366,14 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
             onClick={() => {
               setKeyword('');
               setStatusFilter(undefined);
+              setNamespaceFilter(undefined);
             }}
           >
             重置
           </button>
         </div>
         <div key="toolbar-right" className="toolbar-actions">
-           <Button key="create-btn" type="primary" onClick={() => setCreateModalVisible(true)}>创建{type === 'backup' ? '备份' : '快照'}</Button>
+           <Button key="create-btn" type="primary" disabled={!hasEcsWrite} onClick={() => { if (!hasEcsWrite) return; setCreateModalVisible(true); }}>创建{type === 'backup' ? '备份' : '快照'}</Button>
            <TableColumnSettingsButton
              key="col-settings"
              allColumns={columns}

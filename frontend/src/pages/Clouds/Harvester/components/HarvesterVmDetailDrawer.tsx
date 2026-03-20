@@ -63,6 +63,8 @@ import HarvesterVmDiagnosisTab from './HarvesterVmDiagnosisTab';
 import { OsIcon } from '../../../../components/OsIcon';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
 import { getToken } from '../../../../utils/tokenStorage';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * HarvesterVmDetailDrawer 组件入参定义
@@ -127,6 +129,18 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasEcsWrite = useMemo(() => {
+    return hasPermissionForAction(perms, 'clouds.ecs:write') || hasPermissionForAction(perms, 'clouds:write');
+  }, [perms]);
+  const hasConsoleWrite = useMemo(() => {
+    return (
+      perms.includes('*') ||
+      perms.includes('clouds.console:write') ||
+      perms.includes('clouds.console:*')
+    );
+  }, [perms]);
 
   // [状态同步] 抽屉内部统一使用 vmData 作为渲染/动作的数据源
   // 详细解释：
@@ -897,6 +911,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // ==============================================================================
   // [动作封装] 将按钮/菜单的操作集中封装，统一处理消息提示与上游刷新回调
   const handleStart = async () => {
+     if (!hasEcsWrite) {
+         message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+         return;
+     }
      try {
          const ns = SafeRead.namespace(vmData);
          const name = SafeRead.vmId(vmData);
@@ -909,6 +927,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleStop = async (force = false) => {
+     if (!hasEcsWrite) {
+         message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+         return;
+     }
      try {
          const ns = SafeRead.namespace(vmData);
          const name = SafeRead.vmId(vmData);
@@ -921,6 +943,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleReboot = async () => {
+      if (!hasEcsWrite) {
+          message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+          return;
+      }
       try {
           const ns = SafeRead.namespace(vmData);
           const name = SafeRead.vmId(vmData);
@@ -935,6 +961,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handlePause = async () => {
+    if (!hasEcsWrite) {
+        message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+        return;
+    }
     try {
         const ns = SafeRead.namespace(vmData);
         const name = SafeRead.vmId(vmData);
@@ -947,6 +977,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleUnpause = async () => {
+    if (!hasEcsWrite) {
+        message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+        return;
+    }
     try {
         const ns = SafeRead.namespace(vmData);
         const name = SafeRead.vmId(vmData);
@@ -959,6 +993,10 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleConsole = async () => {
+    if (!hasConsoleWrite) {
+        message.error('当前账号没有控制台操作权限（需要 clouds.console:write 权限）');
+        return;
+    }
     const ns = SafeRead.namespace(vmData);
     const name = SafeRead.vmId(vmData);
     if (ns && name) {
@@ -970,11 +1008,19 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   };
 
   const handleSaveAsTemplate = useCallback(async () => {
+    if (!hasEcsWrite) {
+      message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+      return;
+    }
     setShowTemplateModal(true);
-  }, []);
+  }, [hasEcsWrite]);
 
 
   const handleEjectCdrom = useCallback(async () => {
+    if (!hasEcsWrite) {
+      message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+      return;
+    }
     const disks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
     // [设备选择] 以第一块盘作为“启动盘/引导盘”候选，并在下方按 isCdromBoot 控制入口是否展示
     const cdrom = disks[0];
@@ -1227,10 +1273,56 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
   // [下拉菜单] 更多动作入口（按业务域分组：数据/运行态/危险操作）
   const actionItems: MenuProps['items'] = [
       // 数据与副本（备份/快照/克隆/模板）
-      { key: 'backup', label: '备份', icon: <DatabaseOutlined />, onClick: () => onBackup && onBackup(vmData) },
-      { key: 'snapshot', label: '快照', icon: <HistoryOutlined />, onClick: () => onSnapshot && onSnapshot(vmData) },
-      { key: 'clone', label: '克隆', icon: <CopyOutlined />, onClick: () => onClone && onClone(vmData) },
-      { key: 'save_template', label: '保存为模板', icon: <SaveOutlined />, onClick: handleSaveAsTemplate },
+      { 
+        key: 'backup', 
+        label: '备份', 
+        icon: <DatabaseOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onBackup && onBackup(vmData);
+        },
+      },
+      { 
+        key: 'snapshot', 
+        label: '快照', 
+        icon: <HistoryOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onSnapshot && onSnapshot(vmData);
+        },
+      },
+      { 
+        key: 'clone', 
+        label: '克隆', 
+        icon: <CopyOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onClone && onClone(vmData);
+        },
+      },
+      { 
+        key: 'save_template', 
+        label: '保存为模板', 
+        icon: <SaveOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: handleSaveAsTemplate,
+      },
       
       { type: 'divider' },
 
@@ -1239,9 +1331,17 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         key: 'reconfigure', 
         label: '资源变配', 
         icon: <HddOutlined />, 
-        disabled: !isStopped && !isRunning,
-        title: (!isStopped && !isRunning) ? '仅在运行中或停止状态下支持变配' : undefined,
-        onClick: () => onOpenReconfigure && onOpenReconfigure(vmData) 
+        disabled: !hasEcsWrite || (!isStopped && !isRunning),
+        title: (!isStopped && !isRunning)
+            ? '仅在运行中或停止状态下支持变配'
+            : undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onOpenReconfigure && onOpenReconfigure(vmData);
+        } 
       },
       // 根据迁移状态动态显示"热迁移"或"中止迁移"
       ...(isMigrating ? [
@@ -1249,26 +1349,71 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
           key: 'abort_migration', 
           label: '中止迁移', 
           icon: <StopOutlined />, 
+          disabled: !hasEcsWrite,
+          title: undefined,
           danger: true,
-          onClick: handleAbortMigration 
+          onClick: () => {
+            if (!hasEcsWrite) {
+              message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+              return;
+            }
+            handleAbortMigration();
+          } 
         }
       ] : [
         { 
           key: 'migrate', 
           label: '热迁移', 
           icon: <ExportOutlined />, 
-          disabled: !isRunning,
-          title: !isRunning ? '只有运行中的实例才能进行热迁移' : undefined,
-          onClick: () => onMigrate && onMigrate(vmData) 
+          disabled: !hasEcsWrite || !isRunning,
+          title: !isRunning
+              ? '只有运行中的实例才能进行热迁移'
+              : undefined,
+          onClick: () => {
+            if (!hasEcsWrite) {
+              message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+              return;
+            }
+            onMigrate && onMigrate(vmData);
+          } 
         }
       ]),
-      ...(isCdromBoot ? [{ key: 'eject', label: '弹出CD-ROM', icon: <StopOutlined />, onClick: handleEjectCdrom }] : []),
+      ...(isCdromBoot ? [{ 
+        key: 'eject', 
+        label: '弹出CD-ROM', 
+        icon: <StopOutlined />, 
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: handleEjectCdrom 
+      }] : []),
 
       { type: 'divider' },
 
       // 危险操作（强制停止/删除）
-      { key: 'force_stop', label: '强制停止', icon: <PoweroffOutlined />, danger: true, disabled: isStopped, onClick: () => handleStop(true) },
-      { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => onDelete && onDelete(vmData) },
+      { 
+        key: 'force_stop', 
+        label: '强制停止', 
+        icon: <PoweroffOutlined />, 
+        danger: true, 
+        disabled: !hasEcsWrite || isStopped, 
+        title: undefined,
+        onClick: () => handleStop(true) 
+      },
+      { 
+        key: 'delete', 
+        label: '删除', 
+        icon: <DeleteOutlined />, 
+        danger: true,
+        disabled: !hasEcsWrite,
+        title: undefined,
+        onClick: () => {
+          if (!hasEcsWrite) {
+            message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+            return;
+          }
+          onDelete && onDelete(vmData);
+        },
+      },
   ];
 
   return (
@@ -1418,23 +1563,117 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
       */}
       <div style={{ background: '#f5f7fa', padding: '0 24px 4px', flexShrink: 0 }}>
         <div style={{ padding: 4, background: '#fff', borderRadius: 8, display: 'flex', gap: 4, alignItems: 'center',border: '1px solid #e0e0e0' }}>
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleConsole} disabled={isStopped} style={{ fontSize: 14 }}>打开终端</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<CodeOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />}
+                onClick={handleConsole}
+                disabled={isStopped || !hasConsoleWrite}
+                style={{ fontSize: 14 }}
+              >
+                打开终端
+              </Button>
+            </span>
+          </Tooltip>
           
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />} onClick={handleStart} disabled={!isStopped} style={{ fontSize: 14 }}>开机</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<PlayCircleOutlined style={{ color: isStopped ? '#1890ff' : undefined }} />}
+                onClick={handleStart}
+                disabled={!isStopped || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                开机
+              </Button>
+            </span>
+          </Tooltip>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PoweroffOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={() => handleStop(false)} disabled={isStopped} style={{ fontSize: 14 }}>关机</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<PoweroffOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />}
+                onClick={() => handleStop(false)}
+                disabled={isStopped || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                关机
+              </Button>
+            </span>
+          </Tooltip>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />} onClick={handleReboot} disabled={isStopped} style={{ fontSize: 14 }}>重启</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<ReloadOutlined style={{ color: isStopped ? undefined : '#1890ff' }} />}
+                onClick={handleReboot}
+                disabled={isStopped || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                重启
+              </Button>
+            </span>
+          </Tooltip>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />} onClick={handlePause} disabled={!isRunning} style={{ fontSize: 14 }}>暂停</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<PauseCircleOutlined style={{ color: isRunning ? '#1890ff' : undefined }} />}
+                onClick={handlePause}
+                disabled={!isRunning || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                暂停
+              </Button>
+            </span>
+          </Tooltip>
 
-          <Button className="vm-toolbar-btn" type="text" size="small" icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />} onClick={handleUnpause} disabled={!isPaused} style={{ fontSize: 14 }}>恢复</Button>
+          <Tooltip title={undefined}>
+            <span>
+              <Button
+                className="vm-toolbar-btn"
+                type="text"
+                size="small"
+                icon={<PlayCircleOutlined style={{ color: isPaused ? '#1890ff' : undefined }} />}
+                onClick={handleUnpause}
+                disabled={!isPaused || !hasEcsWrite}
+                style={{ fontSize: 14 }}
+              >
+                恢复
+              </Button>
+            </span>
+          </Tooltip>
 
           <div style={{ flex: 1 }} />
           
-          <Dropdown menu={{ items: actionItems }} trigger={['click']}>
-              <Button className="vm-toolbar-btn" type="text" size="small" icon={<EllipsisOutlined style={{ color: '#1890ff' }} />} />
-          </Dropdown>
+          <Tooltip title={undefined}>
+            <span>
+              <Dropdown menu={{ items: actionItems }} trigger={['click']}>
+                <Button
+                  className="vm-toolbar-btn"
+                  type="text"
+                  size="small"
+                  disabled={!hasEcsWrite}
+                  icon={<EllipsisOutlined style={{ color: '#1890ff' }} />}
+                />
+              </Dropdown>
+            </span>
+          </Tooltip>
         </div>
       </div>
 

@@ -46,12 +46,21 @@ import {
 export async function harvesterEcsStreamHandler(req: any, res: Response, next: any) {
   try {
     const { id } = req.params;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(req, id);
+    const { allowed, namespace: tenantNamespace } = await checkTenantAccess(
+      req,
+      id,
+    );
     if (!allowed)
       return res
         .status(403)
         .json({ message: 'Access denied to this resource pool' });
+
+    // 与 watch 回调一致：租户仅同步白名单命名空间；init 首包原先未过滤，会把全集群 VM 推给前端
+    const tenantAllowedNs = tenantNamespace
+      ? tenantNamespace.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : null;
+    const tenantNsAllowed = (ns: string) =>
+      !tenantAllowedNs || tenantAllowedNs.includes(ns);
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '', next)) return;
@@ -186,7 +195,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
       vms.forEach((vm: any) => {
         const ns = vm.metadata?.namespace || '';
         const name = vm.metadata?.name || '';
-        if (ns && name) {
+        if (ns && name && tenantNsAllowed(ns)) {
           const key = `${ns}/${name}`;
           vmCache.set(key, vm);
         }
@@ -195,7 +204,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
       vmis.forEach((vmi: any) => {
         const ns = vmi.metadata?.namespace || '';
         const name = vmi.metadata?.name || '';
-        if (ns && name) {
+        if (ns && name && tenantNsAllowed(ns)) {
           const key = `${ns}/${name}`;
           vmiCache.set(key, vmi);
           sendItem(key, 'vm_created');
@@ -216,10 +225,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
           const name = obj?.metadata?.name || '';
           if (!ns || !name) return;
 
-          if (tenantNamespace) {
-            const allowed = tenantNamespace.split(',').map((s) => s.trim());
-            if (!allowed.includes(ns)) return;
-          }
+          if (!tenantNsAllowed(ns)) return;
 
           const key = `${ns}/${name}`;
           if (event.type === 'DELETED') {
@@ -243,10 +249,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
           const name = obj?.metadata?.name || '';
           if (!ns || !name) return;
 
-          if (tenantNamespace) {
-            const allowed = tenantNamespace.split(',').map((s) => s.trim());
-            if (!allowed.includes(ns)) return;
-          }
+          if (!tenantNsAllowed(ns)) return;
 
           const key = `${ns}/${name}`;
           vmiCache.set(key, obj);
