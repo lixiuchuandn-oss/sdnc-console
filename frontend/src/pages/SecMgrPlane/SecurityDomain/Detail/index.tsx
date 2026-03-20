@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Descriptions, Table, Tag, Typography, Space, Input, Select, Row, Col, Card, Statistic, Badge, Drawer, message, Button, Modal, Form } from 'antd';
+import { Descriptions, Table, Tag, Typography, Space, Input, Select, Row, Col, Card, Statistic, Drawer, message, Button, Modal, Form } from 'antd';
 
 import {
   GlobalOutlined,
@@ -25,9 +25,6 @@ import { getSecurityDomain, updateSecurityDomain } from '../../../../services/se
 import { SecurityDomain } from '../index';
 import { apiPost, fetchCsmElementGroups, fetchCloudProviderEcs } from '../../../../services/api';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
-
-const { Title } = Typography;
-const { Search } = Input;
 
 const SecurityDomainDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();

@@ -47,7 +47,6 @@ const AdvancedSettings: React.FC = () => {
 
   return (
     <PageContainer
-      title="高级集成"
       asCard={false}
       titleLevel={3}
     >

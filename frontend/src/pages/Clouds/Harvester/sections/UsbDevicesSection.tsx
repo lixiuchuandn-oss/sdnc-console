@@ -3,7 +3,8 @@ import { Button, Input, Modal, Space, Table, Tag, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { claimHarvesterUsbDevice, unclaimHarvesterUsbDevice } from '../../../../services/harvesterApi';
 
 interface Props {
@@ -167,7 +168,7 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
     ];
   }, [handleSetPassthrough, vendorLabel]);
 
-  const [tableColumns, setTableColumns] = useState<any[]>(() => columnsAll);
+  const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, 'harvester_usb_devices_table');
 
   return (
     <>
@@ -187,7 +188,7 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
         )}
         toolbarRight={(
           <Space>
-            <TableColumnSettings columns={columnsAll} onChange={setTableColumns} settingsKey="harvester_usb_devices_table" />
+            <TableColumnSettingsButton allColumns={columnsAll} settingsKey="harvester_usb_devices_table" />
             <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={!!loading || refreshing} disabled={!onRefresh} />
           </Space>
         )}

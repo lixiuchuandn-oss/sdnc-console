@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDefaultAdminPath } from '../../utils/accessMapping';
 import { useSettings } from '../../contexts/SettingsContext';
+import { renderMarkdownBold } from '../../utils/markdown';
 import './Login.css';
 
 const Login: React.FC = () => {
@@ -12,7 +13,7 @@ const Login: React.FC = () => {
   const [form] = Form.useForm();
   const { login } = useAuth();
   const navigate = useNavigate();
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
   
   // 获取背景颜色设置
   const backgroundColor = settings.loginBackgroundColor || '#1062FE';
@@ -59,8 +60,8 @@ const Login: React.FC = () => {
     <div className="login-container" style={containerStyle}>
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">{settings.loginTitle || '多云管理平台'}</h1>
-          <p className="login-subtitle">{settings.loginSubtitle || '多云管理平台'}</p>
+          <h1 className="login-title">{settingsLoading ? '' : renderMarkdownBold(settings.loginTitle || '多云管理平台')}</h1>
+          <p className="login-subtitle">{settingsLoading ? '' : (settings.loginSubtitle || '多云管理平台')}</p>
         </div>
         
         <Card className="login-card" variant="borderless">

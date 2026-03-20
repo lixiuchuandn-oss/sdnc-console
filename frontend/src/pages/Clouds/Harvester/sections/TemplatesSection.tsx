@@ -296,14 +296,18 @@ const TemplatesSection: React.FC<Props> = ({
       }
     },
     {
-      title: '默认版本',
-      key: 'defaultVersion',
-      render: (_: any, r: any) => <Tag color="blue">{getTemplateDefaultVersion(r)}</Tag>
-    },
-    {
-      title: '最新版本',
-      key: 'latestVersion',
-      render: (_: any, r: any) => getTemplateLatestVersion(r)
+      title: '版本',
+      key: 'version',
+      render: (_: any, r: any) => {
+        const defaultVersion = getTemplateDefaultVersion(r);
+        const latestVersion = getTemplateLatestVersion(r);
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Tag color="blue">默认: {defaultVersion}</Tag>
+            <span>最新: {latestVersion}</span>
+          </div>
+        );
+      }
     },
     {
       title: '作用域',

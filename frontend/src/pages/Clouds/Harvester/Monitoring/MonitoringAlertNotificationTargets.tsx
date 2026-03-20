@@ -3,11 +3,13 @@
    * 按命名空间搜索，展示该命名空间下 receivers 列表（后端返回新结构：通知方式标识/名称、邮件SMTP、是否发送恢复邮件等）
    */
   import React, { useCallback, useEffect, useMemo, useState } from 'react';
-  import { Button, Checkbox, Col, Descriptions, Dropdown, Form, Input, message, Modal, Radio, Row, Select, Space, Switch, Table, Tag, Tooltip } from 'antd';
-  import { DeleteOutlined, DingtalkOutlined, MailOutlined, PlusOutlined, ReloadOutlined as RefreshIcon, SettingOutlined } from '@ant-design/icons';
+  import { Button, Checkbox, Col, Descriptions, Dropdown, Form, Input, message, Modal, Row, Select, Space, Switch, Table, Tag } from 'antd';
+  import { DeleteOutlined, DingtalkOutlined, MailOutlined, PlusOutlined, ReloadOutlined as RefreshIcon, SearchOutlined } from '@ant-design/icons';
   import type { ColumnsType, ColumnType } from 'antd/es/table';
   import { useAuth } from '../../../../contexts/AuthContext';
   import PageDetailSection from '../../../../components/PageDetailSection';
+  import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+  import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
   import {
     useMonitoring,
     ALERTMANAGERCONFIG_KIND,
@@ -103,11 +105,6 @@ const WEBSITE_COLUMN_KEYS = ['receiverName', 'namespace', 'opened', 'action'] as
     url: 'Webhook URL',
     action: '操作',
   };
-  const getDefaultVisibleKeys = (type: string): string[] => {
-    if (type === DINGTALK_RECEIVER) return [...DINGTALK_COLUMN_KEYS];
-    if (type === WEBSITE_RECEIVER) return [...WEBSITE_COLUMN_KEYS];
-    return [...EMAIL_COLUMN_KEYS];
-  };
 
 const DEFAULT_ADMIN_NAMESPACE = 'cattle-monitoring-system';
 
@@ -120,17 +117,17 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
     const isAdmin = user?.role === 'admin';
     const { formNamespaceOptions, namespaceLoading, configNsFilter, setConfigNsFilter, namespaceList, tenantNamespaces } = useMonitoring();
 
+    // 注意：namespaceOptions 和 loadingNs 在 loadNamespaceOptions 中被设置，但当前使用 formNamespaceOptions 和 namespaceLoading（来自 useMonitoring hook）
+    // 保留这些变量以保持代码一致性，可能用于未来功能
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [namespaceOptions, setNamespaceOptions] = useState<{ label: string; value: string }[]>([]);
     const [selectedNamespace, setSelectedNamespace] = useState<string>('');
     const [receiverNameFilter, setReceiverNameFilter] = useState<string>(EMAIL_RECEIVER);
+    const [keyword, setKeyword] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [receiverSpecs, setReceiverSpecs] = useState<ReceiverSpecItem[]>([]);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [loadingNs, setLoadingNs] = useState(false);
-    const [visibleColumnKeysByTab, setVisibleColumnKeysByTab] = useState<Record<string, string[]>>(() => ({
-      [EMAIL_RECEIVER]: [...EMAIL_COLUMN_KEYS],
-      [DINGTALK_RECEIVER]: [...DINGTALK_COLUMN_KEYS],
-      [WEBSITE_RECEIVER]: [...WEBSITE_COLUMN_KEYS],
-    }));
     const [detailRecord, setDetailRecord] = useState<ReceiverItem | null>(null);
     const [editingRecord, setEditingRecord] = useState<ReceiverItem | null>(null);
     const [addEmailModalOpen, setAddEmailModalOpen] = useState(false);
@@ -236,7 +233,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
 
     useEffect(() => {
       if (isAdmin && selectedNamespace === '') setSelectedNamespace(DEFAULT_ADMIN_NAMESPACE);
-    }, [isAdmin]);
+    }, [isAdmin, selectedNamespace]);
 
     /** 通知方式或命名空间变更时重新加载通知对象列表 */
     useEffect(() => {
@@ -682,10 +679,19 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
       return out;
     }, [receiverSpecs, selectedNamespace]);
 
-    const filteredReceivers = useMemo(
-      () => receiverRows.filter((r) => r.receiverName === receiverNameFilter),
-      [receiverRows, receiverNameFilter]
-    );
+    const filteredReceivers = useMemo(() => {
+      let filtered = receiverRows.filter((r) => r.receiverName === receiverNameFilter);
+      if (keyword.trim()) {
+        const k = keyword.trim().toLowerCase();
+        filtered = filtered.filter((r) => {
+          const nameMatch = (r.receiverName ?? '').toLowerCase().includes(k);
+          const specNameMatch = (r.specReceiverName ?? '').toLowerCase().includes(k);
+          const nsMatch = (r.namespace ?? '').toLowerCase().includes(k);
+          return nameMatch || specNameMatch || nsMatch;
+        });
+      }
+      return filtered;
+    }, [receiverRows, receiverNameFilter, keyword]);
 
     const renderAction = useCallback(
       (_: unknown, record: ReceiverItem) => (
@@ -893,26 +899,18 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
       [renderWebsiteAction]
     );
 
-    const columns = useMemo(() => {
-      const base =
-        receiverNameFilter === DINGTALK_RECEIVER
-          ? dingtalkColumns
-          : receiverNameFilter === WEBSITE_RECEIVER
-            ? websiteColumns
-            : emailColumns;
-      const visible = visibleColumnKeysByTab[receiverNameFilter] ?? getDefaultVisibleKeys(receiverNameFilter);
-      return base.filter((col: ColumnType<ReceiverItem>) => visible.includes((col.key ?? '') as string));
-    }, [receiverNameFilter, emailColumns, dingtalkColumns, websiteColumns, visibleColumnKeysByTab]);
+    // 根据通知方式选择对应的列定义
+    const allColumns = useMemo(() => {
+      return receiverNameFilter === DINGTALK_RECEIVER
+        ? dingtalkColumns
+        : receiverNameFilter === WEBSITE_RECEIVER
+          ? websiteColumns
+          : emailColumns;
+    }, [receiverNameFilter, emailColumns, dingtalkColumns, websiteColumns]);
 
-    const currentTypeColumnKeys = useMemo(
-      () =>
-        receiverNameFilter === DINGTALK_RECEIVER
-          ? [...DINGTALK_COLUMN_KEYS]
-          : receiverNameFilter === WEBSITE_RECEIVER
-            ? [...WEBSITE_COLUMN_KEYS]
-            : [...EMAIL_COLUMN_KEYS],
-      [receiverNameFilter]
-    );
+    // 列显示设置（根据通知方式使用不同的 settingsKey）
+    const settingsKey = `monitoring_alert_notification_targets_${receiverNameFilter}`;
+    const { displayColumns: columns } = useTableColumnSettings(allColumns, settingsKey);
 
     return (
       <div>
@@ -920,6 +918,14 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           asCard={false}
           toolbarLeft={
             <>
+              <Input 
+                allowClear 
+                placeholder="关键字" 
+                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+                value={keyword || ''} 
+                onChange={(e) => setKeyword(e.target.value)} 
+                className="toolbar-search"
+              />
               <Select
                 placeholder="通知方式"
                 value={receiverNameFilter}
@@ -955,32 +961,14 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
                     ? '新增钉钉通知对象'
                     : '开通站内信'}
               </Button>
-              <Dropdown
-                trigger={['click']}
-                popupRender={() => (
-                  <div style={{ background: 'var(--ant-color-bg-elevated)', borderRadius: 8, boxShadow: 'var(--ant-box-shadow)', padding: 12, minWidth: 180 }}>
-                    <div style={{ marginBottom: 8, fontWeight: 500 }}>列显示</div>
-                    <Checkbox.Group
-                      value={visibleColumnKeysByTab[receiverNameFilter] ?? currentTypeColumnKeys}
-                      onChange={(vals) => setVisibleColumnKeysByTab((prev) => ({ ...prev, [receiverNameFilter]: vals as string[] }))}
-                      options={currentTypeColumnKeys.map((key) => ({
-                        label: COLUMN_TITLES[key] ?? key,
-                        value: key,
-                      }))}
-                      style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
-                    />
-                  </div>
-                )}
-              >
-                <Button icon={<SettingOutlined />} />
-              </Dropdown>
+              <TableColumnSettingsButton allColumns={allColumns} settingsKey={settingsKey} />
               <Button icon={<RefreshIcon />} loading={loading} onClick={() => loadReceivers()} />
             </>
           }
         >
           <Table<ReceiverItem>
             className="std-table"
-            bordered
+            bordered={false}
             rowKey={(record) => record.key}
             loading={loading}
             columns={columns}
@@ -1039,7 +1027,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title={editingRecord ? '编辑邮件通知对象' : '新增邮件通知对象'}
           open={addEmailModalOpen}
           onCancel={handleCloseAddEmailModal}
-          destroyOnClose
+          destroyOnHidden
           width={800}
           footer={[
             <Button key="cancel" onClick={handleCloseAddEmailModal}>取消</Button>,
@@ -1154,7 +1142,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title={editingRecord ? '编辑钉钉通知对象' : '新增钉钉通知对象'}
           open={addDingtalkModalOpen}
           onCancel={handleCloseAddDingtalkModal}
-          destroyOnClose
+          destroyOnHidden
           width={800}
           footer={[
             <Button key="cancel" onClick={handleCloseAddDingtalkModal}>取消</Button>,
@@ -1213,7 +1201,7 @@ const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAc
           title="开通站内信"
           open={addWebsiteModalOpen}
           onCancel={handleCloseAddWebsiteModal}
-          destroyOnClose
+          destroyOnHidden
           width={520}
           footer={[
             <Button key="cancel" onClick={handleCloseAddWebsiteModal}>取消</Button>,

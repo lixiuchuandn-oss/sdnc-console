@@ -15,6 +15,10 @@ interface TableColumnSettingsProps<T> {
 /**
  * 表格列设置组件
  * 用于控制表格列的显示/隐藏，并支持本地持久化
+ * 
+ * @deprecated 此组件已被 TableColumnSettingsButton 替代，避免死锁问题
+ * 新代码请使用 TableColumnSettingsButton + useTableColumnSettings hook
+ * 旧代码保留以维持兼容性，但建议逐步迁移
  */
 export const TableColumnSettings = <T extends object>({
   columns,

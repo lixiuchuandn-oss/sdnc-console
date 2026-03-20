@@ -4,7 +4,8 @@ import { ReloadOutlined, PlusOutlined, MinusCircleOutlined, ThunderboltOutlined 
 import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { createHarvesterVpc, fetchHarvesterNamespaces, createKubeOvnSubnet, deleteHarvesterVpc, deleteKubeOvnSubnet, updateKubeOvnSubnet, updateHarvesterVpc, createHarvesterNad } from '../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
@@ -91,7 +92,6 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   const cloudId = propCloudId || paramCloudId;
   const [searchText, setSearchText] = useState('');
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
-  const [tableColumns, setTableColumns] = useState<any[]>([]);
   
   // 命名空间选项（用于筛选下拉框）
   const namespaceOptions = useMemo(() => {
@@ -682,6 +682,9 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     );
   };
 
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vpcs_table');
+
   // --- Main Render ---
 
   return (
@@ -721,9 +724,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       toolbarRight={(
         <div className="toolbar-actions">
           <Button type="primary" onClick={handleOpenCreateVpc}>创建 VPC</Button>
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton 
+            allColumns={allColumns} 
             settingsKey="harvester_vpcs_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />

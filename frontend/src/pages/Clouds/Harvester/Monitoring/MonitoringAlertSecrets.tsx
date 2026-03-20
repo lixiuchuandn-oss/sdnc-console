@@ -9,8 +9,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Descriptions, Form, Input, message, Modal, Select, Space, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useMonitoring } from './context/MonitoringContext';
 import {
@@ -59,7 +61,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState<SecretRow | null>(null);
   const [detailRecord, setDetailRecord] = useState<SecretRow | null>(null);
-  /** 编辑时从后端拉取的表单初始值，用于 Modal 打开后正确填充（destroyOnClose 时 setFieldsValue 可能失效） */
+  /** 编辑时从后端拉取的表单初始值，用于 Modal 打开后正确填充（destroyOnHidden 时 setFieldsValue 可能失效） */
   const [editFormInitialValues, setEditFormInitialValues] = useState<{
     namespace: string;
     name: string;
@@ -243,7 +245,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
     [handleEdit, handleDetail, handleDelete]
   );
 
-  const columns: ColumnsType<SecretRow> = [
+  const allColumns: ColumnsType<SecretRow> = [
     { title: '密钥名称', dataIndex: 'name', key: 'name', width: 200, ellipsis: true },
     {
       title: '数据键',
@@ -254,12 +256,23 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
     { title: '操作', key: 'action', width: 80, fixed: 'right', onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }), render: renderAction },
   ];
 
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: columns } = useTableColumnSettings(allColumns, 'monitoring_alert_secrets_table');
+
   return (
     <>
       <PageDetailSection
         asCard={false}
         toolbarLeft={
           <Space wrap>
+            <Input 
+              allowClear 
+              placeholder="关键字" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword} 
+              onChange={(e) => setKeyword(e.target.value)} 
+              className="toolbar-search"
+            />
             <Select
               placeholder="数据源"
               value={dataSourceFilter}
@@ -274,13 +287,6 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
               options={formNamespaceOptions}
               style={{ width: 250 }}
             />
-            <Input.Search
-              placeholder="关键字"
-              allowClear
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              style={{ width: 200 }}
-            />
           </Space>
         }
         toolbarRight={
@@ -288,13 +294,14 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
             <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
               新增密钥
             </Button>
+            <TableColumnSettingsButton allColumns={allColumns} settingsKey="monitoring_alert_secrets_table" />
             <Button icon={<ReloadOutlined />} onClick={loadSecrets} loading={loading} />
           </Space>
         }
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(r) => `${r.namespace ?? ''}-${r.name}`}
           loading={loading}
           columns={columns}
@@ -315,7 +322,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         okText="确定"
         cancelText="取消"
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         width={480}
       >
         <Form

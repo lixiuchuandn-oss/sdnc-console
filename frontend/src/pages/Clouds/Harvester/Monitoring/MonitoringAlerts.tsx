@@ -4,12 +4,13 @@
  * 告警通知配置已迁移至「告警通知策略」Tab（AlertForwardConfig）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { Button, Descriptions, Input, Modal, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType, ColumnType } from 'antd/es/table';
 import { useAuth } from '../../../../contexts/AuthContext';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { fetchAlertsRules, fetchAllowedNamespaces, fetchPrometheusRulesGroups } from '../../../../services/monitoringApi';
 import { parseAlerts, type ParsedAlert } from './utils/prometheusAlerts';
 import { CRITICAL_COLOR, WARNING_COLOR, LEVEL_FILTER_OPTIONS } from './constants';
@@ -34,7 +35,6 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
   const [allowedNsLoading, setAllowedNsLoading] = useState(false);
-  const [alertTableColumns, setAlertTableColumns] = useState<ColumnsType<ParsedAlert>>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailRecord, setDetailRecord] = useState<ParsedAlert | null>(null);
   /** 规则组中文映射（从 PrometheusRulesGroup 表 / prometheusrules-groups 接口读取） */
@@ -239,6 +239,9 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     [isAdmin, openDetail, renderLevel, renderRuleGroup]
   );
 
+  // 列显示设置（需要在 alertColumns 定义之后）
+  const { displayColumns: alertTableDisplayColumns } = useTableColumnSettings(alertColumns, 'monitoring_alerts_table');
+
   const namespaceFilterOptions = useMemo(() => {
     if (isAdmin) {
       const allNs = new Set<string>();
@@ -248,20 +251,6 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     return [{ label: '全部', value: '' }, ...tenantNamespaces.map((ns) => ({ label: ns, value: ns }))];
   }, [isAdmin, alertsList, tenantNamespaces]);
 
-  // 始终用最新的 alertColumns（含等级颜色 render），仅用保存的列做可见性过滤，避免持久化列丢失 render
-  const getColumnKey = (col: { key?: string; dataIndex?: string | string[] }) => {
-    if (col.key) return String(col.key);
-    if (col.dataIndex) return Array.isArray(col.dataIndex) ? col.dataIndex.join('.') : String(col.dataIndex);
-    return '';
-  };
-  const alertTableDisplayColumns = useMemo(() => {
-    if (alertTableColumns.length === 0) return alertColumns;
-    const visibleKeys = new Set(alertTableColumns.map((c) => getColumnKey(c as any)));
-    return alertColumns.filter((col) => {
-      const k = getColumnKey(col as any);
-      return !k || visibleKeys.has(k);
-    });
-  }, [alertColumns, alertTableColumns]);
 
   return (
     <div>
@@ -269,6 +258,15 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         asCard={false}
         toolbarLeft={
           <>
+            <Input 
+              allowClear 
+              placeholder="关键字" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={alertKeyword} 
+              onChange={(e) => setAlertKeyword(e.target.value)} 
+              onPressEnter={loadAlerts}
+              className="toolbar-search"
+            />
             <Select
               placeholder="数据源"
               value={dataSourceFilter}
@@ -292,13 +290,6 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
               options={namespaceFilterOptions}
               loading={!isAdmin && allowedNsLoading}
             />
-            <Input.Search
-              placeholder="关键字"
-              allowClear
-              value={alertKeyword}
-              onChange={(e) => setAlertKeyword(e.target.value)}
-              onSearch={loadAlerts}
-            />
             <button
               type="button"
               className="toolbar-reset-btn"
@@ -314,9 +305,8 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         }
         toolbarRight={
           <>
-            <TableColumnSettings
-              columns={alertColumns}
-              onChange={setAlertTableColumns}
+            <TableColumnSettingsButton
+              allColumns={alertColumns}
               settingsKey="monitoring_alerts_table"
             />
             <Button icon={<ReloadOutlined />} onClick={loadAlerts} loading={alertsLoading} />
@@ -325,7 +315,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: ParsedAlert) => row.id}
           loading={alertsLoading}
           columns={alertTableDisplayColumns}

@@ -13,7 +13,6 @@ import { Router, Response } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { determineActionBaseFromPath, getRuntimePermissionMapping } from '../utils/routePermissionMapping';
 import { getDifyConfig, setDifyConfig } from '../config/runtimeConfig';
 import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
 import { AppDataSource } from '../config/database';
@@ -24,41 +23,39 @@ import { User, UserRole } from '../entities/User';
 import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdownRecord';
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
 import { AuthRequest } from '../middleware/auth';
-import { checkPermission } from '../utils/permission';
+import { ALL_PERMISSIONS } from '../constants/permissions';
+// 新权限体系
+import { createApiPermissionMiddleware, requirePermission, checkPermission, PERMISSION_DEFINITIONS, resolvePermissionFromApi } from '../permissions';
 
 // 全局系统路由实例，后续所有 /system 相关子路径都挂在该 Router 上
 const router = Router();
 
-// 权限检查中间件：检查权限管理相关权限
+// 权限检查中间件：检查权限管理相关权限（已迁移到新权限体系）
 // - 读操作（GET/HEAD）需要 system.rbac:read 或 system.roles:read 权限
 // - 写操作（POST/PUT/PATCH/DELETE）需要 system.rbac:write 或 system.roles:write 权限
-const checkRbacPermission = (req: AuthRequest, res: Response, next: any) => {
-  try {
-    const role: any = (req.user as any)?.role;
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any)?.permissions
-      : [];
-    if (role === UserRole.SUPER_ADMIN) return next();
+const checkRbacPermission = createApiPermissionMiddleware({
+  allowSuperAdmin: true,
+});
 
-    const method = String(req.method || 'GET').toUpperCase();
+// 权限检查中间件：检查系统设置权限（已迁移到新权限体系）
+const checkSettingsPermission = createApiPermissionMiddleware({
+  allowSuperAdmin: true,
+});
+
+// 权限检查中间件：检查高级集成权限（已迁移到新权限体系）
+const checkIntegrationPermission = createApiPermissionMiddleware({
+  allowSuperAdmin: true,
+  customResolver: (req) => {
+    // 明确指定高级集成权限
+    const method = req.method.toUpperCase();
     const isRead = method === 'GET' || method === 'HEAD';
-    const required = isRead 
-      ? ['system.rbac:read', 'system.roles:read']
-      : ['system.rbac:write', 'system.roles:write'];
-
-    const hasPermission = required.some(perm => checkPermission(perms, perm));
-    if (!hasPermission) {
-      return res.status(403).json({ message: `权限不足：需要 ${required[0]} 或 ${required[1]}` });
-    }
-    next();
-  } catch {
-    return res.status(403).json({ message: '权限不足' });
-  }
-};
+    return isRead ? 'system.integration:read' : 'system.integration:write';
+  },
+});
 
 // 读取当前 Dify（AI 工作流）集成配置
 // 用于前端系统设置页面展示当前配置，返回时会对 apiKey 进行脱敏处理
-router.get('/dify-config', async (_req, res) => {
+router.get('/dify-config', checkIntegrationPermission, async (_req, res) => {
   const cfg = getDifyConfig();
   const safe = { ...cfg } as any;
   res.json({ config: { ...safe, apiKey: !!cfg.apiKey ? '****' : '' } });
@@ -67,7 +64,7 @@ router.get('/dify-config', async (_req, res) => {
 // 更新 Dify 集成配置
 // 请求体中只要带上需要修改的字段即可，底层会合并并持久化到 runtimeConfig
 // 返回值同样会对 apiKey 做脱敏，避免明文泄露
-router.patch('/dify-config', async (req, res) => {
+router.patch('/dify-config', checkIntegrationPermission, async (req, res) => {
   const { baseUrl, apiKey, workflowId, logsDir, reportsDir, mode, fileVarName } = req.body as any;
   const next = setDifyConfig({
     baseUrl,
@@ -85,7 +82,7 @@ router.patch('/dify-config', async (req, res) => {
 // 读取单个系统设置项（简单的 KV 配置）
 // - key 从 URL 路径中获取
 // - value 如果不存在则返回空字符串，方便前端统一处理
-router.get('/settings/:key', (req, res) => {
+router.get('/settings/:key', checkSettingsPermission, (req, res) => {
   const key = req.params.key;
   const value = getSystemSetting(key);
   res.json({ data: { key, value: value || '' } });
@@ -94,7 +91,7 @@ router.get('/settings/:key', (req, res) => {
 // 更新单个系统设置项
 // - value 来源于请求体，内部统一转成字符串保存
 // - 适合存储一些轻量级的全局配置，例如开关、字符串参数等
-router.patch('/settings/:key', (req, res) => {
+router.patch('/settings/:key', checkSettingsPermission, (req, res) => {
   const key = req.params.key;
   const { value } = req.body;
   
@@ -176,340 +173,42 @@ router.get('/recycle-bin/shutdown-records', async (req, res) => {
   }
 });
 
-// 动态扫描系统中所有"权限原子"（action）以及对应的接口明细
+// 获取系统中所有"权限原子"（action）列表
 // 输出内容主要用于：
 // - RBAC 策略配置页面列出所有可用动作（actions）
-// - 结合 details 字段，让前端展示每个动作对应了哪些具体接口（method + path）
+// - 前端权限管理页面的展示
 router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
-  // candidates：最终去重后的动作列表，例如 'clouds.instances:read'
-  const candidates: string[] = [];
-  // scanned：通过静态扫描从代码中发现的原始动作字符串
-  const scanned: string[] = [];
-  // details：动作 -> 对应的接口列表（包含 HTTP 方法、路径、定义所在文件）
-  const details: Record<string, Array<{ method: string; path: string; file: string }>> = {};
-  
-  // 获取运行时收集的权限-API 映射
-  const runtimeMapping = getRuntimePermissionMapping();
-  const add = (x: string) => {
-    if (x && !candidates.includes(x)) candidates.push(x);
-  };
-  const addScanned = (x: string) => {
-    if (!x) return;
-    if (!scanned.includes(x)) scanned.push(x);
-    add(x);
-  };
-  // curated：手工维护的一批“推荐动作”列表，用于补全扫描不到或尚未完全规范化的权限原子
-  // 命名约定大致为：domain.feature:verb
-  const curated: string[] = [
-    // 运维平台/系统与用户
-    'ops.dashboard:read',
-    'ops.dashboard:write',
-    'users:read',
-    'users:write',
-    'user-spaces:read',
-    'user-spaces:write',
-    // 租户与租户资源
-    'tenants:read',
-    'tenants:write',
-    // 云与资源（统一命名：domain.feature:verb）
-    'clouds:read',
-    'clouds:write',
-    'clouds.instances:read',
-    'clouds.instances:write',
-    'clouds.vpcs:read',
-    'clouds.vpcs:write',
-    'clouds.eips:read',
-    'clouds.eips:write',
-    'clouds.disks:read',
-    'clouds.disks:write',
-    'clouds.security-groups:read',
-    'clouds.security-groups:write',
-    'clouds.load-balancers:read',
-    'clouds.load-balancers:write',
-    'clouds.images:read',
-    'clouds.images:write',
-    'clouds.sshkeys:read',
-    'clouds.sshkeys:write',
-    'clouds.nads:read',
-    'clouds.nads:write',
-    'clouds.schedules:read',
-    'clouds.schedules:write',
-    'clouds.namespaces:read',
-    'clouds.namespaces:write',
-    'clouds.vswitches:read',
-    'clouds.vswitches:write',
-    'clouds.enis:read',
-    'clouds.enis:write',
-    'clouds.network-acls:read',
-    'clouds.network-acls:write',
-    'clouds.snapshots:read',
-    'clouds.snapshots:write',
-    'clouds.route-tables:read',
-    'clouds.route-tables:write',
-    'clouds.route-entries:read',
-    'clouds.route-entries:write',
-    'clouds.nat-gateways:read',
-    'clouds.nat-gateways:write',
-    'clouds.vlans:read',
-    'clouds.vlans:write',
-    'clouds.ippools:read',
-    'clouds.ippools:write',
-    // 云主机控制台
-    'clouds.console:read',
-    'clouds.console:write',
-    // 网络：跨地域互联与安全面
-    'networks.vpcs:read',
-    'networks.vpcs:write',
-    'networks.cen:read',
-    'networks.cen:write',
-    'networks.cen.attachments:read',
-    'networks.cen.attachments:write',
-    'networks.security-domain:read',
-    'networks.security-domain:write',
-    'networks.srv6:read',
-    'networks.srv6:write',
-    'networks.vr-config:read',
-    'networks.vr-config:write',
-    'networks.route-tables:read',
-    'networks.route-tables:write',
-    'networks.acl:read',
-    'networks.acl:write',
-    'networks.vswitches:read',
-    'networks.vswitches:write',
-    // 安全服务与日志
-    'security.services:read',
-    'security.services:write',
-    'security.logs:read',
-    'security.logs:write',
-    'security.policies:read',
-    'security.policies:write',
-    'security.apps:read',
-    'security.apps:write',
-    // 安全运营
-    'secops.dashboard:read',
-    'secops.dashboard:write',
-    'secops.alerts:read',
-    'secops.alerts:write',
-    'secops.rules:read',
-    'secops.rules:write',
-    // 权限管理（RBAC）
-    'system.rbac:read',
-    'system.rbac:write',
-    'system.roles:read',
-    'system.roles:write',
-    'system.roles.assignments:read',
-    'system.roles.assignments:write',
-    'system.actions:read',
-  ];
-  curated.forEach(addScanned);
+  // 预定义的权限原子列表，来自 constants/permissions.ts
+  // 这些是系统中所有可用的权限原子
+  const actions: string[] = [...ALL_PERMISSIONS].sort();
 
-  // baseMap：记录路由文件名 -> app.use 挂载前缀（base path）
-  // 例如：'clouds' => '/api/clouds'
-  const baseMap: Record<string, string> = {};
-  const buildBaseMap = async (file: string) => {
-    try {
-      if (!fs.existsSync(file)) return;
-      const text = await fs.promises.readFile(file, 'utf8');
-      // 第一阶段：解析 index.ts 中 import ./routes/* 的路由变量名与对应文件名
-      const importRegexDefault = /import\s+(\w+)\s+from\s+["']\.\/routes\/([^"']+)["']/g;
-      const importRegexNamed = /import\s+\{\s*([^}]+)\s*\}\s+from\s+["']\.\/routes\/([^"']+)["']/g;
-      const uses: Array<{ var: string; name: string }> = [];
-      {
-        let m: RegExpExecArray | null;
-        while ((m = importRegexDefault.exec(text))) {
-          uses.push({ var: m[1], name: m[2] });
-        }
-      }
-      {
-        let m2: RegExpExecArray | null;
-        while ((m2 = importRegexNamed.exec(text))) {
-          const namesRaw = String(m2[1] || '')
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean);
-          const fileName = m2[2];
-          namesRaw.forEach((n) => {
-            const alias = n.includes(' as ') ? n.split(' as ')[1].trim() : n.split(/\s+/)[0].trim();
-            if (alias) uses.push({ var: alias, name: fileName });
-          });
-        }
-      }
-      // 第二阶段：解析 app.use('/api/xxx', someRoutes) 来还原 base path 与路由变量之间的关系
-      const useRegex = /app\.use\(\s*(["'][^"']+["'])\s*,[\s\S]*?(\w+)\s*\)/g;
-      let um: RegExpExecArray | null;
-      while ((um = useRegex.exec(text))) {
-        const base = um[1].replace(/^["']|["']$/g, '');
-        const varName = um[2];
-        const u = uses.find((x) => x.var === varName);
-        if (u) baseMap[u.name] = base;
-      }
-    } catch {}
-  };
-  await buildBaseMap(path.join(process.cwd(), 'src', 'index.ts'));
-  await buildBaseMap(path.join(process.cwd(), 'dist', 'index.js'));
-
-  // 将 basePath 与 router 局部 path 合并并标准化，输出统一格式的 URL
-  const normalizeFullPath = (base: string, subPath: string): string => {
-    let b = String(base || '');
-    let s = String(subPath || '');
-    let p = `${b}${s}`.replace(/\\/g, '/');
-    p = p.replace(/\/ {2,}/g, '/');
-    if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
-    if (!p.startsWith('/')) p = '/' + p;
-    return p;
-  };
-
-  // 尝试递归扫描指定目录下的所有 js/ts 文件：
-  // - 通过正则查找 perms.includes('xxx')，提取权限原子
-  // - 结合同文件内的 router.get/post/… 定义，定位最近的路由（method + path）
-  // - 再结合 baseMap 计算出完整 URL，用于 details 映射
-  const tryScan = async (dir: string) => {
-    try {
-      const exists = fs.existsSync(dir);
-      if (!exists) return;
-      const names = await fs.promises.readdir(dir);
-      for (const name of names) {
-        const full = path.join(dir, name);
-        const stat = await fs.promises.stat(full).catch(() => undefined as any);
-        if (!stat) continue;
-        if (stat.isDirectory()) {
-          await tryScan(full);
-        } else if (stat.isFile() && /\.(js|ts)$/.test(name)) {
-          const text = await fs.promises.readFile(full, 'utf8').catch(() => '');
-          // perms.includes("xxx") 是当前项目对权限原子引用的统一写法
-          const regex = /perms\.includes\(["'`]([^"'`]+)["'`]\)/g;
-          const routes: Array<{ idx: number; method: string; path: string }> = [];
-          // routeRegexA：匹配 router.get('/path', ...) 这一类定义
-          const routeRegexA = /router\.(get|post|patch|put|delete)\s*\(\s*(["'`])([^"'`]+)\2/g;
-          // routeRegexB：匹配 app.get('/path', ...) 或其他对象上的 get/post 等
-          const routeRegexB = /\.(get|post|patch|put|delete)\(\s*(["'`])([^"'`]+)\2/g;
-          {
-            let rm: RegExpExecArray | null;
-            while ((rm = routeRegexA.exec(text))) {
-              routes.push({ idx: rm.index, method: rm[1], path: rm[3] });
-            }
-            while ((rm = routeRegexB.exec(text))) {
-              routes.push({ idx: rm.index, method: rm[1], path: rm[3] });
-            }
-            routes.sort((a, b) => a.idx - b.idx);
-          }
-          let m: RegExpExecArray | null;
-          // 针对每一个 perms.includes('xxx')：
-          // - 记录动作字符串 rawAct
-          // - 找到最近的路由定义作为其“语义上的绑定接口”
-          while ((m = regex.exec(text))) {
-            const rawAct = m[1];
-            addScanned(rawAct);
-            let nearest: { idx: number; method: string; path: string } | undefined = undefined;
-            for (let i = routes.length - 1; i >= 0; i--) {
-              const r = routes[i];
-              if (r.idx <= m.index) {
-                nearest = r;
-                break;
-              }
-            }
-            if (!nearest && routes.length > 0) {
-              let forward: { idx: number; method: string; path: string } | undefined = undefined;
-              for (let i = 0; i < routes.length; i++) {
-                const r = routes[i];
-                if (r.idx >= m.index) {
-                  forward = r;
-                  break;
-                }
-              }
-              nearest = forward || routes[0];
-            }
-            if (nearest) {
-              const rel = path.relative(process.cwd(), full).replace(/\\/g, '/');
-              const routeNameMatch = rel.match(/routes\/([^\/\.]+)/);
-              const routeName = routeNameMatch ? routeNameMatch[1] : undefined;
-              const base = routeName ? baseMap[routeName] || '' : '';
-              if (!base) {
-                continue;
-              }
-              const fullPath = normalizeFullPath(base, nearest.path || '');
-              const verb = /^get|head$/i.test(nearest.method) ? 'read' : 'write';
-              const baseAct = rawAct.split(':')[0];
-              const act = `${baseAct}:${verb}`;
-              const one = { method: nearest.method.toUpperCase(), path: fullPath, file: rel };
-              const arr = details[act] || [];
-              const idx = arr.findIndex((x) => x.method === one.method && x.path === one.path);
-              if (idx >= 0) {
-                const existing = arr[idx];
-                const preferNew =
-                  existing.file.startsWith('dist/') && !one.file.startsWith('dist/');
-                if (preferNew) arr[idx] = one;
-              } else {
-                arr.push(one);
-              }
-              details[act] = arr;
-            }
-          }
-
-          // 将某个动作与具体接口（method + path + file）做关联，用于 details 输出
-          const addDetail = (act: string, method: string, fullPath: string, rel: string) => {
-            const one = { method: method.toUpperCase(), path: fullPath, file: rel };
-            const arr = details[act] || [];
-            const idx = arr.findIndex((x) => x.method === one.method && x.path === one.path);
-            if (idx >= 0) {
-              const existing = arr[idx];
-              const preferNew = existing.file.startsWith('dist/') && !one.file.startsWith('dist/');
-              if (preferNew) arr[idx] = one;
-            } else {
-              arr.push(one);
-            }
-            details[act] = arr;
-          };
-
-          const rel = path.relative(process.cwd(), full).replace(/\\/g, '/');
-          // 尝试匹配路由文件名，支持嵌套路径（如 routes/clouds/harvester/xxx.ts）
-          const routeNameMatch = rel.match(/routes\/([^\/\.]+)/);
-          const routeName = routeNameMatch ? routeNameMatch[1] : '';
-          const base = baseMap[routeName] || '';
-          if (base) {
-            // 针对每个发现的路由定义，根据文件名与路径推导"动作前缀"（actionBase）
-            // 目前主要对 clouds 路由做了较细粒度的拆分，其他路由按需扩展
-            for (const r of routes) {
-              const fullPath = normalizeFullPath(base, r.path || '');
-              let actionBase = '';
-              if (routeName === 'clouds') {
-                // 使用统一的路径匹配逻辑
-                actionBase = determineActionBaseFromPath(fullPath);
-              }
-              if (!actionBase) continue;
-              const verb = /^get|head$/i.test(r.method) ? 'read' : 'write';
-              const act = `${actionBase}:${verb}`;
-              add(act);
-              addDetail(act, r.method, fullPath, rel);
-            }
-          }
-        }
-      }
-    } catch {}
-  };
-  await tryScan(path.join(process.cwd(), 'src', 'routes'));
-  // 合并运行时收集的映射关系到 details
-  // 运行时映射的优先级低于静态扫描（静态扫描包含文件信息，更准确）
-  Object.entries(runtimeMapping).forEach(([action, endpoints]) => {
-    if (!details[action]) {
-      details[action] = [];
-    }
-    // 只添加不重复的端点（避免运行时映射覆盖静态扫描的结果）
-    endpoints.forEach(ep => {
-      const exists = details[action].some(
-        existing => existing.method === ep.method && existing.path === ep.path
-      );
-      if (!exists) {
-        details[action].push({
-          method: ep.method,
-          path: ep.path,
-          file: ep.file || 'runtime',
-        });
-      }
-    });
+  // 注意：分组、平台等元数据由后端权限体系提供（/rbac/permissions）
+  res.json({ 
+    actions,
   });
-  
-  res.json({ actions: candidates.sort(), scanned: scanned.sort(), details });
+});
+
+// 获取所有权限定义（包含平台、分组等元数据）
+// 前端可以使用此 API 获取权限定义，避免重复推断平台和分组
+// 后端权限体系（backend/src/permissions/）是权限元数据的单一数据源
+router.get('/rbac/permissions', checkRbacPermission, async (_req, res) => {
+  try {
+    // 返回所有权限定义，包含完整的元数据（platform, group, name, description 等）
+    res.json({
+      permissions: PERMISSION_DEFINITIONS.map(def => ({
+        id: def.id,
+        name: def.name,
+        description: def.description,
+        platform: def.platform,
+        group: def.group,
+        category: def.category,
+        verb: def.verb,
+        inherits: def.inherits,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ message: '获取权限定义失败', error });
+  }
 });
 
 // RBAC 角色（策略）列表查询
@@ -524,7 +223,7 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
       order: { createdAt: 'DESC' }
     });
     // Transform to frontend Policy format
-    const SYSTEM_ROLES = ['Super Admin', 'Tenant Admin', 'User', '三权-审计员', '三权-运维操作员', '三权-策略管理员'];
+    const SYSTEM_ROLES = ['Super Admin', '云租户根用户', '三权-审计管理员', '三权-安全管理员', '三权-系统管理员'];
     const list = roles.map(r => {
       let actions: string[] = [];
       let conditions: any = undefined;
@@ -654,6 +353,7 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
 
 // 删除角色（仅超级管理员或拥有 system.roles:write 权限）
 // 删除前会做安全检查：
+// - 是否为系统预置角色（通过名称判断）
 // - 是否仍被 RoleAssignment 引用
 // - 是否仍有 TenantUser 的 role 字段指向该角色
 router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
@@ -667,6 +367,12 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+
+    // 检查是否为系统预置角色（通过名称判断）
+    const SYSTEM_ROLES = ['Super Admin', '云租户根用户', '三权-审计管理员', '三权-安全管理员', '三权-系统管理员'];
+    if (SYSTEM_ROLES.includes(row.name)) {
+      return res.status(400).json({ message: '系统预置角色不允许删除' });
+    }
 
     // 检查是否有用户关联
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
@@ -685,6 +391,143 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     res.json({ deleted: 1 });
   } catch (e: any) {
     res.status(500).json({ message: '删除角色失败', error: String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// API 盘点：静态扫描后端 routes，列出所有对外 API（仅用于运维观察）
+// ---------------------------------------------------------------------------
+router.get('/rbac/api-inventory', checkRbacPermission, async (_req, res) => {
+  try {
+    type ApiItem = { method: string; path: string; file: string };
+    const apis: ApiItem[] = [];
+
+    // 1. 从 index.ts / dist index.js 中构建 routes -> basePath 映射
+    const baseMap: Record<string, string> = {};
+    const buildBaseMap = async (file: string) => {
+      try {
+        if (!fs.existsSync(file)) return;
+        const text = await fs.promises.readFile(file, 'utf8');
+        const importRegexDefault = /import\s+(\w+)\s+from\s+["']\.\/routes\/([^"']+)["']/g;
+        const importRegexNamed = /import\s+\{\s*([^}]+)\s*\}\s+from\s+["']\.\/routes\/([^"']+)["']/g;
+        const uses: Array<{ var: string; name: string }> = [];
+        {
+          let m: RegExpExecArray | null;
+          while ((m = importRegexDefault.exec(text))) {
+            uses.push({ var: m[1], name: m[2] });
+          }
+        }
+        {
+          let m2: RegExpExecArray | null;
+          while ((m2 = importRegexNamed.exec(text))) {
+            const namesRaw = String(m2[1] || '')
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
+            const fileName = m2[2];
+            namesRaw.forEach((n) => {
+              const alias = n.includes(' as ') ? n.split(' as ')[1].trim() : n.split(/\s+/)[0].trim();
+              if (alias) uses.push({ var: alias, name: fileName });
+            });
+          }
+        }
+        const useRegex = /app\.use\(\s*(["'][^"']+["'])\s*,[\s\S]*?(\w+)\s*\)/g;
+        let um: RegExpExecArray | null;
+        while ((um = useRegex.exec(text))) {
+          const base = um[1].replace(/^["']|["']$/g, '');
+          const varName = um[2];
+          const u = uses.find((x) => x.var === varName);
+          if (u) baseMap[u.name] = base;
+        }
+      } catch {
+        // ignore
+      }
+    };
+    await buildBaseMap(path.join(process.cwd(), 'src', 'index.ts'));
+    await buildBaseMap(path.join(process.cwd(), 'dist', 'index.js'));
+
+    const normalizeFullPath = (base: string, subPath: string): string => {
+      let b = String(base || '');
+      let s = String(subPath || '');
+      let p = `${b}${s}`.replace(/\\/g, '/');
+      p = p.replace(/\/ {2,}/g, '/');
+      if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+      if (!p.startsWith('/')) p = '/' + p;
+      return p;
+    };
+
+    const seen = new Set<string>();
+
+    const scanRoutesFile = async (absoluteFilePath: string, basePath: string, depth: number = 0) => {
+      if (!fs.existsSync(absoluteFilePath)) return;
+
+      const text = await fs.promises.readFile(absoluteFilePath, 'utf8');
+      // 尽量匹配各种 Router 变量名，如 router / vrConfigRoutes / cloudRoutes 等
+      const routeRegex = /\b(\w+)\.(get|post|put|delete|patch|head)\s*\(\s*['"]([^'"]+)['"]/g;
+      let rm: RegExpExecArray | null;
+      while ((rm = routeRegex.exec(text))) {
+        const method = rm[2].toUpperCase();
+        const subPath = rm[3];
+        const fullPath = normalizeFullPath(basePath, subPath);
+        const key = `${method} ${fullPath}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const relFile = path
+          .relative(path.join(process.cwd(), 'src'), absoluteFilePath)
+          .replace(/\\/g, '/');
+        apis.push({
+          method,
+          path: fullPath,
+          file: relFile || absoluteFilePath,
+        });
+      }
+
+      // 递归扫描子路由文件，例如：
+      // import { registerHarvesterRoutes } from './clouds/harvester';
+      if (depth < 3) {
+        const importSubRoutesRegex = /from\s+['"]\.\/([^'"]+)['"]/g;
+        let im: RegExpExecArray | null;
+        while ((im = importSubRoutesRegex.exec(text))) {
+          const subName = im[1];
+          const dir = path.dirname(absoluteFilePath);
+          const candidates = [
+            path.join(dir, `${subName}.ts`),
+            path.join(dir, `${subName}.js`),
+            path.join(dir, subName, 'index.ts'),
+            path.join(dir, subName, 'index.js'),
+            path.join(dir, `${subName}.routes.ts`),
+            path.join(dir, `${subName}.routes.js`),
+          ];
+          const subPathToRead = candidates.find((p) => fs.existsSync(p));
+          if (!subPathToRead) continue;
+
+          await scanRoutesFile(subPathToRead, basePath, depth + 1);
+        }
+      }
+    };
+
+    // 按 baseMap 扫描所有挂载到 /api 下的 routes
+    for (const [routesFile, basePath] of Object.entries(baseMap)) {
+      const fullFilePathTs = path.join(process.cwd(), 'src', 'routes', `${routesFile}.ts`);
+      const fullFilePathJs = path.join(process.cwd(), 'dist', 'routes', `${routesFile}.js`);
+      const filePathToRead = fs.existsSync(fullFilePathTs)
+        ? fullFilePathTs
+        : fs.existsSync(fullFilePathJs)
+        ? fullFilePathJs
+        : '';
+      if (!filePathToRead) continue;
+      await scanRoutesFile(filePathToRead, basePath, 0);
+    }
+
+    // 排序输出：先按 path，再按 method
+    apis.sort((a, b) => {
+      if (a.path === b.path) return a.method.localeCompare(b.method);
+      return a.path.localeCompare(b.path);
+    });
+
+    res.json({ apis });
+  } catch (e: any) {
+    res.status(500).json({ message: '扫描 API 列表失败', error: String(e?.message || e) });
   }
 });
 

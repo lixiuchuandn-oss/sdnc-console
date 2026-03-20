@@ -4,11 +4,13 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Input, Select, Space, Table, Tooltip, Typography } from 'antd';
-import { QuestionCircleOutlined } from '@ant-design/icons';
+import { QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { LOG_SCOPE_CLUSTER, LOG_TYPE_OPTIONS, LogCollectionTarget, PRESET_LOG_TARGETS,
   LOG_SCOPE_NAMESPACE,LOG_SCOPE_MAP } from './constants';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 
 
 const LOG_TYPE_TIP = (
@@ -40,24 +42,6 @@ const LOG_TYPE_TIP = (
 
 const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [keyword, setKeyword] = useState('');
-
-  const filteredTargets = useMemo(() => {
-    const k = keyword.trim().toLowerCase();
-    if (!k) return PRESET_LOG_TARGETS;
-    return PRESET_LOG_TARGETS.filter((row) => {
-      const nameHit = row.name.toLowerCase().includes(k);
-      const idHit = row.id.toLowerCase().includes(k);
-      const descHit = row.description.toLowerCase().includes(k);
-      const logTypeLabel = LOG_TYPE_OPTIONS.find((o) => o.value === row.logType)?.label ?? '';
-      const logTypeHit = row.logType.toLowerCase().includes(k) || logTypeLabel.toLowerCase().includes(k);
-      const scopeLabel = row.scope === LOG_SCOPE_CLUSTER ? LOG_SCOPE_MAP.LOG_SCOPE_CLUSTER : row.scope === LOG_SCOPE_NAMESPACE ? '命名空间级' : (row.scope ?? '');
-      const scopeHit = (row.scope ?? '').toLowerCase().includes(k) || scopeLabel.toLowerCase().includes(k);
-      const kindHit = (row.kind ?? '').toLowerCase().includes(k);
-      return nameHit || idHit || descHit || logTypeHit || scopeHit || kindHit;
-    });
-  }, [keyword]);
-
-  if (!cloudId) return null;
 
   const allColumns: ColumnsType<LogCollectionTarget> = [
     { title: '采集对象名称', dataIndex: 'id', key: 'id', width: 200, render: (v: string) => v || '-' },
@@ -96,26 +80,52 @@ const LogsTarget: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     },
   ];
 
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: columns } = useTableColumnSettings(allColumns, 'monitoring_logs_target_table');
+
+  const filteredTargets = useMemo(() => {
+    const k = keyword.trim().toLowerCase();
+    if (!k) return PRESET_LOG_TARGETS;
+    return PRESET_LOG_TARGETS.filter((row) => {
+      const nameHit = row.name.toLowerCase().includes(k);
+      const idHit = row.id.toLowerCase().includes(k);
+      const descHit = row.description.toLowerCase().includes(k);
+      const logTypeLabel = LOG_TYPE_OPTIONS.find((o) => o.value === row.logType)?.label ?? '';
+      const logTypeHit = row.logType.toLowerCase().includes(k) || logTypeLabel.toLowerCase().includes(k);
+      const scopeLabel = row.scope === LOG_SCOPE_CLUSTER ? LOG_SCOPE_MAP.LOG_SCOPE_CLUSTER : row.scope === LOG_SCOPE_NAMESPACE ? '命名空间级' : (row.scope ?? '');
+      const scopeHit = (row.scope ?? '').toLowerCase().includes(k) || scopeLabel.toLowerCase().includes(k);
+      const kindHit = (row.kind ?? '').toLowerCase().includes(k);
+      return nameHit || idHit || descHit || logTypeHit || scopeHit || kindHit;
+    });
+  }, [keyword]);
+
+  if (!cloudId) return null;
+
   return (
     <PageDetailSection
       asCard={false}
       toolbarLeft={
         <>
-          <Input.Search
-            placeholder="模糊匹配采集对象名称、采集内容、日志类型、采集范围、描述等"
-            allowClear
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
+          <Input 
+            allowClear 
+            placeholder="关键字" 
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={keyword} 
+            onChange={(e) => setKeyword(e.target.value)} 
+            className="toolbar-search"
           />
         </>
+      }
+      toolbarRight={
+        <TableColumnSettingsButton allColumns={allColumns} settingsKey="monitoring_logs_target_table" />
       }
     >
       <Table
         className="std-table"
-        bordered
+        bordered={false}
         size="middle"
         rowKey="id"
-        columns={allColumns}
+        columns={columns}
         dataSource={filteredTargets}
         pagination={false}
       />

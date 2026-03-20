@@ -41,7 +41,8 @@ import { deleteHarvesterSnapshot } from '../../../../services/harvesterApi';
 import VolumeSnapshotRestoreModal from '../modals/VolumeSnapshotRestoreModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
-import { TableColumnSettings } from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 
 /**
  * 组件 Props 定义
@@ -96,7 +97,6 @@ const SnapshotsSection: React.FC<Props> = ({
   const [detailActiveTab, setDetailActiveTab] = useState('detail');
 
   // 列设置状态
-  const [visibleColumns, setVisibleColumns] = useState<any>();
 
   // ==============================================================================
   // 2. 数据处理与过滤 (Data Processing)
@@ -315,6 +315,9 @@ const SnapshotsSection: React.FC<Props> = ({
     },
   ], [isTenant, handleOpenDrawer, handleRestore, handleDelete]);
 
+  // 列显示设置（需要在 columns 定义之后）
+  const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_volume_snapshots_list');
+
   // ==============================================================================
   // 5. 渲染视图 (Render)
   // ==============================================================================
@@ -400,9 +403,8 @@ const SnapshotsSection: React.FC<Props> = ({
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <TableColumnSettings
-            columns={columns}
-            onChange={setVisibleColumns}
+          <TableColumnSettingsButton
+            allColumns={columns}
             settingsKey="harvester_volume_snapshots_list"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />

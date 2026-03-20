@@ -33,7 +33,8 @@ import { formatCron } from '../../../../utils/cronFormatter';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import { deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from '../../../../services/harvesterApi';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import { TableColumnSettings } from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
@@ -148,9 +149,6 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
   const [suspendedOverrides, setSuspendedOverrides] = useState<Array<{ ns: string; id: string; suspended: boolean }>>([]);
   // [状态轮询]: 记下“我在等谁的状态变化”，轮询到了就停止
   const [suspendPollingTarget, setSuspendPollingTarget] = useState<{ ns: string; id: string; suspended: boolean } | null>(null);
-
-  // 用户自定义的列显示设置
-  const [visibleColumns, setVisibleColumns] = useState<any>();
 
   // ==============================================================================
   // 3. 副作用与轮询逻辑 (Effects)
@@ -505,6 +503,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
     }
   ], [handleDelete, handleSuspend, isTenant]);
 
+  // 用户自定义的列显示设置（需要在 columns 定义之后）
+  const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_schedule_backups_list', defaultHiddenColumns);
+
   return (
     <>
       <PageDetailSection
@@ -550,10 +551,9 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         toolbarRight={(
            <div className="toolbar-actions">
              <Button key="create-btn" type="primary" onClick={() => setCreateModalVisible(true)}>创建定时策略</Button>
-             <TableColumnSettings
+             <TableColumnSettingsButton
                key="col-settings"
-               columns={columns}
-               onChange={setVisibleColumns}
+               allColumns={columns}
                settingsKey="harvester_schedule_backups_list"
                defaultHiddenColumns={defaultHiddenColumns}
              />

@@ -24,8 +24,10 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, QuestionCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import {
   fetchClusteroutputs,
@@ -884,6 +886,9 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
     [handleOpenDetail, handleOpenForm, handleDelete]
   );
 
+  // 列显示设置（需要在 columns 定义之后）
+  const { displayColumns: displayColumns } = useTableColumnSettings(columns, 'monitoring_log_outputs_table');
+
   if (!cloudId) return null;
 
   return (
@@ -893,6 +898,15 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         asCard={false}
         toolbarLeft={
           <>
+            <Input 
+              allowClear 
+              placeholder="关键字" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword} 
+              onChange={(e) => setKeyword(e.target.value)} 
+              onPressEnter={loadList}
+              className="toolbar-search"
+            />
             <Select
               placeholder="命名空间"
               allowClear
@@ -901,13 +915,6 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
               options={namespaceOptions}
               loading={namespaceLoading}
               style={{ minWidth: 140 }}
-            />
-            <Input.Search
-              placeholder="请输入名称"
-              allowClear
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              onSearch={loadList}
             />
             <button
               type="button"
@@ -926,16 +933,17 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>
               新增日志接收端
             </Button>
+            <TableColumnSettingsButton allColumns={columns} settingsKey="monitoring_log_outputs_table" />
             <Button icon={<ReloadOutlined />} loading={loading} onClick={() => loadList()} />
           </>
         }
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: ClusterOutputItem) => row.id ?? row.metadata?.name ?? String(Math.random())}
           loading={loading}
-          columns={columns}
+          columns={displayColumns}
           dataSource={filteredList}
           scroll={{ x: 900 }}
           pagination={{

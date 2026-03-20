@@ -33,7 +33,8 @@ import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { fetchHarvesterNadDetail, deleteHarvesterNad, fetchKubeOvnSubnets } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import NadCreateModal from '../modals/NadCreateModal';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
@@ -70,8 +71,6 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
   const [nsFilter, setNsFilter] = useState<string>('');
   /** 过滤条件：IP分配方式筛选（dhcp/static/host-local） */
   const [ipamFilter, setIpamFilter] = useState<string>('');
-  /** 表格列配置（由 TableColumnSettings 组件管理） */
-  const [tableColumns, setTableColumns] = useState<any[]>([]);
   
   /** 批量选择：选中的行 key 列表 */
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -774,6 +773,9 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
     },
   ], []);
 
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nads_table');
+
   return (
     <PageDetailSection
       asCard={false}
@@ -837,9 +839,8 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton 
+            allColumns={allColumns} 
             settingsKey="harvester_nads_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh && onRefresh(true)} loading={loading} />

@@ -23,7 +23,8 @@ import bcrypt from 'bcryptjs';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { RBACRole } from '../../entities/RBACRole';
 import { UserRole } from '../../entities/User';
-import { checkPermission, hasAnyPermission } from '../../utils/permission';
+// 新权限体系
+import { createApiPermissionMiddleware } from '../../permissions';
 
 // 租户与组织/用户/资源池管理路由：
 // - 提供租户的增删改查接口
@@ -32,36 +33,13 @@ import { checkPermission, hasAnyPermission } from '../../utils/permission';
 // - 负责为组织分配云资源池，并在 Harvester 上创建/删除对应 Namespace 与 UserSpace/Quota
 const router = Router();
 
-// 权限检查中间件：检查租户管理相关权限
+// 权限检查中间件：检查租户管理相关权限（已迁移到新权限体系）
 // - 读操作（GET/HEAD）需要 tenants:read 权限
 // - 写操作（POST/PUT/PATCH/DELETE）需要 tenants:write 权限
 // - 使用统一的权限检查函数，支持通配符匹配（如 tenants:read 包含 tenants.users:read）
-const checkTenantPermission = (req: AuthRequest, res: Response, next: any) => {
-  try {
-    const role: any = (req.user as any)?.role;
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any)?.permissions
-      : [];
-    if (role === UserRole.SUPER_ADMIN) return next();
-
-    const method = String(req.method || 'GET').toUpperCase();
-    const isRead = method === 'GET' || method === 'HEAD';
-    // 支持多个权限选项，使用 hasAnyPermission 检查（类似 clouds 模块的做法）
-    const need = isRead
-      ? ['tenants:read']
-      : ['tenants:write'];
-
-    // 使用统一的权限检查函数，支持通配符匹配
-    const ok = hasAnyPermission(perms, need);
-    if (!ok) {
-      const required = need[0];
-      return res.status(403).json({ message: `权限不足：需要 ${required}` });
-    }
-    next();
-  } catch {
-    return res.status(403).json({ message: '权限不足' });
-  }
-};
+const checkTenantPermission = createApiPermissionMiddleware({
+  allowSuperAdmin: true,
+});
 
 // 获取可分配的资源池列表：
 // - 由于存在 /:id 等参数化路由，为避免路由匹配冲突，该接口必须放在前面

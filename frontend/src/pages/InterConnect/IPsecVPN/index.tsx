@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Divider, Form, Input, Space, Table, Tag, message, Dropdown, Modal, Switch, Popover, Checkbox, Collapse, Typography, Row, Col, Select } from 'antd';
+import { Button, Form, Input, Tag, message, Dropdown, Modal, Switch, Select } from 'antd';
 import type { MenuProps } from 'antd';
-import { EllipsisOutlined, ExclamationCircleOutlined, SettingOutlined, SearchOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ExclamationCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../components/PageContainer';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchIPsecVPNs, fetchIPsecVPNsMerged, deleteIPsecVPN } from '../../../services/api';
-import { vrApi, getVR2Config, fetchVrCachePageList } from '../../../services/virtualRouterApi';
+import { fetchIPsecVPNsMerged, deleteIPsecVPN } from '../../../services/api';
+import { getVR2Config, fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import ReactFlow, { Background, Controls } from 'react-flow-renderer';
 
 interface IPsecVPNRow {
@@ -326,7 +326,7 @@ const IPsecVPNPage: React.FC = () => {
             <Input 
               allowClear 
               placeholder="搜索名称、ID" 
-              prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
+              prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               className="toolbar-search"
             />
           </Form.Item>

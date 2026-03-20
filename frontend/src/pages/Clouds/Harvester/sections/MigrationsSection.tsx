@@ -16,7 +16,8 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import dayjs from 'dayjs';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import type { ColumnsType } from 'antd/es/table';
 
 /**
@@ -251,7 +252,8 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
       }
     }
   ], [user]);
-  const [tableColumns, setTableColumns] = useState<ColumnsType<any>>(allColumns);
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_migrations_table');
 
   return (
     <PageDetailSection
@@ -279,7 +281,7 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh }) => {
       )}
       toolbarRight={(
         <div className="toolbar-actions">
-          <TableColumnSettings columns={allColumns} onChange={setTableColumns} settingsKey="harvester_migrations_table" />
+          <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_migrations_table" />
           <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading} />
         </div>
       )}

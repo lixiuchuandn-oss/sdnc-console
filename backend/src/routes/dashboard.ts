@@ -7,20 +7,52 @@ import { In } from 'typeorm';
 import { UserSpaceAllocation } from '../entities/UserSpaceAllocation';
 import { UserSpace } from '../entities/UserSpace';
 import { licenseService } from '../services/LicenseService';
+import { UserRole } from '../entities/User';
 
 // 仪表盘相关路由：
 // - 提供平台全局统计数据（云数量、用户数量等）
 // - 提供最近活动列表（云资源更新、用户登录）
 // - 提供按云类型聚合的资源配额与已分配用量，用于首页看板展示
-// 这些接口只要求通过身份认证，不再进行细粒度 RBAC 控制。
+// 需要 clouds.dashboard:read 权限才能访问
 const router = Router();
 
+// License 功能检查
 router.use((_req: AuthRequest, res: Response, next: any) => {
   if (!licenseService.hasFeature('sys.dashboard')) {
     return res.status(403).json({ message: '未授权：全局仪表盘（Dashboard）功能未启用' });
   }
   return next();
 });
+
+// 权限检查中间件：检查用户是否有仪表板访问权限
+const checkDashboardPermission = (req: AuthRequest, res: Response, next: any) => {
+  try {
+    const role: any = (req.user as any)?.role;
+    const perms: string[] = Array.isArray((req.user as any)?.permissions)
+      ? (req.user as any)?.permissions
+      : [];
+    
+    // 超级管理员直接通过
+    if (role === UserRole.SUPER_ADMIN) {
+      return next();
+    }
+    
+    // 检查是否有 clouds.dashboard:read 权限
+    // 使用 perms.includes() 以便系统扫描器能够识别
+    if (!perms.includes('clouds.dashboard:read')) {
+      return res.status(403).json({ 
+        message: '权限不足：需要 clouds.dashboard:read 权限才能访问仪表板' 
+      });
+    }
+    
+    next();
+  } catch (error) {
+    return res.status(403).json({ message: '权限检查失败' });
+  }
+};
+
+// 应用权限检查中间件到所有路由
+router.use(checkDashboardPermission);
 
 // GET /api/dashboard/stats
 // 返回平台级别的基础统计信息：云资源数量、用户数量等

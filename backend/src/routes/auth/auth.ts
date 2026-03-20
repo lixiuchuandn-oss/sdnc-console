@@ -66,7 +66,15 @@ router.post('/register', async (req: Request, res: Response) => {
 // 用户登录
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
+    
+    // 清理用户名和密码（去除首尾空格）
+    username = String(username || '').trim();
+    password = String(password || '').trim();
+
+    if (!username || !password) {
+      return res.status(400).json({ message: '用户名和密码不能为空' });
+    }
 
     const userRepository = AppDataSource.getRepository(User);
     const tenantRepo = AppDataSource.getRepository(TenantUser);
@@ -82,9 +90,15 @@ router.post('/login', async (req: Request, res: Response) => {
     let role: string = '';
 
     // 1) 如果管理员表存在且密码匹配 → 认为是管理员/超级管理员
-    if (adminCandidate && (await bcrypt.compare(password, adminCandidate.password))) {
-      loginUser = adminCandidate;
-      role = adminCandidate.role;
+    if (adminCandidate) {
+      const passwordMatch = await bcrypt.compare(password, adminCandidate.password);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Login] 管理员密码验证:', { username: adminCandidate.username, match: passwordMatch });
+      }
+      if (passwordMatch) {
+        loginUser = adminCandidate;
+        role = adminCandidate.role;
+      }
     }
 
     // 2) 否则尝试租户表
@@ -98,14 +112,14 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     if (!loginUser) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Login] 登录失败: 用户名或密码错误', { username, hasAdmin: !!adminCandidate, hasTenant: !!tenantCandidate });
+      }
       return res.status(401).json({ message: '用户名或密码错误' });
     }
 
-    // 状态检查（租户用户有 status 字段，管理员用户字段名可能不同）
-    if (
-      (loginUser.status && loginUser.status !== 'active') ||
-      (loginUser.status && loginUser.status !== 'active')
-    ) {
+    // 状态检查
+    if (loginUser.status && loginUser.status !== 'active') {
       return res.status(401).json({ message: '账户已被禁用' });
     }
 
@@ -161,11 +175,16 @@ router.post('/login', async (req: Request, res: Response) => {
       }
     }
     
-    // 保存用户
-    if (role === 'tenant') {
-      await tenantRepo.save(loginUser);
-    } else {
-      await userRepository.save(loginUser);
+    // 保存用户（更新最后登录时间）
+    try {
+      if (role === 'tenant') {
+        await tenantRepo.save(loginUser);
+      } else {
+        await userRepository.save(loginUser);
+      }
+    } catch (saveError: any) {
+      console.warn('[Login] 保存用户信息失败（不影响登录）:', saveError?.message || saveError);
+      // 保存失败不影响登录，继续执行
     }
 
     const token = jwt.sign(

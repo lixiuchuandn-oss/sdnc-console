@@ -66,6 +66,7 @@ interface SecurityDomainOption { id:string; name:string; type?:string; category?
 const CenPage: React.FC = () => {
   const navigate = useNavigate();
   const [cens, setCens] = useState<Cen[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [planeTotal, setPlaneTotal] = useState(0);
@@ -78,12 +79,14 @@ const CenPage: React.FC = () => {
 
   const [planeActive, setPlaneActive] = useState(0);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [attachmentCache, setAttachmentCache] = useState<{[k:string]:any[]}>({});
   const [filterForm] = Form.useForm();
 
   const [appTotal, setAppTotal] = useState(0);
   const [appRunning, setAppRunning] = useState(0);
   const [domainTotal,setDomainTotal]=useState(0);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [attachedDomain, setAttachedDomain] = useState(0);
   const [attachedDomainUnique,setAttachedDomainUnique]=useState(0);
   
@@ -96,6 +99,7 @@ const CenPage: React.FC = () => {
       const attachedVpcSet = new Set<string>();
       const attachedDomainSet = new Set<string>();
       let attachedDomainTimes = 0;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       let attachedTimes = 0;
       const dataWithCnt = await Promise.all(data.map(async (c:any)=>{
         try{

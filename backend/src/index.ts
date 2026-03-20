@@ -302,6 +302,7 @@ AppDataSource.initialize()
       console.warn('启动 VR 列表同步任务失败:', e);
     }
 
+
     // 启动回收站定时任务
     try {
       const { RecycleBinTaskService } = await import('./services/clouds/harvester/RecycleBinTaskService');

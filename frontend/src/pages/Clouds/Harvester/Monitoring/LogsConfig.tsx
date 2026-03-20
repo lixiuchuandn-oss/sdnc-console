@@ -22,9 +22,10 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, QuestionCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import {
   fetchClusterflows,
@@ -178,7 +179,6 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
   const [outputLoading, setOutputLoading] = useState(false);
   const [nodeOptions, setNodeOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [nodeLoading, setNodeLoading] = useState(false);
-  const [tableColumns, setTableColumns] = useState<ColumnsType<ClusterFlowItem>>([]);
   const [form] = Form.useForm();
   const namespaceOptions = formNamespaceOptions;
   const formNamespace = Form.useWatch('namespace', form);
@@ -773,7 +773,8 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
     [handleOpenDetail, handleOpenForm, handleDelete]
   );
 
-  const displayColumns = tableColumns.length > 0 ? tableColumns : allColumns;
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: displayColumns } = useTableColumnSettings(allColumns, 'logs_config_clusterflow_table_v2');
 
   return (
     <div>
@@ -781,6 +782,15 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         asCard={false}
         toolbarLeft={
           <>
+            <Input 
+              allowClear 
+              placeholder="关键字" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword} 
+              onChange={(e) => setKeyword(e.target.value)} 
+              onPressEnter={loadConfigList}
+              className="toolbar-search"
+            />
             <Select
               placeholder="命名空间"
               allowClear
@@ -789,13 +799,6 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
               options={namespaceOptions}
               loading={namespaceLoading}
               style={{ minWidth: 140 }}
-            />
-            <Input.Search
-              placeholder="请输入名称"
-              allowClear
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              onSearch={loadConfigList}
             />
             <button
               type="button"
@@ -814,14 +817,14 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>
               新增日志采集配置
             </Button>
-            <TableColumnSettings columns={allColumns} onChange={setTableColumns} settingsKey="logs_config_clusterflow_table_v2" />
+            <TableColumnSettingsButton allColumns={allColumns} settingsKey="logs_config_clusterflow_table_v2" />
             <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
           </>
         }
       >
         <Table
           className="std-table"
-          bordered
+          bordered={false}
           rowKey={(row: ClusterFlowItem) => row.id ?? row.metadata?.name ?? String(Math.random())}
           loading={configLoading}
           columns={displayColumns}

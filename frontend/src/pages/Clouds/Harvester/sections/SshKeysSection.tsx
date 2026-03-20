@@ -12,7 +12,8 @@ import { Table, Button, message, Input, Select, Checkbox, Modal, Dropdown } from
 import { ReloadOutlined, SearchOutlined, EllipsisOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import SshKeyCreateModal from '../modals/SshKeyCreateModal';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
@@ -258,12 +259,8 @@ const SshKeysSection: React.FC<Props> = ({
     },
   ], [isTenant]);
 
-  const [tableColumns, setTableColumns] = useState<any[]>(columns);
-
-  // 当列定义发生变化时（如指纹列显示/隐藏），同步更新 tableColumns
-  React.useEffect(() => {
-    setTableColumns(columns);
-  }, [columns]);
+  // 列显示设置（需要在 columns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(columns, 'harvester_ssh_keys_table');
 
   return (
     <PageDetailSection
@@ -330,9 +327,8 @@ const SshKeysSection: React.FC<Props> = ({
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <TableColumnSettings 
-            columns={columns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton 
+            allColumns={columns} 
             settingsKey="harvester_ssh_keys_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />

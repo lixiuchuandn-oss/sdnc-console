@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Transfer, Typography, message } from 'antd';
+import { Button, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import StdFormModal from '../../components/StdFormModal';
 import PageContainer from '../../components/PageContainer';
 import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
@@ -32,30 +32,12 @@ const AccessUsersPage: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [filterForm] = Form.useForm();
-  const [roles, setRoles] = useState<RBACRole[]>([]);
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [assignUser, setAssignUser] = useState<SysUser | null>(null);
-  const [assignSelected, setAssignSelected] = useState<string[]>([]);
-  const [assignExisting, setAssignExisting] = useState<Assignment[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [editForm] = Form.useForm();
   const [editingUser, setEditingUser] = useState<SysUser | null>(null);
   const [isEditingAdmin, setIsEditingAdmin] = useState(false);
   const [rolesByUser, setRolesByUser] = useState<Record<string, RBACRole[]>>({});
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-
-  const openAssign = React.useCallback(async (u: SysUser) => {
-    if (u.username === 'admin') { message.warning('系统管理员不支持修改权限'); return; }
-    try {
-      setAssignUser(u);
-      const json = await apiRequest(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`);
-      const list: Assignment[] = Array.isArray(json?.assignments) ? json.assignments : [];
-      setAssignExisting(list);
-      const selected = list.map(it => it.roleId);
-      setAssignSelected(selected);
-      setAssignOpen(true);
-    } catch {}
-  }, []);
 
   const defaultColumns: ColumnsType<SysUser> = useMemo(() => [
     { title:'用户名', key:'username', dataIndex:'username', render: (v:any, row: SysUser) => (
@@ -84,7 +66,6 @@ const AccessUsersPage: React.FC = () => {
     { title:'操作', key:'actions', width:80, fixed:'right' as const, render: (_:any, row: SysUser) => {
       if (row.username === 'admin') return null;
       const itemsRaw = [
-        { key:'assign', label:'分配角色', onClick: () => openAssign(row) },
         { key:'edit', label:'编辑', onClick: () => { setEditingUser(row); setIsEditingAdmin(false); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, status: row.status }); setEditOpen(true); } },
         { type:'divider' },
         { key:'del', label:'删除用户', danger: true, onClick: async () => {
@@ -101,7 +82,7 @@ const AccessUsersPage: React.FC = () => {
       const items = itemsRaw.filter(Boolean);
       return <ResourceActionsDropdown items={items as any} />;
     } }
-  ], [rolesByUser, openAssign]);
+  ], [rolesByUser, editForm]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: visibleColumns } = useTableColumnSettings(defaultColumns, 'sys_users_v1');
@@ -146,19 +127,16 @@ const AccessUsersPage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  const fetchRoles = async () => {
-    try {
-      const json = await apiRequest('/api/system/rbac/roles');
-      setRoles(Array.isArray(json) ? json : (Array.isArray(json?.roles) ? json.roles : []));
-    } catch {}
-  };
-
-  useEffect(() => { fetchUsers(); fetchRoles(); }, []);
+  useEffect(() => { fetchUsers(); }, []);
 
   useEffect(() => {
     const run = async () => {
-      if (!users.length || !roles.length) return;
+      if (!users.length) return;
       try {
+        // 获取所有角色用于显示
+        const rolesJson = await apiRequest('/api/system/rbac/roles').catch(() => []);
+        const roles = Array.isArray(rolesJson) ? rolesJson : (Array.isArray(rolesJson?.roles) ? rolesJson.roles : []);
+        
         const jsons = await Promise.all(users.map(u => 
           apiRequest(`/api/system/rbac/assignments?userType=system&userId=${encodeURIComponent(u.id)}`).catch(() => ({ assignments: [] }))
         ));
@@ -166,14 +144,14 @@ const AccessUsersPage: React.FC = () => {
         users.forEach((u, i) => {
           const list: Assignment[] = Array.isArray(jsons[i]?.assignments) ? jsons[i].assignments : [];
           const ids = list.map(it => it.roleId);
-          const roleObjs = ids.map(id => roles.find(r => r.id === id)).filter(Boolean) as RBACRole[];
+          const roleObjs = ids.map(id => roles.find((r: RBACRole) => r.id === id)).filter(Boolean) as RBACRole[];
           next[u.id] = roleObjs;
         });
         setRolesByUser(next);
       } catch {}
     };
     run();
-  }, [users, roles]);
+  }, [users]);
 
   const filteredUsers = useMemo(() => {
     const lower = kw.toLowerCase();
@@ -182,39 +160,14 @@ const AccessUsersPage: React.FC = () => {
       .filter(u => (u.username||'').toLowerCase().includes(lower) || (u.fullName||'').toLowerCase().includes(lower) || (u.email||'').toLowerCase().includes(lower));
   }, [users, kw, statusFilter]);
 
-  const saveAssign = React.useCallback(async () => {
-    if (!assignUser) return;
-    const current = new Set(assignExisting.map(x => x.roleId));
-    const needAdd = assignSelected.filter(id => !current.has(id));
-    const needRemove = assignExisting.filter(x => !assignSelected.includes(x.roleId));
-    try {
-      for (const roleId of needAdd) {
-        await apiPost('/api/system/rbac/assignments', { roleId, userType:'system', userId: assignUser.id });
-      }
-      for (const it of needRemove) {
-        await apiDelete(`/api/system/rbac/assignments/${encodeURIComponent(it.id)}`);
-      }
-      message.success('角色赋权已保存');
-      setAssignOpen(false); setAssignUser(null); setAssignExisting([]); setAssignSelected([]);
-      fetchUsers(true); // 强制刷新，跳过缓存
-    } catch { message.error('保存失败'); }
-  }, [assignUser, assignExisting, assignSelected]);
-
   const handleCreate = React.useCallback(async (values: any) => {
     try {
-      const roleIds: string[] = Array.isArray(values?.rbacRoleIds) ? values.rbacRoleIds : [];
-      const created = await apiPost('/api/users', {
+      await apiPost('/api/users', {
         username: values.username,
         email: values.email,
         password: values.password,
         fullName: values.fullName,
       });
-      const userId = String(created?.id || '').trim();
-      if (userId && roleIds.length > 0) {
-        for (const roleId of roleIds) {
-          await apiPost('/api/system/rbac/assignments', { roleId, userType: 'system', userId });
-        }
-      }
       message.success('系统用户创建成功');
       setCreateOpen(false);
       createForm.resetFields();
@@ -236,14 +189,14 @@ const AccessUsersPage: React.FC = () => {
           layout="vertical" 
           onValuesChange={(_,all)=> { setKw(all.keyword||''); setStatusFilter(all.status||'active'); }}
         >
-          <Form.Item name="keyword" label="关键字"><Input allowClear placeholder="搜索用户名/姓名/邮箱" className="toolbar-search" /></Form.Item>
-          <Form.Item name="status" label="状态" initialValue={statusFilter}><Select allowClear placeholder="全部" className="toolbar-filter-sm" options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
-          <a className="toolbar-reset-btn" onClick={() => {
+          <Form.Item name="keyword"><Input allowClear placeholder="搜索用户名/姓名/邮箱" className="toolbar-search" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} /></Form.Item>
+          <Form.Item name="status" initialValue={statusFilter}><Select allowClear placeholder="全部" className="toolbar-filter-sm" options={[{ value:'all', label:'全部' }, { value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} /></Form.Item>
+          <Button type="link" className="toolbar-reset-btn" onClick={() => {
             setKw('');
             setStatusFilter('active');
             filterForm.resetFields();
             filterForm.setFieldsValue({ status: 'active' });
-          }}>重置</a>
+          }}>重置</Button>
         </Form>
         <div className="toolbar-actions">
           <Button type="primary" onClick={() => { const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`; createForm.setFieldsValue({ username: rand }); setCreateOpen(true); }}>新建系统用户</Button>
@@ -290,20 +243,6 @@ const AccessUsersPage: React.FC = () => {
         </Form.Item>
         <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}> 
           <Input.Password placeholder="至少 8 位密码" />
-        </Form.Item>
-        <Form.Item name="rbacRoleIds" label="初始权限角色">
-          <Select
-            mode="multiple"
-            allowClear
-            placeholder="可选：直接选择系统权限角色作为初始权限"
-            options={roles
-              .filter(r => r.scope === 'system')
-              .map(r => ({
-                value: r.id,
-                label: r.description ? `${r.name}（${r.description}）` : r.name,
-                disabled: String(r.status || 'active') !== 'active',
-              }))}
-          />
         </Form.Item>
       </StdFormModal>
 
@@ -361,28 +300,6 @@ const AccessUsersPage: React.FC = () => {
           </>
         )}
       </StdFormModal>
-
-      <Modal
-        title={`分配角色 - ${assignUser?.username}`}
-        open={assignOpen}
-        onOk={saveAssign}
-        onCancel={() => { setAssignOpen(false); setAssignUser(null); }}
-        width={700}
-      >
-        <Transfer
-          dataSource={roles.filter(r => 
-            r.scope === 'system' &&  // 只显示系统级角色（修复逻辑问题）
-            String(r.status || 'active') === 'active'
-          )}
-          titles={['可选角色', '已选角色']}
-          targetKeys={assignSelected}
-          onChange={(nextTargetKeys) => setAssignSelected(nextTargetKeys as string[])}
-          render={(item) => item.name}
-          rowKey={(item) => item.id}
-          listStyle={{ width: 300, height: 400 }}
-          showSearch
-        />
-      </Modal>
     </PageContainer>
   );
 };

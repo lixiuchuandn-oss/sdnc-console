@@ -12,10 +12,9 @@ const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }
   return routeSpecs
     .filter(spec => 
       // 过滤条件：
-      // 1. 不是隐藏的路由
-      // 2. 不是废弃的路由
-      // 3. 有 requiredActions.page 配置
-      !spec.hidden && 
+      // 1. 不是废弃的路由
+      // 2. 有 requiredActions.page 配置
+      // 注意：隐藏路由（hidden: true）也需要权限检查，只是不在菜单中显示
       !spec.deprecated && 
       spec.requiredActions?.page
     )
@@ -59,26 +58,26 @@ export const PATH_PERMISSION_MAPPING: Array<{ path: string; action: string }> = 
   ...MANUAL_MAPPINGS,
 ];
 
-// 开发环境调试：打印生成的映射表
-if (process.env.NODE_ENV === 'development') {
-  console.log('[accessMapping] Generated mappings:', PATH_PERMISSION_MAPPING);
-}
+// 开发环境调试：打印生成的映射表（已禁用）
+// if (process.env.NODE_ENV === 'development') {
+//   console.log('[accessMapping] Generated mappings:', PATH_PERMISSION_MAPPING);
+// }
 
 export const getRequiredActionForPath = (path: string): string | null => {
   const purePath = String(path || '').split('?')[0];
   for (const mapping of PATH_PERMISSION_MAPPING) {
     if (purePath.startsWith(mapping.path)) {
-      // 开发环境调试
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`[accessMapping] Path "${purePath}" matched mapping:`, mapping);
-      }
+      // 开发环境调试（已禁用）
+      // if (process.env.NODE_ENV === 'development') {
+      //   console.log(`[accessMapping] Path "${purePath}" matched mapping:`, mapping);
+      // }
       return mapping.action;
     }
   }
-  // 开发环境调试
-  if (process.env.NODE_ENV === 'development') {
-    console.warn(`[accessMapping] No mapping found for path: "${purePath}"`);
-  }
+  // 开发环境调试（已禁用）
+  // if (process.env.NODE_ENV === 'development') {
+  //   console.warn(`[accessMapping] No mapping found for path: "${purePath}"`);
+  // }
   return null;
 };
 
@@ -104,14 +103,18 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   
   // 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（资源控制台下的所有功能）
   // 这是为了支持"资源控制台所有权限"的场景
-  if (base.startsWith('clouds.') && act.endsWith(':read')) {
+  // 例外：clouds.dashboard 需要明确权限，不受继承规则影响
+  // 注意：clouds:read（资源池管理）不会被继承，因为它是 clouds:read 而不是 clouds.*:read
+  if (base.startsWith('clouds.') && act.endsWith(':read') && base !== 'clouds.dashboard') {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
       return true;
     }
   }
   
   // clouds:read 包含所有 clouds.*:read
-  if (base.startsWith('clouds.') && act.endsWith(':read')) {
+  // 例外：clouds.dashboard 需要明确权限，不受继承规则影响
+  // 注意：clouds:read 本身不会被 clouds.console:read 继承（因为格式不同：clouds:read vs clouds.*:read）
+  if (base.startsWith('clouds.') && act.endsWith(':read') && base !== 'clouds.dashboard') {
     if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
       return true;
     }
@@ -120,17 +123,57 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   return false;
 };
 
-export const getDefaultAdminPath = (perms: string[] = []): string => {
-  const candidates = [
-    '/admin/dashboard',        // 优先级1：资源总览
-    '/admin/clouds',           // 优先级2：资源池管理
-    '/admin/clouds/console',   // 优先级3：云主机控制台
-    '/admin/tenants',          // 优先级4：租户管理
-    '/admin/tenants/users',    // 优先级5：子用户管理
-  ];
-  for (const p of candidates) {
-    const act = getRequiredActionForPath(p);
-    if (hasPermissionForAction(perms, act)) return p;
+/**
+ * 获取默认首页路径
+ * 
+ * 【逻辑说明】
+ * 1. 从 RouteSpec 中筛选出所有设置了 homePagePriority 的路由
+ * 2. 按 homePagePriority 升序排序（数值越小优先级越高）
+ * 3. 依次检查每个候选路由的权限和授权
+ * 4. 返回第一个通过检查的路由路径
+ * 
+ * 【优势】
+ * - 无需硬编码路径列表，所有配置集中在 RouteSpec
+ * - 新增首页候选只需在 RouteSpec 中添加 homePagePriority 字段
+ * - 符合 DRY 原则，单点维护
+ * 
+ * @param perms - 用户权限列表
+ * @param hasFeature - 授权检查函数（可选）
+ * @returns 默认首页路径，如果没有可访问的页面则返回 '/admin/coming-soon'
+ */
+export const getDefaultAdminPath = (perms: string[] = [], hasFeature?: (feature: string) => boolean): string => {
+  // 从 RouteSpec 中筛选出所有设置了 homePagePriority 的路由
+  // 过滤条件：
+  // 1. 不是废弃的路由
+  // 2. 不是隐藏的路由
+  // 3. 设置了 homePagePriority 字段
+  // 4. 有 requiredActions.page 配置（需要权限检查）
+  const candidates = routeSpecs
+    .filter(spec => 
+      !spec.deprecated && 
+      !spec.hidden && 
+      spec.homePagePriority !== undefined &&
+      spec.requiredActions?.page
+    )
+    // 按 homePagePriority 升序排序（数值越小优先级越高）
+    .sort((a, b) => (a.homePagePriority || 999) - (b.homePagePriority || 999));
+
+  // 依次检查每个候选路由
+  for (const spec of candidates) {
+    const act = getRequiredActionForPath(spec.path);
+    // 权限检查
+    if (!hasPermissionForAction(perms, act)) continue;
+    
+    // 授权检查（如果提供了 hasFeature 函数）
+    if (hasFeature) {
+      if (spec.requiredFeature && !hasFeature(spec.requiredFeature)) {
+        continue; // 跳过没有 feature 的页面
+      }
+    }
+    
+    return spec.path;
   }
+  
+  // 如果没有可访问的页面，返回默认页面
   return '/admin/coming-soon';
 };

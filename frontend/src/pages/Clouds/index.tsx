@@ -42,14 +42,14 @@ import type { ColumnsType } from 'antd/es/table';
 import { 
   EllipsisOutlined,
   ReloadOutlined,
-  SyncOutlined
+  SearchOutlined
 } from '@ant-design/icons';
 import { fetchCloudProviderVpcs, fetchClouds as fetchCloudsApi, apiPost, apiDelete, apiRequest } from '../../services/api';
 import { fetchKubeOvnVpcs } from '../../services/harvesterApi';
 import { 
   getProviderLogo, getProviderName, cloudProviders,
-  CLOUD_TYPE_MAP, CLOUD_STATUS_MAP, getCredentialLabels,
-  Cloud, ComputeResource
+  CLOUD_TYPE_MAP, CLOUD_STATUS_MAP,
+  Cloud, 
 } from './providers';
 import PageContainer from '../../components/PageContainer';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
@@ -108,7 +108,6 @@ const Clouds: React.FC = () => {
   
   // [状态管理] 云资源数据与UI状态
   const [clouds, setClouds] = useState<Cloud[]>([]);
-  const [loading, setLoading] = useState(false);
   const [wizardVisible, setWizardVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingCloud, setEditingCloud] = useState<Cloud | null>(null);
@@ -130,7 +129,25 @@ const Clouds: React.FC = () => {
   const canManageFavorite = ['super_admin', 'admin'].includes(String(user?.role || '').toLowerCase());
   const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
 
-  
+  // ============================================================================
+  // [功能块: 云资源列表数据获取]
+  // 检索关键词: fetchClouds 获取云资源列表 API调用
+  // ============================================================================
+  // [核心逻辑] 资源列表加载
+  // 1. 调用后端 API 获取所有云资源。
+  // 2. 处理 loading 状态。
+  // 3. 异常处理：显示错误提示。
+  const fetchClouds = useCallback(async (skipCache: boolean = false) => {
+    try {
+      // fetchCloudsApi 内部使用 apiRequest，需要传递 skipCache 选项
+      const response = skipCache 
+        ? await apiRequest('/api/clouds', { skipCache: true })
+        : await fetchCloudsApi();
+      setClouds(Array.isArray(response) ? response : (response?.data || []));
+    } catch (error: any) {
+      message.error('获取云资源列表失败：' + (error.response?.data?.message || error.message));
+    }
+  }, []);
 
   // ============================================================================
   // [功能块: 初始化数据加载]
@@ -138,7 +155,7 @@ const Clouds: React.FC = () => {
   // ============================================================================
   useEffect(() => {
     fetchClouds();
-  }, []);
+  }, [fetchClouds]);
 
   useEffect(() => {
     (async () => {
@@ -225,29 +242,6 @@ const Clouds: React.FC = () => {
     };
     if (clouds.length > 0) loadVpcStats();
   }, [clouds]);
-
-  // ============================================================================
-  // [功能块: 云资源列表数据获取]
-  // 检索关键词: fetchClouds 获取云资源列表 API调用
-  // ============================================================================
-  // [核心逻辑] 资源列表加载
-  // 1. 调用后端 API 获取所有云资源。
-  // 2. 处理 loading 状态。
-  // 3. 异常处理：显示错误提示。
-  const fetchClouds = useCallback(async (skipCache: boolean = false) => {
-    setLoading(true);
-    try {
-      // fetchCloudsApi 内部使用 apiRequest，需要传递 skipCache 选项
-      const response = skipCache 
-        ? await apiRequest('/api/clouds', { skipCache: true })
-        : await fetchCloudsApi();
-      setClouds(Array.isArray(response) ? response : (response?.data || []));
-    } catch (error: any) {
-      message.error('获取云资源列表失败：' + (error.response?.data?.message || error.message));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   // 已移除算力配额相关方法
 
@@ -572,7 +566,7 @@ const Clouds: React.FC = () => {
           onValuesChange={handleFilterChange}
         >
           <Form.Item name="keyword">
-            <Input className="toolbar-search" allowClear placeholder="关键字" onChange={(e) => setKeyword(e.target.value)} />
+            <Input className="toolbar-search" suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} allowClear placeholder="关键字" onChange={(e) => setKeyword(e.target.value)} />
           </Form.Item>
           <Form.Item name="vendor">
             <Select className="toolbar-filter-sm" allowClear placeholder="供应商">
@@ -596,7 +590,7 @@ const Clouds: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item>
-            <a className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined); }}>重置</a>
+            <Button type="link" className="toolbar-reset-btn" onClick={()=>{ filterForm.resetFields(); setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); setVendorFilter(undefined); }}>重置</Button>
           </Form.Item>
         </Form>
       )}

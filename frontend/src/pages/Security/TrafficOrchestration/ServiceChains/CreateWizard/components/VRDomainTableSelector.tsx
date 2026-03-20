@@ -49,7 +49,7 @@ const VRDomainTableSelector = ({ value, onChange, dataSource, showActions, onAdd
       {hideHeader ? null : (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Input
-            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             placeholder="搜索名称、CIDR、VR或云厂商..."
             allowClear
             onChange={e => setKeyword(e.target.value)}

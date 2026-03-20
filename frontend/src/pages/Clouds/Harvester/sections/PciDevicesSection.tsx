@@ -3,7 +3,8 @@ import { Button, Input, Modal, Space, Table, Tag } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 
 interface Props {
   cloudId: string;
@@ -102,7 +103,7 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
     ];
   }, []);
 
-  const [tableColumns, setTableColumns] = useState<any[]>(() => columnsAll);
+  const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, 'harvester_pci_devices_table');
 
   return (
     <>
@@ -122,7 +123,7 @@ const PciDevicesSection: React.FC<Props> = ({ cloudId, devices, loading, onRefre
         )}
         toolbarRight={(
           <Space>
-            <TableColumnSettings columns={columnsAll} onChange={setTableColumns} settingsKey="harvester_pci_devices_table" />
+            <TableColumnSettingsButton allColumns={columnsAll} settingsKey="harvester_pci_devices_table" />
             <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={!!loading || refreshing} disabled={!onRefresh} />
           </Space>
         )}

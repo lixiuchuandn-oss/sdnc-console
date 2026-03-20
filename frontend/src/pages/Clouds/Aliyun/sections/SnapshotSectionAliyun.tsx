@@ -200,7 +200,7 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
       toolbarLeft={(
         <Space wrap>
           <Input 
-            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             placeholder="搜索名称/ID/磁盘ID" 
             allowClear 
             value={keyword} 

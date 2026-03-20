@@ -225,7 +225,7 @@ const VmCloneModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId, sou
       onCancel={onCancel}
       onOk={handleOk}
       confirmLoading={loading}
-      destroyOnClose
+      destroyOnHidden
       width={560}
     >
       <Alert

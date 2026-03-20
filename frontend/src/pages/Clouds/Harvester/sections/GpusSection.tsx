@@ -8,7 +8,8 @@ import { Table, Button, Space, Select, Tag, Input, Modal, Tabs } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 
 /**
  * 组件入参说明
@@ -194,7 +195,8 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
     }
   ], [handleShowMetadata, typeTag, vendorName]);
 
-  const [tableColumns, setTableColumns] = useState<any[]>(() => allColumns);
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_gpus_table');
 
 
 
@@ -254,9 +256,8 @@ const GpuSection: React.FC<Props> = ({ cloudId, resources, loading, onRefresh, r
         )}
         toolbarRight={(
           <>
-            <TableColumnSettings 
-              columns={allColumns} 
-              onChange={setTableColumns}
+            <TableColumnSettingsButton 
+              allColumns={allColumns} 
               settingsKey="harvester_gpus_table"
             />
             <Button

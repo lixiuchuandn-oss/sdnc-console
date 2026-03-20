@@ -31,7 +31,8 @@ import StdFormModal from '../../../../components/StdFormModal';
 import { EllipsisOutlined, ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { API_BASE_URL } from '../../../../services/api';
 import { deleteHarvesterImage, createHarvesterImage, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
@@ -413,7 +414,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     } },
   ], [cloudId, onRefresh, isTenant]);
 
-  const [tableColumns, setTableColumns] = useState<any[]>(allColumns);
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');
 
   /**
    * 处理 URL 导入镜像的创建逻辑
@@ -529,9 +531,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton 
+            allColumns={allColumns} 
             settingsKey="harvester_images_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />

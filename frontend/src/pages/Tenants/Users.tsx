@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Table, Button, message, Input, Select, Form, Modal, Transfer } from 'antd';
-import { ReloadOutlined, UserAddOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Table, Button, message, Input, Select, Form, Modal, Transfer, Dropdown } from 'antd';
+import { ReloadOutlined, UserAddOutlined, DeleteOutlined, SearchOutlined, EllipsisOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 import { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import PageContainer from '../../components/PageContainer';
@@ -236,7 +237,7 @@ const UserManagement: React.FC = () => {
   }, [messageApi]);
 
   // Batch Delete
-  const handleBatchDelete = () => {
+  const handleBatchDelete = useCallback(() => {
     modal.confirm({
       title: '确认批量删除用户',
       content: `确定要删除选中的 ${selectedRowKeys.length} 个用户吗？删除后无法恢复。`,
@@ -260,6 +261,19 @@ const UserManagement: React.FC = () => {
         }
       }
     });
+  }, [modal, messageApi, selectedRowKeys, users, fetchTenantUsers]);
+
+  // 批量操作菜单配置
+  const bulkActionsMenu: MenuProps = {
+    items: [
+      { 
+        key: 'bulkDelete', 
+        label: '批量删除', 
+        danger: true, 
+        disabled: selectedRowKeys.length === 0,
+        onClick: handleBatchDelete
+      }
+    ]
   };
 
   // Assign Roles Logic
@@ -385,56 +399,73 @@ const UserManagement: React.FC = () => {
       titleLevel={3}
       subtitle="管理租户用户，并支持按租户、角色与状态筛选"
       asCard={false}
-    >
-      {contextHolder}
-      {messageContextHolder}
-      <div className="page-toolbar">
+      toolbarLeft={(
         <Form
           className="toolbar-container"
           form={filterForm}
           layout="vertical"
-          style={{ rowGap: 12, columnGap: 12, display: 'flex', alignItems: 'flex-end' }}
           onValuesChange={handleFilterChange}
         >
-          <Form.Item name="keyword" label="关键词"><Input className="toolbar-search" allowClear placeholder="用户名/姓名/邮箱" /></Form.Item>
-          <Form.Item name="tenant" label="租户"><Select className="toolbar-filter" allowClear placeholder="选择租户">
-            {getTenantOptions().map(tenant=>(<Option key={tenant.id} value={tenant.id}>{tenant.name}</Option>))}
-          </Select></Form.Item>
-          <Form.Item name="role" label="角色"><Select className="toolbar-filter-sm" allowClear placeholder="选择角色">
-            {availableRoles.map(r => <Option key={r.id} value={r.id}>{r.name}</Option>)}
-          </Select></Form.Item>
-          <Form.Item name="status" label="状态"><Select className="toolbar-filter-sm" allowClear placeholder="选择状态">
-            <Option value="active">活跃</Option>
-            <Option value="inactive">非活跃</Option>
-          </Select></Form.Item>
-          <button
-            type="button"
-            className="toolbar-reset-btn"
-            onClick={()=>{filterForm.resetFields(); setSearchText(''); setSelectedTenant(''); setSelectedRole(''); setSelectedStatus('');}}
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-          >
-            重置
-          </button>
+          <Form.Item name="keyword">
+            <Input 
+              className="toolbar-search" 
+              allowClear 
+              placeholder="关键字" 
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            />
+          </Form.Item>
+          <Form.Item name="tenant">
+            <Select className="toolbar-filter" allowClear placeholder="租户">
+              {getTenantOptions().map(tenant=>(<Option key={tenant.id} value={tenant.id}>{tenant.name}</Option>))}
+            </Select>
+          </Form.Item>
+          <Form.Item name="role">
+            <Select className="toolbar-filter-sm" allowClear placeholder="角色">
+              {availableRoles.map(r => <Option key={r.id} value={r.id}>{r.name}</Option>)}
+            </Select>
+          </Form.Item>
+          <Form.Item name="status">
+            <Select className="toolbar-filter-sm" allowClear placeholder="状态">
+              <Option value="active">活跃</Option>
+              <Option value="inactive">非活跃</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item>
+            <Button 
+              type="link" 
+              className="toolbar-reset-btn" 
+              onClick={()=>{
+                filterForm.resetFields(); 
+                setSearchText(''); 
+                setSelectedTenant(''); 
+                setSelectedRole(''); 
+                setSelectedStatus('');
+              }}
+            >
+              重置
+            </Button>
+          </Form.Item>
         </Form>
+      )}
+      toolbarRight={(
         <div className="toolbar-actions">
           <Button type="primary" icon={<UserAddOutlined />} onClick={() => setCreateModalOpen(true)}>
-            创建子用户
+            创建组织用户
           </Button>
-          <Button 
-            danger 
-            icon={<DeleteOutlined />} 
-            onClick={handleBatchDelete}
-            disabled={selectedRowKeys.length === 0}
-          >
-            批量删除 {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : ''}
-          </Button>
+          <Dropdown menu={bulkActionsMenu}>
+            <Button icon={<EllipsisOutlined />} />
+          </Dropdown>
           <TableColumnSettingsButton
             allColumns={baseColumns}
             settingsKey="tenant-users-columns"
           />
           <Button icon={<ReloadOutlined />} onClick={fetchTenantUsers} loading={loading} />
         </div>
-      </div>
+      )}
+      actionsSize="middle"
+    >
+      {contextHolder}
+      {messageContextHolder}
 
       <Table
         className="std-table"
@@ -454,15 +485,12 @@ const UserManagement: React.FC = () => {
           showTotal: (total) => `共 ${total} 条`,
         }}
         bordered={false}
-        scroll={{ 
-          x: 'max-content',
-          y: 600  // 启用虚拟滚动，设置固定高度
-        }}
+        scroll={{ x: 'max-content' }}
       />
 
       <StdFormModal
         open={createModalOpen}
-        title="创建子用户"
+        title="创建组织用户"
         onCancel={() => setCreateModalOpen(false)}
         onFinish={handleCreateUser}
         form={createForm}

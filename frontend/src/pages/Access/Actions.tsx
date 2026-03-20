@@ -1,40 +1,40 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { 
-  Button, 
-  Card, 
-  Drawer, 
-  Form, 
-  Input, 
-  Select, 
-  Space, 
-  Table, 
-  Tag, 
-  Tree, 
-  Typography, 
-  Tooltip, 
-  message, 
-  Divider, 
-  Badge,
+import {
+  Button,
+  Card,
+  Drawer,
+  Form,
+  Input,
+  Select,
+  Space,
+  Table,
+  Tree,
+  Tag,
+  Typography,
+  message,
+  Divider,
   Empty,
-  Spin
+  Spin,
+  Badge,
 } from 'antd';
-import { 
-  ReloadOutlined, 
-  CopyOutlined, 
+import {
+  ReloadOutlined,
+  CopyOutlined,
   CloseOutlined,
   FileTextOutlined,
-  GlobalOutlined,
+  HomeOutlined,
   FolderOutlined,
   FunctionOutlined,
-  SearchOutlined
+  SearchOutlined,
 } from '@ant-design/icons';
 import { routeSpecs } from '../../routes/RouteSpec';
 import PageContainer from '../../components/PageContainer';
-import { PLATFORMS, PLATFORM_LABELS } from '../../constants/navigation';
+import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { platformOf, groupOf, featureLabelOf } from '../../constants/permissionCatalog';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
 import { apiRequest } from '../../services/api';
+import { usePermissionDefinitions } from '../../hooks/usePermissionDefinitions';
 
 const { Text, Title } = Typography;
 
@@ -60,21 +60,30 @@ interface PermissionAction {
 type StatusFilter = 'all' | 'bound' | 'draft';
 
 // ==================== 工具函数 ====================
-const getGroup = (action: string): string => {
-  return groupOf(action.split(':')[0]);
+// 注意：这些函数现在使用后端权限定义数据
+// 如果后端数据不可用，会回退到推断逻辑
+const getGroup = (action: string, definitions?: any[]): string => {
+  return groupOf(action.split(':')[0], definitions);
 };
 
-const getPlatform = (action: string): string => {
-  return platformOf(action.split(':')[0]);
+const getPlatform = (action: string, definitions?: any[]): string => {
+  return platformOf(action.split(':')[0], definitions);
 };
 
-const getFeature = (action: string): string => {
+const getFeature = (action: string, definitions?: any[]): string => {
   const resource = action.split(':')[0];
-  return featureLabelOf(resource) || resource;
+  return featureLabelOf(resource, definitions) || resource;
+};
+
+const getVerbLabel = (action: string): string => {
+  const [, op] = String(action).split(':');
+  if (op === 'read') return '查看';
+  if (op === 'write') return '管理';
+  return op || '';
 };
 
 const describeAction = (action: string): string => {
-  const [resource, op] = action.split(':');
+  const [, op] = action.split(':');
   const feature = getFeature(action);
   if (op === 'read') return `查看${feature}列表与详情`;
   if (op === 'write') return `创建、修改、删除${feature}`;
@@ -92,6 +101,9 @@ const getMethodColor = (method: string): string => {
 
 // ==================== 主组件 ====================
 const AccessActionsPage: React.FC = () => {
+  // ==================== 权限定义数据 ====================
+  const { definitions: permissionDefinitions, loading: definitionsLoading } = usePermissionDefinitions();
+  
   // ==================== 状态管理 ====================
   const [permissions, setPermissions] = useState<PermissionAction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -102,10 +114,23 @@ const AccessActionsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedPermission, setSelectedPermission] = useState<PermissionAction | null>(null);
   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
-  
-  // 树形导航状态
   const [selectedTreeKeys, setSelectedTreeKeys] = useState<string[]>([]);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const [permTreeKeyword, setPermTreeKeyword] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'permissions' | 'apis'>('permissions');
+
+  // API 盘点数据
+  interface ApiInventoryItem {
+    method: string;
+    path: string;
+    file: string;
+    category: string;
+    subCategory: string;
+  }
+  const [apiInventory, setApiInventory] = useState<ApiInventoryItem[]>([]);
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiSelectedTreeKey, setApiSelectedTreeKey] = useState<string | null>(null);
+  const [apiExpandedTreeKeys, setApiExpandedTreeKeys] = useState<string[]>([]);
   
   const [filterForm] = Form.useForm();
 
@@ -113,7 +138,7 @@ const AccessActionsPage: React.FC = () => {
   const loadPermissions = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. 从路由配置中获取基础权限列表
+      // 1. 从 RouteSpec 中提取路由关联的权限信息（用于补充显示信息）
       const routeBasedActions = new Map<string, {
         action: string;
         group: string;
@@ -122,47 +147,56 @@ const AccessActionsPage: React.FC = () => {
       }>();
       
       routeSpecs.forEach(spec => {
+        // 跳过废弃的路由，但保留 hidden 路由（它们可能也有权限信息）
+        if (spec.deprecated) return;
         const actions = spec.requiredActions || {};
         const addAction = (action?: string) => {
           if (!action) return;
-          if (routeBasedActions.has(action)) return;
+          // 如果该权限已经有路由信息
+          if (routeBasedActions.has(action)) {
+            // 如果当前路由是 hidden，且已有非 hidden 路由的信息，则不覆盖（优先使用非 hidden 路由的信息）
+            // 但权限已经被扫描到了，所以直接返回
+            if (spec.hidden) {
+              return;
+            }
+            // 如果当前路由不是 hidden，则覆盖（优先使用非 hidden 路由的信息）
+          }
+          // 设置或更新权限的路由信息
           routeBasedActions.set(action, {
             action,
-            group: spec.group || getGroup(action),
-            feature: spec.title || getFeature(action),
-            platform: spec.platform || getPlatform(action),
+            group: spec.group || getGroup(action, permissionDefinitions),
+            feature: spec.title || getFeature(action, permissionDefinitions),
+            platform: spec.platform || getPlatform(action, permissionDefinitions),
           });
         };
+        // 提取所有权限（read、write、page），即使路由是 hidden 的
         addAction(actions.read);
         addAction(actions.write);
         addAction(actions.page);
       });
 
-      // 2. 从后端API获取扫描的权限和API详情
-      const apiResponse = await apiRequest('/api/system/rbac/actions');
-      const scannedActions: string[] = Array.isArray(apiResponse?.scanned) ? apiResponse.scanned : [];
-      const apiDetails: Record<string, ApiEndpoint[]> = apiResponse?.details || {};
-
-      // 3. 合并数据，构建完整的权限列表
-      const allActions = new Set<string>();
-      routeBasedActions.forEach((_, action) => allActions.add(action));
-      scannedActions.forEach(action => allActions.add(action));
-
-      const permissionList: PermissionAction[] = Array.from(allActions).map((action, index) => {
-        const routeInfo = routeBasedActions.get(action);
-        const isBound = scannedActions.includes(action);
-        const apis = apiDetails[action] || [];
+      // 2. 以后端权限定义为数据源（包含所有平台的所有权限）
+      // 3. 合并 RouteSpec 中的路由信息，优先使用路由配置的显示信息
+      const permissionList: PermissionAction[] = permissionDefinitions.map((def, index) => {
+        const routeInfo = routeBasedActions.get(def.id);
+        const prefix = def.id.split(':')[0];
+        
+        // 优先使用 RouteSpec 中的信息，如果没有则使用后端定义的信息
+        const group = routeInfo?.group || def.group || getGroup(def.id, permissionDefinitions);
+        const feature = routeInfo?.feature || def.name || featureLabelOf(prefix, permissionDefinitions) || prefix;
+        const platform = routeInfo?.platform || def.platform || getPlatform(def.id, permissionDefinitions);
+        const description = def.description || describeAction(def.id);
 
         return {
-          id: `perm-${index}-${action}`,
-          action,
-          group: routeInfo?.group || getGroup(action),
-          feature: routeInfo?.feature || getFeature(action),
-          platform: routeInfo?.platform || getPlatform(action),
-          description: describeAction(action),
-          status: isBound ? 'bound' : 'draft',
-          apiCount: apis.length,
-          apis,
+          id: `perm-${index}-${def.id}`,
+          action: def.id,
+          group,
+          feature,
+          platform,
+          description,
+          status: 'bound', // 所有后端定义的权限都视为已绑定
+          apiCount: 0, // 不再显示 API 关联
+          apis: [],
         };
       });
 
@@ -173,11 +207,14 @@ const AccessActionsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [permissionDefinitions]);
 
   useEffect(() => {
+    // 等待权限定义加载完成后再加载权限列表
+    if (!definitionsLoading) {
     loadPermissions();
-  }, [loadPermissions]);
+    }
+  }, [loadPermissions, definitionsLoading]);
 
   // ==================== 筛选逻辑 ====================
   const filteredPermissions = useMemo(() => {
@@ -220,114 +257,115 @@ const AccessActionsPage: React.FC = () => {
     });
   }, [permissions, searchKeyword, platformFilter, groupFilter, featureFilter, statusFilter]);
 
-  // ==================== 树形数据生成 ====================
+  // ==================== 平台 / 分组树形数据 ====================
   const treeData = useMemo(() => {
-    const structure: Record<string, Record<string, PermissionAction[]>> = {};
-    
-    // 树形数据应该基于筛选后的权限列表生成
-    // 但排除分组和功能筛选（因为树是用来选择分组和功能的）
-    // 只应用平台、状态、关键字筛选
-    const keyword = searchKeyword.toLowerCase().trim();
-    const baseList = permissions.filter(p => {
-      // 平台筛选
-      if (platformFilter !== 'all' && p.platform !== platformFilter) {
-        return false;
+    // 结构：platform -> group[]
+    const structure: Record<string, Set<string>> = {};
+
+    permissions.forEach((perm) => {
+      const p = perm.platform || '未归类平台';
+      const g = perm.group || '未归类分组';
+      if (!structure[p]) {
+        structure[p] = new Set<string>();
       }
-      
-      // 状态筛选
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'bound' && p.status !== 'bound') return false;
-        if (statusFilter === 'draft' && p.status !== 'draft') return false;
-      }
-      
-      // 关键字搜索
-      if (keyword) {
-        const matchAction = p.action.toLowerCase().includes(keyword);
-        const matchFeature = p.feature.toLowerCase().includes(keyword);
-        const matchDesc = p.description.toLowerCase().includes(keyword);
-        const matchGroup = p.group.toLowerCase().includes(keyword);
-        if (!matchAction && !matchFeature && !matchDesc && !matchGroup) {
-          return false;
-        }
-      }
-      
-      return true;
-    });
-    
-    // 构建分组 -> 功能 -> 权限的层级结构
-    baseList.forEach(perm => {
-      if (!structure[perm.group]) {
-        structure[perm.group] = {};
-      }
-      if (!structure[perm.group][perm.feature]) {
-        structure[perm.group][perm.feature] = [];
-      }
-      structure[perm.group][perm.feature].push(perm);
+      structure[p].add(g);
     });
 
-    // 生成树节点
-    const groupNodes = Object.entries(structure).map(([groupName, features]) => {
-      const featureNodes = Object.entries(features).map(([featureName, perms]) => ({
-        title: featureName,
-        key: `feature:${groupName}:${featureName}`,
-        icon: <FunctionOutlined />,
-        children: perms.map(perm => ({
-          title: perm.action,
-          key: `action:${perm.action}`,
-          isLeaf: true,
-          icon: <FileTextOutlined style={{ fontSize: 12 }} />,
-        })),
-      }));
+    // 平台排序：优先使用 PLATFORMS 的顺序，其次字典序
+    const platformKeys = Object.keys(structure).sort((a, b) => {
+      const ia = PLATFORMS.indexOf(a as any);
+      const ib = PLATFORMS.indexOf(b as any);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+
+    const nodes = platformKeys.map((platform) => {
+      const groups = Array.from(structure[platform]).sort((ga, gb) => {
+        const iga = GROUPS.indexOf(ga as any);
+        const igb = GROUPS.indexOf(gb as any);
+        if (iga === -1 && igb === -1) return ga.localeCompare(gb);
+        if (iga === -1) return 1;
+        if (igb === -1) return -1;
+        return iga - igb;
+      });
 
       return {
-        title: groupName,
-        key: `group:${groupName}`,
-        icon: <FolderOutlined />,
-        children: featureNodes,
+        title: PLATFORM_LABELS[platform as keyof typeof PLATFORM_LABELS] || platform,
+        key: `platform:${platform}`,
+        icon: <HomeOutlined />,
+        children: groups.map((group) => ({
+          title: group,
+          key: `group:${platform}:${group}`,
+          icon: <FolderOutlined />,
+          isLeaf: true,
+        })),
       };
     });
 
-    return groupNodes;
-  }, [permissions, platformFilter, statusFilter, searchKeyword]);
+    return nodes;
+  }, [permissions]);
 
-  // 自动展开分组节点
+  // 权限树搜索过滤
+  const filteredTreeData = useMemo(() => {
+    const kw = permTreeKeyword.trim().toLowerCase();
+    if (!kw) return treeData;
+
+    return (treeData || [])
+      .map((node: any) => {
+        const matchParent = String(node.title || '').toLowerCase().includes(kw);
+        const children = node.children || [];
+        const filteredChildren = children.filter((c: any) =>
+          String(c.title || '').toLowerCase().includes(kw),
+        );
+        if (matchParent || filteredChildren.length > 0) {
+          return {
+            ...node,
+            children: filteredChildren,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean) as any[];
+  }, [treeData, permTreeKeyword]);
+
+  // 默认展开所有平台节点
   useEffect(() => {
-    const keys = treeData
-      .filter((n: any) => n.children && n.children.length > 0)
-      .map((n: any) => String(n.key));
+    const keys = (treeData || []).map((n: any) => String(n.key));
     setExpandedKeys(keys);
   }, [treeData]);
 
   // ==================== 事件处理 ====================
-  const handleTreeSelect = useCallback((keys: React.Key[]) => {
-    if (keys.length === 0) return;
-    
-    const key = String(keys[0]);
-    setSelectedTreeKeys([key]);
 
-    if (key.startsWith('group:')) {
-      const group = key.replace('group:', '');
-      setGroupFilter(group);
-      setFeatureFilter(undefined);
-      filterForm.setFieldsValue({ group });
-    } else if (key.startsWith('feature:')) {
-      const parts = key.replace('feature:', '').split(':');
-      const group = parts[0];
-      const feature = parts[1];
-      setGroupFilter(group);
-      setFeatureFilter(feature);
-      filterForm.setFieldsValue({ group });
-    } else if (key.startsWith('action:')) {
-      const action = key.replace('action:', '');
-      const perm = permissions.find(p => p.action === action);
-      if (perm) {
-        setGroupFilter(perm.group);
-        setFeatureFilter(perm.feature);
-        filterForm.setFieldsValue({ group: perm.group });
-        handleViewDetail(perm);
+  const handleTreeSelect = useCallback(
+    (keys: React.Key[]) => {
+      if (!keys.length) return;
+      const key = String(keys[0]);
+      setSelectedTreeKeys([key]);
+
+      if (key.startsWith('platform:')) {
+        const platform = key.replace('platform:', '');
+        setPlatformFilter(platform);
+        setGroupFilter('all');
+        setFeatureFilter(undefined);
+        filterForm.setFieldsValue({
+          platform,
+          group: 'all',
+        });
+      } else if (key.startsWith('group:')) {
+        const [, platform, group] = key.split(':');
+        setPlatformFilter(platform);
+        setGroupFilter(group);
+        setFeatureFilter(undefined);
+        filterForm.setFieldsValue({
+          platform,
+          group,
+        });
       }
-    }
-  }, [permissions, filterForm]);
+    },
+    [filterForm],
+  );
 
   const handleViewDetail = useCallback((perm: PermissionAction) => {
     setSelectedPermission(perm);
@@ -363,23 +401,31 @@ const AccessActionsPage: React.FC = () => {
   // 表格列定义
   const tableColumns = useMemo(() => [
     { 
-      title: '权限原子', 
-      dataIndex: 'action', 
-      key: 'action', 
-      width: 250,
-      render: (text: string) => <Text code>{text}</Text>
-    },
-    { 
       title: '功能', 
       dataIndex: 'feature', 
       key: 'feature', 
-      width: 150 
+      width: 180 
+    },
+    { 
+      title: '操作', 
+      key: 'verb', 
+      width: 120,
+      render: (_: any, record: PermissionAction) => (
+        <Text>{getVerbLabel(record.action)}</Text>
+      ),
+    },
+    { 
+      title: '权限 ID', 
+      dataIndex: 'action', 
+      key: 'action', 
+      width: 260,
+      render: (text: string) => <Text code>{text}</Text>
     },
     { 
       title: '分组', 
       dataIndex: 'group', 
       key: 'group', 
-      width: 120 
+      width: 140 
     },
     { 
       title: '描述', 
@@ -398,10 +444,10 @@ const AccessActionsPage: React.FC = () => {
       )
     },
     { 
-      title: 'API数量', 
+      title: 'API 数量', 
       dataIndex: 'apiCount', 
       key: 'apiCount', 
-      width: 100,
+      width: 110,
       render: (count: number) => count > 0 ? <Badge count={count} /> : '-'
     },
   ], []);
@@ -415,54 +461,214 @@ const AccessActionsPage: React.FC = () => {
     { value: 'draft', label: '策划' }
   ], []);
 
-  // 平台选项（过滤掉 '全部'，因为我们已经手动添加了 '全部平台'）
-  const platformOptions = useMemo(() => [
-    { value: 'all', label: '全部平台' },
-    ...PLATFORMS.filter((p: string) => p !== '全部').map((p: string) => ({ 
-      value: p, 
-      label: PLATFORM_LABELS[p as keyof typeof PLATFORM_LABELS] || p 
-    }))
-  ], []);
 
-  // 分组选项
-  const groupOptions = useMemo(() => {
-    const groups = new Set(permissions.map(p => p.group));
-    return [
-      { value: 'all', label: '全部分组' },
-      ...Array.from(groups).map(g => ({ value: g, label: g }))
-    ];
-  }, [permissions]);
+  // API 分类规则：
+  // 1) category：平台维度（云资源 / 租户与用户 / 系统 / SDN / 审计 / 工具 / 仪表盘 / 威胁与告警 / 其他）
+  // 2) subCategory：平台内按供应商或控制面划分（阿里云 / 华为云 / Harvester / CSMCTL / CSM 等，或“通用”）
+  const getApiCategoryInfo = (path: string, file: string): { category: string; subCategory: string } => {
+    const f = String(file || '');
+    // 云资源平台
+    if (path.startsWith('/api/clouds')) {
+      const category = '云资源';
+      // 根据定义文件路径推断云厂商
+      if (f.includes('clouds/aliyun')) return { category, subCategory: '阿里云' };
+      if (f.includes('clouds/huaweicloud')) return { category, subCategory: '华为云' };
+      if (f.includes('clouds/tencentcloud')) return { category, subCategory: '腾讯云' };
+      if (f.includes('clouds/harvester')) return { category, subCategory: 'Harvester' };
+      if (f.includes('clouds/csm')) return { category, subCategory: 'CSM' };
+      return { category, subCategory: '通用' };
+    }
 
-  return (
-    <PageContainer titleLevel={3} asCard={false}>
+    // 租户 / 用户平台
+    if (path.startsWith('/api/tenants') || path.startsWith('/api/users'))
+      return { category: '租户与用户', subCategory: '通用' };
+
+    // 系统平台（按功能子域细分）
+    if (path.startsWith('/api/system')) {
+      const category = '系统';
+      if (path.startsWith('/api/system/rbac')) return { category, subCategory: 'RBAC / 权限' };
+      if (path.startsWith('/api/system/license')) return { category, subCategory: 'License / 授权' };
+      if (path.startsWith('/api/system/settings')) return { category, subCategory: '设置' };
+      return { category, subCategory: '通用' };
+    }
+
+    // VR / SDN 平台（按供应商 / 控制面划分）
+    // VR 配置控制面
+    if (path.startsWith('/api/vr-config')) {
+      return { category: 'SDN', subCategory: 'CSMCTL配置' };
+    }
+
+    // 其余 SDN
+    if (path.startsWith('/api/networks') || path.startsWith('/api/security')) {
+      // CSMCTL 跨域互联（CEN 等）
+      if (f.includes('sdn/cens')) {
+        return { category: 'SDN', subCategory: 'CSMCTL / 跨域互联' };
+      }
+
+      // CSM 流量编排
+      if (f.includes('sdn/trafficOrchestration')) {
+        return { category: 'SDN', subCategory: 'CSM 流量编排' };
+      }
+
+      return { category: 'SDN', subCategory: '通用' };
+    }
+
+    if (path.startsWith('/api/dashboard')) return { category: '系统', subCategory: '仪表盘' };
+    if (path.startsWith('/api/tools')) {
+      // license 工具已经在 /api/system/license，下方 tools 多为下载/辅助
+      return { category: '系统', subCategory: '工具 / 下载' };
+    }
+    if (path.startsWith('/api/audit') || path.startsWith('/api/audit-logs'))
+      return { category: '系统', subCategory: '审计' };
+    if (path.startsWith('/api/sase')) return { category: 'SDN', subCategory: '通用' };
+    if (path.startsWith('/api/threats')) return { category: '威胁与告警', subCategory: '通用' };
+
+    return { category: '其他', subCategory: '通用' };
+  };
+
+  // API 模块树（category -> subCategory）
+  const [apiTreeKeyword, setApiTreeKeyword] = useState<string>('');
+
+  const apiModuleTreeData = useMemo(() => {
+    const tree: any[] = [];
+    const map = new Map<string, Set<string>>();
+    apiInventory.forEach((i) => {
+      if (!map.has(i.category)) map.set(i.category, new Set<string>());
+      map.get(i.category)!.add(i.subCategory);
+    });
+    map.forEach((subs, cat) => {
+      const children = Array.from(subs).map((s) => ({
+        key: `cat:${cat}|sub:${s}`,
+        title: s,
+        icon: <FolderOutlined />,
+        isLeaf: true,
+      }));
+
+      tree.push({
+        key: `cat:${cat}`,
+        title: cat,
+        icon: <HomeOutlined />,
+        children,
+      });
+    });
+
+    // 关键字过滤树节点（仅按标题匹配）
+    const kw = apiTreeKeyword.trim().toLowerCase();
+    if (!kw) return tree;
+
+    return tree
+      .map((node) => {
+        const matchParent = String(node.title).toLowerCase().includes(kw);
+        const filteredChildren = (node.children || []).filter((c: any) =>
+          String(c.title).toLowerCase().includes(kw),
+        );
+        if (matchParent || filteredChildren.length > 0) {
+          return {
+            ...node,
+            children: filteredChildren,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean) as any[];
+  }, [apiInventory, apiTreeKeyword]);
+
+  const [apiCategoryKey, setApiCategoryKey] = useState<string>('all');
+  const [apiKeyword, setApiKeyword] = useState<string>('');
+
+  const filteredApiInventory = useMemo(() => {
+    let list = apiInventory;
+    // 平台 / 供应商 过滤
+    if (apiCategoryKey !== 'all') {
+      if (apiCategoryKey.startsWith('cat:') && !apiCategoryKey.includes('|sub:')) {
+        const cat = apiCategoryKey.replace('cat:', '');
+        list = list.filter((i) => i.category === cat);
+      } else if (apiCategoryKey.includes('|sub:')) {
+        const [, rest] = apiCategoryKey.split('cat:');
+        const [cat, sub] = rest.split('|sub:');
+        list = list.filter((i) => i.category === cat && i.subCategory === sub);
+      }
+    }
+    // 关键字过滤（路径 / 文件）
+    const kw = apiKeyword.trim().toLowerCase();
+    if (kw) {
+      list = list.filter(
+        (i) =>
+          i.path.toLowerCase().includes(kw) ||
+          i.file.toLowerCase().includes(kw),
+      );
+    }
+    return list;
+  }, [apiInventory, apiCategoryKey, apiKeyword]);
+
+  // 加载 API 盘点数据
+  const loadApiInventory = useCallback(async () => {
+    setApiLoading(true);
+    try {
+      const resp = await apiRequest('/api/system/rbac/api-inventory');
+      const list = Array.isArray(resp?.apis) ? resp.apis : resp?.apis?.apis || [];
+      const mapped: ApiInventoryItem[] = list.map((item: any) => {
+        const info = getApiCategoryInfo(String(item.path || ''), String(item.file || ''));
+        return {
+          method: item.method,
+          path: item.path,
+          file: item.file,
+          category: info.category,
+          subCategory: info.subCategory,
+        };
+      });
+      setApiInventory(mapped);
+      setApiCategoryKey('all');
+      // 默认展开所有模块节点
+      const allKeys = Array.from(
+        new Set(
+          mapped.map((i) => `cat:${i.category}`),
+        ),
+      );
+      setApiExpandedTreeKeys(allKeys);
+    } catch (e) {
+      console.error('加载 API 列表失败:', e);
+      message.error('加载 API 列表失败');
+    } finally {
+      setApiLoading(false);
+    }
+  }, []);
+
+  const renderPermissionsView = () => (
+    <Card bordered={false} bodyStyle={{ padding: 0 }}>
       <div style={{ display: 'flex', gap: 16 }}>
-        {/* 左侧导航树 */}
-        <div style={{ width: 280, minWidth: 280, flex: '0 0 280px', borderRight: '1px solid #f0f0f0', paddingRight: 16 }}>
-          <Space direction="vertical" size={12} style={{ width: '100%', marginBottom: 16 }}>
-            <Select 
-              value={platformFilter} 
-              onChange={(v) => {
-                setPlatformFilter(v);
-                filterForm.setFieldsValue({ platform: v });
-              }}
-              style={{ width: '100%' }} 
-              options={platformOptions}
-              placeholder="选择平台"
-              size="large"
+        {/* 左侧：平台 / 分组快速导航树 */}
+        <div
+          style={{
+            width: 260,
+            minWidth: 220,
+            flex: '0 0 220px',
+            borderRight: '1px solid #f0f0f0',
+            paddingRight: 16,
+          }}
+        >
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <Input
+              allowClear
+              placeholder="搜索平台 / 分组"
+              className="toolbar-search"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={permTreeKeyword}
+              onChange={(e) => setPermTreeKeyword(e.target.value)}
+            />
+            <Tree
+              showIcon
+              treeData={filteredTreeData as any}
+              selectedKeys={selectedTreeKeys}
+              expandedKeys={expandedKeys}
+              onExpand={(keys) => setExpandedKeys(keys as string[])}
+              onSelect={handleTreeSelect}
+              style={{ background: 'transparent' }}
             />
           </Space>
-          <Tree
-            showIcon
-            treeData={treeData as any}
-            selectedKeys={selectedTreeKeys}
-            expandedKeys={expandedKeys}
-            onExpand={(keys) => setExpandedKeys(keys as string[])}
-            onSelect={handleTreeSelect}
-            style={{ background: 'transparent' }}
-          />
         </div>
 
-        {/* 中间主内容区 */}
+        {/* 右侧：过滤条 + 表格 */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* 工具栏 */}
           <div className="page-toolbar">
@@ -470,43 +676,36 @@ const AccessActionsPage: React.FC = () => {
               layout="vertical"
               className="toolbar-container"
               form={filterForm}
-              initialValues={{ 
+              initialValues={{
                 keyword: '',
-                platform: 'all',
-                group: 'all', 
-                status: 'all' 
+                status: 'all',
               }}
               onValuesChange={(_, allValues) => {
                 setSearchKeyword(allValues.keyword || '');
-                setPlatformFilter(allValues.platform || 'all');
-                setGroupFilter(allValues.group || 'all');
                 setStatusFilter((allValues.status || 'all') as StatusFilter);
               }}
             >
-              <Form.Item name="keyword" label="搜索">
-                <Input 
-                  allowClear 
-                  placeholder="搜索权限原子/功能/描述" 
+              <Form.Item name="keyword">
+                <Input
+                  allowClear
+                  placeholder="搜索权限 ID / 功能模块 / 描述"
                   className="toolbar-search"
-                  prefix={<SearchOutlined />}
+                  suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                 />
               </Form.Item>
-              <Form.Item name="group" label="分组">
+              <Form.Item name="status">
                 <Select
-                  className="toolbar-filter"
-                  placeholder="全部分组"
-                  options={groupOptions}
-                  allowClear={false}
-                />
-              </Form.Item>
-              <Form.Item name="status" label="状态">
-                <Select 
-                  className="toolbar-filter"
+                  className="toolbar-filter-sm"
                   placeholder="全部状态"
                   options={statusOptions}
                   allowClear={false}
                 />
               </Form.Item>
+              <Button type="link" className="toolbar-reset-btn" onClick={() => {
+                handleResetFilters();
+              }}>
+                重置
+              </Button>
             </Form>
             <Space className="toolbar-actions">
               <TableColumnSettingsButton allColumns={tableColumns} settingsKey="access_actions_table" />
@@ -523,8 +722,8 @@ const AccessActionsPage: React.FC = () => {
               </div>
             </div>
           ) : filteredPermissions.length === 0 ? (
-            <Empty 
-              description="暂无权限数据"
+            <Empty
+              description="暂无符合条件的权限原子，请调整筛选条件后重试"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
@@ -542,13 +741,151 @@ const AccessActionsPage: React.FC = () => {
               bordered={false}
               onRow={(record) => ({
                 onClick: () => handleViewDetail(record),
-                style: { cursor: 'pointer' }
+                style: { cursor: 'pointer' },
               })}
             />
           )}
         </div>
       </div>
+    </Card>
+  );
 
+  const renderApiView = () => (
+    <div style={{ display: 'flex', gap: 16 }}>
+      {/* 左侧：API 模块树 */}
+      <div
+        style={{
+          width: 260,
+          minWidth: 220,
+          flex: '0 0 220px',
+          borderRight: '1px solid #f0f0f0',
+          paddingRight: 16,
+        }}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={8}>
+          <Input
+            allowClear
+            placeholder="搜索模块 / 供应商"
+            className="toolbar-search"
+            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            value={apiTreeKeyword}
+            onChange={(e) => setApiTreeKeyword(e.target.value)}
+          />
+          <Tree
+            showIcon
+            treeData={apiModuleTreeData as any}
+            selectedKeys={apiSelectedTreeKey ? [apiSelectedTreeKey] : []}
+            expandedKeys={apiExpandedTreeKeys}
+            onExpand={(keys) => setApiExpandedTreeKeys(keys as string[])}
+            onSelect={(keys) => {
+              const key = String(keys[0] || '');
+              setApiSelectedTreeKey(key || null);
+              setApiCategoryKey(key || 'all');
+            }}
+            style={{ background: 'transparent' }}
+          />
+        </Space>
+      </div>
+
+      {/* 右侧：工具栏 + API 表格 */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="page-toolbar">
+          {/* 左侧：搜索 */}
+          <Form
+            layout="vertical"
+            className="toolbar-container"
+            style={{ display: 'flex', alignItems: 'flex-end', rowGap: 12, columnGap: 12 }}
+            onValuesChange={(_, all) => {
+              setApiKeyword(all.keyword || '');
+            }}
+          >
+            <Form.Item name="keyword">
+              <Input
+                allowClear
+                placeholder="搜索路径 / 定义文件"
+                className="toolbar-search"
+                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              />
+            </Form.Item>
+            <Button type="link" className="toolbar-reset-btn" onClick={() => {
+              filterForm.resetFields();
+              setApiKeyword('');
+            }}>
+              重置
+            </Button>
+          </Form>
+          {/* 右侧：操作 */}
+          <div className="toolbar-actions">
+            <Button
+              icon={<ReloadOutlined />}
+              loading={apiLoading}
+              onClick={loadApiInventory}
+            />
+          </div>
+        </div>
+
+        <Table
+          className="std-table"
+          rowKey={(r: any, idx) => `${r.method}-${r.path}-${idx}`}
+          loading={apiLoading}
+          dataSource={filteredApiInventory}
+          columns={[
+            {
+              title: '模块',
+              dataIndex: 'category',
+              width: 160,
+            },
+            {
+              title: '供应商 / 控制面',
+              dataIndex: 'subCategory',
+              width: 160,
+            },
+            {
+              title: '方法',
+              dataIndex: 'method',
+              width: 100,
+              render: (m: string) => (
+                <Tag color={getMethodColor(m)}>{m}</Tag>
+              ),
+            },
+            {
+              title: '路径',
+              dataIndex: 'path',
+              render: (p: string) => <Text code>{p}</Text>,
+            },
+            {
+              title: '定义文件',
+              dataIndex: 'file',
+            },
+          ]}
+          pagination={{
+            size: 'small',
+            showTotal: (total) => `共 ${total} 条`,
+          }}
+          scroll={{ x: 'max-content' }}
+        />
+      </div>
+    </div>
+  );
+
+  return (
+    <PageContainer
+      titleLevel={3}
+      asCard={false}
+      tabList={[
+        { key: 'permissions', tab: '权限列表' },
+        { key: 'apis', tab: 'API 列表' },
+      ]}
+      tabActiveKey={activeTab}
+      onTabChange={(key) => {
+        const next = (key as 'permissions' | 'apis') || 'permissions';
+        setActiveTab(next);
+        if (next === 'apis' && apiInventory.length === 0 && !apiLoading) {
+          loadApiInventory();
+        }
+      }}
+    >
+      {activeTab === 'permissions' ? renderPermissionsView() : renderApiView()}
       {/* 详情抽屉 */}
       <Drawer
         title="权限详情"
@@ -582,7 +919,7 @@ const AccessActionsPage: React.FC = () => {
             <div style={{ marginBottom: 16 }}>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>状态</Text>
               <Tag color={selectedPermission.status === 'bound' ? 'success' : 'warning'} style={{ fontSize: 13 }}>
-                {selectedPermission.status === 'bound' ? '已绑定' : '策划'}
+                {selectedPermission.status === 'bound' ? '已生效（已绑定 API）' : '待接入（未绑定 API）'}
               </Tag>
               {selectedPermission.status === 'bound' && (
                 <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
@@ -605,9 +942,8 @@ const AccessActionsPage: React.FC = () => {
                   <Tag color="blue">{selectedPermission.feature}</Tag>
                 </div>
                 <div>
-                  <GlobalOutlined style={{ marginRight: 8, color: '#13c2c2' }} />
                   <Text>平台：</Text>
-                  <Tag color="cyan">{selectedPermission.platform}</Tag>
+                  <Tag color="cyan" style={{ marginLeft: 8 }}>{selectedPermission.platform}</Tag>
                 </div>
               </Space>
             </div>

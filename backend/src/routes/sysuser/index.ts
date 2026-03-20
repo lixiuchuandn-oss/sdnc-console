@@ -9,6 +9,7 @@ import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
 import { AuthRequest } from '../../middleware/auth';
 import bcrypt from 'bcryptjs';
+import { checkPermission } from '../../permissions';
 
 const router = Router();
 
@@ -189,6 +190,8 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         relations: ['accessibleClouds'],
       });
       if (!user) return res.status(404).json({ message: '用户不存在' });
+      // 使用 authMiddleware 已经计算好的 permissions（包含 super_admin 的 ['*']）
+      const permissions = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
       resp = {
         id: user.id,
         username: user.username,
@@ -199,6 +202,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         accessibleClouds: user.accessibleClouds,
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
+        permissions, // 返回权限列表
       };
     }
 
@@ -280,9 +284,9 @@ router.post('/me/password', async (req: AuthRequest, res: Response) => {
 // 超级管理员：更新用户状态
 router.put('/:id/status', async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
-      return res.status(403).json({ message: '权限不足' });
-    }
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
 
     const { id } = req.params;
     const { status } = req.body;
@@ -303,14 +307,12 @@ router.put('/:id/status', async (req: AuthRequest, res: Response) => {
   }
 });
 
-export { router as userRoutes };
-
 // 创建系统用户（仅超级管理员）
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
-      return res.status(403).json({ message: '权限不足' });
-    }
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
     const { username, email, password, fullName, role } = req.body;
     if (!username?.trim() || !email?.trim() || !password?.trim() || !fullName?.trim()) {
       return res.status(400).json({ message: '缺少必填字段：username/email/password/fullName' });
@@ -341,9 +343,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // 超级管理员：删除系统用户
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
-      return res.status(403).json({ message: '权限不足' });
-    }
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const userRepository = AppDataSource.getRepository(User);
     const user = await userRepository.findOne({ where: { id } });
@@ -369,12 +371,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// 超级管理员：编辑系统用户（支持更新基础信息与密码）
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+// 编辑系统用户的处理函数（PUT 和 PATCH 共用）
+const updateUserHandler = async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || req.user.role !== UserRole.SUPER_ADMIN) {
-      return res.status(403).json({ message: '权限不足' });
-    }
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const { username, email, fullName, role, status, password } = req.body as any;
     const userRepository = AppDataSource.getRepository(User);
@@ -412,4 +414,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   } catch (e: any) {
     res.status(500).json({ message: '更新用户失败', error: String(e) });
   }
-});
+};
+
+// 超级管理员：编辑系统用户（支持更新基础信息与密码）
+router.put('/:id', updateUserHandler);
+router.patch('/:id', updateUserHandler);
+
+export { router as userRoutes };

@@ -2,12 +2,11 @@ import 'antd/dist/reset.css';
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
-import { getDefaultAdminPath } from './utils/accessMapping';
+import { getDefaultAdminPath, hasPermissionForAction } from './utils/accessMapping';
 import { ConfigProvider, Modal, theme as antdTheme, Spin } from 'antd';
-import { CloseOutlined } from '@ant-design/icons';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
-import { LicenseProvider } from './contexts/LicenseContext';
+import { LicenseProvider, useLicense } from './contexts/LicenseContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import AdminRoute from './components/AdminRoute';
 import PrivateRoute from './components/PrivateRoute';
@@ -21,7 +20,6 @@ import AdminLayout from './layouts/AdminLayout';
 
 // 懒加载主要页面组件
 const OverviewDashboard = lazy(() => import('./pages/Dashboard/OverviewDashboard'));
-const SdnDashboard = lazy(() => import('./pages/Dashboard/SdnDashboard'));
 const Users = lazy(() => import('./pages/Tenants/Users'));
 const Clouds = lazy(() => import('./pages/Clouds'));
 const CloudDetail = lazy(() => import('./pages/Clouds/CloudDetail'));
@@ -78,7 +76,9 @@ const LoadingFallback: React.FC = () => (
     minHeight: '400px',
     width: '100%'
   }}>
-    <Spin size="large" tip="加载中..." />
+    <Spin size="large" tip="加载中...">
+      <div style={{ minHeight: 200 }} />
+    </Spin>
   </div>
 );
 
@@ -121,7 +121,6 @@ const AppRoutes: React.FC = () => {
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
           <Route index element={<AdminIndex />} />
           <Route path="dashboard" element={<OverviewDashboard />} />
-          <Route path="sdn-dashboard" element={<SdnDashboard />} />
           <Route path="clouds" element={<Clouds />} />
           <Route path="clouds/:id" element={<CloudDetail />} />
           
@@ -221,6 +220,7 @@ const AppRoutes: React.FC = () => {
 
 const AdminIndex: React.FC = () => {
   const { user, loading } = useAuth();
+  const { hasFeature } = useLicense();
   const perms = Array.isArray(user?.permissions) ? user!.permissions! : [];
   const role = String(user?.role || '').toLowerCase();
   const isAdmin = role === 'super_admin' || role === 'admin';
@@ -245,15 +245,20 @@ const AdminIndex: React.FC = () => {
         setFavoriteReady(true);
       }
     })();
-  }, [user?.id, isAdmin]);
+  }, [user, isAdmin]);
 
   if (loading || !user || (isAdmin && !favoriteReady)) return <></>;
-  // 优先使用 favorite cloud（如果有）
+  // 优先使用 favorite cloud（如果有且用户有权限）
   if (isAdmin && favoriteCloudId) {
-    return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
+    // 检查用户是否有访问资源池的权限
+    const canAccessClouds = hasPermissionForAction(perms, 'clouds:read') || 
+                            hasPermissionForAction(perms, 'clouds.console:read');
+    if (canAccessClouds) {
+      return <Navigate to={`/admin/clouds/${favoriteCloudId}`} replace />;
+    }
   }
-  // 其他情况统一使用 getDefaultAdminPath（包括 admin 用户）
-  const target = getDefaultAdminPath(perms);
+  // 其他情况统一使用 getDefaultAdminPath（包括 admin 用户），同时检查 requiredFeature
+  const target = getDefaultAdminPath(perms, hasFeature);
   return <Navigate to={target} replace />;
 };
 

@@ -8,13 +8,12 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 //    - 安全域相关：展示防护对象与服务链（简要概览）；
 // 3）顶部概览卡片：展示租户ID、组织ID、数量统计等信息；
 // 数据来源统一通过后端接口（axios）获取，并在切换组织/租户时刷新。
-import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Tooltip } from 'antd';
+import { Button, Card, Col, Dropdown, Form, Input, Modal, Row, Select, Table, Tabs, Tree, Typography, Descriptions, message, Checkbox, Tooltip, Transfer } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageDetailContainer from '../../components/PageDetailContainer';
 import StdSideDrawer from '../../components/StdSideDrawer';
-import PermissionTreeTransfer from '../../components/TreeTransfer';
 import { Tenant, Organization, TenantUser, CreateTenantUserRequest, ResourcePoolAssignment } from '../../types/tenant';
 import { CheckOutlined, CloseOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, ClusterOutlined, GatewayOutlined, SafetyCertificateOutlined, NodeIndexOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import { fetchProtectionObjects, fetchServiceChains } from '../../services/trafficOrchestration';
@@ -90,7 +89,9 @@ const OrgManagePage: React.FC = () => {
   const [assignType, setAssignType] = useState<'compute'|'storage'|'security'>('compute');
   const [storageKeyword, setStorageKeyword] = useState<string>('');
   const [securityKeyword, setSecurityKeyword] = useState<string>('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [nsLoading, setNsLoading] = useState<boolean>(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [nsOptions, setNsOptions] = useState<any[]>([]);
   // 分配资源池模式说明：
   // - assignType：计算/存储/安全三类，用于候选池过滤与文案切换
@@ -736,8 +737,7 @@ const OrgManagePage: React.FC = () => {
     { title: '角色', dataIndex: 'role', key: 'role', render: (_: any, row: TenantUser) => {
       const roleNameMap: Record<string, string> = {
         'Super Admin': '超级管理员',
-        'Tenant Admin': '租户管理员',
-        'User': '普通用户'
+        '云租户根用户': '云租户根用户'
       };
       // 仅展示 RBAC 分配角色（RoleAssignment），避免与 TenantUser.role 重复显示
       const assigned = rolesByUser[row.id] || [];
@@ -786,7 +786,7 @@ const OrgManagePage: React.FC = () => {
         </Dropdown>
       ),
     }
-  ], [rolesByUser, openRoleAssign, handleDeleteUser, modal, tenantRoles]);
+  ], [rolesByUser, openRoleAssign, handleDeleteUser, modal]);
 
   const { displayColumns: userDisplayColumns } = useTableColumnSettings(userColumns, 'org_manage_users');
 
@@ -855,7 +855,6 @@ const OrgManagePage: React.FC = () => {
 
   return (
     <PageDetailContainer
-      title="组织管理"
       icon={<ClusterOutlined />}
       subtitle="集中管理租户组织架构信息，提供用户与资源池的生命周期管理能力"
       overviewContent={
@@ -1025,7 +1024,7 @@ const OrgManagePage: React.FC = () => {
                           allowClear
                           placeholder="搜索资源池名称"
                           style={{ width: 240 }}
-                          suffix={<SearchOutlined />}
+                          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
                           value={assignmentKeyword}
                           onChange={(e)=> setAssignmentKeyword(e.target.value)}
                         />
@@ -1413,8 +1412,7 @@ const OrgManagePage: React.FC = () => {
               {tenantRoles.map(r => {
                 const roleNameMap: Record<string, string> = {
                   'Super Admin': '超级管理员',
-                  'Tenant Admin': '租户管理员',
-                  'User': '普通用户',
+                  '云租户根用户': '云租户根用户',
                   'admin': '管理员',
                   'user': '用户',
                   'viewer': '查看者'
@@ -1547,32 +1545,28 @@ const OrgManagePage: React.FC = () => {
             />
           </Form.Item>
         </Form>
-        <PermissionTreeTransfer
+        <Transfer
           dataSource={(() => {
             const roleNameMap: Record<string, string> = {
               'Super Admin': '超级管理员',
-              'Tenant Admin': '租户管理员',
-              'User': '普通用户'
+              '云租户根用户': '云租户根用户'
             };
-            const base = tenantRoles
-              .filter(r => r.scope === 'tenant' && String(r.status || 'active') === 'active')  // 确保只显示租户级角色
+            return tenantRoles
+              .filter(r => r.scope === 'tenant' && String(r.status || 'active') === 'active')
               .filter(r => (roleAssignKw ? ((r.name || '').toLowerCase().includes(roleAssignKw.toLowerCase()) || (r.description || '').toLowerCase().includes(roleAssignKw.toLowerCase())) : true))
               .map(r => ({ key: r.id, title: roleNameMap[r.name] || r.name, description: r.description }));
-            const selected = (roleAssignSelected || []).map(k => {
-              const role = tenantRoles.find(r => r.id === k);
-              const name = role?.name || String(k);
-              return { key: String(k), title: roleNameMap[name] || name, description: role?.description || '' };
-            });
-            const map = new Map<string, any>();
-            [...base, ...selected].forEach(it => { map.set(String(it.key), it); });
-            return Array.from(map.values());
           })()}
           targetKeys={roleAssignSelected}
           onChange={(next) => setRoleAssignSelected(next.map(String))}
           titles={["角色库","已选角色"]}
-          style={{ width: '100%' }}
-          listStyle={{ flex: '1 1 0', minWidth: 0, height: 420 }}
-          groupMode="flat"
+          render={(item: any) => item.title}
+          rowKey={(item: any) => item.key}
+          listStyle={{ width: '50%', height: 420 }}
+          showSearch
+          filterOption={(inputValue: string, item: any) => 
+            (item.title as string).toLowerCase().includes(inputValue.toLowerCase()) ||
+            (item.description as string)?.toLowerCase().includes(inputValue.toLowerCase())
+          }
         />
         <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>保存将同步新增与移除的角色赋权</div>
       </StdSideDrawer>

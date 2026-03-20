@@ -8,7 +8,8 @@ import { Table, Button, message, Input } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
 
 /**
@@ -126,7 +127,8 @@ const CloudInitsSection: React.FC<Props> = ({
     },
   ], [isTenant]);
 
-  const [tableColumns, setTableColumns] = useState<any[]>(columns);
+  // 列显示设置（需要在 columns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(columns, 'harvester_cloudinits_table');
 
   return (
     <PageDetailSection
@@ -155,9 +157,8 @@ const CloudInitsSection: React.FC<Props> = ({
       )}
       toolbarRight={(
         <>
-          <TableColumnSettings 
-            columns={columns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton 
+            allColumns={columns} 
             settingsKey="harvester_cloud_inits_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />

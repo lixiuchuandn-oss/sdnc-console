@@ -197,7 +197,6 @@ const GeneralSettings: React.FC = () => {
 
   return (
     <PageContainer
-      title="通用设置"
       asCard={false}
       titleLevel={3}
     >

@@ -44,101 +44,29 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // 初始化：UI 配置（headerTitle, headerIcon, colors 等）不再从 localStorage 读取，只从后端读取
+  // 只有 theme 和 language 保留在 localStorage（用户个人偏好）
   const [settings, setSettings] = useState<Settings>({
     theme: (localStorage.getItem('app_theme') as ThemeType) || 'light',
     language: (localStorage.getItem('app_lang') as LanguageType) || 'zh',
-    headerIcon: localStorage.getItem('app_header_icon') || undefined,
-    headerTitle: localStorage.getItem('app_header_title') || 'Compute Tower',
-    headerColor: localStorage.getItem('app_header_color') || '#0A4CC0',
-    headerColorEnd: localStorage.getItem('app_header_color_end') || '#1B64ED',
-    searchBackgroundColor: (() => {
-      const val = localStorage.getItem('app_search_background_color');
-      // 如果值为空、无效，使用默认值
-      if (!val || !val.trim()) {
-        return '#1062fe';
-      }
-      // 确保有 # 前缀
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    primaryColor: (() => {
-      const val = localStorage.getItem('app_primary_color');
-      // 如果值为空、无效，使用默认值
-      if (!val || !val.trim()) {
-        return '#1677ff';
-      }
-      // 确保有 # 前缀
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    sidebarMenuItemSelectedColor: (() => {
-      const val = localStorage.getItem('app_sidebar_menu_item_selected_color');
-      // 如果值为空、无效，使用默认值
-      if (!val || !val.trim()) {
-        return '#e6f7ff';
-      }
-      // 确保有 # 前缀
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    sidebarMenuItemSelectedTextColor: (() => {
-      const val = localStorage.getItem('app_sidebar_menu_item_selected_text_color');
-      // 如果值为空、无效，使用默认值
-      if (!val || !val.trim()) {
-        return '#1677ff';
-      }
-      // 确保有 # 前缀
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    sidebarMenuItemSelectedIconColor: (() => {
-      const val = localStorage.getItem('app_sidebar_menu_item_selected_icon_color');
-      // 如果值为空、无效，使用默认值
-      if (!val || !val.trim()) {
-        return '#1677ff';
-      }
-      // 确保有 # 前缀
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    loginTitle: localStorage.getItem('app_login_title') || 'Compute Tower',
-    loginSubtitle: localStorage.getItem('app_login_subtitle') || '后台管理登录',
-    loginBackgroundColor: (() => {
-      const val = localStorage.getItem('app_login_background_color');
-      if (!val || !val.trim()) {
-        return '#1062FE';
-      }
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    loginBackgroundGradientStart: (() => {
-      const val = localStorage.getItem('app_login_background_gradient_start');
-      if (!val || !val.trim()) {
-        return '#1062FE';
-      }
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    loginBackgroundGradientEnd: (() => {
-      const val = localStorage.getItem('app_login_background_gradient_end');
-      if (!val || !val.trim()) {
-        return '#1062FE';
-      }
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    loginEnableParticleBackground: (() => {
-      const val = localStorage.getItem('app_login_enable_particle_background');
-      // 如果 localStorage 中没有值，默认启用（因为当前平台默认启用）
-      if (val === null) return true;
-      return val === 'true';
-    })(),
-    loginButtonColor: (() => {
-      const val = localStorage.getItem('app_login_button_color');
-      if (!val || !val.trim()) {
-        return '#1890ff';
-      }
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
-    loginButtonHoverColor: (() => {
-      const val = localStorage.getItem('app_login_button_hover_color');
-      if (!val || !val.trim()) {
-        return '#40a9ff';
-      }
-      return val.startsWith('#') ? val : `#${val}`;
-    })(),
+    // UI 配置使用默认值，等待从后端加载
+    headerIcon: undefined,
+    headerTitle: 'Compute Tower',
+    headerColor: '#0A4CC0',
+    headerColorEnd: '#1B64ED',
+    searchBackgroundColor: '#1062fe',
+    primaryColor: '#1677ff',
+    sidebarMenuItemSelectedColor: '#e6f7ff',
+    sidebarMenuItemSelectedTextColor: '#1677ff',
+    sidebarMenuItemSelectedIconColor: '#1677ff',
+    loginTitle: 'Compute Tower',
+    loginSubtitle: '后台管理登录',
+    loginBackgroundColor: '#1062FE',
+    loginBackgroundGradientStart: '#1062FE',
+    loginBackgroundGradientEnd: '#1062FE',
+    loginEnableParticleBackground: true,
+    loginButtonColor: '#1890ff',
+    loginButtonHoverColor: '#40a9ff',
     emailNotify: true,
     smsNotify: false,
     network: {
@@ -147,29 +75,91 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       timeout: 5000,
     },
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // 初始为 true，表示正在加载
 
   // Fetch remote settings on mount
   useEffect(() => {
     const fetchRemoteSettings = async () => {
       try {
-        setLoading(true);
+        // loading 初始值已经是 true，这里不需要再设置
         
-        // Fetch each setting key from backend using unified API
-        const keys = ['emailNotify', 'smsNotify', 'network.apiBaseUrl', 'network.enableProxy', 'network.timeout'];
+        // Fetch system settings
+        const systemKeys = ['emailNotify', 'smsNotify', 'network.apiBaseUrl', 'network.enableProxy', 'network.timeout'];
+        // Fetch UI personalization settings
+        const uiKeys = [
+          'ui.theme',
+          'ui.language',
+          'ui.headerIcon',
+          'ui.headerTitle',
+          'ui.headerColor',
+          'ui.headerColorEnd',
+          'ui.searchBackgroundColor',
+          'ui.primaryColor',
+          'ui.sidebarMenuItemSelectedColor',
+          'ui.sidebarMenuItemSelectedTextColor',
+          'ui.sidebarMenuItemSelectedIconColor',
+          'ui.loginTitle',
+          'ui.loginSubtitle',
+          'ui.loginBackgroundColor',
+          'ui.loginBackgroundGradientStart',
+          'ui.loginBackgroundGradientEnd',
+          'ui.loginEnableParticleBackground',
+          'ui.loginButtonColor',
+          'ui.loginButtonHoverColor',
+        ];
+        
         const values: any = {};
         
-        for (const key of keys) {
+        // 并行加载所有设置，加快速度
+        const allKeys = [...systemKeys, ...uiKeys];
+        const promises = allKeys.map(async (key) => {
           try {
             const data = await getSystemSetting(key);
-            values[key] = data?.value;
+            return { key, value: data?.value };
           } catch (e) {
             console.warn(`Failed to fetch setting ${key}`, e);
+            return { key, value: undefined };
           }
-        }
+        });
+        
+        const results = await Promise.all(promises);
+        results.forEach(({ key, value }) => {
+          if (value !== undefined) {
+            values[key] = value;
+          }
+        });
+
+        // Helper to get color value - 不再从 localStorage fallback，只使用后端值或默认值
+        const getColor = (key: string, defaultValue: string): string => {
+          const val = values[key];
+          if (!val || !val.trim()) {
+            // 后端没有值，直接使用默认值（不再从 localStorage 读取）
+            return defaultValue;
+          }
+          return val.startsWith('#') ? val : `#${val}`;
+        };
 
         setSettings(prev => ({
           ...prev,
+          theme: (values['ui.theme'] as ThemeType) || prev.theme,
+          language: (values['ui.language'] as LanguageType) || prev.language,
+          headerIcon: values['ui.headerIcon'] || prev.headerIcon,
+          headerTitle: values['ui.headerTitle'] || prev.headerTitle,
+          headerColor: getColor('ui.headerColor', prev.headerColor || '#0A4CC0'),
+          headerColorEnd: getColor('ui.headerColorEnd', prev.headerColorEnd || '#1B64ED'),
+          searchBackgroundColor: getColor('ui.searchBackgroundColor', prev.searchBackgroundColor || '#1062fe'),
+          primaryColor: getColor('ui.primaryColor', prev.primaryColor || '#1677ff'),
+          sidebarMenuItemSelectedColor: getColor('ui.sidebarMenuItemSelectedColor', prev.sidebarMenuItemSelectedColor || '#e6f7ff'),
+          sidebarMenuItemSelectedTextColor: getColor('ui.sidebarMenuItemSelectedTextColor', prev.sidebarMenuItemSelectedTextColor || '#1677ff'),
+          sidebarMenuItemSelectedIconColor: getColor('ui.sidebarMenuItemSelectedIconColor', prev.sidebarMenuItemSelectedIconColor || '#1677ff'),
+          loginTitle: values['ui.loginTitle'] || prev.loginTitle,
+          loginSubtitle: values['ui.loginSubtitle'] || prev.loginSubtitle,
+          loginBackgroundColor: getColor('ui.loginBackgroundColor', prev.loginBackgroundColor || '#1062FE'),
+          loginBackgroundGradientStart: getColor('ui.loginBackgroundGradientStart', prev.loginBackgroundGradientStart || '#1062FE'),
+          loginBackgroundGradientEnd: getColor('ui.loginBackgroundGradientEnd', prev.loginBackgroundGradientEnd || '#1062FE'),
+          loginEnableParticleBackground: values['ui.loginEnableParticleBackground'] === 'true' || (values['ui.loginEnableParticleBackground'] === undefined || values['ui.loginEnableParticleBackground'] === '' ? true : prev.loginEnableParticleBackground),
+          loginButtonColor: getColor('ui.loginButtonColor', prev.loginButtonColor || '#1890ff'),
+          loginButtonHoverColor: getColor('ui.loginButtonHoverColor', prev.loginButtonHoverColor || '#40a9ff'),
           emailNotify: values['emailNotify'] === 'true',
           smsNotify: values['smsNotify'] === 'true',
           network: {
@@ -189,91 +179,72 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const updateSetting = async (key: keyof Settings, value: any) => {
-    // Local persistence for theme/lang
+    // Map setting keys to backend keys
+    const settingKeyMap: Record<string, string> = {
+      theme: 'ui.theme',
+      language: 'ui.language',
+      headerIcon: 'ui.headerIcon',
+      headerTitle: 'ui.headerTitle',
+      headerColor: 'ui.headerColor',
+      headerColorEnd: 'ui.headerColorEnd',
+      searchBackgroundColor: 'ui.searchBackgroundColor',
+      primaryColor: 'ui.primaryColor',
+      sidebarMenuItemSelectedColor: 'ui.sidebarMenuItemSelectedColor',
+      sidebarMenuItemSelectedTextColor: 'ui.sidebarMenuItemSelectedTextColor',
+      sidebarMenuItemSelectedIconColor: 'ui.sidebarMenuItemSelectedIconColor',
+      loginTitle: 'ui.loginTitle',
+      loginSubtitle: 'ui.loginSubtitle',
+      loginBackgroundColor: 'ui.loginBackgroundColor',
+      loginBackgroundGradientStart: 'ui.loginBackgroundGradientStart',
+      loginBackgroundGradientEnd: 'ui.loginBackgroundGradientEnd',
+      loginEnableParticleBackground: 'ui.loginEnableParticleBackground',
+      loginButtonColor: 'ui.loginButtonColor',
+      loginButtonHoverColor: 'ui.loginButtonHoverColor',
+    };
+
+    // Process color values to ensure they have # prefix
+    let processedValue = value;
+    const colorKeys = [
+      'headerColor', 'headerColorEnd', 'searchBackgroundColor', 'primaryColor',
+      'sidebarMenuItemSelectedColor', 'sidebarMenuItemSelectedTextColor', 'sidebarMenuItemSelectedIconColor',
+      'loginBackgroundColor', 'loginBackgroundGradientStart', 'loginBackgroundGradientEnd',
+      'loginButtonColor', 'loginButtonHoverColor'
+    ];
+    
+    if (colorKeys.includes(key)) {
+      processedValue = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '');
+    }
+
+    // Save to backend for UI personalization settings
+    const backendKey = settingKeyMap[key];
+    if (backendKey) {
+      try {
+        await updateSystemSetting(backendKey, String(processedValue || value));
+      } catch (e) {
+        console.error(`Failed to save setting ${key} to backend`, e);
+        // Still update local state even if backend save fails
+      }
+    }
+
+    // 只有 theme 和 language 保存到 localStorage（用户个人偏好）
+    // UI 配置（headerTitle, headerIcon, colors 等）不再保存到 localStorage，只保存到后端
     if (key === 'theme') {
       localStorage.setItem('app_theme', value);
     }
     if (key === 'language') {
       localStorage.setItem('app_lang', value);
     }
-    if (key === 'headerIcon') {
-      localStorage.setItem('app_header_icon', value);
-    }
-    if (key === 'headerTitle') {
-      localStorage.setItem('app_header_title', value);
-    }
-    if (key === 'headerColor') {
-      localStorage.setItem('app_header_color', value);
-    }
-    if (key === 'headerColorEnd') {
-      localStorage.setItem('app_header_color_end', value);
-    }
-    if (key === 'searchBackgroundColor') {
-      // 确保保存的是有效的 hex 颜色字符串
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1062fe');
-      localStorage.setItem('app_search_background_color', hexColor);
-    }
-    if (key === 'primaryColor') {
-      // 确保保存的是有效的 hex 颜色字符串
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1677ff');
-      localStorage.setItem('app_primary_color', hexColor);
-    }
-    if (key === 'sidebarMenuItemSelectedColor') {
-      // 确保保存的是有效的 hex 颜色字符串
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#e6f7ff');
-      localStorage.setItem('app_sidebar_menu_item_selected_color', hexColor);
-    }
-    if (key === 'sidebarMenuItemSelectedTextColor') {
-      // 确保保存的是有效的 hex 颜色字符串
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1677ff');
-      localStorage.setItem('app_sidebar_menu_item_selected_text_color', hexColor);
-    }
-    if (key === 'sidebarMenuItemSelectedIconColor') {
-      // 确保保存的是有效的 hex 颜色字符串
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1677ff');
-      localStorage.setItem('app_sidebar_menu_item_selected_icon_color', hexColor);
-    }
-    if (key === 'loginTitle') {
-      localStorage.setItem('app_login_title', value);
-    }
-    if (key === 'loginSubtitle') {
-      localStorage.setItem('app_login_subtitle', value);
-    }
-    if (key === 'loginBackgroundColor') {
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1062FE');
-      localStorage.setItem('app_login_background_color', hexColor);
-    }
-    if (key === 'loginBackgroundGradientStart') {
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1062FE');
-      localStorage.setItem('app_login_background_gradient_start', hexColor);
-    }
-    if (key === 'loginBackgroundGradientEnd') {
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1062FE');
-      localStorage.setItem('app_login_background_gradient_end', hexColor);
-    }
-    if (key === 'loginEnableParticleBackground') {
-      localStorage.setItem('app_login_enable_particle_background', String(value));
-    }
-    if (key === 'loginButtonColor') {
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#1890ff');
-      localStorage.setItem('app_login_button_color', hexColor);
-    }
-    if (key === 'loginButtonHoverColor') {
-      const hexColor = typeof value === 'string' && value.startsWith('#') ? value : (value ? `#${value}` : '#40a9ff');
-      localStorage.setItem('app_login_button_hover_color', hexColor);
-    }
 
-    // Remote persistence for others
+    // Remote persistence for system settings
     if (['emailNotify', 'smsNotify'].includes(key)) {
       try {
         await updateSystemSetting(key, String(value));
       } catch (e) {
         console.error(`Failed to save setting ${key}`, e);
-        // Revert local state if needed, but for now we optimistically update
       }
     }
 
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings(prev => ({ ...prev, [key]: processedValue || value }));
   };
 
   const updateNetwork = async (network: Partial<Settings['network']>) => {

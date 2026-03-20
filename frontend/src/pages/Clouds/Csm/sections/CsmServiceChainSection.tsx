@@ -1,6 +1,6 @@
 import React from 'react';
-import { Table, Space, Input, Button, Popover, Checkbox, Tag, Typography, Divider } from 'antd';
-import { SearchOutlined, SettingOutlined, ReloadOutlined, PlusOutlined, GlobalOutlined, LinkOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
+import { Table, Space, Input, Button, Popover, Checkbox, Tag } from 'antd';
+import { SearchOutlined, SettingOutlined, ReloadOutlined } from '@ant-design/icons';
 import SharedToolbar from '../../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { Modal, message } from 'antd';
@@ -104,14 +104,14 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
     return <Tag color={color}>{val || '-'}</Tag>;
   };
 
-  const deriveType = (r: any) => {
+  const deriveType = React.useCallback((r: any) => {
     const hasSerial = toList(r?.serial_list).length > 0;
     const hasBypass = toList(r?.monitor_list).length > 0;
     if (hasSerial && hasBypass) return '旁路+串行';
     if (hasSerial) return '串行';
     if (hasBypass) return '旁路';
     return '-';
-  };
+  }, []);
 
   const columns = React.useMemo(() => [
     { title: '服务链ID', dataIndex: 'service_chain_id', key: 'service_chain_id', render: (_: any, r: any) => r?.service_chain_id || r?.id || '-' },
@@ -149,7 +149,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
 
       return (
           <Popover content={content}>
-             <a onClick={e => e.preventDefault()} style={{ fontWeight: 500 }}>{ids.length} 项</a>
+             <Button type="link" style={{ fontWeight: 500, padding: 0, height: 'auto' }}>{ids.length} 项</Button>
           </Popover>
       );
     } },
@@ -186,7 +186,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
 
       return (
         <Popover content={content}>
-           <a onClick={e => e.preventDefault()} style={{ fontWeight: 500 }}>{total} 项</a>
+           <Button type="link" style={{ fontWeight: 500, padding: 0, height: 'auto' }}>{total} 项</Button>
         </Popover>
       );
     } },
@@ -211,7 +211,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
                 width: 600,
                 content: (
                   <div style={{ maxHeight: 420, overflow: 'auto', background: '#f7f7f7', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
-                    <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace' }}>
+                    <pre style={{ margin: 0, fontSize: 12, lineHeight: '20px', fontFamily: 'SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace' }}>
 {JSON.stringify(r, null, 2)}
                     </pre>
                   </div>
@@ -243,7 +243,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
         />
       );
     } },
-  ] as any[], [cloudId, load, assetMap, groupMap]);
+  ] as any[], [cloudId, load, assetMap, groupMap, deriveType]);
 
   React.useEffect(() => {
     const initKeys = columns.map((c: any) => c.key).filter((k: string) => k !== 'action');
@@ -270,7 +270,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
       const status = String(r?.status || r?.monitor_status || r?.serial_status || '').toLowerCase();
       return name.includes(lower) || id.includes(lower) || type.includes(lower) || status.includes(lower);
     });
-  }, [items, searchText]);
+  }, [items, searchText, deriveType]);
 
   return (
     <>
@@ -279,7 +279,7 @@ const CsmServiceChainSection: React.FC<Props> = ({ cloudId, showLog }) => {
           <>
             <Input
               placeholder="搜索名称/ID/类型/状态"
-              prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,0.25)' }} />}
+              prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
               style={{ width: 220 }}

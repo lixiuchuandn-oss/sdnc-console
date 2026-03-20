@@ -42,7 +42,6 @@ import {
   DeploymentUnitOutlined,
   CloudUploadOutlined
 } from '@ant-design/icons';
-import { provinces, cityOptionsByProvince } from '../../constants/chinaRegions';
 
 /**
  * [常量定义] 云资源类型映射 (Cloud Types)

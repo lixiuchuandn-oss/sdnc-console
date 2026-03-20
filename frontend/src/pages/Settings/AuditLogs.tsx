@@ -56,7 +56,7 @@ const AuditLogs: React.FC = () => {
   }, [currentPage, pageSize, searchText]);
 
   // 动作英文到中文的映射
-  const actionMap: Record<string, string> = {
+  const actionMap = useMemo<Record<string, string>>(() => ({
     'START': '启动',
     'STOP': '停止',
     'REBOOT': '重启',
@@ -70,7 +70,7 @@ const AuditLogs: React.FC = () => {
     'DELETE': '删除',
     'ATTACH': '挂载',
     'DETACH': '卸载',
-  };
+  }), []);
 
   // 从action中提取友好的动作名称（英文）
   const formatAction = (action: string): string => {
@@ -166,7 +166,7 @@ const AuditLogs: React.FC = () => {
     else if (englishAction.includes('CLOUD')) translated.push('云资源池');
     
     return translated.length > 0 ? translated.join(' ') : englishAction;
-  }, []);
+  }, [actionMap]);
 
   // 获取所有唯一的动作类型（用于筛选）
   const actionFilterOptions = useMemo(() => {
@@ -633,7 +633,6 @@ const AuditLogs: React.FC = () => {
 
   return (
     <PageContainer
-      title="操作审计"
       breadcrumb={[
         { label: '首页', href: '/' },
         { label: '通用设置', href: '/settings/general' },

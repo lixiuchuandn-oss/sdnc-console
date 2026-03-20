@@ -1,92 +1,9 @@
 import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
+import { ALL_PERMISSIONS } from '../constants/permissions';
 
-const CURATED_PERMISSIONS = [
-    // 运维平台/系统与用户
-    'ops.dashboard:read',
-    'ops.dashboard:write',
-    'users:read',
-    'users:write',
-    'user-spaces:read',
-    'user-spaces:write',
-    // 租户与租户资源
-    'tenants:read',
-    'tenants:write',
-    // 云与资源（统一命名：domain.feature:verb）
-    'clouds:read',
-    'clouds:write',
-    'clouds.instances:read',
-    'clouds.instances:write',
-    'clouds.vpcs:read',
-    'clouds.vpcs:write',
-    'clouds.eips:read',
-    'clouds.eips:write',
-    'clouds.disks:read',
-    'clouds.disks:write',
-    'clouds.security-groups:read',
-    'clouds.security-groups:write',
-    'clouds.load-balancers:read',
-    'clouds.load-balancers:write',
-    'clouds.images:read',
-    'clouds.images:write',
-    'clouds.vswitches:read',
-    'clouds.vswitches:write',
-    'clouds.enis:read',
-    'clouds.enis:write',
-    'clouds.network-acls:read',
-    'clouds.network-acls:write',
-    'clouds.snapshots:read',
-    'clouds.snapshots:write',
-    'clouds.route-entries:read',
-    'clouds.route-entries:write',
-    'clouds.nat-gateways:read',
-    'clouds.nat-gateways:write',
-    'clouds.vlans:read',
-    'clouds.vlans:write',
-    'clouds.ippools:read',
-    'clouds.ippools:write',
-    // 云主机控制台
-    'clouds.console:read',
-    'clouds.console:write',
-    // 网络：跨地域互联与安全面
-    'networks.vpcs:read',
-    'networks.vpcs:write',
-    'networks.cen:read',
-    'networks.cen:write',
-    'networks.cen.attachments:read',
-    'networks.cen.attachments:write',
-    'networks.security-domain:read',
-    'networks.security-domain:write',
-    'networks.srv6:read',
-    'networks.srv6:write',
-    'networks.vr-config:read',
-    'networks.vr-config:write',
-    'networks.route-tables:read',
-    'networks.route-tables:write',
-    'networks.acl:read',
-    'networks.acl:write',
-    'networks.vswitches:read',
-    'networks.vswitches:write',
-    // 安全服务与日志
-    'security.services:read',
-    'security.services:write',
-    'security.logs:read',
-    'security.logs:write',
-    'security.policies:read',
-    'security.policies:write',
-    'security.apps:read',
-    'security.apps:write',
-    // 安全运营
-    'secops.dashboard:read',
-    'secops.dashboard:write',
-    'secops.alerts:read',
-    'secops.alerts:write',
-    'secops.rules:read',
-    'secops.rules:write',
-    // 系统管理
-    'system.roles:read',
-    'system.roles:write'
-];
+// 使用统一的权限原子定义
+const CURATED_PERMISSIONS = [...ALL_PERMISSIONS];
 
 export async function initializeRoles() {
   try {
@@ -111,7 +28,15 @@ export async function initializeRoles() {
             status: spec.status,
           }),
         );
+        return;
       }
+
+      // 已存在则更新（确保权限配置跟随代码版本演进）
+      existed.description = spec.description;
+      existed.scope = spec.scope;
+      existed.permissions = nextPerms;
+      existed.status = spec.status;
+      await repo.save(existed);
     };
 
     // 1. Super Admin
@@ -123,30 +48,23 @@ export async function initializeRoles() {
       status: 'active',
     });
 
-    // 2. Tenant Admin（租户侧禁止创建 VLAN 网络、VLAN 地址池，仅只读）
+    // 2. 云租户根用户（拥有资源控制台分组下除资源总览、资源池管理外的所有权限）
     await ensureRole({
-      name: 'Tenant Admin',
-      description: '租户管理员，拥有租户内的管理权限',
+      name: '云租户根用户',
+      description: '租户管理员，拥有资源控制台分组下除资源总览、资源池管理外的所有权限',
       scope: 'tenant',
       permissions: [
-        'clouds.instances:read',
-        'clouds.instances:write',
-        'clouds.console:read',
-        'clouds.console:write',
+        // 资源控制台分组：所有权限（排除资源总览 clouds.dashboard 和资源池管理 clouds）
+        ...CURATED_PERMISSIONS.filter((p) => 
+          p.startsWith('clouds.') && 
+          !p.startsWith('clouds.dashboard:') && 
+          p !== 'clouds:read' && 
+          p !== 'clouds:write'
+        ),
+        // 网络相关权限（VPC等）
         'networks.vpcs:read',
         'networks.vpcs:write',
-        'clouds.vlans:read',
-        'clouds.ippools:read',
       ],
-      status: 'active',
-    });
-
-    // 3. User (Standard User)
-    await ensureRole({
-      name: 'User',
-      description: '普通用户，拥有基础查看权限',
-      scope: 'tenant',
-      permissions: ['clouds.console:read', 'clouds.instances:read', 'clouds.vlans:read', 'clouds.ippools:read'],
       status: 'active',
     });
 
@@ -154,57 +72,74 @@ export async function initializeRoles() {
     // 三权分立默认角色
     // =========================================================================
 
-    const allRead = CURATED_PERMISSIONS.filter(p => p.endsWith(':read'));
-
-    // 4. 三权-审计员
-    // 仅具备各分组的只读权限
-    const auditorRoleName = '三权-审计员';
+    // 4. 三权-审计管理员
+    // 只能访问操作审计页面
+    const auditorRoleName = '三权-审计管理员';
     await ensureRole({
       name: auditorRoleName,
-      description: '仅具备各分组的只读权限，用于安全审计与合规检查',
+      description: '只能访问操作审计页面，用于安全审计与合规检查',
       scope: 'system',
-      permissions: allRead,
+      permissions: ['system.audit:read'],
       status: 'active',
     });
 
-    // 5. 三权-运维操作员
-    // 具备运维相关分组的写入权限，并具备全局只读权限
-    const opsRoleName = '三权-运维操作员';
-    const opsWrites = CURATED_PERMISSIONS.filter(
-      (p) =>
-        p.endsWith(':write') &&
-        (p.startsWith('clouds.') ||
-          p.startsWith('networks.') ||
-          p.startsWith('security.') ||
-          p.startsWith('secops.') ||
-          p.startsWith('ops.')),
-    );
-    const opsPerms = Array.from(new Set([...allRead, ...opsWrites]));
+    // 5. 三权-安全管理员
+    // 权限范围：
+    // 1. 权限管控分组：保留功能权限、角色管理
+    // 2. 多云平台的资源控制台分组、租户管理分组的所有功能权限（不包括系统用户管理）
+    const secadminRoleName = '三权-安全管理员';
+    const secadminPerms = [
+      // 权限管控分组：功能权限、角色管理
+      'system.actions:read',
+      'system.actions:write',
+      'system.roles:read',
+      'system.roles:write',
+      'system.roles.assignments:read',
+      'system.roles.assignments:write',
+      'system.rbac:read',
+      // 资源控制台分组：资源池管理权限
+      'clouds:read',
+      'clouds:write',
+      // 资源控制台分组：所有其他权限
+      ...CURATED_PERMISSIONS.filter((p) => p.startsWith('clouds.')),
+      // 租户管理分组：所有权限（不包括系统用户管理 users）
+      ...CURATED_PERMISSIONS.filter((p) => 
+        p.startsWith('tenants') || 
+        p.startsWith('organizations') || 
+        p.startsWith('tenant-users') || 
+        p.startsWith('user-spaces')
+      ),
+    ];
     await ensureRole({
-      name: opsRoleName,
-      description: '具备运维相关分组的写入权限，并具备全局只读权限',
+      name: secadminRoleName,
+      description: '拥有权限管控分组（功能权限、角色管理）、资源控制台分组和租户管理分组的所有权限（不包括系统用户管理）',
       scope: 'system',
-      permissions: opsPerms,
+      permissions: secadminPerms,
       status: 'active',
     });
 
-    // 6. 三权-策略管理员
-    // 具备管理分组的写入权限，并具备全局只读权限
-    const policyRoleName = '三权-策略管理员';
-    const mgmtWrites = CURATED_PERMISSIONS.filter(
-      (p) =>
-        p.endsWith(':write') &&
-        (p.startsWith('tenants') ||
-          p.startsWith('users') ||
-          p.startsWith('user-spaces') ||
-          p.startsWith('system.')),
-    );
-    const policyPerms = Array.from(new Set([...allRead, ...mgmtWrites]));
+    // 6. 三权-系统管理员
+    // 权限范围：
+    // 1. 通用设置分组：界面设置、授权管理
+    // 2. 权限管控分组：保留用户管理
+    // 3. 高级集成分组：所有（使用system.settings权限）
+    const sysadminRoleName = '三权-系统管理员';
+    const sysadminPerms = [
+      // 通用设置分组：界面设置
+      'system.settings:read',
+      'system.settings:write',
+      // 通用设置分组：授权管理
+      'system.license:read',
+      'system.license:write',
+      // 权限管控分组：只保留用户管理
+      'users:read',
+      'users:write',
+    ];
     await ensureRole({
-      name: policyRoleName,
-      description: '具备管理分组的写入权限，并具备全局只读权限；用于策略与资源管理',
+      name: sysadminRoleName,
+      description: '拥有通用设置分组（界面设置、授权管理）所有权限、权限管控分组的用户管理权限、以及高级集成分组所有权限',
       scope: 'system',
-      permissions: policyPerms,
+      permissions: sysadminPerms,
       status: 'active',
     });
 

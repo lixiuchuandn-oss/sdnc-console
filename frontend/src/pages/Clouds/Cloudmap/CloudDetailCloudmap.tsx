@@ -278,7 +278,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
     }, force);
 
     // 2. 加载核心资源 (带权限检查)
-    if (checkPerm('clouds.instances:read')) {
+    if (checkPerm('clouds.ecs:read')) {
       loadResource('ecs', () => fetchCloudProviderEcs(cloudId, force), (json) => {
         const list: any[] = Array.isArray((json as any)?.data) ? (json as any).data : (((json as any)?.data?.Instances?.Instance) || ((json as any)?.data?.items) || ((json as any)?.data?.data) || []);
         setEcs(Array.isArray(list) ? list : []);
@@ -379,7 +379,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             break;
           case 'volumes':
             // 确保进入 PVC 页面时，关联的 VM 数据也已加载 (用于挂载操作)
-            if (checkPerm('clouds.instances:read')) {
+            if (checkPerm('clouds.ecs:read')) {
               loadResource('ecs', () => fetchCloudProviderEcs(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data) ? (json as any).data : (((json as any)?.data?.Instances?.Instance) || ((json as any)?.data?.items) || ((json as any)?.data?.data) || []);
                 setEcs(Array.isArray(list) ? list : []);
@@ -438,7 +438,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             }
             break;
           case 'gpu':
-            if (checkPerm('clouds.instances:read')) {
+            if (checkPerm('clouds.ecs:read')) {
               loadResource('gpu', () => fetchHarvesterGpuResources(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
                 setHarvesterGpuResources(Array.isArray(list) ? list : []);
@@ -447,7 +447,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             }
             break;
           case 'usb_devices':
-            if (checkPerm('clouds.instances:read')) {
+            if (checkPerm('clouds.ecs:read')) {
               loadResource('usbDevices', () => fetchHarvesterUsbResources(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
                 setHarvesterUsbDevices(Array.isArray(list) ? list : []);
@@ -456,7 +456,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             }
             break;
           case 'pci_devices':
-            if (checkPerm('clouds.instances:read')) {
+            if (checkPerm('clouds.ecs:read')) {
               loadResource('pciDevices', () => fetchHarvesterPciDevices(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
                 setHarvesterPciDevices(Array.isArray(list) ? list : []);
@@ -613,7 +613,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
    * 专门用于 VM 列表刷新的函数
    */
   const refreshVms = async (force: boolean = false) => {
-    if (!checkPerm('clouds.instances:read')) return;
+    if (!checkPerm('clouds.ecs:read')) return;
     setResourceLoading(prev => ({ ...prev, ecs: true }));
     try {
       // 如果强制刷新，先触发一次后端同步
@@ -1121,12 +1121,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.nodes:read');
                       if (i.key === 'cluster_services') return checkPerm('clouds.services:read');
                       if (i.key === 'cluster_networks') return checkPerm('clouds.networks:read');
-                      if (i.key === 'cluster_usb') return checkPerm('clouds.instances:read');
-                      if (i.key === 'cluster_pci') return checkPerm('clouds.instances:read');
+                      if (i.key === 'cluster_usb') return checkPerm('clouds.ecs:read');
+                      if (i.key === 'cluster_pci') return checkPerm('clouds.ecs:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
                       if (i.key === 'storage_classes') return checkPerm('clouds.volumes:read');
                       if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read');
-                      if (i.key === 'gpu') return checkPerm('clouds.instances:read');
+                      if (i.key === 'gpu') return checkPerm('clouds.ecs:read');
                       return true;
                    })}
                 />
@@ -1393,11 +1393,11 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       children: <TasksSection cloudId={cloudId} />
                     }
                   ].filter((i:any) => {
-                      if (i.key === 'ecs') return checkPerm('clouds.instances:read');
+                      if (i.key === 'ecs') return checkPerm('clouds.ecs:read');
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
                       if (i.key === 'ssh_keys') return checkPerm('clouds.sshkeys:read');
                       if (i.key === 'cloud_inits') return checkPerm('clouds.cloudinits:read');
-                      if (i.key === 'tasks') return checkPerm('clouds.instances:read');
+                      if (i.key === 'tasks') return checkPerm('clouds.ecs:read');
                       return true;
                   })}
                 />

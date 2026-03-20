@@ -7,7 +7,8 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, Badge, Dropdown } from 'antd';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined, SaveOutlined, CameraOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
-import { TableColumnSettings } from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { deleteHarvesterBackup } from '../../../../services/harvesterApi';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
@@ -54,7 +55,6 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
   const [drawerActiveTab, setDrawerActiveTab] = useState<string>('detail');
   
   // 列设置状态
-  const [visibleColumns, setVisibleColumns] = useState<any>();
   
   /**
    * 将原始备份列表规范化为表格可直接使用的数据结构
@@ -283,6 +283,9 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
     },
   ], [handleDelete, isTenant]);
 
+  // 列显示设置（需要在 columns 定义之后）
+  const { displayColumns: visibleColumns } = useTableColumnSettings(columns, `harvester_${type}_list`);
+
   return (
     <PageDetailSection asCard={false}>
       <div key="toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -324,10 +327,9 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         </div>
         <div key="toolbar-right" className="toolbar-actions">
            <Button key="create-btn" type="primary" onClick={() => setCreateModalVisible(true)}>创建{type === 'backup' ? '备份' : '快照'}</Button>
-           <TableColumnSettings
+           <TableColumnSettingsButton
              key="col-settings"
-             columns={columns}
-             onChange={setVisibleColumns}
+             allColumns={columns}
              settingsKey={`harvester_${type}_list`}
            />
            <Button key="refresh-btn" icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />

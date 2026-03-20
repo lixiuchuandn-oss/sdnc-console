@@ -56,6 +56,8 @@ import VmCloneModal from '../modals/VmCloneModal';
 import VmSaveAsTemplateModal from '../modals/VmSaveAsTemplateModal';
 import { isPublicNamespace, cnVmStatus, VM_STATUS_MAP, getVmCloneTaskStatus } from '../../../../utils/harvesterUtils';
 import { OsIcon } from '../../../../components/OsIcon';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -107,6 +109,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
   const { modal, message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   
   // ==========================================
   // [状态管理] 1. 本地 UI 状态 (Local State)
@@ -1387,12 +1390,25 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const sourceVmName = cloneInfo?.sourceVmName || cloneInfo?.sourceVm?.split('/')?.[1] || '';
       const sourceVmNamespace = cloneInfo?.sourceVmNamespace || cloneInfo?.sourceVm?.split('/')?.[0] || '';
 
+      // 权限检查：检查用户是否有云主机相关权限
+      const perms = (user?.permissions ?? []) as string[];
+      const hasEcsRead = hasPermissionForAction(perms, 'clouds.ecs:read') || 
+                         hasPermissionForAction(perms, 'clouds:read');
+      const hasEcsWrite = hasPermissionForAction(perms, 'clouds.ecs:write') || 
+                          hasPermissionForAction(perms, 'clouds:write');
+      const hasConsoleRead = hasPermissionForAction(perms, 'clouds.console:read');
+      const hasAnyPermission = hasEcsRead || hasEcsWrite || hasConsoleRead;
+
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <OsIcon osName={osName} style={{ marginRight: 8 }} />
+          {hasAnyPermission ? (
           <span className="cell-link" onClick={() => handleShowVmDetail(r, 'detail')}>
             {text}
           </span>
+          ) : (
+            <span>{text}</span>
+          )}
           {isImportant && (
             <Tooltip title="重要实例 (防删保护)">
               <SafetyCertificateFilled style={{ color: '#faad14', fontSize: 14 }} />
@@ -1539,6 +1555,17 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
       const finalizers = r?.metadata?.finalizers || [];
       const isImportant = finalizers.includes('tower.io/deletion-protection') || r?.metadata?.labels?.['tower.io/important'] === 'true';
 
+      // 权限检查：检查用户是否有云主机相关权限
+      const perms = (user?.permissions ?? []) as string[];
+      const hasEcsRead = hasPermissionForAction(perms, 'clouds.ecs:read') || 
+                         hasPermissionForAction(perms, 'clouds:read');
+      const hasEcsWrite = hasPermissionForAction(perms, 'clouds.ecs:write') || 
+                          hasPermissionForAction(perms, 'clouds:write');
+      const hasConsoleRead = hasPermissionForAction(perms, 'clouds.console:read');
+      
+      // 如果没有任何权限，禁用行操作按钮
+      const hasAnyPermission = hasEcsRead || hasEcsWrite || hasConsoleRead;
+
       const items: any[] = [
         // ----------------------------------------------------------------
         // 1. 基础信息与访问
@@ -1637,7 +1664,16 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
           onClick: () => handleDeleteConfirm(r) 
         },
       ];
-      return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }} />;
+      return (
+        <ResourceActionsDropdown 
+          items={items} 
+          buttonProps={{ 
+            className: 'row-actions-trigger', 
+            style: { margin: 0 },
+            disabled: !hasAnyPermission
+          }} 
+        />
+      );
     } },
   ], [handleShowVmDetail, handleShowOpsinfo, handleClone, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, SafeRead, checkResizeStatus, handleWebVnc, handleDeleteConfirm, isTenant, handleOpenSaveAsTemplate, handleToggleImportant, handleMigrate, handleAbortMigration]);
 
@@ -1726,7 +1762,27 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         
         {/* 右侧：操作按钮 */}
         <div key="toolbar-right" className="toolbar-actions">
-          <Button key="create-btn" type="primary" onClick={() => navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location, isTenant } })}>创建实例</Button>
+          <Button 
+            key="create-btn" 
+            type="primary" 
+            onClick={() => {
+              // 权限检查：创建虚拟机需要 clouds.ecs:write 或 clouds:write 权限
+              // 注意：clouds:write 包含 clouds.ecs:write（权限继承）
+              // 如果没有这些权限，路由守卫或按钮检查会阻止打开创建向导
+              const perms = (user?.permissions ?? []) as string[];
+              // clouds:write 包含 clouds.ecs:write（权限继承）
+              const hasEcsWrite = hasPermissionForAction(perms, 'clouds.ecs:write') || 
+                                  hasPermissionForAction(perms, 'clouds:write');
+              
+              if (!hasEcsWrite) {
+                message.error('当前账号没有创建虚拟机的权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+                return;
+              }
+              navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location, isTenant } });
+            }}
+          >
+            创建实例
+          </Button>
           <Dropdown
             key="batch-actions"
             menu={{

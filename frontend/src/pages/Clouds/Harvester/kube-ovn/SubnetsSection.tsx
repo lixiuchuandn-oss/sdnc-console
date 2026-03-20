@@ -4,7 +4,8 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { createKubeOvnSubnet, deleteKubeOvnSubnet, updateKubeOvnSubnet } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
@@ -25,7 +26,6 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const [protocol, setProtocol] = useState<string | undefined>(undefined);
   const [nat, setNat] = useState<string | undefined>(undefined);
   const [dhcp, setDhcp] = useState<string | undefined>(undefined);
-  const [tableColumns, setTableColumns] = useState<any[]>([]);
 
   // Create/Edit Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -336,6 +336,9 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     }
   ], [showYaml]);
 
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_subnets_table');
+
   return (
     <PageDetailSection
       
@@ -364,9 +367,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       toolbarRight={(
         <>
           <Button type="primary" onClick={() => { setIsEditMode(false); setCurrentSubnet(null); form.resetFields(); setIsModalOpen(true); }}>新建子网</Button>
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton 
+            allColumns={allColumns} 
             settingsKey="harvester_subnets_table"
           />
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} />

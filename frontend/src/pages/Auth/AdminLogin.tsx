@@ -3,9 +3,11 @@ import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDefaultAdminPath } from '../../utils/accessMapping';
+import { useLicense } from '../../contexts/LicenseContext';
+import { getDefaultAdminPath, hasPermissionForAction } from '../../utils/accessMapping';
 import { getSystemSetting } from '../../services/systemApi';
 import { useSettings } from '../../contexts/SettingsContext';
+import { renderMarkdownBold } from '../../utils/markdown';
 import './Login.css';
 
 const AdminLogin: React.FC = () => {
@@ -15,7 +17,8 @@ const AdminLogin: React.FC = () => {
   const [form] = Form.useForm();
   const { login } = useAuth();
   const navigate = useNavigate();
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
+  const { hasFeature } = useLicense();
   const enableParticleBackground = settings.loginEnableParticleBackground ?? true; // 默认启用
   
   // 获取背景颜色设置
@@ -36,22 +39,27 @@ const AdminLogin: React.FC = () => {
       const role = String((loggedInUser as any)?.role || '').toLowerCase();
       const perms = Array.isArray((loggedInUser as any).permissions) ? (loggedInUser as any).permissions : [];
       
-      // 如果是 admin 用户，优先检查 favorite cloud
+      // 如果是 admin 用户，优先检查 favorite cloud（需要权限）
       if (role === 'super_admin' || role === 'admin') {
         try {
           const fav = await getSystemSetting('favorite.cloudId');
           const cloudId = String(fav?.value || '').trim();
           if (cloudId) {
-            navigate(`/admin/clouds/${cloudId}`);
-            return;
+            // 检查用户是否有访问资源池的权限
+            const canAccessClouds = hasPermissionForAction(perms, 'clouds:read') || 
+                                    hasPermissionForAction(perms, 'clouds.console:read');
+            if (canAccessClouds) {
+              navigate(`/admin/clouds/${cloudId}`);
+              return;
+            }
           }
         } catch {
           // 如果获取 favorite 失败，继续使用 getDefaultAdminPath
         }
       }
       
-      // 统一使用 getDefaultAdminPath（包括 admin 用户）
-      const target = getDefaultAdminPath(perms);
+      // 统一使用 getDefaultAdminPath（包括 admin 用户），同时考虑 license feature（requiredFeature）
+      const target = getDefaultAdminPath(perms, hasFeature);
       navigate(target);
     } catch (error) {
       message.error('登录失败，请检查用户名和密码');
@@ -187,8 +195,8 @@ const AdminLogin: React.FC = () => {
       {enableParticleBackground && <canvas className="particle-canvas" ref={canvasRef} />}
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">{settings.loginTitle || 'Compute Tower'}</h1>
-          <p className="login-subtitle">{settings.loginSubtitle || '后台管理登录'}</p>
+          <h1 className="login-title">{settingsLoading ? '' : renderMarkdownBold(settings.loginTitle || 'Compute Tower')}</h1>
+          <p className="login-subtitle">{settingsLoading ? '' : (settings.loginSubtitle || '后台管理登录')}</p>
         </div>
         <Card className="login-card" variant="borderless" style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}>
           <Form

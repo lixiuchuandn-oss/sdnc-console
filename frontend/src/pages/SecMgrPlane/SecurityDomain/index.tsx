@@ -102,7 +102,7 @@ const SecurityDomainPage: React.FC = () => {
 
   const initializedRef = useRef(false);
 
-  const loadVRList = async (tenantId?: string) => {
+  const loadVRList = useCallback(async (tenantId?: string) => {
     // setVrLoading(true);
     try {
       // 无论安全域属于什么云，统一获取当前租户名下的所有 VR 实例
@@ -145,9 +145,9 @@ const SecurityDomainPage: React.FC = () => {
     } finally {
       // setVrLoading(false);
     }
-  };
+  }, []);
 
-  const loadTenants = async () => {
+  const loadTenants = useCallback(async () => {
     setTenantLoading(true);
     try {
       const res = await fetchTenants();
@@ -157,7 +157,7 @@ const SecurityDomainPage: React.FC = () => {
       console.warn('租户列表获取失败', e);
       setTenants([]);
     } finally { setTenantLoading(false); }
-  };
+  }, []);
 
   const fetchResourcePools = async () => {
     try {
@@ -184,7 +184,7 @@ const SecurityDomainPage: React.FC = () => {
     }
   }, []);
 
-  const reloadDomains = async () => {
+  const reloadDomains = useCallback(async () => {
     try {
       setLoading(true);
       const list = await listSecurityDomains();
@@ -284,7 +284,7 @@ const SecurityDomainPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const filteredDomains = useMemo(() => {
     return domains.filter(item => {
@@ -332,7 +332,7 @@ const SecurityDomainPage: React.FC = () => {
     setDetailOpen(true);
   };
 
-  const openEdit = (record: SecurityDomain) => {
+  const openEdit = useCallback((record: SecurityDomain) => {
     setEditing(record);
     setCreateOpen(true);
     loadVRList();
@@ -366,9 +366,9 @@ const SecurityDomainPage: React.FC = () => {
     } else {
       setOrgOptions([]);
     }
-  };
+  }, [createForm, loadVRList, loadTenants]);
 
-  const removeDomain = (record: SecurityDomain) => {
+  const removeDomain = useCallback((record: SecurityDomain) => {
     Modal.confirm({
       title: '确认删除该安全域？',
       content: `安全域名称：${record.name}`,
@@ -381,7 +381,7 @@ const SecurityDomainPage: React.FC = () => {
           .catch((e) => { message.error(`删除失败: ${e?.message || e}`); });
       },
     });
-  };
+  }, [reloadDomains]);
 
   const onSubmitCreate = async () => {
     try {
@@ -641,7 +641,7 @@ const SecurityDomainPage: React.FC = () => {
         },
       },
     ];
-  }, [createForm, vrOptions, vrCeOptions, openEdit, removeDomain, tenants]);
+  }, [openEdit, removeDomain, tenants, changeVrForm]);
 
   return (
     <PageContainer

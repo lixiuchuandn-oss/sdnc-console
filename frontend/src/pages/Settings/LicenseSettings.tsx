@@ -21,7 +21,6 @@ const FEATURE_MAP: Record<string, { label: string; icon: React.ReactNode; desc?:
   'platform.aisoc': { label: 'AISOC 安全运营中心', icon: <SafetyOutlined />, desc: '解锁态势感知与威胁分析高级功能' },
   'network.ovn.vpc': { label: '虚拟专有云 (OVN VPC)', icon: <CloudServerOutlined />, desc: '控制 Harvester/CloudMap 的 VPC/子网/EIP/FIP/NAT 等功能' },
   'sys.tenant-mgmt': { label: '多租户管理系统', icon: <TeamOutlined />, desc: '支持组织架构与多租户隔离' },
-  'sys.rbac-advanced': { label: '高级权限控制 (RBAC)', icon: <CrownOutlined />, desc: '支持自定义角色与细粒度权限策略' },
   'sys.dashboard': { label: '全局仪表盘', icon: <AppstoreOutlined />, desc: '提供全平台资源概览与监控大屏' },
 };
 
@@ -46,7 +45,6 @@ const FEATURE_GROUPS: Array<{
       'platform.default',
       'sys.dashboard',
       'sys.tenant-mgmt',
-      'sys.rbac-advanced',
       'platform.multi-cloud',
       'network.ovn.vpc',
     ],
@@ -228,7 +226,6 @@ const LicenseSettingsPage: React.FC = () => {
 
   return (
     <PageContainer
-      title="系统授权管理"
       subtitle="查看授权状态、配额限制与已开通功能模块"
       asCard={false}
     >

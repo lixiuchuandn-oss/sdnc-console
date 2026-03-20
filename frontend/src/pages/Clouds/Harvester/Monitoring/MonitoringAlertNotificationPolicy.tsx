@@ -21,8 +21,10 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import { ALERTMANAGERCONFIG_KIND, MONITORING_API_VERSION, useMonitoring } from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import {
@@ -799,7 +801,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     [loadConfigList, cloudId]
   );
 
-  const configColumns: ColumnsType<AlertmanagerConfigItem> = useMemo(
+  const allConfigColumns: ColumnsType<AlertmanagerConfigItem> = useMemo(
     () => [
       { title: '数据源', key: 'dataSource', width: 100, render: () => 'Prometheus' },
       { title: '通知策略名称', dataIndex: ['metadata', 'name'], key: 'name', width: 180, render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
@@ -861,6 +863,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     [handleOpenForm, handleOpenDetail, handleDeleteConfig]
   );
 
+  // 列显示设置（需要在 allConfigColumns 定义之后）
+  const { displayColumns: configColumns } = useTableColumnSettings(allConfigColumns, 'monitoring_alert_notification_policy_table');
+
   /** 告警规则 Transfer 数据源：管理员用 rulesList（含 groupName），租户用 vmTriggerOptions */
   const alertRulesTransferOptions = useMemo((): TriggerRuleOption[] => {
     if (isAdmin) {
@@ -920,6 +925,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           asCard={false}
           toolbarLeft={
             <>
+              <Input 
+                allowClear 
+                placeholder="关键字" 
+                suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+                value={keyword} 
+                onChange={(e) => setKeyword(e.target.value)} 
+                className="toolbar-search"
+              />
               <Select
                 placeholder="数据源"
                 value={dataSourceFilter}
@@ -936,13 +949,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 options={[{ label: '全部', value: undefined }, ...formNamespaceOptions]}
                 style={{ width: 250 }}
               />
-              <Input.Search
-                placeholder="关键字"
-                allowClear
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                style={{ width: 200 }}
-              />
               <button
                 type="button"
                 className="toolbar-reset-btn"
@@ -957,13 +963,15 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           }
           toolbarRight={
             <>
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>新增通知策略</Button>              <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
+              <TableColumnSettingsButton allColumns={allConfigColumns} settingsKey="monitoring_alert_notification_policy_table" />
+              <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
             </>
           }
         >
           <Table
             className="std-table"
-            bordered
+            bordered={false}
             rowKey={(row) => row.id ?? row.metadata?.name ?? String(Math.random())}
             loading={configLoading}
             columns={configColumns}

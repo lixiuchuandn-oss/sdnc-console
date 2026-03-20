@@ -72,7 +72,8 @@ import { EllipsisOutlined, ReloadOutlined, SyncOutlined, ExclamationCircleOutlin
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { attachHarvesterVolumeToVmByName, detachHarvesterVolumeFromVm, deleteHarvesterVolume, createHarvesterVolume, exportHarvesterImageFromVolume, createHarvesterVolumeSnapshot, updateHarvesterVolume, cloneHarvesterVolume, fetchHarvesterNamespaces } from '../../../../services/harvesterApi';
-import TableColumnSettings from '../../../../components/TableColumnSettings';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import HarvesterVolumeDetailDrawer from '../components/HarvesterVolumeDetailDrawer';
@@ -317,7 +318,6 @@ const VolumesSection: React.FC<Props> = ({
   const [currentRecord, setCurrentRecord] = useState<VolumeView | null>(null);
   const [creating, setCreating] = useState(false);                 
   const [storageClasses, setStorageClasses] = useState<any[]>([]); 
-  const [tableColumns, setTableColumns] = useState<any[]>([]);     
 
   // 同步外部传入的 storageClasses
   useEffect(() => {
@@ -1042,6 +1042,9 @@ const VolumesSection: React.FC<Props> = ({
     },
   ], [cloudId, vms, storageClasses, onRefresh, handleOpenVolumeDetail, handleOpenOpsDrawer, SafeRead, handleAttach, handleDetach, exportForm, snapshotForm, cloneForm, editForm, message, modal, isTenant, checkIsSystemDisk]);
 
+  // 列显示设置（需要在 allColumns 定义之后）
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_volumes_table', ['namespace', 'volumeMode']);
+
   // ----------------------------------------------------------------
   // [渲染] Render
   // [标签] #渲染 #JSX #UI组件
@@ -1122,9 +1125,8 @@ const VolumesSection: React.FC<Props> = ({
           >
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
-          <TableColumnSettings 
-            columns={allColumns} 
-            onChange={setTableColumns}
+          <TableColumnSettingsButton 
+            allColumns={allColumns} 
             settingsKey="harvester_volumes_table"
             defaultHiddenColumns={['namespace', 'volumeMode']}
           />
