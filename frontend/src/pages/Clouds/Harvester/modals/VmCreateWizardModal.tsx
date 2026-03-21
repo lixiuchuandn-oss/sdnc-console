@@ -41,6 +41,18 @@ import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize,
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
 
+/** 合并 patch：仅非 undefined 的键覆盖 base，避免 curr 里显式 undefined 冲掉已累积字段（如离开步骤后 namespace 丢失）。 */
+function mergeDefined(base: any, patch: any): any {
+  const out = { ...base };
+  if (patch && typeof patch === 'object') {
+    for (const k of Object.keys(patch)) {
+      const val = patch[k];
+      if (val !== undefined) (out as any)[k] = val;
+    }
+  }
+  return out;
+}
+
 type Props = {
   isTenant?: boolean;
 };
@@ -57,6 +69,8 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const isTenant = propIsTenant || stateIsTenant || false;
 
   const [form] = Form.useForm();
+  /** 订阅命名空间，供 useHarvesterData 过滤卷选项；避免在 Form 未挂载时调用 form.getFieldValue 触发 antd 警告 */
+  const watchNamespace = Form.useWatch('namespace', form);
   // 向导全局状态：跨步骤累积的表单数据、当前步骤索引、提交状态等
   const [wizardData, setWizardData] = useState<any>({});
   const [step, setStep] = useState<number>(0);
@@ -90,7 +104,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     usbResources, reloadUsbResources,
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
     sshKeyOptions, reloadSshKeys
-  } = useHarvesterData(cloudId, currentCloudId, form, isTenant);
+  } = useHarvesterData(cloudId, currentCloudId, form, isTenant, watchNamespace);
 
   const fromTemplateState = (location.state as any)?.fromTemplate;
   const fromVmState = (location.state as any)?.fromVm;
@@ -226,7 +240,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
   // 组件初始化时记录一份表单快照，便于右侧摘要展示
   useEffect(() => {
-    try { setFormSnapshot(form.getFieldsValue()); } catch {}
+    try { setFormSnapshot(form.getFieldsValue(true)); } catch {}
   }, [form]);
 
   // 根据关键字过滤可选节点列表，用于“调度到指定主机”
@@ -274,10 +288,10 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       return;
     }
 
-    // 更新快照
-    const curr = form.getFieldsValue();
-    setWizardData((prev:any)=> ({ ...prev, ...curr }));
-    try { setFormSnapshot((prev:any)=> ({ ...prev, ...curr })); } catch {}
+    // 更新快照（true：含已卸载步骤上标记 preserve 的字段，避免仅当前步字段覆盖丢数据）
+    const curr = form.getFieldsValue(true);
+    setWizardData((prev: any) => mergeDefined(prev, curr));
+    try { setFormSnapshot((prev: any) => mergeDefined(prev, curr)); } catch {}
     
     setStep(Math.min(steps.length - 1, step + 1));
   };
@@ -286,9 +300,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     // 离开当前步骤前进行验证并保存数据
     const isValid = await handleStepValidation(step);
     if (isValid) {
-        const curr = form.getFieldsValue();
-        setWizardData((prev:any)=> ({ ...prev, ...curr }));
-        try { setFormSnapshot((prev:any)=> ({ ...prev, ...curr })); } catch {}
+        const curr = form.getFieldsValue(true);
+        setWizardData((prev: any) => mergeDefined(prev, curr));
+        try { setFormSnapshot((prev: any) => mergeDefined(prev, curr)); } catch {}
     }
     setStep(Math.max(0, step - 1));
   };
@@ -422,8 +436,29 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
     try {
       await form.validateFields();
-      const v = { ...wizardData, ...form.getFieldsValue() } as any;
-      
+      // getFieldsValue(true)：含已卸载步骤的 preserve 字段；再与 wizardData 合并，避免第一步命名空间等丢失
+      const fv = form.getFieldsValue(true);
+      const v = mergeDefined(wizardData, fv) as any;
+
+      // 第一步卸载后，仅靠 mergeDefined 仍可能丢 namespace，导致 payload 落 default；多源回填
+      const pickNs = (x: unknown) => {
+        if (x === undefined || x === null) return undefined;
+        const s = String(x).trim();
+        return s ? s : undefined;
+      };
+      const resolvedNamespace =
+        pickNs(v.namespace) ||
+        pickNs(fv?.namespace) ||
+        pickNs(watchNamespace) ||
+        pickNs((wizardData as any)?.namespace) ||
+        pickNs((formSnapshot as any)?.namespace);
+      if (!resolvedNamespace) {
+        message.error('未能读取命名空间，请返回第一步确认「命名空间」已选择');
+        setStep(0);
+        return;
+      }
+      v.namespace = resolvedNamespace;
+
       const sizeError = validateImageSize(v, images || []);
       if (sizeError) { message.error(sizeError); return; }
 
@@ -526,9 +561,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                       // 离开当前步骤前进行验证并保存数据
                       const isValid = await handleStepValidation(step);
                       if (isValid) {
-                          const curr = form.getFieldsValue();
-                          setWizardData((prev:any)=> ({ ...prev, ...curr }));
-                          try { setFormSnapshot((prev:any)=> ({ ...prev, ...curr })); } catch {}
+                          const curr = form.getFieldsValue(true);
+                          setWizardData((prev: any) => mergeDefined(prev, curr));
+                          try { setFormSnapshot((prev: any) => mergeDefined(prev, curr)); } catch {}
                       }
                       setStep(idx);
                     }}
@@ -557,7 +592,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   handleRootPvcChange(form, availableVolumes || [], changed.rootPvc);
                 }
                 
-                  try { setFormSnapshot((prev:any)=> ({ ...prev, ...form.getFieldsValue() })); } catch {}
+                  try { setFormSnapshot((prev: any) => mergeDefined(prev, form.getFieldsValue(true))); } catch {}
                 }}>
             <div className="wizard-step-scroll">
               {step === 0 && (

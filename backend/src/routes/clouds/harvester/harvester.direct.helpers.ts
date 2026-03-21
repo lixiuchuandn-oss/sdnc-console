@@ -185,6 +185,18 @@ export const fetchCloudOr404 = async (id: string, res: Response) => {
 };
 
 /**
+ * 解析 Harvester / Rancher 下游 K8s API 的基址（与 NAD 创建 handler 一致）。
+ * 若 endpoint 含 `/k8s/clusters/{id}`，必须整段保留；禁止只用 protocol//host，否则 NAD/CRD 请求会 404。
+ */
+export const resolveHarvesterK8sApiBase = (endpoint: string): string => {
+  let base = String(endpoint || '').replace(/\/+$/, '');
+  if (!base.includes('/k8s/clusters/')) {
+    base = base.replace(/\/v[0-9]+(\/harvester)?$/, '');
+  }
+  return base;
+};
+
+/**
  * 校验云资源 Provider 类型是否符合预期
  *
  * @description

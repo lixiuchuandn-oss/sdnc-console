@@ -137,6 +137,136 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                     // 对于 status 字段，如果是快照/备份资源，优先显示关键信息
                     if (key === 'status' && value && typeof value === 'object' && !Array.isArray(value)) {
                       const status = value as any;
+                      // Kube-OVN Subnet status（含 conditions）；须在备份启发式之前，否则会被 conditions 误判为备份
+                      if (record?.kind === 'Subnet') {
+                        const items: React.ReactElement[] = [];
+                        const subnetHandled = new Set([
+                          'v4AvailableIPs',
+                          'v4availableIPs',
+                          'v4UsingIPs',
+                          'v4usingIPs',
+                          'v4availableIPrange',
+                          'v4usingIPrange',
+                          'v6AvailableIPs',
+                          'v6availableIPs',
+                          'v6UsingIPs',
+                          'v6usingIPs',
+                          'v6availableIPrange',
+                          'v6usingIPrange',
+                          'conditions',
+                        ]);
+                        const v4Avail = status.v4AvailableIPs ?? status.v4availableIPs;
+                        const v4Use = status.v4UsingIPs ?? status.v4usingIPs;
+                        if (v4Avail !== undefined) {
+                          items.push(
+                            <Descriptions.Item key="subnet-v4avail" label="状态 - IPv4 可用数">
+                              {String(v4Avail)}
+                            </Descriptions.Item>,
+                          );
+                        }
+                        if (v4Use !== undefined) {
+                          items.push(
+                            <Descriptions.Item key="subnet-v4using" label="状态 - IPv4 已用数">
+                              {String(v4Use)}
+                            </Descriptions.Item>,
+                          );
+                        }
+                        if (status.v4availableIPrange !== undefined) {
+                          items.push(
+                            <Descriptions.Item key="subnet-v4avail-range" label="状态 - IPv4 可用范围">
+                              <span style={{ wordBreak: 'break-all' }}>{String(status.v4availableIPrange)}</span>
+                            </Descriptions.Item>,
+                          );
+                        }
+                        if (status.v4usingIPrange !== undefined) {
+                          items.push(
+                            <Descriptions.Item key="subnet-v4using-range" label="状态 - IPv4 已用范围">
+                              <span style={{ wordBreak: 'break-all' }}>{String(status.v4usingIPrange)}</span>
+                            </Descriptions.Item>,
+                          );
+                        }
+                        const v6Avail = status.v6AvailableIPs ?? status.v6availableIPs;
+                        const v6Use = status.v6UsingIPs ?? status.v6usingIPs;
+                        if (v6Avail !== undefined) {
+                          items.push(
+                            <Descriptions.Item key="subnet-v6avail" label="状态 - IPv6 可用数">
+                              {String(v6Avail)}
+                            </Descriptions.Item>,
+                          );
+                        }
+                        if (v6Use !== undefined) {
+                          items.push(
+                            <Descriptions.Item key="subnet-v6using" label="状态 - IPv6 已用数">
+                              {String(v6Use)}
+                            </Descriptions.Item>,
+                          );
+                        }
+                        if (status.conditions !== undefined) {
+                          if (Array.isArray(status.conditions) && status.conditions.length > 0) {
+                            items.push(
+                              <Descriptions.Item key="subnet-conditions" label="状态 - Conditions">
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                  {status.conditions.map((cond: any, idx: number) => (
+                                    <div
+                                      key={idx}
+                                      style={{
+                                        padding: '8px',
+                                        background: '#f5f5f5',
+                                        borderRadius: '4px',
+                                        borderLeft:
+                                          cond.status === 'True'
+                                            ? '3px solid #52c41a'
+                                            : cond.status === 'False'
+                                              ? '3px solid #ff4d4f'
+                                              : '3px solid #faad14',
+                                      }}
+                                    >
+                                      <div><strong>类型:</strong> {cond.type || '-'}</div>
+                                      <div><strong>状态:</strong> {cond.status || '-'}</div>
+                                      {cond.reason && <div><strong>原因:</strong> {cond.reason}</div>}
+                                      {cond.message && <div><strong>消息:</strong> {cond.message}</div>}
+                                      {cond.lastTransitionTime && (
+                                        <div><strong>最后变更:</strong> {cond.lastTransitionTime}</div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </Descriptions.Item>,
+                            );
+                          } else {
+                            items.push(
+                              <Descriptions.Item key="subnet-conditions-empty" label="状态 - Conditions">
+                                <div style={{ color: '#999', fontStyle: 'italic' }}>
+                                  {Array.isArray(status.conditions) ? '暂无条件信息' : '条件信息未初始化'}
+                                </div>
+                              </Descriptions.Item>,
+                            );
+                          }
+                        }
+                        Object.entries(status)
+                          .filter(([sk]) => !subnetHandled.has(sk))
+                          .forEach(([sk, sv]) => {
+                            items.push(
+                              <Descriptions.Item key={`subnet-st-${sk}`} label={`状态 - ${sk}`}>
+                                {typeof sv === 'object' && sv !== null ? (
+                                  <pre style={{ margin: 0, fontSize: 12, maxHeight: 200, overflow: 'auto' }}>
+                                    {JSON.stringify(sv, null, 2)}
+                                  </pre>
+                                ) : (
+                                  String(sv)
+                                )}
+                              </Descriptions.Item>,
+                            );
+                          });
+                        if (items.length === 0) {
+                          items.push(
+                            <Descriptions.Item key="subnet-st-empty" label="status">
+                              <span style={{ color: '#999' }}>暂无 status 或尚未由控制器写入</span>
+                            </Descriptions.Item>,
+                          );
+                        }
+                        return items;
+                      }
                       // 检查是否是 VirtualMachineBackup 的 status
                       if ('readyToUse' in status || 'volumeBackups' in status || 'conditions' in status) {
                         const items: React.ReactElement[] = [];

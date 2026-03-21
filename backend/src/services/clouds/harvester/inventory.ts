@@ -692,7 +692,16 @@ export const syncKubeOvnSubnets = async (cloud: any, insecure: boolean) => {
     cidr: item.spec?.cidrBlock,
     gateway: item.spec?.gateway,
     protocol: item.spec?.protocol,
-    availableIps: item.status?.availableIps,
+    availableIps: (() => {
+      const raw =
+        item.status?.v4AvailableIPs ??
+        item.status?.v4availableIPs ??
+        item.status?.availableIPs ??
+        item.status?.availableIps;
+      if (raw === undefined || raw === null) return undefined;
+      const n = Number(raw);
+      return Number.isFinite(n) ? Math.round(n) : undefined;
+    })(),
     labels: item.metadata?.labels,
     annotations: item.metadata?.annotations,
     rawData: item,

@@ -698,6 +698,7 @@ export const registerHarvesterDirectNetworkRoutes = (
             protocol: item.protocol,
           },
           status: {
+            v4AvailableIPs: item.availableIps,
             availableIPs: item.availableIps,
           },
         });
@@ -992,7 +993,16 @@ export const registerHarvesterDirectNetworkRoutes = (
                   cidr: result.spec?.cidrBlock || result.spec?.cidr,
                   gateway: result.spec?.gateway,
                   protocol: result.spec?.protocol,
-                  availableIps: Number(result.status?.availableIPs ?? result.status?.availableIps ?? 0) || undefined,
+                  availableIps: (() => {
+                    const raw =
+                      result.status?.v4AvailableIPs ??
+                      result.status?.v4availableIPs ??
+                      result.status?.availableIPs ??
+                      result.status?.availableIps;
+                    if (raw === undefined || raw === null) return undefined;
+                    const n = Number(raw);
+                    return Number.isFinite(n) ? Math.round(n) : undefined;
+                  })(),
                   labels: result.metadata?.labels,
                   annotations: result.metadata?.annotations,
                   rawData: result,

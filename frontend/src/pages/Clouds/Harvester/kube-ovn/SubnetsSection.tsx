@@ -8,9 +8,25 @@ import TableColumnSettingsButton from '../../../../components/TableColumnSetting
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { createKubeOvnSubnet, deleteKubeOvnSubnet, updateKubeOvnSubnet } from '../../../../services/harvesterApi';
+import SubnetAclFormItems, { normalizeAclRowForForm, normalizeAclsForApi } from './SubnetAclFormItems';
 import { fetchCloudProviderEcs } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+
+/**
+ * =============================================================================
+ * VPC 子网（Kube-OVN Subnet + tower.io/subnet-type=vpc）
+ * =============================================================================
+ *
+ * 与 NAD、扁平/公共子网的区别：
+ *
+ * - 【NAD】Multus 网络定义，描述「网卡怎么接」（见 NadsSection）。Kube-OVN 子网创建流程里会建同名 NAD。
+ * - 【扁平子网 / 公共子网】见 UnderlaySubnetsSection（flat / public），挂在默认 VPC ovn-cluster。
+ * - 【VPC 子网】本页：挂在业务 VPC 下的隔离网段，须选择非 ovn-cluster 的 VPC；用于租户内虚拟机网络。
+ *
+ * 列表仅展示 subnet-type=vpc，避免与扁平/公共子网列表混淆。
+ * =============================================================================
+ */
 
 type Props = {
   subnets: any[];
@@ -22,6 +38,7 @@ type Props = {
 };
 
 const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
+/** 注解值 vpc：产品名「VPC 子网」（业务 VPC 内隔离网段） */
 const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
 const SUBNET_FINALIZER = 'tower.io/managed';
 
@@ -167,22 +184,49 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
             return;
         }
 
-        await updateKubeOvnSubnet(cloudId!, name, values);
+        const patchBody: Record<string, unknown> = {
+          cidrBlock: values.cidrBlock,
+          gateway: values.gateway,
+          protocol: values.protocol,
+          excludeIps: values.excludeIps,
+          natOutgoing: values.nat,
+          enableDhcp: values.allowDhcp,
+        };
+        if (values.allowEWTraffic !== undefined) {
+          patchBody.allowEWTraffic = values.allowEWTraffic;
+        }
+        if (Array.isArray(values.acls)) {
+          patchBody.acls = normalizeAclsForApi(values.acls);
+        }
+        await updateKubeOvnSubnet(cloudId!, name, patchBody);
         message.success('更新子网成功');
       } else {
         if (String(values?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC) {
-          message.error('业务 VPC 子网不允许使用 ovn-cluster，请选择业务 VPC');
+          message.error('VPC 子网不能使用 ovn-cluster，请选择业务 VPC');
           setSubmitting(false);
           return;
         }
-        const createPayload = {
-          ...values,
+        const createPayload: Record<string, unknown> = {
+          name: values.name,
+          vpc: values.vpc,
+          cidrBlock: values.cidrBlock,
+          gateway: values.gateway,
+          protocol: values.protocol,
+          excludeIps: values.excludeIps,
+          nat: values.nat,
+          allowDhcp: values.allowDhcp,
           annotations: {
             ...(values?.annotations || {}),
             [SUBNET_TYPE_ANNOTATION_KEY]: 'vpc',
           },
           finalizers: Array.from(new Set([...(Array.isArray(values?.finalizers) ? values.finalizers : []), SUBNET_FINALIZER])),
         };
+        if (values.allowEWTraffic !== undefined) {
+          createPayload.allowEWTraffic = values.allowEWTraffic;
+        }
+        if (Array.isArray(values.acls)) {
+          createPayload.acls = normalizeAclsForApi(values.acls);
+        }
         await createKubeOvnSubnet(cloudId!, createPayload);
         message.success('创建子网成功');
         onRefreshNads?.(true, true);
@@ -213,7 +257,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     const name = record.name || record.metadata?.name;
     const vpcVal = record.vpc || record.spec?.vpc;
     if (String(vpcVal || '').trim() === UNDERLAY_SYSTEM_VPC) {
-      message.error('ovn-cluster 子网属于扁平/公共网络，不允许在业务 VPC 子网中编辑');
+      message.error('该子网属于扁平子网或公共子网（ovn-cluster），请在本页的扁平/公共子网入口编辑');
       return;
     }
     const cidr = record.cidr || record.cidrBlock || record.spec?.cidrBlock || record.spec?.cidr;
@@ -225,6 +269,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     const nat = record.nat ?? record.spec?.natOutgoing ?? true;
     const allowDhcp = record.allowDhcp ?? record.spec?.enableDhcp ?? true;
 
+    const specAcls = record.spec?.acls;
     form.setFieldsValue({
       name,
       vpc: vpcVal,
@@ -233,7 +278,9 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       protocol,
       nat,
       allowDhcp,
-      excludeIps: Array.isArray(excludeIps) ? excludeIps.join('\n') : excludeIps
+      excludeIps: Array.isArray(excludeIps) ? excludeIps.join('\n') : excludeIps,
+      allowEWTraffic: record.spec?.allowEWTraffic ?? false,
+      acls: Array.isArray(specAcls) ? specAcls.map((a: any) => normalizeAclRowForForm({ ...a })) : [],
     });
     
     setIsModalOpen(true);
@@ -392,7 +439,6 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
 
   return (
     <PageDetailSection
-      
       toolbarLeft={(
         <>
           <Input allowClear placeholder="名称/ID" value={keyword} onChange={(e)=> setKeyword(e.target.value)} className="toolbar-search" />
@@ -417,7 +463,20 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       )}
       toolbarRight={(
         <>
-          <Button type="primary" disabled={!hasVpcsWrite} onClick={() => { if (!hasVpcsWrite) return; setIsEditMode(false); setCurrentSubnet(null); form.resetFields(); setIsModalOpen(true); }}>新建子网</Button>
+          <Button
+            type="primary"
+            disabled={!hasVpcsWrite}
+            onClick={() => {
+              if (!hasVpcsWrite) return;
+              setIsEditMode(false);
+              setCurrentSubnet(null);
+              form.resetFields();
+              form.setFieldsValue({ allowEWTraffic: false, acls: [] });
+              setIsModalOpen(true);
+            }}
+          >
+            新建 VPC 子网
+          </Button>
           <TableColumnSettingsButton 
             allColumns={allColumns} 
             settingsKey="harvester_subnets_table"
@@ -451,20 +510,20 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       />
 
       <Modal
-        title={isEditMode ? "编辑业务私有子网" : "新建业务私有子网 (VPC Subnet)"}
+        title={isEditMode ? '编辑 VPC 子网' : '新建 VPC 子网'}
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
         onOk={handleSubmit}
         confirmLoading={submitting}
-        width={600}
+        width={1120}
         destroyOnHidden
       >
         {!isEditMode && <Alert 
             type="info" 
             showIcon 
             style={{ marginBottom: 16 }}
-            message="创建业务私有子网"
-            description="此操作将创建 VPC 内部的隔离网络，用于托管虚拟机并通过 NAT 访问外部网络。"
+            message="创建 VPC 子网"
+            description="在选定业务 VPC 内创建隔离网段，用于虚拟机；通常配合 NAT 访问外网。"
         />}
 
         <Form form={form} layout="vertical">
@@ -548,6 +607,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
                     >
                         <Input.TextArea placeholder="10.0.1.1..10.0.1.10" rows={3} />
                     </Form.Item>
+
+                    <SubnetAclFormItems />
                 </>
         </Form>
       </Modal>

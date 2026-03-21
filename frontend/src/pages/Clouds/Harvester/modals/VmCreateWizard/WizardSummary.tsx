@@ -75,9 +75,10 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
     const nm = String(v.netMode || netModeState || 'flat');
     const prim = v.primaryNic || {};
     const netExtras: any[] = Array.isArray(v.netIfaces) ? v.netIfaces : [];
-    const primaryTxt = nm === 'vpc'
-      ? `${prim.vpc || '-'} / ${prim.subnet || '-'}`
-      : `${prim.name || '-'} · ${(prim.type || 'bridge')}/${(prim.model || 'virtio')}`;
+    const primaryTxt =
+      nm === 'vpc' || nm === 'flat_subnet'
+        ? `${prim.vpc || '-'} / ${prim.subnet || '-'}`
+        : `${prim.name || '-'} · ${(prim.type || 'bridge')}/${(prim.model || 'virtio')}`;
     const extraNames = netExtras.map((x: any) => x?.name || x?.subnet || '').filter(Boolean).join(', ');
     const macTxt = String(prim?.macAddress || '').trim();
     const subnetCidr = (function () {
@@ -193,7 +194,18 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       storage: { disks: `${diskCount} 虚拟盘（含系统盘 ${rootSize}）`, rootDetail, installTarget },
 
       // 网络：模式、主网卡文本、辅助网卡数量与名称聚合（可选）
-      network: { mode: nm === 'vpc' ? 'VPC网络' : '扁平网络', primary: primaryTxt, extras: netExtras.length ? `${netExtras.length} 个辅助网卡：${extraNames || '-'}` : undefined },
+      network: {
+        mode:
+          nm === 'vpc'
+            ? 'VPC网络'
+            : nm === 'flat_subnet'
+              ? '扁平子网'
+              : nm === 'passthrough'
+                ? '直通网卡'
+                : 'NAD网络',
+        primary: primaryTxt,
+        extras: netExtras.length ? `${netExtras.length} 个辅助网卡：${extraNames || '-'}` : undefined,
+      },
 
       // 固件：默认 BIOS；EFI 展示在下方“固件”行（根据表单实时计算）
       boot: 'BIOS',

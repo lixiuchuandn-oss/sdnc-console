@@ -80,7 +80,10 @@ const generateResourceId = (prefix: string) => `id-${prefix}-${Math.random().toS
 
 /**
  * 组件: KubeOvnVpcsSection
- * 描述: 展示 Kube-OVN VPC 列表及其关联的 Subnets
+ * 描述: 展示 Kube-OVN VPC 列表及其关联子网。
+ *
+ * 本页「添加 VPC 子网」创建的是注解 tower.io/subnet-type=vpc 的 Subnet，挂在当前业务 VPC 下；
+ * 与 NAD 列表（NadsSection）、扁平/公共子网（UnderlaySubnetsSection，flat/public）区分，参见各文件头注释。
  */
 const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({ 
   cloudId: propCloudId,
@@ -686,7 +689,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         const isSystem = name === 'ovn-cluster' || name === 'ovn-vpc-external-network';
         const items = [
           { key: 'edit', label: '编辑VPC', disabled: !hasVpcsWrite, onClick: () => handleEditVpc(r) },
-          { key: 'createSubnet', label: '添加子网', disabled: !hasVpcsWrite, onClick: () => handleOpenCreateSubnet(r) },
+          { key: 'createSubnet', label: '添加 VPC 子网', disabled: !hasVpcsWrite, onClick: () => handleOpenCreateSubnet(r) },
           ...(showYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Vpc') }] : []),
           ...(!isSystem ? [
             { type: 'divider' as const },
@@ -805,7 +808,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       />
 
       <Modal
-        title={`${isEditSubnet ? '编辑子网' : '添加子网'} (VPC: ${targetVpc})`}
+        title={`${isEditSubnet ? '编辑 VPC 子网' : '添加 VPC 子网'} (VPC: ${targetVpc})`}
         open={createSubnetModalVisible}
         onOk={handleSubnetModalSubmit}
         onCancel={() => setCreateSubnetModalVisible(false)}

@@ -25,6 +25,19 @@
  * 删除前会检查：
  * - VM 占用：检查是否有虚拟机正在使用该网络
  * - Subnet 依赖：检查是否有 Kube-OVN 子网依赖该 NAD（名称匹配）
+ *
+ * -----------------------------------------------------------------------------
+ * 与「子网」类概念的区分（详见 kube-ovn/UnderlaySubnetsSection、SubnetsSection）
+ * -----------------------------------------------------------------------------
+ *
+ * 【NAD】本 Section：K8s Multus 的 NetworkAttachmentDefinition，定义附加网卡使用的 CNI（bridge、kube-ovn 等）。
+ *       VM 创建/编排时选「网络」常指 NAD。
+ *
+ * 【扁平子网 / 公共子网 / VPC 子网】均为 kubeovn.io/v1 Subnet CR，靠注解 tower.io/subnet-type 区分：
+ *       flat=扁平子网，public=公共子网，vpc=VPC 子网（业务 VPC 内网段）。
+ *
+ * Kube-OVN 流程下，子网与同名 NAD 配套：NAD 的 CNI config 指向 Subnet 对应的逻辑 provider（name.ns.ovn）。
+ * -----------------------------------------------------------------------------
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Select, Tag, Button, Modal, Tabs, Space, Descriptions, message, Dropdown } from 'antd';

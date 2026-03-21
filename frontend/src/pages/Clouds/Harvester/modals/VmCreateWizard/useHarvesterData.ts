@@ -55,11 +55,18 @@ import { parseSizeToGi } from './VmWizardUtils';
  * 
  * @param cloudId - 当前选中的云资源池 ID (或 'all')
  * @param currentCloudId - (可选) 覆盖用的云资源池 ID，优先级高于 cloudId
- * @param form - Ant Design Form 实例，用于获取表单当前值 (如 namespace) 以进行级联查询
+ * @param form - Ant Design Form 实例（保留用于后续扩展）
  * @param isTenant - 是否为租户模式 (用于过滤系统命名空间)
+ * @param watchNamespace - 由父组件 Form.useWatch('namespace') 传入，用于卷列表过滤与刷新，避免在未挂载时读 form 触发警告
  * @returns 包含所有资源数据、加载状态、刷新方法和格式化后的选项列表
  */
-export const useHarvesterData = (cloudId: string, currentCloudId: string | undefined, form: any, isTenant?: boolean) => {
+export const useHarvesterData = (
+  cloudId: string,
+  currentCloudId: string | undefined,
+  form: any,
+  isTenant?: boolean,
+  watchNamespace?: string | null,
+) => {
   // [状态定义] 资源数据
   const [images, setImages] = useState<any[]>([]);
   const [imageLoading, setImageLoading] = useState<boolean>(false);
@@ -113,7 +120,7 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     const cid = getCid();
     if (!cid) return;
     try {
-      const ns = form.getFieldValue('namespace') || 'default';
+      const ns = (watchNamespace && String(watchNamespace).trim()) || 'default';
       const vols: any = await fetchHarvesterAvailableVolumes(cid, ns);
       const items: any[] = vols?.data?.items || vols?.items || ([] as any[]);
       const normalized = (items || []).map((x: any) => {
@@ -141,7 +148,7 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
     } catch (e: any) {
       message.warning(e?.message || '卷列表刷新失败');
     }
-  }, [getCid, form]);
+  }, [getCid, watchNamespace]);
 
   // [数据获取] 刷新命名空间
   // [业务规则] 创建 VM 时，任何用户都不应在系统命名空间创建，使用 excludeSystem=true
@@ -314,7 +321,7 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
   // [数据处理] 卷选项列表
   // [业务规则] 仅显示当前命名空间、未挂载、状态正常的卷；标签优先展示 PVC 别名
   const volumeOptions = useMemo(() => {
-    const nsTarget = String(form?.getFieldValue?.('namespace') || '');
+    const nsTarget = String(watchNamespace ?? '');
     return (availableVolumes || [])
       .filter((v: any) => {
         if (!v?.pvcName) return false;
@@ -346,7 +353,7 @@ export const useHarvesterData = (cloudId: string, currentCloudId: string | undef
         const label = base + (n ? ` (${n} GiB)` : '');
         return { label, value: pvcName };
       });
-  }, [availableVolumes, form]);
+  }, [availableVolumes, watchNamespace]);
 
   // [数据处理] 命名空间选项
   // [业务规则] 创建 VM 时，任何用户都不应在系统命名空间创建

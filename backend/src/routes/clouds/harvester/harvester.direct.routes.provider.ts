@@ -670,6 +670,12 @@ export function registerHarvesterDirectRoutesProvider(
     checkAdminPermission,
     createProviderRouter(subnetUpdateHandlers)
   );
+  // 与 PUT 等价：前端 harvesterApi.updateKubeOvnSubnet 使用 PATCH
+  router.patch(
+    '/:id/resources/subnets/:subnetId',
+    checkAdminPermission,
+    createProviderRouter(subnetUpdateHandlers)
+  );
   router.delete(
     '/:id/resources/subnets/:name',
     checkAdminPermission,

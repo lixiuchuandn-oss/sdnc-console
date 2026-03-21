@@ -1568,7 +1568,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             },
             {
               key: 'flat_network_group',
-              label: '扁平网络',
+              label: '扁平子网',
               children: (
                 <Tabs
                   type="line"
@@ -1578,7 +1578,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                   items={[
                     {
                       key: 'flat_public_subnets',
-                      label: '扁平网络',
+                      label: '扁平子网',
                       children: (
                         <>
                           <UnderlaySubnetsSection cloudId={cloudId} mode="flat" />
@@ -1680,7 +1680,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     },
                     {
                       key: 'kubeovn_public_subnets',
-                      label: '公共网络',
+                      label: '公共子网',
                       children: (
                         <>
                           <UnderlaySubnetsSection cloudId={cloudId} mode="public" />
@@ -1690,7 +1690,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     },
                     {
                       key: 'subnets',
-                      label: '子网',
+                      label: 'VPC 子网',
                       children: (
                         <>
                           <KubeOvnSubnetsSection 

@@ -57,29 +57,41 @@ export async function harvesterEcsCreateHandler(req: Request, res: Response) {
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
+    // 前端发送完整 KubeVirt manifest：命名空间在 metadata.namespace；兼容顶层 body.namespace
+    const topNs =
+      typeof req.body?.namespace === 'string' ? req.body.namespace.trim() : '';
+    const metaNs =
+      typeof req.body?.metadata?.namespace === 'string'
+        ? req.body.metadata.namespace.trim()
+        : '';
+    let resolvedNs = topNs || metaNs;
+
     if (tenantNamespace) {
       const allowedNs = tenantNamespace.split(',').map((s) => s.trim());
 
-      if (req.body.namespace) {
-        if (!allowedNs.includes(req.body.namespace)) {
+      if (resolvedNs) {
+        if (!allowedNs.includes(resolvedNs)) {
           return res
             .status(403)
             .json({ message: 'Access denied to this namespace' });
         }
       } else {
-        req.body.namespace = allowedNs[0];
+        resolvedNs = allowedNs[0];
       }
+    } else if (!resolvedNs) {
+      resolvedNs = 'default';
     }
 
-    if (req.body.metadata) {
-      req.body.metadata.namespace = req.body.namespace || 'default';
+    req.body.namespace = resolvedNs;
+    if (req.body.metadata && typeof req.body.metadata === 'object') {
+      req.body.metadata.namespace = resolvedNs;
     }
 
     const { namespace, ...payload } = req.body;
 
     const data = await createHarvesterVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      namespace || 'default',
+      namespace || resolvedNs,
       payload,
     );
     res.json({ message: '创建成功', data });

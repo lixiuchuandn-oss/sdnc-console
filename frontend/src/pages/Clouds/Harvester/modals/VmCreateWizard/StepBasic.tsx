@@ -126,13 +126,19 @@ const StepBasic: React.FC<StepBasicProps> = ({
   // [业务规则] 命名空间自动选择逻辑
   // 若为租户，强制过滤系统命名空间和公共命名空间；否则允许选择所有（但默认选中第一个非系统）
   useEffect(() => {
-    // 如果已有值且合法，则跳过自动选择，防止切换步骤时重置用户选择
-    const currentVal = form.getFieldValue('namespace');
     const validOptions = visibleNamespaceOptions;
-    const isValid = currentVal && validOptions.some(o => o.value === currentVal);
-    
-    if (!isValid && validOptions.length > 0) {
-      // 优先选中非系统命名空间作为默认值
+    if (validOptions.length === 0) return;
+
+    // 用 getFieldsValue(true) 读，避免第一步未挂载时 getFieldValue 短暂为空，误把用户已选命名空间覆盖成第一项
+    const currentVal =
+      form.getFieldsValue(true)?.namespace ?? form.getFieldValue('namespace');
+    const isValid =
+      currentVal !== undefined &&
+      currentVal !== null &&
+      String(currentVal).trim() !== '' &&
+      validOptions.some((o) => String(o.value) === String(currentVal));
+
+    if (!isValid) {
       form.setFieldsValue({ namespace: validOptions[0].value });
     }
   }, [visibleNamespaceOptions, form]);
@@ -161,7 +167,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
       <div className="wizard-group-title">基础配置</div>
       <Row gutter={12}>
         <Col span={12}>
-          <Form.Item label="资源池" name="cloudId" rules={[{ required: true, message: '请选择资源池' }]}> 
+          <Form.Item label="资源池" name="cloudId" preserve rules={[{ required: true, message: '请选择资源池' }]}> 
             <Select 
               placeholder="选择资源池"
               onChange={(v) => { setCurrentCloudId(v); try { reloadNamespaces(); form.resetFields(['namespace']); } catch {} }}
@@ -173,7 +179,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}> 
+          <Form.Item label="命名空间" name="namespace" preserve rules={[{ required: true, message: '请选择命名空间' }]}> 
             <Select 
               options={visibleNamespaceOptions}
               placeholder="选择命名空间"
@@ -195,7 +201,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
       ) : null}
       <Row gutter={12}>
         <Col span={12}>
-          <Form.Item label="运行位置" name="hostMode"> 
+          <Form.Item label="运行位置" name="hostMode" preserve> 
             <Radio.Group buttonStyle="solid" onChange={(e)=> setHostModeState(e.target.value)}>
               <Radio.Button value="auto">自动调度</Radio.Button>
               <Radio.Button value="node">指定主机</Radio.Button>
@@ -204,12 +210,12 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
         <Col span={6}>
-          <Form.Item label="集群架构" name="clusterArch"> 
+          <Form.Item label="集群架构" name="clusterArch" preserve> 
             <Input disabled placeholder="自动获取..." />
           </Form.Item>
         </Col>
         <Col span={6}>
-          <Form.Item label="支持的VM类型" name="machineType">
+          <Form.Item label="支持的VM类型" name="machineType" preserve>
             <Select disabled placeholder="选择VM类型">
               {capabilities?.recommendedMachineType && (
                 <Select.Option value={capabilities.recommendedMachineType}>
@@ -358,6 +364,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
       <Form.Item 
         label="虚拟机名称" 
         name="name" 
+        preserve
         dependencies={['namespace']}
         validateTrigger="onChange"
         rules={[
@@ -398,10 +405,10 @@ const StepBasic: React.FC<StepBasicProps> = ({
       >
         <Input placeholder="显示名称（支持中文）" />
       </Form.Item>
-      <Form.Item label="描述" name="description">
+      <Form.Item label="描述" name="description" preserve>
         <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />
       </Form.Item>
-      <Form.Item label="虚机组" name="group">
+      <Form.Item label="虚机组" name="group" preserve>
         <Select placeholder="未选择虚拟机组" options={[{ label: '未选择', value: '' }]} />
       </Form.Item>
     </>

@@ -1993,7 +1993,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                             },
                             {
                               key: 'kubeovn_vpc_public',
-                              label: '公共网络',
+                              label: '公共子网',
                               children: (
                                 <>
                                   <UnderlaySubnetsSection cloudId={cloudId} mode="public" />
@@ -2011,7 +2011,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     },
                     {
                       key: 'kubeovn_subnets',
-                      label: 'Subnet 子网',
+                      label: 'VPC 子网',
                       children: (
                         <>
                           <KubeOvnSubnetsSection subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} />

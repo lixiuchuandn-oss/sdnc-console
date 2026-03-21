@@ -6,7 +6,7 @@
  *
  * [功能描述]
  * 负责配置虚拟机的网络接口，包含主网卡 (Primary NIC) 和辅助网卡 (Secondary NICs)。
- * 支持多种网络模式：扁平网络 (Flat/NAD)、VPC 网络 (Kube-OVN)、直通网络 (SR-IOV/Macvtap)。
+ * 支持多种网络模式：NAD 网络（Multus NAD，排除 kube-ovn）、VPC 网络 (Kube-OVN)、直通（SR-IOV/Macvtap）。
  *
  * [核心逻辑]
  * 1. [主网卡 (Primary NIC)]:
@@ -16,7 +16,7 @@
  *    - 支持动态添加多块网卡，每块网卡可独立配置模式。
  *    - 支持混合使用不同类型的网络接口。
  * 3. [网络类型过滤]:
- *    - 扁平网络 (Flat): 排除 kube-ovn 相关的 NAD。
+ *    - NAD 网络 (flat): 排除 kube-ovn 类型的 NAD。
  *    - 直通网络 (Passthrough): 仅显示 sriov 或 macvtap 类型的 NAD。
  *    - VPC 网络: 联动选择 VPC 和 Subnet，自动填充 CIDR。
  *
@@ -57,7 +57,7 @@ interface StepNetworksProps {
   /** 更新主网卡网络模式状态的回调函数 */
   setNetModeState: (mode: string) => void;
   /** 
-   * 扁平网络 (NAD) 选项列表
+   * NAD 网络选项列表（非 kube-ovn Multus NAD）
    * 包含 ClusterNetwork 和 Harvester 默认网络，需过滤掉 Kube-OVN 相关网络
    */
   nadOptions: any[];
@@ -104,6 +104,15 @@ const NIC_MODELS = [
   { label: 'rtl8139', value: 'rtl8139' }
 ];
 
+const SUBNET_TYPE_ANNOTATION = 'tower.io/subnet-type';
+const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
+
+/** 与 UnderlaySubnetsSection 一致：注解 tower.io/subnet-type=flat 的 Kube-OVN 子网 */
+function isKubeOvnFlatSubnet(s: any): boolean {
+  const t = String(s?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION] ?? '').trim().toLowerCase();
+  return t === 'flat';
+}
+
 const StepNetworks: React.FC<StepNetworksProps> = ({
   form,
   netModeState,
@@ -128,8 +137,9 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
   const handleNetModeChange = (v: string) => {
     // [状态重置] 切换网络模式时，重置主网卡配置并初始化类型
     setNetModeState(v);
-    const initialType = v === 'vpc' ? 'bridge' : (v === 'passthrough' ? 'sriov' : 'bridge');
-    
+    const initialType =
+      v === 'vpc' || v === 'flat_subnet' ? 'bridge' : v === 'passthrough' ? 'sriov' : 'bridge';
+
     // Only reset if actually changing mode to avoid data loss on remount
     if (v !== form.getFieldValue('netMode')) {
        try {
@@ -139,7 +149,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
              type: initialType,
              model: 'virtio',
              name: undefined,
-             vpc: undefined,
+             vpc: v === 'flat_subnet' ? UNDERLAY_SYSTEM_VPC : undefined,
              subnet: undefined,
              macAddress: undefined,
              ipAddress: undefined,
@@ -149,8 +159,12 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
          });
        } catch { }
     }
-    
-    if (v === 'vpc') { reloadKubeVpcs(); reloadKubeSubnets(); reloadNads(); }
+
+    if (v === 'vpc' || v === 'flat_subnet') {
+      reloadKubeVpcs();
+      reloadKubeSubnets();
+      reloadNads();
+    }
   };
 
   return (
@@ -160,11 +174,16 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
       {/* ==================== 主网卡配置区域 ==================== */}
       <div className="wizard-group-title">主网卡</div>
       <Row gutter={12}>
-        {/* 1. 网络类型选择 (扁平网络 / VPC网络 / 直通网卡) */}
+        {/* 1. 网络类型选择 (NAD网络 / VPC网络 / 直通网卡) */}
         <Col span={8}>
-          <Form.Item label="网络类型" name="netMode" rules={[{ required: true, message: '请选择网络类型' }]}>
+          <Form.Item label="网络类型" name="netMode" preserve rules={[{ required: true, message: '请选择网络类型' }]}>
             <Select
-              options={[{ label: '扁平网络', value: 'flat' }, { label: 'VPC网络', value: 'vpc' }, { label: '直通网卡', value: 'passthrough' }]}
+              options={[
+                { label: 'NAD网络', value: 'flat' },
+                { label: '扁平子网', value: 'flat_subnet' },
+                { label: 'VPC网络', value: 'vpc' },
+                { label: '直通网卡', value: 'passthrough' },
+              ]}
               placeholder="选择网络类型"
               onChange={handleNetModeChange}
             />
@@ -176,19 +195,20 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           {({ getFieldValue }) => {
             const mode = getFieldValue('netMode') || 'flat';
             if (mode === 'flat') {
-              // --- 扁平网络 (Flat) ---
+              // --- NAD 网络：选择 Multus NAD（排除 kube-ovn） ---
               return (
                 <Col span={8}>
                   <Form.Item
                     label="选择网络"
                     name={["primaryNic", 'name']}
+                    preserve
                     rules={[{ required: true, message: '请选择网络' }]}
                     key="primary-nic-flat"
                   >
                     <Select
                       placeholder="选择网络"
                       options={(function () {
-                          // [业务规则] 扁平网络模式下排除 Kube-OVN 类型的 NAD，因其属于 VPC 网络范畴
+                          // [业务规则] NAD 网络模式下排除 Kube-OVN 类型的 NAD，因其属于 VPC 网络范畴
                           const filtered = (nadOptions || []).filter((x: any) => !String(x?.label || '').toLowerCase().includes('kube-ovn'));
                           return filtered;
                         })()}
@@ -197,7 +217,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         // [业务规则] 默认 Pod 网络需使用 masquerade 模式以支持 SNAT，指定 NAD 时使用 bridge
                         try {
                           const curr = form.getFieldValue('primaryNic') || {};
-                          // 扁平网络下，如果选了值就是 bridge，如果清空（不支持清空了）就是 masquerade
+                          // NAD 网络下，如果选了值就是 bridge，如果清空（不支持清空了）就是 masquerade
                           // 但因为 required: true 且不允许清空，这里其实 val 必定有值
                           // 除非将来允许清空，逻辑保留
                           const isPod = !val; 
@@ -206,7 +226,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                           form.setFieldsValue({ primaryNic: { ...curr, type: nextType } });
                         } catch {}
                       }}
-                      // 扁平网络强制要求选择，不允许清空回退到 Pod 网络
+                      // NAD 网络强制要求选择，不允许清空回退到 Pod 网络
                       allowClear={false}
                     />
                   </Form.Item>
@@ -221,6 +241,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   <Form.Item
                     label="直通网络"
                     name={["primaryNic", 'name']}
+                    preserve
                     rules={[{ required: true, message: '请选择直通网络' }]}
                     key="primary-nic-passthrough"
                   >
@@ -247,12 +268,101 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                 </Col>
               );
             }
-            
+
+            if (mode === 'flat_subnet') {
+              // --- 扁平子网：默认 VPC ovn-cluster + 注解 subnet-type=flat 的 Subnet，绑定同名 kube-ovn NAD ---
+              return (
+                <>
+                  <Col span={8}>
+                    <Form.Item name={['primaryNic', 'vpc']} hidden preserve>
+                      <Input />
+                    </Form.Item>
+                    <Form.Item label="扁平子网" name={['primaryNic', 'subnet']} preserve rules={[{ required: true, message: '请选择扁平子网' }]}>
+                      <Select
+                        placeholder="选择扁平子网（Kube-OVN / tower.io/subnet-type=flat）"
+                        options={(kubeSubnets || [])
+                          .filter(
+                            (x: any) =>
+                              String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                              isKubeOvnFlatSubnet(x),
+                          )
+                          .map((x: any) => {
+                            const n = x?.name || '-';
+                            const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                            return {
+                              label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
+                              value: n,
+                            };
+                          })}
+                        onOpenChange={(open) => {
+                          if (open) reloadKubeSubnets();
+                        }}
+                        onChange={(val) => {
+                          let netName = val;
+                          const subnet = (kubeSubnets || []).find((x: any) => x.name === val);
+                          let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                          if (!subnetNs) {
+                            const provider = subnet?.provider || subnet?.spec?.provider;
+                            if (provider) {
+                              const parts = provider.split('.');
+                              if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                            }
+                          }
+                          if (subnetNs) {
+                            netName = `${subnetNs}/${val}`;
+                          } else {
+                            try {
+                              const found = (nadOptions || []).find((x: any) => {
+                                const vv = String(x?.value || '');
+                                const parts = vv.split('/');
+                                const name = parts.length > 1 ? parts[1] : parts[0];
+                                return name === val;
+                              });
+                              if (found) netName = found.value;
+                            } catch {}
+                          }
+                          form.setFieldsValue({
+                            primaryNic: {
+                              vpc: UNDERLAY_SYSTEM_VPC,
+                              subnet: val,
+                              name: netName,
+                            },
+                          });
+                        }}
+                        allowClear={false}
+                      />
+                    </Form.Item>
+                    <Form.Item name={['primaryNic', 'name']} hidden preserve>
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      label="子网网段"
+                      shouldUpdate={(prev, curr) => prev.primaryNic?.subnet !== curr.primaryNic?.subnet}
+                    >
+                      {({ getFieldValue }) => {
+                        const subnetName = getFieldValue(['primaryNic', 'subnet']);
+                        const subnet = (kubeSubnets || []).find(
+                          (x: any) =>
+                            x?.name === subnetName &&
+                            String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                            isKubeOvnFlatSubnet(x),
+                        );
+                        return <Input value={subnet?.cidr || ''} disabled />;
+                      }}
+                    </Form.Item>
+                  </Col>
+                </>
+              );
+            }
+
+            if (mode === 'vpc') {
             // --- VPC 网络模式配置 ---
             return (
               <>
                 <Col span={8}>
-                  <Form.Item label="VPC" name={["primaryNic", 'vpc']} rules={[{ required: true }]}>
+                  <Form.Item label="VPC" name={["primaryNic", 'vpc']} preserve rules={[{ required: true }]}>
                     <Select
                       placeholder="选择 VPC"
                       options={kubeVpcOptions}
@@ -266,7 +376,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   </Form.Item>
                 </Col>
                 <Col span={8}>
-                  <Form.Item label="子网" name={["primaryNic", 'subnet']} rules={[{ required: true }]}>
+                  <Form.Item label="子网" name={["primaryNic", 'subnet']} preserve rules={[{ required: true }]}>
                     <Select
                       placeholder="选择 VPC 子网"
                       options={(function () { 
@@ -321,7 +431,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     />
                   </Form.Item>
                   {/* [修复] 在 VPC 模式下必须注册 name 字段，否则 getFieldsValue 无法获取到该值，导致 payload 中丢失网络名称进而回退到 Management Network */}
-                  <Form.Item name={["primaryNic", 'name']} hidden>
+                  <Form.Item name={["primaryNic", 'name']} hidden preserve>
                     <Input />
                   </Form.Item>
                 </Col>
@@ -344,6 +454,9 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                 </Col>
               </>
             );
+            }
+
+            return null;
           }}
         </Form.Item>
 
@@ -358,19 +471,19 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             // [选项逻辑] 根据模式生成可用的网卡类型选项
             const typeOptions = mode === 'passthrough'
               ? [{ label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]
-              : (mode === 'vpc'
+              : (mode === 'vpc' || mode === 'flat_subnet'
                 ? [{ label: 'bridge', value: 'bridge' }]
                 : (isPod ? [{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }] : [{ label: 'bridge', value: 'bridge' }]));
             
             return (
               <>
                 <Col span={8}>
-                  <Form.Item label="类型" name={["primaryNic", 'type']}>
+                  <Form.Item label="类型" name={["primaryNic", 'type']} preserve>
                     <Select options={typeOptions} />
                   </Form.Item>
                 </Col>
                 <Col span={8}>
-                  <Form.Item label="模型" name={["primaryNic", 'model']}>
+                  <Form.Item label="模型" name={["primaryNic", 'model']} preserve>
                     <Select disabled={t === 'sriov'} options={NIC_MODELS} />
                   </Form.Item>
                 </Col>
@@ -379,22 +492,22 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           }}
         </Form.Item>
         <Col span={8}>
-          <Form.Item label="MAC 地址" name={["primaryNic", 'macAddress']} rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]} >
+          <Form.Item label="MAC 地址" name={["primaryNic", 'macAddress']} preserve rules={[{ pattern: /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/, message: '格式如 52:54:00:12:34:56' }]} >
             <Input placeholder="52:54:00:12:34:56" />
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item label="静态IP" name={["primaryNic", 'ipAddress']} rules={[{ pattern: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/, message: '请输入有效的 IP 地址 (如 192.168.1.10 或 192.168.1.10/24)' }]} >
+          <Form.Item label="静态IP" name={["primaryNic", 'ipAddress']} preserve rules={[{ pattern: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/, message: '请输入有效的 IP 地址 (如 192.168.1.10 或 192.168.1.10/24)' }]} >
             <Input placeholder="192.168.1.10/24" />
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item label="网关" name={["primaryNic", 'gateway']}>
+          <Form.Item label="网关" name={["primaryNic", 'gateway']} preserve>
             <Input placeholder="192.168.1.1" />
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item label="DNS" name={["primaryNic", 'dns']}>
+          <Form.Item label="DNS" name={["primaryNic", 'dns']} preserve>
             <Input placeholder="8.8.8.8" />
           </Form.Item>
         </Col>
@@ -453,11 +566,11 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     {(function () {
                       const mode = form.getFieldValue(['netIfaces', name, 'mode']) || 'flat';
                       if (mode === 'flat') {
-                         // --- 辅助网卡：扁平网络 ---
+                         // --- 辅助网卡：NAD 网络 ---
                          return (
                            <Col span={8}>
                               <Form.Item
-                                 label="扁平网络"
+                                 label="NAD网络"
                                  name={[name, 'name']}
                                  rules={[{ required: true, message: '请选择网络' }]}
                                  key={`secondary-nic-flat-${name}`}
@@ -465,7 +578,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                  <Select
                                    placeholder="选择网络"
                                    options={(nadOptions || []).filter((x: any) => {
-                                       // [业务规则] 扁平网络模式下排除 Kube-OVN 类型的 NAD
+                                       // [业务规则] NAD 网络模式下排除 Kube-OVN 类型的 NAD
                                        return !String(x?.label || '').toLowerCase().includes('kube-ovn');
                                      })}
                                    onOpenChange={async (open) => { if (open) reloadNads(); }}
@@ -473,7 +586,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                      try {
                                        const curr = form.getFieldValue('netIfaces') || [];
                                        const next = [...curr];
-                                       // [业务规则] 扁平辅助网卡选择 NAD 时，类型强制为 bridge
+                                       // [业务规则] NAD 辅助网卡选择时，类型强制为 bridge
                                        // [修复] 仅更新 type，不覆盖 name 字段本身
                                        next[name] = { ...next[name], type: 'bridge' };
                                        form.setFieldsValue({ netIfaces: next });
@@ -520,6 +633,106 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                           );
                        }
 
+                      if (mode === 'flat_subnet') {
+                        return (
+                          <>
+                            <Col span={8}>
+                              <Form.Item name={[name, 'vpc']} initialValue={UNDERLAY_SYSTEM_VPC} hidden>
+                                <Input />
+                              </Form.Item>
+                              <Form.Item
+                                label="扁平子网"
+                                name={[name, 'subnet']}
+                                rules={[{ required: true, message: '请选择扁平子网' }]}
+                                key={`secondary-nic-flat-subnet-${name}`}
+                              >
+                                <Select
+                                  placeholder="选择扁平子网"
+                                  options={(kubeSubnets || [])
+                                    .filter(
+                                      (x: any) =>
+                                        String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                        isKubeOvnFlatSubnet(x),
+                                    )
+                                    .map((x: any) => {
+                                      const n = x?.name || '-';
+                                      const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                      return {
+                                        label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
+                                        value: n,
+                                      };
+                                    })}
+                                  onOpenChange={(open) => {
+                                    if (open) reloadKubeSubnets();
+                                  }}
+                                  onChange={(val) => {
+                                    let netName = val;
+                                    const subnet = (kubeSubnets || []).find((x: any) => x.name === val);
+                                    let subnetNs = subnet?.metadata?.namespace || subnet?.namespace;
+                                    if (!subnetNs) {
+                                      const provider = subnet?.provider || subnet?.spec?.provider;
+                                      if (provider) {
+                                        const parts = provider.split('.');
+                                        if (parts.length >= 2) subnetNs = parts[parts.length - 2];
+                                      }
+                                    }
+                                    if (subnetNs) {
+                                      netName = `${subnetNs}/${val}`;
+                                    } else {
+                                      try {
+                                        const found = (nadOptions || []).find((x: any) => {
+                                          const vv = String(x?.value || '');
+                                          const parts = vv.split('/');
+                                          const nm = parts.length > 1 ? parts[1] : parts[0];
+                                          return nm === val;
+                                        });
+                                        if (found) netName = found.value;
+                                      } catch {}
+                                    }
+                                    try {
+                                      const curr = form.getFieldValue('netIfaces') || [];
+                                      const next = [...curr];
+                                      next[name] = {
+                                        ...next[name],
+                                        mode: 'flat_subnet',
+                                        vpc: UNDERLAY_SYSTEM_VPC,
+                                        subnet: val,
+                                        name: netName,
+                                        type: 'bridge',
+                                      };
+                                      form.setFieldsValue({ netIfaces: next });
+                                    } catch {}
+                                  }}
+                                />
+                              </Form.Item>
+                              <Form.Item name={[name, 'name']} hidden>
+                                <Input />
+                              </Form.Item>
+                            </Col>
+                            <Col span={8}>
+                              <Form.Item
+                                label="子网网段"
+                                shouldUpdate={(prev, curr) =>
+                                  prev.netIfaces?.[name]?.subnet !== curr.netIfaces?.[name]?.subnet
+                                }
+                              >
+                                {({ getFieldValue }) => {
+                                  const subnetName = getFieldValue(['netIfaces', name, 'subnet']);
+                                  const subnet = (kubeSubnets || []).find(
+                                    (x: any) =>
+                                      x?.name === subnetName &&
+                                      String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                      isKubeOvnFlatSubnet(x),
+                                  );
+                                  return <Input value={subnet?.cidr || ''} disabled />;
+                                }}
+                              </Form.Item>
+                            </Col>
+                          </>
+                        );
+                      }
+
+                      if (mode === 'vpc') {
                       // --- 辅助网卡：VPC 网络模式 ---
                       return (
                       <>
@@ -581,7 +794,11 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                           </Form.Item>
                         </Col>
                       </>
-                    ); })()}
+                    );
+                      }
+
+                      return null;
+                    })()}
 
                     {/* --- 通用物理属性 (类型/模型/MAC/IP/Gateway/DNS) --- */}
                     <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode || prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type}>
@@ -590,7 +807,9 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         // [选项逻辑] 根据模式生成可用的网卡类型选项
                         const opts = mode2 === 'passthrough'
                           ? [{ label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]
-                          : (mode2 === 'vpc' ? [{ label: 'bridge', value: 'bridge' }] : [{ label: 'bridge', value: 'bridge' }]);
+                          : (mode2 === 'vpc' || mode2 === 'flat_subnet'
+                            ? [{ label: 'bridge', value: 'bridge' }]
+                            : [{ label: 'bridge', value: 'bridge' }]);
                         return (
                           <Col span={8}>
                             <Form.Item label="类型" name={[name, 'type']}>
@@ -618,12 +837,12 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      <Form.Item label="静态IP" name={[name, 'ipAddress']} rules={[{ pattern: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/, message: '请输入有效的 IP 地址' }]} style={{ marginBottom: (form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') === 'vpc' ? 0 : undefined }}>
+                      <Form.Item label="静态IP" name={[name, 'ipAddress']} rules={[{ pattern: /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:3[0-2]|[12]?[0-9]|[0-9]))?$/, message: '请输入有效的 IP 地址' }]} style={{ marginBottom: ['vpc', 'flat_subnet'].includes(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') ? 0 : undefined }}>
                         <Input placeholder="192.168.1.10/24" />
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      <Form.Item label="网关" name={[name, 'gateway']} style={{ marginBottom: (form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') === 'vpc' ? 0 : undefined }}>
+                      <Form.Item label="网关" name={[name, 'gateway']} style={{ marginBottom: ['vpc', 'flat_subnet'].includes(form.getFieldValue(['netIfaces', name, 'mode']) || 'flat') ? 0 : undefined }}>
                         <Input placeholder="192.168.1.1" />
                       </Form.Item>
                     </Col>
@@ -646,7 +865,20 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             
             {/* 按钮区域：添加辅助网卡 */}
             <Space>
-              <Button onClick={() => { reloadNads(); add({ mode: 'flat', type: 'bridge', model: 'virtio' }); }}>添加扁平网络网卡</Button>
+              <Button onClick={() => { reloadNads(); add({ mode: 'flat', type: 'bridge', model: 'virtio' }); }}>添加NAD网络网卡</Button>
+              <Button
+                onClick={() => {
+                  reloadKubeSubnets();
+                  add({
+                    mode: 'flat_subnet',
+                    type: 'bridge',
+                    model: 'virtio',
+                    vpc: UNDERLAY_SYSTEM_VPC,
+                  });
+                }}
+              >
+                添加扁平子网网卡
+              </Button>
               <Button onClick={() => { reloadKubeVpcs(); reloadKubeSubnets(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }}>添加VPC网卡</Button>
               <Button onClick={() => { reloadNads(); add({ mode: 'passthrough', type: 'sriov', model: 'virtio' }); }}>添加直通网卡</Button>
             </Space>

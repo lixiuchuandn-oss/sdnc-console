@@ -79,7 +79,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                             <>
                               {(['flat','passthrough'].includes(mode)) ? (
                                 <Col span={8}>
-                                  <Form.Item {...restField} label={mode === 'passthrough' ? '直通网络' : '选择网络'} name={[name, 'name']} rules={[{ required: true, message: '请选择网络' }]}>
+                                  <Form.Item {...restField} label={mode === 'passthrough' ? '直通网络' : 'NAD网络'} name={[name, 'name']} rules={[{ required: true, message: '请选择网络' }]}>
                                     <Select
                                       placeholder={mode === 'passthrough' ? '选择直通网络（SR-IOV/macvtap NAD）' : '选择网络'}
                                       options={mode === 'passthrough' ? nadOptionsPassthrough : nadOptionsFlat}
@@ -201,7 +201,7 @@ const ChangeSecondaryNic: React.FC<Props> = ({
              })}
              <div style={{ display: 'flex', gap: 8 }}>
               <Button type="dashed" onClick={() => add({ mode: 'flat', type: 'bridge', model: 'virtio' })} style={{ flex: 1 }} icon={<PlusOutlined />}>
-                 添加扁平网络网卡
+                 添加NAD网络网卡
                </Button>
                <Button type="dashed" onClick={() => { reloadVpcs(); add({ mode: 'vpc', type: 'bridge', model: 'virtio' }); }} style={{ flex: 1 }} icon={<PlusOutlined />}>
                  添加VPC网卡
