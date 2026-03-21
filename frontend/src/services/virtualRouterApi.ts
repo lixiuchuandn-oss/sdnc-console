@@ -69,8 +69,8 @@ export const getAuthInfo = async (
   logDebug('开始获取认证信息');
   
   try {
-    const ACCESS_KEY = "Cloudmap%23123";
-    const SECRET_KEY = "Cloudmap%23123";
+    const ACCESS_KEY = "Cloudmap#123";
+    const SECRET_KEY = "Cloudmap#123";
     
     const bodyRaw = body ? JSON.stringify(body) : '';
     const authInfo = await getProxyAuthInfo(path, method as 'GET' | 'POST', other, bodyRaw, ACCESS_KEY, SECRET_KEY);

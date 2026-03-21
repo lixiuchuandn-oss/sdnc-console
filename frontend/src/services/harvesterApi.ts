@@ -985,6 +985,16 @@ export const createKubeOvnProviderNetwork = async (cloudId: string, payload: any
 };
 
 /**
+ * 删除 KubeOVN 提供商网络
+ * @param cloudId 云环境 ID
+ * @param name 提供商网络名称
+ * @returns Promise<any>
+ */
+export const deleteKubeOvnProviderNetwork = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/providernetworks/${encodeURIComponent(name)}`);
+};
+
+/**
  * 获取 KubeOVN VLAN 列表
  * @param cloudId 云环境 ID
  * @returns Promise<any>

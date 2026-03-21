@@ -8,7 +8,8 @@ import VolumesSection from '../Harvester/sections/VolumesSection';
 import NadsSection from '../Harvester/sections/NadsSection';
 import KubeOvnVpcsSection from '../Harvester/kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from '../Harvester/kube-ovn/SubnetsSection';
-import KubeOvnPublicNetworksSection from '../Harvester/kube-ovn/PubnetSection';
+import UnderlaySubnetsSection from '../Harvester/kube-ovn/UnderlaySubnetsSection';
+import VlansSection from '../Harvester/kube-ovn/VlansSection';
 import GpusSection from '../Harvester/sections/GpusSection';
 import MigrationsSection from '../Harvester/sections/MigrationsSection';
 import StorageClassesSection from '../Harvester/sections/StorageClassesSection';
@@ -21,6 +22,7 @@ import ServicesSection from '../Harvester/sections/ServicesSection';
 import LoadBalancersSection from '../Harvester/sections/LoadBalancersSection';
 import IPPoolsSection from '../Harvester/sections/IPPoolsSection';
 import ClusterNetworksSection from '../Harvester/sections/ClusterNetworksSection';
+import ProviderNetworksSection from '../Harvester/kube-ovn/ProviderNetworksSection';
 import RecycleBinSection from '../Harvester/sections/RecycleBinSection';
 import PciDevicesSection from '../Harvester/sections/PciDevicesSection';
 import UsbDevicesSection from '../Harvester/sections/UsbDevicesSection';
@@ -1052,6 +1054,26 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
+                      key: 'kubeovn_public_networks',
+                      label: '物理网络',
+                      children: (
+                        <>
+                          <ProviderNetworksSection cloudId={cloudId} />
+                          <DebugJSON data={rawSubnets} show={showLog} />
+                        </>
+                      )
+                    },
+                    {
+                      key: 'cluster_vlans',
+                      label: 'VLANs',
+                      children: (
+                        <>
+                          <VlansSection cloudId={cloudId} />
+                          <DebugJSON data={rawSubnets} show={showLog} />
+                        </>
+                      )
+                    },
+                    {
                       key: 'namespaces',
                       label: '命名空间',
                       children: <NamespacesTab 
@@ -1124,11 +1146,12 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                     },
                   ].filter((i:any) => {
                       if (mode === 'simple') {
-                        return ['cluster_nodes', 'storage_classes', 'gpu', 'cluster_usb'].includes(i.key);
+                        return ['cluster_nodes', 'storage_classes', 'gpu', 'cluster_usb', 'kubeovn_public_networks'].includes(i.key);
                       }
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.nodes:read');
                       if (i.key === 'cluster_services') return checkPerm('clouds.services:read');
                       if (i.key === 'cluster_networks') return checkPerm('clouds.networks:read');
+                      if (i.key === 'cluster_vlans') return checkPerm('clouds.networks:read');
                       if (i.key === 'cluster_usb') return checkPerm('clouds.ecs:read');
                       if (i.key === 'cluster_pci') return checkPerm('clouds.ecs:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
@@ -1544,6 +1567,34 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
               )
             },
             {
+              key: 'flat_network_group',
+              label: '扁平网络',
+              children: (
+                <Tabs
+                  type="line"
+                  destroyInactiveTabPane
+                  defaultActiveKey="flat_public_subnets"
+                  onChange={handleTabChange}
+                  items={[
+                    {
+                      key: 'flat_public_subnets',
+                      label: '扁平网络',
+                      children: (
+                        <>
+                          <UnderlaySubnetsSection cloudId={cloudId} mode="flat" />
+                          <DebugJSON data={rawSubnets} show={showLog} />
+                        </>
+                      )
+                    },
+                    
+                  ].filter((i:any) => {
+                    if (i.key === 'flat_public_subnets') return checkPerm('clouds.networks:read');
+                    return true;
+                  })}
+                />
+              )
+            },
+            {
               key: 'network_group',
               label: '附加网络 (NAD)',
               children: (
@@ -1555,7 +1606,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                   items={[
                     {
                       key: 'nads',
-                      label: 'VLAN 网络',
+                      label: 'NAD 网络',
                       children: (
                         <>
                           <NadsSection nads={harvesterNads} loading={resourceLoading.nads || nadsLoading} onRefresh={refreshNads} cloudId={cloudId} onlyBridge />
@@ -1603,16 +1654,6 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                   onChange={handleTabChange}
                   items={[
                     {
-                      key: 'kubeovn_public_networks',
-                      label: '公共网络',
-                      children: (
-                        <>
-                          <KubeOvnPublicNetworksSection />
-                          <DebugJSON data={rawSubnets} show={showLog} />
-                        </>
-                      )
-                    },
-                    {
                       key: 'vpcs',
                       label: 'VPC网络',
                       children: (
@@ -1638,12 +1679,22 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                       )
                     },
                     {
+                      key: 'kubeovn_public_subnets',
+                      label: '公共网络',
+                      children: (
+                        <>
+                          <UnderlaySubnetsSection cloudId={cloudId} mode="public" />
+                          <DebugJSON data={rawSubnets} show={showLog} />
+                        </>
+                      )
+                    },
+                    {
                       key: 'subnets',
                       label: '子网',
                       children: (
                         <>
                           <KubeOvnSubnetsSection 
-                            subnets={kubeOvnSubnets} 
+                            subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} 
                             vpcList={kubeOvnVpcs} 
                             loading={resourceLoading.subnets} 
                             onRefresh={() => loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => {
@@ -1766,7 +1817,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             }
           ].filter((i: any) => {
             if (mode !== 'simple') return true;
-            return !['monitoring-alerts', 'storage_group', 'network_group', 'logs-config'].includes(i.key);
+            return !['monitoring-alerts', 'storage_group', 'logs-config', 'network_group', 'kube_ovn_group'].includes(i.key);
           })}
       />
     </PageDetailContainer>

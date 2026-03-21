@@ -72,6 +72,9 @@ const SafeRead = {
   subnetExcludeIps: (data: any) => data?.excludeIps || data?.spec?.excludeIps || [],
 };
 
+const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
+const SUBNET_FINALIZER = 'tower.io/managed';
+
 // Helper
 const generateResourceId = (prefix: string) => `id-${prefix}-${Math.random().toString(36).substring(2, 13)}`;
 
@@ -373,7 +376,9 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         payload.name = generatedName;
         payload.annotations = {
           'tower.io/alias': values.name,
+          [SUBNET_TYPE_ANNOTATION_KEY]: 'vpc',
         };
+        payload.finalizers = Array.from(new Set([...(Array.isArray(payload?.finalizers) ? payload.finalizers : []), SUBNET_FINALIZER]));
         
         // 创建子网前，先创建对应的 NAD（Kube-OVN 要求）
         // NAD 名称必须与子网名称相同

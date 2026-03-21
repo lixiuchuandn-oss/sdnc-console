@@ -8,7 +8,8 @@ import VolumesSection from './sections/VolumesSection';
 import NadsSection from './sections/NadsSection';
 import KubeOvnVpcsSection from './kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from './kube-ovn/SubnetsSection';
-import KubeOvnPublicNetworksSection from './kube-ovn/PubnetSection';
+import UnderlaySubnetsSection from './kube-ovn/UnderlaySubnetsSection';
+import VlansSection from './kube-ovn/VlansSection';
 import GpusSection from './sections/GpusSection';
 import PciDevicesSection from './sections/PciDevicesSection';
 import UsbDevicesSection from './sections/UsbDevicesSection';
@@ -1106,6 +1107,20 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       )
                     },
                     {
+                      key: 'cluster_vlans',
+                      label: 'VLANs',
+                      children: (
+                        <>
+                          <VlansSection cloudId={cloudId} />
+                          {showLog && (
+                            <div style={{ marginTop: 12 }}>
+                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
+                            </div>
+                          )}
+                        </>
+                      )
+                    },
+                    {
                       key: 'namespaces',
                       label: '命名空间',
                       children: <NamespacesTab 
@@ -1214,6 +1229,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       if (i.key === 'cluster_nodes') return checkPerm('clouds.nodes:read');
                       if (i.key === 'cluster_services') return checkPerm('clouds.services:read');
                       if (i.key === 'cluster_networks') return checkPerm('clouds.networks:read');
+                      if (i.key === 'cluster_vlans') return checkPerm('clouds.networks:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
                       if (i.key === 'storage_classes') return checkPerm('clouds.volumes:read');
                       if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read');
@@ -1949,35 +1965,48 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                   onChange={handleTabChange}
                   items={[
                     {
-                      key: 'kubeovn_public_networks',
-                      label: '公共网络',
-                      children: (
-                        <>
-                          <KubeOvnPublicNetworksSection />
-                          {showLog && (
-                            <div style={{ marginTop: 12 }}>
-                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
-                            </div>
-                          )}
-                        </>
-                      )
-                    },
-                    {
                       key: 'kubeovn_vpcs',
-                      label: 'VPC 私有网络',
+                      label: '虚拟专有云 (VPC)',
                       children: (
-                        <>
-                          <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={async (force = false, silent = false) => {
-                            const skipSync = silent;
-                            loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync), (json) => setKubeOvnVpcs(json?.data?.items || []), true);
-                            loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force, skipSync), (json) => setKubeOvnSubnets(json?.data?.items || []), true);
-                          }} />
-                          {showLog && (
-                            <div style={{ marginTop: 12 }}>
-                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVpcs, null, 2)}</pre>
-                            </div>
-                          )}
-                        </>
+                        <Tabs
+                          type="line"
+                          destroyOnHidden
+                          defaultActiveKey="kubeovn_vpc_private"
+                          items={[
+                            {
+                              key: 'kubeovn_vpc_private',
+                              label: 'VPC 私有网络',
+                              children: (
+                                <>
+                                  <KubeOvnVpcsSection vpcs={kubeOvnVpcs} subnets={kubeOvnSubnets} loading={resourceLoading.vpcs || resourceLoading.subnets} onRefresh={async (force = false, silent = false) => {
+                                    const skipSync = silent;
+                                    loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force, skipSync), (json) => setKubeOvnVpcs(json?.data?.items || []), true);
+                                    loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force, skipSync), (json) => setKubeOvnSubnets(json?.data?.items || []), true);
+                                  }} />
+                                  {showLog && (
+                                    <div style={{ marginTop: 12 }}>
+                                      <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawVpcs, null, 2)}</pre>
+                                    </div>
+                                  )}
+                                </>
+                              )
+                            },
+                            {
+                              key: 'kubeovn_vpc_public',
+                              label: '公共网络',
+                              children: (
+                                <>
+                                  <UnderlaySubnetsSection cloudId={cloudId} mode="public" />
+                                  {showLog && (
+                                    <div style={{ marginTop: 12 }}>
+                                      <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
+                                    </div>
+                                  )}
+                                </>
+                              )
+                            },
+                          ]}
+                        />
                       )
                     },
                     {
@@ -1985,7 +2014,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'Subnet 子网',
                       children: (
                         <>
-                          <KubeOvnSubnetsSection subnets={kubeOvnSubnets} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} />
+                          <KubeOvnSubnetsSection subnets={(kubeOvnSubnets || []).filter((s: any) => String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase() === 'vpc')} vpcList={kubeOvnVpcs} loading={resourceLoading.subnets} onRefresh={() => { loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, true), (json) => setKubeOvnSubnets(json?.data?.items || []), true); }} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>

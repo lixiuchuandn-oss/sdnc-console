@@ -756,8 +756,8 @@ const SRv6CreatePage: React.FC = () => {
   // 直接下发配置到设备（通过 /api-proxy 调用远端 VR2/VRConfig）
   const dispatchVRConfig = async (uuid: string, cfg: any) => {
     if (!uuid || !cfg) return;
-      const accesskey = 'Cloudmap%23123';
-      const secretkey = 'Cloudmap%23123';
+      const accesskey = 'Cloudmap#123';
+      const secretkey = 'Cloudmap#123';
       const path = '/V2/ctcontrol/VR2/VRConfig';
       const method = 'POST';
       // 与 Postman 的 Pre-request Script 一致：POST 的签名 other 为空，签名计算使用 body 原文

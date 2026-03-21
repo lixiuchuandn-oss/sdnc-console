@@ -318,8 +318,8 @@ const VRPage: React.FC = () => {
           if (id && !cachedVr3) {
             promises.push((async () => {
               try {
-                const accesskey = 'Cloudmap%23123';
-                const secretkey = 'Cloudmap%23123';
+                const accesskey = 'Cloudmap#123';
+                const secretkey = 'Cloudmap#123';
                 const path = '/V2/ctcontrol/VR3/VRConfig/list';
                 const method = 'GET';
                 const other = `uuid=${id}`;
@@ -328,8 +328,8 @@ const VRPage: React.FC = () => {
                   `url=${encodeURIComponent(path)}&` +
                   `method=${method}&` +
                   `other=${encodeURIComponent(other)}&` +
-                  `accessKey=${accesskey}&` +
-                  `secretKey=${secretkey}`;
+                  `accessKey=${encodeURIComponent(accesskey)}&` +
+                  `secretKey=${encodeURIComponent(secretkey)}`;
                   
                 const signResp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '' });
                 const signJson = await signResp.json();
@@ -904,8 +904,8 @@ const VRPage: React.FC = () => {
       const values = await addForm.validateFields();
       setLoading(true);
 
-      const accesskey = 'Cloudmap%23123';
-      const secretkey = 'Cloudmap%23123';
+      const accesskey = 'Cloudmap#123';
+      const secretkey = 'Cloudmap#123';
       const path = '/V2/vrcontrol/VR1/register';
       const method = 'POST';
       const other = '';
@@ -914,8 +914,8 @@ const VRPage: React.FC = () => {
         `url=${encodeURIComponent(path)}&` +
         `method=${method}&` +
         `other=${encodeURIComponent(other)}&` +
-        `accessKey=${accesskey}&` +
-        `secretKey=${secretkey}`;
+        `accessKey=${encodeURIComponent(accesskey)}&` +
+        `secretKey=${encodeURIComponent(secretkey)}`;
 
       const bodyStr = JSON.stringify(values);
 
@@ -968,8 +968,8 @@ const VRPage: React.FC = () => {
       };
       setLoading(true);
 
-      const accesskey = 'Cloudmap%23123';
-      const secretkey = 'Cloudmap%23123';
+      const accesskey = 'Cloudmap#123';
+      const secretkey = 'Cloudmap#123';
       const path = '/V2/vrcontrol/VR1/register';
       const method = 'POST';
       const other = '';
@@ -978,8 +978,8 @@ const VRPage: React.FC = () => {
         `url=${encodeURIComponent(path)}&` +
         `method=${method}&` +
         `other=${encodeURIComponent(other)}&` +
-        `accessKey=${accesskey}&` +
-        `secretKey=${secretkey}`;
+        `accessKey=${encodeURIComponent(accesskey)}&` +
+        `secretKey=${encodeURIComponent(secretkey)}`;
 
       const bodyStr = JSON.stringify(payload);
 

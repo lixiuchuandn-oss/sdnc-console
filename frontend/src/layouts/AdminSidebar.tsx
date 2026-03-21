@@ -3,6 +3,7 @@ import { Layout, Menu, Button, Typography } from 'antd';
 import { MenuUnfoldOutlined, MenuFoldOutlined } from '@ant-design/icons';
 
 const { Sider } = Layout;
+const SIDEBAR_COLLAPSED_WIDTH = 64;
 
 type MenuItem = any;
 
@@ -44,6 +45,7 @@ const AdminSidebar: React.FC<Props> = ({
     <Sider
       collapsible
       collapsed={collapsed}
+      collapsedWidth={SIDEBAR_COLLAPSED_WIDTH}
       trigger={null}
       onCollapse={(nextCollapsed) => {
         onCollapse(nextCollapsed);

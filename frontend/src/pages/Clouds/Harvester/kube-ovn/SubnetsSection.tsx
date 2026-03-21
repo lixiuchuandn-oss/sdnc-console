@@ -21,6 +21,10 @@ type Props = {
   showYaml?: boolean;
 };
 
+const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
+const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
+const SUBNET_FINALIZER = 'tower.io/managed';
+
 const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading, onRefresh, onRefreshNads, showYaml = true }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -53,8 +57,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   const vpcOptions = useMemo(() => {
     const set = new Set<string>();
     for (const s of subnets || []) {
-      const v = String(s?.vpc || s?.spec?.vpc || 'ovn-cluster').trim();
-      if (v) set.add(v);
+      const v = String(s?.vpc || s?.spec?.vpc || UNDERLAY_SYSTEM_VPC).trim();
+      if (v && v !== UNDERLAY_SYSTEM_VPC) set.add(v);
     }
     return Array.from(set).map((x) => ({ label: x, value: x }));
   }, [subnets]);
@@ -68,19 +72,27 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     return Array.from(set).map((x) => ({ label: x, value: x }));
   }, [subnets]);
 
+  const businessVpcList = useMemo(
+    () => (vpcList || []).filter((v: any) => {
+      const name = String(v?.name || v?.metadata?.name || '').trim();
+      return name && name !== UNDERLAY_SYSTEM_VPC && name !== 'ovn-vpc-external-network';
+    }),
+    [vpcList]
+  );
+
+  const isBusinessSubnet = (r: any) => {
+    const subnetType = String(r?.metadata?.annotations?.[SUBNET_TYPE_ANNOTATION_KEY] || '').trim().toLowerCase();
+    return subnetType === 'vpc';
+  };
+
   const filtered = useMemo(() => {
     const kw = String(keyword || '').toLowerCase().trim();
     return (subnets || []).filter((r: any) => {
-      const vpcVal = String(r?.vpc || r?.spec?.vpc || 'ovn-cluster');
+      const vpcVal = String(r?.vpc || r?.spec?.vpc || UNDERLAY_SYSTEM_VPC);
       const name = String(r?.name || r?.metadata?.name || '').toLowerCase();
       const cidr = String(r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '').toLowerCase();
-      
-      // Exclude public networks (those with a provider, unless it's the default 'ovn' overlay or ends with .ovn)
-      // We rely solely on the provider configuration, ignoring name patterns
-      const provider = r?.provider || r?.spec?.provider;
-      const isPublic = !!provider && provider.trim().length > 0 && provider !== 'ovn' && !provider.endsWith('.ovn');
-      
-      if (isPublic) return false;
+
+      if (!isBusinessSubnet(r)) return false;
 
       // 'join' subnet is system reserved
       // if (name === 'join') return false;
@@ -158,7 +170,20 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         await updateKubeOvnSubnet(cloudId!, name, values);
         message.success('更新子网成功');
       } else {
-        await createKubeOvnSubnet(cloudId!, values);
+        if (String(values?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC) {
+          message.error('业务 VPC 子网不允许使用 ovn-cluster，请选择业务 VPC');
+          setSubmitting(false);
+          return;
+        }
+        const createPayload = {
+          ...values,
+          annotations: {
+            ...(values?.annotations || {}),
+            [SUBNET_TYPE_ANNOTATION_KEY]: 'vpc',
+          },
+          finalizers: Array.from(new Set([...(Array.isArray(values?.finalizers) ? values.finalizers : []), SUBNET_FINALIZER])),
+        };
+        await createKubeOvnSubnet(cloudId!, createPayload);
         message.success('创建子网成功');
         onRefreshNads?.(true, true);
       }
@@ -187,6 +212,10 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     
     const name = record.name || record.metadata?.name;
     const vpcVal = record.vpc || record.spec?.vpc;
+    if (String(vpcVal || '').trim() === UNDERLAY_SYSTEM_VPC) {
+      message.error('ovn-cluster 子网属于扁平/公共网络，不允许在业务 VPC 子网中编辑');
+      return;
+    }
     const cidr = record.cidr || record.cidrBlock || record.spec?.cidrBlock || record.spec?.cidr;
     const gateway = record.gateway || record.spec?.gateway;
     const protocol = record.protocol || record.spec?.protocol || 'IPv4';
@@ -457,7 +486,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
                         rules={[{ required: true, message: '请选择 VPC' }]}
                     >
                         <Select placeholder="请选择 VPC" style={{ width: '100%' }} disabled={isEditMode}>
-                            {vpcList.map(v => (
+                            {businessVpcList.map(v => (
                                 <Select.Option key={v.name} value={v.name}>
                                     {v.name} (UID: {v.uid})
                                 </Select.Option>

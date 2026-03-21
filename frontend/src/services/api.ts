@@ -1384,8 +1384,8 @@ export const getProxyAuthInfo = async (
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
   other: string = '',
   bodyRaw: string = '',
-  accessKey: string = 'Cloudmap%23123',
-  secretKey: string = 'Cloudmap%23123'
+  accessKey: string = 'Cloudmap#123',
+  secretKey: string = 'Cloudmap#123'
 ): Promise<{ Authorization: string; tonce: string }> => {
   const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;
   // 对于签名请求，bodyRaw 可能是字符串，需要直接传递

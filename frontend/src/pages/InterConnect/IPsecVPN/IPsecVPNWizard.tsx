@@ -273,7 +273,9 @@ const IPsecVPNWizard: React.FC = () => {
   };
 
   const requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
-    const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123`;
+    const accessKey = 'Cloudmap#123';
+    const secretKey = 'Cloudmap#123';
+    const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;
     const resp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyRaw });
     const json = await resp.json();
     const info = (json && json.data) ? json.data : json;
