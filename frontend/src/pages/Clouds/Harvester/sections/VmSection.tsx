@@ -99,13 +99,17 @@ type Props = {
   mode?: 'standard' | 'simple';
   bordered?: boolean; // New prop to control table border explicitly
   disableColumnSettings?: boolean; // 禁用列设置组件，避免在某些场景下导致死锁
+  /** 若提供，则点击「创建」时调用而不跳转全量向导（如 Cloudmap 简易模式） */
+  onCreateVmOverride?: () => void;
+  /** 创建按钮文案，默认「创建实例」 */
+  createVmButtonText?: string;
 };
 
 /**
  * [组件定义] VmSection
  * Harvester 虚拟机列表展示与管理组件
  */
-const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, mode = 'standard', bordered = true, disableColumnSettings = false }) => {
+const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOptions, cloudId, nsValue, nodeValue, onNsChange, onNodeChange, onRefresh, onOpenReconfigure, onStart, onStop, onReboot, onSoftReboot, onPause, onUnpause, onDelete, images = [], namespaces = [], volumes = [], isTenant = false, mode = 'standard', bordered = true, disableColumnSettings = false, onCreateVmOverride, createVmButtonText }) => {
   // 使用 Ant Design 的 App 上下文获取 modal 和 message 实例
   const { modal, message } = App.useApp();
   // 路由跳转：用于跳转到“创建实例”等页面
@@ -1784,10 +1788,14 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
             disabled={!hasVmCreatePermission}
             onClick={() => {
               if (!hasVmCreatePermission) return;
+              if (onCreateVmOverride) {
+                onCreateVmOverride();
+                return;
+              }
               navigate(`/clouds/${cloudId}/instances/create`, { state: { backgroundLocation: location, isTenant } });
             }}
           >
-            创建实例
+            {createVmButtonText ?? '创建实例'}
           </Button>
           <Tooltip
             title={

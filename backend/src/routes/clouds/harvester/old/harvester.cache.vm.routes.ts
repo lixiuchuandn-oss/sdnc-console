@@ -59,7 +59,12 @@ import {
 } from '../../../services/clouds/harvester/client';
 import { createHarvesterPVCVolume } from '../../../services/clouds/harvester/storage';
 import { syncKubevirtVms, syncKubevirtVmis } from '../../../services/clouds/harvester/inventory';
-import { getJsonOnce, requestJson, watchJsonStream } from '../../../services/clouds/harvester/utils';
+import {
+  getJsonOnce,
+  requestJson,
+  watchJsonStream,
+  logVmWatchStreamError,
+} from '../../../services/clouds/harvester/utils';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 
 /**
@@ -1646,9 +1651,12 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
                   }
                 },
                 (err) => {
-                  console.error('VM Watch Error:', err);
+                  logVmWatchStreamError('vm', err);
                   // Notify client and close connection to force reconnect
-                  send('stream_error', { message: 'Watch stream error', cause: err?.message });
+                  send('stream_error', {
+                    message: '虚拟机列表监听流异常',
+                    cause: err?.message,
+                  });
                   try { res.end(); } catch {}
                 },
               );
@@ -1680,17 +1688,20 @@ export const registerHarvesterVmRoutes = (router: Router, checkAdminPermission: 
                   }
                 },
                 (err) => {
-                  console.error('VMI Watch Error:', err);
+                  logVmWatchStreamError('vmi', err);
                   // Notify client and close connection to force reconnect
-                  send('stream_error', { message: 'Watch stream error', cause: err?.message });
+                  send('stream_error', {
+                    message: '实例（VMI）监听流异常',
+                    cause: err?.message,
+                  });
                   try { res.end(); } catch {}
                 },
               );
               watchers.push(w2);
             }
           } catch (e: any) {
-            console.error('[SSE] Init Error:', e);
-            send('stream_error', { message: 'Initialization failed', cause: e?.message });
+            console.error('[虚拟机 SSE] 初始化失败:', e);
+            send('stream_error', { message: '实时流初始化失败', cause: e?.message });
             try { res.end(); } catch {}
           }
         };

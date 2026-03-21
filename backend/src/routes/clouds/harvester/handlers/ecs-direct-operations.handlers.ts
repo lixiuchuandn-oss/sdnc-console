@@ -31,7 +31,12 @@ import {
   listKubevirtVMsRawWithMeta,
   listKubevirtVMIsRawWithMeta,
 } from '../../../../services/clouds/harvester/client';
-import { getJsonOnce, watchJsonStream, requestJson } from '../../../../services/clouds/harvester/utils';
+import {
+  getJsonOnce,
+  watchJsonStream,
+  requestJson,
+  logVmWatchStreamError,
+} from '../../../../services/clouds/harvester/utils';
 import {
   checkTenantAccess,
   resolveTenantVmId,
@@ -46,7 +51,7 @@ import {
 export async function harvesterEcsStreamHandler(req: any, res: Response, next: any) {
   try {
     const { id } = req.params;
-    const { allowed, namespace: tenantNamespace } = await checkTenantAccess(
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(
       req,
       id,
     );
@@ -55,12 +60,16 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
         .status(403)
         .json({ message: 'Access denied to this resource pool' });
 
-    // 与 watch 回调一致：租户仅同步白名单命名空间；init 首包原先未过滤，会把全集群 VM 推给前端
-    const tenantAllowedNs = tenantNamespace
-      ? tenantNamespace.split(',').map((s: string) => s.trim()).filter(Boolean)
-      : null;
-    const tenantNsAllowed = (ns: string) =>
-      !tenantAllowedNs || tenantAllowedNs.includes(ns);
+    const allowNamespace = (ns: string | undefined) => {
+      if (!ns) return false;
+      if (isTenant) {
+        return isNamespaceAllowed(tenantNamespace, ns);
+      }
+      if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, ns)) {
+        return false;
+      }
+      return true;
+    };
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '', next)) return;
@@ -149,20 +158,24 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
         const ips: string[] = [];
         if (item.vmi?.status?.interfaces) {
           item.vmi.status.interfaces.forEach((i: any) => {
-            if (i.ipAddress || i.ip) ips.push(i.ipAddress || i.ip);
+            if (i.ipAddress) ips.push(i.ipAddress);
+            if (Array.isArray(i.ipAddresses)) ips.push(...i.ipAddresses);
+            if (i.ip) ips.push(i.ip);
           });
         }
-        const lastStatus = lastSentStatus.get(key);
-        if (lastStatus !== status || nodeName || ips.length > 0) {
-          lastSentStatus.set(key, status);
-          send('vm_status', {
-            id: item.id,
-            status,
-            nodeName,
-            ips,
-            item,
-          });
+        const payload = {
+          iid: item.id,
+          status,
+          nodeName,
+          ips: Array.from(new Set(ips)),
+          metadata: item.metadata,
+        };
+        const payloadStr = JSON.stringify(payload);
+        if (lastSentStatus.get(String(item.id)) === payloadStr) {
+          return;
         }
+        lastSentStatus.set(String(item.id), payloadStr);
+        send('vm_status', payload);
       }
     };
 
@@ -189,75 +202,150 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
         } as any).catch(() => null),
       ]);
 
-      const vms = vmsResult?.items || [];
-      const vmis = vmisResult?.items || [];
+      const vmsRaw = vmsResult?.items || [];
+      const vmisRaw = vmisResult?.items || [];
 
-      vms.forEach((vm: any) => {
-        const ns = vm.metadata?.namespace || '';
-        const name = vm.metadata?.name || '';
-        if (ns && name && tenantNsAllowed(ns)) {
+      if (Array.isArray(vmsRaw)) {
+        vmsRaw.forEach((vm: any) => {
+          const ns = vm.metadata?.namespace || '';
+          const name = vm.metadata?.name || '';
+          if (!ns || !name || !allowNamespace(ns)) return;
           const key = `${ns}/${name}`;
           vmCache.set(key, vm);
-        }
-      });
-
-      vmis.forEach((vmi: any) => {
-        const ns = vmi.metadata?.namespace || '';
-        const name = vmi.metadata?.name || '';
-        if (ns && name && tenantNsAllowed(ns)) {
+        });
+      }
+      if (Array.isArray(vmisRaw)) {
+        vmisRaw.forEach((vmi: any) => {
+          const ns = vmi.metadata?.namespace || '';
+          const name = vmi.metadata?.name || '';
+          if (!ns || !name || !allowNamespace(ns)) return;
           const key = `${ns}/${name}`;
           vmiCache.set(key, vmi);
-          sendItem(key, 'vm_created');
+        });
+      }
+
+      const initialItems: any[] = [];
+      for (const key of vmCache.keys()) {
+        const vm = vmCache.get(key);
+        const vmi = vmiCache.get(key);
+        if (!vm) continue;
+        if (!vm.status) vm.status = {};
+        vm.status.printableStatus = resolveVMStatus(vm, vmi);
+        let o = origin;
+        try {
+          const u = new URL(base);
+          o = `${u.protocol}//${u.host}`;
+        } catch {
+          o = base.replace(/\/v[0-9].*$/, '');
         }
-      });
+        const ns = vm.metadata?.namespace || 'default';
+        const nm = vm.metadata?.name || '';
+        const viewUrl = `${o}/apis/kubevirt.io/v1/namespaces/${ns}/virtualmachines/${nm}`;
+        initialItems.push({
+          id: vm.metadata?.uid,
+          links: { view: viewUrl },
+          ...vm,
+          vmi,
+          _rv: `${vm.metadata?.resourceVersion || ''}|${
+            vmi?.metadata?.resourceVersion || ''
+          }`,
+        });
+      }
+      send('vms', { items: initialItems });
 
-      const vmUrl = `${origin}/apis/kubevirt.io/v1/virtualmachines?watch=true`;
-      const vmiUrl = `${origin}/apis/kubevirt.io/v1/virtualmachineinstances?watch=true`;
+      const watchers: any[] = [];
 
-      const vmWatcher = watchJsonStream(
-        vmUrl,
-        cloud.secretKey || '',
-        insecure,
-        (event: any) => {
-          if (closed) return;
-          const obj = event.object;
-          const ns = obj?.metadata?.namespace || '';
-          const name = obj?.metadata?.name || '';
-          if (!ns || !name) return;
+      if (vmsResult?.url) {
+        const vmRv = vmsResult.resourceVersion;
+        const vmUrl = vmRv
+          ? `${vmsResult.url}?watch=true&resourceVersion=${encodeURIComponent(vmRv)}`
+          : `${vmsResult.url}?watch=true`;
 
-          if (!tenantNsAllowed(ns)) return;
+        const w1 = watchJsonStream(
+          vmUrl,
+          cloud.secretKey || '',
+          insecure,
+          (event: any) => {
+            if (closed) return;
+            const obj = event.object;
+            if (!obj?.metadata) return;
+            const ns = obj.metadata.namespace || '';
+            const name = obj.metadata.name || '';
+            if (!ns || !name) return;
+            if (!allowNamespace(ns)) return;
 
-          const key = `${ns}/${name}`;
-          if (event.type === 'DELETED') {
-            vmCache.delete(key);
-            send('vm_deleted', { id: obj.metadata?.uid });
-          } else {
-            vmCache.set(key, obj);
-            sendItem(key);
-          }
-        },
-      );
+            const key = `${ns}/${name}`;
+            if (event.type === 'DELETED') {
+              vmCache.delete(key);
+              send('vm_deleted', { iid: obj.metadata?.uid });
+            } else {
+              vmCache.set(key, obj);
+              const eventType =
+                event.type === 'ADDED' ? 'vm_created' : 'vm_status';
+              sendItem(key, eventType);
+            }
+          },
+          (err: any) => {
+            logVmWatchStreamError('vm', err);
+            try {
+              send('stream_error', {
+                message: '虚拟机列表监听流异常',
+                cause: err?.message,
+              });
+              if (!(res as any).writableEnded) res.end();
+            } catch {}
+          },
+        );
+        watchers.push(w1);
+      }
 
-      const vmiWatcher = watchJsonStream(
-        vmiUrl,
-        cloud.secretKey || '',
-        insecure,
-        (event: any) => {
-          if (closed) return;
-          const obj = event.object;
-          const ns = obj?.metadata?.namespace || '';
-          const name = obj?.metadata?.name || '';
-          if (!ns || !name) return;
+      if (vmisResult?.url) {
+        const vmiRv = vmisResult.resourceVersion;
+        const vmiUrl = vmiRv
+          ? `${vmisResult.url}?watch=true&resourceVersion=${encodeURIComponent(vmiRv)}`
+          : `${vmisResult.url}?watch=true`;
 
-          if (!tenantNsAllowed(ns)) return;
+        const w2 = watchJsonStream(
+          vmiUrl,
+          cloud.secretKey || '',
+          insecure,
+          (event: any) => {
+            if (closed) return;
+            const obj = event.object;
+            if (!obj?.metadata) return;
+            const ns = obj.metadata.namespace || '';
+            const name = obj.metadata.name || '';
+            if (!ns || !name) return;
+            if (!allowNamespace(ns)) return;
 
-          const key = `${ns}/${name}`;
-          vmiCache.set(key, obj);
-          sendItem(key);
-        },
-      );
+            const key = `${ns}/${name}`;
+            if (event.type === 'DELETED') {
+              vmiCache.delete(key);
+              if (vmCache.has(key)) {
+                sendItem(key);
+              }
+            } else {
+              vmiCache.set(key, obj);
+              if (vmCache.has(key)) {
+                sendItem(key);
+              }
+            }
+          },
+          (err: any) => {
+            logVmWatchStreamError('vmi', err);
+            try {
+              send('stream_error', {
+                message: '实例（VMI）监听流异常',
+                cause: err?.message,
+              });
+              if (!(res as any).writableEnded) res.end();
+            } catch {}
+          },
+        );
+        watchers.push(w2);
+      }
 
-      return [vmWatcher, vmiWatcher];
+      return watchers;
     };
 
     activeWatchers = await init();

@@ -18,6 +18,9 @@
 .wizard-section .ant-form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 /* 中间列滚动区域（Form） */
 .wizard-step-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 30px; scrollbar-gutter: stable; }
+/* 方案 A：各步同时挂载，仅切换显示，避免卸载丢表单项 */
+.wizard-step-panel { display: none; }
+.wizard-step-panel.is-active { display: block; }
 /* 分组标题与表单间距（中间列） */
 .wizard-group-title { font-size: 14px; font-weight: 600; color: #1f1f1f; padding-bottom: 6px; border-bottom: 1px solid #eaeaea; margin: 16px 0 12px; }
 /* Radio 外观（中间列） */

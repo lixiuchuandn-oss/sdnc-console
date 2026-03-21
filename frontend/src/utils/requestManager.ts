@@ -3,6 +3,8 @@
  * 提供请求去重、缓存、重试等功能
  */
 
+import { translateKnownApiErrorMessage } from './k8sErrorMessages';
+
 interface RequestConfig {
   method?: string;
   endpoint: string;
@@ -124,27 +126,7 @@ async function parseErrorResponse(response: Response): Promise<never> {
   } catch (e) {
     // ignore JSON parse error
   }
-  const translateKnownMessage = (raw: string) => {
-    const msg = String(raw || '').trim();
-    if (!msg) return raw;
-    const lower = msg.toLowerCase();
-    if (
-      /runstategy\s+halted.*manual restart/i.test(msg) ||
-      /runstrategy\s+halted.*manual restart/i.test(msg) ||
-      (lower.includes('virtualmachine.kubevirt.io') && lower.includes('runstategy halted')) ||
-      (lower.includes('virtualmachine.kubevirt.io') && lower.includes('runstrategy halted'))
-    ) {
-      let vm = '';
-      const m1 = msg.match(/restart virtual machine\s+([^\s]+)\s+failed/i);
-      if (m1?.[1]) vm = String(m1[1]);
-      const m2 = msg.match(/virtualmachine\.kubevirt\.io\s+"([^"]+)"/i);
-      if (!vm && m2?.[1]) vm = String(m2[1]);
-      const head = vm ? `实例 ${vm} ` : '实例 ';
-      return `${head}运行策略为 Halted（保持停止），不支持重启。请先启动实例或将运行策略调整为允许运行后再重试。`;
-    }
-    return raw;
-  };
-  errorMsg = translateKnownMessage(errorMsg);
+  errorMsg = translateKnownApiErrorMessage(errorMsg);
   const err: any = new Error(errorMsg);
   err.status = response.status;
   err.response = response;

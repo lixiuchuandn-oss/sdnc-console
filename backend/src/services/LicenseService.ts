@@ -3,6 +3,9 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
+import { logger } from '../utils/logger';
+
+const licenseLog = logger.child('License');
 
 // 存储 License 的文件路径
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -226,7 +229,7 @@ class LicenseService {
         };
       }
     } catch (error: any) {
-      console.error('License verification failed:', error.message);
+      licenseLog.error('License verification failed:', error?.message ?? String(error));
       this.currentStatus = { status: 'invalid', active: false, message: `Invalid license: ${error.message}` };
     }
   }

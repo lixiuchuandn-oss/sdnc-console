@@ -1,5 +1,8 @@
+import { logger } from '../../../utils/logger';
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson } from './utils';
+
+const harvesterStorageLog = logger.child('Harvester-Storage');
 
 /**
  * ==============================================================================
@@ -65,7 +68,7 @@ export const listHarvesterPVCRaw = async ({
         break;
       }
     } catch (e: any) {
-      console.warn(`[Harvester-API] 存储卷从 ${url} 获取失败: ${e.message}`);
+      harvesterStorageLog.debug(`存储卷候选 URL 失败: ${url}`, e?.message ?? String(e));
       lastErr = e;
     }
   }
@@ -154,7 +157,7 @@ export const listHarvesterAvailableVolumesStandard = async (
         break;
       }
     } catch (e: any) {
-      console.warn(`[Harvester可用卷] 获取失败: 请求地址=${url} 错误=${e.message}`);
+      harvesterStorageLog.debug(`可用卷候选 URL 失败: ${url}`, e?.message ?? String(e));
       lastErr = e;
     }
   }
@@ -237,7 +240,7 @@ export const listHarvesterStorageClassesStandard = async ({
         break;
       }
     } catch (e: any) {
-      console.warn(`[Harvester-API] 存储类获取失败: 请求地址=${url} 错误=${e.message}`);
+      harvesterStorageLog.debug(`存储类候选 URL 失败: ${url}`, e?.message ?? String(e));
       lastErr = e;
     }
   }
@@ -311,13 +314,16 @@ export const listHarvesterImagesRaw = async ({
         break;
       }
     } catch (e: any) {
-      console.warn(`[Harvester-API] 镜像从 ${url} 获取失败: ${e.message}`);
+      harvesterStorageLog.debug(`镜像候选 URL 失败: ${url}`, e?.message ?? String(e));
       lastErr = e;
     }
   }
 
   if (!json && lastErr) {
-    console.error(`[Harvester镜像] listHarvesterImagesRaw 执行失败: ${lastErr?.message || lastErr}`);
+    harvesterStorageLog.error(
+      'listHarvesterImagesRaw 执行失败:',
+      lastErr?.message ?? String(lastErr),
+    );
     return [];
   }
 
@@ -373,7 +379,10 @@ export const listHarvesterImagesStandard = async ({
     }
   }
   if (!json && lastErr) {
-    console.error(`[Harvester-API] listHarvesterImagesStandard 执行失败: ${lastErr?.message || lastErr}`);
+    harvesterStorageLog.error(
+      'listHarvesterImagesStandard 执行失败:',
+      lastErr?.message ?? String(lastErr),
+    );
     json = { items: [], data: [] };
   }
   const items = Array.isArray(json?.data)
@@ -943,7 +952,10 @@ export const restoreVolumeSnapshot = async (
         body.spec.resources = { requests: { storage: restoreSize } };
       }
     } catch (e) {
-      console.warn('Failed to fetch snapshot size for restoration, submitting without size.', e);
+      harvesterStorageLog.debug(
+        'Failed to fetch snapshot size for restoration, submitting without size.',
+        e instanceof Error ? e.message : String(e),
+      );
     }
   }
 
@@ -1347,7 +1359,7 @@ export const listHarvesterSnapshotsStandard = async ({
       // 404 means this version is not supported, continue to next
       if (Number(e?.status) !== 404 && !String(e?.message).includes('404')) {
          // Log non-404 errors as warnings but don't crash
-         console.warn(`[Harvester] Snapshot list warning for ${url}: ${e.message}`);
+         harvesterStorageLog.debug(`Snapshot list candidate failed: ${url}`, e?.message ?? String(e));
       }
     }
   }
@@ -1488,16 +1500,38 @@ export const listHarvesterCloudInitsStandard = async ({
     origin = base.replace(/\/v[0-9].*$/, '');
   }
 
-  // 尝试 Harvester CloudInitTemplates CRD
-  const url = `${origin}/apis/harvesterhci.io/v1beta1/cloudinittemplates`;
-  
-  try {
-    const json = await getJsonOnce(url, token, insecure);
-    return Array.isArray(json?.items) ? json.items : [];
-  } catch (e: any) {
-    console.warn(`[Harvester] 获取 CloudInitTemplates 失败: ${e.message}`);
-    return [];
+  /**
+   * CloudInitTemplate 在多数官方 Harvester 发行版中未作为独立 CRD 注册，直连 apiserver 常为 404。
+   * 使用 silent 探测避免 Compute-Api 对「可选能力」打 error；成功路径与 Rancher 代理 URL 做兼容。
+   */
+  const candidates = [
+    `${origin}/apis/harvesterhci.io/v1beta1/cloudinittemplates`,
+    `${origin}/apis/harvesterhci.io/v1/cloudinittemplates`,
+    `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1beta1/cloudinittemplates`,
+  ];
+
+  let lastStatus: number | undefined;
+  for (const url of candidates) {
+    try {
+      const json = await getJsonOnce(url, token, insecure, true);
+      if (Array.isArray(json?.items)) return json.items;
+      if (Array.isArray(json)) return json;
+    } catch (e: any) {
+      lastStatus = e?.status;
+    }
   }
+
+  if (lastStatus && lastStatus !== 404) {
+    harvesterStorageLog.debug(
+      '获取 CloudInitTemplates 失败（非 404，已返回空列表）',
+      lastStatus,
+    );
+  } else {
+    harvesterStorageLog.debug(
+      'CloudInitTemplates API 不可用或为空（404 常见于集群未注册该资源；VM 仍可使用内联 CloudInit）',
+    );
+  }
+  return [];
 };
 
 /**

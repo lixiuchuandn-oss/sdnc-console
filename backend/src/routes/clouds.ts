@@ -15,6 +15,10 @@ import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/
 import { licenseService } from '../services/LicenseService';
 // 新权限体系
 import { createApiPermissionMiddleware } from '../permissions';
+import { logger } from '../utils/logger';
+
+const cloudRouteLog = logger.child('Cloud');
+const cloudDebugLog = logger.child('Cloud-Debug');
 
 // 多云接入与资源池路由：
 // - 管理云资源池（Cloud）对象的增删改查与连通性测试
@@ -85,7 +89,10 @@ const testCloudConnectionUnified = async (args: {
       await csmRequest(config, '/V2/ctcontrol/VM04/vms', { page_size: 1, page_num: 1 });
       return { ok: true, message: '连接成功，API调用正常' };
     } catch (err: any) {
-      console.error('Cloudmap connection test failed:', err);
+      cloudRouteLog.error(
+        'Cloudmap connection test failed:',
+        err?.response?.data?.message || err?.message || String(err),
+      );
       const msg = err?.response?.data?.message || err?.message || '连接失败';
       return { ok: false, message: `连接失败: ${msg}` };
     }
@@ -1051,7 +1058,7 @@ router.post('/:id/sync', createApiPermissionMiddleware(), async (req: AuthReques
       res.json({ message: '该云类型已触发后台同步' });
     }
   } catch (error: any) {
-    console.error(`Sync cloud ${req.params.id} failed:`, error);
+    cloudRouteLog.error(`Sync cloud ${req.params.id} failed:`, error?.message ?? String(error));
     res.status(500).json({ message: '同步失败', error: error.message });
   }
 });
@@ -1146,7 +1153,10 @@ router.get('/resources/ecs-all', createApiPermissionMiddleware(), async (req: Au
         const instances = await fetchInstancesForCloud(cloud);
         items.push(...instances);
       } catch (e) {
-        console.warn(`Failed to fetch instances for cloud ${cloud.name}:`, e);
+        cloudRouteLog.warn(
+          `Failed to fetch instances for cloud ${cloud.name}:`,
+          e instanceof Error ? e.message : String(e),
+        );
       }
     }
 
@@ -1223,7 +1233,7 @@ router.get(
           if (targetCloudId && cloud.id !== targetCloudId) continue;
           const providerRaw = String((cloud as any)?.config?.provider || '');
           const provider = providerRaw.toLowerCase();
-          console.log(`[DEBUG] Inventory sync: processing cloud ${cloud.name} (${providerRaw})`);
+          cloudDebugLog.debug(`Inventory sync: processing cloud ${cloud.name} (${providerRaw})`);
           if (!supported.includes(provider)) continue;
           let list: any[] = [];
           const vpcInfoMap = new Map<string, { name?: string; cidr?: string }>();
@@ -1303,7 +1313,10 @@ router.get(
               await syncKubevirtVms(cloud, insecure);
               await syncKubevirtVmis(cloud, insecure);
             } catch (err) {
-              console.error(`Error syncing Kubevirt VMs/VMIs for cloud ${cloud.name}:`, err);
+              cloudRouteLog.error(
+                `Error syncing Kubevirt VMs/VMIs for cloud ${cloud.name}:`,
+                err instanceof Error ? err.message : String(err),
+              );
             }
             // Cleanup old inventory for this cloud (deprecated tables)
             await invRepo.delete({ cloudId: cloud.id });
@@ -1316,7 +1329,7 @@ router.get(
               list = [];
             } else {
               const ignoreTls = !!(cloud as any)?.config?.ignoreTls;
-              console.log(`[DEBUG] Inventory sync: calling listCsmVms for ${cloud.name}`);
+              cloudDebugLog.debug(`Inventory sync: calling listCsmVms for ${cloud.name}`);
               list = await listCsmVms({
                 endpoint: endpointRaw,
                 accessKey: ak,
@@ -1790,7 +1803,7 @@ router.post(
         secretKey: cloud.secretKey,
       });
     } catch (error: any) {
-      console.error('Reveal credentials error:', error);
+      cloudRouteLog.error('Reveal credentials error:', error?.message ?? String(error));
       res.status(500).json({ message: '获取凭证失败', error: error.message });
     }
   },

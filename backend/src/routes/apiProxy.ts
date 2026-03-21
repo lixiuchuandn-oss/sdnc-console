@@ -3,6 +3,9 @@ import axios from 'axios';
 import https from 'https';
 import crypto from 'crypto';
 import { getSystemSetting } from '../config/systemSettings';
+import { logger } from '../utils/logger';
+
+const apiProxyLog = logger.child('Api-Proxy');
 
 // 该路由模块负责将前端请求转发到 CSMCTL 等后端控制面服务，
 // 同时本地实现 /api/sign 接口，用于在 CSMCTL 签名逻辑异常或不兼容时兜底，
@@ -50,9 +53,7 @@ router.post('/api/sign', (req, res) => {
     const authBase64 = Buffer.from(rawStr).toString('base64');
 
     // 日志中仅输出 Authorization 前缀，避免泄露完整签名信息
-    console.log(
-      `[API Proxy] Local Sign: ${method} ${url} -> Auth: ${authBase64.substring(0, 10)}...`,
-    );
+    apiProxyLog.debug(`Local Sign: ${method} ${url} -> Auth: ${authBase64.substring(0, 10)}...`);
 
     res.json({
       code: 200,
@@ -80,7 +81,7 @@ router.all('*', async (req, res) => {
   // 例如前端请求 /api-proxy/api/sign?foo=bar，此处能拿到 /api/sign?foo=bar
   const targetUrl = `${targetBase}${req.url}`;
 
-  console.log(`[API Proxy] ${req.method} ${req.originalUrl} -> ${targetUrl}`);
+  apiProxyLog.info(`${req.method} ${req.originalUrl} -> ${targetUrl}`);
 
   try {
     const config: any = {
@@ -121,7 +122,7 @@ router.all('*', async (req, res) => {
     // 使用流的方式将响应体直接 pipe 给前端，避免在代理层缓存大体积数据
     response.data.pipe(res);
   } catch (error: any) {
-    console.error('[API Proxy] Error:', error.message);
+    apiProxyLog.error('Proxy Error:', error.message);
     // 代理层无法连接下游服务时，统一返回 502 Bad Gateway，并附带目标地址与错误信息
     if (!res.headersSent) {
       res.status(502).json({

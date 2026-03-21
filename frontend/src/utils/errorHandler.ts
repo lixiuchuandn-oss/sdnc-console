@@ -1,4 +1,5 @@
 import { message } from 'antd';
+import { translateKnownApiErrorMessage } from './k8sErrorMessages';
 
 /**
  * API 错误类型定义
@@ -42,38 +43,6 @@ export const handleApiError = (
     message: defaultMessage,
   };
 
-  const translateKnownMessage = (raw: string) => {
-    const msg = String(raw || '').trim();
-    if (!msg) return raw;
-    const lower = msg.toLowerCase();
-    // VM 运行策略为 Halted 时的重启限制
-    if (
-      /runstategy\s+halted.*manual restart/i.test(msg) ||
-      /runstrategy\s+halted.*manual restart/i.test(msg) ||
-      (lower.includes('virtualmachine.kubevirt.io') && lower.includes('runstategy halted')) ||
-      (lower.includes('virtualmachine.kubevirt.io') && lower.includes('runstrategy halted'))
-    ) {
-      let vm = '';
-      const m1 = msg.match(/restart virtual machine\s+([^\s]+)\s+failed/i);
-      if (m1?.[1]) vm = String(m1[1]);
-      const m2 = msg.match(/virtualmachine\.kubevirt\.io\s+"([^"]+)"/i);
-      if (!vm && m2?.[1]) vm = String(m2[1]);
-      const head = vm ? `实例 ${vm} ` : '实例 ';
-      return `${head}运行策略为 Halted（保持停止），不支持重启。请先启动实例或将运行策略调整为允许运行后再重试。`;
-    }
-
-    // Harvester VM 正在备份中，禁止停止/重启
-    if (lower.includes('vmbackup in progress for vm')) {
-      let vm = '';
-      const m = msg.match(/vmbackup in progress for vm\s+([^\s,]+)/i);
-      if (m?.[1]) vm = String(m[1]);
-      const head = vm ? `实例 ${vm} ` : '实例 ';
-      return `${head}当前正在执行备份任务，Harvester 暂不允许停止或重启。请等待备份完成或删除正在进行的备份后再重试。`;
-    }
-
-    return raw;
-  };
-
   // 处理 Fetch API Response 错误（同步处理，因为 Response.json() 是异步的）
   // 注意：这种情况通常不会直接传入 Response，而是通过其他方式处理
 
@@ -83,13 +52,13 @@ export const handleApiError = (
     apiError.status = status;
     apiError.data = data;
 
-    // 优先使用更详细的 error 字段翻译某些 Harvester 特殊错误（例如 vmbackup in progress）
-    const rawError: string | undefined = typeof data?.error === 'string' ? data.error : undefined;
-    if (rawError && rawError.toLowerCase().includes('vmbackup in progress for vm')) {
-      apiError.message = translateKnownMessage(rawError);
-    } else {
-      apiError.message = translateKnownMessage(data?.message || data?.error || getStatusMessage(status));
-    }
+    const parts: string[] = [];
+    if (data?.message) parts.push(String(data.message));
+    if (typeof data?.error === 'string') parts.push(data.error);
+    if (data?.error && typeof data.error === 'object') parts.push(JSON.stringify(data.error));
+    const combined =
+      parts.length > 0 ? parts.join(' ') : getStatusMessage(status);
+    apiError.message = translateKnownApiErrorMessage(combined);
     
     // 特殊状态码处理
     handleSpecialStatus(status, apiError.message);
@@ -122,7 +91,7 @@ export const handleApiError = (
 
   // 处理普通 Error 对象
   if (error instanceof Error) {
-    apiError.message = translateKnownMessage(error.message || defaultMessage);
+    apiError.message = translateKnownApiErrorMessage(error.message || defaultMessage);
     
     if (showMessage) {
       message.error(apiError.message);
@@ -137,7 +106,7 @@ export const handleApiError = (
 
   // 处理字符串错误
   if (typeof error === 'string') {
-    apiError.message = translateKnownMessage(error);
+    apiError.message = translateKnownApiErrorMessage(error);
     
     if (showMessage) {
       message.error(apiError.message);

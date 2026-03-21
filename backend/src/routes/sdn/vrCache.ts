@@ -4,6 +4,9 @@ import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
 import { VRCacheDevice } from '../../entities/vRouter/VRCacheDevice';
 import { VRCacheService } from '../../services/vrouter/VRCacheService';
+import { logger } from '../../utils/logger';
+
+const vrCacheHttpLog = logger.child('VR-Cache-HTTP');
 
 export const vrCacheRoutes = Router();
 
@@ -13,7 +16,10 @@ vrCacheRoutes.post('/refresh', async (req, res) => {
     await VRCacheService.getInstance().syncAll();
     res.json({ message: '同步任务已触发', status: 'ok' });
   } catch (err: any) {
-    console.error('[VR_SYNC] Manual sync error', err);
+    vrCacheHttpLog.error(
+      'Manual sync error',
+      err instanceof Error ? err.message : String(err),
+    );
     res.status(500).json({ message: 'Sync failed', error: err.message });
   }
 });
@@ -89,7 +95,7 @@ vrCacheRoutes.get('/pagelist', async (req, res) => {
       },
     });
   } catch (err: any) {
-    console.error('[VR_CACHE] pagelist error', err);
+    vrCacheHttpLog.error('pagelist error', err instanceof Error ? err.message : String(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });

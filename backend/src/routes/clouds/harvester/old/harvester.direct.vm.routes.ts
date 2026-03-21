@@ -65,7 +65,11 @@ import {
   harvesterForceDeleteVM,
   harvesterRestoreVM,
 } from '../../../services/clouds/harvester/client';
-import { getJsonOnce, watchJsonStream } from '../../../services/clouds/harvester/utils';
+import {
+  getJsonOnce,
+  watchJsonStream,
+  logVmWatchStreamError,
+} from '../../../services/clouds/harvester/utils';
 import {
   checkTenantAccess,
   resolveTenantVmId,
@@ -368,9 +372,12 @@ export const registerHarvesterDirectVmRoutes = (
                 }
               },
               (err) => {
-                console.error('VM Watch Error:', err);
+                logVmWatchStreamError('vm', err);
                 try {
-                  send('stream_error', { message: 'Watch stream error', cause: err?.message });
+                  send('stream_error', {
+                    message: '虚拟机列表监听流异常',
+                    cause: err?.message,
+                  });
                   if (!(res as any).writableEnded) res.end();
                 } catch {}
               },
@@ -423,9 +430,12 @@ export const registerHarvesterDirectVmRoutes = (
                 }
               },
               (err) => {
-                console.error('VMI Watch Error:', err);
+                logVmWatchStreamError('vmi', err);
                 try {
-                  send('stream_error', { message: 'Watch stream error', cause: err?.message });
+                  send('stream_error', {
+                    message: '实例（VMI）监听流异常',
+                    cause: err?.message,
+                  });
                   if (!(res as any).writableEnded) res.end();
                 } catch {}
               },

@@ -10,6 +10,9 @@ import { In } from 'typeorm';
 import { AuthRequest } from '../../middleware/auth';
 import bcrypt from 'bcryptjs';
 import { checkPermission } from '../../permissions';
+import { logger } from '../../utils/logger';
+
+const sysUserLog = logger.child('Sysuser');
 
 const router = Router();
 
@@ -94,7 +97,7 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
 
     res.json(enrichedUsers);
   } catch (error) {
-    console.error('获取租户用户列表失败:', error);
+    sysUserLog.error('获取租户用户列表失败:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ message: '获取租户用户列表失败' });
   }
 });
@@ -124,7 +127,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
           tenantName = fullUser?.tenant?.name;
           organizationName = fullUser?.organization?.name;
       } catch (e) {
-          console.warn('Failed to fetch tenant/org info', e);
+          sysUserLog.warn('Failed to fetch tenant/org info', e instanceof Error ? e.message : String(e));
       }
       
       let permissions: string[] = [];
@@ -164,7 +167,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         // Deduplicate
         permissions = Array.from(new Set(permissions));
       } catch (e) {
-        console.warn('Failed to fetch permissions for tenant user', e);
+        sysUserLog.warn('Failed to fetch permissions for tenant user', e instanceof Error ? e.message : String(e));
       }
 
       resp = {

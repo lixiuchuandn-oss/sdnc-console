@@ -6,6 +6,9 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { permissionRegistry, permissionChecker, resolvePermissionFromApi } from './index';
+import { logger } from '../utils/logger';
+
+const permLog = logger.child('Permission');
 
 /**
  * 认证请求接口（扩展 Express Request）
@@ -84,7 +87,7 @@ export function createPermissionMiddleware(
 
       next();
     } catch (error) {
-      console.error('[PermissionMiddleware] Error:', error);
+      permLog.error('Error:', error instanceof Error ? error.message : String(error));
       return res.status(500).json({ message: '权限检查失败' });
     }
   };

@@ -25,6 +25,15 @@ import { getSystemSetting } from '../../../config/systemSettings';
 import { listKubevirtVMsRaw } from './vm';
 import { harvesterEnsureVmStopped, harvesterForceDeleteVM } from './lifecycle';
 import { HarvesterTestParams } from './types';
+import { logger } from '../../../utils/logger';
+
+const rbLog = logger.child('Recycle-Bin');
+
+function summarizeRbErr(err: unknown): string {
+  if (err == null) return '';
+  const e = err as any;
+  return e?.message || String(err);
+}
 
 // 判断 VM 是否处于运行状态（与 lifecycle.ts 中的逻辑保持一致）
 const getVmStatusLower = (vm: any): string => {
@@ -61,16 +70,16 @@ export class RecycleBinTaskService {
    * - 之后根据配置的间隔定时执行
    */
   public startTasks() {
-    console.log('[RecycleBinTask] 启动回收站定时任务...');
+    rbLog.info('启动回收站定时任务...');
     
     // 立即执行一次关机任务
     this.shutdownRunningVmsInRecycleBin().catch((err) => {
-      console.error('[RecycleBinTask] 初始关机任务失败:', err);
+      rbLog.error('初始关机任务失败:', summarizeRbErr(err));
     });
 
     // 立即执行一次清理任务
     this.cleanupExpiredVms().catch((err) => {
-      console.error('[RecycleBinTask] 初始清理任务失败:', err);
+      rbLog.error('初始清理任务失败:', summarizeRbErr(err));
     });
 
     // 启动定时任务
@@ -85,12 +94,12 @@ export class RecycleBinTaskService {
     if (this.shutdownTimer) {
       clearInterval(this.shutdownTimer);
       this.shutdownTimer = null;
-      console.log('[RecycleBinTask] 已停止关机定时任务');
+      rbLog.info('已停止关机定时任务');
     }
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
-      console.log('[RecycleBinTask] 已停止清理定时任务');
+      rbLog.info('已停止清理定时任务');
     }
   }
 
@@ -99,7 +108,7 @@ export class RecycleBinTaskService {
    * 用于配置更新后立即应用新配置
    */
   public rescheduleShutdownTask() {
-    console.log('[RecycleBinTask] 重新调度关机任务...');
+    rbLog.info('重新调度关机任务...');
     this.scheduleShutdownTask();
   }
 
@@ -120,16 +129,16 @@ export class RecycleBinTaskService {
     );
     const intervalMs = Math.max(1, intervalHours) * 60 * 60 * 1000; // 至少 1 小时
 
-    console.log(`[RecycleBinTask] 定时清理任务间隔: ${intervalHours} 小时 (${intervalMs}ms)`);
+    rbLog.debug(`定时清理任务间隔: ${intervalHours} 小时 (${intervalMs}ms)`);
 
     this.cleanupTimer = setInterval(() => {
-      console.log(`[RecycleBinTask] 定时触发清理任务...`);
+      rbLog.debug(`定时触发清理任务...`);
       this.cleanupExpiredVms().catch((err) => {
-        console.error('[RecycleBinTask] 定时清理任务失败:', err);
+        rbLog.error('定时清理任务失败:', summarizeRbErr(err));
       });
     }, intervalMs);
     
-    console.log(`[RecycleBinTask] 清理定时任务已启动，将在 ${intervalHours} 小时后执行下一次扫描`);
+    rbLog.debug(`清理定时任务已启动，将在 ${intervalHours} 小时后执行下一次扫描`);
   }
 
   /**
@@ -149,16 +158,16 @@ export class RecycleBinTaskService {
     );
     const intervalMs = Math.max(1, intervalHours) * 60 * 60 * 1000; // 至少 1 小时
 
-    console.log(`[RecycleBinTask] 定时关机任务间隔: ${intervalHours} 小时 (${intervalMs}ms)`);
+    rbLog.debug(`定时关机任务间隔: ${intervalHours} 小时 (${intervalMs}ms)`);
 
     this.shutdownTimer = setInterval(() => {
-      console.log(`[RecycleBinTask] 定时触发关机任务...`);
+      rbLog.debug(`定时触发关机任务...`);
       this.shutdownRunningVmsInRecycleBin().catch((err) => {
-        console.error('[RecycleBinTask] 定时关机任务失败:', err);
+        rbLog.error('定时关机任务失败:', summarizeRbErr(err));
       });
     }, intervalMs);
     
-    console.log(`[RecycleBinTask] 定时任务已启动，将在 ${intervalHours} 小时后执行下一次扫描`);
+    rbLog.debug(`定时任务已启动，将在 ${intervalHours} 小时后执行下一次扫描`);
   }
 
   /**
@@ -166,13 +175,13 @@ export class RecycleBinTaskService {
    */
   private async shutdownRunningVmsInRecycleBin() {
     if (this.isShutdownRunning) {
-      console.log('[RecycleBinTask] 关机任务正在进行中，跳过...');
+      rbLog.info('关机任务正在进行中，跳过...');
       return;
     }
 
     this.isShutdownRunning = true;
     const taskId = `task-${Date.now()}`;
-    console.log(`[RecycleBinTask] 开始执行关机任务 [${taskId}]...`);
+    rbLog.debug(`开始执行关机任务 [${taskId}]...`);
 
     try {
       const cloudRepo = AppDataSource.getRepository(Cloud);
@@ -188,7 +197,7 @@ export class RecycleBinTaskService {
         );
       });
 
-      console.log(`[RecycleBinTask] 找到 ${clouds.length} 个 Harvester 云平台`);
+      rbLog.debug(`找到 ${clouds.length} 个 Harvester 云平台`);
 
       let totalScanned = 0;
       let totalShutdown = 0;
@@ -204,15 +213,15 @@ export class RecycleBinTaskService {
           totalFailed += result.failed;
           totalSkipped += result.skipped;
         } catch (err) {
-          console.error(`[RecycleBinTask] 处理云平台 ${cloud.name} (${cloud.id}) 失败:`, err);
+          rbLog.error(`处理云平台 ${cloud.name} (${cloud.id}) 失败:`, summarizeRbErr(err));
         }
       }
 
-      console.log(
-        `[RecycleBinTask] 关机任务完成 [${taskId}]: 扫描 ${totalScanned} 台, 关机 ${totalShutdown} 台, 失败 ${totalFailed} 台, 跳过 ${totalSkipped} 台`
+      rbLog.info(
+        `关机任务完成 [${taskId}]: 扫描 ${totalScanned} 台, 关机 ${totalShutdown} 台, 失败 ${totalFailed} 台, 跳过 ${totalSkipped} 台`,
       );
     } catch (err) {
-      console.error('[RecycleBinTask] 关机任务发生严重错误:', err);
+      rbLog.error('关机任务发生严重错误:', summarizeRbErr(err));
     } finally {
       this.isShutdownRunning = false;
     }
@@ -242,7 +251,7 @@ export class RecycleBinTaskService {
     const vms = await listKubevirtVMsRaw(params);
     const recycleBinFinalizer = 'tower.io/recycle-bin';
 
-    console.log(`[RecycleBinTask] 云平台 ${cloud.name}: 获取到 ${vms.length} 台虚拟机`);
+    rbLog.debug(`云平台 ${cloud.name}: 获取到 ${vms.length} 台虚拟机`);
 
     // 过滤出回收站中的虚拟机
     const recycleBinVms = vms.filter((vm: any) => {
@@ -254,7 +263,7 @@ export class RecycleBinTaskService {
       );
     });
 
-    console.log(`[RecycleBinTask] 云平台 ${cloud.name}: 回收站中有 ${recycleBinVms.length} 台虚拟机`);
+    rbLog.debug(`云平台 ${cloud.name}: 回收站中有 ${recycleBinVms.length} 台虚拟机`);
 
     let scanned = recycleBinVms.length;
     let shutdown = 0;
@@ -269,9 +278,9 @@ export class RecycleBinTaskService {
         else if (result === 'failed') failed++;
         else skipped++;
       } catch (err) {
-        console.error(
-          `[RecycleBinTask] 处理虚拟机失败: ${cloud.name}/${vm.metadata?.namespace}/${vm.metadata?.name}`,
-          err
+        rbLog.error(
+          `处理虚拟机失败: ${cloud.name}/${vm.metadata?.namespace}/${vm.metadata?.name}`,
+          summarizeRbErr(err),
         );
         failed++;
       }
@@ -295,7 +304,7 @@ export class RecycleBinTaskService {
     const instanceId = namespace && name ? `${namespace}/${name}` : uid;
 
     if (!namespace || !name) {
-      console.warn(`[RecycleBinTask] 虚拟机缺少命名空间或名称，跳过: ${instanceId}`);
+      rbLog.warn(`虚拟机缺少命名空间或名称，跳过: ${instanceId}`);
       return 'skipped';
     }
 
@@ -305,17 +314,13 @@ export class RecycleBinTaskService {
 
     if (!isRunning) {
       // 已经停止，跳过
-      console.log(
-        `[RecycleBinTask] 虚拟机已停止，跳过: ${cloud.name}/${instanceId} (状态: ${status})`
-      );
+      rbLog.debug(`虚拟机已停止，跳过: ${cloud.name}/${instanceId} (状态: ${status})`);
       return 'skipped';
     }
 
     // 记录关机前的状态
     const previousStatus = status;
-    console.log(
-      `[RecycleBinTask] 发现运行中的回收站虚拟机: ${cloud.name}/${instanceId} (状态: ${previousStatus})`
-    );
+    rbLog.debug(`发现运行中的回收站虚拟机: ${cloud.name}/${instanceId} (状态: ${previousStatus})`);
 
     // 执行关机
     try {
@@ -336,9 +341,7 @@ export class RecycleBinTaskService {
         taskId,
       });
 
-      console.log(
-        `[RecycleBinTask] 成功关闭回收站中的虚拟机: ${cloud.name}/${instanceId} (原状态: ${previousStatus})`
-      );
+      rbLog.debug(`成功关闭回收站中的虚拟机: ${cloud.name}/${instanceId} (原状态: ${previousStatus})`);
 
       return 'success';
     } catch (err: any) {
@@ -354,10 +357,7 @@ export class RecycleBinTaskService {
         taskId,
       });
 
-      console.error(
-        `[RecycleBinTask] 关闭回收站中的虚拟机失败: ${cloud.name}/${instanceId}`,
-        err
-      );
+      rbLog.error(`关闭回收站中的虚拟机失败: ${cloud.name}/${instanceId}`, summarizeRbErr(err));
 
       return 'failed';
     }
@@ -415,7 +415,7 @@ export class RecycleBinTaskService {
       });
       await recordRepo.save(record);
     } catch (err) {
-      console.error('[RecycleBinTask] 记录关机操作失败:', err);
+      rbLog.error('记录关机操作失败:', summarizeRbErr(err));
     }
   }
 
@@ -431,13 +431,13 @@ export class RecycleBinTaskService {
    */
   private async cleanupExpiredVms() {
     if (this.isCleanupRunning) {
-      console.log('[RecycleBinTask] 清理任务正在进行中，跳过...');
+      rbLog.info('清理任务正在进行中，跳过...');
       return;
     }
 
     this.isCleanupRunning = true;
     const taskId = `cleanup-${Date.now()}`;
-    console.log(`[RecycleBinTask] 开始执行清理任务 [${taskId}]...`);
+    rbLog.debug(`开始执行清理任务 [${taskId}]...`);
 
     try {
       const cloudRepo = AppDataSource.getRepository(Cloud);
@@ -453,7 +453,7 @@ export class RecycleBinTaskService {
         );
       });
 
-      console.log(`[RecycleBinTask] 找到 ${clouds.length} 个 Harvester 云平台`);
+      rbLog.debug(`找到 ${clouds.length} 个 Harvester 云平台`);
 
       let totalScanned = 0;
       let totalDeleted = 0;
@@ -469,15 +469,15 @@ export class RecycleBinTaskService {
           totalFailed += result.failed;
           totalSkipped += result.skipped;
         } catch (err: any) {
-          console.error(`[RecycleBinTask] 处理云平台 ${cloud.name} (${cloud.id}) 失败:`, err);
+          rbLog.error(`处理云平台 ${cloud.name} (${cloud.id}) 失败:`, summarizeRbErr(err));
         }
       }
 
-      console.log(
-        `[RecycleBinTask] 清理任务完成 [${taskId}]: 扫描 ${totalScanned} 台, 删除 ${totalDeleted} 台, 失败 ${totalFailed} 台, 跳过 ${totalSkipped} 台`
+      rbLog.info(
+        `清理任务完成 [${taskId}]: 扫描 ${totalScanned} 台, 删除 ${totalDeleted} 台, 失败 ${totalFailed} 台, 跳过 ${totalSkipped} 台`,
       );
     } catch (err: any) {
-      console.error('[RecycleBinTask] 清理任务发生严重错误:', err);
+      rbLog.error('清理任务发生严重错误:', summarizeRbErr(err));
     } finally {
       this.isCleanupRunning = false;
     }
@@ -507,7 +507,7 @@ export class RecycleBinTaskService {
     const vms = await listKubevirtVMsRaw(params);
     const recycleBinFinalizer = 'tower.io/recycle-bin';
 
-    console.log(`[RecycleBinTask] 云平台 ${cloud.name}: 获取到 ${vms.length} 台虚拟机`);
+    rbLog.debug(`云平台 ${cloud.name}: 获取到 ${vms.length} 台虚拟机`);
 
     // 过滤出回收站中的虚拟机
     const recycleBinVms = vms.filter((vm: any) => {
@@ -519,7 +519,7 @@ export class RecycleBinTaskService {
       );
     });
 
-    console.log(`[RecycleBinTask] 云平台 ${cloud.name}: 回收站中有 ${recycleBinVms.length} 台虚拟机`);
+    rbLog.debug(`云平台 ${cloud.name}: 回收站中有 ${recycleBinVms.length} 台虚拟机`);
 
     const now = new Date();
     let scanned = recycleBinVms.length;
@@ -535,9 +535,9 @@ export class RecycleBinTaskService {
         else if (result === 'failed') failed++;
         else skipped++;
       } catch (err: any) {
-        console.error(
-          `[RecycleBinTask] 处理虚拟机失败: ${cloud.name}/${vm.metadata?.namespace}/${vm.metadata?.name}`,
-          err
+        rbLog.error(
+          `处理虚拟机失败: ${cloud.name}/${vm.metadata?.namespace}/${vm.metadata?.name}`,
+          summarizeRbErr(err),
         );
         failed++;
       }
@@ -562,7 +562,7 @@ export class RecycleBinTaskService {
     const instanceId = namespace && name ? `${namespace}/${name}` : uid;
 
     if (!namespace || !name) {
-      console.warn(`[RecycleBinTask] 虚拟机缺少命名空间或名称，跳过: ${instanceId}`);
+      rbLog.warn(`虚拟机缺少命名空间或名称，跳过: ${instanceId}`);
       return 'skipped';
     }
 
@@ -574,9 +574,7 @@ export class RecycleBinTaskService {
       // 没有过期时间注解，检查是否有删除时间注解（兼容旧数据）
       const scheduledAtStr = annotations['tower.io/deletion-scheduled'];
       if (!scheduledAtStr) {
-        console.log(
-          `[RecycleBinTask] 虚拟机没有过期时间注解，跳过: ${cloud.name}/${instanceId}`
-        );
+        rbLog.debug(`虚拟机没有过期时间注解，跳过: ${cloud.name}/${instanceId}`);
         return 'skipped';
       }
 
@@ -590,8 +588,8 @@ export class RecycleBinTaskService {
       expiresAt.setDate(expiresAt.getDate() + defaultRetentionDays);
 
       if (now < expiresAt) {
-        console.log(
-          `[RecycleBinTask] 虚拟机未过期（基于删除时间+默认保留期），跳过: ${cloud.name}/${instanceId} (过期时间: ${expiresAt.toISOString()})`
+        rbLog.debug(
+          `虚拟机未过期（基于删除时间+默认保留期），跳过: ${cloud.name}/${instanceId} (过期时间: ${expiresAt.toISOString()})`,
         );
         return 'skipped';
       }
@@ -599,31 +597,24 @@ export class RecycleBinTaskService {
       // 有过期时间注解，直接比较
       const expiresAt = new Date(expiresAtStr);
       if (now < expiresAt) {
-        console.log(
-          `[RecycleBinTask] 虚拟机未过期，跳过: ${cloud.name}/${instanceId} (过期时间: ${expiresAt.toISOString()})`
+        rbLog.debug(
+          `虚拟机未过期，跳过: ${cloud.name}/${instanceId} (过期时间: ${expiresAt.toISOString()})`,
         );
         return 'skipped';
       }
     }
 
     // 已过期，执行删除
-    console.log(
-      `[RecycleBinTask] 发现过期的回收站虚拟机: ${cloud.name}/${instanceId}，开始删除...`
-    );
+    rbLog.debug(`发现过期的回收站虚拟机: ${cloud.name}/${instanceId}，开始删除...`);
 
     try {
       // 使用后台模式，避免阻塞清理任务
       // 后台模式会立即返回，删除操作在后台异步执行
       await harvesterForceDeleteVM(params, instanceId, false, true);
-      console.log(
-        `[RecycleBinTask] 已启动删除过期的回收站虚拟机: ${cloud.name}/${instanceId}（后台执行）`
-      );
+      rbLog.debug(`已启动删除过期的回收站虚拟机: ${cloud.name}/${instanceId}（后台执行）`);
       return 'success';
     } catch (err: any) {
-      console.error(
-        `[RecycleBinTask] 删除过期的回收站虚拟机失败: ${cloud.name}/${instanceId}`,
-        err
-      );
+      rbLog.error(`删除过期的回收站虚拟机失败: ${cloud.name}/${instanceId}`, summarizeRbErr(err));
       return 'failed';
     }
   }

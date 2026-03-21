@@ -1,5 +1,8 @@
 import { DataSource } from 'typeorm';
 import path from 'path';
+import { logger } from '../utils/logger';
+
+const dbLog = logger.child('Database');
 
 // SQLite 数据库文件路径，可通过环境变量 DB_PATH 覆盖
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data.sqlite');
@@ -35,9 +38,9 @@ export async function enableWalMode() {
       return;
     }
     const result = await AppDataSource.query('PRAGMA journal_mode = WAL;');
-    console.log('[Database] WAL 模式已启用:', result);
+    dbLog.info('WAL 模式已启用:', result);
   } catch (error) {
-    console.warn('[Database] 启用 WAL 模式失败:', error);
+    dbLog.warn('启用 WAL 模式失败:', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -47,7 +50,7 @@ export async function enableWalMode() {
 export async function ensureRecycleBinTables() {
   try {
     if (!AppDataSource.isInitialized) {
-      console.warn('[Database] 数据库未初始化，无法创建回收站表');
+      dbLog.warn('数据库未初始化，无法创建回收站表');
       return;
     }
 
@@ -57,7 +60,7 @@ export async function ensureRecycleBinTables() {
     );
 
     if (tableExists.length === 0) {
-      console.log('[Database] 创建回收站关机记录表...');
+      dbLog.info('创建回收站关机记录表...');
       
       // 创建表
       await AppDataSource.query(`
@@ -98,12 +101,12 @@ export async function ensureRecycleBinTables() {
         ON "recycle_bin_shutdown_records" ("cloudId")
       `);
 
-      console.log('[Database] 回收站关机记录表创建成功');
+      dbLog.info('回收站关机记录表创建成功');
     } else {
-      console.log('[Database] 回收站关机记录表已存在');
+      dbLog.info('回收站关机记录表已存在');
     }
   } catch (error) {
-    console.error('[Database] 创建回收站表失败:', error);
+    dbLog.error('创建回收站表失败:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }

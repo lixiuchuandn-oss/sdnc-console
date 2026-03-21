@@ -11,6 +11,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
 import dotenv from 'dotenv';
+import { logger, resolveMorganFormat } from './utils/logger';
 import { AppDataSource } from './config/database';
 // 认证与用户相关路由：
 // - authRoutes：登录/登出、令牌校验等认证能力
@@ -107,7 +108,12 @@ app.use(
     originAgentCluster: false,
   }),
 );
-app.use(morgan('combined'));
+{
+  const httpFmt = resolveMorganFormat();
+  if (httpFmt !== 'off') {
+    app.use(morgan(httpFmt));
+  }
+}
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(auditMiddleware);
@@ -127,14 +133,14 @@ const rootPublicPath = path.join(__dirname, '../../public');
 
 if (!fs.existsSync(staticPath) && fs.existsSync(rootPublicPath)) {
   staticPath = rootPublicPath;
-  console.log('Using root public directory for static files:', staticPath);
+  logger.info('静态资源目录（项目根 public）:', staticPath);
 } else {
-  console.log('Using relative public directory for static files:', staticPath);
+  logger.info('静态资源目录（相对路径）:', staticPath);
 }
 
 // 只要最终解析出的 staticPath 存在，就开启静态托管
 if (fs.existsSync(staticPath)) {
-  console.log('Static files found, enabling static serving from:', staticPath);
+  logger.info('已启用静态文件托管:', staticPath);
   app.use(
     express.static(staticPath, {
       maxAge: '1y',
@@ -147,7 +153,7 @@ if (fs.existsSync(staticPath)) {
     }),
   );
 } else {
-  console.log('Static files directory not found. Static serving disabled.');
+  logger.warn('未找到静态资源目录，已关闭静态托管');
 }
 
 // 工具下载路由（Cloudmap 上传工具别名）：
@@ -158,21 +164,21 @@ app.get('/api/tools/cloudmap-uploader.exe', (req, res) => {
       const toolPath =
         process.env.CLOUDMAP_UPLOADER_PATH ||
         path.join(process.cwd(), 'tools', 'harvester-uploader', 'CloudmapUploader.exe');
-      console.log(`[Download] Requesting tool at: ${toolPath}`);
+      logger.debug('工具下载路径:', toolPath);
       if (fs.existsSync(toolPath)) {
-        console.log(`[Download] File exists, sending...`);
+        logger.debug('工具文件存在，开始下发');
         res.download(toolPath, 'CloudmapUploader.exe', (err) => {
            if (err) {
-             console.error(`[Download] Send error:`, err);
+             logger.error('工具下发失败:', err);
              if (!res.headersSent) res.status(500).send('Send error');
            }
         });
       } else {
-        console.error(`[Download] File NOT found at: ${toolPath}`);
+        logger.warn('工具文件不存在:', toolPath);
         res.status(404).send('File not found');
       }
     } catch (e: any) {
-      console.error(`[Download] Exception:`, e);
+      logger.error('工具下载异常:', e);
       res.status(500).send(e?.message || 'Server error');
     }
   });
@@ -262,13 +268,13 @@ if (fs.existsSync(path.join(staticPath, 'index.html'))) {
 // - 初始化 WebSSH/WebVNC/KubeVirt VNC WebSocket 服务，并复用 HTTP Server 的 upgrade 事件
 AppDataSource.initialize()
   .then(async () => {
-    console.log('数据库连接成功');
+    logger.info('数据库连接成功');
     // 启用 WAL 模式以提升并发性能
     try {
       const { enableWalMode } = await import('./config/database');
       await enableWalMode();
     } catch (e) {
-      console.warn('启用 WAL 模式失败:', e);
+      logger.warn('启用 WAL 模式失败:', e);
     }
     // 初始化管理员账户
     await initializeAdmin();
@@ -280,7 +286,7 @@ AppDataSource.initialize()
       const { ensureRecycleBinTables } = await import('./config/database');
       await ensureRecycleBinTables();
     } catch (e) {
-      console.warn('初始化回收站表失败:', e);
+      logger.warn('初始化回收站表失败:', e);
     }
 
     // 启动云资源同步任务
@@ -288,7 +294,7 @@ AppDataSource.initialize()
       const { CloudSyncService } = await import('./services/CloudSyncService');
       CloudSyncService.getInstance().startSyncJob();
     } catch (e) {
-      console.warn('启动云资源同步任务失败:', e);
+      logger.warn('启动云资源同步任务失败:', e);
     }
 
     // 启动 VR 列表同步任务
@@ -299,7 +305,7 @@ AppDataSource.initialize()
         VRCacheService.getInstance().startSyncJob();
       }, 10000);
     } catch (e) {
-      console.warn('启动 VR 列表同步任务失败:', e);
+      logger.warn('启动 VR 列表同步任务失败:', e);
     }
 
 
@@ -308,11 +314,11 @@ AppDataSource.initialize()
       const { RecycleBinTaskService } = await import('./services/clouds/harvester/RecycleBinTaskService');
       // 延迟 15s 启动，避免和启动时的数据库操作冲突
       setTimeout(() => {
-        console.log('[App] 启动回收站定时任务服务...');
+        logger.info('启动回收站定时任务服务');
         RecycleBinTaskService.getInstance().startTasks();
       }, 15000);
     } catch (e) {
-      console.error('启动回收站定时任务失败:', e);
+      logger.error('启动回收站定时任务失败:', e);
     }
 
     // WebSocket 服务实例
@@ -324,25 +330,25 @@ AppDataSource.initialize()
     try {
       const { createSshWsServer } = await import('./ws/ssh');
       sshWss = createSshWsServer();
-      console.log('WebSSH 服务已创建 (Headless)');
+      logger.info('WebSSH 服务已创建 (Headless)');
     } catch (e: any) {
-      console.warn('创建 WebSSH 服务失败:', e?.message || e);
+      logger.warn('创建 WebSSH 服务失败:', e?.message || e);
     }
 
     try {
       const { createVncWsServer } = await import('./ws/vnc');
       vncWss = createVncWsServer();
-      console.log('WebVNC 服务已创建 (Headless)');
+      logger.info('WebVNC 服务已创建 (Headless)');
     } catch (e: any) {
-      console.warn('创建 WebVNC 服务失败:', e?.message || e);
+      logger.warn('创建 WebVNC 服务失败:', e?.message || e);
     }
 
     try {
       const { createKvVncWss } = await import('./ws/kvVnc');
       kvVncWss = createKvVncWss();
-      console.log('KubeVirt WebVNC 服务已创建 (Headless)');
+      logger.info('KubeVirt WebVNC 服务已创建 (Headless)');
     } catch (e: any) {
-      console.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
+      logger.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
     }
     
     // 初始化 Pod 日志 WebSocket 服务
@@ -350,9 +356,9 @@ AppDataSource.initialize()
     try {
       const { createKvPodLogWss } = await import('./ws/kvPodLog');
       kvPodLogWss = createKvPodLogWss();
-      console.log('KubeVirt Pod Log 服务已创建 (Headless)');
+      logger.info('KubeVirt Pod Log 服务已创建 (Headless)');
     } catch (e: any) {
-      console.warn('创建 KubeVirt Pod Log 服务失败:', e?.message || e);
+      logger.warn('创建 KubeVirt Pod Log 服务失败:', e?.message || e);
     }
 
     // 统一处理 HTTP Upgrade 请求
@@ -398,12 +404,11 @@ AppDataSource.initialize()
     });
 
     server.listen(PORT, () => {
-      console.log(`后端服务运行在端口 ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV}`);
+      logger.info(`后端服务运行在端口 ${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
     });
   })
   .catch((error: any) => {
-    console.error('数据库连接失败:', error);
+    logger.error('数据库连接失败:', error);
     // 数据库不可用时直接退出，避免以不稳定状态对外提供服务
     process.exit(1);
   });

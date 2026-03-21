@@ -7,6 +7,9 @@ import { TenantUser } from '../../entities/TenantUser';
 import { RBACRole } from '../../entities/RBACRole';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
+import { logger } from '../../utils/logger';
+
+const authLog = logger.child('Auth');
 
 const router = Router();
 
@@ -93,7 +96,7 @@ router.post('/login', async (req: Request, res: Response) => {
     if (adminCandidate) {
       const passwordMatch = await bcrypt.compare(password, adminCandidate.password);
       if (process.env.NODE_ENV === 'development') {
-        console.log('[Login] 管理员密码验证:', { username: adminCandidate.username, match: passwordMatch });
+        authLog.debug('管理员密码验证:', { username: adminCandidate.username, match: passwordMatch });
       }
       if (passwordMatch) {
         loginUser = adminCandidate;
@@ -171,7 +174,7 @@ router.post('/login', async (req: Request, res: Response) => {
         // Deduplicate
         permissions = Array.from(new Set(permissions));
       } catch (e) {
-        console.warn(`Failed to fetch permissions for ${role} user`, e);
+        authLog.warn(`Failed to fetch permissions for ${role} user`, e instanceof Error ? e.message : String(e));
       }
     }
     
@@ -183,7 +186,7 @@ router.post('/login', async (req: Request, res: Response) => {
         await userRepository.save(loginUser);
       }
     } catch (saveError: any) {
-      console.warn('[Login] 保存用户信息失败（不影响登录）:', saveError?.message || saveError);
+      authLog.warn('保存用户信息失败（不影响登录）:', saveError?.message ?? String(saveError));
       // 保存失败不影响登录，继续执行
     }
 
@@ -210,7 +213,7 @@ router.post('/login', async (req: Request, res: Response) => {
         if (fullUser?.tenant?.name) tenantName = fullUser.tenant.name;
         if (fullUser?.organization?.name) organizationName = fullUser.organization.name;
       } catch (e) {
-        console.warn('Failed to fetch tenant/org names for login response', e);
+        authLog.warn('Failed to fetch tenant/org names for login response', e instanceof Error ? e.message : String(e));
       }
     }
 

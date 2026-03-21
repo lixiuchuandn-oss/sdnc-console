@@ -36,7 +36,7 @@ export async function initializeAdmin() {
       });
 
       await userRepository.save(admin);
-      console.log('默认超级管理员账户创建成功 - 用户名: admin, 密码: admin123');
+      console.log('[Seeder] 默认超级管理员账户创建成功 - 用户名: admin, 密码: admin123');
     }
 
     // 2. 创建三权用户
@@ -50,11 +50,16 @@ export async function initializeAdmin() {
     const opsRole = await roleRepository.findOne({
       where: { name: '三权-安全管理员' },
     });
-    
-    console.log('查找三权角色结果:');
-    console.log(`  三权-系统管理员: ${policyAdminRole ? '找到' : '未找到'}`);
-    console.log(`  三权-审计管理员: ${auditorRole ? '找到' : '未找到'}`);
-    console.log(`  三权-安全管理员: ${opsRole ? '找到' : '未找到'}`);
+
+    const triRoleMissing: string[] = [];
+    if (!policyAdminRole) triRoleMissing.push('三权-系统管理员');
+    if (!auditorRole) triRoleMissing.push('三权-审计管理员');
+    if (!opsRole) triRoleMissing.push('三权-安全管理员');
+    if (triRoleMissing.length) {
+      console.log(`[Seeder] 三权角色缺失（需先执行 initRoles）: ${triRoleMissing.join(', ')}`);
+    }
+
+    const triPowerChanges: string[] = [];
 
     // 创建系统管理员（对应三权-策略管理员）
     if (policyAdminRole) {
@@ -62,7 +67,6 @@ export async function initializeAdmin() {
         where: { username: 'sysadmin' },
       });
       if (existingSysAdmin) {
-        console.log('系统管理员用户已存在: sysadmin');
         // 检查是否已分配角色
         const existingAssignment = await assignmentRepository.findOne({
           where: {
@@ -79,9 +83,7 @@ export async function initializeAdmin() {
             userId: existingSysAdmin.id,
           });
           await assignmentRepository.save(assignment);
-          console.log('系统管理员角色分配成功');
-        } else {
-          console.log('系统管理员角色已分配');
+          triPowerChanges.push('sysadmin 已补全角色分配');
         }
       } else {
         const hashedPassword = await bcrypt.hash('sysadmin123', 10);
@@ -102,7 +104,7 @@ export async function initializeAdmin() {
           userId: savedSysAdmin.id,
         });
         await assignmentRepository.save(assignment);
-        console.log('系统管理员账户创建成功 - 用户名: sysadmin, 密码: sysadmin123');
+        console.log('[Seeder] 系统管理员账户创建成功 - 用户名: sysadmin, 密码: sysadmin123');
       }
     }
 
@@ -112,7 +114,6 @@ export async function initializeAdmin() {
         where: { username: 'auditor' },
       });
       if (existingAuditor) {
-        console.log('审计管理员用户已存在: auditor');
         // 检查是否已分配角色
         const existingAssignment = await assignmentRepository.findOne({
           where: {
@@ -129,9 +130,7 @@ export async function initializeAdmin() {
             userId: existingAuditor.id,
           });
           await assignmentRepository.save(assignment);
-          console.log('审计管理员角色分配成功');
-        } else {
-          console.log('审计管理员角色已分配');
+          triPowerChanges.push('auditor 已补全角色分配');
         }
       } else {
         const hashedPassword = await bcrypt.hash('auditor123', 10);
@@ -152,7 +151,7 @@ export async function initializeAdmin() {
           userId: savedAuditor.id,
         });
         await assignmentRepository.save(assignment);
-        console.log('审计管理员账户创建成功 - 用户名: auditor, 密码: auditor123');
+        console.log('[Seeder] 审计管理员账户创建成功 - 用户名: auditor, 密码: auditor123');
       }
     }
 
@@ -162,7 +161,6 @@ export async function initializeAdmin() {
         where: { username: 'secadmin' },
       });
       if (existingSecAdmin) {
-        console.log('安全管理员用户已存在: secadmin');
         // 检查是否已分配角色
         const existingAssignment = await assignmentRepository.findOne({
           where: {
@@ -179,9 +177,7 @@ export async function initializeAdmin() {
             userId: existingSecAdmin.id,
           });
           await assignmentRepository.save(assignment);
-          console.log('安全管理员角色分配成功');
-        } else {
-          console.log('安全管理员角色已分配');
+          triPowerChanges.push('secadmin 已补全角色分配');
         }
       } else {
         const hashedPassword = await bcrypt.hash('secadmin123', 10);
@@ -202,8 +198,12 @@ export async function initializeAdmin() {
           userId: savedSecAdmin.id,
         });
         await assignmentRepository.save(assignment);
-        console.log('安全管理员账户创建成功 - 用户名: secadmin, 密码: secadmin123');
+        console.log('[Seeder] 安全管理员账户创建成功 - 用户名: secadmin, 密码: secadmin123');
       }
+    }
+
+    if (triPowerChanges.length) {
+      console.log('[Seeder] 三权账户变更:', triPowerChanges.join('；'));
     }
   } catch (error) {
     console.error('初始化失败:', error);

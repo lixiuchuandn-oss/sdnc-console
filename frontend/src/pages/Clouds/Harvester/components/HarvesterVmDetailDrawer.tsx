@@ -862,13 +862,21 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                         const bridgeConfig = plugins.find((p: any) => p?.type === 'bridge');
 
                         if (kubeOvnConfig) {
-                            // [VPC 网络] kube-ovn：用 subnet.spec.vpc 找到 VPC，并展示别名/名称
-                            const subnet = subnets.find((s: any) => s.metadata?.name === targetName);
+                            // [VPC 网络] kube-ovn：用 subnet.spec.vpc 找到 VPC；子网/VPC 均优先 tower.io/alias
+                            const subnet =
+                              subnets.find((s: any) => {
+                                if (s.metadata?.name !== targetName) return false;
+                                const sns = s.metadata?.namespace || s.namespace;
+                                if (targetNs && sns) return sns === targetNs;
+                                return true;
+                              }) || subnets.find((s: any) => s.metadata?.name === targetName);
                             if (subnet) {
                                 const vpcName = subnet.spec?.vpc || subnet.vpc || 'Unknown VPC';
                                 const vpc = vpcs.find((v: any) => v.metadata?.name === vpcName);
                                 const vpcDisplay = vpc?.metadata?.annotations?.['tower.io/alias'] || vpcName;
-                                displayName = `VPC / ${vpcDisplay} / ${subnet.metadata.name}`;
+                                const subnetAlias = String(subnet?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                const subnetDisplay = subnetAlias || subnet.metadata?.name || targetName;
+                                displayName = `VPC / ${vpcDisplay} / ${subnetDisplay}`;
                             } else {
                                 // subnet 资源缺失时兜底展示
                                 displayName = `VPC / ${targetName}`;

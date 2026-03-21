@@ -1,7 +1,10 @@
 import axios from 'axios';
 import https from 'https';
 import { getSystemSetting } from '../../config/systemSettings';
+import { logger } from '../../utils/logger';
 import { csmRequest, CsmConfig } from '../clouds/csm/client';
+
+const vrCtlLog = logger.child('VR-Ctl');
 
 const DEFAULT_URL = 'https://47.111.13.103:8016';
 const ACCESS_KEY = 'Cloudmap%23123';
@@ -53,7 +56,7 @@ export const vrController = {
 
       return response.data.data as AuthInfo;
     } catch (error: any) {
-      console.error('[VRCTL] 认证失败:', error.message);
+      vrCtlLog.error('认证失败:', error?.message ?? String(error));
       throw error;
     }
   },
@@ -99,7 +102,7 @@ export const vrController = {
 
     const body = { uuid, ...data };
 
-    console.log(`[VRCTL] POST ${path}?${other}`, JSON.stringify(body));
+    vrCtlLog.debug(`POST ${path}?${other}`, JSON.stringify(body));
 
     const auth = await vrController.getAuthInfo(path, method, other, body);
 
@@ -130,12 +133,13 @@ export const vrController = {
     const query = { page_size: pageSize, page_num: pageNum };
 
     try {
-      console.log(`[VR-CTL] 通过 csmRequest 获取 VR3 列表: ${path}`, query);
+      vrCtlLog.debug(`通过 csmRequest 获取 VR3 列表: ${path}`, query);
       const raw = await csmRequest(config, path, query);
       const dataField = raw && raw.data ? raw.data : raw;
       return dataField;
     } catch (error: any) {
-      console.error(`[VR-CTL] 获取 VR3 列表失败:`, error.message);
+      // 仅打 debug：上层（如 VR-Cache）会汇总 error（含 URL），避免同一次失败两条 error
+      vrCtlLog.debug('获取 VR3 列表失败:', error?.message ?? String(error));
       throw error;
     }
   },
@@ -152,12 +156,12 @@ export const vrController = {
     const query = { page_size: pageSize, page_num: pageNum };
 
     try {
-      console.log(`[VR-CTL] 通过 csmRequest 获取 VR 列表: ${path}`, query);
+      vrCtlLog.debug(`通过 csmRequest 获取 VR 列表: ${path}`, query);
       const raw = await csmRequest(config, path, query);
       const dataField = raw && raw.data ? raw.data : raw;
       return dataField;
     } catch (error: any) {
-      console.error(`[VR-CTL] 获取 VR 列表失败:`, error.message);
+      vrCtlLog.debug('获取 VR 列表失败:', error?.message ?? String(error));
       throw error;
     }
   },

@@ -3,6 +3,10 @@ import http from 'http';
 import { URL } from 'url';
 import { StringDecoder } from 'string_decoder';
 import axios from 'axios';
+import { logger } from '../../../utils/logger';
+
+const watchLog = logger.child('watch');
+const computeApiLog = logger.child('Compute-Api');
 
 /**
  * ==============================================================================
@@ -154,7 +158,8 @@ export const getJsonOnce = async (target: string, token: string, insecure: boole
   } catch (error: any) {
     const isNetworkError = error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'EPIPE';
     if (isNetworkError && retryCount > 0) {
-        if (!silent) console.warn(`[Harvester] Network error ${error.code} for ${target}, retrying (${retryCount} left)...`);
+        if (!silent)
+          computeApiLog.warn(`Network error ${error.code} for ${target}, retrying (${retryCount} left)...`);
         await new Promise(r => setTimeout(r, 500));
         return getJsonOnce(target, token, insecure, silent, retryCount - 1);
     }
@@ -162,7 +167,7 @@ export const getJsonOnce = async (target: string, token: string, insecure: boole
     if (axios.isAxiosError(error)) {
         if (error.response) {
             if (!silent) {
-                console.error(`[Harvester] Request failed for ${target}: ${error.response.status}`);
+                computeApiLog.error(`Request failed for ${target}: ${error.response.status}`);
             }
             throw {
                 status: error.response.status,
@@ -199,6 +204,28 @@ export const getJsonOnce = async (target: string, token: string, insecure: boole
  * @param onError 错误回调
  * @returns { abort: () => void } 控制器对象
  */
+
+/** 常见断开（关页、重连、上游结束），用于日志级别，不当作严重故障 */
+export function isBenignWatchDisconnect(err: any): boolean {
+  const code = err?.code || '';
+  const msg = String(err?.message || err || '');
+  if (code === 'ECONNRESET' || code === 'ECONNABORTED') return true;
+  return /aborted|ECONNRESET|ECONNABORTED|context canceled|监听流已结束|socket hang up/i.test(msg);
+}
+
+export function logVmWatchStreamError(kind: 'vm' | 'vmi', err: any) {
+  const label = kind === 'vm' ? '虚拟机' : 'VMI';
+  const detail = { code: err?.code, message: err?.message };
+  if (isBenignWatchDisconnect(err)) {
+    watchLog.debug(
+      `${label} 监听中断（多为页面关闭、网络重置或上游结束）`,
+      detail,
+    );
+  } else {
+    watchLog.error(`${label} 监听异常`, err);
+  }
+}
+
 export const watchJsonStream = (
   target: string,
   token: string,
@@ -209,7 +236,7 @@ export const watchJsonStream = (
   const mod = getRequestModule(target);
   const agent = getAgent(target, insecure);
   let aborted = false;
-  console.log(`[Watch] Initiating request to ${target}`);
+  watchLog.debug('正在建立长连接', target);
   const req = mod.request(
     target,
     {
@@ -223,9 +250,9 @@ export const watchJsonStream = (
     },
     (res) => {
       // [状态检查] 检查非 2xx 状态码 (如 401, 403, 404, 410, 500)
-      console.log(`[Watch] Connected to ${target}, Status: ${res.statusCode}`);
+      watchLog.debug('已连接', { statusCode: res.statusCode, url: target });
       if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
-        if (!aborted && onError) onError(new Error(`Stream HTTP Error ${res.statusCode}`));
+        if (!aborted && onError) onError(new Error(`HTTP 状态异常: ${res.statusCode}`));
         // [资源释放] 消费剩余数据以避免内存泄漏，然后销毁连接
         res.resume(); 
         return;
@@ -247,19 +274,19 @@ export const watchJsonStream = (
             const json = JSON.parse(line);
             callback(json);
           } catch (e) {
-            console.warn('[Watch] JSON Parse Error:', e, 'Line:', line.slice(0, 100));
+            watchLog.warn('JSON 解析失败', e, '片段:', line.slice(0, 100));
           }
         }
       });
       res.on('end', () => {
-        console.log(`[Watch] Stream ended for ${target}`);
+        watchLog.debug('响应流已结束', target);
         if (buffer.trim()) {
            try {
              const json = JSON.parse(buffer);
              callback(json);
            } catch {}
         }
-        if (!aborted && onError) onError(new Error('Stream ended'));
+        if (!aborted && onError) onError(new Error('监听流已结束'));
       });
       res.on('error', (err) => {
         if (!aborted && onError) onError(err);
@@ -270,7 +297,7 @@ export const watchJsonStream = (
     if (!aborted && onError) onError(err);
   });
   req.end();
-  console.log(`[Watch] Request end called for ${target}`);
+  watchLog.debug('请求已发出', target);
   
   return {
     abort: () => {

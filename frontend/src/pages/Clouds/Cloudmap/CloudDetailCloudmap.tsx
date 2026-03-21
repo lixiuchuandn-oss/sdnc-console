@@ -37,6 +37,7 @@ import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
 import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterUsbResources, fetchHarvesterPciDevices } from '../../../services/harvesterApi';
 import VmReconfigureModal from '../Harvester/modals/VmReconfigureModal';
+import SimpleVmCreateModal from './SimpleVmCreateModal';
 import VmSection from '../Harvester/sections/VmSection';
 import TemplatesSection from '../Harvester/sections/TemplatesSection';
 import ScheduleVmBackupsSection from '../Harvester/sections/ScheduleVmBackupsSection';
@@ -154,6 +155,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
   const [mode, setMode] = useState<'standard' | 'simple'>('simple'); // 页面显示模式: 标准/简易
   const [activeTabKey, setActiveTabKey] = useState<string>('overview');
   const [backupsGroupActiveKey, setBackupsGroupActiveKey] = useState<string>('backups');
+  const [simpleVmCreateOpen, setSimpleVmCreateOpen] = useState(false);
 
   // --- 原始数据缓存 (用于日志展示) ---
   const [rawEcs, setRawEcs] = useState<any | null>(null);
@@ -1187,6 +1189,8 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                             cloudId={cloudId}
                             nsValue={nsFilter || undefined}
                             nodeValue={nodeFilter || undefined}
+                            onCreateVmOverride={mode === 'simple' ? () => setSimpleVmCreateOpen(true) : undefined}
+                            createVmButtonText={mode === 'simple' ? '创建云主机' : undefined}
                             onNsChange={(v)=> setNsFilter(v || '')}
                             onNodeChange={(v)=> setNodeFilter(v || '')}
                             onRefresh={() => {
@@ -1819,6 +1823,51 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
             if (mode !== 'simple') return true;
             return !['monitoring-alerts', 'storage_group', 'logs-config', 'network_group', 'kube_ovn_group'].includes(i.key);
           })}
+      />
+      <SimpleVmCreateModal
+        open={simpleVmCreateOpen}
+        onClose={() => setSimpleVmCreateOpen(false)}
+        cloudId={cloudId}
+        images={harvesterImages}
+        storageClasses={harvesterStorageClasses}
+        capabilities={capabilities}
+        kubeSubnets={kubeOvnSubnets}
+        harvesterNads={harvesterNads}
+        onReloadSubnets={
+          ovnVpcEnabled
+            ? () =>
+                loadResource(
+                  'subnets',
+                  () => fetchKubeOvnSubnets(cloudId, true),
+                  (json) => {
+                    setKubeOvnSubnets(json?.data?.items || []);
+                  },
+                  true,
+                )
+            : undefined
+        }
+        onReloadImages={
+          checkPerm('clouds.images:read')
+            ? () =>
+                loadResource(
+                  'images',
+                  () => fetchHarvesterImages(cloudId, true),
+                  (json) => {
+                    setHarvesterImages(json?.data?.items || []);
+                  },
+                  true,
+                )
+            : undefined
+        }
+        existingVms={ecs}
+        onCreated={async () => {
+          try {
+            await apiPost(`/api/clouds/${cloudId}/sync`);
+          } catch {
+            /* ignore */
+          }
+          await refreshVms(false);
+        }}
       />
     </PageDetailContainer>
   );

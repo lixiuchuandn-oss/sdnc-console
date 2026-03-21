@@ -26,6 +26,10 @@ import { AuthRequest } from '../middleware/auth';
 import { ALL_PERMISSIONS } from '../constants/permissions';
 // 新权限体系
 import { createApiPermissionMiddleware, requirePermission, checkPermission, PERMISSION_DEFINITIONS, resolvePermissionFromApi } from '../permissions';
+import { logger } from '../utils/logger';
+
+const systemLog = logger.child('System');
+const systemAssignLog = logger.child('System-Assign');
 
 // 全局系统路由实例，后续所有 /system 相关子路径都挂在该 Router 上
 const router = Router();
@@ -102,9 +106,9 @@ router.patch('/settings/:key', checkSettingsPermission, (req, res) => {
     if (key === 'harvester.recycle_bin.shutdown_interval_hours') {
       try {
         RecycleBinTaskService.getInstance().rescheduleShutdownTask();
-        console.log('[System] 回收站关机任务间隔已更新，已重新调度任务');
+        systemLog.info('回收站关机任务间隔已更新，已重新调度任务');
       } catch (e: any) {
-        console.error('[System] 重新调度回收站任务失败:', e);
+        systemLog.error('重新调度回收站任务失败:', e instanceof Error ? e.message : String(e));
         // 不阻止设置更新，只记录错误
       }
     }
@@ -601,16 +605,16 @@ router.get('/rbac/assignments', checkRbacPermission, async (req: any, res) => {
   try {
     const { userType, userId } = req.query as any;
     if (!userType || !userId) {
-      console.log(`[GetAssignments] 缺少必要参数: userType=${userType}, userId=${userId}`);
+      systemAssignLog.debug(`缺少必要参数: userType=${userType}, userId=${userId}`);
       return res.status(400).json({ message: '缺少必要参数' });
     }
-    console.log(`[GetAssignments] 查询角色分配: userType=${userType}, userId=${userId}`);
+    systemAssignLog.debug(`查询角色分配: userType=${userType}, userId=${userId}`);
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
     const rows = await assignRepo.find({ where: { userType, userId } });
-    console.log(`[GetAssignments] 查询结果: 找到 ${rows.length} 条记录`);
+    systemAssignLog.debug(`查询结果: 找到 ${rows.length} 条记录`);
     res.json({ assignments: rows });
   } catch (e: any) {
-    console.error(`[GetAssignments] 查询失败:`, e);
+    systemAssignLog.error('查询分配失败:', e instanceof Error ? e.message : String(e));
     res.status(500).json({ message: '查询分配失败', error: String(e) });
   }
 });
@@ -695,7 +699,7 @@ router.post('/upload-security-logs', upload.array('files', 50), async (req, res)
     for (const f of files) {
       if (f.path) await fs.promises.unlink(f.path).catch(() => {});
     }
-    console.error('Upload failed:', e);
+    systemLog.error('Upload security logs failed:', e instanceof Error ? e.message : String(e));
     res.status(500).json({ message: '保存日志文件失败', error: String(e) });
   }
 });

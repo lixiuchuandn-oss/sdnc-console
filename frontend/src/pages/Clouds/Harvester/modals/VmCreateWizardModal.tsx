@@ -8,8 +8,8 @@
  *
  * === 核心逻辑 ===
  * 1. [状态管理]:
- *    - 使用 `wizardData` 累积各步骤的表单数据。
- *    - 使用 `formSnapshot` 实时同步表单状态用于右侧摘要展示。
+ *    - 各步骤表单域在同一 Form 内同时挂载，仅通过 CSS 切换可见步（方案 A），避免卸载丢值。
+ *    - `formSnapshot` 用于右侧摘要展示（与 onValuesChange / 切步时同步）。
  * 2. [数据加载]:
  *    - 通过 `useHarvesterData` Hook 统一加载镜像、卷、NAD、节点等基础数据。
  *    - 根据选择的资源池 (Cloud) 动态刷新相关资源。
@@ -41,18 +41,6 @@ import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize,
 import { fetchHarvesterCapabilities, createHarvesterVm } from '../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../services/api';
 
-/** 合并 patch：仅非 undefined 的键覆盖 base，避免 curr 里显式 undefined 冲掉已累积字段（如离开步骤后 namespace 丢失）。 */
-function mergeDefined(base: any, patch: any): any {
-  const out = { ...base };
-  if (patch && typeof patch === 'object') {
-    for (const k of Object.keys(patch)) {
-      const val = patch[k];
-      if (val !== undefined) (out as any)[k] = val;
-    }
-  }
-  return out;
-}
-
 type Props = {
   isTenant?: boolean;
 };
@@ -71,8 +59,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const [form] = Form.useForm();
   /** 订阅命名空间，供 useHarvesterData 过滤卷选项；避免在 Form 未挂载时调用 form.getFieldValue 触发 antd 警告 */
   const watchNamespace = Form.useWatch('namespace', form);
-  // 向导全局状态：跨步骤累积的表单数据、当前步骤索引、提交状态等
-  const [wizardData, setWizardData] = useState<any>({});
+  // 当前步骤索引、提交状态（表单值由单一 Form 持有，方案 A 各步同挂）
   const [step, setStep] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [currentCloudId, setCurrentCloudId] = useState<string | undefined>(cloudId !== 'all' ? cloudId : undefined);
@@ -275,11 +262,10 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   /**
    * 进入下一步：
    * - 离开当前步骤前进行验证；
-   * - 合并当前表单值到 wizardData，并更新快照；
+   * - 同步右侧摘要快照；
    * - 步骤索引不会超过最后一步。
    */
   const next = async () => {
-    // 离开当前步骤前进行验证
     const isValid = await handleStepValidation(step);
     if (!isValid) {
       if (lastValidationErrorTypeRef.current !== 'cpu-manager') {
@@ -288,21 +274,14 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       return;
     }
 
-    // 更新快照（true：含已卸载步骤上标记 preserve 的字段，避免仅当前步字段覆盖丢数据）
-    const curr = form.getFieldsValue(true);
-    setWizardData((prev: any) => mergeDefined(prev, curr));
-    try { setFormSnapshot((prev: any) => mergeDefined(prev, curr)); } catch {}
-    
+    try { setFormSnapshot(form.getFieldsValue(true)); } catch {}
     setStep(Math.min(steps.length - 1, step + 1));
   };
 
   const prev = async () => {
-    // 离开当前步骤前进行验证并保存数据
     const isValid = await handleStepValidation(step);
     if (isValid) {
-        const curr = form.getFieldsValue(true);
-        setWizardData((prev: any) => mergeDefined(prev, curr));
-        try { setFormSnapshot((prev: any) => mergeDefined(prev, curr)); } catch {}
+      try { setFormSnapshot(form.getFieldsValue(true)); } catch {}
     }
     setStep(Math.max(0, step - 1));
   };
@@ -421,7 +400,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
   /**
    * 最终提交创建云主机：
-   * - 汇总 wizardData + 当前表单值；
+   * - 从 Form 读取完整值（各步已同挂，无需多份合并）；
    * - 创建 VM，并在需要时执行自动开机。
    */
   const submit = async () => {
@@ -436,22 +415,15 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
     try {
       await form.validateFields();
-      // getFieldsValue(true)：含已卸载步骤的 preserve 字段；再与 wizardData 合并，避免第一步命名空间等丢失
-      const fv = form.getFieldsValue(true);
-      const v = mergeDefined(wizardData, fv) as any;
+      const v = form.getFieldsValue(true) as any;
 
-      // 第一步卸载后，仅靠 mergeDefined 仍可能丢 namespace，导致 payload 落 default；多源回填
       const pickNs = (x: unknown) => {
         if (x === undefined || x === null) return undefined;
         const s = String(x).trim();
         return s ? s : undefined;
       };
       const resolvedNamespace =
-        pickNs(v.namespace) ||
-        pickNs(fv?.namespace) ||
-        pickNs(watchNamespace) ||
-        pickNs((wizardData as any)?.namespace) ||
-        pickNs((formSnapshot as any)?.namespace);
+        pickNs(v.namespace) || pickNs(watchNamespace) || pickNs((formSnapshot as any)?.namespace);
       if (!resolvedNamespace) {
         message.error('未能读取命名空间，请返回第一步确认「命名空间」已选择');
         setStep(0);
@@ -561,9 +533,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                       // 离开当前步骤前进行验证并保存数据
                       const isValid = await handleStepValidation(step);
                       if (isValid) {
-                          const curr = form.getFieldsValue(true);
-                          setWizardData((prev: any) => mergeDefined(prev, curr));
-                          try { setFormSnapshot((prev: any) => mergeDefined(prev, curr)); } catch {}
+                          try { setFormSnapshot(form.getFieldsValue(true)); } catch {}
                       }
                       setStep(idx);
                     }}
@@ -592,10 +562,13 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   handleRootPvcChange(form, availableVolumes || [], changed.rootPvc);
                 }
                 
-                  try { setFormSnapshot((prev: any) => mergeDefined(prev, form.getFieldsValue(true))); } catch {}
+                  try { setFormSnapshot(form.getFieldsValue(true)); } catch {}
                 }}>
             <div className="wizard-step-scroll">
-              {step === 0 && (
+              <div
+                className={`wizard-step-panel ${step === 0 ? 'is-active' : ''}`}
+                aria-hidden={step !== 0}
+              >
                 <StepBasic
                   form={form}
                   existingVms={existingVms}
@@ -617,8 +590,11 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   filteredNodes={filteredNodes}
                   isTenant={isTenant}
                 />
-              )}
-              {step === 1 && (
+              </div>
+              <div
+                className={`wizard-step-panel ${step === 1 ? 'is-active' : ''}`}
+                aria-hidden={step !== 1}
+              >
                 <StepCompute
                   form={form}
                   isArm64={isArm64}
@@ -632,8 +608,11 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   setSelectedGpuKey={setSelectedGpuKey}
                   setFormSnapshot={setFormSnapshot}
                 />
-              )}
-              {step === 2 && (
+              </div>
+              <div
+                className={`wizard-step-panel ${step === 2 ? 'is-active' : ''}`}
+                aria-hidden={step !== 2}
+              >
                 <StepDisks
                   form={form}
                   imageOptions={imageOptions}
@@ -651,8 +630,11 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   selectedDiskIdx={selectedDiskIdx}
                   setSelectedDiskIdx={setSelectedDiskIdx}
                 />
-              )}
-              {step === 3 && (
+              </div>
+              <div
+                className={`wizard-step-panel ${step === 3 ? 'is-active' : ''}`}
+                aria-hidden={step !== 3}
+              >
                 <StepNetworks
                   form={form}
                   netModeState={netModeState}
@@ -666,15 +648,21 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   selectedNetIdx={selectedNetIdx}
                   setSelectedNetIdx={setSelectedNetIdx}
                 />
-              )}
-              {step === 4 && (
+              </div>
+              <div
+                className={`wizard-step-panel ${step === 4 ? 'is-active' : ''}`}
+                aria-hidden={step !== 4}
+              >
                 <StepLoginSettings
                   form={form}
                   sshKeyOptions={sshKeyOptions}
                   reloadSshKeys={reloadSshKeys}
                 />
-              )}
-              {step === 5 && (
+              </div>
+              <div
+                className={`wizard-step-panel ${step === 5 ? 'is-active' : ''}`}
+                aria-hidden={step !== 5}
+              >
                 <StepOthers
                   form={form}
                   usbResources={usbResources}
@@ -682,7 +670,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   sshKeyOptions={sshKeyOptions}
                   reloadSshKeys={reloadSshKeys}
                 />
-              )}
+              </div>
             </div>
             </Form>
             </div>
