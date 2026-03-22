@@ -761,12 +761,12 @@ const RecycleBinSection: React.FC<Props> = ({
         const osName = SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
         const isImportant = r?.metadata?.labels?.['tower.io/important'] === 'true';
         return (
-          <span>
-            <OsIcon osName={osName} style={{ marginRight: 8 }} />
-            <span>{text}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <OsIcon osName={osName} style={{ flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{text}</span>
             {isImportant && (
               <Tooltip title="重要实例">
-                <SafetyCertificateFilled style={{ color: '#faad14', marginLeft: 8 }} />
+                <SafetyCertificateFilled style={{ color: '#faad14', fontSize: 14, flexShrink: 0 }} />
               </Tooltip>
             )}
           </span>

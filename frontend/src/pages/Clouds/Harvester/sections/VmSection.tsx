@@ -1414,7 +1414,7 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
 
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <OsIcon osName={osName} style={{ marginRight: 8 }} />
+          <OsIcon osName={osName} style={{ flexShrink: 0 }} />
           {hasAnyPermission ? (
           <span className="cell-link" onClick={() => handleShowVmDetail(r, 'detail')}>
             {text}

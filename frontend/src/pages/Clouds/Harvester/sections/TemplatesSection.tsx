@@ -296,16 +296,16 @@ const TemplatesSection: React.FC<Props> = ({
       render: (_: any, r: any) => {
         const displayName = getTemplateDisplayName(r);
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-             <ProjectOutlined style={{ fontSize: 16, color: '#007bff' }} />
-             <Button
-               type="link"
-               style={{ padding: 0, height: 'auto' }}
-               onClick={() => handleOpenDrawer(r)}
-             >
-               {displayName}
-             </Button>
-          </div>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <ProjectOutlined style={{ fontSize: 16, color: '#1677ff', flexShrink: 0 }} />
+            <span
+              className="cell-link"
+              style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
+              onClick={() => handleOpenDrawer(r)}
+            >
+              {displayName}
+            </span>
+          </span>
         );
       }
     },

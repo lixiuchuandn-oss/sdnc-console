@@ -206,11 +206,13 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
        dataIndex: 'alias', 
        key: 'alias',
        render: (t: string, r: any) => (
-          <span>
-            {r.itemType === 'snapshot'
-              ? <CameraOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-              : <SaveOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />}
-            {t !== '-' ? t : r.name}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            {r.itemType === 'snapshot' ? (
+              <CameraOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            ) : (
+              <SaveOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            )}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t !== '-' ? t : r.name}</span>
           </span>
        )
     },

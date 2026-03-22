@@ -46,6 +46,7 @@ import EipSection from './kube-ovn/EipSection';
 import FipSection from './kube-ovn/FipSection';
 import SnatSection from './kube-ovn/SnatSection';
 import DnatSection from './kube-ovn/DnatSection';
+import SecurityGroupsSection from './kube-ovn/SecurityGroupsSection';
 import MonitoringOverview from './Monitoring/MonitoringOverview';
 import LogsConfig from './Monitoring/LogsConfig';
 import LogOutputs from './Monitoring/LogOutputs';
@@ -2024,6 +2025,20 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       )
                     },
                     {
+                      key: 'kubeovn_security_groups',
+                      label: '安全组',
+                      children: (
+                        <>
+                          <SecurityGroupsSection cloudId={cloudId} />
+                          {showLog && (
+                            <div style={{ marginTop: 12 }}>
+                              <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawSubnets, null, 2)}</pre>
+                            </div>
+                          )}
+                        </>
+                      )
+                    },
+                    {
                       key: 'kubeovn_eips',
                       label: 'EIP 外部IP',
                       children: (
@@ -2110,7 +2125,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       )
                     }
                   ].filter((i:any) => {
-                     if (i.key === 'kubeovn_vpcs' || i.key === 'kubeovn_subnets' || i.key === 'kubeovn_public_networks') return checkPerm('clouds.networks:read');
+                     if (i.key === 'kubeovn_vpcs' || i.key === 'kubeovn_subnets' || i.key === 'kubeovn_public_networks' || i.key === 'kubeovn_security_groups') return checkPerm('clouds.networks:read');
                      if (i.key === 'kubeovn_eips') return checkPerm('clouds.networks:read');
                      if (i.key === 'kubeovn_fips') return checkPerm('clouds.networks:read');
                      if (i.key === 'kubeovn_snat') return checkPerm('clouds.networks:read');

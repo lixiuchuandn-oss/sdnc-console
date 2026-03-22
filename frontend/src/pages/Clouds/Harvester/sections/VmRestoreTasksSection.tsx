@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App, Badge, Button, Dropdown, Input, Progress, Select, Table, Tag } from 'antd';
 import type { MenuProps } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { deleteHarvesterBackup, deleteHarvesterVirtualMachineRestore, fetchHarvesterBackups, fetchHarvesterVirtualMachineRestores } from '../../../../services/harvesterApi';
@@ -313,16 +313,39 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'sta
   }, [filtered, refresh]);
 
   const columns: any[] = [
+    {
+      title: '任务名称',
+      dataIndex: 'restoreName',
+      key: 'restoreName',
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        const n = String(r?.restoreName || r?.restoreRaw?.metadata?.name || '').trim() || '—';
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <UndoOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span className="std-time" style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={n}>
+              {n}
+            </span>
+          </span>
+        );
+      },
+    },
     { title: '命名空间', dataIndex: 'namespace', key: 'namespace', ellipsis: true },
     { 
       title: '源虚拟机', 
       key: 'sourceVm', 
       ellipsis: true,
       render: (_: any, r: any) => {
-        if (r.sourceVmAlias && r.sourceVmAlias !== r.sourceVm && r.sourceVmAlias !== '-') {
-          return `${r.sourceVmAlias} (${r.sourceVm})`;
-        }
-        return r.sourceVm || '-';
+        const line =
+          r.sourceVmAlias && r.sourceVmAlias !== r.sourceVm && r.sourceVmAlias !== '-'
+            ? `${r.sourceVmAlias} (${r.sourceVm})`
+            : r.sourceVm || '-';
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <CloudServerOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{line}</span>
+          </span>
+        );
       }
     },
     { 
@@ -330,10 +353,16 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, mode = 'sta
       key: 'targetVm', 
       ellipsis: true,
       render: (_: any, r: any) => {
-        if (r.targetVmAlias && r.targetVmAlias !== r.targetVm && r.targetVmAlias !== '-') {
-          return `${r.targetVmAlias} (${r.targetVm})`;
-        }
-        return r.targetVm || '-';
+        const line =
+          r.targetVmAlias && r.targetVmAlias !== r.targetVm && r.targetVmAlias !== '-'
+            ? `${r.targetVmAlias} (${r.targetVm})`
+            : r.targetVm || '-';
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <CloudServerOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{line}</span>
+          </span>
+        );
       }
     },
     { 

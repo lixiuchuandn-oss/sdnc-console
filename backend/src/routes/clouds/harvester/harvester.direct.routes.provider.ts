@@ -48,6 +48,16 @@ import {
   harvesterSubnetDirectDeleteHandler,
 } from './handlers/ovn-direct-subnets.handlers';
 import {
+  kubeOvnSecurityGroupListHandler,
+  kubeOvnSecurityGroupCreateHandler,
+  kubeOvnSecurityGroupDetailHandler,
+  kubeOvnSecurityGroupReplaceRulesHandler,
+  kubeOvnSecurityGroupUpdateHandler,
+  kubeOvnSecurityGroupDeleteHandler,
+  kubeOvnSecurityGroupAddMembersHandler,
+  kubeOvnSecurityGroupRemoveMemberHandler,
+} from './handlers/kube-ovn-security-groups.handlers';
+import {
   harvesterProviderNetworkListHandler,
   harvesterProviderNetworkCreateHandler,
 } from './handlers/ovn-direct-provider-networks.handlers';
@@ -299,6 +309,55 @@ export function registerHarvesterDirectRoutesProvider(
     cloudmap: harvesterSubnetDirectDeleteHandler,
     'cloudmap.private': harvesterSubnetDirectDeleteHandler,
     'cloudmap.edge': harvesterSubnetDirectDeleteHandler,
+  };
+
+  const kubeOvnSgListHandlers = {
+    harvester: kubeOvnSecurityGroupListHandler,
+    cloudmap: kubeOvnSecurityGroupListHandler,
+    'cloudmap.private': kubeOvnSecurityGroupListHandler,
+    'cloudmap.edge': kubeOvnSecurityGroupListHandler,
+  };
+  const kubeOvnSgCreateHandlers = {
+    harvester: kubeOvnSecurityGroupCreateHandler,
+    cloudmap: kubeOvnSecurityGroupCreateHandler,
+    'cloudmap.private': kubeOvnSecurityGroupCreateHandler,
+    'cloudmap.edge': kubeOvnSecurityGroupCreateHandler,
+  };
+  const kubeOvnSgDetailHandlers = {
+    harvester: kubeOvnSecurityGroupDetailHandler,
+    cloudmap: kubeOvnSecurityGroupDetailHandler,
+    'cloudmap.private': kubeOvnSecurityGroupDetailHandler,
+    'cloudmap.edge': kubeOvnSecurityGroupDetailHandler,
+  };
+  const kubeOvnSgReplaceRulesHandlers = {
+    harvester: kubeOvnSecurityGroupReplaceRulesHandler,
+    cloudmap: kubeOvnSecurityGroupReplaceRulesHandler,
+    'cloudmap.private': kubeOvnSecurityGroupReplaceRulesHandler,
+    'cloudmap.edge': kubeOvnSecurityGroupReplaceRulesHandler,
+  };
+  const kubeOvnSgAddMembersHandlers = {
+    harvester: kubeOvnSecurityGroupAddMembersHandler,
+    cloudmap: kubeOvnSecurityGroupAddMembersHandler,
+    'cloudmap.private': kubeOvnSecurityGroupAddMembersHandler,
+    'cloudmap.edge': kubeOvnSecurityGroupAddMembersHandler,
+  };
+  const kubeOvnSgRemoveMemberHandlers = {
+    harvester: kubeOvnSecurityGroupRemoveMemberHandler,
+    cloudmap: kubeOvnSecurityGroupRemoveMemberHandler,
+    'cloudmap.private': kubeOvnSecurityGroupRemoveMemberHandler,
+    'cloudmap.edge': kubeOvnSecurityGroupRemoveMemberHandler,
+  };
+  const kubeOvnSgUpdateHandlers = {
+    harvester: kubeOvnSecurityGroupUpdateHandler,
+    cloudmap: kubeOvnSecurityGroupUpdateHandler,
+    'cloudmap.private': kubeOvnSecurityGroupUpdateHandler,
+    'cloudmap.edge': kubeOvnSecurityGroupUpdateHandler,
+  };
+  const kubeOvnSgDeleteHandlers = {
+    harvester: kubeOvnSecurityGroupDeleteHandler,
+    cloudmap: kubeOvnSecurityGroupDeleteHandler,
+    'cloudmap.private': kubeOvnSecurityGroupDeleteHandler,
+    'cloudmap.edge': kubeOvnSecurityGroupDeleteHandler,
   };
   const providerNetworkListHandlers = {
     harvester: harvesterProviderNetworkListHandler,
@@ -680,6 +739,48 @@ export function registerHarvesterDirectRoutesProvider(
     '/:id/resources/subnets/:name',
     checkAdminPermission,
     createProviderRouter(subnetDeleteHandlers)
+  );
+
+  // Kube-OVN 安全组（Tower 数据库）
+  router.get(
+    '/:id/resources/kube-ovn-security-groups',
+    checkAdminPermission,
+    createProviderRouter(kubeOvnSgListHandlers)
+  );
+  router.post(
+    '/:id/resources/kube-ovn-security-groups',
+    checkAdminPermission,
+    createProviderRouter(kubeOvnSgCreateHandlers)
+  );
+  router.get(
+    '/:id/resources/kube-ovn-security-groups/:sgId',
+    checkAdminPermission,
+    createProviderRouter(kubeOvnSgDetailHandlers)
+  );
+  router.put(
+    '/:id/resources/kube-ovn-security-groups/:sgId/rules',
+    checkAdminPermission,
+    createProviderRouter(kubeOvnSgReplaceRulesHandlers)
+  );
+  router.post(
+    '/:id/resources/kube-ovn-security-groups/:sgId/members',
+    checkAdminPermission,
+    createProviderRouter(kubeOvnSgAddMembersHandlers)
+  );
+  router.delete(
+    '/:id/resources/kube-ovn-security-groups/:sgId/members/:memberId',
+    checkAdminPermission,
+    createProviderRouter(kubeOvnSgRemoveMemberHandlers)
+  );
+  router.patch(
+    '/:id/resources/kube-ovn-security-groups/:sgId',
+    checkAdminPermission,
+    createProviderRouter(kubeOvnSgUpdateHandlers)
+  );
+  router.delete(
+    '/:id/resources/kube-ovn-security-groups/:sgId',
+    checkAdminPermission,
+    createProviderRouter(kubeOvnSgDeleteHandlers)
   );
 
   // OVN Provider Networks

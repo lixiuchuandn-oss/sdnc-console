@@ -1,3 +1,4 @@
+import { resolveHarvesterK8sApiBase } from '../../../routes/clouds/harvester/harvester.direct.helpers';
 import { HarvesterTestParams } from './types';
 import { getJsonOnce, requestJson } from './utils';
 
@@ -10,14 +11,7 @@ export const updateHarvesterSubnet = async (
   name: string,
   payload: any,
 ): Promise<any> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
+  const origin = resolveHarvesterK8sApiBase(endpoint || '');
 
   // 1. 获取当前子网数据 (为了拿到 resourceVersion)
   const getUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
@@ -44,6 +38,14 @@ export const updateHarvesterSubnet = async (
       ...specPayload,
     },
   };
+
+  /** 清空 VLAN：前端传 vlan=null 时表示 Untagged，需从 spec 删除字段而非写入 null */
+  if (
+    Object.prototype.hasOwnProperty.call(specPayload, 'vlan') &&
+    (specPayload.vlan === null || specPayload.vlan === '')
+  ) {
+    delete updated.spec.vlan;
+  }
 
   // 3. 执行更新 (PUT)
   const putUrl = `${origin}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;

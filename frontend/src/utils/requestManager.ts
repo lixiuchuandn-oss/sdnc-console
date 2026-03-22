@@ -124,7 +124,13 @@ async function parseErrorResponse(response: Response): Promise<never> {
       }
     }
   } catch (e) {
-    // ignore JSON parse error
+    // 非 JSON 体（如历史接口 res.send 纯文本）时回退为正文，便于用户看到 422 等原因
+    try {
+      const t = (await response.text()).trim();
+      if (t) errorMsg = t.length > 800 ? `${t.slice(0, 800)}…` : t;
+    } catch {
+      // ignore
+    }
   }
   errorMsg = translateKnownApiErrorMessage(errorMsg);
   const err: any = new Error(errorMsg);
@@ -284,8 +290,8 @@ export async function requestManager(
           )
         : await executeRequest(config, apiBaseUrl);
 
-      // 4. 缓存结果（仅 GET 请求且启用缓存）
-      if (isGetRequest && options.enableCache) {
+      // 4. 缓存结果（仅 GET；skipCache 时不写入，避免「强制刷新」结果被 TTL 缓存、下次仍不请求后端）
+      if (isGetRequest && options.enableCache && !options.skipCache) {
         requestCache.set(requestKey, {
           data,
           timestamp: Date.now(),

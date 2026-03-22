@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Table, Tag, Space, Input, Select, Button, Modal, Form, message, Dropdown, MenuProps, Radio, Alert, Checkbox, Row, Col, Tabs } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -8,7 +8,7 @@ import TableColumnSettingsButton from '../../../../components/TableColumnSetting
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { createKubeOvnSubnet, deleteKubeOvnSubnet, updateKubeOvnSubnet } from '../../../../services/harvesterApi';
-import SubnetAclFormItems, { normalizeAclRowForForm, normalizeAclsForApi } from './SubnetAclFormItems';
+import SubnetAclFormItems, { normalizeAclRowForForm, validateAclsFormRowsForSubmit } from './SubnetAclFormItems';
 import { fetchCloudProviderEcs } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -41,6 +41,7 @@ const UNDERLAY_SYSTEM_VPC = 'ovn-cluster';
 /** 注解值 vpc：产品名「VPC 子网」（业务 VPC 内隔离网段） */
 const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
 const SUBNET_FINALIZER = 'tower.io/managed';
+const TOWER_ALIAS_ANNOTATION = 'tower.io/alias';
 
 const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading, onRefresh, onRefreshNads, showYaml = true }) => {
   const { user } = useAuth();
@@ -108,13 +109,14 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       const vpcVal = String(r?.vpc || r?.spec?.vpc || UNDERLAY_SYSTEM_VPC);
       const name = String(r?.name || r?.metadata?.name || '').toLowerCase();
       const cidr = String(r?.cidr || r?.cidrBlock || r?.spec?.cidrBlock || r?.spec?.cidr || '').toLowerCase();
+      const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] || '').toLowerCase();
 
       if (!isBusinessSubnet(r)) return false;
 
       // 'join' subnet is system reserved
       // if (name === 'join') return false;
 
-      if (kw && !name.includes(kw) && !cidr.includes(kw) && !vpcVal.toLowerCase().includes(kw)) return false;
+      if (kw && !name.includes(kw) && !cidr.includes(kw) && !vpcVal.toLowerCase().includes(kw) && !alias.includes(kw)) return false;
       if (vpc) {
         if (vpcVal !== vpc) return false;
       }
@@ -196,7 +198,13 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
           patchBody.allowEWTraffic = values.allowEWTraffic;
         }
         if (Array.isArray(values.acls)) {
-          patchBody.acls = normalizeAclsForApi(values.acls);
+          const aclCheck = validateAclsFormRowsForSubmit(values.acls);
+          if (!aclCheck.ok) {
+            message.error(aclCheck.message);
+            setSubmitting(false);
+            return;
+          }
+          patchBody.acls = aclCheck.normalized;
         }
         await updateKubeOvnSubnet(cloudId!, name, patchBody);
         message.success('更新子网成功');
@@ -225,7 +233,13 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
           createPayload.allowEWTraffic = values.allowEWTraffic;
         }
         if (Array.isArray(values.acls)) {
-          createPayload.acls = normalizeAclsForApi(values.acls);
+          const aclCheck = validateAclsFormRowsForSubmit(values.acls);
+          if (!aclCheck.ok) {
+            message.error(aclCheck.message);
+            setSubmitting(false);
+            return;
+          }
+          createPayload.acls = aclCheck.normalized;
         }
         await createKubeOvnSubnet(cloudId!, createPayload);
         message.success('创建子网成功');
@@ -239,8 +253,24 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       onRefresh?.(true);
     } catch (e: any) {
       console.error(e);
-      const msg = e?.response?.data || e?.message || '未知错误';
-      message.error(`${isEditMode ? '更新' : '创建'}失败: ${typeof msg === 'object' ? (msg.message || JSON.stringify(msg)) : msg}`);
+      if (e?.errorFields) throw e;
+      const rd = e?.responseData;
+      let detail = String(e?.message || '').trim() || '未知错误';
+      if (rd?.message) detail = typeof rd.message === 'string' ? rd.message : detail;
+      if (rd?.error) {
+        const ex = typeof rd.error === 'string' ? rd.error : JSON.stringify(rd.error);
+        if (ex && !detail.includes(ex.slice(0, 40))) detail = `${detail}: ${ex}`;
+      }
+      if (rd?.details != null) {
+        const ds = typeof rd.details === 'string' ? rd.details : JSON.stringify(rd.details);
+        const head = ds.slice(0, 48);
+        if (head && !detail.includes(head)) {
+          const more = ds.length > 400 ? `${ds.slice(0, 400)}…` : ds;
+          detail = `${detail} | ${more}`;
+        }
+      }
+      message.error(`${isEditMode ? '更新' : '创建'}失败: ${detail}`);
+      throw e;
     } finally {
       setSubmitting(false);
     }
@@ -355,14 +385,43 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
   };
 
   const allColumns = useMemo(() => [
-    { 
-      title: '子网名称', 
-      key: 'name', 
-      render: (_: any, r: any) => (
-        <span className={hasVpcsWrite ? "cell-link" : ""} onClick={() => { if (!hasVpcsWrite) return; handleEdit(r); }}>
-          {r?.name || r?.metadata?.name}
-        </span>
-      )
+    {
+      title: '名称',
+      key: 'subnetAlias',
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        const alias = String(r?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
+        const display = alias || '—';
+        const textEl = hasVpcsWrite ? (
+          <span
+            className="cell-link"
+            style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
+            title={alias || undefined}
+            onClick={() => handleEdit(r)}
+          >
+            {display}
+          </span>
+        ) : (
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={alias || undefined}>
+            {display}
+          </span>
+        );
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <ApartmentOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            {textEl}
+          </span>
+        );
+      },
+    },
+    {
+      title: '子网 ID',
+      key: 'subnetResourceId',
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        const id = String(r?.name || r?.metadata?.name || '').trim() || '—';
+        return <span className="std-time" title={id}>{id}</span>;
+      },
     },
     { 
       title: 'CIDR', 

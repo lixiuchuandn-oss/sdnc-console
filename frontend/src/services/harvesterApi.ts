@@ -1129,7 +1129,78 @@ export const fetchKubeOvnSubnets = async (cloudId: string, force = false, skipSy
   if (force) params.append('force', 'true');
   if (skipSync) params.append('skipSync', 'true');
   const query = params.toString();
-  return await apiRequest(`/api/clouds/${cloudId}/resources/subnets${query ? `?${query}` : ''}`);
+  const mustBypassCache = !!(force || skipSync);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/subnets${query ? `?${query}` : ''}`, {
+    skipCache: mustBypassCache,
+  });
+};
+
+/** Tower 侧 Kube-OVN 安全组列表 */
+export const fetchKubeOvnSecurityGroups = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/kube-ovn-security-groups`, {
+    skipCache: true,
+  });
+};
+
+/** 创建 Kube-OVN 安全组（body: name, subnetName, description?） */
+export const createKubeOvnSecurityGroup = async (
+  cloudId: string,
+  payload: { name: string; subnetName: string; description?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/kube-ovn-security-groups`, payload);
+};
+
+export const fetchKubeOvnSecurityGroupDetail = async (cloudId: string, sgId: string) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}`,
+    { skipCache: true },
+  );
+};
+
+/** 整表替换安全组访问控制规则（与 Subnet.spec.acls 条目结构一致） */
+export const replaceKubeOvnSecurityGroupRules = async (
+  cloudId: string,
+  sgId: string,
+  payload: { rules: Array<{ action: string; direction: string; match: string; priority: number }> },
+) => {
+  return await apiPut(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}/rules`,
+    payload,
+  );
+};
+
+/** 更新安全组元数据（name、description；不可改子网） */
+export const updateKubeOvnSecurityGroup = async (
+  cloudId: string,
+  sgId: string,
+  payload: { name?: string; description?: string | null },
+) => {
+  return await apiPatch(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}`,
+    payload,
+  );
+};
+
+export const deleteKubeOvnSecurityGroup = async (cloudId: string, sgId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}`);
+};
+
+/** 批量添加安全组成员（虚拟机 namespace/name） */
+export const addKubeOvnSecurityGroupMembers = async (
+  cloudId: string,
+  sgId: string,
+  payload: { items: Array<{ vmNamespace: string; vmName: string }> },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}/members`,
+    payload,
+  );
+};
+
+export const removeKubeOvnSecurityGroupMember = async (cloudId: string, sgId: string, memberId: string) => {
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/kube-ovn-security-groups/${encodeURIComponent(sgId)}/members/${encodeURIComponent(memberId)}`,
+  );
 };
 
 /**

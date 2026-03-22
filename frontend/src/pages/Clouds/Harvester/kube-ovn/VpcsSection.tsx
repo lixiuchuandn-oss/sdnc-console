@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Table, Button, Space, Modal, Input, Tag, Tooltip, Tabs, Form, Select, message, Switch, Radio } from 'antd';
-import { ReloadOutlined, PlusOutlined, MinusCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { ReloadOutlined, PlusOutlined, MinusCircleOutlined, ThunderboltOutlined, CloudOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -523,7 +523,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       filtered = filtered.filter(item => {
         const name = SafeRead.name(item).toLowerCase();
         const uid = SafeRead.uid(item).toLowerCase();
-        return name.includes(key) || uid.includes(key);
+        const alias = String(SafeRead.alias(item) || '').toLowerCase();
+        return name.includes(key) || uid.includes(key) || alias.includes(key);
       });
     }
 
@@ -552,19 +553,29 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   // 子网列定义
   const subnetColumns = [
     {
-      title: '子网名称',
-      key: 'name',
+      title: '名称',
+      key: 'subnetAlias',
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        const alias = String(SafeRead.alias(r) || '').trim();
+        const display = alias || '—';
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <ApartmentOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={alias || undefined}>
+              {display}
+            </span>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'ID',
+      key: 'subnetId',
+      ellipsis: true,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
-        const alias = SafeRead.alias(r);
-        return (
-          <Space>
-            <div>
-              <div>{alias || name}</div>
-              {alias && alias !== name && <div style={{ fontSize: 12, color: '#999' }}>{name}</div>}
-            </div>
-          </Space>
-        );
+        return <span className="std-time" title={name}>{name || '—'}</span>;
       },
     },
     {
@@ -622,24 +633,34 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   // VPC 列定义
   const allColumns = useMemo(() => [
     {
-      title: 'VPC名称',
-      key: 'name',
+      title: '名称',
+      key: 'vpcAlias',
+      ellipsis: true,
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
-        const alias = SafeRead.alias(r);
+        const alias = String(SafeRead.alias(r) || '').trim();
+        const display = alias || '—';
         let tag = null;
         if (name === 'ovn-cluster') tag = <Tag color="gold">Default</Tag>;
         if (name === 'ovn-vpc-external-network') tag = <Tag color="purple">Provider</Tag>;
-        
         return (
-          <Space>
-            <div>
-               <div>{alias || name}</div>
-               {alias && alias !== name && <div style={{ fontSize: 12, color: '#999' }}>{name}</div>}
-            </div>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
+            <CloudOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={alias || undefined}>
+              {display}
+            </span>
             {tag}
-          </Space>
+          </span>
         );
+      },
+    },
+    {
+      title: 'ID',
+      key: 'vpcId',
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        const name = SafeRead.name(r);
+        return <span className="std-time" title={name}>{name || '—'}</span>;
       },
     },
     {

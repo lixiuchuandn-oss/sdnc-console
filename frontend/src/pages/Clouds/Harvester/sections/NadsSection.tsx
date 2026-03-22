@@ -712,9 +712,9 @@ const NadsSection: React.FC<Props> = ({ nads = [], loading, onRefresh, cloudId, 
           displayName = '管理网';
         }
         return (
-          <span>
-            <ApartmentOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-            {displayName}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <ApartmentOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{displayName}</span>
           </span>
         );
       }

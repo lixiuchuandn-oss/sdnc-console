@@ -200,6 +200,48 @@ export function normalizeAclsForApi(rows: SubnetAclFormRow[] | undefined | null)
     .filter((r) => r.action && r.direction && r.match && Number.isFinite(r.priority));
 }
 
+/** 未填写任何有效语义时可忽略（如用户点了「添加规则」又清空，或仅剩默认 L3） */
+export function isBlankAclFormRow(r: SubnetAclFormRow | undefined | null): boolean {
+  if (!r || typeof r !== 'object') return true;
+  const action = String(r.action ?? '').trim();
+  const direction = String(r.direction ?? '').trim();
+  const priority = Number(r.priority);
+  const src = String(r.matchSrcIp ?? '').trim();
+  const dst = String(r.matchDstIp ?? '').trim();
+  const sport = numPort(r.matchSrcPort);
+  const dport = numPort(r.matchDstPort);
+  const proto = (r.matchL4 ?? 'ip4') as MatchL4;
+  if (action || direction) return false;
+  if (Number.isFinite(priority)) return false;
+  if (src || dst || sport != null || dport != null) return false;
+  if (proto !== 'ip4') return false;
+  return true;
+}
+
+/**
+ * 与 normalizeAclsForApi 配套：禁止「有填写意图的行」被静默丢弃后仍当成功下发。
+ */
+export function validateAclsFormRowsForSubmit(
+  rows: SubnetAclFormRow[] | undefined | null,
+):
+  | {
+      ok: true;
+      normalized: Array<{ action: string; direction: string; match: string; priority: number }>;
+    }
+  | { ok: false; message: string } {
+  const list = Array.isArray(rows) ? rows : [];
+  const nonBlank = list.filter((r) => !isBlankAclFormRow(r));
+  const normalized = normalizeAclsForApi(list);
+  if (nonBlank.length !== normalized.length) {
+    return {
+      ok: false,
+      message:
+        '存在未填写完整或无效的 ACL 规则（每条需动作、方向、优先级 1–32767；匹配条件按协议填写）。请补全或删除多余空行后再保存。',
+    };
+  }
+  return { ok: true, normalized };
+}
+
 type Props = {
   showAllowEW?: boolean;
 };

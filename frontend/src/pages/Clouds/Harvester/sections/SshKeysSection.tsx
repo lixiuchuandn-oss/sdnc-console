@@ -204,9 +204,9 @@ const SshKeysSection: React.FC<Props> = ({
         const content = text || record.name;
         // [Security] 租户侧严禁查看 YAML 详情，此处移除所有点击链接
         return (
-          <span>
-            <SafetyCertificateOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-            {content}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <SafetyCertificateOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{content}</span>
           </span>
         );
       }

@@ -286,9 +286,11 @@ const SnapshotsSection: React.FC<Props> = ({
       dataIndex: 'alias', 
       key: 'alias', 
       render: (_: any, r: any) => (
-        <span>
-          <CameraOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-          {r.alias !== '-' ? r.alias : r.name}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+          <CameraOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+            {r.alias !== '-' ? r.alias : r.name}
+          </span>
         </span>
       )
     },

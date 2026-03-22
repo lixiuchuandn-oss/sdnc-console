@@ -5,7 +5,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Table, Button, message, Input, Select } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, FileTextOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -113,7 +113,12 @@ const CloudInitsSection: React.FC<Props> = ({
       title: '名称', 
       dataIndex: 'name', 
       key: 'name', 
-      render: (text: string) => <span>{text}</span>
+      render: (text: string) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+          <FileTextOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{text}</span>
+        </span>
+      ),
     },
     ...(mode === 'standard' ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 150 }] : []),
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },

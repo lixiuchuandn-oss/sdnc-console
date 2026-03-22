@@ -283,10 +283,11 @@ AppDataSource.initialize()
     
     // 初始化数据库表（如果不存在则创建）
     try {
-      const { ensureRecycleBinTables } = await import('./config/database');
+      const { ensureRecycleBinTables, ensureKubeOvnSecurityGroupTables } = await import('./config/database');
       await ensureRecycleBinTables();
+      await ensureKubeOvnSecurityGroupTables();
     } catch (e) {
-      logger.warn('初始化回收站表失败:', e);
+      logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
     }
 
     // 启动云资源同步任务

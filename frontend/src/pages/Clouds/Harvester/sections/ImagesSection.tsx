@@ -361,9 +361,9 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         const disp = r?.displayName || r?.spec?.displayName || r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || r?.name || r?.metadata?.name || '-';
         const nameForIcon = r?.displayName || r?.spec?.displayName || r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] || r?.name || r?.metadata?.name || '';
         return (
-          <span>
-            <OsIcon osName={nameForIcon} style={{ marginRight: 8, fontSize: 16 }} />
-            {disp}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <OsIcon osName={nameForIcon} style={{ flexShrink: 0, fontSize: 16 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{disp}</span>
           </span>
         );
     } },

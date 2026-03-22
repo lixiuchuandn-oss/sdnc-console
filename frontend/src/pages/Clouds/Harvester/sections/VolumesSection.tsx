@@ -837,16 +837,16 @@ const VolumesSection: React.FC<Props> = ({
         const vm = SafeRead.attachedVm(r);
         const isSystemDisk = checkIsSystemDisk(r, vm);
         return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <HddOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
+            <HddOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
             <span
               className="cell-link"
               onClick={() => handleOpenVolumeDetail(r, 'detail')}
-              style={{ cursor: 'pointer' }}
+              style={{ cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
             >
               {r.alias || r.name}
             </span>
-            {isSystemDisk && <Tag color="blue" style={{ marginLeft: 8 }}>系统盘</Tag>}
+            {isSystemDisk && <Tag color="blue">系统盘</Tag>}
           </span>
         );
       }

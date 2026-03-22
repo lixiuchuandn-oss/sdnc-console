@@ -305,9 +305,9 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
       dataIndex: 'name', 
       key: 'name', 
       render: (t: string) => (
-        <span>
-          <GlobalOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-          {t}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+          <GlobalOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t}</span>
         </span>
       ) 
     },

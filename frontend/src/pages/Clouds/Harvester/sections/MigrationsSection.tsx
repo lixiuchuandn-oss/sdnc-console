@@ -9,7 +9,7 @@
  */
 import React, { useMemo, useState, useEffect } from 'react';
 import { Table, Badge, Input, Button, Select, message, Space, Popconfirm } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, CloudServerOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { fetchHarvesterMigrations, fetchHarvesterMigrationsDirect, abortHarvesterMigration } from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -222,7 +222,18 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, mode = 'standa
     {
       title: '虚拟机',
       key: 'vmName',
-      render: (_: any, r: any) => <span className="cell-link" onClick={() => handleOpenDrawer(r, 'detail')}><b>{SafeMig.vmName(r)}</b></span>
+      render: (_: any, r: any) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+          <CloudServerOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <span
+            className="cell-link"
+            style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, fontWeight: 600 }}
+            onClick={() => handleOpenDrawer(r, 'detail')}
+          >
+            {SafeMig.vmName(r)}
+          </span>
+        </span>
+      ),
     },
     {
       title: '源节点',

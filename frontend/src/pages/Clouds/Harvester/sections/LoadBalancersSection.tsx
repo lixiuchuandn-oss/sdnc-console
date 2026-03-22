@@ -256,9 +256,9 @@ const LoadBalancersSection: React.FC<Props> = ({ cloudId, loadBalancers, namespa
       dataIndex: 'name', 
       key: 'name', 
       render: (t: string) => (
-        <span>
-          <ShareAltOutlined style={{ color: '#1677ff', fontSize: 16, marginRight: 8 }} />
-          {t}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+          <ShareAltOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{t}</span>
         </span>
       ) 
     },

@@ -9,6 +9,7 @@ import NadsSection from '../Harvester/sections/NadsSection';
 import KubeOvnVpcsSection from '../Harvester/kube-ovn/VpcsSection';
 import KubeOvnSubnetsSection from '../Harvester/kube-ovn/SubnetsSection';
 import UnderlaySubnetsSection from '../Harvester/kube-ovn/UnderlaySubnetsSection';
+import SecurityGroupsSection from '../Harvester/kube-ovn/SecurityGroupsSection';
 import VlansSection from '../Harvester/kube-ovn/VlansSection';
 import GpusSection from '../Harvester/sections/GpusSection';
 import MigrationsSection from '../Harvester/sections/MigrationsSection';
@@ -1590,9 +1591,19 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string; defaultProvider?: string 
                         </>
                       )
                     },
-                    
+                    {
+                      key: 'security_groups',
+                      label: '安全组',
+                      children: (
+                        <>
+                          {/* kube-ovn/SecurityGroupsSection：扁平子网安全组 */}
+                          <SecurityGroupsSection cloudId={cloudId} />
+                          <DebugJSON data={rawSubnets} show={showLog} />
+                        </>
+                      )
+                    },
                   ].filter((i:any) => {
-                    if (i.key === 'flat_public_subnets') return checkPerm('clouds.networks:read');
+                    if (i.key === 'flat_public_subnets' || i.key === 'security_groups') return checkPerm('clouds.networks:read');
                     return true;
                   })}
                 />

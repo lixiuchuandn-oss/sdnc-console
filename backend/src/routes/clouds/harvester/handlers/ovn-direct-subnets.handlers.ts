@@ -11,6 +11,7 @@ import {
   ensureProvider,
   resolveHarvesterK8sApiBase,
 } from '../harvester.direct.helpers';
+import { parseKubeOvnAclRulesInput } from '../../../../services/clouds/harvester/kubeOvnAclRules';
 
 /**
  * =============================================================================
@@ -61,37 +62,6 @@ const isK8sMetadataName = (s: string): boolean => {
   if (!s || s.length > K8S_METADATA_NAME_MAX) return false;
   return /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(s);
 };
-
-const ACL_ACTIONS = new Set(['drop', 'allow', 'pass']);
-const ACL_DIRECTIONS = new Set(['from-lport', 'to-lport']);
-
-/**
- * 校验并规范化 Kube-OVN Subnet.spec.acls（OVN ACL 条目）
- */
-function parseAclsInput(raw: unknown): { ok: true; value: any[] } | { ok: false; message: string } {
-  if (raw === undefined || raw === null) return { ok: true, value: [] };
-  if (!Array.isArray(raw)) return { ok: false, message: 'acls 须为数组' };
-  const out: any[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const row = raw[i];
-    if (!row || typeof row !== 'object') return { ok: false, message: `acls[${i}] 须为对象` };
-    const o = row as Record<string, unknown>;
-    const action = String(o.action ?? '').trim();
-    const direction = String(o.direction ?? '').trim();
-    const match = String(o.match ?? '').trim();
-    const priority = Number(o.priority);
-    if (!action || !direction || !match)
-      return { ok: false, message: `acls[${i}] 须包含非空的 action、direction、match` };
-    if (!Number.isFinite(priority))
-      return { ok: false, message: `acls[${i}] priority 须为有效数字` };
-    if (!ACL_ACTIONS.has(action))
-      return { ok: false, message: `acls[${i}] action 仅允许 drop、allow、pass` };
-    if (!ACL_DIRECTIONS.has(direction))
-      return { ok: false, message: `acls[${i}] direction 仅允许 from-lport、to-lport` };
-    out.push({ action, direction, match, priority });
-  }
-  return { ok: true, value: out };
-}
 
 /** 与 VM / NAD 删除逻辑一致：创建时写入的 tower.io/managed 若无 controller 摘除，DELETE 会长期 Terminating */
 const TOWER_MANAGED_FINALIZER = 'tower.io/managed';
@@ -237,9 +207,11 @@ export async function harvesterSubnetDirectCreateHandler(
     }
     const nameStr = String(name).trim();
     if (!isK8sMetadataName(nameStr)) {
-      res.status(422).send(
-        '子网名称须符合 Kubernetes 命名规则：仅小写英文字母、数字、连字符或点号，需以字母或数字开头和结尾（例如 flat-net-1）。不能使用中文或空格。',
-      );
+      res.status(422).json({
+        message:
+          '子网名称须符合 Kubernetes 命名规则：仅小写英文字母、数字、连字符或点号，需以字母或数字开头和结尾（例如 flat-net-1）。不能使用中文或空格。',
+        code: 'SUBNET_NAME_INVALID',
+      });
       return;
     }
     if (excludeIps && Array.isArray(excludeIps)) {
@@ -252,7 +224,7 @@ export async function harvesterSubnetDirectCreateHandler(
 
     let specAcls: any[] | undefined;
     if (Object.prototype.hasOwnProperty.call(req.body, 'acls')) {
-      const aclResult = parseAclsInput(req.body.acls);
+      const aclResult = parseKubeOvnAclRulesInput(req.body.acls, 'acls');
       if (!aclResult.ok) {
         res.status(400).json({ message: aclResult.message });
         return;
@@ -291,9 +263,12 @@ export async function harvesterSubnetDirectCreateHandler(
           if (r && rangesOverlap(reqRange, r)) {
             const conflictName = s?.metadata?.name || s?.name;
             if (conflictName) {
-              res
-                .status(422)
-                .send(`当前创建的子网和已存在的子网 ${conflictName} (VPC: ${currentVpc}) 冲突`);
+              res.status(422).json({
+                message: `网段冲突：新子网的 CIDR 与同 VPC 内已有子网「${conflictName}」的网段重叠（VPC: ${currentVpc}）。请改用不重叠的网段，或调整已有子网。`,
+                code: 'SUBNET_CIDR_CONFLICT',
+                conflictSubnet: conflictName,
+                vpc: currentVpc,
+              });
               return;
             }
           }
@@ -596,7 +571,7 @@ export async function harvesterSubnetDirectUpdateHandler(
 
     const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
     if (Object.prototype.hasOwnProperty.call(body, 'acls')) {
-      const aclResult = parseAclsInput(body.acls);
+      const aclResult = parseKubeOvnAclRulesInput(body.acls, 'acls');
       if (!aclResult.ok) {
         res.status(400).json({ message: aclResult.message });
         return;

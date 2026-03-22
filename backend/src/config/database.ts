@@ -110,3 +110,103 @@ export async function ensureRecycleBinTables() {
     throw error;
   }
 }
+
+/**
+ * Kube-OVN 安全组及访问控制规则表（Tower 侧）
+ */
+export async function ensureKubeOvnSecurityGroupTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 kube_ovn_security_groups 表检查');
+      return;
+    }
+
+    const sgExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='kube_ovn_security_groups'`,
+    );
+    if (sgExists.length === 0) {
+      dbLog.info('创建 kube_ovn_security_groups 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "kube_ovn_security_groups" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "name" varchar NOT NULL,
+          "description" varchar,
+          "subnetName" varchar NOT NULL,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_kube_ovn_sg_cloud_subnet_name"
+        ON "kube_ovn_security_groups" ("cloudId", "subnetName", "name")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_kube_ovn_security_groups_cloudId"
+        ON "kube_ovn_security_groups" ("cloudId")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_kube_ovn_security_groups_subnetName"
+        ON "kube_ovn_security_groups" ("subnetName")
+      `);
+      dbLog.info('kube_ovn_security_groups 表创建成功');
+    }
+
+    const ruleExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='kube_ovn_security_group_rules'`,
+    );
+    if (ruleExists.length === 0) {
+      dbLog.info('创建 kube_ovn_security_group_rules 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "kube_ovn_security_group_rules" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "securityGroupId" varchar NOT NULL,
+          "priority" integer NOT NULL,
+          "direction" varchar NOT NULL,
+          "action" varchar NOT NULL,
+          "match" varchar NOT NULL,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY ("securityGroupId") REFERENCES "kube_ovn_security_groups" ("id") ON DELETE CASCADE
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_kube_ovn_sgr_securityGroupId"
+        ON "kube_ovn_security_group_rules" ("securityGroupId")
+      `);
+      dbLog.info('kube_ovn_security_group_rules 表创建成功');
+    }
+
+    const memberExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='kube_ovn_security_group_members'`,
+    );
+    if (memberExists.length === 0) {
+      dbLog.info('创建 kube_ovn_security_group_members 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "kube_ovn_security_group_members" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "securityGroupId" varchar NOT NULL,
+          "vmNamespace" varchar NOT NULL,
+          "vmName" varchar NOT NULL,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY ("securityGroupId") REFERENCES "kube_ovn_security_groups" ("id") ON DELETE CASCADE
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_kube_ovn_sgm_sg_vm"
+        ON "kube_ovn_security_group_members" ("securityGroupId", "vmNamespace", "vmName")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_kube_ovn_sgm_securityGroupId"
+        ON "kube_ovn_security_group_members" ("securityGroupId")
+      `);
+      dbLog.info('kube_ovn_security_group_members 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error(
+      'kube_ovn 安全组表初始化失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}

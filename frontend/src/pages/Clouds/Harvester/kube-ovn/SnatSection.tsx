@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Table, Tag, Button, Space, Modal, Form, Input, Select, message, MenuProps } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { ExportOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { createCloudProviderOvnSnatRule, deleteCloudProviderOvnSnatRule } from '../../../../services/harvesterApi';
@@ -137,7 +137,16 @@ export const SnatSection: React.FC<SnatSectionProps> = ({ cloudId, snatRules, ei
     { 
       title: '名称', 
       key: 'name', 
-      render: (_: any, r: any) => r.metadata?.name 
+      ellipsis: true,
+      render: (_: any, r: any) => {
+        const n = r.metadata?.name || '—';
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
+            <ExportOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={n}>{n}</span>
+          </span>
+        );
+      },
     },
     { 
       title: 'CIDR', 
