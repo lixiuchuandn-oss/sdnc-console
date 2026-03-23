@@ -40,7 +40,7 @@ type Props = {
     tooltip?: React.ReactNode;
   };
   
-  onRefresh?: () => void;
+  onRefresh?: (force?: boolean) => void;
   refreshLoading?: boolean;
   refreshTooltip?: React.ReactNode;
 };
@@ -137,9 +137,9 @@ const SharedToolbar: React.FC<Props> = ({
     // 4. Refresh
     if (onRefresh) {
       const btn = (
-        <Button 
-          icon={<ReloadOutlined />} 
-          onClick={onRefresh}
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => onRefresh(true)}
           loading={refreshLoading}
         />
       );

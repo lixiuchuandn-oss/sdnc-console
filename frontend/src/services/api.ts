@@ -161,6 +161,30 @@ export const apiDelete = async (endpoint: string, body?: any) => {
   }
 };
 
+// 通用 PUT 请求（带重试，不缓存，不去重）
+// 注意：更新操作禁用去重，确保每次更新都能真正执行
+export const apiPut = async (endpoint: string, body: any = {}) => {
+  try {
+    return await requestManager(
+      {
+        method: 'PUT',
+        endpoint,
+        body,
+        headers: getAuthHeaders(),
+        options: {
+          enableDeduplication: false, // 更新操作不去重，允许重复更新
+          enableCache: false, // PUT 请求不缓存
+          enableRetry: true, // 保留重试功能
+        },
+      },
+      API_BASE_URL
+    );
+  } catch (error) {
+    console.error(`API请求失败 ${endpoint}:`, error);
+    throw error;
+  }
+};
+
 // 通用文件上传请求（支持 FormData，带重试，不缓存，不去重）
 // 注意：文件上传操作禁用去重，确保每次上传都能真正执行
 export const apiUpload = async (endpoint: string, formData: FormData, options?: { timeout?: number }) => {

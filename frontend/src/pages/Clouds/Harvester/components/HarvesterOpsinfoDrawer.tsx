@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Drawer, Tabs, Descriptions } from 'antd';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Drawer, Tabs, Descriptions, Tag } from 'antd';
 import yaml from 'js-yaml';
 import LinedTextArea from '../../../../components/LinedTextArea';
 import { fetchHarvesterResourceByLink } from '../../../../services/harvesterApi';
 import HarvesterVmDetailDrawer from './HarvesterVmDetailDrawer';
 import HarvesterEventsTab from './HarvesterEventsTab';
+import ServiceRelatedPodsTab from './ServiceRelatedPodsTab';
 
 export interface HarvesterResourceDrawerProps {
   open: boolean;
@@ -17,6 +18,7 @@ export interface HarvesterResourceDrawerProps {
   namespaces?: any[];
   volumes?: any[];
   images?: any[];
+  pods?: any[]; // Pod 列表，用于 Service 关联 Pod 展示
   onRefresh?: (force?: boolean) => void;
   onOpenReconfigure?: (vm: any) => void;
   onBackup?: (vm: any) => void;
@@ -25,6 +27,10 @@ export interface HarvesterResourceDrawerProps {
   onMigrate?: (vm: any) => void;
   onDelete?: (vm: any) => void;
   forceOpsMode?: boolean;
+  // Pod 操作回调
+  onViewPodDetail?: (pod: any) => void;
+  onViewPodLog?: (pod: any) => void;
+  onOpenPodTerminal?: (pod: any) => void;
 }
 
 const ViewLinkTab: React.FC<{ cloudId?: string; viewLink?: string; active: boolean }> = ({ cloudId, viewLink, active }) => {
@@ -86,7 +92,11 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
     activeTab = 'detail',
     onTabChange,
     cloudId,
+    pods,
     forceOpsMode,
+    onViewPodDetail,
+    onViewPodLog,
+    onOpenPodTerminal,
   } = props;
 
   if (resourceType === 'VirtualMachine' && !forceOpsMode) {
@@ -209,6 +219,21 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
             key: 'view_link',
             label: '实时数据 (View Link)',
             children: <ViewLinkTab cloudId={cloudId} viewLink={record?.links?.view} active={activeTab === 'view_link'} />
+          }] : []),
+          // Service 类型显示关联 Pod Tab
+          ...(resourceType === 'Service' ? [{
+            key: 'related_pods',
+            label: '关联 Pod',
+            children: (
+              <ServiceRelatedPodsTab
+                serviceSelector={record?.rawData?.spec?.selector || record?.spec?.selector}
+                pods={pods || []}
+                loading={false}
+                onViewDetail={onViewPodDetail}
+                onViewLog={onViewPodLog}
+                onOpenTerminal={onOpenPodTerminal}
+              />
+            )
           }] : []),
         ]}
       />

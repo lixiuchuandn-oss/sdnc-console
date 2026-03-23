@@ -1,0 +1,45 @@
+{
+  "apiVersion": "batch/v1",
+  "kind": "Job",
+  "metadata": {
+    "name": "push-alpine-image",
+    "namespace": "default"
+  },
+  "spec": {
+    "template": {
+      "spec": {
+        "nodeName": "master1",
+        "containers": [{
+          "name": "pusher",
+          "image": "rancher/mirrored-library-nginx:1.24.0-alpine",
+          "command": ["/bin/sh", "-c"],
+          "args": ["set -ex; SOCKET=/run/k3s/containerd/containerd.sock; REGISTRY=10.53.223.183:5000; echo 'Tagging image...'; /host/ctr -a $SOCKET -n k8s.io images tag docker.io/rancher/mirrored-library-nginx:1.24.0-alpine $REGISTRY/alpine:latest; echo 'Pushing to registry...'; /host/ctr -a $SOCKET -n k8s.io images push --plain-http $REGISTRY/alpine:latest $REGISTRY/alpine:latest; echo 'Verifying...'; apk add --no-cache curl; curl -s http://$REGISTRY/v2/_catalog; curl -s http://$REGISTRY/v2/alpine/tags/list; echo 'Done'"],
+          "securityContext": {
+            "privileged": true
+          },
+          "volumeMounts": [{
+            "name": "run-dir",
+            "mountPath": "/run"
+          }, {
+            "name": "rancher-bin",
+            "mountPath": "/host"
+          }]
+        }],
+        "volumes": [{
+          "name": "run-dir",
+          "hostPath": {
+            "path": "/run",
+            "type": "Directory"
+          }
+        }, {
+          "name": "rancher-bin",
+          "hostPath": {
+            "path": "/var/lib/rancher/rke2/bin",
+            "type": "Directory"
+          }
+        }],
+        "restartPolicy": "OnFailure"
+      }
+    }
+  }
+}

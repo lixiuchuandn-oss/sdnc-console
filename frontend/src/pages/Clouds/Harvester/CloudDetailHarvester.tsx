@@ -24,7 +24,7 @@ import ClusterNetworksSection from './sections/ClusterNetworksSection';
 // 重新编译触发引入
 import NamespacesTab from './sections/NamespacesTab';
 // 引入容器组件
-import { WorkloadsSection, PodsSection, JobsSection, ConfigsSection, RegistriesSection } from './containers';
+import { WorkloadsSection, PodsSection, JobsSection, ConfigsSection, RegistriesSection, GatewayApiSection } from './containers';
 import { CloudUploadOutlined, ArrowLeftOutlined, ReloadOutlined, HomeOutlined, LoginOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../components/PageDetailContainer';
 import { API_BASE_URL, fetchClouds, fetchCloudProviderEcs, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, softRebootCloudProviderEcs, pauseCloudProviderEcs, unpauseCloudProviderEcs, deleteCloudProviderEcs, apiPost } from '../../../services/api';
@@ -33,7 +33,7 @@ import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { getToken } from '../../../utils/tokenStorage';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
 // 引入Harvester特定的API请求函数
-import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterDeployments, fetchHarvesterStatefulSets, fetchHarvesterDaemonSets, fetchHarvesterPods, fetchHarvesterJobs, fetchHarvesterCronJobs, fetchHarvesterConfigMaps, fetchHarvesterSecrets, fetchHarvesterImagePullSecrets } from '../../../services/harvesterApi';
+import { fetchHarvesterSnapshots, fetchHarvesterBackups, fetchHarvesterScheduleVmBackups, fetchHarvesterSshKeys, fetchHarvesterCloudInits, fetchHarvesterIngresses, fetchHarvesterServices, fetchHarvesterLoadBalancers, fetchHarvesterIPPools, fetchHarvesterNads, fetchHarvesterImages, fetchHarvesterVolumes, fetchHarvesterNodes, fetchHarvesterVmDetail, fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterGpuResources, fetchHarvesterNamespaces, fetchHarvesterStorageClasses, fetchHarvesterCapabilities, fetchHarvesterTemplates, fetchHarvesterClusterNetworks, fetchCloudProviderOvnEips, fetchCloudProviderOvnFips, fetchCloudProviderOvnSnatRules, fetchCloudProviderOvnDnatRules, stopHarvesterVm, fetchHarvesterDeployments, fetchHarvesterStatefulSets, fetchHarvesterDaemonSets, fetchHarvesterPods, fetchHarvesterJobs, fetchHarvesterCronJobs, fetchHarvesterConfigMaps, fetchHarvesterSecrets, fetchHarvesterImagePullSecrets, checkGatewayApiStatus, fetchGatewayClasses, fetchGateways, fetchHttpRoutes, fetchGrpcRoutes } from '../../../services/harvesterApi';
 import VmReconfigureModal from './modals/VmReconfigureModal';
 import VmSection from './sections/VmSection';
 import RecycleBinSection from './sections/RecycleBinSection';
@@ -140,6 +140,13 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const [harvesterConfigMaps, setHarvesterConfigMaps] = useState<any[]>([]); // ConfigMap 列表
   const [harvesterSecrets, setHarvesterSecrets] = useState<any[]>([]); // Secret 列表
   const [harvesterImagePullSecrets, setHarvesterImagePullSecrets] = useState<any[]>([]); // 镜像凭证列表
+
+  // --- Gateway API 相关数据 ---
+  const [gatewayApiStatus, setGatewayApiStatus] = useState<{ installed: boolean; resources: { gatewayClass: boolean; gateway: boolean; httpRoute: boolean; grpcRoute: boolean } } | null>(null);
+  const [gatewayClasses, setGatewayClasses] = useState<any[]>([]); // GatewayClass 列表
+  const [gateways, setGateways] = useState<any[]>([]); // Gateway 列表
+  const [httpRoutes, setHttpRoutes] = useState<any[]>([]); // HTTPRoute 列表
+  const [grpcRoutes, setGrpcRoutes] = useState<any[]>([]); // GRPCRoute 列表
 
   // --- UI 交互状态 ---
   const [vmReconfOpen, setVmReconfOpen] = useState(false); // 虚拟机配额调整模态框开关
@@ -547,7 +554,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterConfigMaps(Array.isArray(list) ? list : []);
               }, force);
-              loadResource('secrets', () => fetchHarvesterSecrets(cloudId), (json) => {
+              loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterSecrets(Array.isArray(list) ? list : []);
               }, force);
@@ -555,18 +562,31 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             break;
           case 'workloads':
             if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
-              loadResource('deployments', () => fetchHarvesterDeployments(cloudId), (json) => {
+              loadResource('deployments', () => fetchHarvesterDeployments(cloudId, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterDeployments(Array.isArray(list) ? list : []);
               }, force);
-              loadResource('statefulsets', () => fetchHarvesterStatefulSets(cloudId), (json) => {
+              loadResource('statefulsets', () => fetchHarvesterStatefulSets(cloudId, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterStatefulSets(Array.isArray(list) ? list : []);
               }, force);
-              loadResource('daemonsets', () => fetchHarvesterDaemonSets(cloudId), (json) => {
+              loadResource('daemonsets', () => fetchHarvesterDaemonSets(cloudId, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterDaemonSets(Array.isArray(list) ? list : []);
               }, force);
+              // 加载镜像凭证（用于创建工作负载时选择）
+              if (harvesterSecrets.length > 0 && !force) {
+                const dockerSecrets = harvesterSecrets.filter(
+                  (item: any) => item?.type === 'kubernetes.io/dockerconfigjson'
+                );
+                setHarvesterImagePullSecrets(dockerSecrets);
+                loadedRef.current.add('imagePullSecrets');
+              } else {
+                loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
+                  const list: any[] = (json as any)?.data?.items || [];
+                  setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+                }, force);
+              }
             }
             break;
           case 'pods':
@@ -579,23 +599,37 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             break;
           case 'jobs':
             if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
-              loadResource('jobs', () => fetchHarvesterJobs(cloudId), (json) => {
+              loadResource('jobs', () => fetchHarvesterJobs(cloudId, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterJobs(Array.isArray(list) ? list : []);
               }, force);
-              loadResource('cronjobs', () => fetchHarvesterCronJobs(cloudId), (json) => {
+              loadResource('cronjobs', () => fetchHarvesterCronJobs(cloudId, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterCronJobs(Array.isArray(list) ? list : []);
               }, force);
+              // 加载镜像拉取凭证（用于创建 Job/CronJob 时选择）
+              if (!loadedRef.current.has('imagePullSecrets')) {
+                loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
+                  const list: any[] = (json as any)?.data?.items || [];
+                  setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
+                }, force);
+              }
+              // 加载 Secrets（用于仓库浏览器显示仓库列表）
+              if (!loadedRef.current.has('secrets')) {
+                loadResource('secrets', () => fetchHarvesterSecrets(cloudId), (json) => {
+                  const list: any[] = (json as any)?.data?.items || [];
+                  setHarvesterSecrets(Array.isArray(list) ? list : []);
+                }, force);
+              }
             }
             break;
           case 'configs':
             if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
-              loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId), (json) => {
+              loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterConfigMaps(Array.isArray(list) ? list : []);
               }, force);
-              loadResource('secrets', () => fetchHarvesterSecrets(cloudId), (json) => {
+              loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force), (json) => {
                 const list: any[] = (json as any)?.data?.items || [];
                 setHarvesterSecrets(Array.isArray(list) ? list : []);
               }, force);
@@ -613,11 +647,40 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 loadedRef.current.add('imagePullSecrets');
               } else {
                 // secrets 未加载或强制刷新，则请求 API
-                loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId), (json) => {
+                loadResource('imagePullSecrets', () => fetchHarvesterImagePullSecrets(cloudId, undefined, force), (json) => {
                   const list: any[] = (json as any)?.data?.items || [];
                   setHarvesterImagePullSecrets(Array.isArray(list) ? list : []);
                 }, force);
               }
+            }
+            break;
+          // Gateway API 资源加载
+          case 'gateway_api':
+            if (checkPerm('clouds.containers:read') || checkPerm('clouds:read')) {
+              // 检测 Gateway API 状态
+              loadResource('gatewayApiStatus', () => checkGatewayApiStatus(cloudId), (json) => {
+                setGatewayApiStatus(json?.data || null);
+              }, force);
+              // 加载 GatewayClass
+              loadResource('gatewayClasses', () => fetchGatewayClasses(cloudId), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setGatewayClasses(Array.isArray(list) ? list : []);
+              }, force);
+              // 加载 Gateway
+              loadResource('gateways', () => fetchGateways(cloudId), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setGateways(Array.isArray(list) ? list : []);
+              }, force);
+              // 加载 HTTPRoute
+              loadResource('httpRoutes', () => fetchHttpRoutes(cloudId), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setHttpRoutes(Array.isArray(list) ? list : []);
+              }, force);
+              // 加载 GRPCRoute
+              loadResource('grpcRoutes', () => fetchGrpcRoutes(cloudId), (json) => {
+                const list: any[] = (json as any)?.data?.items || [];
+                setGrpcRoutes(Array.isArray(list) ? list : []);
+              }, force);
             }
             break;
       }
@@ -1205,7 +1268,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'K8s 服务 ',
                       children: (
                         <>
-                          <ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} />
+                          <ServicesSection cloudId={cloudId} services={harvesterServices} loading={resourceLoading.services} onRefresh={() => loadTabResource('services', true)} namespacesOptions={namespacesOptions} pods={harvesterPods} />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawServices, null, 2)}</pre>
@@ -1586,6 +1649,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           daemonsets={harvesterDaemonSets}
                           loading={resourceLoading.deployments || resourceLoading.statefulsets || resourceLoading.daemonsets}
                           namespacesOptions={namespacesOptions}
+                          imagePullSecrets={harvesterImagePullSecrets}
+                          secretsWithCredentials={harvesterSecrets}
                           cloudId={cloudId}
                           nsValue={nsFilter || undefined}
                           onNsChange={(v) => setNsFilter(v || '')}
@@ -1623,7 +1688,9 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           cloudId={cloudId}
                           nsValue={nsFilter || undefined}
                           onNsChange={(v) => setNsFilter(v || '')}
-                          onRefresh={() => loadTabResource('jobs', true)}
+                          onRefresh={(force) => loadTabResource('jobs', force ?? true)}
+                          imagePullSecrets={harvesterImagePullSecrets}
+                          secretsWithCredentials={harvesterSecrets}
                         />
                       )
                     },
@@ -1637,6 +1704,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           loading={resourceLoading.services}
                           onRefresh={() => loadTabResource('services', true)}
                           isTenant={user?.role === 'tenant' || !!(user as any)?.tenantId}
+                          namespacesOptions={namespacesOptions}
+                          pods={harvesterPods}
                         />
                       )
                     },
@@ -1649,6 +1718,26 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           ingresses={harvesterIngresses}
                           loading={resourceLoading.ingresses}
                           onRefresh={() => loadTabResource('ingresses', true)}
+                          namespacesOptions={namespacesOptions}
+                          secrets={harvesterSecrets}
+                        />
+                      )
+                    },
+                    {
+                      key: 'gateway_api',
+                      label: '网关路由',
+                      children: (
+                        <GatewayApiSection
+                          cloudId={cloudId}
+                          gatewayApiStatus={gatewayApiStatus}
+                          gatewayClasses={gatewayClasses}
+                          gateways={gateways}
+                          httpRoutes={httpRoutes}
+                          grpcRoutes={grpcRoutes}
+                          loading={resourceLoading.gatewayApiStatus || resourceLoading.gateways}
+                          namespacesOptions={namespacesOptions}
+                          services={harvesterServices}
+                          onRefresh={() => loadTabResource('gateway_api', true)}
                         />
                       )
                     },
@@ -1664,7 +1753,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                           cloudId={cloudId}
                           nsValue={nsFilter || undefined}
                           onNsChange={(v) => setNsFilter(v || '')}
-                          onRefresh={() => loadTabResource('configs', true)}
+                          onRefresh={(force) => loadTabResource('configs', force)}
                         />
                       )
                     },
@@ -1674,6 +1763,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       children: (
                         <RegistriesSection
                           secrets={harvesterImagePullSecrets}
+                          secretsWithCredentials={harvesterSecrets}
                           loading={resourceLoading.imagePullSecrets}
                           namespacesOptions={namespacesOptions}
                           cloudId={cloudId}
@@ -1687,6 +1777,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     // 容器模块权限检查
                     if (i.key === 'services') return checkPerm('clouds.services:read') || checkPerm('clouds:read');
                     if (i.key === 'ingresses') return checkPerm('clouds.ingresses:read') || checkPerm('clouds:read');
+                    if (i.key === 'gateway_api') return checkPerm('clouds.containers:read') || checkPerm('clouds:read');
                     if (i.key === 'configs') return checkPerm('clouds.containers:read') || checkPerm('clouds:read');
                     if (i.key === 'registries') return checkPerm('clouds.containers:read') || checkPerm('clouds:read');
                     return checkPerm('clouds.containers:read') || checkPerm('clouds:read');

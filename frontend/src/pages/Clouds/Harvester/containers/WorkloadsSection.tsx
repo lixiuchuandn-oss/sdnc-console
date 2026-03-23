@@ -18,7 +18,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Tabs, Select, Button, Tag, Space, Dropdown, Modal, Input, InputNumber, App, Badge, Tooltip, Popconfirm } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, PlusOutlined, MinusOutlined, PlayCircleOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
+import { EllipsisOutlined, ReloadOutlined, PlusOutlined, MinusOutlined, PlayCircleOutlined, DeleteOutlined, SearchOutlined, EditOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -32,6 +32,7 @@ import {
   restartHarvesterDeployment,
   deleteHarvesterContainerResource,
 } from '../../../../services/harvesterApi';
+import { WorkloadFormModal, WorkloadType } from './components';
 
 type Props = {
   deployments: any[];
@@ -39,6 +40,8 @@ type Props = {
   daemonsets: any[];
   loading: boolean;
   namespacesOptions: string[];
+  imagePullSecrets: Array<{ metadata: { name: string; namespace: string } }>;
+  secretsWithCredentials?: any[];  // 包含完整凭证信息的 Secret 列表（用于仓库浏览）
   cloudId: string;
   nsValue?: string;
   onNsChange: (v?: string) => void;
@@ -121,7 +124,8 @@ const WorkloadTable: React.FC<{
   cloudId: string;
   onRefresh: () => void;
   onCreate?: () => void;
-}> = ({ type, data, loading, cloudId, onRefresh, onCreate }) => {
+  onEdit?: (record: any) => void;
+}> = ({ type, data, loading, cloudId, onRefresh, onCreate, onEdit }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -263,6 +267,8 @@ const WorkloadTable: React.FC<{
       key: 'creationTimestamp',
       width: 180,
       render: formatTime,
+      sorter: (a: any, b: any) => new Date(a?.metadata?.creationTimestamp || 0).getTime() - new Date(b?.metadata?.creationTimestamp || 0).getTime(),
+      defaultSortOrder: 'descend' as const,
     },
     {
       title: '操作',
@@ -271,6 +277,12 @@ const WorkloadTable: React.FC<{
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const items = [
+          {
+            key: 'edit',
+            label: '编辑',
+            icon: <EditOutlined />,
+            onClick: () => onEdit?.(record),
+          },
           {
             key: 'scale',
             label: '扩缩容',
@@ -298,14 +310,13 @@ const WorkloadTable: React.FC<{
                 onOk: () => handleDelete(record),
               });
             },
-            show: true,
           },
-        ].filter((item) => item.show);
+        ].filter((item) => !item.show || item.show === true).map(({ show, ...rest }) => rest);
         
         return <ResourceActionsDropdown items={items} />;
       },
     },
-  ], [type, handleScale, handleRestart, handleDelete, modal, typeLabel]);
+  ], [type, handleScale, handleRestart, handleDelete, onEdit, modal, typeLabel]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -371,17 +382,35 @@ const WorkloadsSection: React.FC<Props> = ({
   daemonsets,
   loading,
   namespacesOptions,
+  imagePullSecrets,
+  secretsWithCredentials,
   cloudId,
   nsValue,
   onNsChange,
   onRefresh,
 }) => {
   const [activeTab, setActiveTab] = useState<'deployment' | 'statefulset' | 'daemonset'>('deployment');
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [createType, setCreateType] = useState<WorkloadType>('deployment');
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editRecord, setEditRecord] = useState<any>(null);
   
   // Tab 切换
   const handleTabChange = (key: string) => {
     setActiveTab(key as 'deployment' | 'statefulset' | 'daemonset');
   };
+  
+  // 打开创建弹窗
+  const handleOpenCreate = useCallback(() => {
+    setCreateType(activeTab as WorkloadType);
+    setCreateModalVisible(true);
+  }, [activeTab]);
+  
+  // 打开编辑弹窗
+  const handleEdit = useCallback((record: any) => {
+    setEditRecord(record);
+    setEditModalVisible(true);
+  }, []);
   
   // 根据当前 Tab 获取数据
   const getCurrentData = () => {
@@ -397,86 +426,130 @@ const WorkloadsSection: React.FC<Props> = ({
     }
   };
   
-  // 根据 nsValue 过滤数据
+  // 根据 nsValue 过滤数据，并按创建时间倒序排序
   const filteredDeployments = useMemo(() => {
-    if (!nsValue) return deployments;
-    return deployments.filter((item: any) => item?.metadata?.namespace === nsValue);
+    let result = deployments;
+    if (nsValue) result = result.filter((item: any) => item?.metadata?.namespace === nsValue);
+    return result.sort((a: any, b: any) => new Date(b?.metadata?.creationTimestamp || 0).getTime() - new Date(a?.metadata?.creationTimestamp || 0).getTime());
   }, [deployments, nsValue]);
   
   const filteredStatefulSets = useMemo(() => {
-    if (!nsValue) return statefulsets;
-    return statefulsets.filter((item: any) => item?.metadata?.namespace === nsValue);
+    let result = statefulsets;
+    if (nsValue) result = result.filter((item: any) => item?.metadata?.namespace === nsValue);
+    return result.sort((a: any, b: any) => new Date(b?.metadata?.creationTimestamp || 0).getTime() - new Date(a?.metadata?.creationTimestamp || 0).getTime());
   }, [statefulsets, nsValue]);
   
   const filteredDaemonSets = useMemo(() => {
-    if (!nsValue) return daemonsets;
-    return daemonsets.filter((item: any) => item?.metadata?.namespace === nsValue);
+    let result = daemonsets;
+    if (nsValue) result = result.filter((item: any) => item?.metadata?.namespace === nsValue);
+    return result.sort((a: any, b: any) => new Date(b?.metadata?.creationTimestamp || 0).getTime() - new Date(a?.metadata?.creationTimestamp || 0).getTime());
   }, [daemonsets, nsValue]);
   
   return (
-    <PageDetailSection
-      title="工作负载"
-      toolbarLeft={
-        <Select
-          placeholder="筛选命名空间"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          style={{ width: 200 }}
-          value={nsValue}
-          onChange={onNsChange}
-          options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+    <>
+      <PageDetailSection
+        title="工作负载"
+        toolbarLeft={
+          <Select
+            placeholder="筛选命名空间"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ width: 200 }}
+            value={nsValue}
+            onChange={onNsChange}
+            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+          />
+        }
+        primaryAction={{
+          label: '创建工作负载',
+          onClick: handleOpenCreate,
+        }}
+        onRefresh={onRefresh}
+      >
+        <Tabs
+          type="line"
+          activeKey={activeTab}
+          onChange={handleTabChange}
+          items={[
+            {
+              key: 'deployment',
+              label: `Deployment (${filteredDeployments.length})`,
+              children: (
+                <WorkloadTable
+                  type="deployment"
+                  data={filteredDeployments}
+                  loading={loading}
+                  cloudId={cloudId}
+                  onRefresh={onRefresh}
+                  onEdit={handleEdit}
+                />
+              ),
+            },
+            {
+              key: 'statefulset',
+              label: `StatefulSet (${filteredStatefulSets.length})`,
+              children: (
+                <WorkloadTable
+                  type="statefulset"
+                  data={filteredStatefulSets}
+                  loading={loading}
+                  cloudId={cloudId}
+                  onRefresh={onRefresh}
+                  onEdit={handleEdit}
+                />
+              ),
+            },
+            {
+              key: 'daemonset',
+              label: `DaemonSet (${filteredDaemonSets.length})`,
+              children: (
+                <WorkloadTable
+                  type="daemonset"
+                  data={filteredDaemonSets}
+                  loading={loading}
+                  cloudId={cloudId}
+                  onRefresh={onRefresh}
+                  onEdit={handleEdit}
+                />
+              ),
+            },
+          ]}
         />
-      }
-      onRefresh={onRefresh}
-    >
-      <Tabs
-        type="line"
-        activeKey={activeTab}
-        onChange={handleTabChange}
-        items={[
-          {
-            key: 'deployment',
-            label: `Deployment (${filteredDeployments.length})`,
-            children: (
-              <WorkloadTable
-                type="deployment"
-                data={filteredDeployments}
-                loading={loading}
-                cloudId={cloudId}
-                onRefresh={onRefresh}
-              />
-            ),
-          },
-          {
-            key: 'statefulset',
-            label: `StatefulSet (${filteredStatefulSets.length})`,
-            children: (
-              <WorkloadTable
-                type="statefulset"
-                data={filteredStatefulSets}
-                loading={loading}
-                cloudId={cloudId}
-                onRefresh={onRefresh}
-              />
-            ),
-          },
-          {
-            key: 'daemonset',
-            label: `DaemonSet (${filteredDaemonSets.length})`,
-            children: (
-              <WorkloadTable
-                type="daemonset"
-                data={filteredDaemonSets}
-                loading={loading}
-                cloudId={cloudId}
-                onRefresh={onRefresh}
-              />
-            ),
-          },
-        ]}
+      </PageDetailSection>
+      
+      <WorkloadFormModal
+        visible={createModalVisible}
+        cloudId={cloudId}
+        namespacesOptions={namespacesOptions}
+        imagePullSecrets={imagePullSecrets}
+        secretsWithCredentials={secretsWithCredentials}
+        defaultNamespace={nsValue}
+        defaultType={createType}
+        onSuccess={() => {
+          onRefresh(true);
+        }}
+        onCancel={() => setCreateModalVisible(false)}
       />
-    </PageDetailSection>
+      
+      <WorkloadFormModal
+        visible={editModalVisible}
+        cloudId={cloudId}
+        namespacesOptions={namespacesOptions}
+        imagePullSecrets={imagePullSecrets}
+        secretsWithCredentials={secretsWithCredentials}
+        editData={editRecord}
+        onSuccess={() => {
+          setEditModalVisible(false);
+          setEditRecord(null);
+          onRefresh(true);
+        }}
+        onCancel={() => {
+          setEditModalVisible(false);
+          setEditRecord(null);
+        }}
+      />
+    </>
   );
 };
 

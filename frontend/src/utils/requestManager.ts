@@ -137,32 +137,37 @@ async function executeRequest(
   const { method = 'GET', endpoint, body, headers = {} } = config;
 
   const url = `${apiBaseUrl}${endpoint}`;
-  const fetchOptions: RequestInit = {
-    method,
-    headers: {
-      ...headers,
-    },
-    credentials: 'include',
+  
+  // 构建 headers 对象（使用 Record 类型便于操作）
+  const requestHeaders: Record<string, string> = {
+    ...headers,
   };
+
+  // 如果 skipCache 为 true，添加禁用浏览器缓存的请求头
+  if (config.options?.skipCache) {
+    requestHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    requestHeaders['Pragma'] = 'no-cache';
+    requestHeaders['Expires'] = '0';
+  }
 
   // 如果是 FormData，不设置 Content-Type（让浏览器自动设置，包括 boundary）
   // 如果不是 FormData，只有在 headers 中没有 Content-Type 时才设置默认值
   if (!(body instanceof FormData)) {
     // 如果 headers 中已经指定了 Content-Type，使用它（例如 application/merge-patch+json）
     // 否则使用默认的 application/json
-    if (!headers['Content-Type']) {
-      fetchOptions.headers = {
-        'Content-Type': 'application/json',
-        ...headers,
-      };
-    } else {
-      fetchOptions.headers = headers;
+    if (!requestHeaders['Content-Type']) {
+      requestHeaders['Content-Type'] = 'application/json';
     }
   } else {
-    // FormData 情况下，只保留用户自定义的 headers（但不包括 Content-Type）
-    const { 'Content-Type': _, ...otherHeaders } = headers;
-    fetchOptions.headers = otherHeaders;
+    // FormData 情况下，删除 Content-Type（让浏览器自动设置）
+    delete requestHeaders['Content-Type'];
   }
+
+  const fetchOptions: RequestInit = {
+    method,
+    headers: requestHeaders,
+    credentials: 'include',
+  };
 
   if (body && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
     // FormData 直接传递，其他情况序列化为 JSON

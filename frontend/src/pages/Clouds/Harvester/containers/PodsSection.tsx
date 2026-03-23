@@ -14,17 +14,20 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm } from 'antd';
-import { ReloadOutlined, DeleteOutlined, SearchOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, MoreOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DeleteOutlined, SearchOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, MoreOutlined, ConsoleSqlOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import YamlEditor from '../../../../components/YamlEditor';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import {
   fetchHarvesterPodDetail,
   fetchHarvesterPodLog,
+  fetchHarvesterPodEvents,
   deleteHarvesterContainerResource,
 } from '../../../../services/harvesterApi';
+import PodTerminal from './components/PodTerminal';
 
 type Props = {
   pods: any[];
@@ -125,7 +128,7 @@ const PodLogViewer: React.FC<{
   const logRef = useRef<HTMLPreElement>(null);
   
   // 上一次的容器列表，用于检测变化
-  const prevContainersRef = useRef<string[]>(containers);
+  const prevContainersRef = useRef<string[]>([]); // 初始化为空数组
   
   // 加载日志
   const loadLogs = useCallback(async () => {
@@ -149,35 +152,28 @@ const PodLogViewer: React.FC<{
     }
   }, [cloudId, namespace, podName, selectedContainer, tailLines, visible, containers.length]);
   
-  // 当容器列表变化时（切换到不同的 Pod），重置为第一个容器
+  // 当容器列表变化时，设置选中项
   useEffect(() => {
-    const containersChanged = 
-      prevContainersRef.current.length !== containers.length ||
-      prevContainersRef.current.some((c, i) => c !== containers[i]);
-    
-    if (containersChanged && containers.length > 0) {
-      // 重置为第一个容器
+    if (containers.length > 0 && !selectedContainer) {
       setSelectedContainer(containers[0]);
       prevContainersRef.current = containers;
     }
-  }, [containers]);
+  }, [containers, selectedContainer]);
   
   // 重置状态
   useEffect(() => {
     if (!visible) {
       setLogs('');
+      setSelectedContainer(''); // 关闭时重置选中状态
     }
   }, [visible]);
   
-  // 加载日志
+  // 加载日志 - 当容器列表准备好后自动加载
   useEffect(() => {
-    if (visible) {
-      // 单容器 Pod 直接加载，多容器 Pod 需要选择容器后再加载
-      if (containers.length === 1 || selectedContainer) {
-        loadLogs();
-      }
+    if (visible && containers.length > 0) {
+      loadLogs();
     }
-  }, [visible, selectedContainer, tailLines, loadLogs, containers.length]);
+  }, [visible, containers.length, loadLogs]);
   
   // 自动滚动到底部
   useEffect(() => {
@@ -255,9 +251,36 @@ const PodLogViewer: React.FC<{
 const PodDetailDrawer: React.FC<{
   pod: any;
   visible: boolean;
+  cloudId: string;
   onClose: () => void;
   onViewLog?: () => void;
-}> = ({ pod, visible, onClose, onViewLog }) => {
+}> = ({ pod, visible, cloudId, onClose, onViewLog }) => {
+  const [events, setEvents] = useState<any[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  
+  // 加载 Pod 相关的 Events
+  useEffect(() => {
+    if (visible && pod && cloudId) {
+      const loadEvents = async () => {
+        setEventsLoading(true);
+        try {
+          const result = await fetchHarvesterPodEvents(
+            cloudId,
+            pod.metadata.namespace,
+            pod.metadata.name
+          );
+          setEvents(result?.data?.items || []);
+        } catch (e: any) {
+          console.error('加载 Events 失败:', e);
+          setEvents([]);
+        } finally {
+          setEventsLoading(false);
+        }
+      };
+      loadEvents();
+    }
+  }, [visible, pod, cloudId]);
+  
   if (!pod) return null;
   
   const metadata = pod?.metadata || {};
@@ -347,6 +370,62 @@ const PodDetailDrawer: React.FC<{
             key: 'events',
             label: '事件',
             children: (
+              <div>
+                <div style={{ marginBottom: 8, color: '#666', fontSize: 12 }}>
+                  Kubernetes 事件日志，包含镜像拉取、调度、健康检查等详细信息
+                </div>
+                <Table
+                  loading={eventsLoading}
+                  dataSource={events.map((e: any, idx: number) => ({
+                    ...e,
+                    key: idx,
+                  }))}
+                  columns={[
+                    { 
+                      title: '类型', 
+                      dataIndex: 'type', 
+                      width: 80,
+                      render: (v: string) => (
+                        <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag>
+                      ),
+                    },
+                    { 
+                      title: '原因', 
+                      dataIndex: 'reason', 
+                      width: 130,
+                    },
+                    { 
+                      title: '消息', 
+                      dataIndex: 'message', 
+                      ellipsis: true,
+                      render: (v: string) => (
+                        <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{v || '-'}</span>
+                      ),
+                    },
+                    { 
+                      title: '次数', 
+                      dataIndex: 'count', 
+                      width: 60,
+                      render: (v: number) => v || 1,
+                    },
+                    { 
+                      title: '时间', 
+                      dataIndex: 'lastTimestamp', 
+                      width: 160, 
+                      render: formatTime,
+                    },
+                  ]}
+                  pagination={false}
+                  size="small"
+                  locale={{ emptyText: '暂无事件' }}
+                />
+              </div>
+            ),
+          },
+          {
+            key: 'conditions',
+            label: '条件',
+            children: (
               <Table
                 dataSource={(status.conditions || []).map((c: any, idx: number) => ({
                   ...c,
@@ -375,9 +454,12 @@ const PodDetailDrawer: React.FC<{
             key: 'yaml',
             label: 'YAML',
             children: (
-              <pre style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, overflow: 'auto', maxHeight: 500 }}>
-                {JSON.stringify(pod, null, 2)}
-              </pre>
+              <YamlEditor
+                value={JSON.stringify(pod, null, 2)}
+                readOnly
+                minHeight={300}
+                maxHeight={500}
+              />
             ),
           },
         ]}
@@ -411,6 +493,11 @@ const PodsSection: React.FC<Props> = ({
   const [currentPod, setCurrentPod] = useState<any>(null);
   const [logVisible, setLogVisible] = useState(false);
   const [logContainers, setLogContainers] = useState<string[]>([]);
+  
+  // 终端状态
+  const [terminalVisible, setTerminalVisible] = useState(false);
+  const [terminalPod, setTerminalPod] = useState<any>(null);
+  const [terminalContainers, setTerminalContainers] = useState<string[]>([]);
   
   // 过滤数据
   const filteredData = useMemo(() => {
@@ -475,6 +562,23 @@ const PodsSection: React.FC<Props> = ({
       message.error(e?.message || '删除失败');
     }
   }, [cloudId, message, onRefresh]);
+  
+  // 打开终端
+  const handleOpenTerminal = useCallback((pod: any) => {
+    const containerStatuses = pod?.status?.containerStatuses || [];
+    const specContainers = pod?.spec?.containers || [];
+    
+    let containers: string[];
+    if (containerStatuses.length > 0) {
+      containers = containerStatuses.map((c: any) => c.name);
+    } else {
+      containers = specContainers.map((c: any) => c.name);
+    }
+    
+    setTerminalPod(pod);
+    setTerminalContainers(containers);
+    setTerminalVisible(true);
+  }, []);
   
   // 表格列定义
   const columns = useMemo(() => [
@@ -548,6 +652,12 @@ const PodsSection: React.FC<Props> = ({
             onClick: () => handleViewLog(record),
           },
           {
+            key: 'terminal',
+            label: '终端',
+            icon: <CodeOutlined />,
+            onClick: () => handleOpenTerminal(record),
+          },
+          {
             key: 'delete',
             label: '删除',
             icon: <DeleteOutlined />,
@@ -566,7 +676,7 @@ const PodsSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} />;
       },
     },
-  ], [handleViewDetail, handleViewLog, handleDelete, modal]);
+  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleDelete, modal]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -652,6 +762,7 @@ const PodsSection: React.FC<Props> = ({
       <PodDetailDrawer
         pod={currentPod}
         visible={detailVisible}
+        cloudId={cloudId}
         onClose={() => {
           setDetailVisible(false);
           setCurrentPod(null);
@@ -674,6 +785,22 @@ const PodsSection: React.FC<Props> = ({
           visible={logVisible}
           onClose={() => {
             setLogVisible(false);
+          }}
+        />
+      )}
+      
+      {/* Pod 终端 */}
+      {terminalPod && (
+        <PodTerminal
+          visible={terminalVisible}
+          cloudId={cloudId}
+          namespace={terminalPod?.metadata?.namespace}
+          podName={terminalPod?.metadata?.name}
+          containers={terminalContainers}
+          defaultContainer={terminalContainers[0]}
+          onClose={() => {
+            setTerminalVisible(false);
+            setTerminalPod(null);
           }}
         />
       )}

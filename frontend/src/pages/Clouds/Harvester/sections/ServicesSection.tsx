@@ -4,17 +4,79 @@
  * 支持：
  * - 按名称/命名空间关键字过滤
  * - 按 Service 类型过滤
+ * - 创建新的 Service
  * - 打开 HarvesterResourceDrawer 查看 Service 详情
  */
-import React, { useMemo, useState } from 'react';
-import { Table, Button, Input, Select } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { Table, Button, Input, Select, App, Modal, Drawer, Descriptions, Tabs, Tag, Space } from 'antd';
+import { ReloadOutlined, SearchOutlined, PlusOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, CodeOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import YamlEditor from '../../../../components/YamlEditor';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import { deleteHarvesterService, fetchHarvesterServiceDetail, updateHarvesterService, fetchHarvesterPodLog, fetchHarvesterPodEvents } from '../../../../services/harvesterApi';
+import { ServiceFormModal, YamlEditModal, PodTerminal, PodLogViewer } from '../containers/components';
 import { isPublicNamespace } from '../../../../utils/harvesterUtils';
+
+/**
+ * 格式化时间 - 将 UTC 时间转换为本地时间显示
+ */
+const formatTime = (timestamp?: string) => {
+  if (!timestamp) return '-';
+  try {
+    const date = new Date(timestamp);
+    return date.toLocaleString('zh-CN');
+  } catch {
+    return timestamp;
+  }
+};
+
+/**
+ * 计算运行时长
+ */
+const calculateAge = (timestamp?: string) => {
+  if (!timestamp) return '-';
+  try {
+    const created = new Date(timestamp).getTime();
+    const now = Date.now();
+    const diff = now - created;
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (days > 0) return `${days}d${hours}h`;
+    if (hours > 0) return `${hours}h${minutes}m`;
+    return `${minutes}m`;
+  } catch {
+    return '-';
+  }
+};
+
+/**
+ * Pod 状态渲染
+ */
+const renderPodStatus = (pod: any) => {
+  const phase = pod?.status?.phase || 'Unknown';
+  const statusMap: Record<string, { color: string; text: string }> = {
+    Running: { color: 'green', text: '运行中' },
+    Pending: { color: 'blue', text: '等待中' },
+    Succeeded: { color: 'cyan', text: '已完成' },
+    Failed: { color: 'red', text: '失败' },
+    Unknown: { color: 'default', text: '未知' },
+    Terminating: { color: 'orange', text: '终止中' },
+  };
+  
+  // 检查是否正在终止
+  if (pod?.metadata?.deletionTimestamp) {
+    return <Tag color="orange">终止中</Tag>;
+  }
+  
+  const status = statusMap[phase] || statusMap.Unknown;
+  return <Tag color={status.color}>{status.text}</Tag>;
+};
 
 /**
  * 组件入参说明
@@ -22,6 +84,8 @@ import { isPublicNamespace } from '../../../../utils/harvesterUtils';
  * - services: Service 列表，可能为原生对象或带 rawData 的包装对象
  * - loading: 外层传入的加载状态
  * - onRefresh: 手动刷新回调，支持 force=true
+ * - namespacesOptions: 命名空间选项列表
+ * - pods: Pod 列表，用于查看关联 Pod
  */
 interface Props {
   cloudId: string;
@@ -29,9 +93,12 @@ interface Props {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   isTenant?: boolean;
+  namespacesOptions?: string[];
+  pods?: any[];
 }
 
-const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant }) => {
+const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefresh, isTenant, namespacesOptions, pods }) => {
+  const { message } = App.useApp();
   // 工具栏过滤及详情抽屉状态
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('All');
@@ -39,6 +106,114 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
+  
+  // 创建/编辑弹窗状态
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<any>(null);
+  
+  // YAML 编辑弹窗状态
+  const [yamlModalOpen, setYamlModalOpen] = useState(false);
+  const [yamlEditingRecord, setYamlEditingRecord] = useState<any>(null);
+  
+  // Pod 详情/日志/终端状态
+  const [podDetailVisible, setPodDetailVisible] = useState(false);
+  const [currentPod, setCurrentPod] = useState<any>(null);
+  const [podLogVisible, setPodLogVisible] = useState(false);
+  const [podLogContainers, setPodLogContainers] = useState<string[]>([]);
+  const [podTerminalVisible, setPodTerminalVisible] = useState(false);
+  const [podTerminalContainers, setPodTerminalContainers] = useState<string[]>([]);
+  const [podEvents, setPodEvents] = useState<any[]>([]);
+  const [podEventsLoading, setPodEventsLoading] = useState(false);
+  
+  // 删除 Service
+  const handleDelete = async (record: any) => {
+    try {
+      await deleteHarvesterService(cloudId, record.namespace, record.name);
+      message.success('删除成功');
+      onRefresh?.(true);
+    } catch (error: any) {
+      message.error(`删除失败: ${error?.message || '未知错误'}`);
+    }
+  };
+  
+  // 编辑 Service
+  const handleEdit = (record: any) => {
+    setEditingRecord(record);
+    setEditModalOpen(true);
+  };
+  
+  // YAML 编辑
+  const handleYamlEdit = (record: any) => {
+    setYamlEditingRecord(record);
+    setYamlModalOpen(true);
+  };
+  
+  // 加载 YAML 内容
+  const loadServiceYaml = useCallback(async () => {
+    if (!yamlEditingRecord) return '';
+    const response = await fetchHarvesterServiceDetail(cloudId, yamlEditingRecord.namespace, yamlEditingRecord.name);
+    // 只返回 Service 对象本身，而不是完整 API 响应
+    const serviceData = response?.data || response;
+    // 过滤掉 managedFields，避免干扰用户编辑
+    const cleanData = {
+      ...serviceData,
+      metadata: {
+        ...serviceData?.metadata,
+        managedFields: undefined,
+      },
+    };
+    return JSON.stringify(cleanData, null, 2);
+  }, [cloudId, yamlEditingRecord]);
+  
+  // 保存 YAML 内容
+  const saveServiceYaml = useCallback(async (yaml: string) => {
+    if (!yamlEditingRecord) return;
+    const data = JSON.parse(yaml);
+    await updateHarvesterService(cloudId, yamlEditingRecord.namespace, yamlEditingRecord.name, data);
+  }, [cloudId, yamlEditingRecord]);
+  
+  // Pod 详情
+  const handleViewPodDetail = useCallback(async (pod: any) => {
+    setCurrentPod(pod);
+    setPodDetailVisible(true);
+    // 加载 Pod Events
+    if (cloudId && pod?.metadata?.namespace && pod?.metadata?.name) {
+      setPodEventsLoading(true);
+      try {
+        const result = await fetchHarvesterPodEvents(cloudId, pod.metadata.namespace, pod.metadata.name);
+        setPodEvents(result?.data?.items || []);
+      } catch (e) {
+        setPodEvents([]);
+      } finally {
+        setPodEventsLoading(false);
+      }
+    }
+  }, [cloudId]);
+  
+  // Pod 日志
+  const handleViewPodLog = useCallback((pod: any) => {
+    const containerStatuses = pod?.status?.containerStatuses || [];
+    const specContainers = pod?.spec?.containers || [];
+    const containers = containerStatuses.length > 0 
+      ? containerStatuses.map((c: any) => c.name)
+      : specContainers.map((c: any) => c.name);
+    setCurrentPod(pod);
+    setPodLogContainers(containers);
+    setPodLogVisible(true);
+  }, []);
+  
+  // Pod 终端
+  const handleOpenPodTerminal = useCallback((pod: any) => {
+    const containerStatuses = pod?.status?.containerStatuses || [];
+    const specContainers = pod?.spec?.containers || [];
+    const containers = containerStatuses.length > 0 
+      ? containerStatuses.map((c: any) => c.name)
+      : specContainers.map((c: any) => c.name);
+    setCurrentPod(pod);
+    setPodTerminalContainers(containers);
+    setPodTerminalVisible(true);
+  }, []);
   
   /**
    * 将后端返回的 Service 数据统一转换为表格行
@@ -133,22 +308,43 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       title: '创建时间', 
       dataIndex: 'creationTimestamp', 
       key: 'creationTimestamp',
-      render: (t: string) => <span className="std-time">{t}</span>
+      render: formatTime,
+      sorter: (a: any, b: any) => new Date(a?.creationTimestamp || 0).getTime() - new Date(b?.creationTimestamp || 0).getTime(),
+      defaultSortOrder: 'descend' as const,
     },
     {
       title: '操作',
       key: 'action',
-      width: 80,
+      width: 100,
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <ResourceActionsDropdown 
           items={[
-            ...(!isTenant ? [{ key: 'opsinfo', label: '运维信息', onClick: () => {
-              setSelectedRecord(record);
-              setDrawerActiveTab('detail');
-              setDrawerOpen(true);
-            }}] : [])
+            ...(!isTenant ? [
+              { key: 'opsinfo', label: '运维信息', onClick: () => {
+                setSelectedRecord(record);
+                setDrawerActiveTab('detail');
+                setDrawerOpen(true);
+              }},
+              { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
+              { key: 'yaml', label: 'YAML 编辑', onClick: () => handleYamlEdit(record) },
+              { 
+                key: 'delete', 
+                label: '删除', 
+                danger: true,
+                onClick: () => {
+                  Modal.confirm({
+                    title: '确认删除',
+                    content: `确定要删除 Service "${record.name}" 吗？`,
+                    okText: '删除',
+                    okType: 'danger',
+                    cancelText: '取消',
+                    onOk: () => handleDelete(record),
+                  });
+                }
+              }
+            ] : [])
           ]}
           buttonProps={{ className: 'row-actions-trigger' }}
         />
@@ -190,6 +386,15 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
       }
       toolbarRight={
         <div className="toolbar-actions">
+          {!isTenant && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateModalOpen(true)}
+            >
+              创建
+            </Button>
+          )}
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey="harvester_services_table"
@@ -216,11 +421,235 @@ const ServicesSection: React.FC<Props> = ({ cloudId, services, loading, onRefres
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         resourceType="Service"
-        record={selectedRecord ? { ...selectedRecord.originalRecord, kind: 'Service' } : null}
+        record={selectedRecord ? { ...selectedRecord.originalRecord, kind: 'Service', rawData: selectedRecord.raw } : null}
         cloudId={cloudId}
         activeTab={drawerActiveTab}
         onTabChange={setDrawerActiveTab}
+        pods={pods}
+        onViewPodDetail={handleViewPodDetail}
+        onViewPodLog={handleViewPodLog}
+        onOpenPodTerminal={handleOpenPodTerminal}
       />
+      
+      {/* 创建 Service 弹窗 */}
+      <ServiceFormModal
+        visible={createModalOpen}
+        cloudId={cloudId}
+        namespacesOptions={namespacesOptions || []}
+        onSuccess={() => {
+          setCreateModalOpen(false);
+          onRefresh?.(true);
+        }}
+        onCancel={() => setCreateModalOpen(false)}
+      />
+      
+      {/* 编辑 Service 弹窗 */}
+      <ServiceFormModal
+        visible={editModalOpen}
+        cloudId={cloudId}
+        namespacesOptions={namespacesOptions || []}
+        editMode={true}
+        initialData={editingRecord?.raw}
+        onSuccess={() => {
+          setEditModalOpen(false);
+          setEditingRecord(null);
+          onRefresh?.(true);
+        }}
+        onCancel={() => {
+          setEditModalOpen(false);
+          setEditingRecord(null);
+        }}
+      />
+      
+      {/* YAML 编辑弹窗 */}
+      <YamlEditModal
+        visible={yamlModalOpen}
+        title={`YAML 编辑 - Service/${yamlEditingRecord?.namespace}/${yamlEditingRecord?.name}`}
+        cloudId={cloudId}
+        namespace={yamlEditingRecord?.namespace}
+        name={yamlEditingRecord?.name}
+        resourceType="service"
+        onLoadYaml={loadServiceYaml}
+        onSaveYaml={saveServiceYaml}
+        onCancel={() => {
+          setYamlModalOpen(false);
+          setYamlEditingRecord(null);
+        }}
+        onSuccess={() => {
+          setYamlModalOpen(false);
+          setYamlEditingRecord(null);
+          onRefresh?.(true);
+        }}
+      />
+      
+      {/* Pod 详情抽屉 */}
+      <Drawer
+        title={`Pod 详情: ${currentPod?.metadata?.name || ''}`}
+        placement="right"
+        width={700}
+        open={podDetailVisible}
+        onClose={() => {
+          setPodDetailVisible(false);
+          setCurrentPod(null);
+          setPodEvents([]);
+        }}
+        extra={
+          <Space>
+            <Button icon={<FileTextOutlined />} onClick={() => {
+              setPodDetailVisible(false);
+              if (currentPod) handleViewPodLog(currentPod);
+            }}>
+              查看日志
+            </Button>
+            <Button icon={<CodeOutlined />} onClick={() => {
+              setPodDetailVisible(false);
+              if (currentPod) handleOpenPodTerminal(currentPod);
+            }}>
+              终端
+            </Button>
+          </Space>
+        }
+      >
+        {currentPod && (
+          <Tabs
+            items={[
+              {
+                key: 'overview',
+                label: '概览',
+                children: (
+                  <Descriptions column={2} bordered size="small">
+                    <Descriptions.Item label="名称">{currentPod.metadata?.name}</Descriptions.Item>
+                    <Descriptions.Item label="命名空间">{currentPod.metadata?.namespace}</Descriptions.Item>
+                    <Descriptions.Item label="状态">{renderPodStatus(currentPod)}</Descriptions.Item>
+                    <Descriptions.Item label="节点">{currentPod.spec?.nodeName || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="IP">{currentPod.status?.podIP || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="运行时长">{calculateAge(currentPod.metadata?.creationTimestamp)}</Descriptions.Item>
+                    <Descriptions.Item label="创建时间" span={2}>{formatTime(currentPod.metadata?.creationTimestamp)}</Descriptions.Item>
+                    <Descriptions.Item label="标签" span={2}>
+                      <Space size={4} wrap>
+                        {Object.entries(currentPod.metadata?.labels || {}).map(([k, v]) => (
+                          <Tag key={k}>{k}={String(v)}</Tag>
+                        ))}
+                      </Space>
+                    </Descriptions.Item>
+                  </Descriptions>
+                ),
+              },
+              {
+                key: 'containers',
+                label: '容器',
+                children: (
+                  <Table
+                    dataSource={(currentPod.spec?.containers || []).map((c: any, idx: number) => ({
+                      ...c,
+                      key: idx,
+                      status: (currentPod.status?.containerStatuses || []).find((s: any) => s.name === c.name),
+                    }))}
+                    columns={[
+                      { title: '名称', dataIndex: 'name', width: 150 },
+                      { title: '镜像', dataIndex: 'image', ellipsis: true },
+                      {
+                        title: '状态',
+                        key: 'status',
+                        width: 100,
+                        render: (_: any, record: any) => {
+                          const s = record.status;
+                          if (!s) return '-';
+                          if (s.state?.running) return <Tag color="green">运行中</Tag>;
+                          if (s.state?.waiting) return <Tag color="orange">{s.state.waiting.reason}</Tag>;
+                          if (s.state?.terminated) return <Tag color="red">已终止</Tag>;
+                          return '-';
+                        },
+                      },
+                      {
+                        title: '重启次数',
+                        key: 'restartCount',
+                        width: 100,
+                        render: (_: any, record: any) => record.status?.restartCount || 0,
+                      },
+                    ]}
+                    pagination={false}
+                    size="small"
+                  />
+                ),
+              },
+              {
+                key: 'events',
+                label: '事件',
+                children: (
+                  <Table
+                    loading={podEventsLoading}
+                    dataSource={podEvents.map((e: any, idx: number) => ({ ...e, key: idx }))}
+                    columns={[
+                      { 
+                        title: '类型', 
+                        dataIndex: 'type', 
+                        width: 80,
+                        render: (v: string) => <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag>,
+                      },
+                      { title: '原因', dataIndex: 'reason', width: 130 },
+                      { title: '消息', dataIndex: 'message', ellipsis: true },
+                      { title: '次数', dataIndex: 'count', width: 60, render: (v: number) => v || 1 },
+                      { title: '时间', dataIndex: 'lastTimestamp', width: 160, render: formatTime },
+                    ]}
+                    pagination={false}
+                    size="small"
+                    locale={{ emptyText: '暂无事件' }}
+                  />
+                ),
+              },
+              {
+                key: 'yaml',
+                label: 'YAML',
+                children: (
+                  <YamlEditor
+                    value={JSON.stringify(currentPod, null, 2)}
+                    readOnly
+                    minHeight={300}
+                    maxHeight={500}
+                  />
+                ),
+              },
+            ]}
+          />
+        )}
+      </Drawer>
+      
+      {/* Pod 日志抽屉 */}
+      <Drawer
+        title={`日志: ${currentPod?.metadata?.name || ''}`}
+        placement="right"
+        width={900}
+        open={podLogVisible}
+        onClose={() => {
+          setPodLogVisible(false);
+        }}
+      >
+        {currentPod && (
+          <PodLogViewer
+            cloudId={cloudId}
+            namespace={currentPod.metadata?.namespace}
+            podName={currentPod.metadata?.name}
+            containers={podLogContainers}
+            height="calc(100vh - 150px)"
+          />
+        )}
+      </Drawer>
+      
+      {/* Pod 终端 */}
+      {currentPod && (
+        <PodTerminal
+          visible={podTerminalVisible}
+          cloudId={cloudId}
+          namespace={currentPod.metadata?.namespace}
+          podName={currentPod.metadata?.name}
+          containers={podTerminalContainers}
+          defaultContainer={podTerminalContainers[0]}
+          onClose={() => {
+            setPodTerminalVisible(false);
+          }}
+        />
+      )}
     </PageDetailSection>
   );
 };

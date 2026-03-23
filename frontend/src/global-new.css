@@ -487,6 +487,7 @@ html, body, #root {
   font-size: 12px;
   line-height: 1.5;
   background-color: #fff;
+  max-height: 500px;
 }
 
 .lined-textarea-gutter {
@@ -496,8 +497,14 @@ html, body, #root {
   text-align: right;
   color: rgba(0, 0, 0, 0.45);
   user-select: none;
-  min-width: 32px;
-  overflow: hidden;
+  min-width: 40px;
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.lined-textarea-gutter::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
 }
 
 .lined-textarea-line {
@@ -514,6 +521,25 @@ html, body, #root {
   overflow: auto;
   background-color: transparent;
   color: #1f2329;
+  max-height: 500px;
+}
+
+.lined-textarea-input::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.lined-textarea-input::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.lined-textarea-input::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.lined-textarea-input::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
 /* 

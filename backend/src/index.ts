@@ -78,7 +78,7 @@ app.use(
   cors({
     origin: true,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Expires'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 );
@@ -336,12 +336,30 @@ AppDataSource.initialize()
       console.warn('创建 KubeVirt Pod Log 服务失败:', e?.message || e);
     }
 
+    // 初始化 Pod 终端 WebSocket 服务
+    let kvPodExecWss: any = null;
+    try {
+      const { createKvPodExecWss } = await import('./ws/kvPodExec');
+      kvPodExecWss = createKvPodExecWss();
+      console.log('KubeVirt Pod Exec 服务已创建 (Headless)');
+    } catch (e: any) {
+      console.warn('创建 KubeVirt Pod Exec 服务失败:', e?.message || e);
+    }
+
     // 统一处理 HTTP Upgrade 请求
     server.on('upgrade', (req, socket, head) => {
       const pathname = req.url || '';
       // console.log(`[HTTP-Upgrade] Url: ${pathname}`);
       
-      if (pathname.startsWith('/ws/kv-pod-log')) {
+      if (pathname.startsWith('/ws/kv-pod-exec')) {
+        if (kvPodExecWss) {
+          kvPodExecWss.handleUpgrade(req, socket, head, (ws: any) => {
+            kvPodExecWss.emit('connection', ws, req);
+          });
+        } else {
+          socket.destroy();
+        }
+      } else if (pathname.startsWith('/ws/kv-pod-log')) {
         if (kvPodLogWss) {
           kvPodLogWss.handleUpgrade(req, socket, head, (ws: any) => {
             kvPodLogWss.emit('connection', ws, req);
