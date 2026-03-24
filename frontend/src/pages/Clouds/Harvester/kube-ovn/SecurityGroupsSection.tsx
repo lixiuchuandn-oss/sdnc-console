@@ -7,7 +7,6 @@ import {
   Input,
   Modal,
   Select,
-  Spin,
   Table,
   Tooltip,
   Typography,
@@ -15,7 +14,7 @@ import {
 } from 'antd';
 import type { MenuProps } from 'antd';
 import type { SubnetAclFormRow } from './SubnetAclFormItems';
-import { CloseOutlined, PlusOutlined, ReloadOutlined, SafetyOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, SafetyOutlined, SearchOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../../contexts/AuthContext';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -34,9 +33,9 @@ import {
   updateKubeOvnSecurityGroup,
 } from '../../../../services/harvesterApi';
 import { normalizeAclRowForForm, normalizeAclsForApi } from './SubnetAclFormItems';
-import SecurityGroupAclTabsForm, { type SgAclDirection } from './SecurityGroupAclTabsForm';
+import SecurityGroupAccessControlDrawer, { type SgAclDirection } from './SecurityGroupAclDrawer';
 
-const { Paragraph, Text } = Typography;
+const { Paragraph } = Typography;
 const SUBNET_TYPE_KEY = 'tower.io/subnet-type';
 const SUBNET_ALIAS_KEY = 'tower.io/alias';
 const SECURITY_GROUPS_TABLE_SETTINGS_KEY = 'harvester_kube_ovn_security_groups_table';
@@ -51,14 +50,47 @@ function vmNetworkMatchesFlatSubnet(vm: any, subnetName: string): boolean {
   });
 }
 
-function vmRowKey(vm: any): string {
-  const ns = vm?.metadata?.namespace || 'default';
-  const nm = vm?.metadata?.name || '';
-  return nm ? `${ns}/${nm}` : '';
+/** K8s VirtualMachine metadata.namespace（与 ECS 列表顶层 namespace 对齐） */
+function vmKubernetesNamespace(vm: any): string {
+  const ns = String(vm?.metadata?.namespace ?? vm?.namespace ?? '').trim();
+  return ns || 'default';
 }
 
-function vmTowerAlias(vm: any): string {
-  return String(vm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+/** K8s metadata.name（资源名），与 ECS 列表的 name 同源 */
+function vmKubernetesName(vm: any): string {
+  return String(vm?.metadata?.name ?? vm?.name ?? '').trim();
+}
+
+function vmRowKey(vm: any): string {
+  const nm = vmKubernetesName(vm);
+  if (!nm) return '';
+  return `${vmKubernetesNamespace(vm)}/${nm}`;
+}
+
+/**
+ * 展示用别名：仅注解 tower.io/alias（及历史误写 tower.io/alies），不含 metadata.name。
+ * 与 VmSection 等区分：不把 InstanceName/顶层 name 当作 alias，避免与资源名混淆。
+ */
+function vmVmAnnotationAlias(vm: any): string {
+  const ann = { ...(vm?.metadata?.annotations || {}), ...(vm?.annotations || {}) };
+  const raw = ann['tower.io/alias'] ?? ann['tower.io/alies'];
+  return String(raw ?? '').trim();
+}
+
+/** 按 ns/name 在 ECS 列表中解析 VM（键不一致时回退线性匹配） */
+function resolveVmFromEcsList(
+  vmNamespace: string,
+  vmName: string,
+  vmByKey: Map<string, any>,
+  vms: any[],
+): any | undefined {
+  const ns = String(vmNamespace ?? '').trim() || 'default';
+  const nm = String(vmName ?? '').trim();
+  if (!nm) return undefined;
+  const k = `${ns}/${nm}`;
+  const hit = vmByKey.get(k);
+  if (hit) return hit;
+  return vms.find((v) => vmKubernetesNamespace(v) === ns && vmKubernetesName(v) === nm);
 }
 
 /** 与 VmSection SafeRead.ip 同源，用于成员列表 IP 徽章 */
@@ -110,7 +142,7 @@ export type SecurityGroupMemberRow = {
   id: string;
   vmNamespace: string;
   vmName: string;
-  /** metadata.annotations['tower.io/alias'] */
+  /** 注解 tower.io/alias（及历史 tower.io/alies）；不含 metadata.name */
   vmAlias: string;
   /** 展示用 IP（多地址逗号分隔） */
   vmIp: string;
@@ -122,7 +154,7 @@ export type SecurityGroupVmOptionRow = {
   vmNamespace: string;
   /** metadata.name */
   vmName: string;
-  /** metadata.annotations['tower.io/alias'] */
+  /** 注解 tower.io/alias（及历史 tower.io/alies） */
   alias: string;
   vmIp: string;
 };
@@ -154,14 +186,13 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
   const [rulesDrawerDirection, setRulesDrawerDirection] = useState<SgAclDirection>('inbound');
   const [rulesTarget, setRulesTarget] = useState<SecurityGroupRow | null>(null);
   const [rulesLoading, setRulesLoading] = useState(false);
-  const [rulesSaving, setRulesSaving] = useState(false);
+  const [accessControlSaving, setAccessControlSaving] = useState(false);
   const [rulesForm] = Form.useForm();
 
   const [membersPanelLoading, setMembersPanelLoading] = useState(false);
   const [membersList, setMembersList] = useState<SecurityGroupMemberRow[]>([]);
   const [membersVmOptions, setMembersVmOptions] = useState<SecurityGroupVmOptionRow[]>([]);
-  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
-  const [joiningVmKey, setJoiningVmKey] = useState<string | null>(null);
+  const [memberTargetKeys, setMemberTargetKeys] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     if (!cloudId) return;
@@ -354,19 +385,6 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     });
   };
 
-  const openRulesDrawer = useCallback(
-    (record: SecurityGroupRow) => {
-      setRulesTarget(record);
-      setRulesDrawerDirection('inbound');
-      rulesForm.resetFields();
-      setMembersList([]);
-      setMembersVmOptions([]);
-      setRulesDrawerOpen(true);
-      loadRulesIntoForm(record);
-    },
-    [loadRulesIntoForm, rulesForm],
-  );
-
   const reloadMembersPanelData = useCallback(
     async (sg: SecurityGroupRow) => {
       if (!cloudId) return;
@@ -387,21 +405,21 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         const mapped: SecurityGroupMemberRow[] = rawMembers
           .map((m: any) => ({
             id: String(m?.id ?? ''),
-            vmNamespace: String(m?.vmNamespace ?? '').trim(),
+            vmNamespace: String(m?.vmNamespace ?? '').trim() || 'default',
             vmName: String(m?.vmName ?? '').trim(),
             createdAt: m?.createdAt ? String(m.createdAt) : undefined,
           }))
           .filter((m: RawMember) => Boolean(m.id && m.vmNamespace && m.vmName))
           .map((m: RawMember) => {
-            const k = `${m.vmNamespace}/${m.vmName}`;
-            const vm = vmByKey.get(k);
+            const vm = resolveVmFromEcsList(m.vmNamespace, m.vmName, vmByKey, vms);
             return {
               ...m,
-              vmAlias: vm ? vmTowerAlias(vm) : '',
+              vmAlias: vm ? vmVmAnnotationAlias(vm) : '',
               vmIp: vm ? harvesterVmPrimaryIp(vm) : '',
             };
           });
         setMembersList(mapped);
+        setMemberTargetKeys(mapped.map((m) => `${m.vmNamespace}/${m.vmName}`));
         setRulesTarget((prev) =>
           prev && prev.id === sg.id ? { ...prev, memberCount: mapped.length } : prev,
         );
@@ -411,13 +429,13 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
           .map((vm) => ({ vm, key: vmRowKey(vm) }))
           .filter(({ key }) => key.includes('/') && !existing.has(key))
           .map(({ vm, key }) => {
-            const ns = String(vm?.metadata?.namespace ?? 'default').trim();
-            const nm = String(vm?.metadata?.name ?? '').trim();
+            const ns = vmKubernetesNamespace(vm);
+            const nm = vmKubernetesName(vm);
             return {
               value: key,
               vmNamespace: ns,
               vmName: nm,
-              alias: vmTowerAlias(vm),
+              alias: vmVmAnnotationAlias(vm),
               vmIp: harvesterVmPrimaryIp(vm),
             };
           })
@@ -427,11 +445,27 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         message.error(`加载成员与云主机列表失败: ${e?.message || '未知错误'}`);
         setMembersList([]);
         setMembersVmOptions([]);
+        setMemberTargetKeys([]);
       } finally {
         setMembersPanelLoading(false);
       }
     },
     [cloudId],
+  );
+
+  const openRulesDrawer = useCallback(
+    (record: SecurityGroupRow) => {
+      setRulesTarget(record);
+      setRulesDrawerDirection('inbound');
+      rulesForm.resetFields();
+      setMembersList([]);
+      setMembersVmOptions([]);
+      setMemberTargetKeys([]);
+      setRulesDrawerOpen(true);
+      loadRulesIntoForm(record);
+      void reloadMembersPanelData(record);
+    },
+    [loadRulesIntoForm, reloadMembersPanelData, rulesForm],
   );
 
   const showAclPushWarning = (res: any) => {
@@ -441,53 +475,13 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     }
   };
 
-  const joinVmToSecurityGroup = async (vmKey: string) => {
+  const applyAccessControl = async () => {
     if (!cloudId || !rulesTarget || !canWrite) return;
-    const i = vmKey.indexOf('/');
-    if (i < 1) return;
-    const items = [{ vmNamespace: vmKey.slice(0, i), vmName: vmKey.slice(i + 1) }];
-    try {
-      setJoiningVmKey(vmKey);
-      const addRes: any = await addKubeOvnSecurityGroupMembers(cloudId, rulesTarget.id, { items });
-      message.success('已加入安全组');
-      showAclPushWarning(addRes);
-      await reloadMembersPanelData(rulesTarget);
-      await refresh();
-    } catch (e: any) {
-      message.error(`加入失败: ${e?.message || '未知错误'}`);
-    } finally {
-      setJoiningVmKey(null);
+    if (rulesLoading || membersPanelLoading) {
+      message.warning('请等待入/出方向规则与关联云主机列表加载完成后再保存');
+      return;
     }
-  };
-
-  const removeMemberFromSg = async (m: SecurityGroupMemberRow) => {
-    if (!cloudId || !rulesTarget || !canWrite) return;
-    try {
-      setRemovingMemberId(m.id);
-      const delRes: any = await removeKubeOvnSecurityGroupMember(cloudId, rulesTarget.id, m.id);
-      message.success('已移除');
-      showAclPushWarning(delRes);
-      await reloadMembersPanelData(rulesTarget);
-      await refresh();
-    } catch (e: any) {
-      message.error(`移除失败: ${e?.message || '未知错误'}`);
-    } finally {
-      setRemovingMemberId(null);
-    }
-  };
-
-  const closeRulesDrawer = () => {
-    setRulesDrawerOpen(false);
-    setRulesDrawerDirection('inbound');
-    setRulesTarget(null);
-    rulesForm.resetFields();
-    setMembersList([]);
-    setMembersVmOptions([]);
-    setJoiningVmKey(null);
-  };
-
-  const submitRules = async () => {
-    if (!cloudId || !rulesTarget) return;
+    setAccessControlSaving(true);
     try {
       const values = await rulesForm.validateFields();
       const inboundRows = (values.inboundRules || []).map((r: SubnetAclFormRow) => ({
@@ -501,21 +495,48 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         matchSrcIp: '',
       }));
       const rules = [...normalizeAclsForApi(inboundRows), ...normalizeAclsForApi(outboundRows)];
-      setRulesSaving(true);
       const saveRes: any = await replaceKubeOvnSecurityGroupRules(cloudId, rulesTarget.id, { rules });
-      message.success('访问控制已保存');
-      const ap = saveRes?.data?.aclPush;
-      if (ap && !ap.ok) {
-        message.warning(`子网 ACL 未同步：${ap.message || '未知原因'}`);
+      showAclPushWarning(saveRes);
+
+      const targetSet = new Set(memberTargetKeys);
+      const currentByKey = new Map<string, SecurityGroupMemberRow>(
+        membersList.map((m) => [`${m.vmNamespace}/${m.vmName}`, m]),
+      );
+      const toAdd = memberTargetKeys.filter((k) => !currentByKey.has(k));
+      const toRemove = membersList.filter((m) => !targetSet.has(`${m.vmNamespace}/${m.vmName}`));
+
+      if (toAdd.length > 0) {
+        const items = toAdd.map((k) => {
+          const i = k.indexOf('/');
+          return { vmNamespace: k.slice(0, i), vmName: k.slice(i + 1) };
+        });
+        const addRes: any = await addKubeOvnSecurityGroupMembers(cloudId, rulesTarget.id, { items });
+        showAclPushWarning(addRes);
       }
-      closeRulesDrawer();
+      for (const m of toRemove) {
+        const delRes: any = await removeKubeOvnSecurityGroupMember(cloudId, rulesTarget.id, m.id);
+        showAclPushWarning(delRes);
+      }
+
+      message.success('访问控制已保存');
+      await reloadMembersPanelData(rulesTarget);
       await refresh();
     } catch (e: any) {
       if (e?.errorFields) return;
       message.error(`保存失败: ${e?.message || '未知错误'}`);
     } finally {
-      setRulesSaving(false);
+      setAccessControlSaving(false);
     }
+  };
+
+  const closeRulesDrawer = () => {
+    setRulesDrawerOpen(false);
+    setRulesDrawerDirection('inbound');
+    setRulesTarget(null);
+    rulesForm.resetFields();
+    setMembersList([]);
+    setMembersVmOptions([]);
+    setMemberTargetKeys([]);
   };
 
   const filtered = useMemo(() => {
@@ -544,16 +565,17 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
           </span>
         ),
       },
+
+      { title: '子网', dataIndex: 'subnetName', key: 'subnetName' },
+      { title: '规则数', dataIndex: 'ruleCount', key: 'ruleCount' },
+      { title: '应用到云主机', dataIndex: 'memberCount', key: 'memberCount' },
       {
         title: '描述',
         dataIndex: 'description',
         key: 'description',
         ellipsis: true,
-        render: (t?: string) => t || '—',
+        render: (t?: string) => t || '未设置描述',
       },
-      { title: '子网', dataIndex: 'subnetName', key: 'subnetName' },
-      { title: '规则数', dataIndex: 'ruleCount', key: 'ruleCount', width: 88 },
-      { title: '成员数', dataIndex: 'memberCount', key: 'memberCount', width: 88 },
       {
         title: '更新时间',
         dataIndex: 'updatedAt',
@@ -627,7 +649,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         </div>
         <div className="toolbar-actions">
           {canWrite && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+            <Button type="primary" onClick={openCreateModal}>
               新建安全组
             </Button>
           )}
@@ -659,6 +681,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
       <Modal
         title="新建安全组"
         open={createOpen}
+        centered
         onOk={submitCreate}
         onCancel={() => {
           setCreateOpen(false);
@@ -679,9 +702,6 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
           >
             <Input placeholder="安全组显示名称" autoComplete="off" />
           </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} placeholder="可选" />
-          </Form.Item>
           <Form.Item name="subnetName" label="扁平子网" rules={[{ required: true, message: '请选择子网' }]}>
             <Select
               showSearch
@@ -693,10 +713,13 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
                 const alias = String(s?.metadata?.annotations?.[SUBNET_ALIAS_KEY] ?? '').trim();
                 return {
                   value: name,
-                  label: alias ? `${name}（${alias}）` : name,
+                  label: alias ? `${alias} / ${name}` : name,
                 };
               })}
             />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} placeholder="可选" />
           </Form.Item>
           {flatSubnetOptions.length === 0 && !subnetsLoading && (
             <Paragraph type="warning" style={{ marginTop: -8 }}>
@@ -739,133 +762,25 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         </Form>
       </Modal>
 
-      <Drawer
+      <SecurityGroupAccessControlDrawer
+        AntDrawer={Drawer}
         open={rulesDrawerOpen}
         onClose={closeRulesDrawer}
-        width={900}
-        placement="right"
-        closable={false}
-        destroyOnHidden
-        styles={{
-          body: { padding: 0, background: '#f5f7fa', display: 'flex', flexDirection: 'column' },
-        }}
-      >
-        <div
-          style={{
-            background: '#f5f7fa',
-            padding: '16px 24px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div
-              style={{
-                width: 38,
-                height: 38,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#1890ff',
-                fontSize: 24,
-              }}
-            >
-              <SafetyOutlined />
-            </div>
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>访问控制</div>
-              <div style={{ fontSize: 12, color: '#999' }}>
-                {rulesTarget ? (
-                  <>
-                    {rulesTarget.name} · 子网 <Text code>{rulesTarget.subnetName}</Text>
-                  </>
-                ) : (
-                  '—'
-                )}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Button
-              type="text"
-              onClick={closeRulesDrawer}
-              style={{
-                width: 32,
-                height: 32,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 4,
-                fontSize: 16,
-                padding: 0,
-                color: '#666',
-              }}
-            >
-              <CloseOutlined />
-            </Button>
-          </div>
-        </div>
-
-        <style>{`
-          .minimal-scroll::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-          }
-          .minimal-scroll::-webkit-scrollbar-track {
-            background: transparent;
-          }
-          .minimal-scroll::-webkit-scrollbar-thumb {
-            background: #e0e0e0;
-            border-radius: 3px;
-          }
-          .minimal-scroll::-webkit-scrollbar-thumb:hover {
-            background: #ccc;
-          }
-          .minimal-scroll::-webkit-scrollbar-button {
-            display: none;
-          }
-        `}</style>
-
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          }}
-        >
-          <Spin spinning={rulesLoading} tip="加载规则中…">
-            <SecurityGroupAclTabsForm
-              rulesForm={rulesForm}
-              rulesDisabled={!canWrite}
-              direction={rulesDrawerDirection}
-              onDirectionChange={(d) => {
-                setRulesDrawerDirection(d);
-                if (d === 'members' && rulesTarget) {
-                  reloadMembersPanelData(rulesTarget);
-                }
-              }}
-              memberCount={rulesTarget?.memberCount ?? 0}
-              canSave={canWrite && rulesDrawerDirection !== 'members'}
-              saveLoading={rulesSaving}
-              onSave={submitRules}
-              members={{
-                loading: membersPanelLoading,
-                list: membersList,
-                vmOptions: membersVmOptions,
-                removingMemberId,
-                joiningVmKey,
-                canWrite,
-                onJoinVm: joinVmToSecurityGroup,
-                onRemoveMember: removeMemberFromSg,
-              }}
-            />
-          </Spin>
-        </div>
-      </Drawer>
+        target={
+          rulesTarget ? { name: rulesTarget.name, subnetName: rulesTarget.subnetName } : null
+        }
+        loading={rulesLoading || membersPanelLoading}
+        saving={accessControlSaving}
+        onSave={applyAccessControl}
+        form={rulesForm}
+        readOnly={!canWrite}
+        tab={rulesDrawerDirection}
+        onTabChange={setRulesDrawerDirection}
+        serverMemberCount={rulesTarget?.memberCount ?? 0}
+        memberKeys={memberTargetKeys}
+        onMemberKeysChange={setMemberTargetKeys}
+        members={{ list: membersList, vmOptions: membersVmOptions }}
+      />
     </div>
   );
 };

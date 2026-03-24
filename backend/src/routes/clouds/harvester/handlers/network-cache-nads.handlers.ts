@@ -8,6 +8,10 @@ import { KubevirtNadInventory } from '../../../../entities/kubevirt/KubevirtNadI
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncHarvesterNads } from '../../../../services/clouds/harvester/inventory';
 import { requestJson, getJsonOnce } from '../../../../services/clouds/harvester/utils';
+import {
+  findVmDisplayNamesUsingMultusNetwork,
+  resolveHarvesterK8sApiBase,
+} from '../harvester.direct.helpers';
 
 export async function harvesterNadListHandler(req: Request, res: Response) {
   try {
@@ -301,8 +305,41 @@ export async function harvesterNadCreateHandler(req: Request, res: Response) {
 export async function harvesterNadDeleteHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
+
+    const apiBase = resolveHarvesterK8sApiBase(cloud.endpoint || '');
+    try {
+      const ecsList = await getJsonOnce(
+        `${apiBase}/v1/harvester/kubevirt.io.virtualmachines`,
+        cloud.secretKey || '',
+        insecure,
+      );
+      const vms: any[] = Array.isArray(ecsList?.items)
+        ? ecsList.items
+        : Array.isArray(ecsList?.data)
+          ? ecsList.data
+          : [];
+      const ns = String(namespace || '').trim();
+      const nadName = String(name || '').trim();
+      const targetRef = `${ns}/${nadName}`.toLowerCase();
+      const usingVms = findVmDisplayNamesUsingMultusNetwork(
+        vms,
+        targetRef,
+        nadName.toLowerCase(),
+      );
+      if (usingVms.length > 0) {
+        return res.status(409).json({
+          message: `无法删除 NAD：仍被虚拟机使用：${usingVms.slice(0, 5).join('，')}${
+            usingVms.length > 5 ? ' 等' : ''
+          }`,
+          code: 'NAD_IN_USE_BY_VM',
+          vms: usingVms,
+        });
+      }
+    } catch (checkErr) {
+      console.warn('[NadDelete] VM 占用检查失败，继续尝试删除:', checkErr);
+    }
 
     let endpoint = (cloud.endpoint || '').replace(/\/+$/, '');
     if (!endpoint.includes('/k8s/clusters/')) {

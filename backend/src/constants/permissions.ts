@@ -127,6 +127,10 @@ export const ALL_PERMISSIONS = [
   'clouds.snapshots:read',     // 快照列表 - 查看
   'clouds.snapshots:write',    // 快照管理 - 创建/恢复/删除
   
+  // 备份（整机备份/VM 备份与定时策略）
+  'clouds.backups:read',       // 备份列表/策略列表 - 查看
+  'clouds.backups:write',      // 备份管理 - 创建/恢复/删除/策略维护
+  
   // 路由表
   'clouds.route-tables:read',  // 路由表列表 - 查看
   'clouds.route-tables:write', // 路由表管理 - 创建/编辑/删除
@@ -308,6 +312,7 @@ export const PERMISSION_GROUPS = {
       'clouds.enis',
       'clouds.network-acls',
       'clouds.snapshots',
+      'clouds.backups',
       'clouds.route-tables',
       'clouds.route-entries',
       'clouds.nat-gateways',

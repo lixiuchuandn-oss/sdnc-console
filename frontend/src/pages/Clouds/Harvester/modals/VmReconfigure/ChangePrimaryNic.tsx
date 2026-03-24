@@ -1,5 +1,9 @@
 import React from 'react';
 import { Form, Select, Row, Col, Input, Typography } from 'antd';
+import {
+  ifaceTypeOption,
+  PASSTHROUGH_VIRT_IFACE_OPTIONS,
+} from '../VmCreateWizard/harvesterVmIfaceTypeOptions';
 
 type Props = {
   form: any;
@@ -11,10 +15,6 @@ type Props = {
   reloadSubnets: () => void;
   setVpcs: (vpcs: any[]) => void;
 };
-
-const NIC_TYPES = [
-  { label: 'bridge', value: 'bridge' }
-];
 
 const NIC_MODELS = [
   { label: 'virtio', value: 'virtio' },
@@ -75,7 +75,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                 placeholder="选择网络类型"
                 onChange={(v) => { 
                    const initialType =
-                     v === 'vpc' || v === 'flat_subnet' ? 'bridge' : v === 'passthrough' ? 'sriov' : 'bridge';
+                     v === 'vpc' ? 'bridge' : v === 'flat_subnet' ? 'managedtap' : v === 'passthrough' ? 'sriov' : 'bridge';
                    try {
                      form.setFieldsValue({
                        netMode: v,
@@ -172,7 +172,7 @@ const ChangePrimaryNic: React.FC<Props> = ({
                                     vpc: UNDERLAY_SYSTEM_VPC,
                                     subnet: val,
                                     name: netName,
-                                    type: 'bridge',
+                                    type: 'managedtap',
                                   },
                                 });
                               } catch {}
@@ -292,16 +292,22 @@ const ChangePrimaryNic: React.FC<Props> = ({
                  const initType =
                    mode === 'passthrough'
                      ? 'sriov'
-                     : mode === 'vpc' || mode === 'flat_subnet'
+                     : mode === 'vpc'
                        ? 'bridge'
-                       : netName
-                         ? 'bridge'
-                         : 'masquerade';
+                       : mode === 'flat_subnet'
+                         ? 'managedtap'
+                         : netName
+                           ? 'bridge'
+                           : 'masquerade';
                  const typeOptions = mode === 'passthrough'
-                   ? [{ label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]
-                   : (mode === 'vpc' || mode === 'flat_subnet'
-                     ? [{ label: 'bridge', value: 'bridge' }]
-                     : (netName ? [{ label: 'bridge', value: 'bridge' }] : [{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }]));
+                   ? PASSTHROUGH_VIRT_IFACE_OPTIONS
+                   : mode === 'vpc'
+                     ? [ifaceTypeOption('bridge')]
+                     : mode === 'flat_subnet'
+                       ? [ifaceTypeOption('managedtap')]
+                       : (netName
+                           ? [ifaceTypeOption('bridge')]
+                           : [ifaceTypeOption('masquerade'), ifaceTypeOption('bridge')]);
                  return (
                    <>
                       <Col span={8}>

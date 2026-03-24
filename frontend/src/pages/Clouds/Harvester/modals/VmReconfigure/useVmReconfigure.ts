@@ -499,7 +499,8 @@ export const useVmReconfigure = (props: any) => {
             
             // Determine type
             let type = 'bridge';
-            if (iface.masquerade) type = 'masquerade';
+            if (String(iface?.binding?.name ?? '').toLowerCase() === 'managedtap') type = 'managedtap';
+            else if (iface.masquerade) type = 'masquerade';
             else if (iface.sriov) type = 'sriov';
             else if (iface.macvtap) type = 'macvtap';
             
@@ -559,7 +560,8 @@ export const useVmReconfigure = (props: any) => {
                const net = networks.find((n: any) => n.name === iface.name);
                const networkName = net?.multus?.networkName || '';
                let type = 'bridge';
-               if (iface.masquerade) type = 'masquerade';
+               if (String(iface?.binding?.name ?? '').toLowerCase() === 'managedtap') type = 'managedtap';
+               else if (iface.masquerade) type = 'masquerade';
                else if (iface.sriov) type = 'sriov';
                else if (iface.macvtap) type = 'macvtap';
                
@@ -1938,8 +1940,10 @@ export const useVmReconfigure = (props: any) => {
                  interfaceConfig.macAddress = nic.macAddress;
               }
               
-              // Set interface type (bridge, masquerade, sriov, macvtap)
-              if (nic.type === 'masquerade') {
+              // Set interface type (managedtap binding, bridge, masquerade, sriov, macvtap)
+              if (nic.type === 'managedtap') {
+                 interfaceConfig.binding = { name: 'managedtap' };
+              } else if (nic.type === 'masquerade') {
                  interfaceConfig.masquerade = {};
               } else if (nic.type === 'sriov') {
                  interfaceConfig.sriov = {};
@@ -2110,12 +2114,18 @@ export const useVmReconfigure = (props: any) => {
               }
 
               // Interface
-              newInterfaces.push({
+              const ifaceRow: any = {
                  name: ifaceName,
                  model: nic.model || 'virtio',
                  macAddress: mac,
-                 [nic.type || 'bridge']: {} 
-              });
+              };
+              const nt = nic.type || 'bridge';
+              if (nt === 'managedtap') ifaceRow.binding = { name: 'managedtap' };
+              else if (nt === 'masquerade') ifaceRow.masquerade = {};
+              else if (nt === 'sriov') ifaceRow.sriov = {};
+              else if (nt === 'macvtap') ifaceRow.macvtap = {};
+              else ifaceRow.bridge = {};
+              newInterfaces.push(ifaceRow);
               
               // Network
               let sNetName = nic.name;

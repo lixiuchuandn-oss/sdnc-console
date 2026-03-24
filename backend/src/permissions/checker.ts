@@ -71,6 +71,14 @@ export class PermissionChecker {
       }
     }
 
+    // 4b. 特殊规则：clouds.console:write 包含所有 clouds.*:write（与 4 对称，租户仅授控制台读写即可创建/管理虚机等）
+    // 例外：资源总览仍须单独授权；资源池 clouds / clouds:write 不在 clouds.* 下，仍须单独授权
+    if (base && base.startsWith('clouds.') && verb === 'write' && base !== 'clouds.dashboard') {
+      if (permissions.includes('clouds.console:write')) {
+        return true;
+      }
+    }
+
     // 5. 继承检查：检查用户权限是否包含所需权限的父权限
     const inherited = this.inheritanceEngine.getInheritedPermissions(required);
     if (inherited.some(perm => permissions.includes(perm))) {

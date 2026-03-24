@@ -8,14 +8,12 @@ import { KubevirtNadInventory } from '../../../entities/kubevirt/KubevirtNadInve
 import { KubeOvnVpcInventory } from '../../../entities/kubeovn/KubeOvnVpcInventory';
 import { KubeOvnSubnetInventory } from '../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { HarvesterServiceInventory } from '../../../entities/harvester/HarvesterServiceInventory';
-import { KubeOvnIngressInventory } from '../../../entities/kubeovn/KubeOvnIngressInventory';
 import {
   syncHarvesterClusterNetworks,
   syncHarvesterNads,
   syncKubeOvnVpcs,
   syncKubeOvnSubnets,
   syncHarvesterServices,
-  syncHarvesterIngresses,
 } from '../../../services/clouds/harvester/inventory';
 import {
   createKubeOvnVpc,
@@ -72,9 +70,6 @@ import { licenseService } from '../../../services/LicenseService';
  * 
  * 8. GET /:id/resources/harvester/services
  *    - 获取服务 (Service) 列表 (支持租户过滤)。
- * 
- * 9. GET /:id/resources/harvester/ingresses
- *    - 获取路由 (Ingress) 列表 (支持租户过滤)。
  * ==============================================================================
  */
 export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermission: any) => {
@@ -911,65 +906,5 @@ export const registerHarvesterNetworkRoutes = (router: Router, checkAdminPermiss
     },
   );
 
-  // [已迁移] GET /:id/resources/harvester/ingresses
-  router.get(
-    '/:id/resources/harvester/ingresses',
-    checkAdminPermission,
-    async (req: any, res: Response) => {
-      try {
-        const { id } = req.params;
-        const { force, skipSync } = req.query;
-        const cloud = await fetchCloudOr404(id, res);
-        if (!cloud) return;
-        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
-        const insecure = !!(cloud.config as any)?.ignoreTls;
-
-        const repo = AppDataSource.getRepository(KubeOvnIngressInventory);
-
-        let whereCondition: any = { cloudId: id };
-        const isTenant =
-          (req.user as any)?.role === 'tenant' ||
-          ((req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device');
-        
-        // [租户过滤] 命名空间隔离
-        // 租户仅能查看其 UserSpace 中定义命名空间下的 Ingress 资源。
-        if (isTenant) {
-          const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-          const us = await userSpaceRepo.findOne({
-            where: { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' },
-          });
-          if (!us) return res.json({ message: '查询成功', data: { items: [] } });
-          if (us.namespace) whereCondition.namespace = us.namespace;
-        }
-
-        const count = await repo.count({ where: whereCondition });
-        
-        // [缓存策略] 自动同步逻辑
-        // 触发条件: 1. 本地无数据 (count === 0) 2. 显式强制刷新 (force === 'true' 且 skipSync !== 'true')
-        // skipSync=true 表示创建后刷新，数据已直接入库，只需查询数据库，无需全量同步
-        const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
-        
-        if (shouldSync) {
-          try {
-            await syncHarvesterIngresses(cloud, insecure);
-            console.log(`[Ingress-Query] 同步完成，cloudId: ${id}`);
-          } catch (e: any) {
-            console.warn('Sync Ingresses failed, falling back to empty/stale', e);
-            if (count === 0) throw e;
-          }
-        } else if (String(skipSync) === 'true') {
-          console.log(`[Ingress-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
-        }
-
-        const items = await repo.find({ where: whereCondition });
-        const list = items.map((i) => i.rawData);
-        res.json({ message: '查询成功', data: { items: list } });
-      } catch (error: any) {
-        res
-          .status(500)
-          .json({ message: '查询路由(Ingress)失败', error: error.message });
-      }
-    },
-  );
   */
 };

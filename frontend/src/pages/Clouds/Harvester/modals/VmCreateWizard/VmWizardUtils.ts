@@ -482,6 +482,8 @@ export const applyTemplateToWizardForm = (params: {
     })();
 
     p.type = (function () {
+      const bindingName = String(primary?.binding?.name ?? '').toLowerCase();
+      if (bindingName === 'managedtap') return 'managedtap';
       const method = primary?.masquerade ? 'masquerade' : primary?.bridge ? 'bridge' : undefined;
       if (method) return method;
       if (primary?.sriov) return 'sriov';
@@ -515,6 +517,8 @@ export const applyTemplateToWizardForm = (params: {
         return '';
       })();
       it.type = (function () {
+        const bindingName = String(iface?.binding?.name ?? '').toLowerCase();
+        if (bindingName === 'managedtap') return 'managedtap';
         const method = iface?.masquerade ? 'masquerade' : iface?.bridge ? 'bridge' : undefined;
         if (method) return method;
         if (iface?.sriov) return 'sriov';
@@ -691,7 +695,9 @@ export const buildHarvesterVmPayload = (params: {
       if (mac) iface.macAddress = mac;
       
       const type = nic.type || 'bridge';
-      if (type === 'bridge') iface.bridge = {};
+      // Kube-OVN 扁平子网：须使用 managedTap 绑定，使 DHCP/RA 由子网侧提供（非 bridge 拦截）
+      if (type === 'managedtap') iface.binding = { name: 'managedtap' };
+      else if (type === 'bridge') iface.bridge = {};
       else if (type === 'masquerade') iface.masquerade = {};
       else if (type === 'sriov') iface.sriov = {};
       else if (type === 'macvtap') iface.macvtap = {};

@@ -239,20 +239,6 @@ export const fetchHarvesterCloudInits = async (cloudId: string, force = false) =
 };
 
 /**
- * 获取 Harvester Ingress 列表
- * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @returns Promise<any>
- */
-export const fetchHarvesterIngresses = async (cloudId: string, force = false, skipSync = false) => {
-  const params = new URLSearchParams();
-  if (force) params.append('force', 'true');
-  if (skipSync) params.append('skipSync', 'true');
-  const query = params.toString() ? `?${params.toString()}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/ingresses${query}`);
-};
-
-/**
  * 获取 Harvester Service 列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false
@@ -1017,6 +1003,13 @@ export const createKubeOvnVlan = async (cloudId: string, payload: any) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/vlans`, payload);
 };
 
+/**
+ * 删除 Kube-OVN VLAN
+ */
+export const deleteKubeOvnVlan = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/vlans/${encodeURIComponent(name)}`);
+};
+
 
 /**
  * 创建 Harvester 卷
@@ -1382,17 +1375,6 @@ export const deleteHarvesterSshKey = async (cloudId: string, namespace: string, 
  */
 export const deleteHarvesterCloudInit = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/cloudinits/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
-};
-
-/**
- * 删除 Harvester Ingress
- * @param cloudId 云环境 ID
- * @param namespace 命名空间
- * @param name Ingress 名称
- * @returns Promise<any>
- */
-export const deleteHarvesterIngress = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/ingresses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
 };
 
 /**

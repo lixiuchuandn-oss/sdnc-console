@@ -520,12 +520,21 @@ export const createKubeOvnProviderNetwork = async (
 
   const url = `${origin}/apis/kubeovn.io/v1/provider-networks`;
   
+  const metadata: Record<string, unknown> = {
+    name: payload.name,
+  };
+  if (
+    payload.annotations &&
+    typeof payload.annotations === 'object' &&
+    !Array.isArray(payload.annotations)
+  ) {
+    metadata.annotations = payload.annotations;
+  }
+
   const body = {
     apiVersion: 'kubeovn.io/v1',
     kind: 'ProviderNetwork',
-    metadata: {
-      name: payload.name,
-    },
+    metadata,
     spec: payload.spec || {
       defaultInterface: payload.defaultInterface,
       customInterfaces: payload.customInterfaces || [],
@@ -1064,50 +1073,3 @@ export const listHarvesterLoadBalancerIPPools = async ({
       : [];
   return items;
 };
-
-/**
- * 获取 K8s Ingress 列表
- */
-export const listHarvesterIngressesStandard = async ({
-  endpoint,
-  token,
-  insecure = false,
-}: HarvesterTestParams): Promise<any[]> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-  
-  const candidates = [
-    `${origin}/apis/networking.k8s.io/v1/ingresses`,
-    `${origin}/v1/harvester/networking.k8s.io.ingresses`,
-  ];
-  let json: any = null;
-  let lastErr: any = null;
-  
-  for (const url of candidates) {
-    try {
-      json = await getJsonOnce(url, token, insecure);
-      if (json) break;
-    } catch (e: any) {
-      lastErr = e;
-    }
-  }
-  
-  if (!json && lastErr) {
-    const s = Number(lastErr?.status || 0);
-    if (s !== 404 && s !== 401) throw lastErr;
-  }
-  
-  const items = Array.isArray(json?.items)
-    ? json?.items
-    : Array.isArray(json?.data)
-      ? json?.data
-      : [];
-  return items;
-};
-

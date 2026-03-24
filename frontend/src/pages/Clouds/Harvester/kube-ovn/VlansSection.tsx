@@ -1,38 +1,72 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, Button, Form, Input, Modal, Select, Table, Tag, message } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Input, Modal, Select, Table, Tag, Tooltip, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { createKubeOvnVlan, fetchKubeOvnProviderNetworks, fetchKubeOvnVlans } from '../../../../services/harvesterApi';
+import { deleteKubeOvnVlan, fetchKubeOvnProviderNetworks, fetchKubeOvnVlans } from '../../../../services/harvesterApi';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
+import { clearCache } from '../../../../utils/requestManager';
+import VlanPlanDrawer from './VlanPlanDrawer';
+import { TOWER_IO_ALIES_ANNOTATION } from '../../../../utils/towerKubeOvnNames';
 
 const { Option } = Select;
 
 type Props = {
   cloudId: string;
+  /** 父级注入时与 loadTabResource 对齐，不再在子组件内首发 GET */
+  vlans?: any[];
+  loading?: boolean;
+  onRefresh?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
 };
 
-const VlansSection: React.FC<Props> = ({ cloudId }) => {
+const VlansSection: React.FC<Props> = ({ cloudId, vlans, loading: loadingProp, onRefresh }) => {
   const { user } = useAuth();
-  const canCreateVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
+  const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
+  const isControlled = typeof onRefresh === 'function';
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [form] = Form.useForm();
+  const [vlanPlanOpen, setVlanPlanOpen] = useState(false);
   const [providers, setProviders] = useState<any[]>([]);
   const [keyword, setKeyword] = useState('');
   const [providerFilter, setProviderFilter] = useState<string | undefined>(undefined);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerRecord, setDrawerRecord] = useState<any>(null);
+  const [drawerTab, setDrawerTab] = useState('detail');
 
-  const fetchData = async (force = false, skipSync = false) => {
-    setLoading(true);
-    try {
-      const res = await fetchKubeOvnVlans(cloudId, force, skipSync);
-      setData(Array.isArray(res?.data?.items) ? res.data.items : []);
-    } catch (error: any) {
-      message.error(`获取 VLAN 列表失败: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const listData = isControlled ? (vlans ?? []) : data;
+  const tableLoading = isControlled ? (loadingProp ?? false) : loading;
+
+  const fetchDataInternal = useCallback(
+    async (force = false, skipSync = false) => {
+      setLoading(true);
+      try {
+        const res = await fetchKubeOvnVlans(cloudId, force, skipSync);
+        setData(Array.isArray(res?.data?.items) ? res.data.items : []);
+        if (force && cloudId) {
+          clearCache(`/api/clouds/${cloudId}/resources/vlans`, 'GET');
+        }
+      } catch (error: any) {
+        message.error(`获取 VLAN 列表失败: ${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [cloudId],
+  );
+
+  const fetchData = useCallback(
+    async (force = false, skipSync = false) => {
+      if (isControlled && onRefresh) {
+        await onRefresh(force, skipSync);
+        return;
+      }
+      await fetchDataInternal(force, skipSync);
+    },
+    [isControlled, onRefresh, fetchDataInternal],
+  );
 
   const fetchProviderOptions = async () => {
     try {
@@ -43,73 +77,287 @@ const VlansSection: React.FC<Props> = ({ cloudId }) => {
 
   useEffect(() => {
     if (!cloudId) return;
-    fetchData();
-    fetchProviderOptions();
-  }, [cloudId]);
-
-  const handleCreate = async (values: any) => {
-    try {
-      await createKubeOvnVlan(cloudId, values);
-      message.success('创建 VLAN 成功');
-      setIsModalVisible(false);
-      form.resetFields();
-      fetchData(true, true);
-    } catch (error: any) {
-      message.error(`创建失败: ${error.message}`);
+    if (!isControlled) {
+      void fetchDataInternal(false, false);
     }
-  };
+    fetchProviderOptions();
+  }, [cloudId, isControlled, fetchDataInternal]);
 
-  const columns = [
-    { title: '名称', dataIndex: ['metadata', 'name'], key: 'name', render: (text: string) => <b>{text}</b> },
-    { title: 'VLAN ID', dataIndex: ['spec', 'id'], key: 'id', render: (id: number) => <Tag color="purple">{id}</Tag> },
-    { title: 'Provider Network', dataIndex: ['spec', 'provider'], key: 'provider', render: (provider: string) => <Tag color="geekblue">{provider}</Tag> },
-    { title: '创建时间', dataIndex: ['metadata', 'creationTimestamp'], key: 'created', render: (text: string) => new Date(text).toLocaleString() },
-  ];
+  const openDrawer = useCallback((record: any) => {
+    const raw = record?.rawData || record;
+    const name = String(raw?.metadata?.name || '').trim();
+    if (!name) return;
+    const viewLink = `/apis/kubeovn.io/v1/vlans/${encodeURIComponent(name)}`;
+    setDrawerRecord({
+      ...raw,
+      kind: raw?.kind || 'Vlan',
+      links: {
+        ...(raw?.links || {}),
+        view: viewLink,
+      },
+    });
+    setDrawerTab('detail');
+    setDrawerOpen(true);
+  }, []);
+
+  const handleDelete = useCallback(
+    (record: any) => {
+      const raw = record?.rawData || record;
+      const name = String(raw?.metadata?.name || '').trim();
+      if (!name) {
+        message.error('删除失败：无效的 VLAN 名称');
+        return;
+      }
+      const ann = raw?.metadata?.annotations || {};
+      const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+      const label = displayAlias || name;
+      Modal.confirm({
+        title: '确认删除',
+        content: `确定要删除 VLAN「${label}」吗？若仍有子网引用，集群可能拒绝删除。`,
+        okText: '删除',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            await deleteKubeOvnVlan(cloudId, name);
+            message.success('删除成功');
+            await fetchData(true, true);
+          } catch (e: any) {
+            message.error(e?.message || '删除失败');
+          }
+        },
+      });
+    },
+    [cloudId, fetchData],
+  );
+
+  const filtered = useMemo(
+    () =>
+      listData.filter((d) => {
+        const ann = d?.metadata?.annotations || {};
+        const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+        const metaName = String(d?.metadata?.name || '');
+        const matchKeyword =
+          !keyword ||
+          metaName.includes(keyword) ||
+          displayAlias.includes(keyword) ||
+          String(d?.spec?.id ?? '').includes(keyword);
+        const matchProvider = !providerFilter || d?.spec?.provider === providerFilter;
+        return matchKeyword && matchProvider;
+      }),
+    [listData, keyword, providerFilter],
+  );
+
+  const tableRows = useMemo(
+    () =>
+      filtered.map((raw) => {
+        const ann = raw?.metadata?.annotations || {};
+        const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+        return {
+          key: raw?.metadata?.uid || raw?.metadata?.name,
+          displayAlias,
+          metadataName: raw?.metadata?.name,
+          rawData: raw,
+        };
+      }),
+    [filtered],
+  );
+
+  const allColumns = useMemo(
+    () => [
+      {
+        title: '展示名称',
+        dataIndex: 'displayAlias',
+        key: 'displayAlias',
+        ellipsis: true,
+        render: (text: string) => {
+          const s = String(text || '').trim();
+          return s ? (
+            <span>{s}</span>
+          ) : (
+            <Tooltip title="未在注解 tower.io/alies 中填写展示名，请使用「集群资源名」列识别">
+              <span style={{ color: '#999' }}>（未命名）</span>
+            </Tooltip>
+          );
+        },
+      },
+      {
+        title: '集群资源名',
+        dataIndex: 'metadataName',
+        key: 'metadataName',
+        ellipsis: true,
+        width: 160,
+        render: (text: string) => (
+          <Tooltip title="Kubernetes 中 Vlan 对象的 metadata.name，创建后不可改">
+            <span style={{ fontFamily: 'ui-monospace, monospace' }}>{text ?? '—'}</span>
+          </Tooltip>
+        ),
+      },
+      {
+        title: 'VLAN 标签',
+        key: 'vlanTag',
+        render: (_: unknown, row: any) => {
+          const raw = row?.rawData;
+          const id = raw?.spec?.id;
+          return (
+            <Tooltip title="802.1Q VLAN ID，打在物理链路上的标签号">
+              <span>{id !== undefined && id !== null ? String(id) : '—'}</span>
+            </Tooltip>
+          );
+        },
+      },
+      {
+        title: '物理网络',
+        key: 'provider',
+        ellipsis: true,
+        render: (_: unknown, row: any) => {
+          const raw = row?.rawData;
+          const provider = raw?.spec?.provider;
+          const p = String(provider ?? '').trim();
+          if (!p) return <span>—</span>;
+          return <Tag color="geekblue">{p}</Tag>;
+        },
+      },
+      {
+        title: '创建时间',
+        key: 'created',
+        render: (_: unknown, row: any) => {
+          const raw = row?.rawData;
+          const text = raw?.metadata?.creationTimestamp;
+          return (
+            <span className="std-time">{text ? new Date(text).toLocaleString() : '—'}</span>
+          );
+        },
+      },
+      ...(canWriteVlan
+        ? [
+            {
+              title: '操作',
+              key: 'action',
+              width: 88,
+              align: 'left' as const,
+              render: (_: unknown, record: any) => (
+                <ResourceActionsDropdown
+                  items={[
+                    {
+                      key: 'ops',
+                      label: '运维信息',
+                      onClick: () => openDrawer(record),
+                    },
+                    { type: 'divider' as const },
+                    {
+                      key: 'delete',
+                      label: '删除',
+                      danger: true,
+                      onClick: () => handleDelete(record),
+                    },
+                  ]}
+                />
+              ),
+            },
+          ]
+        : [
+            {
+              title: '操作',
+              key: 'action',
+              width: 88,
+              align: 'left' as const,
+              render: (_: unknown, record: any) => (
+                <ResourceActionsDropdown
+                  items={[
+                    {
+                      key: 'ops',
+                      label: '运维信息',
+                      onClick: () => openDrawer(record),
+                    },
+                  ]}
+                />
+              ),
+            },
+          ]),
+    ],
+    [canWriteVlan, openDrawer, handleDelete],
+  );
+
+  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vlans_table');
 
   return (
     <div>
       <div className="page-toolbar">
         <div className="toolbar-container">
-          <Input allowClear placeholder="名称/VLAN ID" value={keyword} onChange={(e) => setKeyword(e.target.value)} className="toolbar-search" />
-          <Select allowClear placeholder="筛选 Provider" className="toolbar-filter-sm" value={providerFilter} onChange={setProviderFilter}>
-            {providers.map(p => <Option key={p.metadata.name} value={p.metadata.name}>{p.metadata.name}</Option>)}
+          <Input
+            allowClear
+            placeholder="展示名 / 集群资源名 / VLAN 标签"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="toolbar-search"
+          />
+          <Select
+            allowClear
+            placeholder="筛选物理网络"
+            className="toolbar-filter-sm"
+            value={providerFilter}
+            onChange={setProviderFilter}
+          >
+            {providers.map((p) => (
+              <Option key={p.metadata.name} value={p.metadata.name}>
+                {p.metadata.name}
+              </Option>
+            ))}
           </Select>
-          <a className="toolbar-reset-btn" onClick={() => { setKeyword(''); setProviderFilter(undefined); fetchData(); }}>重置</a>
+          <a
+            className="toolbar-reset-btn"
+            onClick={() => {
+              setKeyword('');
+              setProviderFilter(undefined);
+              void fetchData(false, false);
+            }}
+          >
+            重置
+          </a>
         </div>
         <div className="toolbar-actions">
-          {canCreateVlan && <Button type="primary" onClick={() => setIsModalVisible(true)}>创建 VLAN</Button>}
-          <Button icon={<ReloadOutlined />} onClick={() => fetchData()} loading={loading} />
+          {canWriteVlan && (
+            <Button type="primary" onClick={() => setVlanPlanOpen(true)}>
+              VLAN 规划
+            </Button>
+          )}
+          <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_vlans_table" />
+          <Button icon={<ReloadOutlined />} onClick={() => void fetchData(true, false)} loading={tableLoading} title="从集群重新同步" />
         </div>
       </div>
 
       <Table
         className="std-table"
         bordered={false}
-        columns={columns}
-        dataSource={data.filter(d => {
-          const matchKeyword = !keyword || d.metadata.name.includes(keyword) || d.spec.id?.toString().includes(keyword);
-          const matchProvider = !providerFilter || d.spec.provider === providerFilter;
-          return matchKeyword && matchProvider;
-        })}
-        rowKey={(r) => r.metadata.name}
-        loading={loading}
+        columns={tableColumns}
+        dataSource={tableRows}
+        rowKey={(r) => r.key}
+        loading={tableLoading}
         pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
       />
 
-      <Modal title="创建 VLAN" open={isModalVisible} onOk={form.submit} onCancel={() => setIsModalVisible(false)}>
-        <Form form={form} layout="vertical" onFinish={handleCreate} className="std-form">
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}><Input placeholder="例如: vlan-100" /></Form.Item>
-          <Form.Item name="id" label="VLAN ID" rules={[{ required: true }]}><Input type="number" placeholder="0 表示 Flat Network (无 Tag), 1-4095 为 VLAN Tag" /></Form.Item>
-          <Form.Item name="provider" label="Provider Network" rules={[{ required: true }]}>
-            <Select placeholder="选择物理接口映射">
-              {providers.map(p => <Option key={p.metadata.name} value={p.metadata.name}>{p.metadata.name}</Option>)}
-            </Select>
-          </Form.Item>
-        </Form>
-      </Modal>
+      <VlanPlanDrawer
+        open={vlanPlanOpen}
+        onClose={() => setVlanPlanOpen(false)}
+        cloudId={cloudId}
+        onSuccess={() => fetchData(true, true)}
+      />
+
+      <HarvesterResourceDrawer
+        open={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerRecord(null);
+        }}
+        resourceType="VLAN 规划 (Kube-OVN)"
+        record={drawerRecord}
+        activeTab={drawerTab}
+        onTabChange={setDrawerTab}
+        cloudId={cloudId}
+      />
     </div>
   );
 };
 
 export default VlansSection;
-

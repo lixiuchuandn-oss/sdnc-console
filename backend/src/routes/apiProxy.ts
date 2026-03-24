@@ -70,12 +70,16 @@ router.post('/api/sign', (req, res) => {
 });
 
 router.all('*', async (req, res) => {
-  // 代理转发入口：
-  // 1. 优先读取系统配置中的 CSMCTL_ADDRESS（由管理员在系统设置中配置）
-  // 2. 若未配置，则默认使用本机回环地址 https://127.0.0.1:8016（假定 CSMCTL 与平台同机部署）
-  const csmAddress = getSystemSetting('CSMCTL_ADDRESS') || 'https://127.0.0.1:8016';
+  const rawAddress = String(getSystemSetting('CSMCTL_ADDRESS') || '').trim();
+  if (!rawAddress) {
+    return res.status(500).json({
+      message: 'CSMCTL_ADDRESS 未配置，请在系统设置中配置 CSMCTL 地址',
+    });
+  }
+  const csmAddress = (/^https?:\/\//i.test(rawAddress) ? rawAddress : `https://${rawAddress}`)
+    .replace(/\/+$/, '');
   // 去掉末尾多余斜杠，避免与后续路由拼接时出现重复 //
-  const targetBase = csmAddress.replace(/\/+$/, '');
+  const targetBase = csmAddress;
 
   // 当该路由模块挂载在 /api-proxy 上时，req.url 为 /api-proxy 之后的子路径
   // 例如前端请求 /api-proxy/api/sign?foo=bar，此处能拿到 /api/sign?foo=bar

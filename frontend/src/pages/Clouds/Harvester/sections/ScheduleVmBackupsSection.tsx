@@ -121,15 +121,15 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
 }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const hasSchedulesWrite = useMemo(
-    () => hasPermissionForAction(perms, 'clouds.schedules:write') || hasPermissionForAction(perms, 'clouds:write'),
+  const hasBackupsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.backups:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
-  const ensureSchedulesWrite = useCallback(() => {
-    if (hasSchedulesWrite) return true;
-    message.error('当前账号没有定时策略操作权限（需要 clouds.schedules:write 或 clouds:write 权限）');
+  const ensureBackupsWrite = useCallback(() => {
+    if (hasBackupsWrite) return true;
+    message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
     return false;
-  }, [hasSchedulesWrite]);
+  }, [hasBackupsWrite]);
 
   // ==============================================================================
   // 1. 本地状态管理 (Local State)
@@ -256,7 +256,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
 
   // 处理“停用/启用”点击
   const handleSuspend = useCallback(async (record: any) => {
-    if (!ensureSchedulesWrite()) return;
+    if (!ensureBackupsWrite()) return;
     try {
       const newSuspend = !record.suspended;
       // 发请求给后端
@@ -275,11 +275,11 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
     } catch (e: any) {
       message.error(`操作失败: ${e.message}`);
     }
-  }, [cloudId, onRefresh, ensureSchedulesWrite]);
+  }, [cloudId, onRefresh, ensureBackupsWrite]);
 
   // 处理“删除”点击
   const handleDelete = useCallback((record: any) => {
-    if (!ensureSchedulesWrite()) return;
+    if (!ensureBackupsWrite()) return;
     Modal.confirm({
       title: '确认删除',
       content: `确定要删除定时备份策略 ${record.name} (${record.id}) 吗？此操作不可恢复。`,
@@ -302,7 +302,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         }
       }
     });
-  }, [cloudId, onRefresh, ensureSchedulesWrite]);
+  }, [cloudId, onRefresh, ensureBackupsWrite]);
 
   // ==============================================================================
   // 5. 数据处理与渲染准备 (Data Processing)
@@ -506,13 +506,13 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
          items.push({
            key: 'edit',
            label: '策略修改',
-           disabled: !hasSchedulesWrite,
+           disabled: !hasBackupsWrite,
            onClick: () => { setCurrentRecord(r); setEditModalVisible(true); }
          });
          items.push({
            key: 'suspend',
            label: r.suspended ? '启用' : '停用',
-           disabled: !hasSchedulesWrite,
+           disabled: !hasBackupsWrite,
            onClick: () => handleSuspend(r)
          });
          items.push({
@@ -523,7 +523,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
            key: 'delete',
            label: '删除',
            danger: true,
-           disabled: !hasSchedulesWrite,
+           disabled: !hasBackupsWrite,
            onClick: () => handleDelete(r)
          });
 
@@ -537,7 +537,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
       );
       }
     }
-  ], [handleDelete, handleSuspend, isTenant, hasSchedulesWrite]);
+  ], [handleDelete, handleSuspend, isTenant, hasBackupsWrite]);
 
   // 用户自定义的列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, 'harvester_schedule_backups_list', defaultHiddenColumns);
@@ -599,7 +599,7 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         // 右侧工具栏：创建按钮 + 列设置 + 刷新
         toolbarRight={(
            <div className="toolbar-actions">
-             <Button key="create-btn" type="primary" disabled={!hasSchedulesWrite} onClick={() => { if (!ensureSchedulesWrite()) return; setCreateModalVisible(true); }}>创建定时策略</Button>
+             <Button key="create-btn" type="primary" disabled={!hasBackupsWrite} onClick={() => { if (!ensureBackupsWrite()) return; setCreateModalVisible(true); }}>创建定时策略</Button>
              <TableColumnSettingsButton
                key="col-settings"
                allColumns={columns}

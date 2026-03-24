@@ -11,7 +11,10 @@ import {
   getGroupFromDefinition, 
   getFeatureFromDefinition, 
   normalizeFeatureName,
-  getPlatformFromDefinition
+  getPlatformFromDefinition,
+  groupResourceConsoleChildFeatures,
+  RESOURCE_CONSOLE_PARENT_SCOPE_HINTS,
+  splitResourceConsoleFeatures,
 } from '../../utils/permissionUtils';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../components/TableColumnSettingsButton';
@@ -104,7 +107,7 @@ const AccessRolesPage: React.FC = () => {
     // 注意：这个变量现在主要用于兼容，实际筛选在构建结构时进行
 
     // 按平台->分组->功能组织（使用所有权限构建结构）
-    type PlatformMap = Map<string, Map<string, Map<string, { read?: string; write?: string; readVisible?: boolean; writeVisible?: boolean }>>>;
+    type PlatformMap = Map<string, Map<string, Map<string, { resourcePrefix?: string; read?: string; write?: string; readVisible?: boolean; writeVisible?: boolean }>>>;
     const platformMap: PlatformMap = new Map();
     const processedResources = new Set<string>();
 
@@ -139,9 +142,10 @@ const AccessRolesPage: React.FC = () => {
       const featureMap = groupMap.get(group)!;
       
       if (!featureMap.has(feature)) {
-        featureMap.set(feature, {});
+        featureMap.set(feature, { resourcePrefix: resource });
       }
       const featurePerms = featureMap.get(feature)!;
+      featurePerms.resourcePrefix = resource;
 
       // 查找同一资源的所有权限（read/write）
       const readAction = allActionsForStructure.find(a => a === `${resource}:read`);
@@ -180,15 +184,34 @@ const AccessRolesPage: React.FC = () => {
             return indexA - indexB;
           })
           .map(([group, featureMap]) => {
-            const features = Array.from(featureMap.entries())
-              .sort(([featureA], [featureB]) => featureA.localeCompare(featureB))
+            type PermissionFeatureItem = {
+              feature: string;
+              resourcePrefix: string;
+              read?: string;
+              write?: string;
+              readVisible: boolean;
+              writeVisible: boolean;
+            };
+
+            const rawFeatures: PermissionFeatureItem[] = Array.from(featureMap.entries())
               .map(([feature, perms]) => ({
                 feature,
+                resourcePrefix: perms.read?.split(':')[0] || perms.write?.split(':')[0] || '',
                 read: perms.read,
                 write: perms.write,
                 readVisible: perms.readVisible !== false,
                 writeVisible: perms.writeVisible !== false,
-        }));
+              }));
+
+            const features = group === '资源控制台'
+              ? (() => {
+                  const { parents, children } = splitResourceConsoleFeatures(rawFeatures);
+                  return [
+                    ...parents.map((item) => ({ ...item, isResourceParent: true })),
+                    ...children.map((item) => ({ ...item, isResourceParent: false })),
+                  ];
+                })()
+              : rawFeatures.sort((a, b) => a.feature.localeCompare(b.feature));
             return { group, features };
           });
         return { platform, groups };
@@ -619,37 +642,101 @@ const AccessRolesPage: React.FC = () => {
                     </Text>
 
                     {/* 功能项分栏布局（3列） */}
-                    <Row gutter={[16, 12]}>
-                      {group.features.map((feature) => (
-                        <Col span={8} key={feature.feature}>
-                          <Card size="small">
-                            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                              <Text ellipsis style={{ flex: 1 }}>
-                                {feature.feature}
+                    {(() => {
+                      const parentFeatures = group.features.filter((feature: any) => feature.isResourceParent);
+                      const childFeatures = group.features.filter((feature: any) => !feature.isResourceParent);
+                      const hasSplit =
+                        group.group === '资源控制台' &&
+                        parentFeatures.length > 0 &&
+                        childFeatures.length > 0;
+
+                      const renderFeatureCards = (
+                        features: any[],
+                        opts?: { showParentScopeHints?: boolean }
+                      ) => (
+                        <Row gutter={[16, 12]}>
+                          {features.map((feature) => {
+                            const hint =
+                              opts?.showParentScopeHints &&
+                              feature.resourcePrefix &&
+                              RESOURCE_CONSOLE_PARENT_SCOPE_HINTS[feature.resourcePrefix];
+                            return (
+                            <Col span={8} key={`${feature.resourcePrefix || feature.feature}`}>
+                              <Card size="small">
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    width: '100%',
+                                    gap: 12,
+                                    alignItems: 'flex-start',
+                                    justifyContent: 'space-between',
+                                  }}
+                                >
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <Text ellipsis style={{ display: 'block' }}>
+                                      {feature.feature}
+                                    </Text>
+                                    {hint ? (
+                                      <Text
+                                        type="secondary"
+                                        style={{
+                                          display: 'block',
+                                          marginTop: 6,
+                                          fontSize: 12,
+                                          lineHeight: 1.5,
+                                          whiteSpace: 'normal',
+                                        }}
+                                      >
+                                        {hint}
+                                      </Text>
+                                    ) : null}
+                                  </div>
+                                  <Space style={{ flexShrink: 0 }}>
+                                    {feature.read && feature.readVisible && (
+                                      <Checkbox
+                                        checked={grantSelectedIds.includes(feature.read)}
+                                        onChange={(e) => handlePermissionChange(feature.read!, e.target.checked)}
+                                      >
+                                        只读
+                                      </Checkbox>
+                                    )}
+                                    {feature.write && feature.writeVisible && (
+                                      <Checkbox
+                                        checked={grantSelectedIds.includes(feature.write)}
+                                        onChange={(e) => handlePermissionChange(feature.write!, e.target.checked)}
+                                      >
+                                        读写
+                                      </Checkbox>
+                                    )}
+                                  </Space>
+                                </div>
+                              </Card>
+                            </Col>
+                            );
+                          })}
+                        </Row>
+                      );
+
+                      if (!hasSplit) {
+                        return renderFeatureCards(group.features);
+                      }
+
+                      return (
+                        <>
+                          {renderFeatureCards(parentFeatures, { showParentScopeHints: true })}
+                          <Divider style={{ margin: '16px 0' }} />
+                          {groupResourceConsoleChildFeatures(childFeatures).map((childGroup, idx, arr) => (
+                            <div key={childGroup.label}>
+                              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                                {childGroup.label}
                               </Text>
-                              <Space>
-                                {feature.read && feature.readVisible && (
-                                  <Checkbox
-                                    checked={grantSelectedIds.includes(feature.read)}
-                                    onChange={(e) => handlePermissionChange(feature.read!, e.target.checked)}
-                                  >
-                                    只读
-                                  </Checkbox>
-                                )}
-                                {feature.write && feature.writeVisible && (
-                                  <Checkbox
-                                    checked={grantSelectedIds.includes(feature.write)}
-                                    onChange={(e) => handlePermissionChange(feature.write!, e.target.checked)}
-                                  >
-                                    读写
-                                  </Checkbox>
-                                )}
-                              </Space>
-                            </Space>
-                          </Card>
-                        </Col>
-                      ))}
-                    </Row>
+                              {renderFeatureCards(childGroup.items)}
+                              {idx < arr.length - 1 && <Divider style={{ margin: '16px 0' }} />}
+                            </div>
+                          ))}
+                        </>
+                      );
+                    })()}
 
                     {/* 分组分隔线 */}
                     {groupIdx < platform.groups.length - 1 && (

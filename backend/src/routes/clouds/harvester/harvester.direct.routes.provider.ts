@@ -60,10 +60,12 @@ import {
 import {
   harvesterProviderNetworkListHandler,
   harvesterProviderNetworkCreateHandler,
+  harvesterProviderNetworkDeleteHandler,
 } from './handlers/ovn-direct-provider-networks.handlers';
 import {
   harvesterVlanListHandler,
   harvesterVlanCreateHandler,
+  harvesterVlanDeleteHandler,
 } from './handlers/ovn-direct-vlans.handlers';
 import { harvesterSwitchLbRuleListHandler } from './handlers/ovn-direct-switch-lbrules.handlers';
 import {
@@ -371,6 +373,12 @@ export function registerHarvesterDirectRoutesProvider(
     'cloudmap.private': harvesterProviderNetworkCreateHandler,
     'cloudmap.edge': harvesterProviderNetworkCreateHandler,
   };
+  const providerNetworkDeleteHandlers = {
+    harvester: harvesterProviderNetworkDeleteHandler,
+    cloudmap: harvesterProviderNetworkDeleteHandler,
+    'cloudmap.private': harvesterProviderNetworkDeleteHandler,
+    'cloudmap.edge': harvesterProviderNetworkDeleteHandler,
+  };
   const vlanListHandlers = {
     harvester: harvesterVlanListHandler,
     cloudmap: harvesterVlanListHandler,
@@ -382,6 +390,12 @@ export function registerHarvesterDirectRoutesProvider(
     cloudmap: harvesterVlanCreateHandler,
     'cloudmap.private': harvesterVlanCreateHandler,
     'cloudmap.edge': harvesterVlanCreateHandler,
+  };
+  const vlanDeleteHandlers = {
+    harvester: harvesterVlanDeleteHandler,
+    cloudmap: harvesterVlanDeleteHandler,
+    'cloudmap.private': harvesterVlanDeleteHandler,
+    'cloudmap.edge': harvesterVlanDeleteHandler,
   };
   const switchLbRuleListHandlers = {
     harvester: harvesterSwitchLbRuleListHandler,
@@ -794,6 +808,11 @@ export function registerHarvesterDirectRoutesProvider(
     checkAdminPermission,
     createProviderRouter(providerNetworkCreateHandlers)
   );
+  router.delete(
+    '/:id/resources/providernetworks/:name',
+    checkAdminPermission,
+    createProviderRouter(providerNetworkDeleteHandlers)
+  );
 
   // OVN VLANs
   router.get(
@@ -805,6 +824,11 @@ export function registerHarvesterDirectRoutesProvider(
     '/:id/resources/vlans',
     checkAdminPermission,
     createProviderRouter(vlanCreateHandlers)
+  );
+  router.delete(
+    '/:id/resources/vlans/:name',
+    checkAdminPermission,
+    createProviderRouter(vlanDeleteHandlers)
   );
 
   // OVN Switch LB Rules

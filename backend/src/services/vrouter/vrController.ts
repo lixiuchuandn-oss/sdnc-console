@@ -6,7 +6,6 @@ import { csmRequest, CsmConfig } from '../clouds/csm/client';
 
 const vrCtlLog = logger.child('VR-Ctl');
 
-const DEFAULT_URL = 'https://47.111.13.103:8016';
 const ACCESS_KEY = 'Cloudmap%23123';
 const SECRET_KEY = 'Cloudmap%23123';
 
@@ -14,8 +13,17 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });
 
+const getCsmctlBaseUrl = () => {
+  const raw = String(getSystemSetting('CSMCTL_ADDRESS') || '').trim();
+  if (!raw) {
+    throw new Error('CSMCTL_ADDRESS 未配置，请在系统设置中配置 CSMCTL 地址');
+  }
+  const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  return withProto.replace(/\/+$/, '');
+};
+
 const getClient = () => {
-  const baseURL = getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL;
+  const baseURL = getCsmctlBaseUrl();
   return axios.create({
     baseURL,
     httpsAgent,
@@ -63,7 +71,7 @@ export const vrController = {
 
   getVRConfig: async (uuid: string) => {
     const config: CsmConfig = {
-      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      endpoint: getCsmctlBaseUrl(),
       accessKey: ACCESS_KEY,
       secretKey: SECRET_KEY,
       ignoreTls: true,
@@ -123,7 +131,7 @@ export const vrController = {
 
   getVR3List: async (pageSize: number = 1000, pageNum: number = 1) => {
     const config: CsmConfig = {
-      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      endpoint: getCsmctlBaseUrl(),
       accessKey: ACCESS_KEY,
       secretKey: SECRET_KEY,
       ignoreTls: true,
@@ -146,7 +154,7 @@ export const vrController = {
 
   getVRList: async (pageSize: number = 50, pageNum: number = 1) => {
     const config: CsmConfig = {
-      endpoint: getSystemSetting('CSMCTL_ADDRESS') || DEFAULT_URL,
+      endpoint: getCsmctlBaseUrl(),
       accessKey: ACCESS_KEY,
       secretKey: SECRET_KEY,
       ignoreTls: true,

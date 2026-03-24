@@ -17,7 +17,6 @@ import { HarvesterSnapshotInventory } from '../../../entities/harvester/Harveste
 import { HarvesterBackupInventory } from '../../../entities/harvester/HarvesterBackupInventory';
 import { HarvesterSshKeyInventory } from '../../../entities/harvester/HarvesterSshKeyInventory';
 import { HarvesterCloudInitInventory } from '../../../entities/harvester/HarvesterCloudInitInventory';
-import { KubeOvnIngressInventory } from '../../../entities/kubeovn/KubeOvnIngressInventory';
 import { HarvesterLoadBalancerIPPoolInventory } from '../../../entities/harvester/HarvesterLoadBalancerIPPoolInventory';
 import { HarvesterPciDeviceInventory } from '../../../entities/harvester/HarvesterPciDeviceInventory';
 import { HarvesterUsbInventory } from '../../../entities/harvester/HarvesterUsbInventory';
@@ -44,7 +43,7 @@ const invLog = logger.child('Compute-Inventory');
 //   - syncVmInventory(cloud, insecure)：同步 VM/VMI 相关库存
 //   - syncNamespaceInventory(cloud, insecure)：同步命名空间库存
 //   - syncVolumeInventory(cloud, insecure)：同步卷 / 存储类 / 快照 / 备份库存
-//   - syncNetworkInventory(cloud, insecure)：同步 NAD / VPC / Subnet / EIP / FIP / NAT / Ingress 库存
+//   - syncNetworkInventory(cloud, insecure)：同步 NAD / VPC / Subnet / EIP / FIP / NAT 库存
 //   - syncClusterInventory(cloud, insecure)：同步节点、集群网络等 cluster 级库存
 //   - syncPeripheralInventory(cloud, insecure)：同步 GPU / USB / PCI 等外设库存
 //   - syncTemplateInventory(cloud, insecure)：同步模板 / CloudInit / Schedule 备份等配置库存
@@ -69,7 +68,6 @@ import {
   listHarvesterBackupsStandard,
   listHarvesterSshKeysStandard,
   listHarvesterCloudInitsStandard,
-  listHarvesterIngressesStandard,
   listHarvesterLoadBalancerIPPools,
   listHarvesterServices,
   listKubeOvnEips,
@@ -1034,43 +1032,6 @@ export const syncHarvesterCloudInits = async (cloud: any, insecure: boolean) => 
 };
 
 /**
- * 同步 K8s Ingress 路由库存
- * 记录主机名、规则、TLS 配置等，用于南北向流量视图
- * @param cloud 云账号配置
- * @param insecure 是否忽略 TLS 校验
- */
-export const syncHarvesterIngresses = async (cloud: any, insecure: boolean) => {
-  let items: any[] = [];
-  try {
-    items = await listHarvesterIngressesStandard({
-      endpoint: cloud.endpoint,
-      token: cloud.secretKey,
-      insecure,
-    } as any);
-  } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
-      invLog.warn(`${cloud.name}: 跳过路由同步 (401 未授权)`);
-      return;
-    }
-    throw e;
-  }
-
-  invLog.debug(`${cloud.name}: 路由同步完成，共 ${items.length} 条`);
-
-  const repo = AppDataSource.getRepository(KubeOvnIngressInventory);
-  await upsertItems(repo, cloud.id, items, (item) => ({
-    uid: item.metadata?.uid || item.id,
-    name: item.metadata?.name,
-    namespace: item.metadata?.namespace,
-    rules: item.spec?.rules,
-    tls: item.spec?.tls,
-    labels: item.metadata?.labels,
-    annotations: item.metadata?.annotations,
-    rawData: item,
-  }));
-};
-
-/**
  * 同步 Harvester PCI 设备库存
  * 把 listHarvesterPciDevices 的标准化结果写入数据库，用于硬件资源视图
  * @param cloud 云账号配置
@@ -1403,7 +1364,6 @@ export const syncNetworkInventory = async (cloud: any, insecure: boolean) => {
   await syncKubeOvnEips(cloud, insecure);
   await syncKubeOvnFips(cloud, insecure);
   await syncKubeOvnNatRules(cloud, insecure);
-  await syncHarvesterIngresses(cloud, insecure);
 };
 
 export const syncSecurityInventory = async (cloud: any, insecure: boolean) => {

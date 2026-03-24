@@ -197,6 +197,39 @@ export const resolveHarvesterK8sApiBase = (endpoint: string): string => {
 };
 
 /**
+ * 从 KubeVirt VirtualMachine 列表中找出 multus.networkName 指向给定 NAD/子网引用的虚拟机显示名（删除前占用检查）。
+ * @param networkRefNsName 已小写的 namespace/name，如 default/my-subnet
+ * @param nameOnly 资源名小写，用于匹配以 /name 结尾的引用
+ */
+export function findVmDisplayNamesUsingMultusNetwork(
+  vms: any[],
+  networkRefNsName: string,
+  nameOnly: string,
+): string[] {
+  const targetRef = networkRefNsName.toLowerCase();
+  const nameLower = nameOnly.toLowerCase();
+  const out: string[] = [];
+  for (const vm of vms) {
+    const networks: any[] = vm?.spec?.template?.spec?.networks || [];
+    const nets = networks
+      .map((n: any) => n?.multus?.networkName)
+      .filter((n: any) => typeof n === 'string');
+    const matched = nets.some((n: string) => {
+      const s = String(n || '').toLowerCase();
+      const baseName = s.includes('@') ? s.split('@')[0] : s;
+      return baseName === targetRef || baseName.endsWith(`/${nameLower}`);
+    });
+    if (matched) {
+      const alias =
+        vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name || '';
+      const t = String(alias).trim();
+      if (t) out.push(t);
+    }
+  }
+  return out;
+}
+
+/**
  * 校验云资源 Provider 类型是否符合预期
  *
  * @description

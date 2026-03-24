@@ -283,9 +283,14 @@ AppDataSource.initialize()
     
     // 初始化数据库表（如果不存在则创建）
     try {
-      const { ensureRecycleBinTables, ensureKubeOvnSecurityGroupTables } = await import('./config/database');
+      const {
+        ensureRecycleBinTables,
+        ensureKubeOvnSecurityGroupTables,
+        dropObsoleteKubeOvnIngressInventoryTable,
+      } = await import('./config/database');
       await ensureRecycleBinTables();
       await ensureKubeOvnSecurityGroupTables();
+      await dropObsoleteKubeOvnIngressInventoryTable();
     } catch (e) {
       logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
     }

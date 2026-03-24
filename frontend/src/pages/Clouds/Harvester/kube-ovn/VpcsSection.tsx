@@ -377,6 +377,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         // Create mode: Generate ID and set alias
         const generatedName = generateResourceId('sub');
         payload.name = generatedName;
+        payload.allowEWTraffic = false;
         payload.annotations = {
           'tower.io/alias': values.name,
           [SUBNET_TYPE_ANNOTATION_KEY]: 'vpc',

@@ -10,7 +10,8 @@
     "db:init": "ts-node --transpile-only src/scripts/dbInit.ts",
     "db:init-users": "ts-node --transpile-only src/scripts/initUsers.ts",
     "db:check-user": "ts-node --transpile-only src/scripts/checkUser.ts",
-    "test": "jest"
+    "test": "jest",
+    "plan:sync-routes": "node -r ts-node/register/transpile-only ../deployment/plan/scripts/sync-routespec.js"
   },
   "dependencies": {
     "@alicloud/pop-core": "^1.7.10",

@@ -22,7 +22,6 @@ import {
   syncHarvesterBackups,
   syncHarvesterSshKeys,
   syncHarvesterCloudInits,
-  syncHarvesterIngresses,
   syncHarvesterLoadBalancerIPPools,
   syncHarvesterPciDevices,
   syncHarvesterCapabilities,
@@ -234,7 +233,6 @@ export class CloudSyncService {
       await syncHarvesterBackups(cloud, insecure);
       await syncHarvesterSshKeys(cloud, insecure);
       await syncHarvesterCloudInits(cloud, insecure);
-      await syncHarvesterIngresses(cloud, insecure);
       await syncHarvesterPciDevices(cloud, insecure);
       await syncHarvesterServices(cloud, insecure);
       await syncKubeOvnEips(cloud, insecure);

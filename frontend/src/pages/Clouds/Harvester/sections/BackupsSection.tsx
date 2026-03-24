@@ -44,8 +44,8 @@ interface Props {
 const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh, namespaces, vms, type = 'backup', vmId, isTenant, mode = 'standard', bordered = true }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const hasEcsWrite = useMemo(
-    () => hasPermissionForAction(perms, 'clouds.ecs:write') || hasPermissionForAction(perms, 'clouds:write'),
+  const hasBackupsWrite = useMemo(
+    () => hasPermissionForAction(perms, 'clouds.backups:write') || hasPermissionForAction(perms, 'clouds:write'),
     [perms],
   );
   // 关键字搜索
@@ -164,7 +164,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
    * 弹出确认框后调用后端删除接口，成功后触发刷新
    */
   const handleDelete = useCallback((record: any) => {
-    if (!hasEcsWrite) {
+    if (!hasBackupsWrite) {
       message.error('无权限执行该操作');
       return;
     }
@@ -184,7 +184,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         }
       },
     });
-  }, [type, cloudId, onRefresh, hasEcsWrite]);
+  }, [type, cloudId, onRefresh, hasBackupsWrite]);
 
   /**
    * 表格列定义
@@ -297,9 +297,9 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
         items.push({
           key: 'restore',
           label: '恢复',
-          disabled: !record.readyToUse || !hasEcsWrite,
+          disabled: !record.readyToUse || !hasBackupsWrite,
           onClick: () => {
-            if (!hasEcsWrite) {
+            if (!hasBackupsWrite) {
               message.error('无权限执行该操作');
               return;
             }
@@ -308,16 +308,16 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
           }
         });
         items.push({ type: 'divider' });
-        items.push({ key: 'delete', label: '删除', danger: true, disabled: !hasEcsWrite, onClick: () => handleDelete(record) });
+        items.push({ key: 'delete', label: '删除', danger: true, disabled: !hasBackupsWrite, onClick: () => handleDelete(record) });
         
         return (
           <Dropdown menu={{ items }} trigger={['click']}>
-            <Button icon={<EllipsisOutlined />} className="row-actions-trigger" type="text" disabled={!hasEcsWrite} />
+            <Button icon={<EllipsisOutlined />} className="row-actions-trigger" type="text" disabled={!hasBackupsWrite} />
           </Dropdown>
         );
       },
     },
-  ], [handleDelete, isTenant, hasEcsWrite]);
+  ], [handleDelete, isTenant, hasBackupsWrite]);
 
   // 列显示设置（需要在 columns 定义之后）
   const { displayColumns: visibleColumns } = useTableColumnSettings(columns, `harvester_${type}_list`);
@@ -375,7 +375,7 @@ const BackupsSection: React.FC<Props> = ({ cloudId, backups, loading, onRefresh,
           </button>
         </div>
         <div key="toolbar-right" className="toolbar-actions">
-           <Button key="create-btn" type="primary" disabled={!hasEcsWrite} onClick={() => { if (!hasEcsWrite) return; setCreateModalVisible(true); }}>创建{type === 'backup' ? '备份' : '快照'}</Button>
+           <Button key="create-btn" type="primary" disabled={!hasBackupsWrite} onClick={() => { if (!hasBackupsWrite) return; setCreateModalVisible(true); }}>创建{type === 'backup' ? '备份' : '快照'}</Button>
            <TableColumnSettingsButton
              key="col-settings"
              allColumns={columns}

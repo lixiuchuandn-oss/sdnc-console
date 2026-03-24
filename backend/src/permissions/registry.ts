@@ -208,12 +208,14 @@ export class PermissionRegistry {
               } else if (actualResourceType === 'usb-devices' || actualResourceType === 'usb' || actualResourceType === 'pci-devices') {
                 // usb-devices、usb、pci-devices 用于创建虚拟机时选择USB/PCI设备，使用 clouds.ecs 权限
                 permissionBase = 'clouds.ecs';
-              } else if (actualResourceType === 'services' || actualResourceType === 'ingresses' || 
+              } else if (actualResourceType === 'backups' || actualResourceType === 'schedulevmbackups' ||
+                         actualResourceType === 'virtualmachinebackups' || actualResourceType === 'virtualmachinerestores') {
+                // VM 备份/快照与定时策略统一使用独立备份权限
+                permissionBase = 'clouds.backups';
+              } else if (actualResourceType === 'services' || 
                          actualResourceType === 'templates' || actualResourceType === 'cloud-inits' || 
                          actualResourceType === 'migrations' || actualResourceType === 'migrations-direct' ||
                          actualResourceType === 'health' || actualResourceType === 'capabilities' || 
-                         actualResourceType === 'backups' || actualResourceType === 'schedulevmbackups' ||
-                         actualResourceType === 'virtualmachinebackups' || actualResourceType === 'virtualmachinerestores' ||
                          actualResourceType === 'proxy') {
                 // 这些资源类型用于创建虚拟机或查看集群信息，使用 clouds.ecs 权限
                 permissionBase = 'clouds.ecs';

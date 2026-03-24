@@ -4,6 +4,7 @@ import { requestJson } from '../../../../services/clouds/harvester/utils';
 import { checkTenantAccess, fetchCloudOr404, ensureProvider } from '../harvester.direct.helpers';
 import { licenseService } from '../../../../services/LicenseService';
 import { KubeOvnProviderNetworkInventory } from '../../../../entities/kubeovn/KubeOvnProviderNetworkInventory';
+import { KubeOvnVlanInventory } from '../../../../entities/kubeovn/KubeOvnVlanInventory';
 import { syncKubeOvnProviderNetworks } from '../../../../services/clouds/harvester/inventory';
 
 export async function harvesterProviderNetworkListHandler(
@@ -94,7 +95,14 @@ export async function harvesterProviderNetworkCreateHandler(
       origin = base.replace(/\/v[0-9].*$/, '');
     }
 
-    const { name, spec, defaultInterface, customInterfaces, exchangeLinkName } = req.body;
+    const {
+      name,
+      spec,
+      defaultInterface,
+      customInterfaces,
+      exchangeLinkName,
+      annotations,
+    } = req.body;
     if (!name) {
       res.status(400).json({ message: '缺少必要参数: name' });
       return;
@@ -114,10 +122,19 @@ export async function harvesterProviderNetworkCreateHandler(
       return;
     }
 
+    const metadata: Record<string, unknown> = { name };
+    if (
+      annotations &&
+      typeof annotations === 'object' &&
+      !Array.isArray(annotations)
+    ) {
+      metadata.annotations = annotations;
+    }
+
     const payload = {
       apiVersion: 'kubeovn.io/v1',
       kind: 'ProviderNetwork',
-      metadata: { name },
+      metadata,
       spec: finalSpec,
     };
 
@@ -185,5 +202,75 @@ export async function harvesterProviderNetworkCreateHandler(
       error: errorMessage,
       details: errorDetails,
     });
+  }
+}
+
+/**
+ * DELETE /:id/resources/providernetworks/:name
+ * 删除前检查是否有 VLAN 仍引用该物理网络（spec.provider）。
+ */
+export async function harvesterProviderNetworkDeleteHandler(
+  req: any,
+  res: Response,
+  next: any,
+) {
+  try {
+    if (!licenseService.hasFeature('network.ovn.vpc')) {
+      return res
+        .status(403)
+        .json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
+    }
+    const { id, name } = req.params;
+    const { allowed } = await checkTenantAccess(req, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied' });
+
+    const cloud = await fetchCloudOr404(id, res);
+    if (!cloud) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
+
+    const nameStr = String(name || '').trim();
+    if (!nameStr) {
+      return res.status(400).json({ message: '缺少物理网络名称' });
+    }
+
+    const vlanRepo = AppDataSource.getRepository(KubeOvnVlanInventory);
+    const vlanRows = await vlanRepo.find({ where: { cloudId: id } });
+    const usingVlans = vlanRows.filter((row) => {
+      const p = row.provider ?? row.rawData?.spec?.provider;
+      return String(p || '').trim() === nameStr;
+    });
+    if (usingVlans.length > 0) {
+      const names = usingVlans.map((v) => v.name).filter(Boolean);
+      return res.status(409).json({
+        message: `无法删除物理网络：仍被以下 VLAN 引用：${names.join('、')}`,
+        code: 'PROVIDER_NETWORK_IN_USE_BY_VLANS',
+        vlans: names,
+      });
+    }
+
+    const base = (cloud.endpoint || '').replace(/\/+$/, '');
+    let origin = base;
+    try {
+      const u = new URL(base);
+      origin = `${u.protocol}//${u.host}`;
+    } catch {
+      origin = base.replace(/\/v[0-9].*$/, '');
+    }
+
+    const url = `${origin}/apis/kubeovn.io/v1/provider-networks/${encodeURIComponent(nameStr)}`;
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    await requestJson('DELETE', url, cloud.secretKey || '', insecure);
+
+    try {
+      const repo = AppDataSource.getRepository(KubeOvnProviderNetworkInventory);
+      await repo.delete({ cloudId: id, name: nameStr });
+    } catch (e: any) {
+      console.warn('[ProviderNetwork-Delete] 本地库存删除失败（集群已删）:', e?.message || e);
+    }
+
+    res.json({ message: '删除成功' });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    res.status(500).json({ message: '删除物理网络失败', error: error.message });
   }
 }

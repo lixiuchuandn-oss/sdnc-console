@@ -9,6 +9,7 @@ import {
   checkTenantAccess,
   fetchCloudOr404,
   ensureProvider,
+  findVmDisplayNamesUsingMultusNetwork,
   resolveHarvesterK8sApiBase,
 } from '../harvester.direct.helpers';
 import { parseKubeOvnAclRulesInput } from '../../../../services/clouds/harvester/kubeOvnAclRules';
@@ -196,6 +197,7 @@ export async function harvesterSubnetDirectCreateHandler(
       natOutgoing,
       allowDhcp,
       disableGatewayCheck,
+      private: subnetPrivate,
       annotations,
       provider: providerFromBody,
       finalizers: finalizersFromBody,
@@ -465,6 +467,7 @@ export async function harvesterSubnetDirectCreateHandler(
         ...(vlan ? { vlan } : {}),
         ...(gatewayType ? { gatewayType } : {}),
         ...(disableGatewayCheck !== undefined ? { disableGatewayCheck } : {}),
+        ...(subnetPrivate !== undefined ? { private: !!subnetPrivate } : {}),
         natOutgoing: natOutgoingVal,
         enableDhcp: allowDhcp !== undefined ? allowDhcp : true,
         ...(specAcls !== undefined ? { acls: specAcls } : {}),
@@ -625,28 +628,20 @@ export async function harvesterSubnetDirectDeleteHandler(
         ? ecsList.data
         : [];
       const targetRef = `default/${name}`.toLowerCase();
-      const usingVms = vms
-        .map((vm: any) => {
-          const networks: any[] = vm?.spec?.template?.spec?.networks || [];
-          const nets = networks
-            .map((n: any) => n?.multus?.networkName)
-            .filter((n: any) => typeof n === 'string');
-          const alias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name;
-          const matched = nets.some((n: string) => {
-            const s = String(n || '').toLowerCase();
-            const baseName = s.includes('@') ? s.split('@')[0] : s;
-            return baseName === targetRef || baseName.endsWith(`/${name.toLowerCase()}`);
-          });
-          return matched ? alias : undefined;
-        })
-        .filter((x: any) => typeof x === 'string' && x.trim().length > 0);
+      const usingVms = findVmDisplayNamesUsingMultusNetwork(
+        vms,
+        targetRef,
+        name.toLowerCase(),
+      );
 
       if (usingVms.length > 0) {
-        res
-          .status(409)
-          .send(
-            `不能删除此子网，因为正在被虚拟机使用 ${usingVms.slice(0, 5).join('，')}${usingVms.length > 5 ? ' 等' : ''}`,
-          );
+        res.status(409).json({
+          message: `不能删除此子网，因为正在被虚拟机使用：${usingVms.slice(0, 5).join('，')}${
+            usingVms.length > 5 ? ' 等' : ''
+          }`,
+          code: 'SUBNET_IN_USE_BY_VM',
+          vms: usingVms,
+        });
         return;
       }
     } catch (checkError) {

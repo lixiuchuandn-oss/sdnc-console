@@ -6,7 +6,7 @@
 // 设计约定：
 // - vm.ts：VM 列表、详情、规格、VNC 等只读/编辑能力
 // - lifecycle.ts：VM 生命周期与迁移（start/stop/reboot/pause/unpause/delete/migrate 等）
-// - network.ts：Kube-OVN VPC/Subnet/LB/EIP/NAT/Ingress 等网络能力
+// - network.ts：Kube-OVN VPC/Subnet/LB/EIP/NAT 等网络能力
 // - storage.ts：卷 / PVC / 镜像 / Snapshot / Backup / Secret / 模板 / Schedule 备份等存储域资源
 // - cluster.ts：集群健康检查、集群能力、节点、Service、StorageClass 等 cluster 级信息
 // - namespace.ts：命名空间的增删查（后续会结合租户/组织 ns-{orgId} 约束）
@@ -58,7 +58,6 @@ export {
   listHarvesterLoadBalancers,
   listHarvesterLoadBalancerIPPools,
   createHarvesterLoadBalancer,
-  listHarvesterIngressesStandard,
   listKubeOvnEips,
   listKubeOvnFips,
   listKubeOvnSnatRules,

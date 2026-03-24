@@ -210,3 +210,27 @@ export async function ensureKubeOvnSecurityGroupTables() {
     throw error;
   }
 }
+
+/**
+ * 已移除 K8s Ingress 库存（KubeOvnIngressInventory 实体）；启动时删除遗留 SQLite 表，避免脏表残留。
+ */
+export async function dropObsoleteKubeOvnIngressInventoryTable() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 kube_ovn_ingress_inventory 表清理');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='kube_ovn_ingress_inventory'`,
+    );
+    if (exists.length > 0) {
+      await AppDataSource.query(`DROP TABLE IF EXISTS "kube_ovn_ingress_inventory"`);
+      dbLog.info('已删除废弃表 kube_ovn_ingress_inventory');
+    }
+  } catch (error) {
+    dbLog.warn(
+      '清理 kube_ovn_ingress_inventory 表失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}

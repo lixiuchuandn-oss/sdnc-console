@@ -21,7 +21,6 @@ import {
 } from './handlers/network-cache-nads.handlers';
 import { harvesterClusterNetworkListHandler } from './handlers/network-cache-cluster-networks.handlers';
 import { harvesterServiceCacheListHandler } from './handlers/network-cache-services.handlers';
-import { harvesterIngressListHandler } from './handlers/network-cache-ingresses.handlers';
 import { 
   harvesterVolumeListHandler,
   harvesterAvailableVolumeListHandler,
@@ -456,20 +455,6 @@ export function registerHarvesterCacheRoutesProvider(
     '/:id/resources/harvester/services',
     checkAdminPermission,
     createProviderRouter(serviceListHandlers)
-  );
-
-  // Ingresses 相关路由
-  const ingressListHandlers = {
-    harvester: harvesterIngressListHandler,
-    cloudmap: harvesterIngressListHandler,
-    'cloudmap.private': harvesterIngressListHandler,
-    'cloudmap.edge': harvesterIngressListHandler,
-  };
-
-  router.get(
-    '/:id/resources/harvester/ingresses',
-    checkAdminPermission,
-    createProviderRouter(ingressListHandlers)
   );
 
   // Namespaces 相关路由

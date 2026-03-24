@@ -198,6 +198,7 @@ function inferLabel(prefix: string): string {
   // 完整前缀映射（优先级最高，用于特殊情况的完整前缀）
   const fullPrefixMap: Record<string, string> = {
     'clouds.dashboard': '资源总览',
+    'clouds.backups': '备份',
     'ops': '运维平台',
     'system.rbac': 'RBAC 权限管理',
     'system.roles': '角色管理',
@@ -244,6 +245,7 @@ function inferLabel(prefix: string): string {
     'enis': '弹性网卡',
     'network-acls': '网络ACL',
     'snapshots': '快照',
+    'backups': '备份',
     'route-entries': '路由条目',
     'nat-gateways': 'NAT网关',
     'route-tables': '路由表',

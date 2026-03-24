@@ -18,8 +18,10 @@ import SubnetAclFormItems, {
   normalizeAclRowForForm,
   validateAclsFormRowsForSubmit,
 } from './SubnetAclFormItems';
+import UnderlaySubnetDetailDrawer from './UnderlaySubnetDetailDrawer';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
+import { TOWER_IO_ALIES_ANNOTATION } from '../../../../utils/towerKubeOvnNames';
 
 const { Option } = Select;
 
@@ -35,8 +37,8 @@ const TOWER_ALIAS_ANNOTATION = 'tower.io/alias';
  *   - VM 选附加网络时常选 NAD。旧式扁平多为 bridge；Kube-OVN 子网会配套同名 NAD（type=kube-ovn）。
  *
  * 【扁平子网】本组件 mode=flat，注解 tower.io/subnet-type=flat
- *   - 挂在默认 VPC（如 ovn-cluster）下的 Kube-OVN underlay 子网，常绑 VLAN + ProviderNetwork。
- *   - 用途：二层直通类场景，一般 natOutgoing=false。物理 Provider 名记在注解 tower.io/provider-network。
+ *   - 挂在默认 VPC（如 ovn-cluster）下的 Kube-OVN underlay 子网，须绑定集群内已有 VLAN（spec.vlan）。
+ *   - 用途：二层直通类场景，一般 natOutgoing=false。
  *
  * 【公共子网】本组件 mode=public，注解 tower.io/subnet-type=public
  *   - 仍在默认 VPC 下，产品侧用于 EIP/NAT/浮动 IP 等南北向能力常用网段，一般 natOutgoing=true。
@@ -49,17 +51,71 @@ const TOWER_ALIAS_ANNOTATION = 'tower.io/alias';
 type Props = {
   cloudId: string;
   mode?: 'flat' | 'public';
+  displayMode?: 'standard' | 'simple';
+  /** 是否显示「查看YAML」并接入 HarvesterOpsinfoDrawer（与 VPC 子网列表一致） */
+  showYaml?: boolean;
 };
 
 const SUBNET_TYPE_ANNOTATION_KEY = 'tower.io/subnet-type';
 const SUBNET_FINALIZER = 'tower.io/managed';
 const PROVIDER_NETWORK_ANNOTATION = 'tower.io/provider-network';
 
+/** 默认选中 VLAN：按 spec.id 数值最小（部署侧通常预置 id=0 等） */
+function defaultVlanCrNameByMinVlanId(vlans: any[]): string | undefined {
+  if (!Array.isArray(vlans) || vlans.length === 0) return undefined;
+  const scored = vlans
+    .map((v) => ({
+      name: String(v?.metadata?.name ?? '').trim(),
+      id: Number(v?.spec?.id),
+    }))
+    .filter((x) => x.name);
+  if (scored.length === 0) return undefined;
+  scored.sort((a, b) => {
+    const ai = Number.isFinite(a.id) ? a.id : Number.POSITIVE_INFINITY;
+    const bi = Number.isFinite(b.id) ? b.id : Number.POSITIVE_INFINITY;
+    if (ai !== bi) return ai - bi;
+    return a.name.localeCompare(b.name);
+  });
+  return scored[0].name;
+}
+
+function providerDisplayName(providerName: string, providers: any[]): string {
+  const pn = String(providerName ?? '').trim();
+  if (!pn) return '未指定';
+  const hit = Array.isArray(providers)
+    ? providers.find((p) => String(p?.metadata?.name ?? '').trim() === pn)
+    : undefined;
+  if (!hit) return pn;
+  const ann = hit?.metadata?.annotations || {};
+  const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] ?? '').trim();
+  return alias || pn;
+}
+
+/** 下拉框仅展示：VLAN 标签 · 物理网络(别名优先) */
+function vlanRecordLabelForSelect(v: any, providers: any[]): string {
+  const tag = v?.spec?.id;
+  const tagStr = tag !== undefined && tag !== null ? String(tag) : '—';
+  const prov = providerDisplayName(String(v?.spec?.provider ?? '').trim(), providers);
+  return `VLAN ${tagStr} - ${prov}`;
+}
+
+/** 供搜索：集群资源名、标签号、物理网络（界面不展示资源名） */
+function vlanRecordSearchBlob(v: any, providers: any[]): string {
+  const metaName = String(v?.metadata?.name ?? '').trim();
+  const tag = v?.spec?.id;
+  const providerName = String(v?.spec?.provider ?? '').trim();
+  const providerAlias = providerDisplayName(providerName, providers);
+  return [metaName, tag !== undefined && tag !== null ? String(tag) : '', providerName, providerAlias]
+    .filter(Boolean)
+    .join(' ');
+}
+
 type UnderlaySubnetFormFieldsProps = {
   form: FormInstance;
   isFlatMode: boolean;
   vlans: any[];
-  providers: any[];
+  /** 仅公共子网使用（扁平子网不展示物理网络） */
+  providers?: any[];
   aliasDupCheckItems: any[];
   /** 创建流程可传入更详细的「自动生成 metadata.name」说明 */
   aliasFieldTooltip?: string;
@@ -111,50 +167,53 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
     <Form.Item
       name="vlan"
       label="VLAN"
+      rules={
+        isFlatMode
+          ? [{ required: true, message: '请选择 VLAN' }]
+          : []
+      }
       tooltip={
         isFlatMode
-          ? '在物理线路上给流量打「几号 VLAN 标签」。请从集群里已经建好的 VLAN 里选；不选表示不打标签（裸二层 / Untagged）。'
+          ? '在物理线路上给流量打 VLAN 标签。须选择集群中已创建的 VLAN 资源（默认选 VLAN ID 最小的一项）。'
           : '若需要给流量打 VLAN 标签，请从集群已有 VLAN 中选择；不选表示不打标签。'
       }
     >
-      <Select placeholder={isFlatMode ? '可选；与「物理网络」至少填一项' : '可选'} allowClear>
-        {vlans.map(v => <Option key={v.metadata.name} value={v.metadata.name}>{v.metadata.name} (ID: {v.spec.id}, Provider: {v.spec.provider})</Option>)}
-      </Select>
-    </Form.Item>
-    <Form.Item
-      name="provider"
-      label="物理网络"
-      tooltip={
-        isFlatMode
-          ? '指明子网接到哪条「物理上行」（对应集群里预先建好的物理网络，通常绑定某块网卡/某条链路）。扁平子网必须在本项与上面的「VLAN」里至少填一个，否则无法确定接到哪张物理网。所选名称会记在子网注解中便于对照。'
-          : '指明子网主要关联哪条物理上行（选集群里预先建好的物理网络即可）。可选；需与运维在集群中的网络规划一致。'
-      }
-      rules={[
-        {
-          validator: async (_, value) => {
-            if (!isFlatMode) return Promise.resolve();
-            const vlan = form.getFieldValue('vlan');
-            if (!vlan && !value) {
-              return Promise.reject(new Error('扁平子网请至少选择「VLAN」或「物理网络」其中一项'));
-            }
-            return Promise.resolve();
-          },
-        },
-      ]}
-    >
-      <Select placeholder={isFlatMode ? '可选；与「VLAN」至少填一项' : '可选'} allowClear>
-        {providers.map((p) => (
-          <Option key={p.metadata.name} value={p.metadata.name}>{p.metadata.name}</Option>
+      <Select
+        placeholder={isFlatMode ? '请选择 VLAN' : '可选'}
+        allowClear={!isFlatMode}
+        showSearch={isFlatMode}
+        optionFilterProp="label"
+        dropdownStyle={{ minWidth: 280 }}
+      >
+        {vlans.map((v) => (
+          <Option key={v.metadata.name} value={v.metadata.name} label={vlanRecordSearchBlob(v, providers || [])}>
+            {vlanRecordLabelForSelect(v, providers || [])}
+          </Option>
         ))}
       </Select>
     </Form.Item>
+    {!isFlatMode && Array.isArray(providers) ? (
+      <Form.Item
+        name="provider"
+        label="物理网络"
+        tooltip="指明子网主要关联哪条物理上行（选集群里预先建好的物理网络即可）。可选；需与运维在集群中的网络规划一致。"
+      >
+        <Select placeholder="可选" allowClear>
+          {providers.map((p) => (
+            <Option key={p.metadata.name} value={p.metadata.name}>
+              {p.metadata.name}
+            </Option>
+          ))}
+        </Select>
+      </Form.Item>
+    ) : null}
     <Form.Item name="excludeIps" label="排除 IP (可选)">
       <Input.TextArea rows={3} placeholder="每行一个 IP 或 IP 范围 (e.g. 192.168.1.1..192.168.1.10)" />
     </Form.Item>
   </>
 );
 
-function subnetRecordToFormValues(record: any): Record<string, unknown> {
+function subnetRecordToFormValues(record: any, isFlatMode: boolean): Record<string, unknown> {
   const spec = record?.spec || {};
   const ann = record?.metadata?.annotations || {};
   const excludeRaw = spec.excludeIps;
@@ -162,18 +221,22 @@ function subnetRecordToFormValues(record: any): Record<string, unknown> {
     ? excludeRaw.map((x: unknown) => String(x)).join('\n')
     : '';
   const physicalProvider = String(ann[PROVIDER_NETWORK_ANNOTATION] ?? '').trim() || undefined;
-  return {
+  const base: Record<string, unknown> = {
     alias: String(ann[TOWER_ALIAS_ANNOTATION] ?? '').trim() || undefined,
     cidrBlock: spec.cidrBlock ?? spec.cidr ?? '',
     gateway: spec.gateway ?? '',
     vlan: spec.vlan ?? undefined,
-    provider: physicalProvider,
     excludeIps,
   };
+  if (!isFlatMode) {
+    base.provider = physicalProvider;
+  }
+  return base;
 }
 
-const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => {
+const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displayMode = 'standard', showYaml = true }) => {
   const isFlatMode = mode === 'flat';
+  const isSimpleMode = displayMode === 'simple';
   const subnetKindLabel = isFlatMode ? '扁平子网' : '公共子网';
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -183,9 +246,11 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
   /** 弹窗标题展示用：注解别名，无则回退为 metadata.name */
   const [aclSubnetTitleLabel, setAclSubnetTitleLabel] = useState<string | null>(null);
   const [aclSubmitting, setAclSubmitting] = useState(false);
-  const [drawerVisible, setDrawerVisible] = useState(false);
-  const [drawerRecord, setDrawerRecord] = useState<any>(null);
-  const [drawerTab, setDrawerTab] = useState('detail');
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
+  const [detailSubnetRecord, setDetailSubnetRecord] = useState<any>(null);
+  const [harvesterOpsOpen, setHarvesterOpsOpen] = useState(false);
+  const [harvesterOpsRecord, setHarvesterOpsRecord] = useState<any>(null);
+  const [harvesterOpsTab, setHarvesterOpsTab] = useState('detail');
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -272,7 +337,16 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
     fetchData();
     fetchVlanOptions();
     fetchProviderOptions();
-  }, [cloudId]);
+  }, [cloudId, isFlatMode]);
+
+  /** 创建弹窗打开且 VLAN 列表后到时，默认选中 VLAN ID 最小的一项 */
+  useEffect(() => {
+    if (!isModalVisible || !isFlatMode) return;
+    const cur = form.getFieldValue('vlan');
+    if (cur) return;
+    const def = defaultVlanCrNameByMinVlanId(vlans);
+    if (def) form.setFieldsValue({ vlan: def });
+  }, [isModalVisible, isFlatMode, vlans, form]);
 
   const handleForceRefresh = async () => {
     await Promise.all([
@@ -284,21 +358,36 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
 
   const handleCreate = async (values: any) => {
     try {
-      const { alias, ...rest } = values;
+      const { alias, provider: _provider, ...rest } = values;
       const aliasTrim = String(alias ?? '').trim();
       const subnetId = generateHarvesterEntityId('sn');
       const excludeIps = rest.excludeIps
         ? String(rest.excludeIps).split('\n').map((s: string) => s.trim()).filter((s: string) => s)
         : [];
+      /** 扁平子网：与集群/产品约定一致的固定 spec；vlan 由表单必选 */
+      const flatSubnetHardcoded = {
+        natOutgoing: false,
+        private: false,
+        gatewayType: 'distributed',
+        disableGatewayCheck: true,
+        allowDhcp: true,
+        vlan: String(rest.vlan ?? '').trim(),
+      };
+
       const payload: Record<string, unknown> = {
         ...rest,
         name: subnetId,
         excludeIps,
         protocol: 'IPv4',
+        allowEWTraffic: false,
         vpc: rest.vpc || 'ovn-cluster',
-        gatewayType: rest.gatewayType || 'distributed',
-        private: rest.private ?? false,
-        natOutgoing: isFlatMode ? false : true,
+        ...(isFlatMode
+          ? flatSubnetHardcoded
+          : {
+              gatewayType: rest.gatewayType || 'distributed',
+              private: rest.private ?? false,
+              natOutgoing: true,
+            }),
         annotations: {
           ...(rest?.annotations || {}),
           [SUBNET_TYPE_ANNOTATION_KEY]: isFlatMode ? 'flat' : 'public',
@@ -335,11 +424,14 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
     }
   };
 
-  const openEditNetwork = useCallback((record: any) => {
-    setEditRecord(record);
-    editForm.setFieldsValue(subnetRecordToFormValues(record));
-    setEditModalVisible(true);
-  }, [editForm]);
+  const openEditNetwork = useCallback(
+    (record: any) => {
+      setEditRecord(record);
+      editForm.setFieldsValue(subnetRecordToFormValues(record, isFlatMode));
+      setEditModalVisible(true);
+    },
+    [editForm, isFlatMode],
+  );
 
   const handleEdit = async (values: any) => {
     const name = editRecord?.metadata?.name;
@@ -354,7 +446,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
       const providerTrim = String(rest.provider ?? '').trim();
       const annotations: Record<string, string> = {
         [TOWER_ALIAS_ANNOTATION]: aliasTrim,
-        [PROVIDER_NETWORK_ANNOTATION]: providerTrim,
+        ...(isFlatMode ? {} : { [PROVIDER_NETWORK_ANNOTATION]: providerTrim }),
       };
       const payload: Record<string, unknown> = {
         cidrBlock: String(rest.cidrBlock ?? '').trim(),
@@ -397,7 +489,6 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
     const disp = String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
     setAclSubnetTitleLabel(disp || name);
     aclForm.setFieldsValue({
-      allowEWTraffic: spec.allowEWTraffic ?? false,
       acls: Array.isArray(spec.acls) ? spec.acls.map((a: any) => normalizeAclRowForForm({ ...a })) : [],
     });
     setAclModalVisible(true);
@@ -407,9 +498,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
     if (!aclSubnetName) return;
     try {
       const values = await aclForm.validateFields();
-      const patchBody: Record<string, unknown> = {
-        allowEWTraffic: values.allowEWTraffic ?? false,
-      };
+      const patchBody: Record<string, unknown> = {};
       if (Array.isArray(values.acls)) {
         const aclCheck = validateAclsFormRowsForSubmit(values.acls);
         if (!aclCheck.ok) {
@@ -452,19 +541,14 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
   };
 
   const openOpsDrawer = useCallback((record: any) => {
-    const name = record?.metadata?.name;
-    if (!name) return;
-    const viewLink = `/apis/kubeovn.io/v1/subnets/${encodeURIComponent(name)}`;
-    setDrawerRecord({
-      ...record,
-      kind: record?.kind || 'Subnet',
-      links: {
-        ...(record?.links || {}),
-        view: viewLink,
-      },
-    });
-    setDrawerTab('detail');
-    setDrawerVisible(true);
+    setDetailSubnetRecord(record);
+    setDetailDrawerOpen(true);
+  }, []);
+
+  const openHarvesterOpsDrawer = useCallback((record: any) => {
+    setHarvesterOpsRecord(record);
+    setHarvesterOpsTab(record?.links?.view ? 'view_link' : 'detail');
+    setHarvesterOpsOpen(true);
   }, []);
 
   const handleDelete = async (name: string) => {
@@ -496,13 +580,29 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
           const alias = String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim();
           const display = alias || '—';
           const NameIcon = isFlatMode ? ApartmentOutlined : GlobalOutlined;
-          return (
-            <span
-              title={alias || undefined}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}
-            >
+          const nameInner = (
+            <>
               <NameIcon style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{display}</span>
+            </>
+          );
+          return (
+            <span title={alias || undefined} style={{ display: 'flex', alignItems: 'center', maxWidth: '100%', minWidth: 0 }}>
+              {isFlatMode ? (
+                <Typography.Link
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openOpsDrawer(record);
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%', minWidth: 0 }}
+                >
+                  {nameInner}
+                </Typography.Link>
+              ) : (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: '100%', minWidth: 0 }}>
+                  {nameInner}
+                </span>
+              )}
             </span>
           );
         },
@@ -513,7 +613,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
         ellipsis: true,
         render: (_: any, record: any) => {
           const id = String(record?.metadata?.name ?? '').trim() || '—';
-          return <span className="std-time" title={id}>{id}</span>;
+          return <span title={id}>{id}</span>;
         },
       },
       { title: 'CIDR', dataIndex: ['spec', 'cidrBlock'], key: 'cidr' },
@@ -522,18 +622,32 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
         title: 'VLAN',
         dataIndex: ['spec', 'vlan'],
         key: 'vlan',
-        render: (v: string) => (v ? <Tag color="blue">{v}</Tag> : <Tag>未打标签 (Untagged)</Tag>),
-      },
-      {
-        title: '物理网络',
-        key: 'provider',
-        render: (_: any, record: any) => {
-          const hint = record?.metadata?.annotations?.['tower.io/provider-network'];
-          const specP = record?.spec?.provider;
-          const v = hint || specP;
-          return v ? <Tag color="geekblue">{v}</Tag> : '-';
+        render: (v: string) => {
+          const vlanName = String(v ?? '').trim();
+          if (!vlanName) {
+            return isFlatMode ? <Tag>—</Tag> : <Tag>未打标签 (Untagged)</Tag>;
+          }
+          const vlanObj = vlans.find((item) => String(item?.metadata?.name ?? '').trim() === vlanName);
+          if (!vlanObj) {
+            return <Tag color="blue">{vlanName}</Tag>;
+          }
+          return <Tag color="blue">{vlanRecordLabelForSelect(vlanObj, providers)}</Tag>;
         },
       },
+      ...(isFlatMode
+        ? []
+        : [
+            {
+              title: '物理网络',
+              key: 'provider',
+              render: (_: any, record: any) => {
+                const hint = record?.metadata?.annotations?.['tower.io/provider-network'];
+                const specP = record?.spec?.provider;
+                const val = hint || specP;
+                return val ? <Tag color="geekblue">{val}</Tag> : '-';
+              },
+            },
+          ]),
       {
         title: '已用 / 总数',
         key: 'usage',
@@ -558,38 +672,30 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
           );
         },
       },
-      {
-        title: '东西向',
-        key: 'allowEW',
-        width: 100,
-        render: (_: any, record: any) => {
-          const allow = record?.spec?.allowEWTraffic === true;
-          return allow ? (
-            <Tag color="success">允许互访</Tag>
-          ) : (
-            <Tag>禁止互访</Tag>
-          );
-        },
-      },
-      {
-        title: 'ACL',
-        key: 'acls',
-        width: 72,
-        render: (_: any, record: any) => {
-          const acls = record?.spec?.acls;
-          const n = Array.isArray(acls) ? acls.length : 0;
-          return (
-            <Typography.Link
-              onClick={(e) => {
-                e.preventDefault();
-                openAclEditor(record);
-              }}
-            >
-              {n} 条
-            </Typography.Link>
-          );
-        },
-      },
+
+      ...(isSimpleMode
+        ? []
+        : [
+            {
+              title: 'ACL',
+              key: 'acls',
+              width: 72,
+              render: (_: any, record: any) => {
+                const acls = record?.spec?.acls;
+                const n = Array.isArray(acls) ? acls.length : 0;
+                return (
+                  <Typography.Link
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openAclEditor(record);
+                    }}
+                  >
+                    {n} 条
+                  </Typography.Link>
+                );
+              },
+            },
+          ]),
       {
         title: '操作',
         key: 'action',
@@ -598,49 +704,57 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
         fixed: 'right' as const,
         render: (_: any, record: any) => {
           const name = record?.metadata?.name;
+          const actionItems = [
+            ...(showYaml
+              ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => openHarvesterOpsDrawer(record) }]
+              : []),
+            {
+              key: 'detail',
+              label: '查看详情',
+              onClick: () => openOpsDrawer(record),
+            },
+            {
+              key: 'edit_network',
+              label: '编辑网络',
+              onClick: () => openEditNetwork(record),
+            },
+            ...(!isSimpleMode
+              ? [
+                  {
+                    key: 'edit_acl',
+                    label: '编辑 ACL',
+                    onClick: () => openAclEditor(record),
+                  },
+                ]
+              : []),
+            { type: 'divider' as const },
+            {
+              key: 'delete',
+              label: '删除',
+              danger: true,
+              onClick: () => {
+                if (!name) return;
+                const disp =
+                  String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() || name;
+                Modal.confirm({
+                  title: '确认删除',
+                  okType: 'danger',
+                  content: `确定删除该${subnetKindLabel}「${disp}」吗？将同时删除关联的网络附加定义（NAD）。`,
+                  onOk: () => handleDelete(name),
+                });
+              },
+            },
+          ];
           return (
             <ResourceActionsDropdown
-              items={[
-                {
-                  key: 'opsinfo',
-                  label: '运维信息',
-                  onClick: () => openOpsDrawer(record),
-                },
-                {
-                  key: 'edit_network',
-                  label: '编辑网络',
-                  onClick: () => openEditNetwork(record),
-                },
-                {
-                  key: 'edit_acl',
-                  label: '编辑 ACL',
-                  onClick: () => openAclEditor(record),
-                },
-                { type: 'divider' },
-                {
-                  key: 'delete',
-                  label: '删除',
-                  danger: true,
-                  onClick: () => {
-                    if (!name) return;
-                    const disp =
-                      String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() || name;
-                    Modal.confirm({
-                      title: '确认删除',
-                      okType: 'danger',
-                      content: `确定删除该${subnetKindLabel}「${disp}」吗？将同时删除关联的网络附加定义（NAD）。`,
-                      onOk: () => handleDelete(name),
-                    });
-                  },
-                },
-              ]}
+              items={actionItems}
               buttonProps={{ className: 'row-actions-trigger' }}
             />
           );
         },
       },
     ],
-    [subnetKindLabel, openOpsDrawer, openEditNetwork, isFlatMode],
+    [subnetKindLabel, openOpsDrawer, openHarvesterOpsDrawer, openEditNetwork, isFlatMode, isSimpleMode, vlans, providers, showYaml],
   );
 
   const underlaySubnetTableSettingsKey = `harvester_underlay_subnets_${mode}`;
@@ -658,13 +772,35 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
             onChange={(e) => setKeyword(e.target.value)}
             className="toolbar-search"
           />
-          <Select allowClear placeholder="筛选 VLAN" className="toolbar-filter-sm" value={vlanFilter} onChange={setVlanFilter}>
-            {vlans.map(v => <Option key={v.metadata.name} value={v.metadata.name}>{v.metadata.name}</Option>)}
+          <Select
+            allowClear
+            placeholder="筛选 VLAN"
+            className="toolbar-filter"
+            value={vlanFilter}
+            onChange={setVlanFilter}
+            showSearch
+            optionFilterProp="label"
+          >
+            {vlans.map((v) => (
+              <Option key={v.metadata.name} value={v.metadata.name} label={vlanRecordSearchBlob(v, providers)}>
+                {vlanRecordLabelForSelect(v, providers)}
+              </Option>
+            ))}
           </Select>
           <a className="toolbar-reset-btn" onClick={() => { setKeyword(''); setVlanFilter(undefined); handleForceRefresh(); }}>重置</a>
         </div>
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => setIsModalVisible(true)}>
+          <Button
+            type="primary"
+            onClick={() => {
+              form.resetFields();
+              setIsModalVisible(true);
+              const defVlan = defaultVlanCrNameByMinVlanId(vlans);
+              if (defVlan) {
+                form.setFieldsValue({ vlan: defVlan });
+              }
+            }}
+          >
             {`创建${subnetKindLabel}`}
           </Button>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={underlaySubnetTableSettingsKey} />
@@ -685,20 +821,41 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
         pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
       />
 
-      <HarvesterResourceDrawer
-        resourceType={subnetKindLabel}
-        record={drawerRecord}
-        open={drawerVisible}
+      <UnderlaySubnetDetailDrawer
+        open={detailDrawerOpen}
         onClose={() => {
-          setDrawerVisible(false);
-          setDrawerRecord(null);
+          setDetailDrawerOpen(false);
+          setDetailSubnetRecord(null);
         }}
-        activeTab={drawerTab}
-        onTabChange={setDrawerTab}
+        cloudId={cloudId}
+        subnet={detailSubnetRecord}
+        kindLabel={subnetKindLabel}
+      />
+
+      <HarvesterResourceDrawer
+        resourceType="Subnet"
+        record={harvesterOpsRecord}
+        open={harvesterOpsOpen}
+        onClose={() => {
+          setHarvesterOpsOpen(false);
+          setHarvesterOpsRecord(null);
+        }}
+        activeTab={harvesterOpsTab}
+        onTabChange={setHarvesterOpsTab}
         cloudId={cloudId}
       />
 
-      <Modal title={`创建${subnetKindLabel}`} open={isModalVisible} onOk={form.submit} onCancel={() => setIsModalVisible(false)} width={720}>
+      <Modal
+        title={`创建${subnetKindLabel}`}
+        open={isModalVisible}
+        centered
+        onOk={form.submit}
+        onCancel={() => {
+          setIsModalVisible(false);
+          form.resetFields();
+        }}
+        width={600}
+      >
         <Form form={form} layout="vertical" onFinish={handleCreate} className="std-form">
           <UnderlaySubnetFormFields
             form={form}
@@ -714,6 +871,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
       <Modal
         title={`编辑${subnetKindLabel}`}
         open={editModalVisible}
+        centered
         onOk={editForm.submit}
         onCancel={() => {
           setEditModalVisible(false);
@@ -721,8 +879,8 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
           editForm.resetFields();
         }}
         confirmLoading={editSubmitting}
-        width={720}
-        destroyOnClose
+        width={600}
+        destroyOnHidden
       >
         <Form form={editForm} layout="vertical" onFinish={handleEdit} className="std-form">
           <UnderlaySubnetFormFields
@@ -739,6 +897,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
       <Modal
         title={'编辑 ACL规则'}
         open={aclModalVisible}
+        centered
         onOk={handleAclSubmit}
         onCancel={() => {
           setAclModalVisible(false);
@@ -747,11 +906,11 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat' }) => 
           aclForm.resetFields();
         }}
         confirmLoading={aclSubmitting}
-        width={1120}
+        width={1100}
         destroyOnHidden
       >
         <Form form={aclForm} layout="vertical" className="std-form">
-          <SubnetAclFormItems />
+          <SubnetAclFormItems showAllowEW={false} />
         </Form>
       </Modal>
     </div>

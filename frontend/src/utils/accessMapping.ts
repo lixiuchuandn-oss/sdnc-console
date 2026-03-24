@@ -110,6 +110,13 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
       return true;
     }
   }
+
+  // 特殊规则：clouds.console:write 包含所有 clouds.*:write（与只读继承对称；不含资源总览；不含资源池 clouds:write）
+  if (base.startsWith('clouds.') && act.endsWith(':write') && base !== 'clouds.dashboard') {
+    if (permsArray.includes('clouds.console:write')) {
+      return true;
+    }
+  }
   
   // clouds:read 包含所有 clouds.*:read
   // 例外：clouds.dashboard 需要明确权限，不受继承规则影响

@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Table, Modal, Form, Input, Select, message, Tag, Space, Alert, Tooltip, Badge, Segmented } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Table, List, Modal, Form, Input, Select, message, Tag, Space, Alert, Tooltip, Badge, Segmented } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -13,6 +13,11 @@ import {
   fetchHarvesterNodes,
   fetchHarvesterClusterNetworks,
 } from '../../../../services/harvesterApi';
+import { clearCache } from '../../../../utils/requestManager';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import VlanPlanDrawer from './VlanPlanDrawer';
+import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../utils/towerKubeOvnNames';
 
 const { Option } = Select;
 
@@ -21,6 +26,8 @@ type Props = {
 };
 
 const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
+  const { user } = useAuth();
+  const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
   const [createMode, setCreateMode] = useState<'centralized' | 'node_specific'>('centralized');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -39,6 +46,18 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
+  const [vlanPlanOpen, setVlanPlanOpen] = useState(false);
+  const [vlanPlanLockProvider, setVlanPlanLockProvider] = useState<string | null>(null);
+
+  const openVlanPlanForProvider = useCallback((pnName: string) => {
+    setVlanPlanLockProvider(pnName);
+    setVlanPlanOpen(true);
+  }, []);
+
+  const closeVlanPlanDrawer = useCallback(() => {
+    setVlanPlanOpen(false);
+    setVlanPlanLockProvider(null);
+  }, []);
 
   const openDrawer = (record: any, tab: string = 'detail') => {
     const raw = record?.raw || record?.rawData || record;
@@ -52,6 +71,9 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
     try {
       const res = await fetchKubeOvnProviderNetworks(cloudId, force, skipSync);
       setData(Array.isArray(res?.data?.items) ? res.data.items : []);
+      if (force && cloudId) {
+        clearCache(`/api/clouds/${cloudId}/resources/providernetworks`, 'GET');
+      }
     } catch (error: any) {
       message.error(`获取物理网络列表失败: ${error.message}`);
     } finally {
@@ -199,8 +221,16 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
         }
       }
 
+      const towerAlies = String(values.towerAlies ?? '').trim();
+      if (!towerAlies) {
+        message.warning('请输入物理网络名称');
+        return;
+      }
+
+      const resourceName = generateKubeOvnTwelveCharName();
       const payload = {
-        name: values.name,
+        name: resourceName,
+        annotations: { [TOWER_IO_ALIES_ANNOTATION]: towerAlies },
         spec: {
           defaultInterface: defaultIf,
           customInterfaces: Object.keys(customConfig).map(iface => ({ interface: iface, nodes: customConfig[iface] })),
@@ -218,8 +248,14 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
   };
 
   const handleDelete = (record: any) => {
-    const name = String(record?.metadata?.name || '');
-    if (!name) {
+    const raw = record?.raw || record?.rawData || record;
+    const name = String(
+      record?.name ||
+        raw?.metadata?.name ||
+        record?.metadata?.name ||
+        '',
+    ).trim();
+    if (!name || name === '-') {
       message.error('删除失败：无效的物理网络名称');
       return;
     }
@@ -241,78 +277,82 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
     });
   };
 
-  const nodeColumns = [
-    {
-      title: <span style={{ fontWeight: 'normal' }}>节点名称 (Node)</span>,
-      dataIndex: ['metadata', 'name'],
-      key: 'name',
-      width: 250,
-    },
-    {
-      title: <span style={{ fontWeight: 'normal' }}>物理接口 (Interface)</span>,
-      key: 'interface',
-      render: (_: any, record: any) => {
-        const nodeName = String(record?.metadata?.name || '');
-        const currentVal = interfaceMap[nodeName];
-        const defaultVal = form.getFieldValue('defaultInterface');
-        const isCustom = currentVal && currentVal !== defaultVal;
-        const nodeOptions = nodeInterfaceMap[nodeName] || [];
-        let options = nodeOptions.length > 0 ? nodeOptions : nodeInterfaces;
-        let isInvalid = false;
-        if (currentVal) {
-          if (!options.includes(currentVal)) isInvalid = true;
-          if (!options.includes(currentVal)) options = [...options, currentVal];
-        }
-        if (createMode === 'centralized') {
-          return (
-            <Space>
-              <Input
-                style={{ width: 200 }}
-                value={currentVal || defaultVal || ''}
-                placeholder="未配置"
-                disabled
-              />
-              {!currentVal && !defaultVal && <Tag color="red">未配置</Tag>}
-              {isInvalid && (
-                <Tooltip title={`警告: 网卡 "${currentVal}" 在节点 "${nodeName}" 上似乎不存在。`}>
-                  <Tag color="error" style={{ cursor: 'help' }}>无效接口</Tag>
-                </Tooltip>
-              )}
-            </Space>
-          );
-        }
-        return (
-          <Space>
-            <Select
-              style={{ width: 200 }}
-              value={currentVal}
-              onChange={(val) => handleInterfaceChange(nodeName, val)}
-              placeholder="选择接口"
-              status={isInvalid ? 'error' : ''}
-            >
-              {options.map((iface: string) => (
-                <Option key={iface} value={iface}>{iface}</Option>
-              ))}
-            </Select>
-            {isCustom && <Tag color="orange">自定义</Tag>}
-            {!currentVal && <Tag color="red">未配置</Tag>}
-            {isInvalid && (
-              <Tooltip title={`警告: 网卡 "${currentVal}" 在节点 "${nodeName}" 上似乎不存在。`}>
-                <Tag color="error" style={{ cursor: 'help' }}>无效接口</Tag>
-              </Tooltip>
-            )}
-          </Space>
-        );
-      },
-    },
-  ];
+  /** 创建弹窗内「节点网卡映射」列表：物理接口列 */
+  const renderModalNodeInterfaceCell = (record: any) => {
+    const nodeName = String(record?.metadata?.name || '');
+    const currentVal = interfaceMap[nodeName];
+    const defaultVal = form.getFieldValue('defaultInterface');
+    const isCustom = currentVal && currentVal !== defaultVal;
+    const nodeOptions = nodeInterfaceMap[nodeName] || [];
+    let options = nodeOptions.length > 0 ? nodeOptions : nodeInterfaces;
+    let isInvalid = false;
+    if (currentVal) {
+      if (!options.includes(currentVal)) isInvalid = true;
+      if (!options.includes(currentVal)) options = [...options, currentVal];
+    }
+    if (createMode === 'centralized') {
+      return (
+        <Space>
+          <Input
+            style={{ width: 200 }}
+            value={currentVal || defaultVal || ''}
+            placeholder="未配置"
+            disabled
+          />
+          {!currentVal && !defaultVal && <Tag color="red">未配置</Tag>}
+          {isInvalid && (
+            <Tooltip title={`警告: 网卡 "${currentVal}" 在节点 "${nodeName}" 上似乎不存在。`}>
+              <Tag color="error" style={{ cursor: 'help' }}>无效接口</Tag>
+            </Tooltip>
+          )}
+        </Space>
+      );
+    }
+    return (
+      <Space>
+        <Select
+          style={{ width: 200 }}
+          value={currentVal}
+          onChange={(val) => handleInterfaceChange(nodeName, val)}
+          placeholder="选择接口"
+          status={isInvalid ? 'error' : ''}
+        >
+          {options.map((iface: string) => (
+            <Option key={iface} value={iface}>{iface}</Option>
+          ))}
+        </Select>
+        {isCustom && <Tag color="orange">自定义</Tag>}
+        {!currentVal && <Tag color="red">未配置</Tag>}
+        {isInvalid && (
+          <Tooltip title={`警告: 网卡 "${currentVal}" 在节点 "${nodeName}" 上似乎不存在。`}>
+            <Tag color="error" style={{ cursor: 'help' }}>无效接口</Tag>
+          </Tooltip>
+        )}
+      </Space>
+    );
+  };
+
+  const modalNodesList =
+    createMode === 'node_specific' ? nodes.filter((n) => targetNodes.includes(n.metadata.name)) : nodes;
 
   const allColumns = useMemo(() => [
     {
       title: '名称',
+      dataIndex: 'displayAlias',
+      key: 'displayAlias',
+      ellipsis: true,
+      render: (text: string) => {
+        const s = String(text || '').trim();
+        return s ? <span>{s}</span> : <span style={{ color: '#ccc' }}>—</span>;
+      },
+    },
+    {
+      title: 'ID',
       dataIndex: 'name',
       key: 'name',
-      render: (text: string) => <span>{text}</span>,
+      ellipsis: true,
+      width: 140,
+      render: (text: string) => <span style={{ fontFamily: 'ui-monospace, monospace' }}>{text ?? '—'}</span>,
     },
     { title: '默认接口', dataIndex: 'defaultInterface', key: 'defaultInterface', render: (text: string) => <Tag>{text}</Tag> },
     {
@@ -379,26 +419,32 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
       key: 'action',
       width: 88,
       align: 'left' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown
-          items={[
-            {
-              key: 'view',
-              label: '运维信息',
-              onClick: () => openDrawer(record, 'detail'),
-            },
-            { type: 'divider' },
-            {
-              key: 'delete',
-              label: '删除',
-              danger: true,
-              onClick: () => handleDelete(record),
-            },
-          ]}
-        />
-      ),
+      render: (_: any, record: any) => {
+        const items: any[] = [
+          {
+            key: 'view',
+            label: '运维信息',
+            onClick: () => openDrawer(record, 'detail'),
+          },
+        ];
+        if (canWriteVlan) {
+          items.push({
+            key: 'vlan-plan',
+            label: 'VLAN 规划',
+            onClick: () => openVlanPlanForProvider(String(record.name || '').trim()),
+          });
+        }
+        items.push({ type: 'divider' });
+        items.push({
+          key: 'delete',
+          label: '删除',
+          danger: true,
+          onClick: () => handleDelete(record),
+        });
+        return <ResourceActionsDropdown items={items} />;
+      },
     },
-  ], [openDrawer, handleDelete]);
+  ], [openDrawer, handleDelete, canWriteVlan, openVlanPlanForProvider]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_provider_networks_table');
 
@@ -448,7 +494,7 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
             allColumns={allColumns}
             settingsKey="harvester_provider_networks_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={() => fetchData()} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={() => fetchData(true, false)} loading={loading} title="从集群重新同步" />
         </div>
       </div>
 
@@ -468,9 +514,12 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
               ...rawBase,
               ...(Object.keys(mergedLinks).length ? { links: mergedLinks } : {}),
             };
+            const ann = raw?.metadata?.annotations || {};
+            const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
             return {
               key: raw?.metadata?.uid || raw?.metadata?.name,
               name: raw?.metadata?.name || '-',
+              displayAlias,
               defaultInterface: raw?.spec?.defaultInterface || '-',
               customInterfaces: raw?.spec?.customInterfaces || [],
               status: raw?.status,
@@ -482,7 +531,10 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
             };
           })
           .filter((d: any) => {
-            const matchKeyword = !keyword || String(d.name || '').includes(keyword);
+            const matchKeyword =
+              !keyword ||
+              String(d.name || '').includes(keyword) ||
+              String(d.displayAlias || '').includes(keyword);
             if (!matchKeyword) return false;
             if (readyFilter === 'ready' && !d.ready) return false;
             if (readyFilter === 'not_ready' && d.ready) return false;
@@ -504,8 +556,12 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
         width={700}
       >
         <Form form={form} layout="vertical" onFinish={handleCreate} className="std-form">
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-            <Input placeholder="例如: macvlan" />
+          <Form.Item
+            name="towerAlies"
+            label="物理网络名称"
+            rules={[{ required: true, message: '请输入物理网络名称' }]}
+          >
+            <Input placeholder="例如：生产业务网、macvlan-uplink" allowClear />
           </Form.Item>
 
           <Form.Item label="网卡选择方式">
@@ -551,7 +607,6 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
               name="defaultInterface"
               label="物理接口名称 (Default Interface)"
               rules={[{ required: true }]}
-              extra="选择一个物理网卡名称，将批量应用到下方所有节点。"
             >
               <Select placeholder="选择物理网卡 (e.g. eth0)" loading={nodesLoading} showSearch allowClear onChange={onDefaultInterfaceChange}>
                 {nodeInterfaces.map(iface => <Option key={iface} value={iface}>{iface}</Option>)}
@@ -560,18 +615,40 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
           )}
 
           <Form.Item label="节点网卡映射" style={{ marginBottom: 0 }}>
-            <Table
-              columns={nodeColumns}
-              dataSource={createMode === 'node_specific' ? nodes.filter((n) => targetNodes.includes(n.metadata.name)) : nodes}
-              rowKey={(r) => r.metadata.name}
-              pagination={false}
-              size="small"
-              bordered={false}
-              scroll={nodes.length > 6 ? { y: 240 } : undefined}
-            />
+            <div
+              style={
+                modalNodesList.length > 6
+                  ? { maxHeight: 240, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }
+                  : { border: '1px solid #f0f0f0', borderRadius: 6 }
+              }
+            >
+              <List
+                size="small"
+                split
+                dataSource={modalNodesList}
+                renderItem={(record) => (
+                  <List.Item key={record.metadata?.name} style={{ padding: '8px 12px' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, width: '100%' }}>
+                      <span style={{ minWidth: 200, flexShrink: 0, wordBreak: 'break-all' }}>
+                        {record?.metadata?.name ?? '—'}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>{renderModalNodeInterfaceCell(record)}</div>
+                    </div>
+                  </List.Item>
+                )}
+              />
+            </div>
           </Form.Item>
         </Form>
       </Modal>
+
+      <VlanPlanDrawer
+        open={vlanPlanOpen}
+        onClose={closeVlanPlanDrawer}
+        cloudId={cloudId}
+        lockProviderName={vlanPlanLockProvider}
+        onSuccess={() => fetchData(true, true)}
+      />
 
       <HarvesterResourceDrawer
         open={drawerOpen}

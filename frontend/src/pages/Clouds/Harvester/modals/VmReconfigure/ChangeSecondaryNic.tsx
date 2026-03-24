@@ -1,6 +1,10 @@
 import React from 'react';
 import { Form, Select, Row, Col, Card, Button, Input } from 'antd';
 import { MinusCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  ifaceTypeOption,
+  PASSTHROUGH_VIRT_IFACE_OPTIONS,
+} from '../VmCreateWizard/harvesterVmIfaceTypeOptions';
 
 type Props = {
   form: any;
@@ -157,7 +161,13 @@ const ChangeSecondaryNic: React.FC<Props> = ({
                               {/* --- 通用物理属性 --- */}
                               <Col span={8}>
                                 <Form.Item {...restField} label="类型" name={[name, 'type']} initialValue={mode === 'passthrough' ? 'sriov' : 'bridge'}>
-                                  <Select options={mode === 'passthrough' ? [{ label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }] : [{ label: 'bridge', value: 'bridge' }]} />
+                                  <Select
+                                    options={
+                                      mode === 'passthrough'
+                                        ? PASSTHROUGH_VIRT_IFACE_OPTIONS
+                                        : [ifaceTypeOption('bridge')]
+                                    }
+                                  />
                                 </Form.Item>
                               </Col>
                               <Col span={8}>

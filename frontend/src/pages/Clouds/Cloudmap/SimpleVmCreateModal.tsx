@@ -1,6 +1,6 @@
 /**
  * Cloudmap 资源池「简易模式」下使用的极简创建虚拟机弹窗。
- * 命名空间固定 default（不展示）；网络固定扁平子网类型。
+ * 命名空间固定 default（不展示）；网络固定为 Kube-OVN 扁平子网，接口类型固定为 managedtap（与创建向导扁平子网一致）。
  */
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
@@ -31,6 +31,7 @@ import {
   generateUniqueVmId,
   parseSizeToGi,
 } from '../Harvester/modals/VmCreateWizard/VmWizardUtils';
+import { ifaceTypeOption } from '../Harvester/modals/VmCreateWizard/harvesterVmIfaceTypeOptions';
 
 export type SimpleVmCreateModalProps = {
   open: boolean;
@@ -108,7 +109,7 @@ function resolveFlatSubnetPrimaryNic(
     }
   }
   return {
-    type: 'bridge',
+    type: 'managedtap',
     model: 'virtio',
     vpc: UNDERLAY_SYSTEM_VPC,
     subnet: subnetName,
@@ -608,6 +609,17 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
               if (o && onReloadSubnets) onReloadSubnets();
             }}
           />
+        </Form.Item>
+        <Form.Item noStyle shouldUpdate={(prev, curr) => prev.flatSubnet !== curr.flatSubnet}>
+          {() => {
+            const sn = form.getFieldValue('flatSubnet');
+            if (sn == null || String(sn).trim() === '') return null;
+            return (
+              <Typography.Text type="secondary" style={{ display: 'block', marginTop: -8, marginBottom: 4 }}>
+                接口类型：{ifaceTypeOption('managedtap').label}
+              </Typography.Text>
+            );
+          }}
         </Form.Item>
       </Form>
 

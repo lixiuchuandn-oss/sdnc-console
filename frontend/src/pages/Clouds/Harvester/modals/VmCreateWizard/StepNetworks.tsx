@@ -17,8 +17,8 @@
  *    - 支持混合使用不同类型的网络接口。
  * 3. [网络类型过滤]:
  *    - NAD 网络 (flat): 排除 kube-ovn 类型的 NAD。
- *    - 直通网络 (Passthrough): 仅显示 sriov 或 macvtap 类型的 NAD。
- *    - VPC 网络: 联动选择 VPC 和 Subnet，自动填充 CIDR。
+ *    - 直通 (Passthrough): 仅显示 CNI 为 sriov / macvtap / macvlan 等的 NAD。
+ *    - VPC / 扁平子网: 联动 Subnet，接口类型选项见 harvesterVmIfaceTypeOptions.ts。
  *
  * ------------------------------------------------------------------------------
  * [交互/依赖说明 (Dependencies & Interactions)]
@@ -41,6 +41,11 @@
 import React from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Card, Typography } from 'antd';
 import { MinusCircleOutlined } from '@ant-design/icons';
+import {
+  ifaceTypeOption,
+  NAD_MULTUS_INTERFACE_TYPES,
+  PASSTHROUGH_VIRT_IFACE_OPTIONS,
+} from './harvesterVmIfaceTypeOptions';
 
 /**
  * [接口定义] StepNetworksProps
@@ -79,17 +84,13 @@ interface StepNetworksProps {
 
 // --- 常量定义 ---
 
-/**
- * [配置常量] 支持的网卡接口类型
- * - bridge: 默认桥接模式
- * - sriov: 物理网卡 SR-IOV 直通 (高性能)
- * - macvtap: MacVTap 模式
- */
-const NIC_TYPES = [
-  { label: 'bridge', value: 'bridge' },
-  { label: 'sriov', value: 'sriov' },
-  { label: 'macvtap', value: 'macvtap' }
-];
+/** 切换「网络类型」时主网卡类型的默认值（模型默认 virtio，见 handleNetModeChange） */
+const DEFAULT_PRIMARY_NIC_TYPE_BY_NET_MODE: Record<string, string> = {
+  flat: 'bridge',
+  vpc: 'bridge',
+  flat_subnet: 'managedtap',
+  passthrough: 'sriov',
+};
 
 /**
  * [配置常量] 虚拟网卡模型
@@ -113,6 +114,17 @@ function isKubeOvnFlatSubnet(s: any): boolean {
   return t === 'flat';
 }
 
+/** NAD spec.config.type → KubeVirt domain 接口类型（与 VmWizardUtils 中 sriov / macvtap 一致） */
+function passthroughKubevirtIfaceTypeFromNad(nadOpt: any): 'sriov' | 'macvtap' {
+  const t = String(nadOpt?._type || '').toLowerCase();
+  if (t === 'sriov') return 'sriov';
+  if (t === 'macvtap' || t === 'macvlan') return 'macvtap';
+  return 'sriov';
+}
+
+const PASSTHROUGH_TYPE_TOOLTIP =
+  '须与所选「直通网络」NAD 的 CNI 类型一致；选择 NAD 后自动设置，不可与 NAD 类型冲突。';
+
 const StepNetworks: React.FC<StepNetworksProps> = ({
   form,
   netModeState,
@@ -135,35 +147,36 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
   }, []);
 
   const handleNetModeChange = (v: string) => {
-    // [状态重置] 切换网络模式时，重置主网卡配置并初始化类型
+    // [状态重置] 切换网络模式时，重置主网卡并同步该模式下的默认网桥类型（须每次 onChange 都执行：
+    // Form 往往在触发 onChange 前已写入 netMode，若用「v !== getFieldValue(netMode)」判断会跳过，导致 type 不随模式变）
     setNetModeState(v);
-    const initialType =
-      v === 'vpc' || v === 'flat_subnet' ? 'bridge' : v === 'passthrough' ? 'sriov' : 'bridge';
+    const initialType = DEFAULT_PRIMARY_NIC_TYPE_BY_NET_MODE[v] ?? 'bridge';
 
-    // Only reset if actually changing mode to avoid data loss on remount
-    if (v !== form.getFieldValue('netMode')) {
-       try {
-         form.setFieldsValue({
-           netMode: v,
-           primaryNic: {
-             type: initialType,
-             model: 'virtio',
-             name: undefined,
-             vpc: v === 'flat_subnet' ? UNDERLAY_SYSTEM_VPC : undefined,
-             subnet: undefined,
-             macAddress: undefined,
-             ipAddress: undefined,
-             gateway: undefined,
-             dns: undefined
-           }
-         });
-       } catch { }
+    try {
+      form.setFieldsValue({
+        netMode: v,
+        primaryNic: {
+          type: initialType,
+          model: 'virtio',
+          name: undefined,
+          vpc: v === 'flat_subnet' ? UNDERLAY_SYSTEM_VPC : undefined,
+          subnet: undefined,
+          macAddress: undefined,
+          ipAddress: undefined,
+          gateway: undefined,
+          dns: undefined,
+        },
+      });
+    } catch {
+      /* ignore */
     }
 
+    if (v === 'vpc' || v === 'flat_subnet' || v === 'flat' || v === 'passthrough') {
+      reloadNads();
+    }
     if (v === 'vpc' || v === 'flat_subnet') {
       reloadKubeVpcs();
       reloadKubeSubnets();
-      reloadNads();
     }
   };
 
@@ -174,15 +187,15 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
       {/* ==================== 主网卡配置区域 ==================== */}
       <div className="wizard-group-title">主网卡</div>
       <Row gutter={12}>
-        {/* 1. 网络类型选择 (NAD网络 / VPC网络 / 直通网卡) */}
+        {/* 1. 网络类型选择（顺序：扁平子网 → VPC → 直通 → NAD） */}
         <Col span={8}>
           <Form.Item label="网络类型" name="netMode" preserve rules={[{ required: true, message: '请选择网络类型' }]}>
             <Select
               options={[
-                { label: 'NAD网络', value: 'flat' },
                 { label: '扁平子网', value: 'flat_subnet' },
                 { label: 'VPC网络', value: 'vpc' },
                 { label: '直通网卡', value: 'passthrough' },
+                { label: 'NAD网络', value: 'flat' },
               ]}
               placeholder="选择网络类型"
               onChange={handleNetModeChange}
@@ -214,19 +227,12 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                         })()}
                       onOpenChange={async (open) => { if (open) reloadNads(); }}
                       onChange={(val) => {
-                        // [业务规则] 默认 Pod 网络需使用 masquerade 模式以支持 SNAT，指定 NAD 时使用 bridge
                         try {
                           const curr = form.getFieldValue('primaryNic') || {};
-                          // NAD 网络下，如果选了值就是 bridge，如果清空（不支持清空了）就是 masquerade
-                          // 但因为 required: true 且不允许清空，这里其实 val 必定有值
-                          // 除非将来允许清空，逻辑保留
-                          const isPod = !val; 
-                          const nextType = isPod ? 'masquerade' : 'bridge';
-                          // [修复] 仅更新关联字段 type，避免覆盖 name 字段本身导致的校验失效
-                          form.setFieldsValue({ primaryNic: { ...curr, type: nextType } });
+                          // 必须显式写入 name: val，避免与 Select 写入竞态导致 name 丢失
+                          form.setFieldsValue({ primaryNic: { ...curr, name: val, type: 'bridge' } });
                         } catch {}
                       }}
-                      // NAD 网络强制要求选择，不允许清空回退到 Pod 网络
                       allowClear={false}
                     />
                   </Form.Item>
@@ -246,20 +252,26 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     key="primary-nic-passthrough"
                   >
                     <Select
-                      placeholder="选择直通网络（SR-IOV/macvtap NAD）"
+                      placeholder="选择直通网络（SR-IOV / macvlan）"
                       options={(nadOptions || []).filter((x: any) => {
-                          // [过滤逻辑] 直通模式仅显示 SR-IOV 或 Macvtap 类型的 NAD
                           const t = String((x as any)?._type || '').toLowerCase();
-                          if (t) return t === 'sriov' || t === 'macvtap';
+                          if (t) return t === 'sriov' || t === 'macvtap' || t === 'macvlan';
                           const lbl = String(x?.label || '').toLowerCase();
-                          return lbl.includes('sriov') || lbl.includes('macvtap');
+                          return (
+                            lbl.includes('sriov') ||
+                            lbl.includes('macvtap') ||
+                            lbl.includes('macvlan')
+                          );
                         })}
                       onOpenChange={async (open) => { if (open) reloadNads(); }}
                       onChange={(val) => {
                          try {
                            const curr = form.getFieldValue('primaryNic') || {};
-                           // [修复] 仅更新关联对象（虽然直通没联动字段，但保留结构一致性），不覆盖 name
-                           form.setFieldsValue({ primaryNic: { ...curr } });
+                           const hit = (nadOptions || []).find((x: any) => String(x?.value) === String(val));
+                           const ifaceType = passthroughKubevirtIfaceTypeFromNad(hit);
+                           form.setFieldsValue({
+                             primaryNic: { ...curr, name: val, type: ifaceType },
+                           });
                          } catch {}
                       }}
                       allowClear={false}
@@ -326,6 +338,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               vpc: UNDERLAY_SYSTEM_VPC,
                               subnet: val,
                               name: netName,
+                              type: 'managedtap',
                             },
                           });
                         }}
@@ -465,21 +478,29 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
           {({ getFieldValue }) => {
             const mode = getFieldValue('netMode') || 'flat';
             const t = getFieldValue(['primaryNic','type']);
-            const netName = getFieldValue(['primaryNic','name']) || '';
-            const isPod = mode === 'flat' && !netName;
+            const primaryTypeLabel = '接口类型';
             
-            // [选项逻辑] 根据模式生成可用的网卡类型选项
+            // [选项逻辑] 根据模式生成可用的网卡类型选项（文案均来自 harvesterVmIfaceTypeOptions）
             const typeOptions = mode === 'passthrough'
-              ? [{ label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]
-              : (mode === 'vpc' || mode === 'flat_subnet'
-                ? [{ label: 'bridge', value: 'bridge' }]
-                : (isPod ? [{ label: 'masquerade', value: 'masquerade' }, { label: 'bridge', value: 'bridge' }] : [{ label: 'bridge', value: 'bridge' }]));
+              ? PASSTHROUGH_VIRT_IFACE_OPTIONS
+              : mode === 'vpc'
+                ? [ifaceTypeOption('bridge')]
+                : mode === 'flat_subnet'
+                  ? [ifaceTypeOption('managedtap')]
+                  : mode === 'flat'
+                    ? NAD_MULTUS_INTERFACE_TYPES
+                    : [ifaceTypeOption('bridge')];
             
             return (
               <>
                 <Col span={8}>
-                  <Form.Item label="类型" name={["primaryNic", 'type']} preserve>
-                    <Select options={typeOptions} />
+                  <Form.Item
+                    label={primaryTypeLabel}
+                    name={["primaryNic", 'type']}
+                    preserve
+                    tooltip={mode === 'passthrough' ? PASSTHROUGH_TYPE_TOOLTIP : undefined}
+                  >
+                    <Select options={typeOptions} disabled={mode === 'passthrough'} />
                   </Form.Item>
                 </Col>
                 <Col span={8}>
@@ -526,7 +547,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
             {/* 遍历渲染所有辅助网卡 */}
             {fields.map(({ key, name }, idx) => {
               const nm = form.getFieldValue(['netIfaces', name, 'name']) || '(未选择)';
-              const tp = form.getFieldValue(['netIfaces', name, 'type']) || 'masquerade';
+              const tp = form.getFieldValue(['netIfaces', name, 'type']) || 'bridge';
               
               // 卡片标题：包含序号、网络名称和类型
               const title = (
@@ -586,9 +607,8 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                      try {
                                        const curr = form.getFieldValue('netIfaces') || [];
                                        const next = [...curr];
-                                       // [业务规则] NAD 辅助网卡选择时，类型强制为 bridge
-                                       // [修复] 仅更新 type，不覆盖 name 字段本身
-                                       next[name] = { ...next[name], type: 'bridge' };
+                                       // 显式写入 name: val，避免与 Form.Item 写入竞态导致 name 丢失
+                                       next[name] = { ...next[name], name: val, type: 'bridge' };
                                        form.setFieldsValue({ netIfaces: next });
                                      } catch {}
                                    }}
@@ -609,21 +629,25 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                  key={`secondary-nic-passthrough-${name}`}
                                >
                                  <Select
-                                   placeholder="选择直通网络"
+                                   placeholder="选择直通网络（SR-IOV / macvlan）"
                                    options={(nadOptions || []).filter((x: any) => {
-                                       // [业务规则] 直通模式仅显示 SR-IOV 或 Macvtap 类型的 NAD
                                        const t = String((x as any)?._type || '').toLowerCase();
-                                       if (t) return t === 'sriov' || t === 'macvtap';
+                                       if (t) return t === 'sriov' || t === 'macvtap' || t === 'macvlan';
                                        const lbl = String(x?.label || '').toLowerCase();
-                                       return lbl.includes('sriov') || lbl.includes('macvtap');
+                                       return (
+                                         lbl.includes('sriov') ||
+                                         lbl.includes('macvtap') ||
+                                         lbl.includes('macvlan')
+                                       );
                                      })}
                                    onOpenChange={async (open) => { if (open) reloadNads(); }}
                                    onChange={(val) => {
                                      try {
                                        const curr = form.getFieldValue('netIfaces') || [];
                                        const next = [...curr];
-                                       // [修复] 不覆盖 name
-                                       next[name] = { ...next[name] };
+                                       const hit = (nadOptions || []).find((x: any) => String(x?.value) === String(val));
+                                       const ifaceType = passthroughKubevirtIfaceTypeFromNad(hit);
+                                       next[name] = { ...next[name], name: val, type: ifaceType };
                                        form.setFieldsValue({ netIfaces: next });
                                      } catch {}
                                    }}
@@ -698,7 +722,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                         vpc: UNDERLAY_SYSTEM_VPC,
                                         subnet: val,
                                         name: netName,
-                                        type: 'bridge',
+                                        type: 'managedtap',
                                       };
                                       form.setFieldsValue({ netIfaces: next });
                                     } catch {}
@@ -801,19 +825,28 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     })()}
 
                     {/* --- 通用物理属性 (类型/模型/MAC/IP/Gateway/DNS) --- */}
-                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode || prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type}>
+                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode || prev.netIfaces?.[name]?.type !== curr.netIfaces?.[name]?.type || prev.netIfaces?.[name]?.name !== curr.netIfaces?.[name]?.name}>
                       {({ getFieldValue }) => {
                         const mode2 = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
-                        // [选项逻辑] 根据模式生成可用的网卡类型选项
+                        const secondaryTypeLabel = '接口类型';
+                        // [选项逻辑] 根据模式生成可用的网卡类型选项（与主网卡、harvesterVmIfaceTypeOptions 同源）
                         const opts = mode2 === 'passthrough'
-                          ? [{ label: 'sriov', value: 'sriov' }, { label: 'macvtap', value: 'macvtap' }]
-                          : (mode2 === 'vpc' || mode2 === 'flat_subnet'
-                            ? [{ label: 'bridge', value: 'bridge' }]
-                            : [{ label: 'bridge', value: 'bridge' }]);
+                          ? PASSTHROUGH_VIRT_IFACE_OPTIONS
+                          : mode2 === 'vpc'
+                            ? [ifaceTypeOption('bridge')]
+                            : mode2 === 'flat_subnet'
+                              ? [ifaceTypeOption('managedtap')]
+                              : mode2 === 'flat'
+                                ? NAD_MULTUS_INTERFACE_TYPES
+                                : [ifaceTypeOption('bridge')];
                         return (
                           <Col span={8}>
-                            <Form.Item label="类型" name={[name, 'type']}>
-                              <Select options={opts} />
+                            <Form.Item
+                              label={secondaryTypeLabel}
+                              name={[name, 'type']}
+                              tooltip={mode2 === 'passthrough' ? PASSTHROUGH_TYPE_TOOLTIP : undefined}
+                            >
+                              <Select options={opts} disabled={mode2 === 'passthrough'} />
                             </Form.Item>
                           </Col>
                         );
@@ -871,7 +904,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                   reloadKubeSubnets();
                   add({
                     mode: 'flat_subnet',
-                    type: 'bridge',
+                    type: 'managedtap',
                     model: 'virtio',
                     vpc: UNDERLAY_SYSTEM_VPC,
                   });

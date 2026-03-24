@@ -223,15 +223,13 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
           excludeIps: values.excludeIps,
           nat: values.nat,
           allowDhcp: values.allowDhcp,
+          allowEWTraffic: false,
           annotations: {
             ...(values?.annotations || {}),
             [SUBNET_TYPE_ANNOTATION_KEY]: 'vpc',
           },
           finalizers: Array.from(new Set([...(Array.isArray(values?.finalizers) ? values.finalizers : []), SUBNET_FINALIZER])),
         };
-        if (values.allowEWTraffic !== undefined) {
-          createPayload.allowEWTraffic = values.allowEWTraffic;
-        }
         if (Array.isArray(values.acls)) {
           const aclCheck = validateAclsFormRowsForSubmit(values.acls);
           if (!aclCheck.ok) {

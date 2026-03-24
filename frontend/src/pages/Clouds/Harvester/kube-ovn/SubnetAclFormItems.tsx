@@ -257,7 +257,7 @@ const AclRuleOneRow: React.FC<{
   const showPorts = true;
   return (
     <div style={{ width: '100%', overflowX: 'auto', marginBottom: 10 }}>
-      <Row wrap={false} align="top" gutter={6} style={{ minWidth: 920, width: '100%' }}>
+      <Row wrap={false} align="middle" gutter={6} style={{ minWidth: 920, width: '100%' }}>
         <Col flex="76px" style={{ minWidth: 120 }}>
           <Form.Item {...restField} name={[listIndex, 'priority']} rules={[{ required: true, message: '优先级' }]} style={itemNoMargin}>
             <InputNumber size="middle" prefix="优先级"  min={1} max={32767} style={{ width: '100%' }} controls />
@@ -325,7 +325,7 @@ const AclRuleOneRow: React.FC<{
 };
 
 const SubnetAclFormItems: React.FC<Props> = ({ showAllowEW = true }) => (
-  <>
+  <div>
     {showAllowEW ? (
       <Form.Item name="allowEWTraffic" label="东西向流量">
         <Segmented
@@ -337,7 +337,7 @@ const SubnetAclFormItems: React.FC<Props> = ({ showAllowEW = true }) => (
       </Form.Item>
     ) : null}
 
-    <Form.Item label="规则管理" style={{ marginBottom: 0 }}>
+    <div>
       <Form.List name="acls">
         {(fields, { add, remove }) => (
           <>
@@ -366,8 +366,8 @@ const SubnetAclFormItems: React.FC<Props> = ({ showAllowEW = true }) => (
           </>
         )}
       </Form.List>
-    </Form.Item>
-  </>
+    </div>
+  </div>
 );
 
 export default SubnetAclFormItems;
