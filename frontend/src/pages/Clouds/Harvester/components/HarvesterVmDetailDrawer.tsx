@@ -876,7 +876,11 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                 const vpcDisplay = vpc?.metadata?.annotations?.['tower.io/alias'] || vpcName;
                                 const subnetAlias = String(subnet?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
                                 const subnetDisplay = subnetAlias || subnet.metadata?.name || targetName;
-                                displayName = `VPC / ${vpcDisplay} / ${subnetDisplay}`;
+                                if (String(vpcName) === 'ovn-cluster') {
+                                    displayName = `扁平子网/${subnetDisplay}`;
+                                } else {
+                                    displayName = `VPC / ${vpcDisplay} / ${subnetDisplay}`;
+                                }
                             } else {
                                 // subnet 资源缺失时兜底展示
                                 displayName = `VPC / ${targetName}`;
@@ -2165,9 +2169,26 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
                                       if (terms.length === 0) {
                                           return <span style={{ color: '#999' }}>未设置</span>;
                                       }
+                                      const filteredTerms = terms
+                                          .map((term: any) => {
+                                              const exprs = (term.matchExpressions || []).filter((expr: any) => {
+                                                  const key = String(expr.key || '');
+                                                  const op = String(expr.operator || '');
+                                                  const vals: string[] = Array.isArray(expr.values)
+                                                      ? expr.values.map((x: any) => String(x))
+                                                      : (expr.values ? [String(expr.values)] : []);
+                                                  const includesTrue = vals.includes('true');
+                                                  return !(key === 'network.harvesterhci.io/mgmt' && op === 'In' && includesTrue);
+                                              });
+                                              return { ...term, matchExpressions: exprs };
+                                          })
+                                          .filter((t: any) => Array.isArray(t.matchExpressions) ? t.matchExpressions.length > 0 : true);
+                                      if (filteredTerms.length === 0) {
+                                          return <span style={{ color: '#999' }}>未设置</span>;
+                                      }
                                       return (
                                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                              {terms.map((term: any, idx: number) => (
+                                              {filteredTerms.map((term: any, idx: number) => (
                                                   <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                                       {term.matchExpressions?.map((expr: any, exprIdx: number) => (
                                                           <Tag key={exprIdx} color="green" style={{ margin: 0 }}>

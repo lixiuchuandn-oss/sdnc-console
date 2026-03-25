@@ -691,7 +691,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
             
             {/* 添加按钮区域 */}
             <Space>
-              <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'new', name: `disk-${generateDiskName()}`, storageClassName: 'longhorn', volumeMode: 'Block', size: 40 })}>新建空白卷</Button>
+              <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'new', name: `disk-${generateDiskName()}`, storageClassName: defaultStorageClassName || 'longhorn', volumeMode: 'Block', size: 40 })}>新建空白卷</Button>
               <Button onClick={() => add({ type: 'disk', bus: 'virtio', sourceType: 'existing', name: `disk-${generateDiskName()}` })}>挂载已有卷</Button>
               <Button onClick={() => add({ type: 'cdrom', bus: 'sata', sourceType: 'image', name: `iso-${generateDiskName()}` })}>挂载 ISO</Button>
             </Space>

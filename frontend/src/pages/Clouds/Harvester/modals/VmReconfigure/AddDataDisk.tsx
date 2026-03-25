@@ -34,6 +34,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
   const diskMode = Form.useWatch('newDiskMode', form) || 'spec'; // spec: 配置添加(需重启), hotplug: 在线热插拔
 
   const getPvcName = (p: any) => p?.rawData?.metadata?.name || p?.metadata?.name || p?.name || '';
+  const getPvcAlias = (p: any) => p?.alias || p?.rawData?.metadata?.annotations?.['tower.io/alias'] || p?.metadata?.annotations?.['tower.io/alias'] || '';
   const getPvcNs = (p: any) => p?.rawData?.metadata?.namespace || p?.metadata?.namespace || p?.namespace || '';
   const getPvcCap = (p: any) => {
     const raw = p?.rawData || p;
@@ -49,6 +50,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
     return Array.isArray(modes) ? modes.filter(Boolean) : [];
   };
   const selectedExistingPvcObj = (diskSource === 'existing' ? (pvcOptions || []).find((p: any) => getPvcName(p) === (existingPvc || diskName)) : undefined);
+  const previewName = selectedExistingPvcObj ? (getPvcAlias(selectedExistingPvcObj) || getPvcName(selectedExistingPvcObj) || '-') : '-';
   const previewCap = selectedExistingPvcObj ? (getPvcCap(selectedExistingPvcObj) || '-') : '-';
   const previewSc = selectedExistingPvcObj ? (getPvcSc(selectedExistingPvcObj) || '-') : '-';
   const previewAccess = selectedExistingPvcObj ? formatAccessModes(getPvcAccessModes(selectedExistingPvcObj)) : '-';
@@ -137,14 +139,17 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
                 options={(pvcOptions || [])
                   .map((p: any) => {
                     const name = getPvcName(p);
+                    const alias = getPvcAlias(p);
                     const ns = getPvcNs(p);
                     const cap = getPvcCap(p);
                     if (!name) return null;
                     const access = formatAccessModes(getPvcAccessModes(p));
-                    const label = cap ? `${name} (${cap}) · ${access}` : `${name} · ${access}`;
-                    return { label, value: name, _ns: ns };
+                    const head = alias ? `${alias} (${name})` : name;
+                    const label = cap ? `${head} (${cap}) · ${access}` : `${head} · ${access}`;
+                    return { label, value: name, _ns: ns, labelString: `${alias || ''} ${name} ${cap || ''} ${access}`.trim() };
                   })
                   .filter(Boolean) as any}
+                optionFilterProp="labelString"
                 onChange={(name) => {
                   form.setFieldsValue({ newDiskName: name, newDiskCreated: true });
                 }}
@@ -163,7 +168,7 @@ const AddDataDisk: React.FC<Props> = ({ form, scOptions, reloadScs, pvcOptions =
             <div style={{ padding: 12, background: '#EDF0F7', borderRadius: 8, border: '1px solid #e5e5e5' }}>
               <Row gutter={12} style={{ marginBottom: 12 }}>
                 <Col span={12}>
-                  <Input disabled readOnly prefix="磁盘名称" value={selectedExistingPvcObj ? (getPvcName(selectedExistingPvcObj) || '-') : '-'} style={{ color: '#00000040' }} />
+                  <Input disabled readOnly prefix="磁盘名称" value={previewName} style={{ color: '#00000040' }} />
                 </Col>
                 <Col span={12}>
                   <Input disabled readOnly prefix="磁盘容量" value={previewCap} style={{ color: '#00000040' }} />

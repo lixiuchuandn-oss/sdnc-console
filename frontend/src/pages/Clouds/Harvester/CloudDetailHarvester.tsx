@@ -1114,7 +1114,13 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       label: 'Node 节点',
                       children: (
                         <>
-                          <NodesSection nodes={harvesterNodes} loading={resourceLoading.nodes || nodesLoading} onRefresh={refreshNodes} cloudId={cloudId} />
+                          <NodesSection
+                            nodes={harvesterNodes}
+                            loading={resourceLoading.nodes || nodesLoading}
+                            onRefresh={refreshNodes}
+                            cloudId={cloudId}
+                            mode={isCloudmap ? 'simple' : 'standard'}
+                          />
                           {showLog && (
                             <div style={{ marginTop: 12 }}>
                               <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(rawNodes, null, 2)}</pre>

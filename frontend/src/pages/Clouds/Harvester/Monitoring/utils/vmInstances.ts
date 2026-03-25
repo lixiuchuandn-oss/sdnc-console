@@ -32,6 +32,12 @@ function getVMIList(response: any): any[] {
   return [];
 }
 
+function isRecycleBinVm(vm: any): boolean {
+  const finalizers = Array.isArray(vm?.metadata?.finalizers) ? vm.metadata.finalizers : [];
+  const labels = vm?.metadata?.labels || {};
+  return finalizers.includes('tower.io/recycle-bin') || labels['tower.io/recycle-bin'] === 'true';
+}
+
 function isPaused(vmi: any): boolean {
   const conditions = vmi?.status?.conditions || [];
   return conditions.some((c: any) => c.type === 'Paused');
@@ -43,7 +49,7 @@ function isPaused(vmi: any): boolean {
  * @param vmiResponse VMI 列表响应（用于统计运行状态）
  */
 export function parseVMInstancesToStatusCounts(vmResponse: any, vmiResponse?: any): VMInstancesSummary {
-  const vmList = getVMList(vmResponse);
+  const vmList = getVMList(vmResponse).filter((vm) => !isRecycleBinVm(vm));
   const vmiList = getVMIList(vmiResponse);
   
   // 创建 VMI 映射表，key 为 namespace/name

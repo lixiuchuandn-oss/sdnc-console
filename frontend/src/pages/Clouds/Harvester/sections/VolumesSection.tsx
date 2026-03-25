@@ -203,6 +203,22 @@ const gbText = (bytes: number): string => {
   return `${gb.toFixed(2)} GB`;
 };
 
+const isClusterDefaultStorageClass = (sc: any): boolean => {
+  const ann = sc?.metadata?.annotations || sc?.annotations || {};
+  const flag =
+    ann?.['storageclass.kubernetes.io/is-default-class'] ??
+    ann?.['storageclass.beta.kubernetes.io/is-default-class'] ??
+    sc?.isDefault;
+  return String(flag || '').toLowerCase() === 'true';
+};
+
+const pickDefaultStorageClassName = (storageClasses?: any[]): string | undefined => {
+  const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];
+  const pickName = (sc: any) => sc?.metadata?.name || sc?.name;
+  const hit = list.find(isClusterDefaultStorageClass);
+  return pickName(hit) || pickName(list[0]) || undefined;
+};
+
 /**
  * [工具函数] cnStatus - 状态汉化映射
  * [标签] #工具函数 #状态映射 #国际化
@@ -331,6 +347,21 @@ const VolumesSection: React.FC<Props> = ({
   const [currentRecord, setCurrentRecord] = useState<VolumeView | null>(null);
   const [creating, setCreating] = useState(false);                 
   const [storageClasses, setStorageClasses] = useState<any[]>([]); 
+  const defaultStorageClassName = useMemo(() => pickDefaultStorageClassName(storageClasses), [storageClasses]);
+
+  /** 创建卷弹窗：存储类下拉，集群默认类显示「（默认）」 */
+  const createVolumeStorageClassOptions = useMemo(
+    () =>
+      (storageClasses || [])
+        .map((s: any) => {
+          const n = s?.metadata?.name || s?.name;
+          if (!n || isSystemStorageClass(n)) return null;
+          const isDef = isClusterDefaultStorageClass(s);
+          return { value: n, label: isDef ? `${n}（默认）` : n };
+        })
+        .filter(Boolean) as { value: string; label: string }[],
+    [storageClasses],
+  );
 
   // 同步外部传入的 storageClasses
   useEffect(() => {
@@ -601,6 +632,15 @@ const VolumesSection: React.FC<Props> = ({
     };
     run();
   }, [createOpen, cloudId]);
+
+  // 创建卷弹窗打开时默认选中默认存储类
+  useEffect(() => {
+    if (!createOpen) return;
+    const current = createForm.getFieldValue('storageClassName');
+    if (!current && defaultStorageClassName) {
+      createForm.setFieldsValue({ storageClassName: defaultStorageClassName });
+    }
+  }, [createOpen, createForm, defaultStorageClassName]);
 
   const statusOptions = [
     'healthy','degraded','faulted','detached','attaching','attached','detaching','maintenance','restoring','creating','deleting','error','bound','pending','lost'
@@ -1125,12 +1165,6 @@ const VolumesSection: React.FC<Props> = ({
           <Button type="primary" disabled={!hasDisksWrite} onClick={() => { 
             if (!ensureDisksWrite()) return;
             createForm.resetFields(); 
-            const scNames = storageClasses.map(s => s?.metadata?.name || s?.name).filter(Boolean);
-            // 优先选择 longhorn，然后选择包含 longhorn 的存储类
-            let defaultSc = scNames.find(n => n.toLowerCase() === 'longhorn');
-            if (!defaultSc) {
-              defaultSc = scNames.find(n => n.toLowerCase().includes('longhorn')) || scNames[0];
-            }
             const defaultNs = nsOptions.length > 0 ? nsOptions[0].value : undefined;
             
             createForm.setFieldsValue({ 
@@ -1139,7 +1173,7 @@ const VolumesSection: React.FC<Props> = ({
               sizeGi: undefined,
               accessModes: 'ReadWriteMany',
               volumeMode: 'Block',
-              storageClassName: defaultSc
+              storageClassName: defaultStorageClassName
             }); 
             setCreateOpen(true); 
           }}>创建卷</Button>
@@ -1284,10 +1318,14 @@ const VolumesSection: React.FC<Props> = ({
             <Select options={[{ value: 'Block', label: 'Block' }, { value: 'Filesystem', label: 'Filesystem' }]} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="存储类" name="storageClassName">
-            <Select allowClear options={storageClasses.map(s => {
-              const n = s?.metadata?.name || s?.name;
-              return { value: n, label: n };
-            }).filter(x => x.value && !isSystemStorageClass(x.value))} style={{ width: '100%' }} />
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择存储类"
+              options={createVolumeStorageClassOptions}
+              style={{ width: '100%' }}
+            />
           </Form.Item>
       </StdFormModal>
 

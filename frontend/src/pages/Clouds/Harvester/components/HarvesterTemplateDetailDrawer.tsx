@@ -360,8 +360,13 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                color: '#1890ff',
+                fontSize: 20,
+                backgroundColor: '#E6F4FF',
+                borderRadius: 6,
+                border: '1px solid #1890ff',
             }}>
-                <OsIcon osName={osImage || ''} style={{ fontSize: 32 }} />
+                <OsIcon osName={osImage || ''} style={{ fontSize: 24 }} />
             </div>
             <div>
                 <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>

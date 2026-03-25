@@ -1121,7 +1121,13 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '物理节点',
                       children: (
                         <>
-                          <NodesSection nodes={harvesterNodes} loading={resourceLoading.nodes || nodesLoading} onRefresh={refreshNodes} cloudId={cloudId} />
+                          <NodesSection
+                            nodes={harvesterNodes}
+                            loading={resourceLoading.nodes || nodesLoading}
+                            onRefresh={refreshNodes}
+                            cloudId={cloudId}
+                            mode={mode}
+                          />
                           <DebugJSON data={rawNodes} show={showLog} />
                         </>
                       )
@@ -1151,7 +1157,7 @@ const CloudDetailCloudmap: React.FC<{ cloudId: string }> = ({ cloudId }) => {
                       label: '物理网络',
                       children: (
                         <>
-                          <ProviderNetworksSection cloudId={cloudId} />
+                          <ProviderNetworksSection cloudId={cloudId} mode={mode} />
                           <DebugJSON data={rawSubnets} show={showLog} />
                         </>
                       )

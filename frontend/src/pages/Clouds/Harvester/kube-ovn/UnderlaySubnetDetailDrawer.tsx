@@ -160,10 +160,15 @@ const UnderlaySubnetDetailDrawer: React.FC<Props> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              color: '#1890ff',
+              fontSize: 20,
+              backgroundColor: '#E6F4FF',
+              borderRadius: 6,
+              border: '1px solid #1890ff',
               flexShrink: 0,
             }}
           >
-            <ApartmentOutlined style={{ fontSize: 28, color: '#1677ff' }} />
+            <ApartmentOutlined />
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>{subnetDisplay}</div>

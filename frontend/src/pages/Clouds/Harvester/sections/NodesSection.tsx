@@ -9,12 +9,13 @@
  */
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Input, Select, Button, Modal, Tabs, Descriptions, message, Drawer, Space, Tooltip, Progress } from 'antd';
-import { SettingOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { DatabaseTwoTone, ReloadOutlined, SearchOutlined, DatabaseFilled } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
+import HarvesterNodeDetailDrawer from '../components/HarvesterNodeDetailDrawer';
 
 /**
  * 组件入参说明
@@ -28,10 +29,10 @@ type Props = {
   loading: boolean;
   onRefresh?: (force?: boolean) => void;
   cloudId?: string;
-  isTenant?: boolean;
+  mode?: 'standard' | 'simple';
 };
 
-const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isTenant }) => {
+const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, mode = 'standard' }) => {
   // 过滤条件：关键字、角色、就绪状态
   const [keyword, setKeyword] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('');
@@ -44,6 +45,10 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
 
+  // 物理节点详情抽屉（新）
+  const [nodeDetailOpen, setNodeDetailOpen] = useState(false);
+  const [nodeDetailRecord, setNodeDetailRecord] = useState<any>(null);
+
   /**
    * 统一打开 HarvesterResourceDrawer 的入口
    * - 在列表视图中 Node 通常没有 kind 字段，这里统一补充为 'Node'
@@ -52,6 +57,11 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     setDrawerRecord({ ...record, kind: 'Node' });
     setDrawerActiveTab(tab);
     setDrawerVisible(true);
+  }, []);
+
+  const handleOpenNodeDetail = useCallback((record: any) => {
+    setNodeDetailRecord(record);
+    setNodeDetailOpen(true);
   }, []);
 
   /**
@@ -233,7 +243,14 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
   const allColumns = useMemo(() => [
     { title: '名称', key: 'name', render: (_:any, r:any)=> {
       const text = r?.name || r?.metadata?.name || '-';
-      return <span>{text}</span>;
+      return (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <DatabaseTwoTone style={{ color: '#1890ff', flexShrink: 0 }} />
+          <span className="cell-link" onClick={() => handleOpenNodeDetail(r)}>
+            {text}
+          </span>
+        </span>
+      );
     } },
     { title: '角色', key: 'roles', render: (_:any, r:any)=> {
       const roles = getRoles(r);
@@ -312,7 +329,8 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     { title: '容器运行时', key: 'runtime', render: (_:any, r:any)=> r?.containerRuntimeVersion || r?.status?.nodeInfo?.containerRuntimeVersion || '-' },
     { title: '操作', key: 'actions', width: 80, fixed: 'right' as const, render: (_: any, r: any) => {
         const items: any[] = [];
-        if (!isTenant) {
+        items.push({ key: 'detail', label: '详情', onClick: () => handleOpenNodeDetail(r) });
+        if (mode === 'standard') {
           items.push({ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') });
         }
         return (
@@ -323,7 +341,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
         );
       } 
     },
-  ], [handleOpenOpsinfo, metricsMap]);
+  ], [handleOpenOpsinfo, handleOpenNodeDetail, metricsMap]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_nodes_table');
@@ -395,6 +413,14 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
       activeTab={drawerActiveTab}
       onTabChange={setDrawerActiveTab}
       cloudId={cloudId}
+    />
+
+    <HarvesterNodeDetailDrawer
+      open={nodeDetailOpen}
+      onClose={() => setNodeDetailOpen(false)}
+      record={nodeDetailRecord}
+      cloudId={cloudId}
+      metrics={metricsMap[String(nodeDetailRecord?.name || nodeDetailRecord?.metadata?.name || '')]}
     />
 
     </PageDetailSection>

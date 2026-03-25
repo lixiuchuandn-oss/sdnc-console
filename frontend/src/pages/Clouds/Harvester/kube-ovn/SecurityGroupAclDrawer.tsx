@@ -429,7 +429,10 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
               alignItems: 'center',
               justifyContent: 'center',
               color: '#1890ff',
-              fontSize: 24,
+              fontSize: 20,
+              backgroundColor: '#E6F4FF',
+              borderRadius: 6,
+              border: '1px solid #1890ff',
             }}
           >
             <SafetyOutlined />

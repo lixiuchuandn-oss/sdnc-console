@@ -5,7 +5,7 @@ import {
   updateHarvesterVmSpec, createHarvesterVolume, attachHarvesterVolumeToVm, attachHarvesterVolumeToVmByName, 
   fetchHarvesterGpuResources, fetchHarvesterUsbResources, patchHarvesterVm, fetchHarvesterNads,
   fetchKubeOvnVpcs, fetchKubeOvnSubnets, fetchHarvesterImages, fetchHarvesterStorageClasses,
-  fetchHarvesterVolume, fetchHarvesterVmDetail, updateHarvesterVolume, fetchHarvesterVolumes,
+  fetchHarvesterVolume, fetchHarvesterVmDetail, updateHarvesterVolume, fetchHarvesterVolumes, fetchHarvesterAvailableVolumes,
   detachHarvesterVolumeFromVm, fetchHarvesterVMAggregated, fetchHarvesterNodes
 } from '../../../../../services/harvesterApi';
 import { rebootCloudProviderEcs } from '../../../../../services/api';
@@ -783,25 +783,32 @@ export const useVmReconfigure = (props: any) => {
         if (open && cloudId && record?.metadata?.namespace) {
           void (async () => {
             try {
-              const res = await fetchHarvesterVolumes(cloudId, false);
-              const items = (res as any)?.data?.items || [];
-              const ns = record.metadata.namespace;
-              const getPvcName = (pvc: any) => pvc?.rawData?.metadata?.name || pvc?.metadata?.name || pvc?.name || '';
-              const getPvcNs = (pvc: any) => pvc?.rawData?.metadata?.namespace || pvc?.metadata?.namespace || pvc?.namespace || '';
-              const vmClaimNames = new Set(
-                (record?.spec?.template?.spec?.volumes || [])
-                  .map((v: any) => v?.persistentVolumeClaim?.claimName)
-                  .filter(Boolean)
-              );
-              const filtered = items.filter((pvc: any) => {
-                const pvcNs = getPvcNs(pvc);
-                const pvcName = getPvcName(pvc);
-                if (!pvcName || pvcNs !== ns) return false;
-                // 已经在 VM 上的 PVC 不应该再次挂载
-                if (vmClaimNames.has(pvcName)) return false;
-                return true;
+              const ns = String(record.metadata.namespace || '').trim();
+              const res = await fetchHarvesterAvailableVolumes(cloudId, ns || undefined);
+              const items = (res as any)?.data?.items || (res as any)?.items || [];
+              const normalized = (Array.isArray(items) ? items : []).map((x: any) => {
+                const meta = x?.metadata || {};
+                const ann = meta?.annotations || x?.annotations || {};
+                const name = x?.pvcName || meta?.name || x?.name || '';
+                const namespace = meta?.namespace || x?.namespace || x?.ns || ns || '';
+                const alias = ann?.['tower.io/alias'] || x?.Alias || x?.alias || '';
+                return { ...x, pvcName: name, namespace, alias };
               });
-              setAvailableDiskPvcs(filtered);
+              const enriched = await Promise.all(
+                normalized.map(async (x: any) => {
+                  if (x.alias) return x;
+                  if (!x.namespace || !x.pvcName) return x;
+                  try {
+                    const detail: any = await fetchHarvesterVolume(cloudId, x.namespace, x.pvcName);
+                    const ann = detail?.metadata?.annotations || detail?.data?.metadata?.annotations || {};
+                    const alias = ann?.['tower.io/alias'];
+                    return alias ? { ...x, alias } : x;
+                  } catch {
+                    return x;
+                  }
+                })
+              );
+              setAvailableDiskPvcs(enriched);
             } catch {
               // ignore
             }

@@ -32,6 +32,7 @@ import { HarvesterVlanConfigInventory } from '../../../entities/harvester/Harves
 import { HarvesterMigrationInventory } from '../../../entities/harvester/HarvesterMigrationInventory';
 import { getJsonOnce } from './utils';
 import { logger } from '../../../utils/logger';
+import { fetchHmsNodeNics } from '../../hms/nodeNics';
 
 const invLog = logger.child('Compute-Inventory');
 
@@ -780,6 +781,19 @@ export const syncHarvesterNodes = async (cloud: any, insecure: boolean) => {
     if (Number(e?.status) === 401 || String(e?.message).includes('401')) return;
     invLog.warn(`${cloud.name}: 节点列表获取失败:`, e.message);
     return;
+  }
+
+  // [HMS NICs 入库] 与 Harvester 节点同步同周期写入 rawData，避免每次 list API 都实时请求
+  try {
+    const nicsByNode = await fetchHmsNodeNics({ endpoint: cloud.endpoint, insecure });
+    items.forEach((it: any) => {
+      const nodeName =
+        String(it?.name || it?.metadata?.name || it?.rawData?.metadata?.name || '').trim();
+      if (!nodeName) return;
+      it.hmsNics = nicsByNode[nodeName] || [];
+    });
+  } catch (e: any) {
+    invLog.warn(`${cloud.name}: HMS 网卡信息获取失败（忽略，不影响节点同步）: ${e?.message || e}`);
   }
 
   invLog.debug(`${cloud.name}: 节点同步完成，共 ${items.length} 条`);

@@ -18,13 +18,14 @@
 
 import React, { useMemo, useState } from 'react';
 import { Table, Input, Tag, Button, Dropdown, Modal, Tabs, Descriptions, Select } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, HddTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { fetchHarvesterStorageClassDetail } from '../../../../services/harvesterApi';
+import { isSystemStorageClass } from '../../../../utils/harvesterUtils';
 
 /**
  * Props 定义
@@ -120,7 +121,8 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
         const name = r?.metadata?.name || r?.name || '-';
         const isDefault = String(r?.metadata?.annotations?.['storageclass.kubernetes.io/is-default-class'] || '').toLowerCase() === 'true';
         return (
-          <div className="flex-center gap-8">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <HddTwoTone style={{ flexShrink: 0 }} />
             <span>{name}</span>
             {isDefault && <span className="std-badge std-badge-warning">Default</span>}
           </div>
@@ -173,27 +175,35 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_storageclasses_table');
 
+  const visibleStorageClasses = useMemo(
+    () =>
+      (Array.isArray(storageClasses) ? storageClasses : []).filter(
+        (r: any) => !isSystemStorageClass(r?.metadata?.name || r?.name || ''),
+      ),
+    [storageClasses],
+  );
+
   const provisionerOptions = useMemo(
     () =>
       Array.from(
         new Set(
-          (Array.isArray(storageClasses) ? storageClasses : [])
+          visibleStorageClasses
             .map((r: any) => String(r?.provisioner || '').trim())
             .filter(Boolean),
         ),
       ).sort(),
-    [storageClasses],
+    [visibleStorageClasses],
   );
   const reclaimPolicyOptions = useMemo(
     () =>
       Array.from(
         new Set(
-          (Array.isArray(storageClasses) ? storageClasses : [])
+          visibleStorageClasses
             .map((r: any) => String(r?.reclaimPolicy || '').trim())
             .filter(Boolean),
         ),
       ).sort(),
-    [storageClasses],
+    [visibleStorageClasses],
   );
 
   /**
@@ -209,7 +219,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
     const kw = keyword.trim().toLowerCase();
     const pf = provisionerFilter.trim().toLowerCase();
     const rf = reclaimPolicyFilter.trim().toLowerCase();
-    return (Array.isArray(storageClasses) ? storageClasses : []).filter((r: any) => {
+    return visibleStorageClasses.filter((r: any) => {
       const name = String(r?.metadata?.name || r?.name || '').toLowerCase();
       const provisioner = String(r?.provisioner || '').toLowerCase();
       const reclaimPolicy = String(r?.reclaimPolicy || '').toLowerCase();
@@ -218,7 +228,7 @@ const StorageClassesSection: React.FC<Props> = ({ cloudId, storageClasses, loadi
       if (rf && reclaimPolicy !== rf) return false;
       return true;
     });
-  }, [storageClasses, keyword, provisionerFilter, reclaimPolicyFilter]);
+  }, [visibleStorageClasses, keyword, provisionerFilter, reclaimPolicyFilter]);
 
   return (
     <PageDetailSection

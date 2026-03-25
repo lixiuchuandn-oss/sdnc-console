@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Checkbox, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import StdFormModal from '../../components/StdFormModal';
@@ -38,11 +38,15 @@ const AccessUsersPage: React.FC = () => {
   const [isEditingAdmin, setIsEditingAdmin] = useState(false);
   const [rolesByUser, setRolesByUser] = useState<Record<string, RBACRole[]>>({});
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  /** 内置用户修改「状态」时二次确认 */
+  const [builtInStatusConfirmOpen, setBuiltInStatusConfirmOpen] = useState(false);
+  const [builtInStatusAck, setBuiltInStatusAck] = useState(false);
+  const pendingEditValsRef = React.useRef<Record<string, unknown> | null>(null);
 
   const defaultColumns: ColumnsType<SysUser> = useMemo(() => [
     { title:'用户名', key:'username', dataIndex:'username', render: (v:any, row: SysUser) => (
       <Space>
-        { row.username === 'admin' ? <Tag color="gold">Admin</Tag> : (row.builtIn ? <Tag color="blue">BuiltIn</Tag> : <Tag>User</Tag>) }
+        { row.builtIn ? <Tag color="blue">内置</Tag> : <Tag>用户</Tag> }
         <Text strong>{v}</Text>
       </Space>
     ) },
@@ -64,20 +68,23 @@ const AccessUsersPage: React.FC = () => {
       return map[String(v)] || v;
     } },
     { title:'操作', key:'actions', width:80, fixed:'right' as const, render: (_:any, row: SysUser) => {
-      if (row.username === 'admin') return null;
-      const itemsRaw = [
-        { key:'edit', label:'编辑', onClick: () => { setEditingUser(row); setIsEditingAdmin(false); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, status: row.status }); setEditOpen(true); } },
-        { type:'divider' },
-        { key:'del', label:'删除用户', danger: true, onClick: async () => {
-            try {
-              await apiDelete(`/api/users/${row.id}`);
-              message.success('已删除');
-              fetchUsers(true); // 强制刷新，跳过缓存
-            } catch (error: any) {
-              message.error(error?.message || '删除失败');
-            }
-          } },
-      ];
+      const itemsRaw = row.builtIn
+        ? [
+            { key:'edit', label:'编辑', onClick: () => { setEditingUser(row); setIsEditingAdmin(true); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, status: row.status }); setEditOpen(true); } },
+          ]
+        : [
+            { key:'edit', label:'编辑', onClick: () => { setEditingUser(row); setIsEditingAdmin(true); editForm.setFieldsValue({ fullName: row.fullName, username: row.username, email: row.email, status: row.status }); setEditOpen(true); } },
+            { type:'divider' },
+            { key:'del', label:'删除用户', danger: true, onClick: async () => {
+                try {
+                  await apiDelete(`/api/users/${row.id}`);
+                  message.success('已删除');
+                  fetchUsers(true); // 强制刷新，跳过缓存
+                } catch (error: any) {
+                  message.error(error?.message || '删除失败');
+                }
+              } },
+          ];
       // Filter out invalid items or dividers if needed
       const items = itemsRaw.filter(Boolean);
       return <ResourceActionsDropdown items={items as any} />;
@@ -125,6 +132,19 @@ const AccessUsersPage: React.FC = () => {
     } catch {
       message.error('获取系统用户失败');
     } finally { setLoading(false); }
+  };
+
+  const performUserEdit = async (vals: any) => {
+    if (!editingUser) return;
+    const body = isEditingAdmin
+      ? { email: vals.email, status: vals.status, password: vals.password }
+      : { fullName: vals.fullName, username: vals.username, email: vals.email, status: vals.status, password: vals.password };
+    await apiPatch(`/api/users/${editingUser.id}`, body);
+    message.success('用户更新成功');
+    setEditOpen(false);
+    setEditingUser(null);
+    setIsEditingAdmin(false);
+    await fetchUsers(true);
   };
 
   useEffect(() => { fetchUsers(); }, []);
@@ -221,7 +241,7 @@ const AccessUsersPage: React.FC = () => {
           selectedRowKeys,
           onChange: setSelectedRowKeys,
           getCheckboxProps: (record: SysUser) => ({
-            disabled: (typeof record.builtIn === 'boolean') ? record.builtIn : (record.username === 'admin'),
+            disabled: !!record.builtIn,
           }),
         }}
         pagination={{
@@ -249,15 +269,14 @@ const AccessUsersPage: React.FC = () => {
       <StdFormModal title="编辑用户" open={editOpen} onCancel={()=> { setEditOpen(false); setEditingUser(null); setIsEditingAdmin(false); }} okText="保存" width={600} form={editForm} onFinish={async (vals)=> {
         if (!editingUser) return;
         try {
-          const body = isEditingAdmin
-            ? { email: vals.email, password: vals.password }
-            : { fullName: vals.fullName, username: vals.username, email: vals.email, status: vals.status, password: vals.password };
-          await apiPatch(`/api/users/${editingUser.id}`, body);
-          message.success('用户更新成功');
-          setEditOpen(false);
-          setEditingUser(null);
-          setIsEditingAdmin(false);
-          fetchUsers(true); // 强制刷新，跳过缓存
+          const statusChanged = String(vals.status ?? '') !== String(editingUser.status ?? '');
+          if (editingUser.builtIn && statusChanged) {
+            pendingEditValsRef.current = vals;
+            setBuiltInStatusAck(false);
+            setBuiltInStatusConfirmOpen(true);
+            return;
+          }
+          await performUserEdit(vals);
         } catch (error: any) {
           message.error(error?.message || '更新失败');
         }
@@ -271,7 +290,7 @@ const AccessUsersPage: React.FC = () => {
               <Input disabled />
             </Form.Item>
             <Form.Item name="status" label="状态">
-              <Select disabled options={[{ value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} />
+              <Select options={[{ value:'active', label:'活跃' }, { value:'inactive', label:'非活跃' }, { value:'suspended', label:'暂停' }]} />
             </Form.Item>
             <Form.Item name="email" label="邮箱" rules={[{ type:'email', message: '请输入有效邮箱' }]}> 
               <Input />
@@ -300,6 +319,51 @@ const AccessUsersPage: React.FC = () => {
           </>
         )}
       </StdFormModal>
+
+      <Modal
+        title="确认修改内置账号状态"
+        open={builtInStatusConfirmOpen}
+        okText="确认保存"
+        cancelText="取消"
+        okButtonProps={{ disabled: !builtInStatusAck, danger: true }}
+        maskClosable={false}
+        onCancel={() => {
+          setBuiltInStatusConfirmOpen(false);
+          pendingEditValsRef.current = null;
+          setBuiltInStatusAck(false);
+        }}
+        onOk={async () => {
+          if (!builtInStatusAck) return;
+          const vals = pendingEditValsRef.current;
+          if (!vals || !editingUser) return;
+          try {
+            await performUserEdit(vals);
+            setBuiltInStatusConfirmOpen(false);
+            pendingEditValsRef.current = null;
+            setBuiltInStatusAck(false);
+          } catch (error: any) {
+            message.error(error?.message || '更新失败');
+          }
+        }}
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="内置账号的状态变更影响登录与可用性"
+          description={
+            <div>
+              <p>
+                将状态改为「非活跃」或「暂停」后，该账号通常将无法登录或无法正常使用；若误操作可能影响运维、审计、安全等职责分工。
+              </p>
+              <p>请确认仍有其他可用账号可管理系统，再继续保存。</p>
+            </div>
+          }
+          style={{ marginBottom: 16 }}
+        />
+        <Checkbox checked={builtInStatusAck} onChange={(e) => setBuiltInStatusAck(e.target.checked)}>
+          我已阅读上述说明，确认要修改该内置账号的状态
+        </Checkbox>
+      </Modal>
     </PageContainer>
   );
 };

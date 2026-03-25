@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Button, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, UsbTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
@@ -184,7 +184,18 @@ const UsbDevicesSection: React.FC<Props> = ({ cloudId, usbDevices, loading, onRe
     return [
       { title: '节点', key: 'node', width: 160, ellipsis: true, render: (_: any, r: any) => (r?.nodeName || r?.raw?.status?.nodeName || r?.raw?.spec?.nodeName || '-') },
       { title: '资源名', key: 'resource', width: 260, ellipsis: true, render: (_: any, r: any) => r?.resourceName || '-' },
-      { title: '名称', key: 'name', width: 220, ellipsis: true, render: (_: any, r: any) => r?.name || '-' },
+      {
+        title: '名称',
+        key: 'name',
+        width: 220,
+        ellipsis: true,
+        render: (_: any, r: any) => (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <UsbTwoTone style={{ flexShrink: 0 }} />
+            <span>{r?.name || '-'}</span>
+          </span>
+        ),
+      },
       { title: '状态', key: 'state', width: 100, ellipsis: true, render: (_: any, r: any) => {
         return renderUnifiedStateTag(getUsbState(r));
       } },

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Table, List, Modal, Form, Input, Select, message, Tag, Space, Alert, Tooltip, Badge, Segmented } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, PartitionOutlined } from '@ant-design/icons';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -24,9 +24,11 @@ const { Option } = Select;
 
 type Props = {
   cloudId: string;
+  /** 简易模式下不展示「运维信息」等运维向入口 */
+  mode?: 'standard' | 'simple';
 };
 
-const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
+const ProviderNetworksSection: React.FC<Props> = ({ cloudId, mode = 'standard' }) => {
   const { user } = useAuth();
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
   const [createMode, setCreateMode] = useState<'centralized' | 'node_specific'>('centralized');
@@ -123,35 +125,33 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
       const allInterfaces = new Set<string>();
       const nodeIfMap: Record<string, string[]> = {};
 
-      const isVirtualOrLoopback = (n: string) => (
-        n.startsWith('veth') ||
-        n.startsWith('ovn') ||
-        n.startsWith('docker') ||
-        n.startsWith('flannel') ||
-        n.startsWith('cni') ||
-        n.startsWith('calico') ||
-        n.includes('br-') ||
-        n === 'lo'
-      );
-
       items.forEach((node: any) => {
         const nodeName = String(node?.metadata?.name || '');
         if (!nodeName) return;
-        const phys = node.physicalInterfaces || [];
-        const filtered: string[] = [];
-        if (Array.isArray(phys) && phys.length > 0) {
-          phys.forEach((p: string) => {
-            const iface = String(p || '').trim();
-            if (!iface) return;
-            if (isVirtualOrLoopback(iface)) return;
-            if (clusterNetworkNics.has(iface)) return;
-            const status = String(node.interfaceStatusMap?.[iface] || '').toLowerCase();
-            if (status && (status === 'down' || status.includes('down') || status === 'disabled')) return;
-            filtered.push(iface);
-            allInterfaces.add(iface);
-          });
-        }
-        nodeIfMap[nodeName] = Array.from(new Set(filtered)).sort();
+        /**
+         * 这里不再用 physicalInterfaces/interfaceStatusMap 等“推断逻辑”：
+         * HMS 接口本身就是为了输出「物理节点可用的物理网卡」。
+         * 因此以 node.nics 为权威数据源，仅做最小过滤：
+         * - usedByHarvester=false：未被集群网络占用
+         * - state=up：链路可用（瞬时）
+         * - 额外兜底：如果该网卡同时出现在 clusterNetwork uplinks.nics 中，也排除
+         */
+        const nodeNics: any[] = Array.isArray(node?.nics) ? node.nics : [];
+        const filtered = nodeNics
+          .map((n: any) => ({
+            device: String(n?.device || '').trim(),
+            state: String(n?.state || '').trim().toLowerCase(),
+            usedByHarvester: Boolean(n?.usedByHarvester),
+          }))
+          .filter((x) => Boolean(x.device))
+          .filter((x) => !x.usedByHarvester)
+          .filter((x) => (x.state ? x.state === 'up' : true))
+          .filter((x) => !clusterNetworkNics.has(x.device))
+          .map((x) => x.device);
+
+        const uniq = Array.from(new Set(filtered)).sort();
+        nodeIfMap[nodeName] = uniq;
+        uniq.forEach((iface) => allInterfaces.add(iface));
       });
 
       const ifaces = Array.from(allInterfaces).sort();
@@ -274,13 +274,16 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
         record?.metadata?.name ||
         '',
     ).trim();
+    const ann = raw?.metadata?.annotations || {};
+    const alias = String(record?.displayAlias || ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+    const label = alias || name;
     if (!name || name === '-') {
       message.error('删除失败：无效的物理网络名称');
       return;
     }
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除物理网络 ${name} 吗？此操作不可恢复。`,
+      content: `确定要删除物理网络「${label}」吗？此操作不可恢复。`,
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',
@@ -360,9 +363,28 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
       dataIndex: 'displayAlias',
       key: 'displayAlias',
       ellipsis: true,
-      render: (text: string) => {
+      render: (text: string, record: any) => {
         const s = String(text || '').trim();
-        return s ? <span>{s}</span> : <span style={{ color: '#ccc' }}>—</span>;
+        if (!s) return <span style={{ color: '#ccc' }}>—</span>;
+        const pnName = String(record?.name || '').trim();
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <PartitionOutlined style={{ color: '#1890ff', flexShrink: 0 }} />
+            {pnName ? (
+              <span
+                className="cell-link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openVlanPlanForProvider(pnName);
+                }}
+              >
+                {s}
+              </span>
+            ) : (
+              <span>{s}</span>
+            )}
+          </span>
+        );
       },
     },
     {
@@ -371,26 +393,10 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
       key: 'name',
       ellipsis: true,
       width: 140,
-      render: (text: string) => <span style={{ fontFamily: 'ui-monospace, monospace' }}>{text ?? '—'}</span>,
+      render: (text: string) => <span>{text ?? '—'}</span>,
     },
     { title: '默认接口', dataIndex: 'defaultInterface', key: 'defaultInterface', render: (text: string) => <Tag>{text}</Tag> },
-    {
-      title: '自定义接口',
-      dataIndex: 'customInterfaces',
-      key: 'customInterfaces',
-      render: (items: any[]) => {
-        if (!items?.length) return <span style={{ color: '#ccc' }}>无</span>;
-        return (
-          <Space size={[4, 4]} wrap>
-            {items.map((i, idx) => (
-              <Tooltip key={idx} title={(i?.nodes || []).join(', ') || '-'}>
-                <Tag color="orange">{i.interface} ({(i?.nodes || []).length})</Tag>
-              </Tooltip>
-            ))}
-          </Space>
-        );
-      },
-    },
+  
     {
       title: '关联 VLAN',
       dataIndex: 'vlans',
@@ -452,21 +458,24 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
       width: 88,
       align: 'left' as const,
       render: (_: any, record: any) => {
-        const items: any[] = [
-          {
+        const items: any[] = [];
+        if (mode !== 'simple') {
+          items.push({
             key: 'view',
             label: '运维信息',
             onClick: () => openDrawer(record, 'detail'),
-          },
-        ];
+          });
+        }
         if (canWriteVlan) {
           items.push({
             key: 'vlan-plan',
-            label: 'VLAN 规划',
+            label: '详情',
             onClick: () => openVlanPlanForProvider(String(record.name || '').trim()),
           });
         }
-        items.push({ type: 'divider' });
+        if (items.length > 0) {
+          items.push({ type: 'divider' });
+        }
         items.push({
           key: 'delete',
           label: '删除',
@@ -476,7 +485,7 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
         return <ResourceActionsDropdown items={items} />;
       },
     },
-  ], [openDrawer, handleDelete, canWriteVlan, openVlanPlanForProvider, vlanAliasMap]);
+  ], [openDrawer, handleDelete, canWriteVlan, openVlanPlanForProvider, vlanAliasMap, mode]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_provider_networks_table');
 
@@ -505,17 +514,6 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
             options={[
               { label: '已关联 VLAN', value: 'has_vlans' },
               { label: '无关联 VLAN', value: 'no_vlans' },
-            ]}
-          />
-          <Select
-            allowClear
-            placeholder="自定义接口"
-            value={customFilter || undefined}
-            onChange={(v) => setCustomFilter(String(v || ''))}
-            className="toolbar-filter-sm"
-            options={[
-              { label: '有自定义接口', value: 'has_custom' },
-              { label: '无自定义接口', value: 'no_custom' },
             ]}
           />
           <a className="toolbar-reset-btn" onClick={() => { setKeyword(''); setReadyFilter(''); setVlanFilter(''); setCustomFilter(''); fetchData(); }}>重置</a>
@@ -583,6 +581,7 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
       <Modal
         title="创建物理网络"
         open={isModalVisible}
+        centered
         onOk={form.submit}
         onCancel={() => setIsModalVisible(false)}
         width={700}
@@ -590,10 +589,10 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
         <Form form={form} layout="vertical" onFinish={handleCreate} className="std-form">
           <Form.Item
             name="towerAlies"
-            label="物理网络名称"
+            label="网络名称"
             rules={[{ required: true, message: '请输入物理网络名称' }]}
           >
-            <Input placeholder="例如：生产业务网、macvlan-uplink" allowClear />
+            <Input placeholder="请输入物理网络名称" allowClear />
           </Form.Item>
 
           <Form.Item label="网卡选择方式">
@@ -607,8 +606,8 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
                 form.setFieldsValue({ defaultInterface: undefined, targetNodes: [] });
               }}
               options={[
-                { label: '集中式选择网卡', value: 'centralized' },
-                { label: '指定物理机的指定网卡', value: 'node_specific' },
+                { label: '批量选择', value: 'centralized' },
+                { label: '指定网卡', value: 'node_specific' },
               ]}
             />
           </Form.Item>
@@ -637,7 +636,7 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
           {createMode === 'centralized' && (
             <Form.Item
               name="defaultInterface"
-              label="物理接口名称 (Default Interface)"
+              label="选择物理网卡（所有节点）"
               rules={[{ required: true }]}
             >
               <Select placeholder="选择物理网卡 (e.g. eth0)" loading={nodesLoading} showSearch allowClear onChange={onDefaultInterfaceChange}>
@@ -646,7 +645,7 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
             </Form.Item>
           )}
 
-          <Form.Item label="节点网卡映射" style={{ marginBottom: 0 }}>
+          <Form.Item label="各节点网卡" style={{ marginBottom: 0 }}>
             <div
               style={
                 modalNodesList.length > 6

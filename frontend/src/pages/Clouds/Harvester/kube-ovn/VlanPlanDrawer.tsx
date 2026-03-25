@@ -15,13 +15,11 @@ import {
   Descriptions,
   Row,
   Col,
-  Typography,
 } from 'antd';
 import {
-  ApartmentOutlined,
+  PartitionOutlined,
   CloseOutlined,
   DeleteOutlined,
-  PlusOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
 import {
@@ -120,32 +118,22 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     [providers, effectiveProviderName],
   );
 
-  const providerAliasMap = useMemo(() => {
-    const map = new Map<string, string>();
-    providers.forEach((p) => {
+  /** 一次遍历生成下拉选项与别名映射，避免对 providers 重复扫描 */
+  const { providerOptions, providerAliasMap } = useMemo(() => {
+    const aliasMap = new Map<string, string>();
+    const options: { label: string; value: string }[] = [];
+    (providers || []).forEach((p) => {
       const name = String(p?.metadata?.name ?? '').trim();
       if (!name) return;
       const ann = p?.metadata?.annotations || {};
       const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
-      map.set(name, alias || name);
+      const display = alias || name;
+      aliasMap.set(name, display);
+      const label = alias && alias !== name ? `${alias} (${name})` : display;
+      options.push({ label, value: name });
     });
-    return map;
+    return { providerOptions: options, providerAliasMap: aliasMap };
   }, [providers]);
-
-  const providerOptions = useMemo(
-    () =>
-      providers
-        .map((p) => {
-          const name = String(p?.metadata?.name ?? '').trim();
-          if (!name) return null;
-          const ann = p?.metadata?.annotations || {};
-          const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
-          const label = alias && alias !== name ? `${alias} (${name})` : alias || name;
-          return { label, value: name };
-        })
-        .filter(Boolean) as { label: string; value: string }[],
-    [providers],
-  );
 
   const lockProviderOption = useMemo(() => {
     if (!lockProviderName) return null;
@@ -256,9 +244,21 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
   const pnReadyNodes = Array.isArray(effectivePn?.status?.readyNodes) ? effectivePn.status.readyNodes : [];
   const pnCustom = Array.isArray(effectivePn?.spec?.customInterfaces) ? effectivePn.spec.customInterfaces : [];
 
-  const headerSubtitle = lockProviderName
-    ? `物理网络 · ${lockProviderName}`
-    : 'Kube-OVN · 已同步集群中的 VLAN 资源';
+  /** 头部：主标题为资源展示名/资源名；副标题为集群 ID 或场景说明 */
+  const headerTitle = useMemo(() => {
+    if (pnMetaName) return pnDisplayName || pnMetaName;
+    if (lockProviderName) return lockProviderName;
+    return 'VLAN 规划';
+  }, [pnDisplayName, pnMetaName, lockProviderName]);
+
+  const headerSubtitle = useMemo(() => {
+    if (pnMetaName) {
+      if (pnDisplayName && pnDisplayName !== pnMetaName) return `${pnMetaName}`;
+      return 'Kube-OVN · Provider Network';
+    }
+    if (lockProviderName) return `ID: ${lockProviderName}`;
+    return '请选择物理网络或从列表进入';
+  }, [pnMetaName, pnDisplayName, lockProviderName]);
 
   return (
     <Drawer
@@ -267,7 +267,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
       width={900}
       placement="right"
       closable={false}
-      destroyOnClose
+      destroyOnHidden
       styles={{
         body: {
           padding: 0,
@@ -293,9 +293,10 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
           alignItems: 'center',
           flexShrink: 0,
           borderBottom: '1px solid #f0f0f0',
+          gap: 12,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
           <div
             style={{
               width: 38,
@@ -303,16 +304,27 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              color: '#1890ff',
+              fontSize: 20,
+              backgroundColor: '#E6F4FF',
+              borderRadius: 6,
+              border: '1px solid #1890ff',
+              flexShrink: 0,
             }}
           >
-            <ApartmentOutlined style={{ fontSize: 28, color: '#1890ff' }} />
+            <PartitionOutlined />
           </div>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>VLAN 规划</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2, wordBreak: 'break-word' }}>{headerTitle}</div>
             <div style={{ fontSize: 12, color: '#999' }}>{headerSubtitle}</div>
           </div>
+          {effectivePn ? (
+            <Tag color={pnReady ? 'success' : 'default'} style={{ margin: 0, flexShrink: 0 }}>
+              {pnReady ? '已就绪' : '未就绪'}
+            </Tag>
+          ) : null}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
           <Button
             type="text"
             icon={<SyncOutlined spin={vlanLoading} />}
@@ -360,12 +372,9 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
           gap: 24,
         }}
       >
-        {/* 物理网络信息 — Card 外标题样式对齐 HarvesterVmDetailDrawer（虚拟磁盘/虚拟网卡等区块） */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ color: '#666' }}>物理网络信息</span>
-          </div>
-          <Card variant="borderless" styles={{ body: { padding: 16 } }}>
+        {/* 卡片样式对齐 HarvesterNodeDetailDrawer */}
+        <Card variant="borderless" styles={{ body: { padding: 16 } }}>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>物理网络信息</div>
           {!lockProviderName && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>当前物理网络</div>
@@ -395,7 +404,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                     {pnDisplayName || <span style={{ color: '#ccc' }}>—</span>}
                   </Descriptions.Item>
                   <Descriptions.Item label="资源 ID">
-                    <span style={{ fontFamily: 'ui-monospace, monospace' }}>{pnMetaName || '—'}</span>
+                    <span>{pnMetaName || '—'}</span>
                   </Descriptions.Item>
                   <Descriptions.Item label="默认接口">
                     {String(effectivePn?.spec?.defaultInterface || '').trim() || '—'}
@@ -427,15 +436,9 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
               </Col>
             </Row>
           )}
-          </Card>
-        </div>
+        </Card>
 
-        {/* VLAN 规划 — 外层标题同上；Card 内保留「当前 VLAN 规划」 */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ color: '#666' }}>VLAN 规划</span>
-          </div>
-          <Card variant="borderless" styles={{ body: { padding: 0 } }}>
+        <Card variant="borderless" styles={{ body: { padding: 16 } }}>
           <div
             style={{
               display: 'flex',
@@ -443,18 +446,12 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
               justifyContent: 'space-between',
               flexWrap: 'wrap',
               gap: 8,
-              padding: '12px 16px',
-              borderBottom: '1px solid #f0f0f0',
+              marginBottom: 12,
             }}
           >
-            <Typography.Text strong>
-              当前 VLAN 规划
-              <Tag color="processing" style={{ marginLeft: 8 }}>
-                {displayedVlans.length}
-              </Tag>
-            </Typography.Text>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>VLAN 规划</div>
             {canWriteVlan && (
-              <Button type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
+              <Button type="primary" onClick={openAddModal}>
                 添加 VLAN
               </Button>
             )}
@@ -488,7 +485,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                 return (
                   <List.Item
                     key={item?.metadata?.uid || metaName}
-                    style={{ padding: '12px 16px' }}
+                    style={{ padding: '12px 0px' }}
                     actions={
                       canWriteVlan
                         ? [
@@ -528,7 +525,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                       <div style={{ fontSize: 12, color: '#888', wordBreak: 'break-all' }}>
                         VLAN ID: {vlanId !== undefined && vlanId !== null ? String(vlanId) : '—'}
                         {' · '}
-                        资源 ID:{' '}
+                        ID:{' '}
                         <span style={{ fontFamily: 'ui-monospace, monospace' }}>{metaName || '—'}</span>
                         {created ? (
                           <>
@@ -543,17 +540,17 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
               }}
             />
           )}
-          </Card>
-        </div>
+        </Card>
       </div>
 
       <Modal
         title="添加 VLAN"
         open={addModalOpen}
+        centered
         onCancel={() => setAddModalOpen(false)}
         footer={null}
-        destroyOnClose
-        width={520}
+        destroyOnHidden
+        width={600}
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit} className="std-form">
           <Form.Item name="towerAlies" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
