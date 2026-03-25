@@ -72,3 +72,7 @@ export type { ConfigMapFormValues, ConfigMapFormProps } from './ConfigMapForm';
 // Secret 表单组件
 export { default as SecretForm } from './SecretForm';
 export type { SecretFormValues, SecretFormProps } from './SecretForm';
+
+// PDB (PodDisruptionBudget) 表单组件
+export { default as PDBForm } from './PDBForm';
+export type { PDBFormValues, PDBFormProps } from './PDBForm';

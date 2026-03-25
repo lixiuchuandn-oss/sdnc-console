@@ -2084,3 +2084,59 @@ export const createHarvesterIngress = async (cloudId: string, namespace: string,
 export const updateHarvesterIngress = async (cloudId: string, namespace: string, name: string, body: any) => {
   return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/ingresses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
 };
+
+// ============================================================
+// PodDisruptionBudget API
+// ============================================================
+
+/**
+ * 获取 PodDisruptionBudget 列表
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间 (可选，不传则返回所有命名空间)
+ * @returns Promise<any>
+ */
+export const fetchHarvesterPDBs = async (cloudId: string, namespace?: string) => {
+  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets${query}`);
+};
+
+/**
+ * 获取 PodDisruptionBudget 详情
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name PDB 名称
+ * @returns Promise<any>
+ */
+export const fetchHarvesterPDBDetail = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 创建 PodDisruptionBudget
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param body PDB 资源定义
+ * @returns Promise<any>
+ */
+export const createHarvesterPDB = async (cloudId: string, namespace: string, body: any) => {
+  const payload = {
+    namespace: body?.metadata?.namespace || namespace,
+    name: body?.metadata?.name,
+    labels: body?.metadata?.labels,
+    minAvailable: body?.spec?.minAvailable,
+    maxUnavailable: body?.spec?.maxUnavailable,
+    selector: body?.spec?.selector,
+  };
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets`, payload);
+};
+
+/**
+ * 删除 PodDisruptionBudget
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name PDB 名称
+ * @returns Promise<any>
+ */
+export const deleteHarvesterPDB = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};

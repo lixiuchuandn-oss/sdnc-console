@@ -7,7 +7,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 ### 核心能力
 
 - **多云管理 (CNMC)**: 支持阿里云、华为云、腾讯云、Harvester(KubeVirt) 等多云资源的统一管理
-- **容器管理**: 工作负载、Pod、任务、服务发现、镜像仓库、配置管理等容器资源管理
+- **容器管理**: 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略等容器资源管理
 - **SDN管理 (SDNCC)**: SRv6隧道、IPsec VPN、ACL、NAT、虚拟路由器等网络编排能力
 - **AI SOC中心 (CNSOC)**: 安全运营、威胁分析、报告管理等安全能力
 - **系统设置**: 用户管理、租户管理、RBAC权限控制、审计日志
@@ -117,17 +117,19 @@ Compute.Tower/
 │   │   │   │   │   │   │   ├── GRPCRouteForm.tsx      # GRPCRoute 创建表单
 │   │   │   │   │   │   │   ├── IngressForm.tsx        # Ingress 创建/编辑表单
 │   │   │   │   │   │   │   ├── JobForm.tsx            # Job 创建表单
+│   │   │   │   │   │   │   ├── PDBForm.tsx            # PodDisruptionBudget 创建表单
 │   │   │   │   │   │   │   ├── PodLogViewer.tsx       # Pod 日志查看组件
 │   │   │   │   │   │   │   ├── PodTerminal.tsx        # Pod 终端组件
 │   │   │   │   │   │   │   ├── RegistryBrowser.tsx    # 镜像仓库浏览器
 │   │   │   │   │   │   │   ├── SecretForm.tsx         # Secret 创建表单
 │   │   │   │   │   │   │   ├── ServiceForm.tsx        # Service 创建/编辑表单
-│   │   │   │   │   │   │   ├── WorkloadForm.tsx       # 工作负载创建表单
+│   │   │   │   │   │   │   ├── WorkloadForm.tsx       # 工作负载创建表单（含高级调度策略）
 │   │   │   │   │   │   │   ├── YamlEditModal.tsx      # YAML 编辑弹窗
 │   │   │   │   │   │   │   └── ...
 │   │   │   │   │   │   ├── ConfigsSection.tsx   # ConfigMap/Secret 列表
 │   │   │   │   │   │   ├── GatewayApiSection.tsx # Gateway API 列表
 │   │   │   │   │   │   ├── JobsSection.tsx       # Job/CronJob 列表
+│   │   │   │   │   │   ├── PDBSection.tsx        # PodDisruptionBudget 列表
 │   │   │   │   │   │   ├── PodsSection.tsx       # Pod 列表
 │   │   │   │   │   │   ├── RegistriesSection.tsx # 镜像仓库列表
 │   │   │   │   │   │   └── WorkloadsSection.tsx  # 工作负载列表
@@ -242,6 +244,7 @@ npm run test     # 运行测试
 - `/api/clouds/{id}/resources/harvester/containers/registries`: 镜像仓库
 - `/api/clouds/{id}/resources/harvester/containers/configmaps`: ConfigMap 管理
 - `/api/clouds/{id}/resources/harvester/containers/secrets`: Secret 管理
+- `/api/clouds/{id}/resources/harvester/containers/pdbs`: PodDisruptionBudget 管理
 
 **SDN 网络**:
 - `/api/networks/srv6`: SRv6 隧道
@@ -279,7 +282,7 @@ Harvester 容器管理模块提供完整的 Kubernetes 容器资源管理能力�
 
 | 功能模块 | 支持操作 | 状态 |
 |---------|---------|------|
-| 工作负载 | Deployment/StatefulSet/DaemonSet 创建、编辑 | ✅ 已完成 |
+| 工作负载 | Deployment/StatefulSet/DaemonSet 创建、编辑、高级调度策略 | ✅ 已完成 |
 | Pod | 列表、详情、日志、终端 | ✅ 已完成 |
 | 任务 | Job/CronJob 创建、管理 | ✅ 已完成 |
 | Service | 创建、编辑、YAML编辑、查看关联Pod | ✅ 已完成 |
@@ -287,12 +290,20 @@ Harvester 容器管理模块提供完整的 Kubernetes 容器资源管理能力�
 | Gateway API | Gateway/HTTPRoute/GRPCRoute 创建 | ✅ 已完成 |
 | 镜像仓库 | 浏览、凭证管理 | ✅ 已完成 |
 | 配置管理 | ConfigMap/Secret 创建、编辑 | ✅ 已完成 |
+| PodDisruptionBudget | 列表、创建、删除、YAML编辑 | ✅ 已完成 |
+| 高级调度策略 | 节点亲和性、Pod亲和性/反亲和性、污点容忍 | ✅ 已完成 |
 
 ### 关键组件
 
 **工作负载管理**:
-- `WorkloadForm.tsx`: 支持 Deployment/StatefulSet/DaemonSet 创建
+- `WorkloadForm.tsx`: 支持 Deployment/StatefulSet/DaemonSet 创建，含高级调度策略配置
 - `WorkloadsSection.tsx`: 工作负载列表展示
+
+**高级调度策略** (WorkloadForm 内置):
+- **节点亲和性编辑器**: 配置 `required` (必须满足) 和 `preferred` (尽量满足) 规则
+- **Pod 亲和性编辑器**: 支持标签选择器、命名空间选择、拓扑域配置
+- **Pod 反亲和性编辑器**: 将 Pod 分散到不同节点
+- **污点容忍编辑器**: 支持 Key/Operator/Value/Effect 配置，提供常用预设快速添加
 
 **Pod 管理**:
 - `PodsSection.tsx`: Pod 列表（含详情、日志、终端）
@@ -323,6 +334,10 @@ Harvester 容器管理模块提供完整的 Kubernetes 容器资源管理能力�
 - `RegistryBrowser.tsx`: 镜像仓库浏览器
 - `RegistryCredentialForm.tsx`: 仓库凭证管理
 - `RegistriesSection.tsx`: 镜像仓库列表
+
+**PodDisruptionBudget**:
+- `PDBForm.tsx`: PDB 创建表单
+- `PDBSection.tsx`: PDB 列表管理
 
 **通用组件**:
 - `YamlEditModal.tsx`: 通用 YAML 编辑弹窗
@@ -378,6 +393,30 @@ Harvester 容器管理模块提供完整的 Kubernetes 容器资源管理能力�
 - 公共逻辑提取到 `components/` 或 `hooks/`
 - 使用 TypeScript 类型定义，放在 `types/`
 - 所有 API 调用通过 `services/` 层
+
+### React 状态管理注意事项
+
+使用 Ant Design Form 时，对于复杂嵌套数据的动态更新：
+
+**问题**: `Form.useWatch` 对嵌套路径的监听不可靠，`form.setFieldsValue` 更新后 UI 可能不刷新。
+
+**解决方案**: 使用本地 `useState` 管理复杂数据，配合 `useEffect` 初始化和 `syncToForm` 函数同步：
+
+```tsx
+const [rules, setRules] = useState<Rule[]>([]);
+
+// 初始化时从 form 读取
+useEffect(() => {
+  setRules(form.getFieldValue('rules') || []);
+}, [form]);
+
+// 添加规则 - 直接更新本地 state，UI 立即响应
+const addRule = useCallback(() => {
+  const updated = [...rules, newRule];
+  setRules(updated);
+  form.setFieldsValue({ rules: updated });
+}, [rules, form]);
+```
 
 ### 页面模板组件
 
@@ -468,7 +507,7 @@ const columns = [
 | 平台 | 代码 | 说明 |
 |------|------|------|
 | 多云管理 | CNMC | 云资源、云主机、云网络 |
-| 容器管理 | CONTAINER | 工作负载、Pod、任务、服务发现、镜像仓库、配置管理 |
+| 容器管理 | CONTAINER | 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略 |
 | SDN管理 | SDNCC | SRv6、IPsec、ACL、NAT、VR |
 | AI SOC中心 | CNSOC | 安全运营、威胁分析、报告 |
 | 系统设置 | SETTINGS | 用户、租户、权限、审计 |

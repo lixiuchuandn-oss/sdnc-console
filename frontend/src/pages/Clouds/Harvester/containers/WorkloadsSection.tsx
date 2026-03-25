@@ -402,9 +402,13 @@ const WorkloadsSection: React.FC<Props> = ({
   
   // 打开创建弹窗
   const handleOpenCreate = useCallback(() => {
+    // 如果镜像凭证为空，先刷新资源
+    if (imagePullSecrets.length === 0) {
+      onRefresh(true);
+    }
     setCreateType(activeTab as WorkloadType);
     setCreateModalVisible(true);
-  }, [activeTab]);
+  }, [activeTab, imagePullSecrets.length, onRefresh]);
   
   // 打开编辑弹窗
   const handleEdit = useCallback((record: any) => {

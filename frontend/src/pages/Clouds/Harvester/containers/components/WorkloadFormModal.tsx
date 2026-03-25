@@ -56,6 +56,7 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
       maskClosable={false}
     >
       <WorkloadForm
+        key={isEditMode ? `edit-${editData?.metadata?.uid || 'new'}` : 'create'}
         cloudId={cloudId}
         namespacesOptions={namespacesOptions}
         imagePullSecrets={imagePullSecrets}

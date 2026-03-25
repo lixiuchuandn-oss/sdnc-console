@@ -59,6 +59,82 @@ import { RegistryBrowserDrawer } from './index';
 
 export type WorkloadType = 'deployment' | 'statefulset' | 'daemonset';
 
+// 节点选择器条件操作符
+export type NodeSelectorOperator = 'In' | 'NotIn' | 'Exists' | 'DoesNotExist' | 'Gt' | 'Lt';
+
+// 节点选择器条件表达式
+export interface NodeSelectorRequirement {
+  key: string;
+  operator: NodeSelectorOperator;
+  values?: string[];
+}
+
+// 节点选择器项
+export interface NodeSelectorTerm {
+  matchExpressions?: NodeSelectorRequirement[];
+  matchFields?: NodeSelectorRequirement[];
+}
+
+// 节点亲和性权重项
+export interface PreferredSchedulingTerm {
+  weight: number; // 1-100
+  preference: NodeSelectorTerm;
+}
+
+// 节点亲和性配置
+export interface NodeAffinityConfig {
+  required?: {
+    nodeSelectorTerms: NodeSelectorTerm[];
+  };
+  preferred?: PreferredSchedulingTerm[];
+}
+
+// Pod 亲和性标签选择器表达式
+export interface PodLabelSelectorRequirement {
+  key: string;
+  operator: 'In' | 'NotIn' | 'Exists' | 'DoesNotExist';
+  values?: string[];
+}
+
+// Pod 亲和性条件
+export interface PodAffinityTerm {
+  labelSelector?: {
+    matchExpressions?: PodLabelSelectorRequirement[];
+    matchLabels?: Record<string, string>;
+  };
+  namespaces?: string[];
+  topologyKey: string;
+}
+
+// Pod 亲和性权重项 (用于 preferred)
+export interface WeightedPodAffinityTerm {
+  weight: number; // 1-100
+  podAffinityTerm: PodAffinityTerm;
+}
+
+// Pod 亲和性配置
+export interface PodAffinityConfig {
+  required?: PodAffinityTerm[];
+  preferred?: WeightedPodAffinityTerm[];
+}
+
+// 完整亲和性配置
+export interface AffinityConfig {
+  nodeAffinity?: NodeAffinityConfig;
+  nodeAntiAffinity?: NodeAffinityConfig;
+  podAffinity?: PodAffinityConfig;
+  podAntiAffinity?: PodAffinityConfig;
+}
+
+// 污点容忍配置
+export interface Toleration {
+  key?: string;           // 污点键
+  operator?: 'Equal' | 'Exists';  // 操作符
+  value?: string;         // 污点值 (Equal 时需要)
+  effect?: 'NoSchedule' | 'PreferNoSchedule' | 'NoExecute' | 'All';  // 效果
+  tolerationSeconds?: number;  // 容忍时间 (NoExecute 时可选)
+}
+
 export interface WorkloadFormValues {
   // 基本信息
   name: string;
@@ -83,6 +159,15 @@ export interface WorkloadFormValues {
   replicas: number;
   imagePullSecrets: string[];
   nodeSelector: Array<{ key: string; value: string }>;
+  
+  // 亲和性配置
+  nodeAffinity?: NodeAffinityConfig;
+  nodeAntiAffinity?: NodeAffinityConfig;
+  podAffinity?: PodAffinityConfig;
+  podAntiAffinity?: PodAffinityConfig;
+  
+  // 污点容忍
+  tolerations?: Toleration[];
   
   // 健康检查
   livenessProbe?: {
@@ -142,6 +227,63 @@ const PROBE_TYPE_OPTIONS = [
   { value: 'httpGet', label: 'HTTP 请求' },
   { value: 'tcpSocket', label: 'TCP 端口' },
   { value: 'exec', label: '执行命令' },
+];
+
+// 节点选择器操作符选项
+const NODE_SELECTOR_OPERATOR_OPTIONS = [
+  { value: 'In', label: 'In (值在列表中)' },
+  { value: 'NotIn', label: 'NotIn (值不在列表中)' },
+  { value: 'Exists', label: 'Exists (标签存在)' },
+  { value: 'DoesNotExist', label: 'DoesNotExist (标签不存在)' },
+  { value: 'Gt', label: 'Gt (大于)' },
+  { value: 'Lt', label: 'Lt (小于)' },
+];
+
+// 亲和性规则类型选项
+const AFFINITY_TYPE_OPTIONS = [
+  { value: 'required', label: '必须满足 (硬性要求)' },
+  { value: 'preferred', label: '尽量满足 (软性偏好)' },
+];
+
+// Pod 选择器操作符选项 (用于 Pod 亲和性)
+const POD_SELECTOR_OPERATOR_OPTIONS = [
+  { value: 'In', label: 'In (值在列表中)' },
+  { value: 'NotIn', label: 'NotIn (值不在列表中)' },
+  { value: 'Exists', label: 'Exists (标签存在)' },
+  { value: 'DoesNotExist', label: 'DoesNotExist (标签不存在)' },
+];
+
+// 常用拓扑域键选项
+const TOPOLOGY_KEY_OPTIONS = [
+  { value: 'kubernetes.io/hostname', label: 'kubernetes.io/hostname (同一节点)' },
+  { value: 'topology.kubernetes.io/zone', label: 'topology.kubernetes.io/zone (同一可用区)' },
+  { value: 'topology.kubernetes.io/region', label: 'topology.kubernetes.io/region (同一区域)' },
+];
+
+// 污点容忍操作符选项
+const TOLERATION_OPERATOR_OPTIONS = [
+  { value: 'Equal', label: 'Equal (匹配键值)' },
+  { value: 'Exists', label: 'Exists (键存在)' },
+];
+
+// 污点效果选项
+const TOLERATION_EFFECT_OPTIONS = [
+  { value: 'NoSchedule', label: 'NoSchedule (不调度新 Pod)' },
+  { value: 'PreferNoSchedule', label: 'PreferNoSchedule (尽量不调度)' },
+  { value: 'NoExecute', label: 'NoExecute (不调度且驱逐现有 Pod)' },
+  { value: 'All', label: 'All (匹配所有效果)' },
+];
+
+// 常用污点预设
+const COMMON_TOLERATION_PRESETS = [
+  { key: 'node-role.kubernetes.io/master', label: 'Master 节点' },
+  { key: 'node-role.kubernetes.io/control-plane', label: '控制平面节点' },
+  { key: 'node.kubernetes.io/not-ready', label: '节点未就绪' },
+  { key: 'node.kubernetes.io/unreachable', label: '节点不可达' },
+  { key: 'node.kubernetes.io/disk-pressure', label: '磁盘压力' },
+  { key: 'node.kubernetes.io/memory-pressure', label: '内存压力' },
+  { key: 'node.kubernetes.io/pid-pressure', label: 'PID 压力' },
+  { key: 'node.kubernetes.io/network-unavailable', label: '网络不可用' },
 ];
 
 // ============================================================
@@ -372,6 +514,1219 @@ const ProbeEditor: React.FC<{
         }}
       </Form.Item>
     </Card>
+  );
+};
+
+// ============================================================
+// 子组件: 节点亲和性编辑器
+// ============================================================
+
+interface NodeAffinityEditorProps {
+  name: 'nodeAffinity' | 'nodeAntiAffinity';
+  label: string;
+}
+
+/**
+ * 节点亲和性编辑器组件
+ * 支持配置 required (必须) 和 preferred (尽量) 两种类型的规则
+ */
+/**
+ * 节点亲和性编辑器组件
+ * 支持配置 required (必须) 和 preferred (尽量) 两种类型的规则
+ * 
+ * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
+ */
+const NodeAffinityEditor: React.FC<NodeAffinityEditorProps> = ({ name, label }) => {
+  const form = Form.useFormInstance();
+  
+  // 本地 state 管理规则列表
+  const [requiredRules, setRequiredRules] = useState<NodeSelectorTerm[]>([]);
+  const [preferredRules, setPreferredRules] = useState<PreferredSchedulingTerm[]>([]);
+  
+  // 初始化时从 form 读取值
+  useEffect(() => {
+    const value = form.getFieldValue(name) || {};
+    setRequiredRules(value?.required?.nodeSelectorTerms || []);
+    setPreferredRules(value?.preferred || []);
+  }, [form, name]);
+
+  // 添加必须满足的规则
+  const addRequiredRule = () => {
+    const newRule: NodeSelectorTerm = { matchExpressions: [], matchFields: [] };
+    const updated = [...requiredRules, newRule];
+    setRequiredRules(updated);
+    
+    const currentValue = form.getFieldValue(name) || {};
+    form.setFieldsValue({
+      [name]: {
+        ...currentValue,
+        required: { nodeSelectorTerms: updated }
+      }
+    });
+  };
+
+  // 添加尽量满足的规则
+  const addPreferredRule = () => {
+    const newRule: PreferredSchedulingTerm = { weight: 50, preference: { matchExpressions: [], matchFields: [] } };
+    const updated = [...preferredRules, newRule];
+    setPreferredRules(updated);
+    
+    const currentValue = form.getFieldValue(name) || {};
+    form.setFieldsValue({
+      [name]: {
+        ...currentValue,
+        preferred: updated
+      }
+    });
+  };
+
+  // 删除必须满足的规则
+  const removeRequiredRule = (index: number) => {
+    const updated = requiredRules.filter((_, i) => i !== index);
+    setRequiredRules(updated);
+    
+    const currentValue = form.getFieldValue(name) || {};
+    form.setFieldsValue({
+      [name]: {
+        ...currentValue,
+        required: updated.length > 0 ? { nodeSelectorTerms: updated } : undefined
+      }
+    });
+  };
+
+  // 删除尽量满足的规则
+  const removePreferredRule = (index: number) => {
+    const updated = preferredRules.filter((_, i) => i !== index);
+    setPreferredRules(updated);
+    
+    const currentValue = form.getFieldValue(name) || {};
+    form.setFieldsValue({
+      [name]: {
+        ...currentValue,
+        preferred: updated
+      }
+    });
+  };
+
+  // 添加匹配表达式
+  const addMatchExpression = (ruleType: 'required' | 'preferred', ruleIndex: number, fieldType: 'matchExpressions' | 'matchFields') => {
+    const newExpr = { key: '', operator: 'In' as const, values: [] };
+    const currentValue = form.getFieldValue(name) || {};
+    
+    if (ruleType === 'required') {
+      // 从 form 读取最新数据（包含用户已输入的内容）
+      const currentRequired = currentValue?.required?.nodeSelectorTerms || [];
+      const currentRule = currentRequired[ruleIndex] || { matchExpressions: [], matchFields: [] };
+      
+      const newRequired = [...currentRequired];
+      newRequired[ruleIndex] = {
+        ...currentRule,
+        [fieldType]: [...(currentRule[fieldType] || []), newExpr]
+      };
+      
+      setRequiredRules(newRequired);
+      form.setFieldsValue({
+        [name]: {
+          ...currentValue,
+          required: { nodeSelectorTerms: newRequired }
+        }
+      });
+    } else {
+      // 从 form 读取最新数据（包含用户已输入的内容）
+      const currentPreferred = currentValue?.preferred || [];
+      const currentRule = currentPreferred[ruleIndex] || { weight: 50, preference: { matchExpressions: [], matchFields: [] } };
+      const currentPreference = currentRule.preference || { matchExpressions: [], matchFields: [] };
+      
+      const newPreferred = [...currentPreferred];
+      newPreferred[ruleIndex] = {
+        ...currentRule,
+        preference: {
+          ...currentPreference,
+          [fieldType]: [...(currentPreference[fieldType] || []), newExpr]
+        }
+      };
+      
+      setPreferredRules(newPreferred);
+      form.setFieldsValue({
+        [name]: {
+          ...currentValue,
+          preferred: newPreferred
+        }
+      });
+    }
+  };
+
+  // 删除匹配表达式
+  const removeMatchExpression = (ruleType: 'required' | 'preferred', ruleIndex: number, exprIndex: number, fieldType: 'matchExpressions' | 'matchFields') => {
+    const currentValue = form.getFieldValue(name) || {};
+    
+    if (ruleType === 'required') {
+      // 从 form 读取最新数据
+      const currentRequired = currentValue?.required?.nodeSelectorTerms || [];
+      const currentRule = currentRequired[ruleIndex];
+      if (currentRule) {
+        const newRequired = [...currentRequired];
+        newRequired[ruleIndex] = {
+          ...currentRule,
+          [fieldType]: (currentRule[fieldType] || []).filter((_: any, i: number) => i !== exprIndex)
+        };
+        setRequiredRules(newRequired);
+        form.setFieldsValue({
+          [name]: {
+            ...currentValue,
+            required: { nodeSelectorTerms: newRequired }
+          }
+        });
+      }
+    } else {
+      // 从 form 读取最新数据
+      const currentPreferred = currentValue?.preferred || [];
+      const currentRule = currentPreferred[ruleIndex];
+      if (currentRule) {
+        const currentPreference = currentRule.preference || { matchExpressions: [], matchFields: [] };
+        const newPreferred = [...currentPreferred];
+        newPreferred[ruleIndex] = {
+          ...currentRule,
+          preference: {
+            ...currentPreference,
+            [fieldType]: (currentPreference[fieldType] || []).filter((_: any, i: number) => i !== exprIndex)
+          }
+        };
+        setPreferredRules(newPreferred);
+        form.setFieldsValue({
+          [name]: {
+            ...currentValue,
+            preferred: newPreferred
+          }
+        });
+      }
+    }
+  };
+
+  // 渲染单个匹配表达式
+  const renderMatchExpression = (ruleType: 'required' | 'preferred', ruleIndex: number, exprIndex: number, fieldType: 'matchExpressions' | 'matchFields') => {
+    const basePath = ruleType === 'required'
+      ? [name, 'required', 'nodeSelectorTerms', ruleIndex, fieldType, exprIndex]
+      : [name, 'preferred', ruleIndex, 'preference', fieldType, exprIndex];
+    
+    const operatorValue = form.getFieldValue([...basePath, 'operator']);
+    const showValues = operatorValue !== 'Exists' && operatorValue !== 'DoesNotExist';
+
+    return (
+      <Row key={`${fieldType}-${exprIndex}`} gutter={8} style={{ marginBottom: 8 }}>
+        <Col span={6}>
+          <Form.Item name={[...basePath, 'key']} noStyle>
+            <Input placeholder="标签键 (如: kubernetes.io/os)" />
+          </Form.Item>
+        </Col>
+        <Col span={5}>
+          <Form.Item name={[...basePath, 'operator']} noStyle>
+            <Select options={NODE_SELECTOR_OPERATOR_OPTIONS} style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+        {showValues && (
+          <Col span={10}>
+            <Form.Item name={[...basePath, 'values']} noStyle>
+              <Select
+                mode="tags"
+                placeholder="输入值后回车添加 (如: linux)"
+                style={{ width: '100%' }}
+                tokenSeparators={[',']}
+              />
+            </Form.Item>
+          </Col>
+        )}
+        <Col span={showValues ? 3 : 13}>
+          <Button
+            type="text"
+            danger
+            icon={<MinusCircleOutlined />}
+            onClick={() => removeMatchExpression(ruleType, ruleIndex, exprIndex, fieldType)}
+          />
+        </Col>
+      </Row>
+    );
+  };
+
+  // 渲染单个规则
+  const renderRule = (ruleType: 'required' | 'preferred', ruleIndex: number) => {
+    const matchExpressions = ruleType === 'required'
+      ? (requiredRules[ruleIndex]?.matchExpressions || [])
+      : (preferredRules[ruleIndex]?.preference?.matchExpressions || []);
+    
+    const matchFields = ruleType === 'required'
+      ? (requiredRules[ruleIndex]?.matchFields || [])
+      : (preferredRules[ruleIndex]?.preference?.matchFields || []);
+
+    return (
+      <Card
+        key={`${ruleType}-${ruleIndex}`}
+        size="small"
+        style={{ marginBottom: 12 }}
+        title={
+          <Space>
+            <Tag color={ruleType === 'required' ? 'red' : 'blue'}>
+              {ruleType === 'required' ? '必须满足' : '尽量满足'}
+            </Tag>
+            {ruleType === 'preferred' && (
+              <Form.Item name={[name, 'preferred', ruleIndex, 'weight']} noStyle>
+                <InputNumber
+                  min={1}
+                  max={100}
+                  placeholder="权重"
+                  style={{ width: 80 }}
+                />
+              </Form.Item>
+            )}
+            <span style={{ color: '#999', fontSize: 12 }}>权重 1-100</span>
+          </Space>
+        }
+        extra={
+          <Button
+            type="text"
+            danger
+            size="small"
+            onClick={() => ruleType === 'required' ? removeRequiredRule(ruleIndex) : removePreferredRule(ruleIndex)}
+          >
+            删除规则
+          </Button>
+        }
+      >
+        {/* 匹配表达式 */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 500, fontSize: 13 }}>匹配表达式 (matchExpressions)</span>
+            <Button
+              type="dashed"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() => addMatchExpression(ruleType, ruleIndex, 'matchExpressions')}
+            >
+              添加条件
+            </Button>
+          </div>
+          {matchExpressions.map((_: any, exprIndex: number) =>
+            renderMatchExpression(ruleType, ruleIndex, exprIndex, 'matchExpressions')
+          )}
+          {matchExpressions.length === 0 && (
+            <div style={{ color: '#999', fontSize: 12 }}>暂无匹配表达式</div>
+          )}
+        </div>
+
+        {/* 匹配字段 */}
+        <div>
+          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 500, fontSize: 13 }}>匹配字段 (matchFields)</span>
+            <Button
+              type="dashed"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() => addMatchExpression(ruleType, ruleIndex, 'matchFields')}
+            >
+              添加条件
+            </Button>
+          </div>
+          {matchFields.map((_: any, exprIndex: number) =>
+            renderMatchExpression(ruleType, ruleIndex, exprIndex, 'matchFields')
+          )}
+          {matchFields.length === 0 && (
+            <div style={{ color: '#999', fontSize: 12 }}>暂无匹配字段</div>
+          )}
+        </div>
+      </Card>
+    );
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontWeight: 500 }}>{label}</span>
+        <Space>
+          <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addRequiredRule}>
+            添加必须规则
+          </Button>
+          <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addPreferredRule}>
+            添加偏好规则
+          </Button>
+        </Space>
+      </div>
+
+      {requiredRules.length === 0 && preferredRules.length === 0 && (
+        <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+          未配置亲和性规则，点击上方按钮添加
+        </div>
+      )}
+
+      {/* 必须满足的规则 */}
+      {requiredRules.map((_: any, index: number) => renderRule('required', index))}
+
+      {/* 尽量满足的规则 */}
+      {preferredRules.map((_: any, index: number) => renderRule('preferred', index))}
+    </div>
+  );
+};
+
+// ============================================================
+// 子组件: Pod 亲和性编辑器
+// ============================================================
+interface PodAffinityEditorProps {
+  name: 'podAffinity' | 'podAntiAffinity';
+  label: string;
+  namespacesOptions?: string[];
+}
+
+/**
+ * Pod 亲和性编辑器组件
+ * 支持配置 required (必须) 和 preferred (尽量) 两种类型的规则
+ * Pod 亲和性基于标签选择器匹配目标 Pod，并使用拓扑域约束调度位置
+ * 
+ * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
+ */
+const PodAffinityEditor: React.FC<PodAffinityEditorProps> = ({ name, label, namespacesOptions = [] }) => {
+  const form = Form.useFormInstance();
+  
+  // 本地 state 管理规则列表
+  const [requiredRules, setRequiredRules] = useState<PodAffinityTerm[]>([]);
+  const [preferredRules, setPreferredRules] = useState<WeightedPodAffinityTerm[]>([]);
+  
+  // 初始化时从 form 读取值
+  useEffect(() => {
+    const value = form.getFieldValue(name) || {};
+    setRequiredRules(value?.required || []);
+    setPreferredRules(value?.preferred || []);
+  }, [form, name]);
+
+  // 添加必须满足的规则
+  const addRequiredRule = () => {
+    const newRule: PodAffinityTerm = {
+      labelSelector: { matchLabels: {}, matchExpressions: [] },
+      namespaces: [],
+      topologyKey: 'kubernetes.io/hostname'
+    };
+    const updated = [...requiredRules, newRule];
+    setRequiredRules(updated);
+    
+    const currentValue = form.getFieldValue(name) || {};
+    form.setFieldsValue({
+      [name]: {
+        ...currentValue,
+        required: updated
+      }
+    });
+  };
+
+  // 添加尽量满足的规则
+  const addPreferredRule = () => {
+    const newRule: WeightedPodAffinityTerm = {
+      weight: 50,
+      podAffinityTerm: {
+        labelSelector: { matchLabels: {}, matchExpressions: [] },
+        namespaces: [],
+        topologyKey: 'kubernetes.io/hostname'
+      }
+    };
+    const updated = [...preferredRules, newRule];
+    setPreferredRules(updated);
+    
+    const currentValue = form.getFieldValue(name) || {};
+    form.setFieldsValue({
+      [name]: {
+        ...currentValue,
+        preferred: updated
+      }
+    });
+  };
+
+  // 删除必须满足的规则
+  const removeRequiredRule = (index: number) => {
+    const updated = requiredRules.filter((_, i) => i !== index);
+    setRequiredRules(updated);
+    
+    const currentValue = form.getFieldValue(name) || {};
+    form.setFieldsValue({
+      [name]: {
+        ...currentValue,
+        required: updated
+      }
+    });
+  };
+
+  // 删除尽量满足的规则
+  const removePreferredRule = (index: number) => {
+    const updated = preferredRules.filter((_, i) => i !== index);
+    setPreferredRules(updated);
+    
+    const currentValue = form.getFieldValue(name) || {};
+    form.setFieldsValue({
+      [name]: {
+        ...currentValue,
+        preferred: updated
+      }
+    });
+  };
+
+  // 添加标签匹配条件 (matchLabels)
+  const addMatchLabel = (ruleType: 'required' | 'preferred', ruleIndex: number) => {
+    const tempKey = `__new_label_${Date.now()}`;
+    const currentValue = form.getFieldValue(name) || {};
+    
+    if (ruleType === 'required') {
+      // 从 form 读取最新数据
+      const currentRequired = currentValue?.required || [];
+      const currentRule = currentRequired[ruleIndex] || { labelSelector: { matchLabels: {}, matchExpressions: [] }, namespaces: [], topologyKey: 'kubernetes.io/hostname' };
+      const currentLabelSelector = currentRule.labelSelector || { matchLabels: {}, matchExpressions: [] };
+      
+      const newRequired = [...currentRequired];
+      newRequired[ruleIndex] = {
+        ...currentRule,
+        labelSelector: {
+          ...currentLabelSelector,
+          matchLabels: { ...currentLabelSelector.matchLabels, [tempKey]: '' }
+        }
+      };
+      setRequiredRules(newRequired);
+      form.setFieldsValue({ [name]: { ...currentValue, required: newRequired } });
+    } else {
+      // 从 form 读取最新数据
+      const currentPreferred = currentValue?.preferred || [];
+      const currentRule = currentPreferred[ruleIndex] || { weight: 50, podAffinityTerm: { labelSelector: { matchLabels: {}, matchExpressions: [] }, namespaces: [], topologyKey: 'kubernetes.io/hostname' } };
+      const currentPodAffinityTerm = currentRule.podAffinityTerm || { labelSelector: { matchLabels: {}, matchExpressions: [] }, namespaces: [], topologyKey: 'kubernetes.io/hostname' };
+      const currentLabelSelector = currentPodAffinityTerm.labelSelector || { matchLabels: {}, matchExpressions: [] };
+      
+      const newPreferred = [...currentPreferred];
+      newPreferred[ruleIndex] = {
+        ...currentRule,
+        podAffinityTerm: {
+          ...currentPodAffinityTerm,
+          labelSelector: {
+            ...currentLabelSelector,
+            matchLabels: { ...currentLabelSelector.matchLabels, [tempKey]: '' }
+          }
+        }
+      };
+      setPreferredRules(newPreferred);
+      form.setFieldsValue({ [name]: { ...currentValue, preferred: newPreferred } });
+    }
+  };
+
+  // 删除标签匹配条件 (matchLabels)
+  const removeMatchLabel = (ruleType: 'required' | 'preferred', ruleIndex: number, key: string) => {
+    if (ruleType === 'required') {
+      const updated = [...requiredRules];
+      const currentRule = updated[ruleIndex];
+      if (currentRule?.labelSelector?.matchLabels) {
+        const newMatchLabels = { ...currentRule.labelSelector.matchLabels };
+        delete newMatchLabels[key];
+        updated[ruleIndex] = {
+          ...currentRule,
+          labelSelector: { ...currentRule.labelSelector, matchLabels: newMatchLabels }
+        };
+        setRequiredRules(updated);
+        
+        const currentValue = form.getFieldValue(name) || {};
+        form.setFieldsValue({ [name]: { ...currentValue, required: updated } });
+      }
+    } else {
+      const updated = [...preferredRules];
+      const currentRule = updated[ruleIndex];
+      if (currentRule?.podAffinityTerm?.labelSelector?.matchLabels) {
+        const newMatchLabels = { ...currentRule.podAffinityTerm.labelSelector.matchLabels };
+        delete newMatchLabels[key];
+        updated[ruleIndex] = {
+          ...currentRule,
+          podAffinityTerm: {
+            ...currentRule.podAffinityTerm,
+            labelSelector: { ...currentRule.podAffinityTerm.labelSelector, matchLabels: newMatchLabels }
+          }
+        };
+        setPreferredRules(updated);
+        
+        const currentValue = form.getFieldValue(name) || {};
+        form.setFieldsValue({ [name]: { ...currentValue, preferred: updated } });
+      }
+    }
+  };
+
+  // 更新标签键
+  const updateMatchLabelKey = (ruleType: 'required' | 'preferred', ruleIndex: number, oldKey: string, newKey: string) => {
+    if (!newKey || oldKey === newKey) return;
+    
+    if (ruleType === 'required') {
+      const updated = [...requiredRules];
+      const currentRule = updated[ruleIndex];
+      if (currentRule?.labelSelector?.matchLabels) {
+        const matchLabels = { ...currentRule.labelSelector.matchLabels };
+        const value = matchLabels[oldKey];
+        delete matchLabels[oldKey];
+        matchLabels[newKey] = value;
+        updated[ruleIndex] = {
+          ...currentRule,
+          labelSelector: { ...currentRule.labelSelector, matchLabels }
+        };
+        setRequiredRules(updated);
+        
+        const currentValue = form.getFieldValue(name) || {};
+        form.setFieldsValue({ [name]: { ...currentValue, required: updated } });
+      }
+    } else {
+      const updated = [...preferredRules];
+      const currentRule = updated[ruleIndex];
+      if (currentRule?.podAffinityTerm?.labelSelector?.matchLabels) {
+        const matchLabels = { ...currentRule.podAffinityTerm.labelSelector.matchLabels };
+        const value = matchLabels[oldKey];
+        delete matchLabels[oldKey];
+        matchLabels[newKey] = value;
+        updated[ruleIndex] = {
+          ...currentRule,
+          podAffinityTerm: {
+            ...currentRule.podAffinityTerm,
+            labelSelector: { ...currentRule.podAffinityTerm.labelSelector, matchLabels }
+          }
+        };
+        setPreferredRules(updated);
+        
+        const currentValue = form.getFieldValue(name) || {};
+        form.setFieldsValue({ [name]: { ...currentValue, preferred: updated } });
+      }
+    }
+  };
+
+  // 更新标签值
+  const updateMatchLabelValue = (ruleType: 'required' | 'preferred', ruleIndex: number, key: string, value: string) => {
+    if (ruleType === 'required') {
+      const updated = [...requiredRules];
+      const currentRule = updated[ruleIndex];
+      if (currentRule?.labelSelector?.matchLabels) {
+        updated[ruleIndex] = {
+          ...currentRule,
+          labelSelector: {
+            ...currentRule.labelSelector,
+            matchLabels: { ...currentRule.labelSelector.matchLabels, [key]: value }
+          }
+        };
+        setRequiredRules(updated);
+        
+        const currentValue = form.getFieldValue(name) || {};
+        form.setFieldsValue({ [name]: { ...currentValue, required: updated } });
+      }
+    } else {
+      const updated = [...preferredRules];
+      const currentRule = updated[ruleIndex];
+      if (currentRule?.podAffinityTerm?.labelSelector?.matchLabels) {
+        updated[ruleIndex] = {
+          ...currentRule,
+          podAffinityTerm: {
+            ...currentRule.podAffinityTerm,
+            labelSelector: {
+              ...currentRule.podAffinityTerm.labelSelector,
+              matchLabels: { ...currentRule.podAffinityTerm.labelSelector.matchLabels, [key]: value }
+            }
+          }
+        };
+        setPreferredRules(updated);
+        
+        const currentValue = form.getFieldValue(name) || {};
+        form.setFieldsValue({ [name]: { ...currentValue, preferred: updated } });
+      }
+    }
+  };
+
+  // 添加表达式匹配条件 (matchExpressions)
+  const addMatchExpression = (ruleType: 'required' | 'preferred', ruleIndex: number) => {
+    const newExpr: PodLabelSelectorRequirement = { key: '', operator: 'In', values: [] };
+    const currentValue = form.getFieldValue(name) || {};
+    
+    if (ruleType === 'required') {
+      // 从 form 读取最新数据
+      const currentRequired = currentValue?.required || [];
+      const currentRule = currentRequired[ruleIndex] || { labelSelector: { matchLabels: {}, matchExpressions: [] }, namespaces: [], topologyKey: 'kubernetes.io/hostname' };
+      const currentLabelSelector = currentRule.labelSelector || { matchLabels: {}, matchExpressions: [] };
+      
+      const newRequired = [...currentRequired];
+      newRequired[ruleIndex] = {
+        ...currentRule,
+        labelSelector: {
+          ...currentLabelSelector,
+          matchExpressions: [...(currentLabelSelector.matchExpressions || []), newExpr]
+        }
+      };
+      setRequiredRules(newRequired);
+      form.setFieldsValue({ [name]: { ...currentValue, required: newRequired } });
+    } else {
+      // 从 form 读取最新数据
+      const currentPreferred = currentValue?.preferred || [];
+      const currentRule = currentPreferred[ruleIndex] || { weight: 50, podAffinityTerm: { labelSelector: { matchLabels: {}, matchExpressions: [] }, namespaces: [], topologyKey: 'kubernetes.io/hostname' } };
+      const currentPodAffinityTerm = currentRule.podAffinityTerm || { labelSelector: { matchLabels: {}, matchExpressions: [] }, namespaces: [], topologyKey: 'kubernetes.io/hostname' };
+      const currentLabelSelector = currentPodAffinityTerm.labelSelector || { matchLabels: {}, matchExpressions: [] };
+      
+      const newPreferred = [...currentPreferred];
+      newPreferred[ruleIndex] = {
+        ...currentRule,
+        podAffinityTerm: {
+          ...currentPodAffinityTerm,
+          labelSelector: {
+            ...currentLabelSelector,
+            matchExpressions: [...(currentLabelSelector.matchExpressions || []), newExpr]
+          }
+        }
+      };
+      setPreferredRules(newPreferred);
+      form.setFieldsValue({ [name]: { ...currentValue, preferred: newPreferred } });
+    }
+  };
+
+  // 删除表达式匹配条件 (matchExpressions)
+  const removeMatchExpression = (ruleType: 'required' | 'preferred', ruleIndex: number, exprIndex: number) => {
+    const currentValue = form.getFieldValue(name) || {};
+    
+    if (ruleType === 'required') {
+      // 从 form 读取最新数据
+      const currentRequired = currentValue?.required || [];
+      const currentRule = currentRequired[ruleIndex];
+      if (currentRule?.labelSelector?.matchExpressions) {
+        const newRequired = [...currentRequired];
+        newRequired[ruleIndex] = {
+          ...currentRule,
+          labelSelector: {
+            ...currentRule.labelSelector,
+            matchExpressions: currentRule.labelSelector.matchExpressions.filter((_: any, i: number) => i !== exprIndex)
+          }
+        };
+        setRequiredRules(newRequired);
+        form.setFieldsValue({ [name]: { ...currentValue, required: newRequired } });
+      }
+    } else {
+      // 从 form 读取最新数据
+      const currentPreferred = currentValue?.preferred || [];
+      const currentRule = currentPreferred[ruleIndex];
+      if (currentRule?.podAffinityTerm?.labelSelector?.matchExpressions) {
+        const newPreferred = [...currentPreferred];
+        newPreferred[ruleIndex] = {
+          ...currentRule,
+          podAffinityTerm: {
+            ...currentRule.podAffinityTerm,
+            labelSelector: {
+              ...currentRule.podAffinityTerm.labelSelector,
+              matchExpressions: currentRule.podAffinityTerm.labelSelector.matchExpressions.filter((_: any, i: number) => i !== exprIndex)
+            }
+          }
+        };
+        setPreferredRules(newPreferred);
+        form.setFieldsValue({ [name]: { ...currentValue, preferred: newPreferred } });
+      }
+    }
+  };
+
+  // 渲染标签匹配条件 (matchLabels)
+  const renderMatchLabels = (ruleType: 'required' | 'preferred', ruleIndex: number) => {
+    const matchLabels = ruleType === 'required'
+      ? (requiredRules[ruleIndex]?.labelSelector?.matchLabels || {})
+      : (preferredRules[ruleIndex]?.podAffinityTerm?.labelSelector?.matchLabels || {});
+    
+    const entries = Object.entries(matchLabels);
+    
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 500, fontSize: 13 }}>匹配标签 (matchLabels)</span>
+          <Button
+            type="dashed"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => addMatchLabel(ruleType, ruleIndex)}
+          >
+            添加标签
+          </Button>
+        </div>
+        {entries.map(([key, value], index) => {
+          const isTempKey = key.startsWith('__new_label_');
+          const displayKey = isTempKey ? '' : key;
+          // 使用索引作为 key，避免 key 变化时组件重建
+          const rowKey = `${ruleType}-${ruleIndex}-label-${index}`;
+          
+          return (
+            <Row key={rowKey} gutter={8} style={{ marginBottom: 8 }}>
+              <Col span={10}>
+                <Input
+                  placeholder="标签键 (如: app)"
+                  defaultValue={displayKey}
+                  onBlur={(e) => {
+                    const newKey = e.target.value.trim();
+                    if (newKey && newKey !== key) {
+                      // blur 时替换 key
+                      updateMatchLabelKey(ruleType, ruleIndex, key, newKey);
+                    }
+                  }}
+                />
+              </Col>
+              <Col span={10}>
+                <Input
+                  placeholder="标签值 (如: nginx)"
+                  defaultValue={value as string}
+                  onBlur={(e) => {
+                    updateMatchLabelValue(ruleType, ruleIndex, key, e.target.value);
+                  }}
+                />
+              </Col>
+              <Col span={4}>
+                <Button
+                  type="text"
+                  danger
+                  icon={<MinusCircleOutlined />}
+                  onClick={() => removeMatchLabel(ruleType, ruleIndex, key)}
+                />
+              </Col>
+            </Row>
+          );
+        })}
+        {entries.length === 0 && (
+          <div style={{ color: '#999', fontSize: 12 }}>暂无匹配标签</div>
+        )}
+      </div>
+    );
+  };
+
+  // 渲染表达式匹配条件 (matchExpressions)
+  const renderMatchExpressions = (ruleType: 'required' | 'preferred', ruleIndex: number) => {
+    const basePath = ruleType === 'required'
+      ? [name, 'required', ruleIndex, 'labelSelector', 'matchExpressions']
+      : [name, 'preferred', ruleIndex, 'podAffinityTerm', 'labelSelector', 'matchExpressions'];
+    
+    const matchExpressions = form.getFieldValue(basePath) || [];
+
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 500, fontSize: 13 }}>匹配表达式 (matchExpressions)</span>
+          <Button
+            type="dashed"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => addMatchExpression(ruleType, ruleIndex)}
+          >
+            添加条件
+          </Button>
+        </div>
+        {matchExpressions.map((_: any, exprIndex: number) => {
+          const exprPath = ruleType === 'required'
+            ? [name, 'required', ruleIndex, 'labelSelector', 'matchExpressions', exprIndex]
+            : [name, 'preferred', ruleIndex, 'podAffinityTerm', 'labelSelector', 'matchExpressions', exprIndex];
+          
+          const operatorValue = form.getFieldValue([...exprPath, 'operator']);
+          const showValues = operatorValue !== 'Exists' && operatorValue !== 'DoesNotExist';
+
+          return (
+            <Row key={exprIndex} gutter={8} style={{ marginBottom: 8 }}>
+              <Col span={6}>
+                <Form.Item name={[...exprPath, 'key']} noStyle>
+                  <Input placeholder="标签键" />
+                </Form.Item>
+              </Col>
+              <Col span={5}>
+                <Form.Item name={[...exprPath, 'operator']} noStyle>
+                  <Select options={POD_SELECTOR_OPERATOR_OPTIONS} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              {showValues && (
+                <Col span={10}>
+                  <Form.Item name={[...exprPath, 'values']} noStyle>
+                    <Select
+                      mode="tags"
+                      placeholder="输入值后回车添加"
+                      style={{ width: '100%' }}
+                      tokenSeparators={[',']}
+                    />
+                  </Form.Item>
+                </Col>
+              )}
+              <Col span={showValues ? 3 : 13}>
+                <Button
+                  type="text"
+                  danger
+                  icon={<MinusCircleOutlined />}
+                  onClick={() => removeMatchExpression(ruleType, ruleIndex, exprIndex)}
+                />
+              </Col>
+            </Row>
+          );
+        })}
+        {matchExpressions.length === 0 && (
+          <div style={{ color: '#999', fontSize: 12 }}>暂无匹配表达式</div>
+        )}
+      </div>
+    );
+  };
+
+  // 渲染单个规则
+  const renderRule = (ruleType: 'required' | 'preferred', ruleIndex: number) => {
+    const topologyPath = ruleType === 'required'
+      ? [name, 'required', ruleIndex, 'topologyKey']
+      : [name, 'preferred', ruleIndex, 'podAffinityTerm', 'topologyKey'];
+    
+    const namespacesPath = ruleType === 'required'
+      ? [name, 'required', ruleIndex, 'namespaces']
+      : [name, 'preferred', ruleIndex, 'podAffinityTerm', 'namespaces'];
+    
+    const currentTopologyKey = form.getFieldValue(topologyPath);
+    const isCustomTopology = currentTopologyKey && !TOPOLOGY_KEY_OPTIONS.some(opt => opt.value === currentTopologyKey);
+
+    return (
+      <Card
+        key={ruleIndex}
+        size="small"
+        style={{ marginBottom: 12 }}
+        title={
+          <Space>
+            <Tag color={ruleType === 'required' ? 'red' : 'blue'}>
+              {ruleType === 'required' ? '必须满足' : '尽量满足'}
+            </Tag>
+            {ruleType === 'preferred' && (
+              <Form.Item name={[name, 'preferred', ruleIndex, 'weight']} noStyle>
+                <InputNumber
+                  min={1}
+                  max={100}
+                  placeholder="权重"
+                  style={{ width: 80 }}
+                />
+              </Form.Item>
+            )}
+            <span style={{ color: '#999', fontSize: 12 }}>权重 1-100</span>
+          </Space>
+        }
+        extra={
+          <Button
+            type="text"
+            danger
+            size="small"
+            onClick={() => ruleType === 'required' ? removeRequiredRule(ruleIndex) : removePreferredRule(ruleIndex)}
+          >
+            删除规则
+          </Button>
+        }
+      >
+        {/* 标签选择器 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>
+            <InfoCircleOutlined style={{ marginRight: 4 }} />
+            目标 Pod 选择器
+          </div>
+          {renderMatchLabels(ruleType, ruleIndex)}
+          {renderMatchExpressions(ruleType, ruleIndex)}
+        </div>
+
+        {/* 命名空间选择器 */}
+        <div style={{ marginBottom: 16 }}>
+          <Form.Item
+            name={namespacesPath}
+            label={
+              <span>
+                命名空间选择器
+                <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>(可选，默认为当前命名空间)</span>
+              </span>
+            }
+          >
+            <Select
+              mode="multiple"
+              placeholder="选择目标命名空间（可选）"
+              allowClear
+              options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
+            />
+          </Form.Item>
+        </div>
+
+        {/* 拓扑域 */}
+        <div>
+          <Form.Item
+            name={topologyPath}
+            label="拓扑域 (topologyKey)"
+            rules={[{ required: true, message: '请选择或输入拓扑域' }]}
+          >
+            {isCustomTopology ? (
+              <Input 
+                placeholder="自定义拓扑域键"
+                onChange={(e) => form.setFieldValue(topologyPath, e.target.value)}
+              />
+            ) : (
+              <Select
+                placeholder="选择拓扑域"
+                options={TOPOLOGY_KEY_OPTIONS}
+                allowClear
+                onChange={(value) => {
+                  if (value === undefined) {
+                    form.setFieldValue(topologyPath, '');
+                  }
+                }}
+              />
+            )}
+          </Form.Item>
+          {!isCustomTopology && (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => form.setFieldValue(topologyPath, 'custom-key')}
+              style={{ padding: 0 }}
+            >
+              切换为自定义拓扑域
+            </Button>
+          )}
+          {isCustomTopology && (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => form.setFieldValue(topologyPath, 'kubernetes.io/hostname')}
+              style={{ padding: 0 }}
+            >
+              切换为预设选项
+            </Button>
+          )}
+        </div>
+      </Card>
+    );
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontWeight: 500 }}>{label}</span>
+        <Space>
+          <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addRequiredRule}>
+            添加必须规则
+          </Button>
+          <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addPreferredRule}>
+            添加偏好规则
+          </Button>
+        </Space>
+      </div>
+
+      {requiredRules.length === 0 && preferredRules.length === 0 && (
+        <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+          未配置 Pod 亲和性规则，点击上方按钮添加
+        </div>
+      )}
+
+      {/* 必须满足的规则 */}
+      {requiredRules.map((_: any, index: number) => renderRule('required', index))}
+
+      {/* 尽量满足的规则 */}
+      {preferredRules.map((_: any, index: number) => renderRule('preferred', index))}
+    </div>
+  );
+};
+
+// ============================================================
+// 子组件: 污点容忍编辑器
+// ============================================================
+
+/**
+ * 污点容忍编辑器组件
+ * 支持配置 Kubernetes Tolerations，允许 Pod 调度到有污点的节点
+ * 
+ * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
+ */
+const TolerationsEditor: React.FC = () => {
+  const form = Form.useFormInstance();
+  
+  // 本地 state 管理规则列表
+  const [tolerations, setTolerations] = useState<Toleration[]>([]);
+  
+  // 初始化时从 form 读取值
+  useEffect(() => {
+    setTolerations(form.getFieldValue('tolerations') || []);
+  }, [form]);
+
+  // 添加容忍规则
+  const addToleration = (preset?: typeof COMMON_TOLERATION_PRESETS[0]) => {
+    // 从 form 读取最新数据（包含用户已输入的内容）
+    const currentTolerations = form.getFieldValue('tolerations') || [];
+    const newToleration: Toleration = {
+      key: preset?.key || '',
+      operator: 'Equal',
+      value: '',
+      effect: 'NoSchedule',
+    };
+    const updated = [...currentTolerations, newToleration];
+    setTolerations(updated);
+    
+    form.setFieldsValue({ tolerations: updated });
+  };
+
+  // 删除容忍规则
+  const removeToleration = (index: number) => {
+    const updated = tolerations.filter((_, i) => i !== index);
+    setTolerations(updated);
+    
+    form.setFieldsValue({ tolerations: updated });
+  };
+
+  // 使用预设快速添加
+  const handlePresetClick = (preset: typeof COMMON_TOLERATION_PRESETS[0]) => {
+    addToleration(preset);
+  };
+
+  // 渲染单个容忍规则
+  const renderToleration = (index: number) => {
+    const basePath = ['tolerations', index];
+    const operatorValue = form.getFieldValue([...basePath, 'operator']);
+    const effectValue = form.getFieldValue([...basePath, 'effect']);
+    const showValue = operatorValue === 'Equal';
+    const showTolerationSeconds = effectValue === 'NoExecute';
+    const tolerationKey = tolerations[index]?.key;
+
+    return (
+      <Card
+        key={index}
+        size="small"
+        style={{ marginBottom: 12 }}
+        title={
+          <Space>
+            <Tag color="orange">容忍规则 {index + 1}</Tag>
+            {tolerationKey && (
+              <span style={{ color: '#666', fontSize: 12 }}>
+                {tolerationKey}
+              </span>
+            )}
+          </Space>
+        }
+        extra={
+          <Button
+            type="text"
+            danger
+            size="small"
+            onClick={() => removeToleration(index)}
+          >
+            删除
+          </Button>
+        }
+      >
+        <Row gutter={[8, 8]}>
+          {/* Key 输入框 - 支持预设和自定义 */}
+          <Col span={10}>
+            <Form.Item
+              name={[...basePath, 'key']}
+              label="污点键 (Key)"
+              extra="可输入或选择预设"
+              style={{ marginBottom: 0 }}
+            >
+              <Select
+                showSearch
+                placeholder="选择或输入污点键"
+                options={COMMON_TOLERATION_PRESETS.map(p => ({
+                  value: p.key,
+                  label: `${p.label} (${p.key})`,
+                }))}
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase()) ||
+                  (option?.value ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+              />
+            </Form.Item>
+          </Col>
+          
+          {/* Operator */}
+          <Col span={4}>
+            <Form.Item
+              name={[...basePath, 'operator']}
+              label="操作符"
+              initialValue="Equal"
+              style={{ marginBottom: 0 }}
+            >
+              <Select
+                options={TOLERATION_OPERATOR_OPTIONS}
+                onChange={() => {
+                  // 切换操作符时清空 value
+                  if (form.getFieldValue([...basePath, 'operator']) === 'Exists') {
+                    form.setFieldValue([...basePath, 'value'], undefined);
+                  }
+                }}
+              />
+            </Form.Item>
+          </Col>
+          
+          {/* Value - 仅 Equal 时显示 */}
+          {showValue && (
+            <Col span={5}>
+              <Form.Item
+                name={[...basePath, 'value']}
+                label="污点值 (Value)"
+                rules={[{ required: showValue, message: 'Equal 操作符需要填写值' }]}
+                style={{ marginBottom: 0 }}
+              >
+                <Input placeholder="污点值" />
+              </Form.Item>
+            </Col>
+          )}
+          
+          {/* Effect */}
+          <Col span={showValue ? 5 : 10}>
+            <Form.Item
+              name={[...basePath, 'effect']}
+              label="效果 (Effect)"
+              initialValue="NoSchedule"
+              style={{ marginBottom: 0 }}
+            >
+              <Select options={TOLERATION_EFFECT_OPTIONS} />
+            </Form.Item>
+          </Col>
+          
+          {/* tolerationSeconds - 仅 NoExecute 时显示 */}
+          {showTolerationSeconds && (
+            <Col span={6}>
+              <Form.Item
+                name={[...basePath, 'tolerationSeconds']}
+                label="容忍时间 (秒)"
+                extra="Pod 被驱逐前可运行的时间"
+                style={{ marginBottom: 0 }}
+              >
+                <InputNumber
+                  min={0}
+                  placeholder="如: 300"
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </Col>
+          )}
+        </Row>
+      </Card>
+    );
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontWeight: 500 }}>污点容忍</span>
+        <Space>
+          <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={() => addToleration()}>
+            添加容忍规则
+          </Button>
+        </Space>
+      </div>
+
+      {/* 常用预设快速添加 */}
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 12, color: '#999', marginRight: 8 }}>快速添加预设:</span>
+        <Space wrap size={[4, 4]}>
+          {COMMON_TOLERATION_PRESETS.map((preset) => (
+            <Tag
+              key={preset.key}
+              style={{ cursor: 'pointer' }}
+              onClick={() => handlePresetClick(preset)}
+            >
+              <PlusOutlined style={{ marginRight: 4 }} />
+              {preset.label}
+            </Tag>
+          ))}
+        </Space>
+      </div>
+
+      {tolerations.length === 0 && (
+        <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+          未配置污点容忍规则，点击上方按钮或预设标签添加
+        </div>
+      )}
+
+      {/* 容忍规则列表 */}
+      {tolerations.map((_: any, index: number) => renderToleration(index))}
+    </div>
   );
 };
 
@@ -693,6 +2048,107 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         };
       };
       
+      // 提取亲和性配置
+      const parseNodeAffinity = (affinity: any): NodeAffinityConfig | undefined => {
+        if (!affinity) return undefined;
+        
+        const result: NodeAffinityConfig = {};
+        
+        // 解析 required 规则
+        if (affinity.requiredDuringSchedulingIgnoredDuringExecution?.nodeSelectorTerms) {
+          result.required = {
+            nodeSelectorTerms: affinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.map((term: any) => ({
+              matchExpressions: (term.matchExpressions || []).map((expr: any) => ({
+                key: expr.key,
+                operator: expr.operator,
+                values: expr.values,
+              })),
+              matchFields: (term.matchFields || []).map((field: any) => ({
+                key: field.key,
+                operator: field.operator,
+                values: field.values,
+              })),
+            })),
+          };
+        }
+        
+        // 解析 preferred 规则
+        if (affinity.preferredDuringSchedulingIgnoredDuringExecution) {
+          result.preferred = affinity.preferredDuringSchedulingIgnoredDuringExecution.map((pref: any) => ({
+            weight: pref.weight,
+            preference: {
+              matchExpressions: (pref.preference.matchExpressions || []).map((expr: any) => ({
+                key: expr.key,
+                operator: expr.operator,
+                values: expr.values,
+              })),
+              matchFields: (pref.preference.matchFields || []).map((field: any) => ({
+                key: field.key,
+                operator: field.operator,
+                values: field.values,
+              })),
+            },
+          }));
+        }
+        
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+      
+      // 解析 Pod 亲和性配置
+      const parsePodAffinity = (podAffinity: any): PodAffinityConfig | undefined => {
+        if (!podAffinity) return undefined;
+        
+        const result: PodAffinityConfig = {};
+        
+        // 解析 required 规则
+        if (podAffinity.requiredDuringSchedulingIgnoredDuringExecution?.length) {
+          result.required = podAffinity.requiredDuringSchedulingIgnoredDuringExecution.map((term: any) => ({
+            labelSelector: term.labelSelector ? {
+              matchLabels: term.labelSelector.matchLabels || {},
+              matchExpressions: (term.labelSelector.matchExpressions || []).map((expr: any) => ({
+                key: expr.key,
+                operator: expr.operator,
+                values: expr.values,
+              })),
+            } : undefined,
+            namespaces: term.namespaces,
+            topologyKey: term.topologyKey,
+          }));
+        }
+        
+        // 解析 preferred 规则
+        if (podAffinity.preferredDuringSchedulingIgnoredDuringExecution?.length) {
+          result.preferred = podAffinity.preferredDuringSchedulingIgnoredDuringExecution.map((pref: any) => ({
+            weight: pref.weight,
+            podAffinityTerm: {
+              labelSelector: pref.podAffinityTerm?.labelSelector ? {
+                matchLabels: pref.podAffinityTerm.labelSelector.matchLabels || {},
+                matchExpressions: (pref.podAffinityTerm.labelSelector.matchExpressions || []).map((expr: any) => ({
+                  key: expr.key,
+                  operator: expr.operator,
+                  values: expr.values,
+                })),
+              } : undefined,
+              namespaces: pref.podAffinityTerm?.namespaces,
+              topologyKey: pref.podAffinityTerm?.topologyKey,
+            },
+          }));
+        }
+        
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+      
+      const affinity = template?.spec?.affinity;
+      
+      // 提取污点容忍
+      const tolerations = (template?.spec?.tolerations || []).map((t: any) => ({
+        key: t.key,
+        operator: t.operator || 'Equal',
+        value: t.value,
+        effect: t.effect,
+        tolerationSeconds: t.tolerationSeconds,
+      }));
+      
       // 设置表单值
       form.setFieldsValue({
         workloadType: editData?.kind?.toLowerCase() || defaultType,
@@ -710,6 +2166,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         replicas: spec?.replicas || 1,
         imagePullSecrets,
         nodeSelector,
+        nodeAffinity: parseNodeAffinity(affinity?.nodeAffinity),
+        nodeAntiAffinity: undefined, // 反亲和性从UI层配置，K8s不区分
+        podAffinity: parsePodAffinity(affinity?.podAffinity),
+        podAntiAffinity: parsePodAffinity(affinity?.podAntiAffinity),
+        tolerations: tolerations.length > 0 ? tolerations : undefined,
         livenessProbe: parseProbe(container?.livenessProbe),
         readinessProbe: parseProbe(container?.readinessProbe),
       });
@@ -776,6 +2237,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       replicas,
       imagePullSecrets: pullSecrets,
       nodeSelector,
+      nodeAffinity,
+      nodeAntiAffinity,
+      podAffinity,
+      podAntiAffinity,
+      tolerations,
       livenessProbe,
       readinessProbe,
     } = values;
@@ -868,6 +2334,290 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       name: secretName,
     }));
     
+    // 构建亲和性配置
+    const buildNodeAffinity = (affinityConfig?: NodeAffinityConfig) => {
+      if (!affinityConfig) return undefined;
+      
+      const result: any = {};
+      
+      // 构建 required 规则
+      if (affinityConfig.required?.nodeSelectorTerms?.length) {
+        const terms = affinityConfig.required.nodeSelectorTerms
+          .map((term) => {
+            const termObj: any = {};
+            
+            if (term.matchExpressions?.length) {
+              termObj.matchExpressions = term.matchExpressions
+                .filter((expr) => expr.key)
+                .map((expr) => ({
+                  key: expr.key,
+                  operator: expr.operator,
+                  ...(expr.values && expr.values.length > 0 && { values: expr.values }),
+                }));
+            }
+            
+            if (term.matchFields?.length) {
+              termObj.matchFields = term.matchFields
+                .filter((field) => field.key)
+                .map((field) => ({
+                  key: field.key,
+                  operator: field.operator,
+                  ...(field.values && field.values.length > 0 && { values: field.values }),
+                }));
+            }
+            
+            return Object.keys(termObj).length > 0 ? termObj : null;
+          })
+          .filter(Boolean);
+        
+        if (terms.length > 0) {
+          result.requiredDuringSchedulingIgnoredDuringExecution = {
+            nodeSelectorTerms: terms,
+          };
+        }
+      }
+      
+      // 构建 preferred 规则
+      if (affinityConfig.preferred?.length) {
+        const preferences = affinityConfig.preferred
+          .map((pref) => {
+            const prefObj: any = {
+              weight: pref.weight || 50,
+              preference: {},
+            };
+            
+            if (pref.preference.matchExpressions?.length) {
+              prefObj.preference.matchExpressions = pref.preference.matchExpressions
+                .filter((expr) => expr.key)
+                .map((expr) => ({
+                  key: expr.key,
+                  operator: expr.operator,
+                  ...(expr.values && expr.values.length > 0 && { values: expr.values }),
+                }));
+            }
+            
+            if (pref.preference.matchFields?.length) {
+              prefObj.preference.matchFields = pref.preference.matchFields
+                .filter((field) => field.key)
+                .map((field) => ({
+                  key: field.key,
+                  operator: field.operator,
+                  ...(field.values && field.values.length > 0 && { values: field.values }),
+                }));
+            }
+            
+            return Object.keys(prefObj.preference).length > 0 ? prefObj : null;
+          })
+          .filter(Boolean);
+        
+        if (preferences.length > 0) {
+          result.preferredDuringSchedulingIgnoredDuringExecution = preferences;
+        }
+      }
+      
+      return Object.keys(result).length > 0 ? result : undefined;
+    };
+    
+    // 构建 Pod 亲和性配置
+    const buildPodAffinity = (affinityConfig?: PodAffinityConfig) => {
+      if (!affinityConfig) return undefined;
+      
+      const result: any = {};
+      
+      // 构建 required 规则
+      if (affinityConfig.required?.length) {
+        const requiredTerms = affinityConfig.required
+          .map((term) => {
+            const termObj: any = {};
+            
+            // 构建标签选择器
+            const labelSelector: any = {};
+            
+            // matchLabels
+            const matchLabels = term.labelSelector?.matchLabels || {};
+            const validLabels = Object.fromEntries(
+              Object.entries(matchLabels).filter(([k, v]) => k && v)
+            );
+            if (Object.keys(validLabels).length > 0) {
+              labelSelector.matchLabels = validLabels;
+            }
+            
+            // matchExpressions
+            if (term.labelSelector?.matchExpressions?.length) {
+              const expressions = term.labelSelector.matchExpressions
+                .filter((expr) => expr.key)
+                .map((expr) => ({
+                  key: expr.key,
+                  operator: expr.operator,
+                  ...(expr.values && expr.values.length > 0 && { values: expr.values }),
+                }));
+              if (expressions.length > 0) {
+                labelSelector.matchExpressions = expressions;
+              }
+            }
+            
+            if (Object.keys(labelSelector).length > 0) {
+              termObj.labelSelector = labelSelector;
+            }
+            
+            // namespaces
+            if (term.namespaces?.length) {
+              termObj.namespaces = term.namespaces;
+            }
+            
+            // topologyKey (必填)
+            if (term.topologyKey) {
+              termObj.topologyKey = term.topologyKey;
+            } else {
+              return null; // topologyKey 是必填字段
+            }
+            
+            return Object.keys(termObj).length > 1 ? termObj : null; // 至少需要 topologyKey
+          })
+          .filter(Boolean);
+        
+        if (requiredTerms.length > 0) {
+          result.requiredDuringSchedulingIgnoredDuringExecution = requiredTerms;
+        }
+      }
+      
+      // 构建 preferred 规则
+      if (affinityConfig.preferred?.length) {
+        const preferences = affinityConfig.preferred
+          .map((pref) => {
+            const term = pref.podAffinityTerm;
+            const termObj: any = {};
+            
+            // 构建标签选择器
+            const labelSelector: any = {};
+            
+            // matchLabels
+            const matchLabels = term.labelSelector?.matchLabels || {};
+            const validLabels = Object.fromEntries(
+              Object.entries(matchLabels).filter(([k, v]) => k && v)
+            );
+            if (Object.keys(validLabels).length > 0) {
+              labelSelector.matchLabels = validLabels;
+            }
+            
+            // matchExpressions
+            if (term.labelSelector?.matchExpressions?.length) {
+              const expressions = term.labelSelector.matchExpressions
+                .filter((expr) => expr.key)
+                .map((expr) => ({
+                  key: expr.key,
+                  operator: expr.operator,
+                  ...(expr.values && expr.values.length > 0 && { values: expr.values }),
+                }));
+              if (expressions.length > 0) {
+                labelSelector.matchExpressions = expressions;
+              }
+            }
+            
+            if (Object.keys(labelSelector).length > 0) {
+              termObj.labelSelector = labelSelector;
+            }
+            
+            // namespaces
+            if (term.namespaces?.length) {
+              termObj.namespaces = term.namespaces;
+            }
+            
+            // topologyKey (必填)
+            if (term.topologyKey) {
+              termObj.topologyKey = term.topologyKey;
+            } else {
+              return null;
+            }
+            
+            return Object.keys(termObj).length > 1 ? {
+              weight: pref.weight || 50,
+              podAffinityTerm: termObj,
+            } : null;
+          })
+          .filter(Boolean);
+        
+        if (preferences.length > 0) {
+          result.preferredDuringSchedulingIgnoredDuringExecution = preferences;
+        }
+      }
+      
+      return Object.keys(result).length > 0 ? result : undefined;
+    };
+    
+    // 构建完整亲和性对象
+    const affinity: any = {};
+    
+    // 节点亲和性
+    const nodeAffinityResult = buildNodeAffinity(nodeAffinity);
+    if (nodeAffinityResult) {
+      affinity.nodeAffinity = nodeAffinityResult;
+    }
+    
+    // 节点反亲和性 (使用相同的结构，但在K8s中反亲和性需要特殊处理)
+    // 注意：Kubernetes 本身没有直接的 nodeAntiAffinity，需要通过 nodeAffinity 的 NotIn/DoesNotExist 操作符实现
+    // 这里我们将其转换为对应的 nodeAffinity 规则
+    if (nodeAntiAffinity) {
+      const antiAffinityResult = buildNodeAffinity(nodeAntiAffinity);
+      if (antiAffinityResult) {
+        // 如果已有 nodeAffinity，需要合并规则
+        if (affinity.nodeAffinity) {
+          // 合并 required 规则
+          if (antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution) {
+            if (!affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution) {
+              affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution = 
+                antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution;
+            } else {
+              // 合并 nodeSelectorTerms
+              affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.push(
+                ...antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms
+              );
+            }
+          }
+          // 合并 preferred 规则
+          if (antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution) {
+            if (!affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution) {
+              affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution = 
+                antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution;
+            } else {
+              affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution.push(
+                ...antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution
+              );
+            }
+          }
+        } else {
+          affinity.nodeAffinity = antiAffinityResult;
+        }
+      }
+    }
+    
+    // Pod 亲和性
+    const podAffinityResult = buildPodAffinity(podAffinity);
+    if (podAffinityResult) {
+      affinity.podAffinity = podAffinityResult;
+    }
+    
+    // Pod 反亲和性
+    const podAntiAffinityResult = buildPodAffinity(podAntiAffinity);
+    if (podAntiAffinityResult) {
+      affinity.podAntiAffinity = podAntiAffinityResult;
+    }
+    
+    // 构建污点容忍
+    const tolerationsList = (tolerations || [])
+      .filter((t) => t.key || t.operator === 'Exists')
+      .map((t) => {
+        const toleration: any = {};
+        if (t.key) toleration.key = t.key;
+        if (t.operator) toleration.operator = t.operator;
+        if (t.operator === 'Equal' && t.value) toleration.value = t.value;
+        if (t.effect) toleration.effect = t.effect;
+        if (t.effect === 'NoExecute' && t.tolerationSeconds !== undefined) {
+          toleration.tolerationSeconds = t.tolerationSeconds;
+        }
+        return toleration;
+      });
+    
     // 构建完整资源
     const resource: any = {
       apiVersion: 'apps/v1',
@@ -891,6 +2641,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             containers: [container],
             imagePullSecrets: imagePullSecretsList.length > 0 ? imagePullSecretsList : undefined,
             nodeSelector: Object.keys(nodeSelectorMap).length > 0 ? nodeSelectorMap : undefined,
+            affinity: Object.keys(affinity).length > 0 ? affinity : undefined,
+            tolerations: tolerationsList.length > 0 ? tolerationsList : undefined,
           },
         },
       },
@@ -947,6 +2699,104 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       const nodeSelector = resource.spec?.template?.spec?.nodeSelector || {};
       const imagePullSecrets = (resource.spec?.template?.spec?.imagePullSecrets || []).map((s: any) => s.name);
       
+      // 提取亲和性配置
+      const affinity = resource.spec?.template?.spec?.affinity;
+      const parseNodeAffinityFromYaml = (nodeAffinity: any): NodeAffinityConfig | undefined => {
+        if (!nodeAffinity) return undefined;
+        
+        const result: NodeAffinityConfig = {};
+        
+        if (nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution?.nodeSelectorTerms) {
+          result.required = {
+            nodeSelectorTerms: nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.map((term: any) => ({
+              matchExpressions: (term.matchExpressions || []).map((expr: any) => ({
+                key: expr.key,
+                operator: expr.operator,
+                values: expr.values,
+              })),
+              matchFields: (term.matchFields || []).map((field: any) => ({
+                key: field.key,
+                operator: field.operator,
+                values: field.values,
+              })),
+            })),
+          };
+        }
+        
+        if (nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution) {
+          result.preferred = nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution.map((pref: any) => ({
+            weight: pref.weight,
+            preference: {
+              matchExpressions: (pref.preference.matchExpressions || []).map((expr: any) => ({
+                key: expr.key,
+                operator: expr.operator,
+                values: expr.values,
+              })),
+              matchFields: (pref.preference.matchFields || []).map((field: any) => ({
+                key: field.key,
+                operator: field.operator,
+                values: field.values,
+              })),
+            },
+          }));
+        }
+        
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+      
+      // 解析 Pod 亲和性配置
+      const parsePodAffinityFromYaml = (podAffinity: any): PodAffinityConfig | undefined => {
+        if (!podAffinity) return undefined;
+        
+        const result: PodAffinityConfig = {};
+        
+        // 解析 required 规则
+        if (podAffinity.requiredDuringSchedulingIgnoredDuringExecution?.length) {
+          result.required = podAffinity.requiredDuringSchedulingIgnoredDuringExecution.map((term: any) => ({
+            labelSelector: term.labelSelector ? {
+              matchLabels: term.labelSelector.matchLabels || {},
+              matchExpressions: (term.labelSelector.matchExpressions || []).map((expr: any) => ({
+                key: expr.key,
+                operator: expr.operator,
+                values: expr.values,
+              })),
+            } : undefined,
+            namespaces: term.namespaces,
+            topologyKey: term.topologyKey,
+          }));
+        }
+        
+        // 解析 preferred 规则
+        if (podAffinity.preferredDuringSchedulingIgnoredDuringExecution?.length) {
+          result.preferred = podAffinity.preferredDuringSchedulingIgnoredDuringExecution.map((pref: any) => ({
+            weight: pref.weight,
+            podAffinityTerm: {
+              labelSelector: pref.podAffinityTerm?.labelSelector ? {
+                matchLabels: pref.podAffinityTerm.labelSelector.matchLabels || {},
+                matchExpressions: (pref.podAffinityTerm.labelSelector.matchExpressions || []).map((expr: any) => ({
+                  key: expr.key,
+                  operator: expr.operator,
+                  values: expr.values,
+                })),
+              } : undefined,
+              namespaces: pref.podAffinityTerm?.namespaces,
+              topologyKey: pref.podAffinityTerm?.topologyKey,
+            },
+          }));
+        }
+        
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+      
+      // 提取污点容忍
+      const tolerations = (resource.spec?.template?.spec?.tolerations || []).map((t: any) => ({
+        key: t.key,
+        operator: t.operator || 'Equal',
+        value: t.value,
+        effect: t.effect,
+        tolerationSeconds: t.tolerationSeconds,
+      }));
+      
       return {
         name,
         namespace,
@@ -966,6 +2816,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         replicas,
         imagePullSecrets,
         nodeSelector: Object.entries(nodeSelector).map(([key, value]) => ({ key, value: String(value) })),
+        nodeAffinity: parseNodeAffinityFromYaml(affinity?.nodeAffinity),
+        nodeAntiAffinity: undefined,
+        podAffinity: parsePodAffinityFromYaml(affinity?.podAffinity),
+        podAntiAffinity: parsePodAffinityFromYaml(affinity?.podAntiAffinity),
+        tolerations: tolerations.length > 0 ? tolerations : undefined,
         livenessProbe: container.livenessProbe ? {
           enabled: true,
           type: container.livenessProbe.httpGet ? 'httpGet' : 
@@ -1038,6 +2893,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             nodeSelector: Object.entries(spec.template?.spec?.nodeSelector || {}).map(([key, value]) => ({
               key,
               value: String(value),
+            })),
+            nodeAffinity: undefined,
+            nodeAntiAffinity: undefined,
+            podAffinity: undefined,
+            podAntiAffinity: undefined,
+            tolerations: (template.spec?.tolerations || []).map((t: any) => ({
+              key: t.key,
+              operator: t.operator || 'Equal',
+              value: t.value,
+              effect: t.effect,
+              tolerationSeconds: t.tolerationSeconds,
             })),
             livenessProbe: container.livenessProbe ? {
               enabled: true,
@@ -1173,6 +3039,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           'image', 'containerName', 'imagePullPolicy',
           'ports', 'env', 'resources', 'command', 'args',
           'replicas', 'imagePullSecrets', 'nodeSelector',
+          'nodeAffinity', 'nodeAntiAffinity', 'tolerations',
           'livenessProbe', 'readinessProbe'
         ]);
         
@@ -1451,22 +3318,63 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             
             <Form.Item
               name="imagePullSecrets"
-              label="镜像拉取凭证"
-              extra="选择已创建的 Docker 镜像仓库凭证"
+              label={
+                <Space>
+                  镜像拉取凭证
+                  {imagePullSecrets.length === 0 && (
+                    <Tag color="warning">暂无凭证</Tag>
+                  )}
+                </Space>
+              }
+              extra={
+                <Space direction="vertical" size={0}>
+                  <span>{imagePullSecrets.length === 0 ? "暂无可用的镜像凭证，请先创建 Secret" : "选择已创建的 Docker 镜像仓库凭证"}</span>
+                  {imagePullSecrets.length === 0 && (
+                    <span style={{ color: '#999', fontSize: 12 }}>
+                      提示: Secret 需要是 kubernetes.io/dockerconfigjson 类型才能作为镜像拉取凭证使用
+                    </span>
+                  )}
+                </Space>
+              }
             >
               <Select
                 mode="multiple"
-                placeholder="选择镜像拉取凭证"
+                placeholder={imagePullSecrets.length === 0 ? "暂无可用的镜像凭证" : "选择镜像拉取凭证"}
                 allowClear
+                disabled={imagePullSecrets.length === 0}
                 options={imagePullSecrets.map((secret) => ({
                   label: `${secret.metadata.name} (${secret.metadata.namespace})`,
                   value: secret.metadata.name,
                 }))}
+                notFoundContent={
+                  <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                    <div style={{ color: '#999' }}>暂无镜像拉取凭证</div>
+                    <div style={{ fontSize: 12, color: '#bbb', marginTop: 4 }}>
+                      请创建类型为 kubernetes.io/dockerconfigjson 的 Secret
+                    </div>
+                  </div>
+                }
               />
             </Form.Item>
             
             <Divider orientation="left">调度策略</Divider>
             <LabelEditor name="nodeSelector" label="节点选择器" />
+            <Divider orientation="left">亲和性配置</Divider>
+            <NodeAffinityEditor name="nodeAffinity" label="节点亲和性" />
+            <NodeAffinityEditor name="nodeAntiAffinity" label="节点反亲和性" />
+            <PodAffinityEditor 
+              name="podAffinity" 
+              label="Pod 亲和性" 
+              namespacesOptions={namespacesOptions}
+            />
+            <PodAffinityEditor 
+              name="podAntiAffinity" 
+              label="Pod 反亲和性" 
+              namespacesOptions={namespacesOptions}
+            />
+            
+            <Divider orientation="left">污点容忍</Divider>
+            <TolerationsEditor />
             
             <Divider orientation="left">健康检查</Divider>
             <ProbeEditor name="livenessProbe" label="存活探针 (Liveness Probe)" />
@@ -1557,6 +3465,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               env: [],
               imagePullSecrets: [],
               nodeSelector: [],
+              nodeAffinity: { required: undefined, preferred: undefined },
+              nodeAntiAffinity: { required: undefined, preferred: undefined },
+              podAffinity: { required: undefined, preferred: undefined },
+              podAntiAffinity: { required: undefined, preferred: undefined },
+              tolerations: [],
               resources: { requests: {}, limits: {} },
               livenessProbe: { enabled: false, type: 'httpGet' as const, initialDelaySeconds: 30, periodSeconds: 10 },
               readinessProbe: { enabled: false, type: 'httpGet' as const, initialDelaySeconds: 5, periodSeconds: 10 },

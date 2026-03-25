@@ -2284,6 +2284,206 @@ export const registerHarvesterContainerRoutes = (
   );
 
   // ============================================================
+  // [PodDisruptionBudget 管理] PDB
+  // ============================================================
+
+  /**
+   * [API] 获取 PodDisruptionBudget 列表
+   * GET /:id/resources/harvester/containers/poddisruptionbudgets
+   * Query: namespace (可选，不传则返回所有命名空间)
+   */
+  router.get(
+    '/:id/resources/harvester/containers/poddisruptionbudgets',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { namespace } = req.query;
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        // PDB API: /apis/policy/v1/namespaces/{namespace}/poddisruptionbudgets
+        let items: any[];
+        if (namespace) {
+          items = await getNamespacedResources(base, '/apis/policy/v1/poddisruptionbudgets', String(namespace), token, insecure);
+        } else {
+          items = await getAllNamespacedResources(base, '/apis/policy/v1/poddisruptionbudgets', token, insecure);
+        }
+        
+        res.json({ message: '查询成功', data: { items } });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询 PodDisruptionBudget 失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] 获取 PodDisruptionBudget 详情
+   * GET /:id/resources/harvester/containers/poddisruptionbudgets/:namespace/:name
+   */
+  router.get(
+    '/:id/resources/harvester/containers/poddisruptionbudgets/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        const url = buildK8sUrl(base, '/apis/policy/v1/poddisruptionbudgets', namespace, name);
+        const result = await getJsonOnce(url, token, insecure, true);
+        
+        if (!result) {
+          return res.status(404).json({ message: 'PodDisruptionBudget 不存在' });
+        }
+        
+        res.json({ message: '查询成功', data: result });
+      } catch (error: any) {
+        res.status(500).json({ message: '查询 PodDisruptionBudget 详情失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] 创建 PodDisruptionBudget
+   * POST /:id/resources/harvester/containers/poddisruptionbudgets
+   * Body: { namespace, name, labels?, minAvailable?, maxUnavailable?, selector }
+   * 说明: minAvailable 和 maxUnavailable 只能设置其中一个
+   */
+  router.post(
+    '/:id/resources/harvester/containers/poddisruptionbudgets',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { namespace, name, labels, minAvailable, maxUnavailable, selector } = req.body;
+        
+        // 参数验证
+        if (!namespace || !name) {
+          return res.status(400).json({ 
+            message: '缺少必要参数: namespace, name' 
+          });
+        }
+        
+        // minAvailable 和 maxUnavailable 只能设置其中一个
+        if (minAvailable && maxUnavailable) {
+          return res.status(400).json({ 
+            message: 'minAvailable 和 maxUnavailable 只能设置其中一个' 
+          });
+        }
+        
+        if (!minAvailable && !maxUnavailable) {
+          return res.status(400).json({ 
+            message: '必须设置 minAvailable 或 maxUnavailable 其中一个' 
+          });
+        }
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        // 构建 PDB 对象
+        const pdbBody: any = {
+          apiVersion: 'policy/v1',
+          kind: 'PodDisruptionBudget',
+          metadata: {
+            name: name,
+            namespace: namespace,
+            labels: labels || {},
+          },
+          spec: {
+            selector: selector || {},
+          },
+        };
+        
+        // 设置 minAvailable 或 maxUnavailable
+        // 处理类型转换：纯数字字符串转整数，百分比字符串保持原样
+        const parsePdbValue = (value: any): number | string => {
+          if (typeof value === 'number') return value;
+          if (typeof value === 'string') {
+            // 如果是百分比字符串（如 "50%"），保持原样
+            if (value.endsWith('%')) return value;
+            // 否则转换为整数
+            const num = parseInt(value, 10);
+            if (!isNaN(num)) return num;
+          }
+          return value;
+        };
+
+        if (minAvailable !== undefined) {
+          pdbBody.spec.minAvailable = parsePdbValue(minAvailable);
+        }
+        if (maxUnavailable !== undefined) {
+          pdbBody.spec.maxUnavailable = parsePdbValue(maxUnavailable);
+        }
+        
+        // 使用原生 K8s API 创建
+        const url = buildCreateUrl(base, '/apis/policy/v1/poddisruptionbudgets', namespace);
+        console.log('[PDB 创建] URL:', url);
+        console.log('[PDB 创建] namespace:', namespace);
+        console.log('[PDB 创建] name:', name);
+        
+        const result = await requestJson('POST', url, token, insecure, pdbBody);
+        
+        res.json({ message: '创建 PodDisruptionBudget 成功', data: result });
+      } catch (error: any) {
+        console.error('[PDB 创建] 错误:', JSON.stringify(error, null, 2));
+        const errorMsg = error?.body || error?.message || '创建 PodDisruptionBudget 失败';
+        res.status(error?.status || 500).json({ message: '创建 PodDisruptionBudget 失败', error: errorMsg });
+      }
+    },
+  );
+
+  /**
+   * [API] 删除 PodDisruptionBudget
+   * DELETE /:id/resources/harvester/containers/poddisruptionbudgets/:namespace/:name
+   */
+  router.delete(
+    '/:id/resources/harvester/containers/poddisruptionbudgets/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        const url = buildK8sUrl(base, '/apis/policy/v1/poddisruptionbudgets', namespace, name);
+        console.log('[PDB 删除] URL:', url);
+        
+        const result = await requestJson('DELETE', url, token, insecure);
+        
+        res.json({ message: '删除 PodDisruptionBudget 成功', data: result });
+      } catch (error: any) {
+        console.error('[PDB 删除] 错误:', JSON.stringify(error, null, 2));
+        const errorMsg = error?.body || error?.message || '删除 PodDisruptionBudget 失败';
+        res.status(error?.status || 500).json({ message: '删除 PodDisruptionBudget 失败', error: errorMsg });
+      }
+    },
+  );
+
+  // ============================================================
   // [Gateway API] GatewayClass, Gateway, HTTPRoute, GRPCRoute
   // ============================================================
 
