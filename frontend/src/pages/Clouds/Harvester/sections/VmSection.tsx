@@ -1957,7 +1957,6 @@ const VmSection: React.FC<Props> = ({ vms, loading, namespacesOptions, nodesOpti
         vmNamespace={SafeRead.namespace(saveTemplateVm)}
         vmName={SafeRead.vmId(saveTemplateVm)}
         vmDisplayName={SafeRead.name(saveTemplateVm)}
-        namespacesOptions={namespacesOptions}
         isTenant={isTenant}
         onSuccess={() => {
           onRefresh && onRefresh(true);

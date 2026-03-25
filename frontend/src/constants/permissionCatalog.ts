@@ -17,7 +17,6 @@
 //
 // 【使用位置】
 // - components/TreeTransfer.tsx - 权限树形选择器
-// - pages/Access/Actions.tsx - 权限动作管理页面
 // - pages/Access/Roles.tsx - 角色管理页面
 //
 // 【注意】
@@ -197,7 +196,7 @@ function inferLabel(prefix: string): string {
   
   // 完整前缀映射（优先级最高，用于特殊情况的完整前缀）
   const fullPrefixMap: Record<string, string> = {
-    'clouds.dashboard': '资源总览',
+    'clouds.dashboard': '资源总览（页面权限）',
     'clouds.backups': '备份',
     'ops': '运维平台',
     'system.rbac': 'RBAC 权限管理',
@@ -229,7 +228,7 @@ function inferLabel(prefix: string): string {
   // 常见映射（lastPart 映射）
   const labelMap: Record<string, string> = {
     // 基础资源
-    'clouds': '资源池管理',
+    'clouds': '资源池（clouds.* 全量权限）',
     'ecs': '云主机',
     'vpcs': 'VPC',
     'eips': '弹性公网IP',
@@ -251,8 +250,8 @@ function inferLabel(prefix: string): string {
     'route-tables': '路由表',
     'vlans': 'VLAN (L2)',
     'ippools': 'IP 地址池',
-    'console': '云主机控制台',
-    'dashboard': '仪表盘',
+    'console': '云主机控制台（页面权限）',
+    'dashboard': '资源总览（页面权限）',
     // 用户与租户
     'users': '组织用户管理',
     'user-spaces': '用户空间',

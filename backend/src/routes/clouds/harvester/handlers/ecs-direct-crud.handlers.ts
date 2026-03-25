@@ -22,6 +22,7 @@ import {
   patchHarvesterVM,
   getHarvesterVM,
 } from '../../../../services/clouds/harvester/client';
+import { listKubeOvnSubnets } from '../../../../services/clouds/harvester/network';
 import { createHarvesterPVCVolume } from '../../../../services/clouds/harvester/client';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 import {
@@ -30,6 +31,58 @@ import {
   ensureProvider,
   isNamespaceAllowed,
 } from '../harvester.direct.helpers';
+
+function extractVmNetworks(body: any): any[] | null {
+  if (!body || typeof body !== 'object') return null;
+  const fromTemplate = body.spec?.template?.spec?.networks;
+  if (Array.isArray(fromTemplate)) return fromTemplate;
+  const top = body.networks;
+  if (Array.isArray(top)) return top;
+  return null;
+}
+
+async function assertNoDuplicateFlatSubnets(
+  cloud: any,
+  networks: any[] | null | undefined,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!networks?.length) return { ok: true };
+  const insecure = !!(cloud.config as any)?.ignoreTls;
+  let subs: any[] = [];
+  try {
+    subs = await listKubeOvnSubnets({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey || '',
+      insecure,
+    } as any);
+  } catch {
+    return { ok: true };
+  }
+  const names: string[] = [];
+  for (const n of networks) {
+    const nn = n?.multus?.networkName;
+    if (!nn) continue;
+    const raw = String(nn);
+    const name = raw.includes('/') ? raw.split('/').pop() || '' : raw;
+    if (!name) continue;
+    const s = subs.find(
+      (x: any) => x?.metadata?.name === name || x?.name === name,
+    );
+    const t = String(
+      s?.metadata?.annotations?.['tower.io/subnet-type'] || '',
+    )
+      .trim()
+      .toLowerCase();
+    if (t === 'flat') names.push(name);
+  }
+  const uniq = new Set(names);
+  if (uniq.size !== names.length) {
+    return {
+      ok: false,
+      message: '同一扁平子网在同一云主机内只能使用一次',
+    };
+  }
+  return { ok: true };
+}
 
 /**
  * POST /:id/resources/ecs - 创建 VM
@@ -88,6 +141,11 @@ export async function harvesterEcsCreateHandler(req: Request, res: Response) {
     }
 
     const { namespace, ...payload } = req.body;
+
+    const dup = await assertNoDuplicateFlatSubnets(cloud, extractVmNetworks(payload));
+    if (!dup.ok) {
+      return res.status(400).json({ message: dup.message });
+    }
 
     const data = await createHarvesterVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -163,6 +221,11 @@ export async function harvesterEcsUpdateHandler(req: Request, res: Response) {
       ? instanceId.split('/')[1]
       : instanceId;
 
+    const dup = await assertNoDuplicateFlatSubnets(cloud, extractVmNetworks(spec));
+    if (!dup.ok) {
+      return res.status(400).json({ message: dup.message });
+    }
+
     const data = await updateHarvesterVMSpec(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       namespace || 'default',
@@ -210,6 +273,11 @@ export async function harvesterVmUpdateSpecHandler(req: Request, res: Response) 
           .status(403)
           .json({ message: 'Access denied to this namespace' });
       }
+    }
+
+    const dup = await assertNoDuplicateFlatSubnets(cloud, extractVmNetworks(req.body));
+    if (!dup.ok) {
+      return res.status(400).json({ message: dup.message });
     }
 
     const data = await updateHarvesterVMSpec(
@@ -740,6 +808,8 @@ export async function harvesterEcsSaveAsTemplateHandler(req: Request, res: Respo
         },
       },
       spec: {
+        /** 指向父 VirtualMachineTemplate，Harvester 准入必填 */
+        templateId: `${targetNamespace}/${resourceName}`,
         vm: {
           metadata: vmTemplateMeta,
           spec: {

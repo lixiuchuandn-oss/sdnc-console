@@ -19,11 +19,13 @@ import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
 import { TenantUser } from '../entities/TenantUser';
+import { In } from 'typeorm';
 import { User, UserRole } from '../entities/User';
 import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdownRecord';
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
 import { AuthRequest } from '../middleware/auth';
 import { ALL_PERMISSIONS } from '../constants/permissions';
+import { isBuiltInRbacRoleName } from '../constants/rbacBuiltInRoles';
 // 新权限体系
 import { createApiPermissionMiddleware, requirePermission, checkPermission, PERMISSION_DEFINITIONS, resolvePermissionFromApi } from '../permissions';
 import { logger } from '../utils/logger';
@@ -178,9 +180,7 @@ router.get('/recycle-bin/shutdown-records', async (req, res) => {
 });
 
 // 获取系统中所有"权限原子"（action）列表
-// 输出内容主要用于：
-// - RBAC 策略配置页面列出所有可用动作（actions）
-// - 前端权限管理页面的展示
+// 输出内容主要用于 RBAC 角色授权等页面列出可选动作
 router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
   // 预定义的权限原子列表，来自 constants/permissions.ts
   // 这些是系统中所有可用的权限原子
@@ -223,11 +223,17 @@ router.get('/rbac/permissions', checkRbacPermission, async (_req, res) => {
 router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
   try {
     const roleRepo = AppDataSource.getRepository(RBACRole);
+    const assignRepo = AppDataSource.getRepository(RoleAssignment);
     const roles = await roleRepo.find({
       order: { createdAt: 'DESC' }
     });
+    const assigns = await assignRepo.find({ select: ['roleId'] });
+    const grantedCountByRoleId = new Map<string, number>();
+    for (const a of assigns) {
+      const k = a.roleId;
+      grantedCountByRoleId.set(k, (grantedCountByRoleId.get(k) || 0) + 1);
+    }
     // Transform to frontend Policy format
-    const SYSTEM_ROLES = ['Super Admin', '云租户根用户', '三权-审计管理员', '三权-安全管理员', '三权-系统管理员'];
     const list = roles.map(r => {
       let actions: string[] = [];
       let conditions: any = undefined;
@@ -247,7 +253,7 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
       return {
         id: r.id,
         name: r.name,
-        type: SYSTEM_ROLES.includes(r.name) ? '系统策略' : '自定义策略',
+        type: isBuiltInRbacRoleName(r.name) ? '系统策略' : '自定义策略',
         description: r.description,
         scope: r.scope,
         status: r.status,
@@ -256,7 +262,9 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
         groups: [], // Calculated on frontend
         conditions,
         createdAt: r.createdAt,
-        updatedAt: (r as any).updatedAt
+        updatedAt: (r as any).updatedAt,
+        /** rbac_role_assignments 中该角色的分配条数（系统用户 + 租户用户，与「授予用户」一致） */
+        grantedUserCount: grantedCountByRoleId.get(r.id) ?? 0,
       };
     });
     res.json(list);
@@ -310,7 +318,12 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
-    row.name = name ?? row.name;
+    if (name !== undefined && String(name).trim() !== row.name) {
+      if (isBuiltInRbacRoleName(row.name)) {
+        return res.status(400).json({ message: '系统预置角色不允许修改名称' });
+      }
+    }
+    row.name = name !== undefined ? String(name).trim() : row.name;
     row.description = description ?? row.description;
     row.scope = scope ?? row.scope;
     row.status = status ?? row.status;
@@ -372,20 +385,34 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
 
-    // 检查是否为系统预置角色（通过名称判断）
-    const SYSTEM_ROLES = ['Super Admin', '云租户根用户', '三权-审计管理员', '三权-安全管理员', '三权-系统管理员'];
-    if (SYSTEM_ROLES.includes(row.name)) {
+    if (isBuiltInRbacRoleName(row.name)) {
       return res.status(400).json({ message: '系统预置角色不允许删除' });
     }
 
-    // 检查是否有用户关联
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
+    const tenantUserRepo = AppDataSource.getRepository(TenantUser);
+    const systemUserRepo = AppDataSource.getRepository(User);
+
+    // 历史上删除用户时未级联删除 rbac_role_assignments，会产生孤立分配并阻塞删角色；此处先清理
+    const existingAssigns = await assignRepo.find({ where: { roleId: id } });
+    const orphanAssignIds: string[] = [];
+    for (const a of existingAssigns) {
+      if (a.userType === 'system') {
+        const u = await systemUserRepo.findOne({ where: { id: a.userId }, select: ['id'] });
+        if (!u) orphanAssignIds.push(a.id);
+      } else {
+        const u = await tenantUserRepo.findOne({ where: { id: a.userId }, select: ['id'] });
+        if (!u) orphanAssignIds.push(a.id);
+      }
+    }
+    if (orphanAssignIds.length > 0) {
+      await assignRepo.delete({ id: In(orphanAssignIds) });
+    }
+
     const assignmentCount = await assignRepo.count({ where: { roleId: id } });
     if (assignmentCount > 0) {
       return res.status(400).json({ message: '该角色已关联用户，无法删除' });
     }
-
-    const tenantUserRepo = AppDataSource.getRepository(TenantUser);
     const tenantUserCount = await tenantUserRepo.count({ where: { role: id } });
     if (tenantUserCount > 0) {
       return res.status(400).json({ message: '该角色已关联租户用户，无法删除' });

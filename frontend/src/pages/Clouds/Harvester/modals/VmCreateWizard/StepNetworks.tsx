@@ -292,20 +292,38 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     <Form.Item label="扁平子网" name={['primaryNic', 'subnet']} preserve rules={[{ required: true, message: '请选择扁平子网' }]}>
                       <Select
                         placeholder="选择扁平子网（Kube-OVN / tower.io/subnet-type=flat）"
-                        options={(kubeSubnets || [])
-                          .filter(
-                            (x: any) =>
-                              String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
-                              isKubeOvnFlatSubnet(x),
-                          )
-                          .map((x: any) => {
-                            const n = x?.name || '-';
-                            const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                            return {
-                              label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
-                              value: n,
-                            };
-                          })}
+                        options={(function () {
+                          const used = new Set<string>();
+                          try {
+                            const netIfaces = form.getFieldValue('netIfaces') || [];
+                            netIfaces.forEach((it: any) => {
+                              if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) used.add(String(it.subnet));
+                            });
+                          } catch {}
+                          const currentSelected = (function () {
+                            try { return form.getFieldValue(['primaryNic', 'subnet']); } catch { return undefined; }
+                          })();
+                          return (kubeSubnets || [])
+                            .filter(
+                              (x: any) =>
+                                String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                isKubeOvnFlatSubnet(x),
+                            )
+                            .filter((x: any) => {
+                              const n = x?.name;
+                              if (!n) return false;
+                              if (currentSelected && String(currentSelected) === String(n)) return true;
+                              return !used.has(String(n));
+                            })
+                            .map((x: any) => {
+                              const n = x?.name || '-';
+                              const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                              return {
+                                label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
+                                value: n,
+                              };
+                            });
+                        })()}
                         onOpenChange={(open) => {
                           if (open) reloadKubeSubnets();
                         }}
@@ -672,20 +690,41 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                               >
                                 <Select
                                   placeholder="选择扁平子网"
-                                  options={(kubeSubnets || [])
-                                    .filter(
-                                      (x: any) =>
-                                        String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
-                                        isKubeOvnFlatSubnet(x),
-                                    )
-                                    .map((x: any) => {
-                                      const n = x?.name || '-';
-                                      const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                                      return {
-                                        label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
-                                        value: n,
-                                      };
-                                    })}
+                                  options={(function () {
+                                    const used = new Set<string>();
+                                    try {
+                                      const primarySubnet = form.getFieldValue(['primaryNic', 'subnet']);
+                                      if (primarySubnet) used.add(String(primarySubnet));
+                                      const netIfaces = form.getFieldValue('netIfaces') || [];
+                                      netIfaces.forEach((it: any, idx2: number) => {
+                                        if (idx2 === name) return;
+                                        if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) used.add(String(it.subnet));
+                                      });
+                                    } catch {}
+                                    const currentSelected = (function () {
+                                      try { return form.getFieldValue(['netIfaces', name, 'subnet']); } catch { return undefined; }
+                                    })();
+                                    return (kubeSubnets || [])
+                                      .filter(
+                                        (x: any) =>
+                                          String(x?.vpc || x?.spec?.vpc || '').trim() === UNDERLAY_SYSTEM_VPC &&
+                                          isKubeOvnFlatSubnet(x),
+                                      )
+                                      .filter((x: any) => {
+                                        const n = x?.name;
+                                        if (!n) return false;
+                                        if (currentSelected && String(currentSelected) === String(n)) return true;
+                                        return !used.has(String(n));
+                                      })
+                                      .map((x: any) => {
+                                        const n = x?.name || '-';
+                                        const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                        return {
+                                          label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`,
+                                          value: n,
+                                        };
+                                      });
+                                  })()}
                                   onOpenChange={(open) => {
                                     if (open) reloadKubeSubnets();
                                   }}

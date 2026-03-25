@@ -1,6 +1,7 @@
 import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
 import { ALL_PERMISSIONS } from '../constants/permissions';
+// 新增/改名预置角色时须同步 constants/rbacBuiltInRoles.ts 中的 BUILT_IN_RBAC_ROLE_NAMES
 
 // 使用统一的权限原子定义
 const CURATED_PERMISSIONS = [...ALL_PERMISSIONS];
@@ -8,6 +9,13 @@ const CURATED_PERMISSIONS = [...ALL_PERMISSIONS];
 export async function initializeRoles() {
   try {
     const repo = AppDataSource.getRepository(RBACRole);
+
+    // 历史库中预置名为「Super Admin」，与内置保护名单一致需改为中文名
+    const legacySuper = await repo.findOne({ where: { name: 'Super Admin' } });
+    if (legacySuper) {
+      legacySuper.name = '超级管理员';
+      await repo.save(legacySuper);
+    }
 
     const ensureRole = async (spec: {
       name: string;
@@ -39,29 +47,36 @@ export async function initializeRoles() {
       await repo.save(existed);
     };
 
-    // 1. Super Admin
+    // 1. 超级管理员（内置，对应平台 super_admin 能力）
     await ensureRole({
-      name: 'Super Admin',
+      name: '超级管理员',
       description: '拥有系统所有权限的超级管理员',
       scope: 'system',
       permissions: ['*'],
       status: 'active',
     });
 
-    // 2. 云租户根用户（拥有资源控制台分组下除资源总览、资源池管理外的所有权限）
+    // 2. 云租户根用户
+    // 权限设计（与 PermissionChecker / accessMapping 一致）：
+    // - 资源总览、资源池管理：不包含（与原逻辑一致）
+    // - 云主机控制台：仅 clouds.console:read，不包含 clouds.console:write（避免「控制台写」按规则扩张为全部 clouds.*:write）
+    // - 镜像：仅 clouds.images:read，不包含 clouds.images:write（租户侧镜像仅查看，不上传/删除）
+    // - 其余 clouds.* 细分资源：保留显式 read/write（如 clouds.ecs:write），与「其他云资源读写」一致
     await ensureRole({
       name: '云租户根用户',
-      description: '租户管理员，拥有资源控制台分组下除资源总览、资源池管理外的所有权限',
+      description:
+        '租户管理员：资源控制台（除资源总览、资源池外）；云主机控制台仅访问；镜像仅查看；其余云资源按各细分权限读写。',
       scope: 'tenant',
       permissions: [
-        // 资源控制台分组：所有权限（排除资源总览 clouds.dashboard 和资源池管理 clouds）
-        ...CURATED_PERMISSIONS.filter((p) => 
-          p.startsWith('clouds.') && 
-          !p.startsWith('clouds.dashboard:') && 
-          p !== 'clouds:read' && 
-          p !== 'clouds:write'
+        ...CURATED_PERMISSIONS.filter(
+          (p) =>
+            p.startsWith('clouds.') &&
+            !p.startsWith('clouds.dashboard:') &&
+            p !== 'clouds:read' &&
+            p !== 'clouds:write' &&
+            p !== 'clouds.console:write' &&
+            p !== 'clouds.images:write',
         ),
-        // 网络相关权限（VPC等）
         'networks.vpcs:read',
         'networks.vpcs:write',
       ],
@@ -85,11 +100,11 @@ export async function initializeRoles() {
 
     // 5. 三权-安全管理员
     // 权限范围：
-    // 1. 权限管控分组：保留功能权限、角色管理
+    // 1. 权限管控分组：角色管理等
     // 2. 多云平台的资源控制台分组、租户管理分组的所有功能权限（不包括系统用户管理）
     const secadminRoleName = '三权-安全管理员';
     const secadminPerms = [
-      // 权限管控分组：功能权限、角色管理
+      // 权限管控分组：角色管理等
       'system.actions:read',
       'system.actions:write',
       'system.roles:read',
@@ -112,7 +127,7 @@ export async function initializeRoles() {
     ];
     await ensureRole({
       name: secadminRoleName,
-      description: '拥有权限管控分组（功能权限、角色管理）、资源控制台分组和租户管理分组的所有权限（不包括系统用户管理）',
+        description: '拥有权限管控分组（角色管理等）、资源控制台分组和租户管理分组的所有权限（不包括系统用户管理）',
       scope: 'system',
       permissions: secadminPerms,
       status: 'active',

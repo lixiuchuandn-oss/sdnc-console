@@ -188,10 +188,9 @@ const AdminLayout: React.FC = () => {
    * 2. 右侧：用户信息、登出按钮
    */
   const ProHeader: React.FC = () => {
-    const primaryColor = settings.primaryColor || '#1677ff';
+    const primaryColor = settings.primaryColor;
 
-    // 如果还在加载中，不显示默认标题，避免闪烁
-    const headerTitle = settingsLoading ? '' : String(settings.headerTitle || 'Compute.Tower');
+    const headerTitle = settingsLoading ? '' : String(settings.headerTitle ?? '');
 
     return (
       <Header
@@ -214,7 +213,7 @@ const AdminLayout: React.FC = () => {
           {settings.headerIcon ? (
             <img src={settings.headerIcon} alt="Logo" style={{ height: 28, width: 'auto', display: 'block' }} />
           ) : (
-            <AppstoreOutlined style={{ color: primaryColor, fontSize: 18 }} />
+            <AppstoreOutlined style={{ color: primaryColor || undefined, fontSize: 18 }} />
           )}
 
           <span style={{ fontSize: 14, lineHeight: '14px', display: 'flex', alignItems: 'center' }}>
@@ -470,9 +469,12 @@ const AdminLayout: React.FC = () => {
    * 3. 右侧：API 文档、系统设置（齿轮图标）、用户信息、登出按钮
    */
   const StandardHeader: React.FC = () => {
-    const headerColor = settings.headerColor || '#0A4CC0';
-    const headerColorEnd = settings.headerColorEnd || '#1B64ED';
-    const gradient = `linear-gradient(90deg, ${headerColor} 0%, ${headerColorEnd} 100%)`;
+    const headerColor = settings.headerColor;
+    const headerColorEnd = settings.headerColorEnd;
+    const gradient =
+      headerColor && headerColorEnd
+        ? `linear-gradient(90deg, ${headerColor} 0%, ${headerColorEnd} 100%)`
+        : 'transparent';
     
     return (
     <Header style={{ background: gradient, color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', position:'sticky', top:0, zIndex:1000, height: 64, boxShadow:'0 4px 16px rgba(0,0,0,0.08)', borderBottom:'1px solid ' + NAV_DIVIDER_COLOR }}>
@@ -493,7 +495,7 @@ const AdminLayout: React.FC = () => {
             />
           )}
           <span style={{ fontSize:18, color:'#fff', lineHeight: '18px', display: 'flex', alignItems: 'center' }}>
-            {settingsLoading ? '' : renderMarkdownBold(settings.headerTitle || 'Compute.Tower')}
+            {settingsLoading ? '' : renderMarkdownBold(settings.headerTitle ?? '')}
           </span>
         </Space>
          <Dropdown
@@ -575,7 +577,7 @@ const AdminLayout: React.FC = () => {
             height: 36,
             borderRadius: 10,
             border: '1px solid rgba(255,255,255,0.6)',
-            background: settings.searchBackgroundColor || '#1062fe',
+            background: settings.searchBackgroundColor || 'transparent',
             display:'flex',
             alignItems:'center',
             justifyContent:'space-between',
@@ -1214,16 +1216,16 @@ const AdminLayout: React.FC = () => {
             background: #ffffff !important;
           }
           .admin-sidebar-menu .ant-menu-item-selected {
-            background-color: ${settings.sidebarMenuItemSelectedColor || '#e6f7ff'} !important;
+            background-color: ${settings.sidebarMenuItemSelectedColor || 'transparent'} !important;
           }
           .admin-sidebar-menu .ant-menu-item-selected::after {
-            border-right-color: ${settings.sidebarMenuItemSelectedColor || '#e6f7ff'} !important;
+            border-right-color: ${settings.sidebarMenuItemSelectedColor || 'transparent'} !important;
           }
           .admin-sidebar-menu .ant-menu-item-selected > span {
-            color: ${settings.sidebarMenuItemSelectedTextColor || '#1677ff'} !important;
+            color: ${settings.sidebarMenuItemSelectedTextColor || 'inherit'} !important;
           }
           .admin-sidebar-menu .ant-menu-item-selected .anticon {
-            color: ${settings.sidebarMenuItemSelectedIconColor || '#1677ff'} !important;
+            color: ${settings.sidebarMenuItemSelectedIconColor || 'inherit'} !important;
           }
         `}</style>
         {/* 侧边栏菜单 */}

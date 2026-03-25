@@ -237,8 +237,6 @@ const UnderlaySubnetDetailDrawer: React.FC<Props> = ({
               <Descriptions.Item label="资源名">{subnetName || '—'}</Descriptions.Item>
               <Descriptions.Item label="CIDR">{String(subnet?.spec?.cidrBlock ?? '—')}</Descriptions.Item>
               <Descriptions.Item label="网关">{String(subnet?.spec?.gateway ?? '—')}</Descriptions.Item>
-              <Descriptions.Item label="VLAN">{String(subnet?.spec?.vlan ?? '—')}</Descriptions.Item>
-              <Descriptions.Item label="VPC">{String(subnet?.spec?.vpc ?? 'ovn-cluster')}</Descriptions.Item>
             </Descriptions>
           </Card>
 

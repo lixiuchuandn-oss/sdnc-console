@@ -14,8 +14,8 @@
  *    - 将后端状态 (Imported, Downloading, Failed 等) 映射为中文描述和 Antd Badge 颜色。
  *    - 特别处理下载进度展示 (Progress)，实时反馈导入状态。
  * 2. [创建流程]:
- *    - 提供 URL 导入和工具上传两种模式的 Tab 切换。
- *    - URL 导入时，需选择目标 StorageClass，并校验 URL 格式。
+ *    - 标准模式：内网直传与 URL 导入两个 Tab（前者优先）；URL 导入需选择目标 StorageClass 并校验链接。
+ *    - 简易模式：仅展示内网直传说明，不展示 Tab。
  * 3. [详情抽屉]:
  *    - 点击行支持打开 `HarvesterResourceDrawer`，展示镜像的 YAML 和 Events。
  *    - 在打开抽屉前，自动补全 `kind: VirtualMachineImage` 以适配通用抽屉逻辑。
@@ -35,8 +35,9 @@ import TableColumnSettingsButton from '../../../../components/TableColumnSetting
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { API_BASE_URL } from '../../../../services/api';
+import { getToken } from '../../../../utils/tokenStorage';
 import { deleteHarvesterImage, createHarvesterImage, fetchHarvesterStorageClasses } from '../../../../services/harvesterApi';
-import { isSystemNamespace, isPublicNamespace } from '../../../../utils/harvesterUtils';
+import { isSystemNamespace, isPublicNamespace, isSystemStorageClass } from '../../../../utils/harvesterUtils';
 import { OsIcon, getOsKeywordGroups } from '../../../../components/OsIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -83,8 +84,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   // 创建表单实例
   const [form] = Form.useForm();
-  // 创建方式 Tab：URL 导入 / 直传工具说明
-  const [createTab, setCreateTab] = useState<'url'|'tool'>('url');
+  // 创建方式 Tab：内网直传 / URL 导入（标准模式可切换；简易模式仅直传）
+  const [createTab, setCreateTab] = useState<'url'|'tool'>('tool');
   
   // 存储类列表，用于 URL 导入时选择目标存储类
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
@@ -94,13 +95,14 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<any>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
+  const [uploaderDownloading, setUploaderDownloading] = useState(false);
 
   React.useEffect(() => {
     if (creating && cloudId) {
       setScLoading(true);
       fetchHarvesterStorageClasses(cloudId).then((res: any) => {
-        const items = res?.data?.items || res?.data || [];
-        setStorageClasses(Array.isArray(items) ? items : []);
+        const raw = res?.data?.items ?? res?.items ?? res?.data;
+        setStorageClasses(Array.isArray(raw) ? raw : []);
       }).catch(console.error).finally(() => setScLoading(false));
     }
   }, [creating, cloudId]);
@@ -315,6 +317,13 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     kernel: (r: any) => '', 
     arch: (r: any) => r?.metadata?.labels?.['harvesterhci.io/architecture'] || '',
   };
+  const getImageAlias = (r: any): string =>
+    String(
+      r?.displayName ||
+      r?.spec?.displayName ||
+      r?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
+      '',
+    ).trim();
 
   /**
    * 批量删除已选镜像
@@ -334,8 +343,10 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
           if (targets.length === 0) { message.warning('未找到可删除的镜像'); return; }
           const results = await Promise.all(targets.map(async (r: any) => {
             const ns = getNs(r); const name = getId(r);
-            try { await deleteHarvesterImage(cloudId, ns, name); return { ok: true, name }; }
-            catch (e: any) { return { ok: false, name, err: e?.message || String(e) }; }
+            const alias = getImageAlias(r);
+            const label = alias ? `${alias} (${name})` : name;
+            try { await deleteHarvesterImage(cloudId, ns, name); return { ok: true, name: label }; }
+            catch (e: any) { return { ok: false, name: label, err: e?.message || String(e) }; }
           }));
           const ok = results.filter(x => x.ok).length;
           const fail = results.filter(x => !x.ok);
@@ -399,6 +410,8 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
     } },
     { title: '操作', key: 'actions', width: 80, align: 'left' as const, fixed: 'right' as const, render: (_:any, r:any)=> {
       const name = r?.name || r?.metadata?.name || '';
+      const alias = getImageAlias(r);
+      const deleteLabel = alias ? `${alias} (${name})` : name;
       const ns = getNs(r);
       const links = r?.links || {};
       const download = links?.download || '';
@@ -424,7 +437,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
             ...(!isTenant ? [{ key: 'opsinfo', label: '运维信息', onClick: () => handleOpenOpsinfo(r, 'detail') }] : []),
             { key: 'download', label: '下载镜像', disabled: !download, onClick: handleDownload },
             { type: 'divider' },
-            { key: 'delete', label: '删除', danger: true, disabled: !hasImagesWrite, onClick: () => Modal.confirm({ title: `删除 ${name}?`, onOk: handleDelete }) },
+            { key: 'delete', label: '删除', danger: true, disabled: !hasImagesWrite, onClick: () => Modal.confirm({ title: '确认删除镜像？', content: `确定要删除镜像 ${deleteLabel} 吗？此操作不可恢复。`, onOk: handleDelete }) },
           ]} 
         />
       );
@@ -471,6 +484,160 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       message.error(e?.message || '创建失败');
     }
   };
+
+  /** 通过 fetch 下载直传工具：失败时在当前页 message 提示，避免 href 打开错误页 */
+  const handleDownloadImageUploader = async () => {
+    const url = `${API_BASE_URL}/api/tools/imageuploader.exe`;
+    setUploaderDownloading(true);
+    try {
+      const token = getToken();
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(url, { headers });
+      if (res.status === 404) {
+        message.error('镜像上传工具文件不存在，请确认服务器已部署或联系管理员');
+        return;
+      }
+      if (!res.ok) {
+        message.error(`下载失败（HTTP ${res.status}）`);
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = 'ImageUploader.exe';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e: any) {
+      message.error(e?.message || '下载失败，请检查网络');
+    } finally {
+      setUploaderDownloading(false);
+    }
+  };
+
+  const renderUrlImportPanel = () => (
+    <>
+      <Row gutter={16}>
+        <Col span={12}>
+          <Form.Item label="命名空间" name="namespace" rules={[{ required: true }]}>
+            <Select options={[{ label:'default', value:'default' }]} style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+        <Col span={12}>
+          <Form.Item label="来源类型" name="sourceType" rules={[{ required: true }]}>
+            <Select options={[{label:'下载URL',value:'download'}]} style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+      </Row>
+      <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}>
+        <Input placeholder="如：ubuntu_20.04_200G.qcow2" />
+      </Form.Item>
+      <Form.Item label="资源名称" name="name" tooltip="可选，不填自动生成 image-*">
+        <Input placeholder="可选，不填自动生成" />
+      </Form.Item>
+      <Form.Item
+        label="下载地址"
+        name="url"
+        dependencies={["sourceType"]}
+        rules={[{
+          validator: async (_, v)=> {
+            const t = form.getFieldValue('sourceType');
+            if (t!=='download') return Promise.resolve();
+            if (!v || !/^https?:\/\//i.test(String(v))) return Promise.reject('请输入合法的 http(s) 链接');
+            return Promise.resolve();
+          }
+        }]}
+      >
+        <Input placeholder="http(s)://..." />
+      </Form.Item>
+      <Form.Item label="镜像类型" name="imageType" tooltip="选择镜像类型，如果不选择将根据文件名自动推断">
+        <Select
+          placeholder="选择镜像类型（可选）"
+          allowClear
+          options={[
+            { value: 'disk', label: 'Qcow2（磁盘镜像）' },
+            { value: 'iso', label: 'ISO（光盘镜像）' },
+          ]}
+          style={{ width: '100%' }}
+        />
+      </Form.Item>
+      <Form.Item label="存储类" name="storageClassName">
+        <Select
+          loading={scLoading}
+          options={storageClasses
+            .map((sc: any) => {
+              const n = sc?.metadata?.name || sc?.name;
+              if (!n || isSystemStorageClass(n)) return null;
+              return { label: n, value: n };
+            })
+            .filter(Boolean) as { label: string; value: string }[]}
+          placeholder="请选择存储类 (可选)"
+          allowClear
+          style={{ width: '100%' }}
+        />
+      </Form.Item>
+      <Typography.Paragraph type="secondary">
+        说明：URL 导入由 Cloudmap 集群侧自行下载，适合大文件与不稳定网络。请确保链接可被集群访问。
+      </Typography.Paragraph>
+    </>
+  );
+
+  const renderToolUploadPanel = () => (
+    <div style={{ padding: '0 8px' }}>
+      <Steps
+        direction="vertical"
+        size="small"
+        current={-1}
+        items={[
+          {
+            title: '下载工具',
+            description: (
+              <div style={{ marginTop: 8, marginBottom: 8 }}>
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  loading={uploaderDownloading}
+                  onClick={() => { void handleDownloadImageUploader(); }}
+                >
+                  下载 ImageUploader.exe
+                </Button>
+                <div style={{ marginTop: 4, color: '#888', fontSize: 12 }}>
+                  支持 Windows (x64) 平台，无需安装直接运行
+                </div>
+              </div>
+            )
+          },
+          {
+            title: '填写信息',
+            description: '运行工具后，选择目标命名空间，填写镜像名称（如 ubuntu-20.04）。'
+          },
+          {
+            title: '连接集群',
+            description: '填写 Cloudmap 地址与 Token 进行身份验证。'
+          },
+          {
+            title: '上传文件',
+            description: '选择本地镜像文件（ISO/QCOW2），点击“开始上传”。'
+          }
+        ]}
+      />
+
+      <Card size="small" title="高级用法：命令行模式" style={{ marginTop: 16, background: '#f9f9f9' }} styles={{ body: { padding: '8px 12px' } }}>
+        <Typography.Paragraph style={{ marginBottom: 4, fontFamily: 'monospace', fontSize: 12 }} copyable>
+          ImageUploader.exe --direct --url=https://10.x.x.x --token=... --name=ubuntu-20.04 --file=./image.iso
+        </Typography.Paragraph>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          提示：在命令行运行工具可查看完整参数说明，适合脚本集成。
+        </Typography.Text>
+      </Card>
+    </div>
+  );
+
+  const isUrlCreateTab = mode === 'standard' && createTab === 'url';
 
   return (
     <PageDetailSection
@@ -540,7 +707,7 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
       )}
       toolbarRight={(
         <>
-          <Button type="primary" disabled={!hasImagesWrite} onClick={()=> { if (!ensureImagesWrite()) return; form.resetFields(); setCreating(true); }}>新增镜像</Button>
+          <Button type="primary" disabled={!hasImagesWrite} onClick={()=> { if (!ensureImagesWrite()) return; form.resetFields(); setCreateTab('tool'); setCreating(true); }}>新增镜像</Button>
           <Tooltip
             title={
               !hasImagesWrite
@@ -586,142 +753,36 @@ const ImagesSection: React.FC<Props> = ({ cloudId, images, loading, onRefresh, i
         open={creating}
         title="新增镜像"
         onCancel={() => setCreating(false)}
-        onFinish={createTab==='url' ? handleCreate : ()=> setCreating(false)}
+        onFinish={isUrlCreateTab ? handleCreate : ()=> setCreating(false)}
         form={form}
-        okText={createTab==='url' ? '创建' : '关闭'}
+        okText={isUrlCreateTab ? '创建' : '关闭'}
         width={600}
       >
-        <Tabs
-          activeKey={createTab}
-          onChange={(k)=> {
-            const key = (k as 'url'|'tool');
-            setCreateTab(key);
-            if (key === 'url') form.setFieldsValue({ sourceType: 'download' });
-          }}
-          items={[
-            {
-              key: 'url',
-              label: 'URL 导入（集群拉取）',
-              children: (
-                <>
-                  <Row gutter={16}>
-                    <Col span={12}>
-                      <Form.Item label="命名空间" name="namespace" rules={[{ required: true }]}>
-                        <Select options={[{ label:'default', value:'default' }]} style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item label="来源类型" name="sourceType" rules={[{ required: true }]}> 
-                        <Select options={[{label:'下载URL',value:'download'}]} style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                  <Form.Item label="镜像名称" name="displayName" rules={[{ required: true }]}> 
-                    <Input placeholder="如：ubuntu_20.04_200G.qcow2" />
-                  </Form.Item>
-                  <Form.Item label="资源名称" name="name" tooltip="可选，不填自动生成 image-*"> 
-                    <Input placeholder="可选，不填自动生成" />
-                  </Form.Item>
-                  <Form.Item 
-                    label="下载地址" 
-                    name="url" 
-                    dependencies={["sourceType"]} 
-                    rules={[{ 
-                      validator: async (_, v)=> { 
-                        const t = form.getFieldValue('sourceType'); 
-                        if (t!=='download') return Promise.resolve(); 
-                        if (!v || !/^https?:\/\//i.test(String(v))) return Promise.reject('请输入合法的 http(s) 链接'); 
-                        return Promise.resolve(); 
-                      } 
-                    }]}
-                  > 
-                    <Input placeholder="http(s)://..." />
-                  </Form.Item>
-                  <Form.Item label="镜像类型" name="imageType" tooltip="选择镜像类型，如果不选择将根据文件名自动推断">
-                    <Select 
-                      placeholder="选择镜像类型（可选）"
-                      allowClear
-                      options={[
-                        { value: 'disk', label: 'Qcow2（磁盘镜像）' },
-                        { value: 'iso', label: 'ISO（光盘镜像）' },
-                      ]}
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                  <Form.Item label="存储类" name="storageClassName"> 
-                    <Select 
-                        loading={scLoading}
-                        options={storageClasses.map(sc => ({ label: sc.name, value: sc.name }))}
-                        placeholder="请选择存储类 (可选)"
-                        allowClear
-                        style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                  <Typography.Paragraph type="secondary">
-                    说明：URL 导入由 Cloudmap 集群侧自行下载，适合大文件与不稳定网络。请确保链接可被集群访问。
-                  </Typography.Paragraph>
-                </>
-              )
-            },
-            {
-              key: 'tool',
-              label: '内网直传（传输工具）',
-              children: (
-                <div style={{ padding: '0 8px' }}>
-                  <Alert
-                    message="方案说明"
-                    description="使用“Cloudmap 镜像直传工具”在内网将本地文件直接上传到 Cloudmap 集群，无需经过中间跳转，速度更快且支持断点续传。"
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 24 }}
-                  />
-                  
-                  <Steps
-                    direction="vertical"
-                    size="small"
-                    current={-1}
-                    items={[
-                      {
-                        title: '下载工具',
-                        description: (
-                          <div style={{ marginTop: 8, marginBottom: 8 }}>
-                             <Button type="primary" icon={<DownloadOutlined />} href={`${API_BASE_URL}/api/tools/cloudmap-uploader.exe`} download="CloudmapUploader.exe">
-                               下载 CloudmapUploader.exe
-                             </Button>
-                             <div style={{ marginTop: 4, color: '#888', fontSize: 12 }}>
-                               支持 Windows (x64) 平台，无需安装直接运行
-                             </div>
-                          </div>
-                        )
-                      },
-                      {
-                        title: '填写信息',
-                        description: '运行工具后，选择目标命名空间，填写镜像名称（如 ubuntu-20.04）。'
-                      },
-                      {
-                        title: '连接集群',
-                        description: '填写 Cloudmap 地址与 Token 进行身份验证。'
-                      },
-                      {
-                        title: '上传文件',
-                        description: '选择本地镜像文件（ISO/QCOW2），点击“开始上传”。'
-                      }
-                    ]}
-                  />
-
-                  <Card size="small" title="高级用法：命令行模式" style={{ marginTop: 16, background: '#f9f9f9' }} styles={{ body: { padding: '8px 12px' } }}>
-                     <Typography.Paragraph style={{ marginBottom: 4, fontFamily: 'monospace', fontSize: 12 }} copyable>
-                       CloudmapUploader.exe --direct --url=https://10.x.x.x --token=... --name=ubuntu-20.04 --file=./image.iso
-                     </Typography.Paragraph>
-                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                       提示：在命令行运行工具可查看完整参数说明，适合脚本集成。
-                     </Typography.Text>
-                  </Card>
-                </div>
-              )
-            }
-          ]}
-        />
+        {mode === 'simple' ? (
+          renderToolUploadPanel()
+        ) : (
+          <Tabs
+            activeKey={createTab}
+            destroyInactiveTabPane
+            onChange={(k)=> {
+              const key = (k as 'url'|'tool');
+              setCreateTab(key);
+              if (key === 'url') form.setFieldsValue({ sourceType: 'download' });
+            }}
+            items={[
+              {
+                key: 'tool',
+                label: '内网直传（传输工具）',
+                children: renderToolUploadPanel(),
+              },
+              {
+                key: 'url',
+                label: 'URL 导入（集群拉取）',
+                children: renderUrlImportPanel(),
+              },
+            ]}
+          />
+        )}
       </StdFormModal>
       <Table
         className="std-table"

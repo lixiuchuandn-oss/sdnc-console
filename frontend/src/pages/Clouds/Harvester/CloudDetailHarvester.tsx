@@ -92,6 +92,16 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
   const permissions = user?.permissions;
   // 权限检查辅助函数
   const checkPerm = (act: string) => hasPermissionForAction(permissions || [], act);
+  const canViewMonitoringTab =
+    checkPerm('clouds.alerts:read') ||
+    checkPerm('clouds.alert-rules:read') ||
+    checkPerm('clouds.alert-policies:read') ||
+    checkPerm('clouds.alert-receivers:read') ||
+    checkPerm('clouds.alert-secrets:read');
+  const canViewLoggingTab =
+    checkPerm('clouds.log-targets:read') ||
+    checkPerm('clouds.log-receivers:read') ||
+    checkPerm('clouds.log-configs:read');
 
   // --- 状态定义 ---
 
@@ -299,27 +309,25 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
         setRawNads(json || null);
       }, force);
       
-      // Kube-OVN 基础网络资源
+      // Kube-OVN：VPC 能力受 network.ovn.vpc；子网清单（含扁平/公共）独立加载
       if (ovnVpcEnabled) {
         loadResource('vpcs', () => fetchKubeOvnVpcs(cloudId, force), (json) => {
           const list: any[] = (json as any)?.data?.items || [];
           setKubeOvnVpcs(Array.isArray(list) ? list : []);
           setRawVpcs(json || null);
         }, force);
-        loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force), (json) => {
-          const list: any[] = (json as any)?.data?.items || [];
-          setKubeOvnSubnets(Array.isArray(list) ? list : []);
-          setRawSubnets(json || null);
-        }, force);
       } else {
         setKubeOvnVpcs([]);
-        setKubeOvnSubnets([]);
         setRawVpcs(null);
-        setRawSubnets(null);
       }
+      loadResource('subnets', () => fetchKubeOvnSubnets(cloudId, force), (json) => {
+        const list: any[] = (json as any)?.data?.items || [];
+        setKubeOvnSubnets(Array.isArray(list) ? list : []);
+        setRawSubnets(json || null);
+      }, force);
     }
 
-    if (checkPerm('clouds.images:read')) {
+    if (checkPerm('clouds.images:read') || checkPerm('clouds.ecs:read')) {
       loadResource('images', () => fetchHarvesterImages(cloudId, force), (json) => {
         const list: any[] = (json as any)?.data?.items || [];
         setHarvesterImages(Array.isArray(list) ? list : []);
@@ -327,20 +335,22 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
       }, force);
     }
 
-    if (checkPerm('clouds.volumes:read')) {
+    if (checkPerm('clouds.disks:read')) {
       loadResource('volumes', () => fetchHarvesterVolumes(cloudId, force), (json) => {
         const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
         setHarvesterVolumes(Array.isArray(list) ? list : []);
         setRawVolumes(json || null);
       }, force);
-      // 存储类通常在下拉框需要，作为核心资源加载
+    }
+
+    if (checkPerm('clouds.storage-classes:read') || checkPerm('clouds.ecs:read')) {
       loadResource('storageClasses', () => fetchHarvesterStorageClasses(cloudId, force), (json) => {
         const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
         setHarvesterStorageClasses(Array.isArray(list) ? list : []);
       }, force);
     }
 
-    if (checkPerm('clouds.nodes:read')) {
+    if (checkPerm('clouds.cluster-nodes:read') || checkPerm('clouds.ecs:read')) {
       loadResource('nodes', () => fetchHarvesterNodes(cloudId, force), (json) => {
         const list: any[] = (json as any)?.data?.items || [];
         setHarvesterNodes(Array.isArray(list) ? list : []);
@@ -372,7 +382,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
           case 'namespaces':
             // 命名空间管理页面：加载所有命名空间（包括系统命名空间），使用独立状态避免影响其他组件
             // 后端已实现租户隔离，租户用户即使查询所有命名空间，也只会看到分配给自己的命名空间
-            if (checkPerm('clouds.namespaces:read')) {
+            if (checkPerm('clouds.namespaces:read') || checkPerm('clouds.ecs:read')) {
               setResourceLoading(prev => ({ ...prev, namespaces: true }));
               fetchHarvesterNamespaces(cloudId, force, false) // excludeSystem=false，管理页面需要查看系统命名空间
                 .then((json) => {
@@ -470,7 +480,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             }
             break;
           case 'gpu':
-            if (checkPerm('clouds.ecs:read')) {
+            if (checkPerm('clouds.gpus:read') || checkPerm('clouds.ecs:read')) {
               loadResource('gpu', () => fetchHarvesterGpuResources(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
                 setHarvesterGpuResources(Array.isArray(list) ? list : []);
@@ -479,7 +489,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             }
             break;
           case 'usb_devices':
-            if (checkPerm('clouds.ecs:read')) {
+            if (checkPerm('clouds.usb-devices:read') || checkPerm('clouds.ecs:read')) {
               loadResource('usbDevices', () => fetchHarvesterUsbResources(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
                 setHarvesterUsbDevices(Array.isArray(list) ? list : []);
@@ -488,7 +498,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             }
             break;
           case 'pci_devices':
-            if (checkPerm('clouds.ecs:read')) {
+            if (checkPerm('clouds.pci-devices:read') || checkPerm('clouds.ecs:read')) {
               loadResource('pciDevices', () => fetchHarvesterPciDevices(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : (Array.isArray((json as any)?.items) ? (json as any).items : []);
                 setHarvesterPciDevices(Array.isArray(list) ? list : []);
@@ -497,7 +507,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             }
             break;
           case 'load_balancers':
-            if (checkPerm('clouds.loadbalancers:read')) {
+            if (checkPerm('clouds.nads:read')) {
               loadResource('loadBalancers', () => fetchHarvesterLoadBalancers(cloudId, force), (json) => {
                 const list = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterLoadBalancers(list);
@@ -507,7 +517,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             break;
           case 'cluster_services':
           case 'services':
-            if (checkPerm('clouds.services:read')) {
+            if (checkPerm('clouds.cluster-services:read')) {
               loadResource('services', () => fetchHarvesterServices(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterServices(Array.isArray(list) ? list : []);
@@ -529,7 +539,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             }
             break;
           case 'ippools':
-            if (checkPerm('clouds.ippools:read')) {
+            if (checkPerm('clouds.nads:read')) {
               loadResource('ippools', () => fetchHarvesterIPPools(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.data?.items) ? (json as any).data.items : [];
                 setHarvesterIPPools(Array.isArray(list) ? list : []);
@@ -538,7 +548,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
             }
             break;
           case 'cluster_networks':
-            if (checkPerm('clouds.networks:read')) {
+            if (checkPerm('clouds.cluster-networks:read')) {
               loadResource('clusterNetworks', () => fetchHarvesterClusterNetworks(cloudId, force), (json) => {
                 const list: any[] = Array.isArray((json as any)?.items) ? (json as any).items : [];
                 setHarvesterClusterNetworks(Array.isArray(list) ? list : []);
@@ -1041,7 +1051,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
               label: '资源总览',
               children: <MonitoringOverview cloudId={cloudId} />
             },
-            {
+            ...(canViewMonitoringTab ? [{
               key: 'monitoring-alerts',
               label: '监控告警',
               children: (
@@ -1077,11 +1087,18 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
           label: '告警密钥',
           children: <MonitoringAlertSecrets cloudId={cloudId} />,
         },
-                    ]}
+                    ].filter((i: any) => {
+                      if (i.key === 'alerts-list') return checkPerm('clouds.alerts:read');
+                      if (i.key === 'alert-rules') return checkPerm('clouds.alert-rules:read');
+                      if (i.key === 'notification-policy') return checkPerm('clouds.alert-policies:read');
+                      if (i.key === 'notification-targets') return checkPerm('clouds.alert-receivers:read');
+                      if (i.key === 'alert-secrets') return checkPerm('clouds.alert-secrets:read');
+                      return true;
+                    })}
                   />
                 </MonitoringProvider>
               )
-            },
+            }] : []),
             {
               key: 'cluster',
               label: '集群',
@@ -1230,15 +1247,15 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       children: (<PciDevicesSection cloudId={cloudId} devices={harvesterPciDevices} loading={resourceLoading.pciDevices} onRefresh={() => loadTabResource('pci_devices', true)} raw={rawPciDevices} showLog={showLog} />)
                     }
                   ].filter((i:any) => {
-                      if (i.key === 'cluster_nodes') return checkPerm('clouds.nodes:read');
-                      if (i.key === 'cluster_services') return checkPerm('clouds.services:read');
-                      if (i.key === 'cluster_networks') return checkPerm('clouds.networks:read');
+                      if (i.key === 'cluster_nodes') return checkPerm('clouds.cluster-nodes:read');
+                      if (i.key === 'cluster_services') return checkPerm('clouds.cluster-services:read');
+                      if (i.key === 'cluster_networks') return checkPerm('clouds.cluster-networks:read');
                       if (i.key === 'cluster_vlans') return checkPerm('clouds.networks:read');
                       if (i.key === 'namespaces') return checkPerm('clouds.namespaces:read') || checkPerm('clouds:read');
-                      if (i.key === 'storage_classes') return checkPerm('clouds.volumes:read');
-                      if (i.key === 'gpu') return checkPerm('clouds.ecs:read');
-                      if (i.key === 'cluster_usb') return checkPerm('clouds.ecs:read');
-                      if (i.key === 'cluster_pci') return checkPerm('clouds.ecs:read');
+                      if (i.key === 'storage_classes') return checkPerm('clouds.storage-classes:read');
+                      if (i.key === 'gpu') return checkPerm('clouds.gpus:read');
+                      if (i.key === 'cluster_usb') return checkPerm('clouds.usb-devices:read');
+                      if (i.key === 'cluster_pci') return checkPerm('clouds.pci-devices:read');
                       return true;
                    })}
                 />
@@ -1280,7 +1297,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                                     setHarvesterImages(json?.data?.items || []);
                                   }, true);
                                 }
-                                if (checkPerm('clouds.volumes:read')) {
+                                if (checkPerm('clouds.disks:read')) {
                                   loadResource('volumes', () => fetchHarvesterVolumes(cloudId, true), (json) => {
                                     setHarvesterVolumes(json?.data?.items || []);
                                   }, true);
@@ -1590,7 +1607,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       if (i.key === 'templates') return checkPerm('clouds.templates:read');
                       if (i.key === 'ssh_keys') return checkPerm('clouds.sshkeys:read');
                       if (i.key === 'cloud_inits') return checkPerm('clouds.cloudinits:read');
-                      if (i.key === 'migrations') return checkPerm('clouds.ecs:read');
+                      if (i.key === 'recycle_bin') return checkPerm('clouds.recycle-bin:read') || checkPerm('clouds.ecs:read');
+                      if (i.key === 'migrations') return checkPerm('clouds.migrations:read') || checkPerm('clouds.ecs:read');
                       return true;
                   })}
                 />
@@ -1726,7 +1744,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                       )
                     }
                   ].filter((i:any) => {
-                     if (i.key === 'volumes') return checkPerm('clouds.volumes:read');
+                     if (i.key === 'volumes') return checkPerm('clouds.disks:read');
                      if (i.key === 'images') return checkPerm('clouds.images:read');
                      if (i.key === 'snapshots') return checkPerm('clouds.snapshots:read');
                      return true;
@@ -1950,8 +1968,8 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                     }
                   ].filter((i:any) => {
                      if (i.key === 'nad') return checkPerm('clouds.networks:read');
-                     if (i.key === 'load_balancers') return checkPerm('clouds.loadbalancers:read');
-                     if (i.key === 'ippools') return checkPerm('clouds.ippools:read');
+                     if (i.key === 'load_balancers') return checkPerm('clouds.nads:read');
+                     if (i.key === 'ippools') return checkPerm('clouds.nads:read');
                      return true;
                   })}
                 />
@@ -2137,7 +2155,7 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                 />
               )
             }] : []),
-            {
+            ...(canViewLoggingTab ? [{
               key: 'logs-config',
               label: '日志管理',
               children: (
@@ -2163,11 +2181,16 @@ const CloudDetailHarvester: React.FC<{ cloudId: string; defaultProvider?: string
                         label: '日志采集配置',
                         children: <LogsConfig cloudId={cloudId} />,
                       }
-                    ]}
+                    ].filter((i: any) => {
+                      if (i.key === 'logs-target') return checkPerm('clouds.log-targets:read');
+                      if (i.key === 'log-outputs') return checkPerm('clouds.log-receivers:read');
+                      if (i.key === 'logs-flow-config') return checkPerm('clouds.log-configs:read');
+                      return true;
+                    })}
                   />
                 </LoggingProvider>
               )
-            },
+            }] : []),
           ]}
       />
     </PageDetailContainer>

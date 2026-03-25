@@ -417,6 +417,18 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       await form.validateFields();
       const v = form.getFieldsValue(true) as any;
 
+      const flatUsed: string[] = [];
+      if (String(v.netMode || '') === 'flat_subnet' && v?.primaryNic?.subnet) flatUsed.push(String(v.primaryNic.subnet));
+      const netIfList = Array.isArray(v.netIfaces) ? v.netIfaces : [];
+      netIfList.forEach((it: any) => {
+        if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) flatUsed.push(String(it.subnet));
+      });
+      if (new Set(flatUsed).size !== flatUsed.length) {
+        message.error('同一扁平子网在同一云主机内只能使用一次');
+        setStep(3);
+        return;
+      }
+
       const pickNs = (x: unknown) => {
         if (x === undefined || x === null) return undefined;
         const s = String(x).trim();

@@ -19,17 +19,15 @@ const AdminLogin: React.FC = () => {
   const navigate = useNavigate();
   const { settings, loading: settingsLoading } = useSettings();
   const { hasFeature } = useLicense();
-  const enableParticleBackground = settings.loginEnableParticleBackground ?? true; // 默认启用
-  
-  // 获取背景颜色设置
-  const backgroundColor = settings.loginBackgroundColor || '#1062FE';
+  const enableParticleBackground = !settingsLoading && settings.loginEnableParticleBackground;
+
+  const backgroundColor = settings.loginBackgroundColor;
   const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
   const gradientEnd = settings.loginBackgroundGradientEnd || backgroundColor;
-  const useGradient = gradientStart !== gradientEnd;
-  
-  // 获取按钮颜色设置
-  const buttonColor = settings.loginButtonColor || '#1890ff';
-  const buttonHoverColor = settings.loginButtonHoverColor || '#40a9ff';
+  const useGradient = Boolean(gradientStart && gradientEnd && gradientStart !== gradientEnd);
+
+  const buttonColor = settings.loginButtonColor;
+  const buttonHoverColor = settings.loginButtonHoverColor;
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -75,11 +73,13 @@ const AdminLogin: React.FC = () => {
   // 将十六进制颜色转换为RGB
   const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-      r: parseInt(result[1], 16),
-      g: parseInt(result[2], 16),
-      b: parseInt(result[3], 16)
-    } : { r: 16, g: 98, b: 254 };
+    return result
+      ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16),
+        }
+      : null;
   };
 
   useEffect(() => {
@@ -91,7 +91,9 @@ const AdminLogin: React.FC = () => {
     if (!canvasEl || !containerEl) return;
     
     // 获取背景颜色的RGB值（使用渐变起始颜色）
-    const bgRgb = hexToRgb(gradientStart);
+    const parsedRgb = hexToRgb(gradientStart || '');
+    if (!parsedRgb) return;
+    const { r: br0, g: bg0, b: bb0 } = parsedRgb;
     const ctxEl = canvasEl.getContext('2d');
     if (!ctxEl) return;
     const canvasNN = canvasEl as HTMLCanvasElement;
@@ -159,7 +161,7 @@ const AdminLogin: React.FC = () => {
           const v = fbm(nx * 5, ny * 5, t);
           const m0 = Math.max(0, Math.min(1, v));
           const m = m0 * m0 * (3 - 2 * m0);
-          const br = bgRgb.r, bg = bgRgb.g, bb = bgRgb.b;
+          const br = br0, bg = bg0, bb = bb0;
           const r = Math.round(br + (255 - br) * m);
           const g = Math.round(bg + (255 - bg) * m);
           const b = Math.round(bb + (255 - bb) * m);
@@ -183,20 +185,22 @@ const AdminLogin: React.FC = () => {
     };
   }, [enableParticleBackground, gradientStart]);
 
-  // 动态样式
-  const containerStyle: React.CSSProperties = {
-    background: useGradient 
-      ? `linear-gradient(135deg, ${gradientStart} 0%, ${gradientEnd} 100%)`
-      : backgroundColor,
-  };
+  const containerStyle: React.CSSProperties =
+    settingsLoading || (!backgroundColor && !useGradient)
+      ? {}
+      : {
+          background: useGradient
+            ? `linear-gradient(135deg, ${gradientStart} 0%, ${gradientEnd} 100%)`
+            : backgroundColor,
+        };
 
   return (
     <div className="login-container" ref={containerRef} style={containerStyle}>
       {enableParticleBackground && <canvas className="particle-canvas" ref={canvasRef} />}
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">{settingsLoading ? '' : renderMarkdownBold(settings.loginTitle || 'Compute Tower')}</h1>
-          <p className="login-subtitle">{settingsLoading ? '' : (settings.loginSubtitle || '后台管理登录')}</p>
+          <h1 className="login-title">{settingsLoading ? '' : renderMarkdownBold(settings.loginTitle ?? '')}</h1>
+          <p className="login-subtitle">{settingsLoading ? '' : (settings.loginSubtitle ?? '')}</p>
         </div>
         <Card className="login-card" variant="borderless" style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}>
           <Form
@@ -213,23 +217,37 @@ const AdminLogin: React.FC = () => {
             <Form.Item name="username" rules={[{ required: true, message: '请输入用户名!' }]}><Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username"/></Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码!' }]}><Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password"/></Form.Item>
             <Form.Item>
-              <Button 
-                type="primary" 
-                htmlType="submit" 
-                loading={loading} 
-                block 
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={loading}
+                block
                 size="large"
-                style={{
-                  background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
-                  border: 'none !important',
-                  boxShadow: `0 4px 12px ${buttonColor}40 !important`,
-                }}
+                style={
+                  buttonColor
+                    ? {
+                        background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
+                        border: 'none !important',
+                        boxShadow: `0 4px 12px ${buttonColor}40 !important`,
+                      }
+                    : undefined
+                }
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.setProperty('background', `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`, 'important');
+                  if (!buttonColor || !buttonHoverColor) return;
+                  e.currentTarget.style.setProperty(
+                    'background',
+                    `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`,
+                    'important'
+                  );
                   e.currentTarget.style.setProperty('box-shadow', `0 6px 16px ${buttonHoverColor}60`, 'important');
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.setProperty('background', `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`, 'important');
+                  if (!buttonColor) return;
+                  e.currentTarget.style.setProperty(
+                    'background',
+                    `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`,
+                    'important'
+                  );
                   e.currentTarget.style.setProperty('box-shadow', `0 4px 12px ${buttonColor}40`, 'important');
                 }}
               >

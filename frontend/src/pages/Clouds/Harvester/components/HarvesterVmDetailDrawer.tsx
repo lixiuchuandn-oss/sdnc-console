@@ -2313,7 +2313,6 @@ const HarvesterVmDetailDrawer: React.FC<HarvesterVmDetailDrawerProps> = ({
         vmNamespace={SafeRead.namespace(vmData)}
         vmName={SafeRead.vmId(vmData)}
         vmDisplayName={SafeRead.name(vmData)}
-        namespacesOptions={namespaces.map((n: any) => n?.metadata?.name || n)}
       />
     </Drawer>
   );

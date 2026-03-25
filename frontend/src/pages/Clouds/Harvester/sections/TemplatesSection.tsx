@@ -14,9 +14,9 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Table, Input, Button, Select, message, App, Tag, Tooltip, Modal, Switch } from 'antd';
+import { Table, Input, Button, Select, message, App, Tag, Tooltip, Modal, Switch, Dropdown } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, ProjectOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { ReloadOutlined, ProjectOutlined, SearchOutlined, ExclamationCircleOutlined, EllipsisOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -151,11 +151,13 @@ const TemplatesSection: React.FC<Props> = ({
     }
     const ns = getTemplateNamespace(tpl);
     const name = getTemplateName(tpl);
+    const alias = getTemplateAlias(tpl);
+    const label = alias ? `${alias} (${name})` : name;
     
     modal.confirm({
       title: '确认删除模板？',
       icon: <ExclamationCircleOutlined />,
-      content: `确定要删除模板 ${name} 吗？此操作不可恢复。`,
+      content: `确定要删除模板 ${label} 吗？此操作不可恢复。`,
       okText: '删除',
       okType: 'danger',
       onOk: async () => {
@@ -172,6 +174,7 @@ const TemplatesSection: React.FC<Props> = ({
     });
   };
 
+  /** 批量删除（与 VmSection 一致：下拉「⋯」触发，确认后逐条统计成功/失败） */
   const handleBatchDelete = () => {
     if (!hasTemplatesWrite) {
       message.error('无权限执行该操作');
@@ -186,24 +189,33 @@ const TemplatesSection: React.FC<Props> = ({
       okText: '批量删除',
       okType: 'danger',
       onOk: async () => {
-        try {
-          const promises = selectedRowKeys.map(async (key) => {
-            const tpl = templates.find(t => (t.metadata?.uid || t.metadata?.name) === key);
-            if (!tpl) return;
-            const ns = getTemplateNamespace(tpl);
-            const name = getTemplateName(tpl);
+        const targets = filteredData.filter((t: any) => {
+          const k = t.metadata?.uid || t.metadata?.name;
+          return selectedRowKeys.includes(k as React.Key);
+        });
+        const results: Array<{ ok: boolean; id: string; err?: string }> = [];
+        for (const tpl of targets) {
+          const ns = getTemplateNamespace(tpl);
+          const name = getTemplateName(tpl);
+          const alias = getTemplateAlias(tpl);
+          const id = alias ? `${alias} (${ns}/${name})` : `${ns}/${name}`;
+          try {
             const path = `/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachinetemplates/${name}`;
             await deleteHarvesterResourceByLink(cloudId, path);
-          });
-          
-          await Promise.all(promises);
-          message.success('批量删除指令已发送');
-          setSelectedRowKeys([]);
-          onRefresh?.(true);
-        } catch (e: any) {
-          message.error(`批量删除失败: ${e.message}`);
+            results.push({ ok: true, id });
+          } catch (e: any) {
+            results.push({ ok: false, id, err: e?.message || String(e) });
+          }
         }
-      }
+        const ok = results.filter((x) => x.ok).length;
+        const fail = results.filter((x) => !x.ok);
+        if (ok > 0) message.success(`删除成功 ${ok} 个模板`);
+        if (fail.length > 0) {
+          message.error(`删除失败 ${fail.length} 个：${fail.map((f) => f.id).join(', ')}`);
+        }
+        setSelectedRowKeys([]);
+        if (ok > 0 || fail.length > 0) onRefresh?.(true);
+      },
     });
   };
 
@@ -533,17 +545,46 @@ const TemplatesSection: React.FC<Props> = ({
         )}
         toolbarRight={(
           <>
-            {selectedRowKeys.length > 0 && (
-              <Button 
-                danger
-                icon={<DeleteOutlined />} 
-                disabled={!hasTemplatesWrite}
-                onClick={handleBatchDelete}
-                style={{ marginRight: 8 }}
-              >
-                批量删除
-              </Button>
-            )}
+            <Tooltip
+              title={
+                !hasTemplatesWrite
+                  ? undefined
+                  : selectedRowKeys.length === 0
+                    ? '请先选择模板'
+                    : undefined
+              }
+            >
+              <span>
+                <Dropdown
+                  trigger={['click']}
+                  menu={{
+                    items: [
+                      {
+                        key: 'batchDelete',
+                        label: <span style={{ color: '#ff4d4f' }}>批量删除</span>,
+                        disabled: !hasTemplatesWrite || selectedRowKeys.length === 0,
+                      },
+                    ],
+                    onClick: ({ key }) => {
+                      if (!hasTemplatesWrite) {
+                        message.error('无权限执行批量操作');
+                        return;
+                      }
+                      if (selectedRowKeys.length === 0) {
+                        message.warning('请先选择模板');
+                        return;
+                      }
+                      if (key === 'batchDelete') handleBatchDelete();
+                    },
+                  }}
+                >
+                  <Button
+                    icon={<EllipsisOutlined />}
+                    disabled={!hasTemplatesWrite || selectedRowKeys.length === 0}
+                  />
+                </Dropdown>
+              </span>
+            </Tooltip>
             <TableColumnSettingsButton
               allColumns={allColumns}
               settingsKey="harvester_templates_table"

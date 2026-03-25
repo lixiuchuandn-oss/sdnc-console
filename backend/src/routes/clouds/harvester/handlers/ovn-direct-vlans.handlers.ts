@@ -9,10 +9,25 @@ import { Response } from 'express';
 import { AppDataSource } from '../../../../config/database';
 import { requestJson } from '../../../../services/clouds/harvester/utils';
 import { checkTenantAccess, fetchCloudOr404, ensureProvider } from '../harvester.direct.helpers';
-import { licenseService } from '../../../../services/LicenseService';
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { KubeOvnVlanInventory } from '../../../../entities/kubeovn/KubeOvnVlanInventory';
 import { syncKubeOvnVlans } from '../../../../services/clouds/harvester/inventory';
+
+const ALIAS_KEYS_SUBNET = ['tower.io/alias', 'tower.io/alies'];
+
+function getAnnotationAlias(annotations: any, keys: string[]): string {
+  if (!annotations || typeof annotations !== 'object' || Array.isArray(annotations)) return '';
+  for (const k of keys) {
+    const v = String((annotations as any)?.[k] ?? '').trim();
+    if (v) return v;
+  }
+  return '';
+}
+
+function getDisplayNameFromAnnotations(name: string, annotations: any, keys: string[]): string {
+  const alias = getAnnotationAlias(annotations, keys);
+  return alias || name;
+}
 
 /**
  * GET /:id/resources/vlans - 获取 VLAN 列表
@@ -23,9 +38,6 @@ export async function harvesterVlanListHandler(
   next: any,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied' });
@@ -80,9 +92,6 @@ export async function harvesterVlanCreateHandler(
   next: any,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied' });
@@ -170,9 +179,6 @@ export async function harvesterVlanDeleteHandler(
   next: any,
 ) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
     const { id, name } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied' });
@@ -203,10 +209,17 @@ export async function harvesterVlanDeleteHandler(
     });
     if (usingSubnets.length > 0) {
       const names = usingSubnets.map((s) => s.name).filter(Boolean);
+      const displayNames = usingSubnets
+        .map((s) => {
+          const ann = s.annotations ?? s.rawData?.metadata?.annotations;
+          return getDisplayNameFromAnnotations(String(s.name || '').trim(), ann, ALIAS_KEYS_SUBNET);
+        })
+        .filter(Boolean);
       return res.status(409).json({
-        message: `无法删除 VLAN：仍被子网引用：${names.join('、')}`,
+        message: `无法删除 VLAN：仍被子网引用：${displayNames.join('、')}`,
         code: 'VLAN_IN_USE_BY_SUBNETS',
         subnets: names,
+        subnetsDisplay: displayNames,
       });
     }
 

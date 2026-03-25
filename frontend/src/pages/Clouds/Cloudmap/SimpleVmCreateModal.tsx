@@ -31,8 +31,6 @@ import {
   generateUniqueVmId,
   parseSizeToGi,
 } from '../Harvester/modals/VmCreateWizard/VmWizardUtils';
-import { ifaceTypeOption } from '../Harvester/modals/VmCreateWizard/harvesterVmIfaceTypeOptions';
-
 export type SimpleVmCreateModalProps = {
   open: boolean;
   onClose: () => void;
@@ -140,6 +138,30 @@ function findImageByValue(images: any[], val: string) {
     const v = ns && name ? `${ns}/${name}` : name;
     return v === val;
   });
+}
+
+function resolveImageStorageClass(it: any, fallback?: string) {
+  const sc = String(
+    it?.storageClassName ||
+      it?.spec?.storageClassName ||
+      it?.metadata?.annotations?.['harvesterhci.io/storageClassName'] ||
+      '',
+  ).trim();
+  return sc || (fallback ? String(fallback).trim() : undefined);
+}
+
+function toBooleanStrict(v: any, fallback = false): boolean {
+  if (v === true || v === false) return v;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true;
+    if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false;
+  }
+  if (typeof v === 'number') {
+    if (v === 1) return true;
+    if (v === 0) return false;
+  }
+  return fallback;
 }
 
 /** 系统盘最小 GiB（来自镜像 virtualSize/size，与向导 StepDisks 一致） */
@@ -377,14 +399,15 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           '',
       );
       const needEfi = /windows|win|uefi/.test(dispName.toLowerCase());
-      const isWindows = /windows|win/.test(dispName.toLowerCase());
+      const resolvedStorageClass = resolveImageStorageClass(it, defaultStorageClassName);
+      const bootUseEfi = toBooleanStrict(values.bootUseEfi, needEfi);
 
       const v: any = {
         ...base,
         namespace: NS,
         name: displayName,
         image: values.image,
-        storageClassName: defaultStorageClassName,
+        storageClassName: resolvedStorageClass,
         cpu: Number(values.cpu) || 2,
         memory: `${memGi}Gi`,
         rootSize: String(rootGi),
@@ -392,9 +415,9 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
         netMode: 'flat_subnet',
         hostMode: 'auto',
         gpuMode: 'none',
-        bootUseEfi: needEfi,
-        rootBus: isWindows ? 'sata' : 'virtio',
-        rootDeviceType: 'disk',
+        bootUseEfi,
+        rootBus: String(values.rootBus || 'virtio'),
+        rootDeviceType: String(values.rootDeviceType || 'disk'),
       };
 
       const sizeErr = validateImageSize(v, images || []);
@@ -597,6 +620,36 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
           </Col>
         </Row>
 
+        <Row gutter={12}>
+          <Col xs={24} md={12}>
+            <Form.Item name="bootUseEfi" label="启动方式" rules={[{ required: true, message: '请选择启动方式' }]}>
+              <Radio.Group
+                optionType="button"
+                buttonStyle="solid"
+                block
+                options={[
+                  { label: 'BIOS（Legacy）', value: false },
+                  { label: 'UEFI', value: true },
+                ]}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="rootBus" label="系统盘总线" rules={[{ required: true, message: '请选择系统盘总线' }]}>
+              <Radio.Group
+                optionType="button"
+                buttonStyle="solid"
+                block
+                options={[
+                  { label: 'VirtIO', value: 'virtio' },
+                  { label: 'SATA', value: 'sata' },
+                  { label: 'SCSI', value: 'scsi' },
+                ]}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
         <Form.Item name="flatSubnet" label="选择网络" rules={[{ required: true, message: '请选择网络' }]}>
           <Select
             showSearch
@@ -609,17 +662,6 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
               if (o && onReloadSubnets) onReloadSubnets();
             }}
           />
-        </Form.Item>
-        <Form.Item noStyle shouldUpdate={(prev, curr) => prev.flatSubnet !== curr.flatSubnet}>
-          {() => {
-            const sn = form.getFieldValue('flatSubnet');
-            if (sn == null || String(sn).trim() === '') return null;
-            return (
-              <Typography.Text type="secondary" style={{ display: 'block', marginTop: -8, marginBottom: 4 }}>
-                接口类型：{ifaceTypeOption('managedtap').label}
-              </Typography.Text>
-            );
-          }}
         </Form.Item>
       </Form>
 

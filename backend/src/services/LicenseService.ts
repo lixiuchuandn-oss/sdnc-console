@@ -130,7 +130,7 @@ class LicenseService {
           iat: Math.floor(Date.now() / 1000),
           exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 默认一年有效期? 或者永久?
           type: 'trial',
-          features: ['platform.default', 'sys.rbac-advanced', 'sys.tenant-mgmt'], // 基础功能 + RBAC + 租户管理
+          features: ['platform.default', 'sys.rbac-advanced'],
           limits: {
             maxNodes: 10,
             maxVms: 50,
@@ -161,7 +161,7 @@ class LicenseService {
             iat: Math.floor(Date.now() / 1000),
             exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60),
             type: 'trial',
-            features: ['platform.default', 'sys.rbac-advanced', 'sys.tenant-mgmt'],
+            features: ['platform.default', 'sys.rbac-advanced'],
             limits: { maxNodes: 10, maxVms: 50, maxCloudAccounts: 1 },
           },
           daysRemaining: 365,

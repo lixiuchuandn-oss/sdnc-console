@@ -1,7 +1,18 @@
-import { apiRequest, apiPatch, apiUpload } from './api';
+import { apiRequest, apiPatch, apiUpload, API_BASE_URL } from './api';
 
 const API_BASE = '/api/system';
 const API_THREATS = '/api/threats';
+
+/** 未登录可读：后端 system-settings 中全部 ui.* 扁平 KV */
+export async function getPublicSystemUi(): Promise<Record<string, string> | null> {
+  const url = `${API_BASE_URL.replace(/\/$/, '')}/api/public/system-ui`;
+  const res = await fetch(url, { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
+  if (!res.ok) return null;
+  const json = await res.json();
+  const d = json?.data;
+  if (!d || typeof d !== 'object') return null;
+  return d as Record<string, string>;
+}
 
 export type DifyConfig = {
   baseUrl?: string;

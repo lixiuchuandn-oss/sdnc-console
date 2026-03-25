@@ -27,6 +27,31 @@ type RBACRole = { id: string; name: string; description?: string; scope: 'system
 // 角色赋权记录：某用户在某范围下被赋予某角色
 type Assignment = { id: string; roleId: string; userType: 'system' | 'tenant'; userId: string; createdAt: string };
 
+/**
+ * 平台预置 RBAC 策略名称 → 界面展示（与 backend/constants/rbacBuiltInRoles、seeders/initRoles 同步，共 5 个内置角色）。
+ * 「Super Admin」仅兼容迁移前库中的旧名称。
+ */
+const RBAC_BUILTIN_ROLE_DISPLAY: Record<string, string> = {
+  'Super Admin': '超级管理员',
+  '超级管理员': '超级管理员',
+  '云租户根用户': '云租户根用户',
+  '三权-审计管理员': '三权-审计管理员',
+  '三权-安全管理员': '三权-安全管理员',
+  '三权-系统管理员': '三权-系统管理员',
+};
+
+/** 租户用户表单里可能出现的占位/简写角色名（非 RBAC 策略全名时） */
+const TENANT_USER_ROLE_LABEL_FALLBACK: Record<string, string> = {
+  admin: '管理员',
+  user: '用户',
+  viewer: '查看者',
+};
+
+function formatRoleDisplayName(name: string | undefined): string {
+  if (!name) return '';
+  return RBAC_BUILTIN_ROLE_DISPLAY[name] || TENANT_USER_ROLE_LABEL_FALLBACK[name] || name;
+}
+
 const OrgManagePage: React.FC = () => {
   // 路由 & 上下文
   const navigate = useNavigate();
@@ -735,10 +760,6 @@ const OrgManagePage: React.FC = () => {
   const userColumns: ColumnsType<TenantUser> = useMemo(() => [
     { title: '用户名', dataIndex: 'username', key: 'username' },
     { title: '角色', dataIndex: 'role', key: 'role', render: (_: any, row: TenantUser) => {
-      const roleNameMap: Record<string, string> = {
-        'Super Admin': '超级管理员',
-        '云租户根用户': '云租户根用户'
-      };
       // 仅展示 RBAC 分配角色（RoleAssignment），避免与 TenantUser.role 重复显示
       const assigned = rolesByUser[row.id] || [];
       if (assigned.length === 0) return <span style={{ color: '#999' }}>未分配</span>;
@@ -746,7 +767,7 @@ const OrgManagePage: React.FC = () => {
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
           {assigned.map(it => (
             <span key={`${row.id}-${it.id}`} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-              <span className="std-badge std-badge-default">{roleNameMap[it.name] || it.name}</span>
+              <span className="std-badge std-badge-default">{formatRoleDisplayName(it.name)}</span>
               <Typography.Text copyable style={{ fontSize: 12 }}>{it.id}</Typography.Text>
             </span>
           ))}
@@ -1410,14 +1431,7 @@ const OrgManagePage: React.FC = () => {
               notFoundContent={tenantRoles.length === 0 ? '暂无可用角色' : '未找到匹配的角色'}
             >
               {tenantRoles.map(r => {
-                const roleNameMap: Record<string, string> = {
-                  'Super Admin': '超级管理员',
-                  '云租户根用户': '云租户根用户',
-                  'admin': '管理员',
-                  'user': '用户',
-                  'viewer': '查看者'
-                };
-                const displayName = roleNameMap[r.name] || r.name;
+                const displayName = formatRoleDisplayName(r.name);
                 return (
                   <Select.Option key={r.id} value={r.id} title={r.description || displayName}>
                     {displayName}
@@ -1546,16 +1560,12 @@ const OrgManagePage: React.FC = () => {
           </Form.Item>
         </Form>
         <Transfer
-          dataSource={(() => {
-            const roleNameMap: Record<string, string> = {
-              'Super Admin': '超级管理员',
-              '云租户根用户': '云租户根用户'
-            };
-            return tenantRoles
+          dataSource={(() =>
+            tenantRoles
               .filter(r => r.scope === 'tenant' && String(r.status || 'active') === 'active')
               .filter(r => (roleAssignKw ? ((r.name || '').toLowerCase().includes(roleAssignKw.toLowerCase()) || (r.description || '').toLowerCase().includes(roleAssignKw.toLowerCase())) : true))
-              .map(r => ({ key: r.id, title: roleNameMap[r.name] || r.name, description: r.description }));
-          })()}
+              .map(r => ({ key: r.id, title: formatRoleDisplayName(r.name), description: r.description }))
+          )()}
           targetKeys={roleAssignSelected}
           onChange={(next) => setRoleAssignSelected(next.map(String))}
           titles={["角色库","已选角色"]}

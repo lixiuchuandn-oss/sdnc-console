@@ -847,24 +847,6 @@ export const routeSpecs: RouteSpec[] = [
   
   // Group: 权限管控
   {
-    id: 'access-actions',
-    path: '/admin/access/actions',
-    element: 'AccessActionsPage',
-    layout: 'admin',
-    platform: 'SETTINGS',
-    group: '权限管控',
-    title: '功能权限',
-    subtitle: '列出后端提供的所有 API 级别功能权限点，包括资源管理、网络配置、安全策略等各类操作权限，供权限策略组合与角色授权使用，是 RBAC 权限体系的基础数据源。',
-    icon: 'ApiOutlined',
-    order: 0,
-    requiredActions: {
-      page: 'system.actions:read',
-      read: 'system.actions:read',
-      write: 'system.actions:read'
-    },
-    homePagePriority: 9
-  },
-  {
     id: 'access-roles',
     path: '/admin/access/roles',
     element: 'AccessRolesPage',
@@ -872,9 +854,9 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'SETTINGS',
     group: '权限管控',
     title: '角色管理',
-    subtitle: '角色用于将权限策略批量授权给用户或租户，便于统一管理与快速复用。',
+    subtitle: '角色用于将权限策略批量授权给用户或租户；在授权配置中可查看并勾选全部权限原子。',
     icon: 'SolutionOutlined',
-    order: 2,
+    order: 0,
     requiredActions: {
       page: 'system.roles:read',
       read: 'system.roles:read',

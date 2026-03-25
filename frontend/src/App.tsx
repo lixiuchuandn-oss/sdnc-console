@@ -52,7 +52,6 @@ const ComingSoon = lazy(() => import('./pages/ComingSoon'));
 const SecurityApps = lazy(() => import('./pages/SecMgrPlane/Applications/index'));
 const SecurityServices = lazy(() => import('./pages/SecMgrPlane/SecurityServices/index'));
 const AccessRolesPage = lazy(() => import('./pages/Access/Roles'));
-const AccessActionsPage = lazy(() => import('./pages/Access/Actions'));
 const AccessUsersPage = lazy(() => import('./pages/Access/Users'));
 const ProtectedObjects = lazy(() => import('./pages/Security/TrafficOrchestration/ProtectedObjects'));
 const ServiceChains = lazy(() => import('./pages/Security/TrafficOrchestration/ServiceChains'));
@@ -174,7 +173,7 @@ const AppRoutes: React.FC = () => {
           <Route path="settings/license" element={<LicenseSettingsPage />} />
           
           <Route path="coming-soon" element={<ComingSoon />} />
-          <Route path="access/actions" element={<AccessActionsPage />} />
+          <Route path="access/actions" element={<Navigate to="/admin/access/roles" replace />} />
           <Route path="access/roles" element={<AccessRolesPage />} />
           <Route path="access/users" element={<AccessUsersPage />} />
           
@@ -269,18 +268,16 @@ const AdminIndex: React.FC = () => {
       theme={{
         algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: settings.primaryColor || '#1677ff',
+          ...(settings.primaryColor ? { colorPrimary: settings.primaryColor } : {}),
           borderRadius: 6,
         },
       }}
     >
-      <AuthProvider>
-        <LicenseProvider>
-          <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-            <AppRoutes />
-          </Router>
-        </LicenseProvider>
-      </AuthProvider>
+      <LicenseProvider>
+        <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+          <AppRoutes />
+        </Router>
+      </LicenseProvider>
     </ConfigProvider>
   );
 };
@@ -288,9 +285,11 @@ const AdminIndex: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ErrorBoundary>
-      <SettingsProvider>
-        <AppContent />
-      </SettingsProvider>
+      <AuthProvider>
+        <SettingsProvider>
+          <AppContent />
+        </SettingsProvider>
+      </AuthProvider>
     </ErrorBoundary>
   );
 };

@@ -48,5 +48,14 @@ export function translateKnownApiErrorMessage(raw: string): string {
     return `${head}当前正在执行备份任务，暂不允许停止或重启。请等待备份完成或删除进行中的备份后再重试。`;
   }
 
+  // --- Harvester：保存为模板 / 模板资源准入，templateId 为空 ---
+  if (
+    lower.includes('templateid is empty') ||
+    (lower.includes('spec.templateid') && lower.includes('empty')) ||
+    (lower.includes('mutator.harvesterhci.io') && lower.includes('templateid'))
+  ) {
+    return 'Harvester 准入校验未通过：模板标识（templateId）为空，无法写入 spec.templateId。常见于从虚拟机生成模板时集群未正确注入该字段，或与当前 Harvester 版本/实例状态不兼容。请稍后重试或升级/核对 Harvester；若仍失败请在集群侧查看 mutator.harvesterhci.io 相关日志。';
+  }
+
   return msg;
 }

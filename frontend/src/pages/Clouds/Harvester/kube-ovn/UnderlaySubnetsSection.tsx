@@ -22,6 +22,8 @@ import UnderlaySubnetDetailDrawer from './UnderlaySubnetDetailDrawer';
 import HarvesterResourceDrawer from '../components/HarvesterOpsinfoDrawer';
 import { generateHarvesterEntityId } from '../../../../utils/harvesterUtils';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../utils/towerKubeOvnNames';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 const { Option } = Select;
 
@@ -235,6 +237,23 @@ function subnetRecordToFormValues(record: any, isFlatMode: boolean): Record<stri
 }
 
 const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displayMode = 'standard', showYaml = true }) => {
+  const { user } = useAuth();
+  const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const isTenantUser = useMemo(() => user?.role === 'tenant' || !!user?.tenantId, [user]);
+  const hasUnderlayWrite = useMemo(() => {
+    const hasWrite =
+      hasPermissionForAction(perms, 'clouds.subnets:write') ||
+      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
+      hasPermissionForAction(perms, 'clouds:write');
+    // 租户角色禁止扁平/公共子网写操作（与镜像写权限收敛策略一致）
+    return hasWrite && !isTenantUser;
+  }, [perms, isTenantUser]);
+  const ensureUnderlayWrite = useCallback(() => {
+    if (hasUnderlayWrite) return true;
+    message.error('当前账号没有子网操作权限（租户角色仅允许查看）');
+    return false;
+  }, [hasUnderlayWrite]);
+
   const isFlatMode = mode === 'flat';
   const isSimpleMode = displayMode === 'simple';
   const subnetKindLabel = isFlatMode ? '扁平子网' : '公共子网';
@@ -357,6 +376,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
   };
 
   const handleCreate = async (values: any) => {
+    if (!ensureUnderlayWrite()) return;
     try {
       const { alias, provider: _provider, ...rest } = values;
       const aliasTrim = String(alias ?? '').trim();
@@ -434,6 +454,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
   );
 
   const handleEdit = async (values: any) => {
+    if (!ensureUnderlayWrite()) return;
     const name = editRecord?.metadata?.name;
     if (!name) return;
     try {
@@ -495,6 +516,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
   };
 
   const handleAclSubmit = async () => {
+    if (!ensureUnderlayWrite()) return;
     if (!aclSubnetName) return;
     try {
       const values = await aclForm.validateFields();
@@ -552,6 +574,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
   }, []);
 
   const handleDelete = async (name: string) => {
+    if (!ensureUnderlayWrite()) return;
     try {
       await deleteKubeOvnSubnet(cloudId, name);
       message.success('删除成功');
@@ -619,6 +642,18 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
       { title: 'CIDR', dataIndex: ['spec', 'cidrBlock'], key: 'cidr' },
       { title: '网关', dataIndex: ['spec', 'gateway'], key: 'gateway' },
       {
+        title: 'DHCP',
+        key: 'dhcp',
+        render: (_: any, record: any) => {
+          const allowDhcp =
+            record?.allowDhcp ??
+            record?.spec?.enableDHCP ??
+            record?.spec?.enableDhcp ??
+            true;
+          return allowDhcp ? <Tag color="green">启用</Tag> : <Tag color="default">关闭</Tag>;
+        },
+      },
+      {
         title: 'VLAN',
         dataIndex: ['spec', 'vlan'],
         key: 'vlan',
@@ -683,6 +718,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               render: (_: any, record: any) => {
                 const acls = record?.spec?.acls;
                 const n = Array.isArray(acls) ? acls.length : 0;
+                if (!hasUnderlayWrite) return <span>{n} 条</span>;
                 return (
                   <Typography.Link
                     onClick={(e) => {
@@ -716,6 +752,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
             {
               key: 'edit_network',
               label: '编辑网络',
+              disabled: !hasUnderlayWrite,
               onClick: () => openEditNetwork(record),
             },
             ...(!isSimpleMode
@@ -723,6 +760,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
                   {
                     key: 'edit_acl',
                     label: '编辑 ACL',
+                    disabled: !hasUnderlayWrite,
                     onClick: () => openAclEditor(record),
                   },
                 ]
@@ -732,6 +770,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
               key: 'delete',
               label: '删除',
               danger: true,
+              disabled: !hasUnderlayWrite,
               onClick: () => {
                 if (!name) return;
                 const disp =
@@ -754,7 +793,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         },
       },
     ],
-    [subnetKindLabel, openOpsDrawer, openHarvesterOpsDrawer, openEditNetwork, isFlatMode, isSimpleMode, vlans, providers, showYaml],
+    [subnetKindLabel, openOpsDrawer, openHarvesterOpsDrawer, openEditNetwork, isFlatMode, isSimpleMode, vlans, providers, showYaml, hasUnderlayWrite],
   );
 
   const underlaySubnetTableSettingsKey = `harvester_underlay_subnets_${mode}`;
@@ -792,7 +831,9 @@ const UnderlaySubnetsSection: React.FC<Props> = ({ cloudId, mode = 'flat', displ
         <div className="toolbar-actions">
           <Button
             type="primary"
+            disabled={!hasUnderlayWrite}
             onClick={() => {
+              if (!ensureUnderlayWrite()) return;
               form.resetFields();
               setIsModalVisible(true);
               const defVlan = defaultVlanCrNameByMinVlanId(vlans);

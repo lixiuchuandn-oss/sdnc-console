@@ -122,8 +122,12 @@ const RecycleBinSection: React.FC<Props> = ({
   const { modal } = App.useApp(); // Ant Design App 上下文，用于显示确认对话框
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const hasEcsWrite = useMemo(() => {
-    return hasPermissionForAction(perms, 'clouds.ecs:write') || hasPermissionForAction(perms, 'clouds:write');
+  const hasRecycleBinWrite = useMemo(() => {
+    return (
+      hasPermissionForAction(perms, 'clouds.recycle-bin:write') ||
+      hasPermissionForAction(perms, 'clouds.ecs:write') ||
+      hasPermissionForAction(perms, 'clouds:write')
+    );
   }, [perms]);
 
   // [筛选状态] 用户输入的筛选条件
@@ -608,8 +612,8 @@ const RecycleBinSection: React.FC<Props> = ({
    * @param r - 要恢复的虚拟机对象
    */
   const handleRestore = useCallback(async (r: any) => {
-    if (!hasEcsWrite) {
-      message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+    if (!hasRecycleBinWrite) {
+      message.error('当前账号没有回收站操作权限（需要 clouds.recycle-bin:write 或 clouds.ecs:write 或 clouds:write 权限）');
       return;
     }
     const ns = r?.metadata?.namespace || r?.namespace || '';
@@ -623,7 +627,7 @@ const RecycleBinSection: React.FC<Props> = ({
     } catch (e: any) {
       message.error(`恢复失败: ${e.message}`);
     }
-  }, [cloudId, hasEcsWrite, onRefresh]);
+  }, [cloudId, hasRecycleBinWrite, onRefresh]);
 
   /**
    * 显示运维信息抽屉
@@ -664,8 +668,8 @@ const RecycleBinSection: React.FC<Props> = ({
    * 因为 Checkbox 的 onChange 在对话框渲染时执行，而 onOk 在用户确认时执行
    */
   const handleForceDelete = useCallback(async (r: any) => {
-    if (!hasEcsWrite) {
-      message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+    if (!hasRecycleBinWrite) {
+      message.error('当前账号没有回收站操作权限（需要 clouds.recycle-bin:write 或 clouds.ecs:write 或 clouds:write 权限）');
       return;
     }
     const ns = r?.metadata?.namespace || r?.namespace || '';
@@ -721,7 +725,7 @@ const RecycleBinSection: React.FC<Props> = ({
         }
       },
     });
-  }, [cloudId, hasEcsWrite, onRefresh, modal, SafeRead]);
+  }, [cloudId, hasRecycleBinWrite, onRefresh, modal, SafeRead]);
 
   // ==========================================
   // [表格定义] 7. 表格列配置 (Table Columns)
@@ -962,7 +966,7 @@ const RecycleBinSection: React.FC<Props> = ({
       width: 80,
       fixed: 'right' as const,
       render: (_: any, r: any) => {
-        const hasAnyPermission = hasEcsWrite;
+        const hasAnyPermission = hasRecycleBinWrite;
         const items: any[] = [
           {
             key: 'restore',
@@ -996,7 +1000,7 @@ const RecycleBinSection: React.FC<Props> = ({
     },
     ];
     return cols;
-  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, hasEcsWrite, isTenant, mode]);
+  }, [SafeRead, handleRestore, handleForceDelete, handleShowOpsinfo, hasRecycleBinWrite, isTenant, mode]);
 
   /**
    * 使用 useTableColumnSettings hook 管理列显示/隐藏
@@ -1091,10 +1095,10 @@ const RecycleBinSection: React.FC<Props> = ({
             <span>
               <Button
                 type="primary"
-                disabled={!hasEcsWrite}
+                disabled={!hasRecycleBinWrite}
                 onClick={() => {
-                  if (!hasEcsWrite) {
-                    message.error('当前账号没有云主机操作权限（需要 clouds.ecs:write 或 clouds:write 权限）');
+                  if (!hasRecycleBinWrite) {
+                    message.error('当前账号没有回收站操作权限（需要 clouds.recycle-bin:write 或 clouds.ecs:write 或 clouds:write 权限）');
                     return;
                   }
                   setConfigModalVisible(true);

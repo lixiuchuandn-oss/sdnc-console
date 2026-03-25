@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { theme as antdTheme } from 'antd';
-import { getSystemSetting, updateSystemSetting } from '../services/systemApi';
+import { getSystemSetting, updateSystemSetting, getPublicSystemUi } from '../services/systemApi';
+import { useAuth } from './AuthContext';
 
 export type ThemeType = 'light' | 'dark';
 export type LanguageType = 'zh' | 'en';
@@ -34,6 +34,49 @@ interface Settings {
   };
 }
 
+/** 将 GET /api/public/system-ui 返回的 ui.* 扁平对象合并进 settings */
+function mergeSystemUiIntoSettings(values: Record<string, string>, prev: Settings): Settings {
+  const getColor = (key: string): string => {
+    const val = values[key];
+    if (val === undefined || val === null || !String(val).trim()) {
+      return '';
+    }
+    const s = String(val).trim();
+    return s.startsWith('#') ? s : `#${s}`;
+  };
+  return {
+    ...prev,
+    theme: (values['ui.theme'] as ThemeType) || prev.theme,
+    language: (values['ui.language'] as LanguageType) || prev.language,
+    headerIcon:
+      values['ui.headerIcon'] !== undefined ? String(values['ui.headerIcon']) : prev.headerIcon,
+    headerTitle: values['ui.headerTitle'] ?? prev.headerTitle,
+    headerColor: getColor('ui.headerColor') || prev.headerColor,
+    headerColorEnd: getColor('ui.headerColorEnd') || prev.headerColorEnd,
+    searchBackgroundColor: getColor('ui.searchBackgroundColor') || prev.searchBackgroundColor,
+    primaryColor: getColor('ui.primaryColor') || prev.primaryColor,
+    sidebarMenuItemSelectedColor:
+      getColor('ui.sidebarMenuItemSelectedColor') || prev.sidebarMenuItemSelectedColor,
+    sidebarMenuItemSelectedTextColor:
+      getColor('ui.sidebarMenuItemSelectedTextColor') || prev.sidebarMenuItemSelectedTextColor,
+    sidebarMenuItemSelectedIconColor:
+      getColor('ui.sidebarMenuItemSelectedIconColor') || prev.sidebarMenuItemSelectedIconColor,
+    loginTitle: values['ui.loginTitle'] ?? prev.loginTitle,
+    loginSubtitle: values['ui.loginSubtitle'] ?? prev.loginSubtitle,
+    loginBackgroundColor: getColor('ui.loginBackgroundColor') || prev.loginBackgroundColor,
+    loginBackgroundGradientStart:
+      getColor('ui.loginBackgroundGradientStart') || prev.loginBackgroundGradientStart,
+    loginBackgroundGradientEnd:
+      getColor('ui.loginBackgroundGradientEnd') || prev.loginBackgroundGradientEnd,
+    loginEnableParticleBackground:
+      values['ui.loginEnableParticleBackground'] === undefined
+        ? prev.loginEnableParticleBackground
+        : values['ui.loginEnableParticleBackground'] === 'true',
+    loginButtonColor: getColor('ui.loginButtonColor') || prev.loginButtonColor,
+    loginButtonHoverColor: getColor('ui.loginButtonHoverColor') || prev.loginButtonHoverColor,
+  };
+}
+
 interface SettingsContextType {
   settings: Settings;
   loading: boolean;
@@ -44,29 +87,31 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { token } = useAuth();
+
   // 初始化：UI 配置（headerTitle, headerIcon, colors 等）不再从 localStorage 读取，只从后端读取
   // 只有 theme 和 language 保留在 localStorage（用户个人偏好）
   const [settings, setSettings] = useState<Settings>({
     theme: (localStorage.getItem('app_theme') as ThemeType) || 'light',
     language: (localStorage.getItem('app_lang') as LanguageType) || 'zh',
-    // UI 配置使用默认值，等待从后端加载
+    // 界面相关项仅从后端 system-settings 加载，不在此硬编码默认值
     headerIcon: undefined,
-    headerTitle: 'Compute Tower',
-    headerColor: '#0A4CC0',
-    headerColorEnd: '#1B64ED',
-    searchBackgroundColor: '#1062fe',
-    primaryColor: '#1677ff',
-    sidebarMenuItemSelectedColor: '#e6f7ff',
-    sidebarMenuItemSelectedTextColor: '#1677ff',
-    sidebarMenuItemSelectedIconColor: '#1677ff',
-    loginTitle: 'Compute Tower',
-    loginSubtitle: '后台管理登录',
-    loginBackgroundColor: '#1062FE',
-    loginBackgroundGradientStart: '#1062FE',
-    loginBackgroundGradientEnd: '#1062FE',
-    loginEnableParticleBackground: true,
-    loginButtonColor: '#1890ff',
-    loginButtonHoverColor: '#40a9ff',
+    headerTitle: '',
+    headerColor: '',
+    headerColorEnd: '',
+    searchBackgroundColor: '',
+    primaryColor: '',
+    sidebarMenuItemSelectedColor: '',
+    sidebarMenuItemSelectedTextColor: '',
+    sidebarMenuItemSelectedIconColor: '',
+    loginTitle: '',
+    loginSubtitle: '',
+    loginBackgroundColor: '',
+    loginBackgroundGradientStart: '',
+    loginBackgroundGradientEnd: '',
+    loginEnableParticleBackground: false,
+    loginButtonColor: '',
+    loginButtonHoverColor: '',
     emailNotify: true,
     smsNotify: false,
     network: {
@@ -77,106 +122,83 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
   const [loading, setLoading] = useState(true); // 初始为 true，表示正在加载
 
-  // Fetch remote settings on mount
+  // 界面：始终 GET /api/public/system-ui（一次）；通知/网络等仅登录后走鉴权接口
   useEffect(() => {
+    let cancelled = false;
     const fetchRemoteSettings = async () => {
       try {
-        // loading 初始值已经是 true，这里不需要再设置
-        
-        // Fetch system settings
-        const systemKeys = ['emailNotify', 'smsNotify', 'network.apiBaseUrl', 'network.enableProxy', 'network.timeout'];
-        // Fetch UI personalization settings
-        const uiKeys = [
-          'ui.theme',
-          'ui.language',
-          'ui.headerIcon',
-          'ui.headerTitle',
-          'ui.headerColor',
-          'ui.headerColorEnd',
-          'ui.searchBackgroundColor',
-          'ui.primaryColor',
-          'ui.sidebarMenuItemSelectedColor',
-          'ui.sidebarMenuItemSelectedTextColor',
-          'ui.sidebarMenuItemSelectedIconColor',
-          'ui.loginTitle',
-          'ui.loginSubtitle',
-          'ui.loginBackgroundColor',
-          'ui.loginBackgroundGradientStart',
-          'ui.loginBackgroundGradientEnd',
-          'ui.loginEnableParticleBackground',
-          'ui.loginButtonColor',
-          'ui.loginButtonHoverColor',
-        ];
-        
-        const values: any = {};
-        
-        // 并行加载所有设置，加快速度
-        const allKeys = [...systemKeys, ...uiKeys];
-        const promises = allKeys.map(async (key) => {
-          try {
-            const data = await getSystemSetting(key);
-            return { key, value: data?.value };
-          } catch (e) {
-            console.warn(`Failed to fetch setting ${key}`, e);
-            return { key, value: undefined };
+        let uiFlat: Record<string, string> = {};
+        try {
+          const pack = await getPublicSystemUi();
+          if (pack && !cancelled) {
+            uiFlat = pack;
           }
-        });
-        
-        const results = await Promise.all(promises);
-        results.forEach(({ key, value }) => {
-          if (value !== undefined) {
-            values[key] = value;
-          }
-        });
+        } catch (e) {
+          console.warn('Failed to fetch public system-ui', e);
+        }
 
-        // Helper to get color value - 不再从 localStorage fallback，只使用后端值或默认值
-        const getColor = (key: string, defaultValue: string): string => {
-          const val = values[key];
-          if (!val || !val.trim()) {
-            // 后端没有值，直接使用默认值（不再从 localStorage 读取）
-            return defaultValue;
-          }
-          return val.startsWith('#') ? val : `#${val}`;
-        };
+        const privateKeys = ['emailNotify', 'smsNotify', 'network.apiBaseUrl', 'network.enableProxy', 'network.timeout'];
+        const privateVals: Record<string, string | undefined> = {};
+        if (token) {
+          const results = await Promise.all(
+            privateKeys.map(async (key) => {
+              try {
+                const data = await getSystemSetting(key);
+                return { key, value: data?.value as string | undefined };
+              } catch (e) {
+                console.warn(`Failed to fetch setting ${key}`, e);
+                return { key, value: undefined };
+              }
+            })
+          );
+          results.forEach(({ key, value }) => {
+            if (value !== undefined) {
+              privateVals[key] = value;
+            }
+          });
+        }
 
-        setSettings(prev => ({
-          ...prev,
-          theme: (values['ui.theme'] as ThemeType) || prev.theme,
-          language: (values['ui.language'] as LanguageType) || prev.language,
-          headerIcon: values['ui.headerIcon'] || prev.headerIcon,
-          headerTitle: values['ui.headerTitle'] || prev.headerTitle,
-          headerColor: getColor('ui.headerColor', prev.headerColor || '#0A4CC0'),
-          headerColorEnd: getColor('ui.headerColorEnd', prev.headerColorEnd || '#1B64ED'),
-          searchBackgroundColor: getColor('ui.searchBackgroundColor', prev.searchBackgroundColor || '#1062fe'),
-          primaryColor: getColor('ui.primaryColor', prev.primaryColor || '#1677ff'),
-          sidebarMenuItemSelectedColor: getColor('ui.sidebarMenuItemSelectedColor', prev.sidebarMenuItemSelectedColor || '#e6f7ff'),
-          sidebarMenuItemSelectedTextColor: getColor('ui.sidebarMenuItemSelectedTextColor', prev.sidebarMenuItemSelectedTextColor || '#1677ff'),
-          sidebarMenuItemSelectedIconColor: getColor('ui.sidebarMenuItemSelectedIconColor', prev.sidebarMenuItemSelectedIconColor || '#1677ff'),
-          loginTitle: values['ui.loginTitle'] || prev.loginTitle,
-          loginSubtitle: values['ui.loginSubtitle'] || prev.loginSubtitle,
-          loginBackgroundColor: getColor('ui.loginBackgroundColor', prev.loginBackgroundColor || '#1062FE'),
-          loginBackgroundGradientStart: getColor('ui.loginBackgroundGradientStart', prev.loginBackgroundGradientStart || '#1062FE'),
-          loginBackgroundGradientEnd: getColor('ui.loginBackgroundGradientEnd', prev.loginBackgroundGradientEnd || '#1062FE'),
-          loginEnableParticleBackground: values['ui.loginEnableParticleBackground'] === 'true' || (values['ui.loginEnableParticleBackground'] === undefined || values['ui.loginEnableParticleBackground'] === '' ? true : prev.loginEnableParticleBackground),
-          loginButtonColor: getColor('ui.loginButtonColor', prev.loginButtonColor || '#1890ff'),
-          loginButtonHoverColor: getColor('ui.loginButtonHoverColor', prev.loginButtonHoverColor || '#40a9ff'),
-          emailNotify: values['emailNotify'] === 'true',
-          smsNotify: values['smsNotify'] === 'true',
-          network: {
-            apiBaseUrl: values['network.apiBaseUrl'] || prev.network.apiBaseUrl,
-            enableProxy: values['network.enableProxy'] === 'true',
-            timeout: Number(values['network.timeout']) || prev.network.timeout,
+        if (cancelled) return;
+
+        setSettings((prev) => {
+          let next = Object.keys(uiFlat).length ? mergeSystemUiIntoSettings(uiFlat, prev) : prev;
+          if (token) {
+            next = {
+              ...next,
+              emailNotify:
+                privateVals.emailNotify !== undefined ? privateVals.emailNotify === 'true' : next.emailNotify,
+              smsNotify:
+                privateVals.smsNotify !== undefined ? privateVals.smsNotify === 'true' : next.smsNotify,
+              network: {
+                apiBaseUrl: privateVals['network.apiBaseUrl'] ?? next.network.apiBaseUrl,
+                enableProxy:
+                  privateVals['network.enableProxy'] !== undefined
+                    ? privateVals['network.enableProxy'] === 'true'
+                    : next.network.enableProxy,
+                timeout:
+                  privateVals['network.timeout'] !== undefined
+                    ? Number(privateVals['network.timeout']) || next.network.timeout
+                    : next.network.timeout,
+              },
+            };
           }
-        }));
+          return next;
+        });
       } catch (e) {
         console.error('Failed to load settings', e);
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
-    fetchRemoteSettings();
-  }, []);
+    setLoading(true);
+    void fetchRemoteSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const updateSetting = async (key: keyof Settings, value: any) => {
     // Map setting keys to backend keys

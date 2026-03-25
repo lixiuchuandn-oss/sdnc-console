@@ -269,7 +269,10 @@ const MigrationsSection: React.FC<Props> = ({ cloudId, onRefresh, mode = 'standa
         
         const actions: React.ReactNode[] = [];
         actions.push(<Button type="link" size="small" onClick={() => handleOpenDrawer(r, 'detail')}>详情</Button>);
-        const canWrite = hasPermissionForAction(user?.permissions || [], 'clouds.console:write');
+        const canWrite =
+          hasPermissionForAction(user?.permissions || [], 'clouds.migrations:write') ||
+          hasPermissionForAction(user?.permissions || [], 'clouds.ecs:write') ||
+          hasPermissionForAction(user?.permissions || [], 'clouds:write');
         if (isRunning && canWrite) {
           actions.push(
             <Popconfirm title="确定要取消此迁移任务吗？" onConfirm={() => handleAbort(r)}>

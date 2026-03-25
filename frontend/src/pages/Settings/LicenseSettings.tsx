@@ -19,7 +19,11 @@ const FEATURE_MAP: Record<string, { label: string; icon: React.ReactNode; desc?:
   'sdn.interconnect': { label: 'SDN 跨域互联 (Interconnect)', icon: <ShareAltOutlined />, desc: '支持 IPsec/SRv6/VXLAN 等互联技术' },
   'sdn.traffic': { label: 'SDN 流量编排 (Traffic)', icon: <NodeIndexOutlined />, desc: '支持服务链、QoS 与流量镜像' },
   'platform.aisoc': { label: 'AISOC 安全运营中心', icon: <SafetyOutlined />, desc: '解锁态势感知与威胁分析高级功能' },
-  'network.ovn.vpc': { label: '虚拟专有云 (OVN VPC)', icon: <CloudServerOutlined />, desc: '控制 Harvester/CloudMap 的 VPC/子网/EIP/FIP/NAT 等功能' },
+  'network.ovn.vpc': {
+    label: '虚拟专有云 (VPC)',
+    icon: <CloudServerOutlined />,
+    desc: '控制业务 VPC、VPC 子网及 EIP/FIP/SNAT/DNAT 等；不含扁平/公共子网、物理网络、VLAN、扁平子网安全组与简易创建 VM 所用子网',
+  },
   'sys.tenant-mgmt': { label: '多租户管理系统', icon: <TeamOutlined />, desc: '支持组织架构与多租户隔离' },
   'sys.dashboard': { label: '全局仪表盘', icon: <AppstoreOutlined />, desc: '提供全平台资源概览与监控大屏' },
 };
@@ -217,7 +221,7 @@ const LicenseSettingsPage: React.FC = () => {
     { key: '6', feature: '多租户管理 (Multi-Tenant)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="success"><CheckCircleOutlined /> 可用</Tag> },
     { key: '7', feature: '权限控制 (RBAC)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="success"><CheckCircleOutlined /> 可用</Tag> },
     { key: '8', feature: '多云管理 (Multi-Cloud)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需功能授权</Tag> },
-    { key: '9', feature: '虚拟专有云 (OVN VPC)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需功能授权</Tag> },
+    { key: '9', feature: '虚拟专有云 (VPC)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需功能授权</Tag> },
     { key: '10', feature: 'SDN 级联管理 (Cascade)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
     { key: '11', feature: 'SDN 跨域互联 (Interconnect)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },
     { key: '12', feature: 'SDN 流量编排 (Traffic)', trial: <Tag color="default"><CloseCircleOutlined /> 不支持</Tag>, official: <Tag color="blue"><CrownOutlined /> 需 SDN 授权</Tag> },

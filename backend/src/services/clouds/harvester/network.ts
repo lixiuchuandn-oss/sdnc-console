@@ -22,7 +22,18 @@ export const updateHarvesterSubnet = async (
 
   // 2. 合并 Payload
   // 支持更新 spec 字段，以及 metadata.annotations
-  const { annotations, ...specPayload } = payload;
+  const { annotations, ...rawSpec } = payload;
+  const specPayload: Record<string, any> = { ...rawSpec };
+  if (Object.prototype.hasOwnProperty.call(specPayload, 'allowDhcp')) {
+    specPayload.enableDHCP = !!specPayload.allowDhcp;
+    delete specPayload.allowDhcp;
+  }
+  if (Object.prototype.hasOwnProperty.call(specPayload, 'enableDhcp')) {
+    if (!Object.prototype.hasOwnProperty.call(specPayload, 'enableDHCP')) {
+      specPayload.enableDHCP = !!specPayload.enableDhcp;
+    }
+    delete specPayload.enableDhcp;
+  }
 
   const updated = {
     ...current,
@@ -38,6 +49,18 @@ export const updateHarvesterSubnet = async (
       ...specPayload,
     },
   };
+
+  /** 与 Kube-OVN CRD 一致：仅保留 spec.enableDHCP，去掉历史误写字段 */
+  if (updated.spec && typeof updated.spec === 'object') {
+    if (
+      updated.spec.enableDHCP === undefined &&
+      updated.spec.enableDhcp !== undefined
+    ) {
+      updated.spec.enableDHCP = !!updated.spec.enableDhcp;
+    }
+    delete updated.spec.enableDhcp;
+    delete updated.spec.allowDhcp;
+  }
 
   /** 清空 VLAN：前端传 vlan=null 时表示 Untagged，需从 spec 删除字段而非写入 null */
   if (
@@ -314,7 +337,11 @@ export const listKubeOvnSubnets = async ({
     gateway: s?.spec?.gateway || s?.spec?.gateway || '',
     protocol: s?.spec?.protocol || 'IPV4',
     nat: !!(s?.spec?.natOutgoing || s?.spec?.nat),
-    allowDhcp: !!(s?.spec?.enableDhcp || s?.spec?.allowDhcp),
+    allowDhcp: !!(
+      s?.spec?.enableDHCP ??
+      s?.spec?.enableDhcp ??
+      s?.spec?.allowDhcp
+    ),
     private: !!s?.spec?.private,
     namespaces: Array.isArray(s?.spec?.namespaces) ? s.spec.namespaces : [],
     provider: s?.spec?.provider || '',

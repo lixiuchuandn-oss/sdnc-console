@@ -38,7 +38,22 @@ import SecurityGroupAccessControlDrawer, { type SgAclDirection } from './Securit
 const { Paragraph } = Typography;
 const SUBNET_TYPE_KEY = 'tower.io/subnet-type';
 const SUBNET_ALIAS_KEY = 'tower.io/alias';
+/** 历史误写，与 VM/子网其它处一致 */
+const SUBNET_ALIAS_LEGACY_KEY = 'tower.io/alies';
 const SECURITY_GROUPS_TABLE_SETTINGS_KEY = 'harvester_kube_ovn_security_groups_table';
+
+function subnetTowerAliasFromCr(item: any): string {
+  const ann = item?.metadata?.annotations || {};
+  const raw = ann[SUBNET_ALIAS_KEY] ?? ann[SUBNET_ALIAS_LEGACY_KEY];
+  return String(raw ?? '').trim();
+}
+
+/** 有别名则显示别名，否则显示 metadata.name（不再固定为「别名 / 资源名」） */
+function flatSubnetDisplayLabel(metadataName: string, alias: string): string {
+  const n = String(metadataName ?? '').trim();
+  const a = String(alias ?? '').trim();
+  return a || n;
+}
 
 function vmNetworkMatchesFlatSubnet(vm: any, subnetName: string): boolean {
   if (!Array.isArray(vm?.networks)) return false;
@@ -166,7 +181,10 @@ type Props = {
 /** 安全组（扁平子网 / Tower 侧） */
 const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
   const { user } = useAuth();
-  const canWrite = hasPermissionForAction(user?.permissions || [], 'clouds.networks:write');
+  const canWrite =
+    hasPermissionForAction(user?.permissions || [], 'clouds.security-groups:write') ||
+    hasPermissionForAction(user?.permissions || [], 'clouds.vpcs:write') ||
+    hasPermissionForAction(user?.permissions || [], 'clouds:write');
 
   const [keyword, setKeyword] = useState('');
   const [memberFilter, setMemberFilter] = useState<string>('');
@@ -176,6 +194,8 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [flatSubnetOptions, setFlatSubnetOptions] = useState<any[]>([]);
   const [subnetsLoading, setSubnetsLoading] = useState(false);
+  /** metadata.name → 列表/抽屉展示用「别名 / 名」 */
+  const [subnetDisplayByName, setSubnetDisplayByName] = useState<Record<string, string>>({});
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [editOpen, setEditOpen] = useState(false);
@@ -198,7 +218,10 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     if (!cloudId) return;
     setLoading(true);
     try {
-      const res = await fetchKubeOvnSecurityGroups(cloudId);
+      const [res, resSub] = await Promise.all([
+        fetchKubeOvnSecurityGroups(cloudId),
+        fetchKubeOvnSubnets(cloudId, false, true).catch(() => null),
+      ]);
       const items = Array.isArray(res?.data?.items) ? res.data.items : [];
       setRows(
         items.map((r: any) => ({
@@ -211,6 +234,16 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
           updatedAt: r.updatedAt ? String(r.updatedAt) : undefined,
         })),
       );
+      const subItems = Array.isArray(resSub?.data?.items) ? resSub.data.items : [];
+      const displayMap: Record<string, string> = {};
+      for (const item of subItems) {
+        const t = String(item?.metadata?.annotations?.[SUBNET_TYPE_KEY] || '').trim().toLowerCase();
+        if (t !== 'flat') continue;
+        const name = String(item?.metadata?.name ?? '').trim();
+        if (!name) continue;
+        displayMap[name] = flatSubnetDisplayLabel(name, subnetTowerAliasFromCr(item));
+      }
+      setSubnetDisplayByName(displayMap);
     } catch (e: any) {
       message.error(`加载安全组失败: ${e?.message || '未知错误'}`);
       setRows([]);
@@ -234,6 +267,13 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         return t === 'flat';
       });
       setFlatSubnetOptions(flat);
+      const displayMap: Record<string, string> = {};
+      for (const item of flat) {
+        const name = String(item?.metadata?.name ?? '').trim();
+        if (!name) continue;
+        displayMap[name] = flatSubnetDisplayLabel(name, subnetTowerAliasFromCr(item));
+      }
+      setSubnetDisplayByName((prev) => ({ ...prev, ...displayMap }));
     } catch (e: any) {
       message.error(`加载扁平子网失败: ${e?.message || '未知错误'}`);
       setFlatSubnetOptions([]);
@@ -545,9 +585,14 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
       if (memberFilter === 'no_members' && (r.memberCount || 0) > 0) return false;
       if (!keyword.trim()) return true;
       const k = keyword.trim().toLowerCase();
-      return r.name.toLowerCase().includes(k) || r.subnetName.toLowerCase().includes(k);
+      const subShown = subnetDisplayByName[r.subnetName] ?? r.subnetName;
+      return (
+        r.name.toLowerCase().includes(k) ||
+        r.subnetName.toLowerCase().includes(k) ||
+        subShown.toLowerCase().includes(k)
+      );
     });
-  }, [rows, keyword, memberFilter]);
+  }, [rows, keyword, memberFilter, subnetDisplayByName]);
 
   const allColumns = useMemo(
     () => [
@@ -566,7 +611,20 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         ),
       },
 
-      { title: '子网', dataIndex: 'subnetName', key: 'subnetName' },
+      {
+        title: '子网',
+        dataIndex: 'subnetName',
+        key: 'subnetName',
+        ellipsis: true,
+        render: (_: string, record: SecurityGroupRow) => {
+          const label = subnetDisplayByName[record.subnetName] ?? record.subnetName;
+          return (
+            <span title={label !== record.subnetName ? record.subnetName : undefined}>
+              {label}
+            </span>
+          );
+        },
+      },
       { title: '规则数', dataIndex: 'ruleCount', key: 'ruleCount' },
       { title: '应用到云主机', dataIndex: 'memberCount', key: 'memberCount' },
       {
@@ -605,7 +663,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         },
       },
     ],
-    [canWrite, openRulesDrawer],
+    [canWrite, openRulesDrawer, subnetDisplayByName],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -710,10 +768,9 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
               optionFilterProp="label"
               options={flatSubnetOptions.map((s: any) => {
                 const name = s?.metadata?.name ?? '';
-                const alias = String(s?.metadata?.annotations?.[SUBNET_ALIAS_KEY] ?? '').trim();
                 return {
                   value: name,
-                  label: alias ? `${alias} / ${name}` : name,
+                  label: flatSubnetDisplayLabel(name, subnetTowerAliasFromCr(s)),
                 };
               })}
             />
@@ -756,8 +813,12 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} placeholder="可选，留空则清空描述" />
           </Form.Item>
-          <Form.Item name="subnetName" label="扁平子网">
-            <Input disabled />
+          <Form.Item label="扁平子网" shouldUpdate>
+            {() => {
+              const sn = String(editForm.getFieldValue('subnetName') ?? '').trim();
+              const shown = sn ? subnetDisplayByName[sn] ?? sn : '';
+              return <Input disabled value={shown} readOnly />;
+            }}
           </Form.Item>
         </Form>
       </Modal>
@@ -767,7 +828,14 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         open={rulesDrawerOpen}
         onClose={closeRulesDrawer}
         target={
-          rulesTarget ? { name: rulesTarget.name, subnetName: rulesTarget.subnetName } : null
+          rulesTarget
+            ? {
+                name: rulesTarget.name,
+                subnetName: rulesTarget.subnetName,
+                subnetDisplayLabel:
+                  subnetDisplayByName[rulesTarget.subnetName] ?? rulesTarget.subnetName,
+              }
+            : null
         }
         loading={rulesLoading || membersPanelLoading}
         saving={accessControlSaving}

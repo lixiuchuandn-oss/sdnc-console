@@ -7,14 +7,8 @@ import { AppDataSource } from '../../../../config/database';
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/inventory';
-import { licenseService } from '../../../../services/LicenseService';
-
 export async function harvesterSubnetListHandler(req: Request, res: Response) {
   try {
-    if (!licenseService.hasFeature('network.ovn.vpc')) {
-      return res.status(403).json({ message: '未授权：虚拟专有云（OVN VPC）功能未启用' });
-    }
-
     const cloud = (req as any).cloud;
     const { id } = req.params;
     const { vpcId, force } = req.query as any;

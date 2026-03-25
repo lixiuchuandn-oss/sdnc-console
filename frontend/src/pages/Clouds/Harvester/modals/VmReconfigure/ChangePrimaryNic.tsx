@@ -149,11 +149,30 @@ const ChangePrimaryNic: React.FC<Props> = ({
                         <Form.Item label="扁平子网" name={['primaryNic', 'subnet']} rules={[{ required: true, message: '请选择扁平子网' }]}>
                           <Select
                             placeholder="选择扁平子网"
-                            options={flatList.map((x: any) => {
-                              const n = x?.metadata?.name || x?.name || '-';
-                              const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
-                              return { label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`, value: n };
-                            })}
+                            options={(() => {
+                              const used = new Set<string>();
+                              try {
+                                const secs = form.getFieldValue('secondaryNics') || [];
+                                secs.forEach((it: any) => {
+                                  if (String(it?.mode || '') === 'flat_subnet' && it?.subnet) used.add(String(it.subnet));
+                                });
+                              } catch {}
+                              const currentSelected = (() => {
+                                try { return form.getFieldValue(['primaryNic', 'subnet']); } catch { return undefined; }
+                              })();
+                              return flatList
+                                .filter((x: any) => {
+                                  const n = x?.metadata?.name || x?.name;
+                                  if (!n) return false;
+                                  if (currentSelected && String(currentSelected) === String(n)) return true;
+                                  return !used.has(String(n));
+                                })
+                                .map((x: any) => {
+                                  const n = x?.metadata?.name || x?.name || '-';
+                                  const alias = String(x?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+                                  return { label: alias ? `${alias} (${n})` : `${n} (${UNDERLAY_SYSTEM_VPC})`, value: n };
+                                });
+                            })()}
                             onDropdownVisibleChange={(open) => { if (open) reloadSubnets(); }}
                             onChange={(val) => {
                               try {

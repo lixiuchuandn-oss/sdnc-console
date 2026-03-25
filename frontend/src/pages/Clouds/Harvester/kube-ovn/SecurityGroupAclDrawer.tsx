@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { DrawerProps } from 'antd/es/drawer';
 import type { FormInstance } from 'antd/es/form/Form';
 import {
   Button,
   Card,
   Col,
+  Empty,
   Form,
   Input,
   InputNumber,
@@ -13,7 +14,6 @@ import {
   Select,
   Spin,
   Tag,
-  Transfer,
   Typography,
 } from 'antd';
 import {
@@ -23,6 +23,7 @@ import {
   MinusCircleOutlined,
   PlusOutlined,
   SafetyOutlined,
+  SearchOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
 import type { SubnetAclFormRow } from './SubnetAclFormItems';
@@ -51,7 +52,7 @@ export type SecurityGroupAccessControlDrawerProps = {
   AntDrawer: React.ComponentType<DrawerProps>;
   open: boolean;
   onClose: () => void;
-  target: { name: string; subnetName: string } | null;
+  target: { name: string; subnetName: string; subnetDisplayLabel?: string } | null;
   /** 规则 + 成员并行加载 */
   loading: boolean;
   saving: boolean;
@@ -85,29 +86,6 @@ const hide = { display: 'none' as const };
 const show = { display: 'block' as const };
 
 type Variant = 'inbound' | 'outbound';
-
-const VmAliasNameIp: React.FC<{ alias: string; metadataName: string; ip: string }> = ({
-  alias,
-  metadataName,
-  ip,
-}) => {
-  const aliasShown = String(alias).trim() || '—';
-  const ipStr = String(ip).trim();
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, lineHeight: 1.5 }}>
-      <span>
-        <span>{aliasShown}</span>
-        <Text type="secondary"> / </Text>
-        <Text code>{metadataName}</Text>
-      </span>
-      {ipStr ? (
-        <Tag color="blue" style={{ margin: 0, fontFamily: 'monospace', fontSize: 12, maxWidth: '100%' }}>
-          {ipStr}
-        </Tag>
-      ) : null}
-    </span>
-  );
-};
 
 const SecurityGroupAclRuleRow: React.FC<{
   restField: Record<string, unknown>;
@@ -283,10 +261,10 @@ const DirectionRuleBlock: React.FC<{
   </div>
 );
 
-type TransferRow = { key: string; alias: string; vmName: string; vmIp: string };
+type VmRow = { key: string; alias: string; vmName: string; vmIp: string };
 
-function buildTransferRows(list: SgMemberRow[], vmOptions: SgVmOptionRow[]): TransferRow[] {
-  const map = new Map<string, TransferRow>();
+function buildAllVmRows(list: SgMemberRow[], vmOptions: SgVmOptionRow[]): VmRow[] {
+  const map = new Map<string, VmRow>();
   for (const row of list) {
     const k = `${row.vmNamespace}/${row.vmName}`;
     map.set(k, { key: k, alias: row.vmAlias, vmName: row.vmName, vmIp: row.vmIp });
@@ -299,11 +277,75 @@ function buildTransferRows(list: SgMemberRow[], vmOptions: SgVmOptionRow[]): Tra
   return [...map.values()];
 }
 
+function rowMatchesSearch(row: VmRow, q: string): boolean {
+  const s = q.trim().toLowerCase();
+  if (!s) return true;
+  return [row.alias, row.vmName, row.vmIp, row.key].join(' ').toLowerCase().includes(s);
+}
+
 function ruleCardTitle(tab: SgAclDirection): string {
   if (tab === 'inbound') return '入方向规则';
   if (tab === 'outbound') return '出方向规则';
   return '访问控制规则';
 }
+
+const MemberVmListRow: React.FC<{
+  row: VmRow;
+  mode: 'joined' | 'available';
+  readOnly: boolean;
+  onAction: () => void;
+}> = ({ row, mode, readOnly, onAction }) => {
+  const aliasTrim = String(row.alias).trim();
+  const nameTrim = String(row.vmName).trim();
+  /** 无注解别名时兜底为虚拟机 metadata.name */
+  const aliasShown = aliasTrim || nameTrim || '—';
+  const ipStr = String(row.vmIp).trim() || '—';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 12px',
+        borderBottom: '1px solid var(--ant-color-split)',
+      }}
+    >
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontSize: 13,
+          lineHeight: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <span>
+          {aliasShown} / {ipStr}
+        </span>
+        <Tag
+          color={mode === 'joined' ? 'success' : 'error'}
+          style={{ margin: 0 }}
+        >
+          {mode === 'joined' ? '已加入' : '未加入'}
+        </Tag>
+      </div>
+      <div style={{ flexShrink: 0 }}>
+        {mode === 'joined' ? (
+          <Button size="small" danger disabled={readOnly} onClick={onAction}>
+            移出
+          </Button>
+        ) : (
+          <Button type="primary" size="small" disabled={readOnly} onClick={onAction}>
+            加入
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawerProps> = ({
   AntDrawer,
@@ -322,15 +364,34 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
   onMemberKeysChange,
   members,
 }) => {
+  const [memberSearch, setMemberSearch] = useState('');
+  useEffect(() => {
+    if (!open) setMemberSearch('');
+  }, [open]);
+
   const inboundRules = Form.useWatch('inboundRules', form) as SubnetAclFormRow[] | undefined;
   const outboundRules = Form.useWatch('outboundRules', form) as SubnetAclFormRow[] | undefined;
   const inboundCount = useMemo(() => (Array.isArray(inboundRules) ? inboundRules.length : 0), [inboundRules]);
   const outboundCount = useMemo(() => (Array.isArray(outboundRules) ? outboundRules.length : 0), [outboundRules]);
 
-  const transferData = useMemo(
-    () => buildTransferRows(members.list, members.vmOptions),
+  const allVmRows = useMemo(
+    () => buildAllVmRows(members.list, members.vmOptions),
     [members.list, members.vmOptions],
   );
+
+  const memberKeySet = useMemo(() => new Set(memberKeys), [memberKeys]);
+
+  const joinedRows = useMemo(() => {
+    return allVmRows
+      .filter((r) => memberKeySet.has(r.key))
+      .filter((r) => rowMatchesSearch(r, memberSearch));
+  }, [allVmRows, memberKeySet, memberSearch]);
+
+  const availableRows = useMemo(() => {
+    return allVmRows
+      .filter((r) => !memberKeySet.has(r.key))
+      .filter((r) => rowMatchesSearch(r, memberSearch));
+  }, [allVmRows, memberKeySet, memberSearch]);
 
   const showRulesCard = tab === 'inbound' || tab === 'outbound';
   const showMembersCard = tab === 'members';
@@ -378,7 +439,10 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
             <div style={{ fontSize: 12, color: '#999' }}>
               {target ? (
                 <>
-                  {target.name} · 子网 <Text code>{target.subnetName}</Text>
+                  {target.name} · 子网{' '}
+                  <Text code title={target.subnetName}>
+                    {target.subnetDisplayLabel ?? target.subnetName}
+                  </Text>
                 </>
               ) : (
                 '—'
@@ -474,7 +538,7 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
               <div style={showMembersCard ? show : hide}>
                 <Card
                   variant="borderless"
-                  title="添加/移除云主机"
+                  title="关联云主机"
                   extra={
                     !readOnly ? (
                       <Button type="primary" loading={saving} disabled={saveDisabled} onClick={onSave}>
@@ -485,23 +549,115 @@ const SecurityGroupAccessControlDrawer: React.FC<SecurityGroupAccessControlDrawe
                   styles={{ body: { padding: 16 } }}
                   style={{ border: '1px solid #e0e0e0', borderRadius: 8 }}
                 >
-                  <Transfer<TransferRow>
-                    dataSource={transferData}
-                    targetKeys={memberKeys}
-                    onChange={(keys) => onMemberKeysChange(keys as string[])}
-                    render={(item) => <VmAliasNameIp alias={item.alias} metadataName={item.vmName} ip={item.vmIp} />}
-                    titles={['可选云主机', '已加入安全组']}
-                    showSearch
-                    filterOption={(input, item) => {
-                      const s = input.trim().toLowerCase();
-                      if (!s) return true;
-                      return [item.alias, item.vmName, item.vmIp, item.key].join(' ').toLowerCase().includes(s);
-                    }}
-                    listStyle={{ width: '100%', minHeight: 420, height: 480 }}
-                    style={{ width: '100%' }}
-                    disabled={readOnly}
-                    locale={{ itemUnit: '项', itemsUnit: '项', searchPlaceholder: '搜索名称或 IP' }}
+                  <Input
+                    allowClear
+                    placeholder="搜索别名、主机名或 IP"
+                    prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    style={{ marginBottom: 16 }}
+                    disabled={loading}
                   />
+
+                  <div style={{ marginBottom: 20 }}>
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        background: '#fafafa',
+                        border: '1px solid var(--ant-color-split)',
+                        borderBottom: 'none',
+                        borderRadius: '8px 8px 0 0',
+                        fontWeight: 600,
+                        fontSize: 13,
+                      }}
+                    >
+                      已加入安全组（{joinedRows.length}）
+                    </div>
+                    <div
+                      style={{
+                        border: '1px solid var(--ant-color-split)',
+                        borderRadius: '0 0 8px 8px',
+                        overflow: 'hidden',
+                        background: '#fff',
+                        minHeight: 56,
+                      }}
+                    >
+                      {joinedRows.length === 0 ? (
+                        <Empty
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          description={
+                            memberSearch.trim()
+                              ? '无匹配结果'
+                              : '暂无已加入的云主机'
+                          }
+                          style={{ padding: '16px 0' }}
+                        />
+                      ) : (
+                        joinedRows.map((row) => (
+                          <MemberVmListRow
+                            key={row.key}
+                            row={row}
+                            mode="joined"
+                            readOnly={readOnly}
+                            onAction={() =>
+                              onMemberKeysChange(memberKeys.filter((k) => k !== row.key))
+                            }
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        background: '#fafafa',
+                        border: '1px solid var(--ant-color-split)',
+                        borderBottom: 'none',
+                        borderRadius: '8px 8px 0 0',
+                        fontWeight: 600,
+                        fontSize: 13,
+                      }}
+                    >
+                      未加入安全组（{availableRows.length}）
+                    </div>
+                    <div
+                      style={{
+                        border: '1px solid var(--ant-color-split)',
+                        borderRadius: '0 0 8px 8px',
+                        overflow: 'hidden',
+                        background: '#fff',
+                        minHeight: 56,
+                      }}
+                    >
+                      {availableRows.length === 0 ? (
+                        <Empty
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          description={
+                            memberSearch.trim()
+                              ? '无匹配结果'
+                              : '暂无未加入的云主机'
+                          }
+                          style={{ padding: '16px 0' }}
+                        />
+                      ) : (
+                        availableRows.map((row) => (
+                          <MemberVmListRow
+                            key={row.key}
+                            row={row}
+                            mode="available"
+                            readOnly={readOnly}
+                            onAction={() =>
+                              onMemberKeysChange(
+                                memberKeys.includes(row.key) ? memberKeys : [...memberKeys, row.key],
+                              )
+                            }
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </Card>
               </div>
             </div>

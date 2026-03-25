@@ -26,7 +26,7 @@
  *    - 各 Section 内部通过 services/harvesterApi 发起资源操作/刷新
  * ==============================================================================
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Tabs, Empty, Dropdown, Space } from 'antd';
 import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -43,14 +43,12 @@ import ScheduleVmBackupsSection from '../Harvester/sections/ScheduleVmBackupsSec
 import SnapshotsSection from '../Harvester/sections/SnapshotsSection';
 import CloudInitsSection from '../Harvester/sections/CloudInitsSection';
 import GpuSection from '../Harvester/sections/GpusSection';
-import IPPoolsSection from '../Harvester/sections/IPPoolsSection';
 import EipSection from '../Harvester/kube-ovn/EipSection';
 import FipSection from '../Harvester/kube-ovn/FipSection';
 import SnatSection from '../Harvester/kube-ovn/SnatSection';
 import DnatSection from '../Harvester/kube-ovn/DnatSection';
-import NadsSection from '../Harvester/sections/NadsSection';
-import LoadBalancersSection from '../Harvester/sections/LoadBalancersSection';
-import VpcsSection from '../Harvester/kube-ovn/VpcsSection'; 
+import VpcsSection from '../Harvester/kube-ovn/VpcsSection';
+import UnderlaySubnetsSection from '../Harvester/kube-ovn/UnderlaySubnetsSection';
 
 
 
@@ -75,9 +73,6 @@ interface Props {
   schedules?: any[];
   cloudInits?: any[];
   gpus?: any[];
-  ippools?: any[];
-  nads?: any[];
-  lbs?: any[];
   vpcs?: any[];
   subnets?: any[];
   eips?: any[];
@@ -121,9 +116,6 @@ interface Props {
   onRefreshSchedules?: () => void;
   onRefreshCloudInits?: () => void;
   onRefreshGpus?: () => void;
-  onRefreshIPPools?: () => void;
-  onRefreshNads?: (force?: boolean, silent?: boolean) => void;
-  onRefreshLbs?: () => void;
   onRefreshVpcs?: () => void;
   onRefreshEips?: () => void;
   onRefreshFips?: () => void;
@@ -147,9 +139,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   schedules = [],
   cloudInits = [],
   gpus = [],
-  ippools = [],
-  nads = [],
-  lbs = [],
   vpcs = [],
   subnets = [],
   eips = [],
@@ -190,9 +179,6 @@ const CloudConsoleHarvester: React.FC<Props> = ({
   onRefreshSchedules,
   onRefreshCloudInits,
   onRefreshGpus,
-  onRefreshIPPools,
-  onRefreshNads,
-  onRefreshLbs,
   onRefreshVpcs,
   onRefreshEips,
   onRefreshFips,
@@ -263,11 +249,9 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       },
       {
         key: 'flatnet',
-        label: 'VLAN',
+        label: '扁平',
         resources: [
-          { key: 'nad', label: '网络' },
-          { key: 'lb', label: 'SLB' },
-          { key: 'ippool', label: '地址池' },
+          { key: 'flat-subnet', label: '子网' },
         ]
       },
     ];
@@ -293,6 +277,18 @@ const CloudConsoleHarvester: React.FC<Props> = ({
       setActiveResource('vm');
     }
   }, [activeCategory, ovnVpcEnabled, setActiveCategory, setActiveResource]);
+
+  /** NAD/VLAN、SLB、地址池、扁平安全组 已从控制台目录下线，旧状态迁到「扁平 · 子网」 */
+  useEffect(() => {
+    if (
+      activeResource === 'nad' ||
+      activeResource === 'lb' ||
+      activeResource === 'ippool' ||
+      activeResource === 'flat-sg'
+    ) {
+      setActiveResource('flat-subnet');
+    }
+  }, [activeResource, setActiveResource]);
 
   const getDefaultResource = (catKey: string) => {
     const cat = tabConfig.find(c => c.key === catKey);
@@ -469,43 +465,16 @@ const CloudConsoleHarvester: React.FC<Props> = ({
           />
         );
 
-      // Flat Network
-      case 'nad':
+      // 「扁平」类目：仅保留子网（Kube-OVN flat）；接替原 NAD/VLAN 网络
+      case 'flat-subnet':
         return (
-          <NadsSection 
-            nads={nads}
-            loading={loading}
-            onRefresh={onRefreshNads}
+          <UnderlaySubnetsSection
             cloudId={cloudId}
-            isTenant={isTenantUser}
-            bordered={bordered}
-            onlyBridge
+            mode="flat"
+            displayMode="standard"
+            showYaml={showYaml}
           />
         );
-      case 'lb':
-        return (
-          <LoadBalancersSection 
-            loadBalancers={lbs}
-            loading={loading}
-            onRefresh={onRefreshLbs}
-            cloudId={cloudId}
-            namespaces={namespaceObjects}
-            isTenant={isTenantUser}
-            bordered={bordered}
-          />
-        );
-      case 'ippool':
-        return (
-          <IPPoolsSection
-            cloudId={cloudId}
-            ippools={ippools}
-            loading={loading}
-            onRefresh={onRefreshIPPools}
-            isTenant={isTenantUser}
-            bordered={bordered}
-          />
-        );
-
       // VPC Network
       case 'vpc-subnet':
          return (
@@ -618,7 +587,7 @@ const CloudConsoleHarvester: React.FC<Props> = ({
         )
       };
     });
-  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, vms, templates, sshKeys, volumes, images, snapshots, backups, schedules, cloudInits, gpus, ippools, nads, lbs, vpcs, subnets, eips, fips, snatRules, dnatRules, loading, namespacesOptions, namespaces, nodesOptions, nsValue, nodeValue]);
+  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, vms, templates, sshKeys, volumes, images, snapshots, backups, schedules, cloudInits, gpus, vpcs, subnets, eips, fips, snatRules, dnatRules, loading, namespacesOptions, namespaces, nodesOptions, nsValue, nodeValue, showYaml, cloudId, isTenantUser, bordered]);
 
   return (
     <div style={{ height: '100%', background: '#fff'}}>

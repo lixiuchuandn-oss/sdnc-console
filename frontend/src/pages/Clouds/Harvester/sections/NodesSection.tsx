@@ -240,7 +240,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
       const text = roles.join(', ') || '-';
       return (
         <Tooltip title={text}>
-          <span className="stat-trigger">{text}</span>
+          <span className="tags-badge">{text}</span>
         </Tooltip>
       );
     }},
@@ -260,17 +260,19 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
       const total = parseCpuToCores(r?.status?.allocatable?.cpu || r?.status?.capacity?.cpu || r?.cpu);
       const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : undefined;
       return (
-        <div style={{ minWidth: 180 }}>
+        <div style={{ minWidth: 180, lineHeight: '20px' }}>
           {typeof pct === 'number' ? (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '20px' }}>
                 <Progress percent={Math.max(0, Math.min(100, pct))} size="small" showInfo={false} />
                 <span>{Math.max(0, Math.min(100, pct)).toFixed(1)}%</span>
               </div>
-              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>{used.toFixed(2)} core / {total.toFixed(2)} core</div>
+              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
+                {used.toFixed(2)} core / {total.toFixed(2)} core
+              </div>
             </>
           ) : (
-            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>
+            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
               {total > 0 ? `${total.toFixed(2)} core` : '-'}
             </div>
           )}
@@ -284,17 +286,19 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
       const pct = total > 0 ? Math.round((used / total) * 1000) / 10 : undefined;
       const toGiBNum = (bytes: number) => (bytes > 0 ? (bytes / (1024 * 1024 * 1024)) : 0);
       return (
-        <div style={{ minWidth: 180 }}>
+        <div style={{ minWidth: 180, lineHeight: '20px' }}>
           {typeof pct === 'number' ? (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '20px' }}>
                 <Progress percent={Math.max(0, Math.min(100, pct))} size="small" showInfo={false} />
                 <span>{Math.max(0, Math.min(100, pct)).toFixed(1)}%</span>
               </div>
-              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>{toGiBNum(used).toFixed(2)} GiB / {toGiBNum(total).toFixed(2)} GiB</div>
+              <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
+                {toGiBNum(used).toFixed(2)} GiB / {toGiBNum(total).toFixed(2)} GiB
+              </div>
             </>
           ) : (
-            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>
+            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
               {total > 0 ? `${toGiBNum(total).toFixed(2)} GiB` : '-'}
             </div>
           )}

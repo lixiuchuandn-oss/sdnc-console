@@ -14,16 +14,14 @@ const Login: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const { settings, loading: settingsLoading } = useSettings();
-  
-  // 获取背景颜色设置
-  const backgroundColor = settings.loginBackgroundColor || '#1062FE';
+
+  const backgroundColor = settings.loginBackgroundColor;
   const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
   const gradientEnd = settings.loginBackgroundGradientEnd || backgroundColor;
-  const useGradient = gradientStart !== gradientEnd;
-  
-  // 获取按钮颜色设置
-  const buttonColor = settings.loginButtonColor || '#1890ff';
-  const buttonHoverColor = settings.loginButtonHoverColor || '#40a9ff';
+  const useGradient = Boolean(gradientStart && gradientEnd && gradientStart !== gradientEnd);
+
+  const buttonColor = settings.loginButtonColor;
+  const buttonHoverColor = settings.loginButtonHoverColor;
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -49,19 +47,21 @@ const Login: React.FC = () => {
     // 表单验证失败，由 Ant Design Form 自动处理错误提示
   };
 
-  // 动态样式
-  const containerStyle: React.CSSProperties = {
-    background: useGradient 
-      ? `linear-gradient(135deg, ${gradientStart} 0%, ${gradientEnd} 100%)`
-      : backgroundColor,
-  };
+  const containerStyle: React.CSSProperties =
+    settingsLoading || (!backgroundColor && !useGradient)
+      ? {}
+      : {
+          background: useGradient
+            ? `linear-gradient(135deg, ${gradientStart} 0%, ${gradientEnd} 100%)`
+            : backgroundColor,
+        };
 
   return (
     <div className="login-container" style={containerStyle}>
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">{settingsLoading ? '' : renderMarkdownBold(settings.loginTitle || '多云管理平台')}</h1>
-          <p className="login-subtitle">{settingsLoading ? '' : (settings.loginSubtitle || '多云管理平台')}</p>
+          <h1 className="login-title">{settingsLoading ? '' : renderMarkdownBold(settings.loginTitle ?? '')}</h1>
+          <p className="login-subtitle">{settingsLoading ? '' : (settings.loginSubtitle ?? '')}</p>
         </div>
         
         <Card className="login-card" variant="borderless">
@@ -84,17 +84,31 @@ const Login: React.FC = () => {
                 loading={loading}
                 block
                 size="large"
-                style={{
-                  background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
-                  border: 'none !important',
-                  boxShadow: `0 4px 12px ${buttonColor}40 !important`,
-                }}
+                style={
+                  buttonColor
+                    ? {
+                        background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
+                        border: 'none !important',
+                        boxShadow: `0 4px 12px ${buttonColor}40 !important`,
+                      }
+                    : undefined
+                }
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.setProperty('background', `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`, 'important');
+                  if (!buttonColor || !buttonHoverColor) return;
+                  e.currentTarget.style.setProperty(
+                    'background',
+                    `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`,
+                    'important'
+                  );
                   e.currentTarget.style.setProperty('box-shadow', `0 6px 16px ${buttonHoverColor}60`, 'important');
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.setProperty('background', `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`, 'important');
+                  if (!buttonColor) return;
+                  e.currentTarget.style.setProperty(
+                    'background',
+                    `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`,
+                    'important'
+                  );
                   e.currentTarget.style.setProperty('box-shadow', `0 4px 12px ${buttonColor}40`, 'important');
                 }}
               >

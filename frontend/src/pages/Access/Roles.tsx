@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Input, Select, Table, Dropdown, message, Space, Tag, Popconfirm, App, Tree, Empty, List, Transfer, Checkbox, Divider, Card, Row, Col, Typography } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
+import { Button, Form, Input, Select, Table, Dropdown, message, Space, Tag, App, Tree, Empty, List, Transfer, Checkbox, Divider, Card, Row, Col, Typography } from 'antd';
+import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import ResourceActionsDropdown from '../../components/ResourceActionsDropdown';
 import StdSideDrawer from '../../components/StdSideDrawer';
 import StdFormModal from '../../components/StdFormModal';
 import PageContainer from '../../components/PageContainer';
@@ -13,7 +15,6 @@ import {
   normalizeFeatureName,
   getPlatformFromDefinition,
   groupResourceConsoleChildFeatures,
-  RESOURCE_CONSOLE_PARENT_SCOPE_HINTS,
   splitResourceConsoleFeatures,
 } from '../../utils/permissionUtils';
 import { useTableColumnSettings } from '../../hooks/useTableColumnSettings';
@@ -36,6 +37,8 @@ type RBACRole = {
   status: 'active' | 'inactive';
   createdAt?: string;
   updatedAt?: string;
+  /** 后端聚合：rbac 分配记录数，与「授予用户」抽屉一致 */
+  grantedUserCount?: number;
 };
 
 // 系统用户类型
@@ -52,6 +55,16 @@ type SysUser = {
 
 // 角色分配类型
 type Assignment = { id: string; roleId: string; userType: 'system'|'tenant'; userId: string; createdAt: string };
+
+/** 租户角色在「配置权限」中不展示「资源总览」「资源池」两张父级卡片（细分 clouds.* 仍可选） */
+const TENANT_HIDDEN_RESOURCE_PREFIXES = new Set(['clouds.dashboard', 'clouds']);
+
+function stripTenantForbiddenPermissionIds(ids: string[]): string[] {
+  return ids.filter((id) => {
+    const resource = String(id).split(':')[0];
+    return !TENANT_HIDDEN_RESOURCE_PREFIXES.has(resource);
+  });
+}
 
 // 将权限原子转换为可读描述（优先使用后端定义）
 const describeAction = (action: string, definitions?: any[]): string => {
@@ -206,8 +219,14 @@ const AccessRolesPage: React.FC = () => {
             const features = group === '资源控制台'
               ? (() => {
                   const { parents, children } = splitResourceConsoleFeatures(rawFeatures);
+                  const parentItems =
+                    grantTarget?.scope === 'tenant'
+                      ? parents.filter(
+                          (p) => !TENANT_HIDDEN_RESOURCE_PREFIXES.has(p.resourcePrefix),
+                        )
+                      : parents;
                   return [
-                    ...parents.map((item) => ({ ...item, isResourceParent: true })),
+                    ...parentItems.map((item) => ({ ...item, isResourceParent: true })),
                     ...children.map((item) => ({ ...item, isResourceParent: false })),
                   ];
                 })()
@@ -218,7 +237,7 @@ const AccessRolesPage: React.FC = () => {
       });
 
     return platforms;
-  }, [actionAtoms, permVerb, kw, grantSelectedIds, permissionDefinitions]);
+  }, [actionAtoms, permVerb, kw, grantSelectedIds, permissionDefinitions, grantTarget?.scope]);
   
   // 处理权限复选框变化
   const handlePermissionChange = (action: string, checked: boolean) => {
@@ -238,65 +257,6 @@ const AccessRolesPage: React.FC = () => {
   
   // 表格选择与列配置
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  
-  // 角色列表表格
-  const fullColumns = useMemo(() => [
-    { 
-      title:'角色名称', 
-      key:'name', 
-      dataIndex:'name', 
-      render: (v:any, row: RBACRole) => (
-        <Space>
-          {v}
-        </Space>
-      ) 
-    },
-    { 
-      title:'角色类型', 
-      key:'type', 
-      dataIndex:'type', 
-      width:140,
-      render: (_:any, row: RBACRole) => (
-        row.type === '系统策略'
-          ? <Tag color="purple">内置角色</Tag>
-          : row.type === '自定义策略'
-            ? <Tag color="orange">自定义角色</Tag>
-            : <Tag>-</Tag>
-      ) 
-    },
-    { 
-      title:'角色范围', 
-      key:'scope', 
-      dataIndex:'scope', 
-      width:130,
-      render: (_:any, row: RBACRole) => (
-        row.scope === 'system'
-          ? <Tag color="blue">System</Tag>
-          : <Tag color="green">Tenant</Tag>
-      ) 
-    },
-    { title:'描述', key:'description', dataIndex:'description', ellipsis:true },
-    { title:'创建时间', key:'createdAt', dataIndex:'createdAt', width:180, render: (v:string) => v ? new Date(v).toLocaleString() : '-' },
-    { title:'操作', key:'action', width:200, fixed:'right' as const, render: (_:any, row: RBACRole) => (
-      <Space>
-        {canWrite && (
-          <Button type="link" size="small" onClick={() => openAuthorize(row)}>配置权限</Button>
-        )}
-        {canWrite && (
-          <Button type="link" size="small" onClick={() => openAssignUser(row)}>授予用户</Button>
-        )}
-        {canWrite && (
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(row)}>
-            <Button type="link" size="small" danger disabled={row.type==='系统策略'}>删除</Button>
-          </Popconfirm>
-        )}
-      </Space>
-    ) },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [canWrite]);
-
-  // 使用新的 hook 管理列设置
-  const { displayColumns: displayedColumns } = useTableColumnSettings(fullColumns, 'access_roles_table');
 
   // 获取角色列表（支持跳过缓存，用于手动刷新）
   const fetchRoles = async () => {
@@ -416,7 +376,9 @@ const AccessRolesPage: React.FC = () => {
       // 创建后直接打开授权界面
       setGrantTarget(role);
       const permArr: string[] = (()=>{ try{ return Array.isArray(JSON.parse(String(role?.permissions||'[]'))) ? JSON.parse(String(role?.permissions||'[]')) : []; }catch{ return []; } })();
-      setGrantSelectedIds(permArr);
+      setGrantSelectedIds(
+        role.scope === 'tenant' ? stripTenantForbiddenPermissionIds(permArr) : permArr,
+      );
       setGrantOpen(true);
     } catch (error: any) {
       message.error(error?.message || '创建角色失败');
@@ -427,7 +389,11 @@ const AccessRolesPage: React.FC = () => {
   const handleGrantSave = React.useCallback(async (targetKeys: string[]) => {
     if (!grantTarget) return;
     try {
-      await apiPatch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, { permissions: targetKeys });
+      const permissionsToSave =
+        grantTarget.scope === 'tenant'
+          ? stripTenantForbiddenPermissionIds(targetKeys)
+          : targetKeys;
+      await apiPatch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, { permissions: permissionsToSave });
       message.success('授权成功');
       setGrantOpen(false);
       fetchRoles();
@@ -438,7 +404,10 @@ const AccessRolesPage: React.FC = () => {
 
   const openAuthorize = React.useCallback((role: RBACRole) => {
     setGrantTarget(role);
-    setGrantSelectedIds(role.actions || []);
+    const ids = role.actions || [];
+    setGrantSelectedIds(
+      role.scope === 'tenant' ? stripTenantForbiddenPermissionIds(ids) : ids,
+    );
     setGrantOpen(true);
   }, []);
 
@@ -451,6 +420,105 @@ const AccessRolesPage: React.FC = () => {
       message.error(error?.message || '删除失败');
     }
   }, []);
+
+  const fullColumns = useMemo(
+    () => [
+      {
+        title: '角色名称',
+        key: 'name',
+        dataIndex: 'name',
+        render: (v: React.ReactNode) => <Space>{v}</Space>,
+      },
+      {
+        title: '角色类型',
+        key: 'type',
+        dataIndex: 'type',
+        width: 140,
+        render: (_: unknown, row: RBACRole) =>
+          row.type === '系统策略' ? (
+            <Tag color="purple">内置角色</Tag>
+          ) : row.type === '自定义策略' ? (
+            <Tag color="orange">自定义角色</Tag>
+          ) : (
+            <Tag>-</Tag>
+          ),
+      },
+      {
+        title: '角色范围',
+        key: 'scope',
+        dataIndex: 'scope',
+        width: 130,
+        render: (_: unknown, row: RBACRole) =>
+          row.scope === 'system' ? <Tag color="blue">System</Tag> : <Tag color="green">Tenant</Tag>,
+      },
+      {
+        title: '授予用户数',
+        key: 'grantedUserCount',
+        dataIndex: 'grantedUserCount',
+        width: 110,
+        align: 'right' as const,
+        render: (n: number | undefined) => (
+          <Text>{typeof n === 'number' ? n : 0}</Text>
+        ),
+      },
+      { title: '描述', key: 'description', dataIndex: 'description', ellipsis: true },
+      {
+        title: '创建时间',
+        key: 'createdAt',
+        dataIndex: 'createdAt',
+        width: 180,
+        render: (v: string) => (v ? new Date(v).toLocaleString() : '-'),
+      },
+      {
+        title: '操作',
+        key: 'action',
+        width: 72,
+        align: 'center' as const,
+        fixed: 'right' as const,
+        render: (_: unknown, row: RBACRole) => {
+          if (!canWrite) return <Text type="secondary">—</Text>;
+          const items: MenuProps['items'] = [
+            {
+              key: 'auth',
+              label: '配置权限',
+              onClick: () => openAuthorize(row),
+            },
+            {
+              key: 'assign',
+              label: '授予用户',
+              onClick: () => openAssignUser(row),
+            },
+          ];
+          if (row.type !== '系统策略') {
+            items.push({ type: 'divider' });
+            items.push({
+              key: 'delete',
+              label: '删除',
+              danger: true,
+              onClick: () => {
+                modal.confirm({
+                  title: '确认删除该自定义角色？',
+                  content: '若角色已分配给用户或租户用户，将无法删除，请先解除关联。',
+                  okText: '删除',
+                  okType: 'danger',
+                  onOk: () => handleDelete(row),
+                });
+              },
+            });
+          }
+          return (
+            <ResourceActionsDropdown
+              items={items}
+              buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+            />
+          );
+        },
+      },
+    ],
+    [canWrite, modal, openAuthorize, openAssignUser, handleDelete],
+  );
+
+  const { displayColumns: displayedColumns } = useTableColumnSettings(fullColumns, 'access_roles_table');
 
   return (
     <PageContainer
@@ -645,23 +713,19 @@ const AccessRolesPage: React.FC = () => {
                     {(() => {
                       const parentFeatures = group.features.filter((feature: any) => feature.isResourceParent);
                       const childFeatures = group.features.filter((feature: any) => !feature.isResourceParent);
+                      const isResourceConsoleGroup = group.group === '资源控制台';
                       const hasSplit =
-                        group.group === '资源控制台' &&
-                        parentFeatures.length > 0 &&
-                        childFeatures.length > 0;
+                        isResourceConsoleGroup &&
+                        (parentFeatures.length > 0 || childFeatures.length > 0);
 
                       const renderFeatureCards = (
                         features: any[],
-                        opts?: { showParentScopeHints?: boolean }
+                        opts?: { showParentScopeHints?: boolean; cardSpan?: number }
                       ) => (
                         <Row gutter={[16, 12]}>
                           {features.map((feature) => {
-                            const hint =
-                              opts?.showParentScopeHints &&
-                              feature.resourcePrefix &&
-                              RESOURCE_CONSOLE_PARENT_SCOPE_HINTS[feature.resourcePrefix];
                             return (
-                            <Col span={8} key={`${feature.resourcePrefix || feature.feature}`}>
+                            <Col span={opts?.cardSpan ?? 8} key={`${feature.resourcePrefix || feature.feature}`}>
                               <Card size="small">
                                 <div
                                   style={{
@@ -676,20 +740,24 @@ const AccessRolesPage: React.FC = () => {
                                     <Text ellipsis style={{ display: 'block' }}>
                                       {feature.feature}
                                     </Text>
-                                    {hint ? (
-                                      <Text
-                                        type="secondary"
-                                        style={{
-                                          display: 'block',
-                                          marginTop: 6,
-                                          fontSize: 12,
-                                          lineHeight: 1.5,
-                                          whiteSpace: 'normal',
-                                        }}
-                                      >
-                                        {hint}
-                                      </Text>
-                                    ) : null}
+                                    <Text
+                                      type="secondary"
+                                      style={{
+                                        display: 'block',
+                                        marginTop: 4,
+                                        fontSize: 12,
+                                        lineHeight: 1.4,
+                                        wordBreak: 'break-all',
+                                      }}
+                                    >
+                                      {Array.from(
+                                        new Set(
+                                          [feature.readVisible ? feature.read : null, feature.writeVisible ? feature.write : null]
+                                            .filter(Boolean)
+                                            .map((id) => String(id).split(':')[0]),
+                                        ),
+                                      ).join(' / ')}
+                                    </Text>
                                   </div>
                                   <Space style={{ flexShrink: 0 }}>
                                     {feature.read && feature.readVisible && (
@@ -723,9 +791,13 @@ const AccessRolesPage: React.FC = () => {
 
                       return (
                         <>
-                          {renderFeatureCards(parentFeatures, { showParentScopeHints: true })}
-                          <Divider style={{ margin: '16px 0' }} />
-                          {groupResourceConsoleChildFeatures(childFeatures).map((childGroup, idx, arr) => (
+                          {parentFeatures.length > 0 && (
+                            <>
+                              {renderFeatureCards(parentFeatures, { showParentScopeHints: true, cardSpan: 24 })}
+                              <Divider style={{ margin: '16px 0' }} />
+                            </>
+                          )}
+                          {groupResourceConsoleChildFeatures(childFeatures.length > 0 ? childFeatures : group.features).map((childGroup, idx, arr) => (
                             <div key={childGroup.label}>
                               <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                                 {childGroup.label}

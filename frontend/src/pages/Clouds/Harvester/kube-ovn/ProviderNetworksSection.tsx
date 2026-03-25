@@ -10,6 +10,7 @@ import {
   createKubeOvnProviderNetwork,
   deleteKubeOvnProviderNetwork,
   fetchKubeOvnProviderNetworks,
+  fetchKubeOvnVlans,
   fetchHarvesterNodes,
   fetchHarvesterClusterNetworks,
 } from '../../../../services/harvesterApi';
@@ -30,6 +31,7 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
   const canWriteVlan = hasPermissionForAction(user?.permissions || [], 'clouds.vlans:write');
   const [createMode, setCreateMode] = useState<'centralized' | 'node_specific'>('centralized');
   const [data, setData] = useState<any[]>([]);
+  const [vlans, setVlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
@@ -66,13 +68,30 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
     setDrawerOpen(true);
   };
 
+  const vlanAliasMap = useMemo(() => {
+    const map = new Map<string, { display: string; alias: string }>();
+    (vlans || []).forEach((v: any) => {
+      const name = String(v?.metadata?.name ?? '').trim();
+      if (!name) return;
+      const ann = v?.metadata?.annotations || {};
+      const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+      map.set(name, { display: alias || name, alias });
+    });
+    return map;
+  }, [vlans]);
+
   const fetchData = async (force = false, skipSync = false) => {
     setLoading(true);
     try {
-      const res = await fetchKubeOvnProviderNetworks(cloudId, force, skipSync);
-      setData(Array.isArray(res?.data?.items) ? res.data.items : []);
+      const [pnRes, vlanRes] = await Promise.all([
+        fetchKubeOvnProviderNetworks(cloudId, force, skipSync),
+        fetchKubeOvnVlans(cloudId, force, skipSync).catch(() => ({ data: { items: [] } })),
+      ]);
+      setData(Array.isArray(pnRes?.data?.items) ? pnRes.data.items : []);
+      setVlans(Array.isArray(vlanRes?.data?.items) ? vlanRes.data.items : []);
       if (force && cloudId) {
         clearCache(`/api/clouds/${cloudId}/resources/providernetworks`, 'GET');
+        clearCache(`/api/clouds/${cloudId}/resources/vlans`, 'GET');
       }
     } catch (error: any) {
       message.error(`获取物理网络列表失败: ${error.message}`);
@@ -376,11 +395,24 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
       title: '关联 VLAN',
       dataIndex: 'vlans',
       key: 'vlans',
-      render: (vlans: string[]) => {
-        if (!vlans?.length) return <span style={{ color: '#ccc' }}>无</span>;
+      render: (vlanNames: string[]) => {
+        if (!vlanNames?.length) return <span style={{ color: '#ccc' }}>无</span>;
         return (
           <Space size={[4, 4]} wrap>
-            {vlans.map((vlan) => <Tag key={vlan} color="blue">{vlan}</Tag>)}
+            {vlanNames.map((vlan) => {
+              const name = String(vlan ?? '').trim();
+              if (!name) return null;
+              const hit = vlanAliasMap.get(name);
+              const alias = hit?.alias || '';
+              const display = hit?.display || name;
+              return alias && alias !== name ? (
+                <Tooltip key={name} title={`资源名: ${name}`}>
+                  <Tag color="blue">{display}</Tag>
+                </Tooltip>
+              ) : (
+                <Tag key={name} color="blue">{display}</Tag>
+              );
+            })}
           </Space>
         );
       },
@@ -444,7 +476,7 @@ const ProviderNetworksSection: React.FC<Props> = ({ cloudId }) => {
         return <ResourceActionsDropdown items={items} />;
       },
     },
-  ], [openDrawer, handleDelete, canWriteVlan, openVlanPlanForProvider]);
+  ], [openDrawer, handleDelete, canWriteVlan, openVlanPlanForProvider, vlanAliasMap]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_provider_networks_table');
 

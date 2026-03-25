@@ -698,54 +698,251 @@ const indexHTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"/>
-  <title>Cloudmap 镜像直传（直连模式）</title>
+  <title>镜像直传工具 · 直连 Cloudmap</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto;max-width:760px;margin:24px auto;padding:0 16px}
-    h1{font-size:20px}
-    label{display:block;margin:12px 0 6px}
-    input,select,button{width:100%;padding:10px;font-size:14px}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .actions{margin-top:16px}
-    .note{color:#666;font-size:12px}
-    .ok{color:#0a0}
-    .err{color:#a00}
-    .progress{height:10px;background:#eee;border-radius:6px;overflow:hidden;margin-top:8px}
-    .bar{height:10px;background:#4caf50;width:0%}
-    .progress-text{font-size:12px;margin-top:6px;color:#333}
+    /* 与 Compute Tower 前端一致：Ant Design 浅色、主色 #1677ff、顶栏同源蓝渐变 */
+    :root {
+      --color-primary: #1677ff;
+      --color-primary-hover: #4096ff;
+      --color-primary-active: #0958d9;
+      --header-start: #0a4cc0;
+      --header-end: #1b64ed;
+      --bg-page: #f0f2f5;
+      --bg-card: #ffffff;
+      --bg-input: #ffffff;
+      --border: #d9d9d9;
+      --text: rgba(0, 0, 0, 0.88);
+      --text-secondary: rgba(0, 0, 0, 0.45);
+      --text-tertiary: rgba(0, 0, 0, 0.25);
+      --success: #52c41a;
+      --danger: #ff4d4f;
+      --radius: 6px;
+      --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px 0 rgba(0, 0, 0, 0.02);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg-page);
+      color: var(--text);
+      padding: 28px 16px 48px;
+    }
+    .wrap {
+      max-width: 650px;
+      margin: 0 auto;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 2px);
+      box-shadow: var(--shadow-card);
+      padding: 28px 26px 32px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 4px;
+    }
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius);
+      background: linear-gradient(135deg, var(--header-start) 0%, var(--header-end) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+      line-height: 1;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(10, 76, 192, 0.35);
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .subtitle {
+      margin: 0 0 24px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+    .field { margin-bottom: 18px; }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    input[type="text"], input[type="password"], select {
+      width: 100%;
+      padding: 10px 11px;
+      font-size: 14px;
+      font-family: inherit;
+      line-height: 1.5715;
+      color: var(--text);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input::placeholder { color: var(--text-tertiary); }
+    input:focus, select:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.15);
+    }
+    .file-picker {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      min-height: 46px;
+      padding: 6px 10px 6px 6px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .file-picker:focus-within {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.15);
+    }
+    .file-picker input[type="file"] {
+      flex: 1;
+      min-width: 0;
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      padding: 4px 2px;
+    }
+    .file-picker input[type="file"]::file-selector-button,
+    .file-picker input[type="file"]::-webkit-file-upload-button {
+      margin-right: 12px;
+      padding: 6px 14px;
+      font-size: 14px;
+      font-weight: 400;
+      font-family: inherit;
+      color: #fff;
+      background: var(--color-primary);
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .file-picker input[type="file"]::file-selector-button:hover,
+    .file-picker input[type="file"]::-webkit-file-upload-button:hover {
+      background: var(--color-primary-hover);
+    }
+    .row2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 480px) { .row2 { grid-template-columns: 1fr; } }
+    .btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px 15px;
+      font-size: 14px;
+      font-weight: 400;
+      font-family: inherit;
+      line-height: 1.5715;
+      color: #fff;
+      background: var(--color-primary);
+      border: 1px solid var(--color-primary);
+      border-radius: var(--radius);
+      cursor: pointer;
+      box-shadow: 0 2px 0 rgba(5, 145, 255, 0.1);
+      transition: background .15s, border-color .15s, transform .08s;
+    }
+    .btn:hover {
+      background: var(--color-primary-hover);
+      border-color: var(--color-primary-hover);
+    }
+    .btn:active {
+      background: var(--color-primary-active);
+      border-color: var(--color-primary-active);
+      transform: translateY(0);
+    }
+    #msg {
+      min-height: 22px;
+      margin-top: 16px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .ok { color: var(--success); }
+    .err { color: var(--danger); }
+    .progress {
+      height: 8px;
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    .bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+      width: 0%;
+      border-radius: 999px;
+      transition: width .12s ease-out;
+    }
+    .progress-text { font-size: 12px; margin-top: 8px; color: var(--text-secondary); }
+    .hint { font-size: 12px; color: var(--text-secondary); margin-top: 6px; line-height: 1.5; }
   </style>
 </head>
 <body>
-  <h1>Cloudmap 镜像直传（直连模式）</h1>
-  <p class="note">本工具直接连接 Cloudmap：创建镜像元数据并上传本地文件，无需 Tower。</p>
-  <label>Cloudmap 地址</label>
-  <input id="harvesterUrl" placeholder="https://x.x.x.x"/>
-  <label>Cloudmap Token</label>
-  <input id="harvesterToken" placeholder="Bearer Token"/>
-  <div class="row">
-    <div>
-      <label>命名空间</label>
-      <input id="namespace" value="default"/>
-    </div>
-    <div>
-      <label>镜像显示名称</label>
-      <input id="displayName" placeholder="ubuntu-20.04"/>
+  <div class="wrap">
+    <div class="card">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">⬆</div>
+        <div>
+          <h1>镜像上传工具</h1>
+        </div>
+      </div>
+      <div class="field">
+        <label>Cloudmap 地址</label>
+        <input id="harvesterUrl" type="text" placeholder="https://集群 IP 或域名" autocomplete="off"/>
+      </div>
+      <div class="field">
+        <label>Cloudmap Token</label>
+        <input id="harvesterToken" type="password" placeholder="Bearer Token" autocomplete="off"/>
+      </div>
+      <div class="row2">
+        <div class="field" style="margin-bottom:0">
+          <label>镜像显示名称</label>
+          <input id="displayName" type="text" placeholder="如 ubuntu-20.04" autocomplete="off"/>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>镜像类型</label>
+          <select id="imageType">
+            <option value="disk" selected>Qcow2（磁盘镜像）</option>
+            <option value="iso">ISO（光盘镜像）</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>镜像文件</label>
+        <div class="file-picker">
+          <input id="file" type="file" accept=".iso,.qcow2,.qcow,.img,.raw"/>
+        </div>
+        <p class="hint">支持 ISO / QCOW2 等大文件；上传过程中请勿关闭本窗口。</p>
+      </div>
+      <button type="button" class="btn" onclick="submit()">开始上传</button>
+      <p id="msg"></p>
+      <div class="progress"><div id="bar" class="bar"></div></div>
+      <div id="ptxt" class="progress-text"></div>
     </div>
   </div>
-  <label>镜像类型</label>
-  <select id="imageType">
-    <option value="">自动推断</option>
-    <option value="disk">Qcow2（磁盘镜像）</option>
-    <option value="iso">ISO（光盘镜像）</option>
-  </select>
-  <label>镜像文件</label>
-  <input id="file" type="file"/>
-  <div class="actions">
-    <button onclick="submit()">开始上传</button>
-  </div>
-  <p id="msg"></p>
-  <div class="progress"><div id="bar" class="bar"></div></div>
-  <div id="ptxt" class="progress-text"></div>
   <script>
     async function submit(){
       const file = document.getElementById('file').files[0];
@@ -753,13 +950,9 @@ const indexHTML = `<!doctype html>
       const fd = new FormData();
       fd.append('harvesterUrl', document.getElementById('harvesterUrl').value.trim());
       fd.append('harvesterToken', document.getElementById('harvesterToken').value.trim());
-      fd.append('namespace', document.getElementById('namespace').value.trim());
       const dn1 = document.getElementById('displayName').value.trim();
       fd.append('displayName', dn1);
-      const imageType = document.getElementById('imageType').value.trim();
-      if (imageType) {
-        fd.append('imageType', imageType);
-      }
+      fd.append('imageType', document.getElementById('imageType').value.trim());
       fd.append('file', file);
       const xhr = new XMLHttpRequest();
       xhr.open('POST','/api/upload-direct');
@@ -862,7 +1055,7 @@ func startGUI() {
 
 		harvUrl := strings.TrimRight(r.FormValue("harvesterUrl"), "/")
 		harvToken := r.FormValue("harvesterToken")
-		ns := r.FormValue("namespace")
+		ns := "default" // GUI 固定命名空间，不提供用户输入
 		display := r.FormValue("displayName")
 		imageType := strings.ToLower(r.FormValue("imageType"))
 		

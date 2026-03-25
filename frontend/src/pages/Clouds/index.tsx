@@ -58,6 +58,7 @@ import { getSystemSetting, updateSystemSetting } from '../../services/systemApi'
 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../utils/accessMapping';
 import CloudWizard from './CloudWizard';
 import CloudEditModal from './Harvester/modals/CloudEditModal';
  
@@ -123,10 +124,11 @@ const Clouds: React.FC = () => {
   const [vendorFilter, setVendorFilter] = useState<string|undefined>(undefined);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   
-  // [权限管理] 用户权限检查
+  // [权限管理] 与 RouteSpec「资源池管理」一致：读 clouds:read（进页已由路由校验）；写操作需 clouds:write。默认资源池写入系统设置键，需 system.settings:write。
   const { user } = useAuth();
-  const hasAdminPermission = user?.role === 'super_admin';
-  const canManageFavorite = ['super_admin', 'admin'].includes(String(user?.role || '').toLowerCase());
+  const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
+  const canWriteClouds = hasPermissionForAction(perms, 'clouds:write');
+  const canSetDefaultPool = hasPermissionForAction(perms, 'system.settings:write');
   const [favoriteCloudId, setFavoriteCloudId] = useState<string>('');
 
   // ============================================================================
@@ -250,6 +252,10 @@ const Clouds: React.FC = () => {
   // 检索关键词: testConnection 连接测试 测试云资源连接
   // ============================================================================
   const testConnection = useCallback(async (cloudId: string) => {
+    if (!canWriteClouds) {
+      message.error('权限不足：需要资源池写入权限（clouds:write）');
+      return;
+    }
     setTestingConnection(cloudId);
     try {
       const response = await apiPost(`/api/clouds/${cloudId}/test`, {});
@@ -260,7 +266,7 @@ const Clouds: React.FC = () => {
     } finally {
       setTestingConnection(null);
     }
-  }, [fetchClouds]);
+  }, [canWriteClouds, fetchClouds]);
 
   // ============================================================================
   // [功能块: 工具函数 - 状态和类型文本映射]
@@ -277,13 +283,13 @@ const Clouds: React.FC = () => {
   // 检索关键词: handleEdit 编辑云资源 编辑模态框
   // ============================================================================
   const handleEdit = useCallback((cloud: Cloud) => {
-    if (!hasAdminPermission) {
-      message.error('权限不足，只有超级管理员可以编辑云资源');
+    if (!canWriteClouds) {
+      message.error('权限不足：需要资源池写入权限（clouds:write）');
       return;
     }
     setEditingCloud(cloud);
     setEditModalVisible(true);
-  }, [hasAdminPermission]);
+  }, [canWriteClouds]);
 
   // ============================================================================
   // [功能块: 删除云资源]
@@ -294,11 +300,11 @@ const Clouds: React.FC = () => {
   // 2. 二次确认 (Confirm Modal)。
   // 3. 执行删除并刷新列表。
   const handleDelete = useCallback((cloudId: string) => {
-    if (!hasAdminPermission) {
-      message.error('权限不足，只有超级管理员可以删除云资源');
+    if (!canWriteClouds) {
+      message.error('权限不足：需要资源池写入权限（clouds:write）');
       return;
     }
-    
+
     Modal.confirm({
       title: '确认删除',
       content: '确定要删除这个云资源吗？如果有关联的计算资源，将无法删除。',
@@ -314,7 +320,7 @@ const Clouds: React.FC = () => {
         }
       },
     });
-  }, [hasAdminPermission, fetchClouds]);
+  }, [canWriteClouds, fetchClouds]);
 
   // ============================================================================
   // [功能块: 表格列定义]
@@ -401,12 +407,12 @@ const Clouds: React.FC = () => {
         const isFavorite = !!favoriteCloudId && String(record.id) === String(favoriteCloudId);
         const items = [
           { key: 'detail', label: '资源详情' },
-          { key: 'edit', label: '编辑信息', disabled: !hasAdminPermission },
-          { key: 'test', label: '连接测试', disabled: !hasAdminPermission || testingConnection===record.id },
-          { key: 'setFavorite', label: '设为默认资源池', disabled: !canManageFavorite || isFavorite },
-          { key: 'unsetFavorite', label: '取消默认资源池', disabled: !canManageFavorite || !isFavorite },
+          { key: 'edit', label: '编辑信息', disabled: !canWriteClouds },
+          { key: 'test', label: '连接测试', disabled: !canWriteClouds || testingConnection === record.id },
+          { key: 'setFavorite', label: '设为默认资源池', disabled: !canSetDefaultPool || isFavorite },
+          { key: 'unsetFavorite', label: '取消默认资源池', disabled: !canSetDefaultPool || !isFavorite },
           { type: 'divider' as const },
-          { key: 'del', label: '删除', danger: true, disabled: !hasAdminPermission },
+          { key: 'del', label: '删除', danger: true, disabled: !canWriteClouds },
         ];
         const onMenuClick = ({ key }: { key: string }) => {
           if (key === 'test') return testConnection(record.id);
@@ -445,7 +451,7 @@ const Clouds: React.FC = () => {
         );
       }
     }
-  ], [navigate, hasAdminPermission, canManageFavorite, favoriteCloudId, testingConnection, testConnection, handleEdit, handleDelete]);
+  ], [navigate, canWriteClouds, canSetDefaultPool, favoriteCloudId, testingConnection, testConnection, handleEdit, handleDelete]);
 
   // ============================================================================
   // [功能块: 表格列设置管理]
@@ -505,7 +511,10 @@ const Clouds: React.FC = () => {
   // 检索关键词: handleBulkDelete 批量删除 批量操作
   // ============================================================================
   const handleBulkDelete = useCallback(async () => {
-    if (!hasAdminPermission) { message.error('权限不足，只有超级管理员可以删除云资源'); return; }
+    if (!canWriteClouds) {
+      message.error('权限不足：需要资源池写入权限（clouds:write）');
+      return;
+    }
     Modal.confirm({
       title: '确认批量删除',
       content: `将删除选中的 ${selectedRowKeys.length} 个资源池，操作不可恢复。`,
@@ -530,7 +539,7 @@ const Clouds: React.FC = () => {
         }
       }
     });
-  }, [hasAdminPermission, selectedRowKeys, fetchClouds]);
+  }, [canWriteClouds, selectedRowKeys, fetchClouds]);
 
   // ============================================================================
   // [功能块: 批量操作菜单配置]
@@ -538,8 +547,14 @@ const Clouds: React.FC = () => {
   // ============================================================================
   const bulkActionsMenu: MenuProps = {
     items: [
-      { key: 'bulkDelete', label: '批量删除', danger: true, disabled: !hasAdminPermission || selectedRowKeys.length === 0, onClick: handleBulkDelete }
-    ]
+      {
+        key: 'bulkDelete',
+        label: '批量删除',
+        danger: true,
+        disabled: !canWriteClouds || selectedRowKeys.length === 0,
+        onClick: handleBulkDelete,
+      },
+    ],
   };
 
   // ============================================================================
@@ -596,7 +611,9 @@ const Clouds: React.FC = () => {
       )}
       toolbarRight={(
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => setWizardVisible(true)}>新增资源池</Button>
+          <Button type="primary" disabled={!canWriteClouds} onClick={() => setWizardVisible(true)}>
+            新增资源池
+          </Button>
           <Dropdown menu={bulkActionsMenu}>
             <Button icon={<EllipsisOutlined />} />
           </Dropdown>
@@ -612,10 +629,14 @@ const Clouds: React.FC = () => {
         columns={activeColumns}
         dataSource={filteredClouds}
         rowKey="id"
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
-        }}
+        rowSelection={
+          canWriteClouds
+            ? {
+                selectedRowKeys,
+                onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
+              }
+            : undefined
+        }
         pagination={{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,

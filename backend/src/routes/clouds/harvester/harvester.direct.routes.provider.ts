@@ -39,6 +39,7 @@ import {
   harvesterEcsUpdateHandler,
   harvesterVmUpdateSpecHandler,
   harvesterVmPatchHandler,
+  harvesterEcsCreateFromTemplateHandler,
   harvesterEcsSaveAsTemplateHandler,
 } from './handlers/ecs-direct-crud.handlers';
 import {
@@ -649,6 +650,19 @@ export function registerHarvesterDirectRoutesProvider(
     '/:id/resources/harvester/vms/:namespace/:name/save-as-template',
     checkAdminPermission,
     createProviderRouter(vmSaveAsTemplateHandlers)
+  );
+
+  // POST /:id/resources/harvester/templates/:namespace/:name/create-vm - 从模板创建虚拟机（兼容前端调用）
+  const vmCreateFromTemplateHandlers = {
+    harvester: harvesterEcsCreateFromTemplateHandler,
+    cloudmap: harvesterEcsCreateFromTemplateHandler,
+    'cloudmap.private': harvesterEcsCreateFromTemplateHandler,
+    'cloudmap.edge': harvesterEcsCreateFromTemplateHandler,
+  };
+  router.post(
+    '/:id/resources/harvester/templates/:namespace/:name/create-vm',
+    checkAdminPermission,
+    createProviderRouter(vmCreateFromTemplateHandlers)
   );
 
   // POST /:id/resources/harvester/vms/:namespace/:name/action - 执行 VM 操作（兼容前端调用）

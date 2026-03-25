@@ -65,6 +65,7 @@ import apiProxyRoutes from './routes/apiProxy';
 
 import path from 'path';
 import fs from 'fs';
+import { getPublicUiSettings } from './config/systemSettings';
 
 dotenv.config();
 
@@ -122,20 +123,22 @@ app.use(auditMiddleware);
 // 静态文件托管：
 // - 只要检测到 public 目录存在，就对外提供静态文件访问（前端构建产物）
 // - 兼容两种运行模式：
-//   a) 源码模式：backend/src/index.ts，对应 ../public
-//   b) 编译后模式：dist/src/index.js，对应 ../../public（backend/public）
-let staticPath = path.join(__dirname, '../public');
-
-// 智能路径检测：优先查找 backend/public，兼容 dist/src/index.js (运行时) 和 src/index.ts (开发时)
-// 1. 默认尝试 ../public (相对于当前文件)
-// 2. 如果当前在 dist/src 下，且 ../public (dist/public) 不存在，则尝试 ../../public (backend/public)
-const rootPublicPath = path.join(__dirname, '../../public');
-
-if (!fs.existsSync(staticPath) && fs.existsSync(rootPublicPath)) {
-  staticPath = rootPublicPath;
-  logger.info('静态资源目录（项目根 public）:', staticPath);
-} else {
+//   a) 源码模式：backend/src/index.ts → ../public 即 backend/public
+//   b) 编译后模式：dist/src/index.js → ../../public 即与 dist 同级的应用根 public
+// - 远程部署（deploy_tool）把前端解压到「应用根/public」，必须把该目录排在 dist/public 之前：
+//   否则若 backend/dist 里残留过时的 dist/public，会被整包打进 zip，运行时会错误地托管旧前端，而本地 dev 走 react-scripts 看不出问题。
+const nestedPublicPath = path.join(__dirname, '../public');
+const appRootPublicPath = path.join(__dirname, '../../public');
+let staticPath: string;
+if (fs.existsSync(appRootPublicPath)) {
+  staticPath = appRootPublicPath;
+  logger.info('静态资源目录（应用根 public，优先）:', staticPath);
+} else if (fs.existsSync(nestedPublicPath)) {
+  staticPath = nestedPublicPath;
   logger.info('静态资源目录（相对路径）:', staticPath);
+} else {
+  staticPath = nestedPublicPath;
+  logger.info('静态资源目录（默认路径，可能不存在）:', staticPath);
 }
 
 // 只要最终解析出的 staticPath 存在，就开启静态托管
@@ -156,32 +159,47 @@ if (fs.existsSync(staticPath)) {
   logger.warn('未找到静态资源目录，已关闭静态托管');
 }
 
-// 工具下载路由（Cloudmap 上传工具别名）：
-// - 固定从后端服务器上的 tools 目录读取 CloudmapUploader.exe
-// - 方便运维/用户从 Web 界面直接获取上传工具
-app.get('/api/tools/cloudmap-uploader.exe', (req, res) => {
-    try {
-      const toolPath =
-        process.env.CLOUDMAP_UPLOADER_PATH ||
-        path.join(process.cwd(), 'tools', 'harvester-uploader', 'CloudmapUploader.exe');
-      logger.debug('工具下载路径:', toolPath);
-      if (fs.existsSync(toolPath)) {
-        logger.debug('工具文件存在，开始下发');
-        res.download(toolPath, 'CloudmapUploader.exe', (err) => {
-           if (err) {
-             logger.error('工具下发失败:', err);
-             if (!res.headersSent) res.status(500).send('Send error');
-           }
-        });
-      } else {
-        logger.warn('工具文件不存在:', toolPath);
-        res.status(404).send('File not found');
-      }
-    } catch (e: any) {
-      logger.error('工具下载异常:', e);
-      res.status(500).send(e?.message || 'Server error');
+// 工具下载路由（镜像直传上传工具）：
+// - 磁盘默认路径：{cwd}/tools/uploader/ImageUploader.exe；在 backend 目录启动时另尝试 {cwd}/../tools/uploader/ImageUploader.exe
+// - 也可通过 CLOUDMAP_UPLOADER_PATH 指向任意绝对路径
+// - 浏览器下载文件名与磁盘一致为 ImageUploader.exe；保留 cloudmap-uploader.exe 别名 URL 以兼容旧链接
+const IMAGE_UPLOADER_EXE = 'ImageUploader.exe';
+const resolveHarvesterUploaderToolPath = (): { path: string; found: boolean } => {
+  const rel = path.join('tools', 'uploader', IMAGE_UPLOADER_EXE);
+  const candidates = [
+    process.env.CLOUDMAP_UPLOADER_PATH?.trim(),
+    path.join(process.cwd(), rel),
+    path.join(process.cwd(), '..', rel),
+  ].filter((p): p is string => Boolean(p));
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return { path: p, found: true };
+  }
+  return { path: candidates[0] || path.join(process.cwd(), rel), found: false };
+};
+
+const sendHarvesterImageUploaderTool = (req: express.Request, res: express.Response) => {
+  try {
+    const { path: toolPath, found } = resolveHarvesterUploaderToolPath();
+    logger.debug('工具下载路径:', toolPath, 'found:', found);
+    if (found) {
+      logger.debug('工具文件存在，开始下发');
+      res.download(toolPath, IMAGE_UPLOADER_EXE, (err) => {
+        if (err) {
+          logger.error('工具下发失败:', err);
+          if (!res.headersSent) res.status(500).send('Send error');
+        }
+      });
+    } else {
+      logger.warn('工具文件不存在，已尝试 CLOUDMAP_UPLOADER_PATH、cwd/tools、cwd/../tools:', toolPath);
+      res.status(404).send('File not found');
     }
-  });
+  } catch (e: any) {
+    logger.error('工具下载异常:', e);
+    res.status(500).send(e?.message || 'Server error');
+  }
+};
+app.get('/api/tools/imageuploader.exe', sendHarvesterImageUploaderTool);
+app.get('/api/tools/cloudmap-uploader.exe', sendHarvesterImageUploaderTool);
 
 // 路由挂载区域：
 // 1) CSMCTL 代理路由（/api-proxy）：
@@ -195,6 +213,10 @@ app.use('/api-proxy', apiProxyRoutes);
 //    - /api/tenants：租户/组织/租户用户管理
 app.use('/api/auth', authRoutes);
 app.use('/auth', authRoutes);
+// 界面整包只读：system-settings 中全部 ui.*（合并默认值），不要求 Token；写仍走 PATCH /api/system/settings/:key
+app.get('/api/public/system-ui', (_req, res) => {
+  res.json({ data: getPublicUiSettings() });
+});
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/clouds', authMiddleware, cloudRoutes);
 

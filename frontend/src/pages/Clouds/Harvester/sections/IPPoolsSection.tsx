@@ -37,7 +37,7 @@ interface Props {
 
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant, bordered = true }) => {
   const { user } = useAuth();
-  const canCreate = hasPermissionForAction(user?.permissions || [], 'clouds.ippools:write');
+  const canCreate = hasPermissionForAction(user?.permissions || [], 'clouds.nads:write');
   const [keyword, setKeyword] = useState<string>('');
   const [nsFilter, setNsFilter] = useState<string>('');
   const [createVisible, setCreateVisible] = useState(false);

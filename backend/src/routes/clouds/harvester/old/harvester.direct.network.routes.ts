@@ -967,7 +967,7 @@ export const registerHarvesterDirectNetworkRoutes = (
               ? { disableGatewayCheck }
               : {}),
             natOutgoing: nat !== undefined ? nat : false,
-            enableDhcp: allowDhcp !== undefined ? allowDhcp : true,
+            enableDHCP: allowDhcp !== undefined ? allowDhcp : true,
           },
         };
 

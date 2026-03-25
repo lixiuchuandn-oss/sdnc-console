@@ -59,50 +59,60 @@ export function normalizeFeatureName(name: string): string {
  * PERMISSION_GROUPS.CNMC['资源控制台'] 保持一致）
  */
 export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
-  'clouds.dashboard',
   'clouds',
+  'clouds.dashboard',
+  'clouds.console',
   'clouds.ecs',
+  // VPC/OVN 主体能力（按统一顺序）
   'clouds.vpcs',
+  'clouds.subnets',
   'clouds.eips',
-  'clouds.disks',
+  'clouds.fips',
+  'clouds.nat-gateways',
   'clouds.security-groups',
+  'clouds.nads',
+  'clouds.provider-networks',
+  'clouds.vlans',
+  // 其他网络与云资源能力
+  'clouds.disks',
   'clouds.load-balancers',
   'clouds.images',
+  'clouds.templates',
+  'clouds.cloudinits',
   'clouds.sshkeys',
-  'clouds.nads',
   'clouds.schedules',
-  'clouds.namespaces',
+  'clouds.restore-tasks',
   'clouds.vswitches',
   'clouds.enis',
   'clouds.network-acls',
   'clouds.snapshots',
   'clouds.backups',
+  'clouds.recycle-bin',
+  'clouds.migrations',
   'clouds.route-tables',
   'clouds.route-entries',
-  'clouds.nat-gateways',
-  'clouds.vlans',
-  'clouds.ippools',
-  'clouds.console',
+  'clouds.cluster-nodes',
+  'clouds.cluster-services',
+  'clouds.cluster-networks',
+  'clouds.namespaces',
+  'clouds.storage-classes',
+  'clouds.gpus',
+  'clouds.usb-devices',
+  'clouds.pci-devices',
+  'clouds.alerts',
+  'clouds.alert-rules',
+  'clouds.alert-policies',
+  'clouds.alert-receivers',
+  'clouds.alert-secrets',
+  'clouds.log-targets',
+  'clouds.log-receivers',
+  'clouds.log-configs',
 ];
 
-/** 聚合/父级权限：资源总览、资源池管理、云主机控制台（与细分 clouds.* 功能区分） */
+/** 聚合/父级权限：资源池总权限（覆盖所有 clouds.*） */
 export const RESOURCE_CONSOLE_PARENT_PREFIXES = new Set<string>([
-  'clouds.dashboard',
-  'clouds',
-  'clouds.console',
+  // 资源池总权限也作为“平台入口能力”中的卡片展示
 ]);
-
-/**
- * 角色配置界面中父权限的适用范围说明（与 accessMapping / 后端 checker 特殊规则一致）
- */
-export const RESOURCE_CONSOLE_PARENT_SCOPE_HINTS: Record<string, string> = {
-  'clouds.dashboard':
-    '仅作用于「资源总览」；与下方各细分 clouds.* 权限独立，且不被「云主机控制台」只读继承。',
-  clouds:
-    '作用于「资源池」列表与接入管理；读权限可继承各 clouds.* 功能只读（不含资源总览）。',
-  'clouds.console':
-    '作用于「云主机控制台」；读权限可继承各 clouds.* 功能只读（不含资源总览）。',
-};
 
 function resourceConsoleOrderIndex(prefix: string): number {
   const i = RESOURCE_CONSOLE_FEATURE_ORDER.indexOf(prefix);
@@ -131,30 +141,86 @@ type ResourceConsoleGroupRule = {
 
 const RESOURCE_CONSOLE_CHILD_GROUP_RULES: readonly ResourceConsoleGroupRule[] = [
   {
-    label: '计算资源',
-    prefixes: ['clouds.ecs', 'clouds.images', 'clouds.sshkeys', 'clouds.namespaces'],
+    label: '平台入口能力',
+    prefixes: ['clouds', 'clouds.dashboard', 'clouds.console'],
   },
   {
-    label: '网络资源',
+    label: '计算资源',
+    prefixes: [
+      'clouds.ecs',
+      'clouds.images',
+      'clouds.templates',
+      'clouds.cloudinits',
+      'clouds.sshkeys',
+      'clouds.recycle-bin',
+      'clouds.migrations',
+    ],
+  },
+  {
+    label: '存储与备份',
+    prefixes: [
+      'clouds.disks',
+      'clouds.snapshots',
+      'clouds.backups',
+      'clouds.schedules',
+      'clouds.restore-tasks',
+    ],
+  },
+  {
+    label: 'VPC 基础',
     prefixes: [
       'clouds.vpcs',
+      'clouds.subnets',
       'clouds.eips',
+      'clouds.fips',
+      'clouds.nat-gateways',
       'clouds.security-groups',
-      'clouds.load-balancers',
       'clouds.nads',
+      'clouds.provider-networks',
+      'clouds.vlans',
+    ],
+  },
+  {
+    label: 'VPC 扩展（第三方云）',
+    prefixes: [
+      'clouds.load-balancers',
       'clouds.vswitches',
       'clouds.enis',
       'clouds.network-acls',
       'clouds.route-tables',
       'clouds.route-entries',
-      'clouds.nat-gateways',
-      'clouds.vlans',
-      'clouds.ippools',
     ],
   },
   {
-    label: '存储与备份',
-    prefixes: ['clouds.disks', 'clouds.snapshots', 'clouds.backups', 'clouds.schedules'],
+    label: '集群与运维',
+    prefixes: [
+      'clouds.cluster-nodes',
+      'clouds.cluster-services',
+      'clouds.cluster-networks',
+      'clouds.namespaces',
+      'clouds.storage-classes',
+      'clouds.gpus',
+      'clouds.usb-devices',
+      'clouds.pci-devices',
+    ],
+  },
+  {
+    label: '监控',
+    prefixes: [
+      'clouds.alerts',
+      'clouds.alert-rules',
+      'clouds.alert-policies',
+      'clouds.alert-receivers',
+      'clouds.alert-secrets',
+    ],
+  },
+  {
+    label: '日志',
+    prefixes: [
+      'clouds.log-targets',
+      'clouds.log-receivers',
+      'clouds.log-configs',
+    ],
   },
 ];
 

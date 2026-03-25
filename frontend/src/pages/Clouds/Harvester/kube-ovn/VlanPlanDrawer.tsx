@@ -35,8 +35,6 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../utils/towerKubeOvnNames';
 
-const { Option } = Select;
-
 export type VlanPlanDrawerProps = {
   open: boolean;
   onClose: () => void;
@@ -121,6 +119,39 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
     () => providers.find((p) => String(p?.metadata?.name || '').trim() === String(effectiveProviderName).trim()),
     [providers, effectiveProviderName],
   );
+
+  const providerAliasMap = useMemo(() => {
+    const map = new Map<string, string>();
+    providers.forEach((p) => {
+      const name = String(p?.metadata?.name ?? '').trim();
+      if (!name) return;
+      const ann = p?.metadata?.annotations || {};
+      const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+      map.set(name, alias || name);
+    });
+    return map;
+  }, [providers]);
+
+  const providerOptions = useMemo(
+    () =>
+      providers
+        .map((p) => {
+          const name = String(p?.metadata?.name ?? '').trim();
+          if (!name) return null;
+          const ann = p?.metadata?.annotations || {};
+          const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+          const label = alias && alias !== name ? `${alias} (${name})` : alias || name;
+          return { label, value: name };
+        })
+        .filter(Boolean) as { label: string; value: string }[],
+    [providers],
+  );
+
+  const lockProviderOption = useMemo(() => {
+    if (!lockProviderName) return null;
+    const hit = providerOptions.find((o) => o.value === lockProviderName);
+    return { label: hit?.label || lockProviderName, value: lockProviderName };
+  }, [lockProviderName, providerOptions]);
 
   useEffect(() => {
     if (!addModalOpen) return;
@@ -342,13 +373,10 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                 style={{ width: '100%' }}
                 placeholder="选择物理网络"
                 showSearch
-                optionFilterProp="children"
+                optionFilterProp="label"
                 value={effectiveProviderName || undefined}
                 onChange={(v) => setUserSelectedPn(v)}
-                options={providers.map((p) => ({
-                  label: p.metadata?.name,
-                  value: p.metadata?.name,
-                }))}
+                options={providerOptions}
               />
             </div>
           )}
@@ -493,7 +521,7 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
                         <span style={{ fontWeight: 500, wordBreak: 'break-all' }}>{title}</span>
                         {provider ? (
                           <Tag color="geekblue" style={{ margin: 0 }}>
-                            {provider}
+                            {providerAliasMap.get(provider) || provider}
                           </Tag>
                         ) : null}
                       </div>
@@ -538,16 +566,10 @@ const VlanPlanDrawer: React.FC<VlanPlanDrawerProps> = ({
             {lockProviderName ? (
               <Select
                 disabled
-                options={[{ label: lockProviderName, value: lockProviderName }]}
+                options={[lockProviderOption || { label: lockProviderName, value: lockProviderName }]}
               />
             ) : (
-              <Select placeholder="选择物理网络" showSearch optionFilterProp="children">
-                {providers.map((p) => (
-                  <Option key={p.metadata.name} value={p.metadata.name}>
-                    {p.metadata.name}
-                  </Option>
-                ))}
-              </Select>
+              <Select placeholder="选择物理网络" showSearch optionFilterProp="label" options={providerOptions} />
             )}
           </Form.Item>
           <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>

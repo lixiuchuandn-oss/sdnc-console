@@ -130,7 +130,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
         if (val !== nat) return false;
       }
       if (dhcp) {
-        const isDhcp = r?.allowDhcp ?? r?.spec?.enableDhcp ?? true;
+        const isDhcp =
+          r?.allowDhcp ?? r?.spec?.enableDHCP ?? r?.spec?.enableDhcp ?? true;
         const val = isDhcp ? 'on' : 'off';
         if (val !== dhcp) return false;
       }
@@ -192,7 +193,7 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
           protocol: values.protocol,
           excludeIps: values.excludeIps,
           natOutgoing: values.nat,
-          enableDhcp: values.allowDhcp,
+          enableDHCP: values.allowDhcp,
         };
         if (values.allowEWTraffic !== undefined) {
           patchBody.allowEWTraffic = values.allowEWTraffic;
@@ -295,7 +296,11 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
     
     // Check various locations for nat/dhcp as they might be flat or in spec
     const nat = record.nat ?? record.spec?.natOutgoing ?? true;
-    const allowDhcp = record.allowDhcp ?? record.spec?.enableDhcp ?? true;
+    const allowDhcp =
+      record.allowDhcp ??
+      record.spec?.enableDHCP ??
+      record.spec?.enableDhcp ??
+      true;
 
     const specAcls = record.spec?.acls;
     form.setFieldsValue({
@@ -455,7 +460,8 @@ const KubeOvnSubnetsSection: React.FC<Props> = ({ subnets, vpcList = [], loading
       title: 'DHCP', 
       key: 'dhcp', 
       render: (_: any, r: any) => {
-        const isOpen = r?.allowDhcp ?? r?.spec?.enableDhcp ?? true;
+        const isOpen =
+          r?.allowDhcp ?? r?.spec?.enableDHCP ?? r?.spec?.enableDhcp ?? true;
         return isOpen 
           ? <span className="std-badge std-badge-success">开启</span> 
           : <span className="std-badge std-badge-default">关闭</span>;

@@ -367,6 +367,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ message: '不能删除最后一个超级管理员' });
       }
     }
+    const assignRepo = AppDataSource.getRepository(RoleAssignment);
+    await assignRepo.delete({ userType: 'system', userId: id });
     await userRepository.remove(user);
     res.json({ message: '用户删除成功' });
   } catch (error) {

@@ -102,26 +102,23 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
   
   // 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（资源控制台下的所有功能）
-  // 这是为了支持"资源控制台所有权限"的场景
-  // 例外：clouds.dashboard 需要明确权限，不受继承规则影响
   // 注意：clouds:read（资源池管理）不会被继承，因为它是 clouds:read 而不是 clouds.*:read
-  if (base.startsWith('clouds.') && act.endsWith(':read') && base !== 'clouds.dashboard') {
+  if (base.startsWith('clouds.') && act.endsWith(':read')) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
       return true;
     }
   }
 
-  // 特殊规则：clouds.console:write 包含所有 clouds.*:write（与只读继承对称；不含资源总览；不含资源池 clouds:write）
-  if (base.startsWith('clouds.') && act.endsWith(':write') && base !== 'clouds.dashboard') {
+  // 特殊规则：clouds.console:write 包含所有 clouds.*:write（与只读继承对称）
+  if (base.startsWith('clouds.') && act.endsWith(':write')) {
     if (permsArray.includes('clouds.console:write')) {
       return true;
     }
   }
   
-  // clouds:read 包含所有 clouds.*:read
-  // 例外：clouds.dashboard 需要明确权限，不受继承规则影响
+  // clouds:read 包含所有 clouds.*:read（含 resources 总览与云主机控制台）
   // 注意：clouds:read 本身不会被 clouds.console:read 继承（因为格式不同：clouds:read vs clouds.*:read）
-  if (base.startsWith('clouds.') && act.endsWith(':read') && base !== 'clouds.dashboard') {
+  if (base.startsWith('clouds.') && act.endsWith(':read')) {
     if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
       return true;
     }

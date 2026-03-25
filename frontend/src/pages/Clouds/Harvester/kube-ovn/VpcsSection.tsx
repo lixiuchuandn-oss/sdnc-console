@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Table, Button, Space, Modal, Input, Tag, Tooltip, Tabs, Form, Select, message, Switch, Radio } from 'antd';
-import { ReloadOutlined, PlusOutlined, MinusCircleOutlined, ThunderboltOutlined, CloudOutlined, ApartmentOutlined } from '@ant-design/icons';
+import { ReloadOutlined, PlusOutlined, MinusCircleOutlined, CloudOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
@@ -68,7 +68,8 @@ const SafeRead = {
   subnetProtocol: (data: any) => data?.protocol || data?.spec?.protocol || 'IPv4',
   subnetPrivate: (data: any) => !!(data?.private || data?.spec?.private),
   subnetNat: (data: any) => !!(data?.nat || data?.spec?.natOutgoing),
-  subnetDhcp: (data: any) => data?.allowDhcp ?? data?.spec?.enableDhcp ?? true,
+  subnetDhcp: (data: any) =>
+    data?.allowDhcp ?? data?.spec?.enableDHCP ?? data?.spec?.enableDhcp ?? true,
   subnetExcludeIps: (data: any) => data?.excludeIps || data?.spec?.excludeIps || [],
 };
 
@@ -359,7 +360,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         const name = SafeRead.name(currentSubnet);
         
         // Update mode: Map frontend fields to Kube-OVN Spec fields
-        payload.enableDhcp = payload.allowDhcp;
+        payload.enableDHCP = payload.allowDhcp;
         payload.natOutgoing = payload.nat;
         delete payload.allowDhcp;
         delete payload.nat;
@@ -646,7 +647,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         if (name === 'ovn-vpc-external-network') tag = <Tag color="purple">Provider</Tag>;
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
-            <CloudOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
+            <ApartmentOutlined style={{ color: '#1677ff', fontSize: 16, flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={alias || undefined}>
               {display}
             </span>

@@ -63,19 +63,40 @@ export class PermissionChecker {
     }
 
     // 4. 特殊规则：clouds.console:read 权限包含所有 clouds.*:read 权限（资源控制台下的所有功能）
-    // 这是为了支持"资源控制台所有权限"的场景
-    // 例外：clouds.dashboard 和 clouds（资源池管理）需要明确权限，不受继承规则影响
-    if (base && base.startsWith('clouds.') && verb === 'read' && base !== 'clouds.dashboard' && base !== 'clouds') {
+    if (base && base.startsWith('clouds.') && verb === 'read' && base !== 'clouds') {
       if (permissions.includes('clouds.console:read') || permissions.includes('clouds.console:write')) {
         return true;
       }
     }
 
-    // 4b. 特殊规则：clouds.console:write 包含所有 clouds.*:write（与 4 对称，租户仅授控制台读写即可创建/管理虚机等）
-    // 例外：资源总览仍须单独授权；资源池 clouds / clouds:write 不在 clouds.* 下，仍须单独授权
-    if (base && base.startsWith('clouds.') && verb === 'write' && base !== 'clouds.dashboard') {
+    // 4b. 特殊规则：clouds.console:write 包含所有 clouds.*:write（与 4 对称）
+    if (base && base.startsWith('clouds.') && verb === 'write') {
       if (permissions.includes('clouds.console:write')) {
         return true;
+      }
+    }
+
+    // 4c. VM 创建/变配依赖资源读权限：允许 clouds.ecs 兜底
+    // 用于保证只有 ECS 权限的角色仍可读取创建/变配所需资源（节点、存储类、命名空间、镜像、NAD、GPU/USB/PCI）
+    if (verb === 'read' && base) {
+      const vmDependencyReadBases = new Set([
+        'clouds.cluster-nodes',
+        'clouds.storage-classes',
+        'clouds.namespaces',
+        'clouds.images',
+        'clouds.nads',
+        'clouds.gpus',
+        'clouds.usb-devices',
+        'clouds.pci-devices',
+      ]);
+      if (vmDependencyReadBases.has(base)) {
+        if (
+          permissions.includes('clouds.ecs:read') ||
+          permissions.includes('clouds.ecs:write') ||
+          permissions.includes('clouds.ecs:*')
+        ) {
+          return true;
+        }
       }
     }
 

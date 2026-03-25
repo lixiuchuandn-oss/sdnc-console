@@ -17,7 +17,6 @@ export const bc = {
   ipsecIndex: (): Crumb => ({ label: 'IPsec 管理' }),
   accessCenter: (): Crumb => ({ label: '权限管控' }),
   accessPolicies: (): Crumb => ({ label: '授权策略', href: '/admin/access/policies' }),
-  accessActions: (): Crumb => ({ label: '权限原子', href: '/admin/access/actions' }),
   accessRoles: (): Crumb => ({ label: '角色管理', href: '/admin/access/roles' }),
   accessUsers: (): Crumb => ({ label: '用户管理', href: '/admin/access/users' }),
 };

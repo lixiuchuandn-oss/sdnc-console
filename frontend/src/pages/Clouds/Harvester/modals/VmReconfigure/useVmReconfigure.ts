@@ -26,6 +26,22 @@ const parseQuantity = (s: string | number | undefined): number => {
   return parseFloat(str);
 };
 
+/** 全部 multus 网络中，Kube-OVN 扁平子网（tower.io/subnet-type=flat）是否重复使用 */
+function hasDuplicateFlatSubnetsInNetworks(networks: any[], subnetInventory: any[]): boolean {
+  const names: string[] = [];
+  for (const n of networks || []) {
+    const nn = n?.multus?.networkName;
+    if (!nn) continue;
+    const raw = String(nn);
+    const name = raw.includes('/') ? raw.split('/').pop() || '' : raw;
+    if (!name) continue;
+    const s = subnetInventory.find((x: any) => x?.metadata?.name === name);
+    const t = String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase();
+    if (t === 'flat') names.push(name);
+  }
+  return new Set(names).size !== names.length;
+}
+
 export const useVmReconfigure = (props: any) => {
   const { 
     open, cloudId, record, onClose, onOk, 
@@ -487,61 +503,62 @@ export const useVmReconfigure = (props: any) => {
       case 'change_primary_nic': {
         (async () => {
           const [_, __, loadedSubnets] = await Promise.all([reloadNads(), reloadVpcs(), reloadSubnets()]);
-          
-          // Initialize with current primary NIC
           const networks = record?.spec?.template?.spec?.networks || [];
           const interfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
-          
           if (interfaces.length > 0) {
             const iface = interfaces[0];
             const net = networks.find((n: any) => n.name === iface.name);
             const networkName = net?.multus?.networkName || '';
-            
-            // Determine type
+            const subnetName =
+              networkName && String(networkName).includes('/')
+                ? String(networkName).split('/').pop()
+                : networkName;
             let type = 'bridge';
             if (String(iface?.binding?.name ?? '').toLowerCase() === 'managedtap') type = 'managedtap';
             else if (iface.masquerade) type = 'masquerade';
             else if (iface.sriov) type = 'sriov';
             else if (iface.macvtap) type = 'macvtap';
-            
-            // Check if it is a VPC subnet
-            const targetSubnet = (loadedSubnets || []).find((s: any) => s?.metadata?.name === networkName);
-            const isVpc = !!targetSubnet;
-
-            // Load NetworkData for Static IP
+            const targetSubnet = (loadedSubnets || []).find((s: any) => s?.metadata?.name === subnetName);
+            const subnetType = String(targetSubnet?.metadata?.annotations?.['tower.io/subnet-type'] || '')
+              .trim()
+              .toLowerCase();
+            const isVpc = subnetType === 'vpc';
+            const netMode =
+              type === 'managedtap'
+                ? 'flat_subnet'
+                : type === 'sriov' || type === 'macvtap'
+                  ? 'passthrough'
+                  : isVpc
+                    ? 'vpc'
+                    : 'flat';
             const networkDataObj = getParsedNetworkData(record);
             let eth = networkDataObj?.network?.ethernets?.['nic-0'] || networkDataObj?.network?.ethernets?.['nic0'];
-            
-            // Fallback: try to find by MAC address if key lookup failed
             if (!eth && iface.macAddress && networkDataObj?.network?.ethernets) {
-               eth = Object.values(networkDataObj.network.ethernets).find((e: any) => 
-                   e?.match?.macaddress?.toLowerCase() === iface.macAddress.toLowerCase()
-               );
+              eth = Object.values(networkDataObj.network.ethernets).find(
+                (e: any) => e?.match?.macaddress?.toLowerCase() === iface.macAddress.toLowerCase(),
+              );
             }
-
             let ipAddress = undefined;
             let gateway = undefined;
             let dns = undefined;
-
             if (eth) {
-               if (eth.addresses && eth.addresses.length > 0) ipAddress = eth.addresses[0];
-               if (eth.gateway4) gateway = eth.gateway4;
-               if (eth.nameservers?.addresses) dns = eth.nameservers.addresses.join(', ');
+              if (eth.addresses && eth.addresses.length > 0) ipAddress = eth.addresses[0];
+              if (eth.gateway4) gateway = eth.gateway4;
+              if (eth.nameservers?.addresses) dns = eth.nameservers.addresses.join(', ');
             }
-
             form.setFieldsValue({
-              netMode: isVpc ? 'vpc' : 'flat',
+              netMode,
               primaryNic: {
                 name: networkName,
-                type: type,
+                type,
                 model: iface.model || 'virtio',
                 macAddress: iface.macAddress,
-                vpc: targetSubnet?.spec?.vpc,
-                subnet: networkName,
+                vpc: netMode === 'vpc' ? targetSubnet?.spec?.vpc : netMode === 'flat_subnet' ? 'ovn-cluster' : undefined,
+                subnet: subnetName,
                 ipAddress,
                 gateway,
-                dns
-              }
+                dns,
+              },
             });
           }
         })();
@@ -549,61 +566,122 @@ export const useVmReconfigure = (props: any) => {
       }
       case 'change_secondary_nic': {
         (async () => {
-            const [_, __, loadedSubnets] = await Promise.all([reloadNads(), reloadVpcs(), reloadSubnets()]);
-            
-            // Load existing secondary NICs (index 1+)
-            const networks = record?.spec?.template?.spec?.networks || [];
-            const interfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
-            const networkDataObj = getParsedNetworkData(record);
-            
-            const secondaries = interfaces.slice(1).map((iface: any, idx: number) => {
-               const net = networks.find((n: any) => n.name === iface.name);
-               const networkName = net?.multus?.networkName || '';
-               let type = 'bridge';
-               if (String(iface?.binding?.name ?? '').toLowerCase() === 'managedtap') type = 'managedtap';
-               else if (iface.masquerade) type = 'masquerade';
-               else if (iface.sriov) type = 'sriov';
-               else if (iface.macvtap) type = 'macvtap';
-               
-               // Check if it is a VPC subnet
-               const targetSubnet = (loadedSubnets || []).find((s: any) => s?.metadata?.name === networkName);
-               const isVpc = !!targetSubnet;
+          const [_, __, loadedSubnets] = await Promise.all([reloadNads(), reloadVpcs(), reloadSubnets()]);
+          const networks = record?.spec?.template?.spec?.networks || [];
+          const interfaces = record?.spec?.template?.spec?.domain?.devices?.interfaces || [];
+          const networkDataObj = getParsedNetworkData(record);
 
-               // Load Static IP info
-               const ifaceKey = `nic-${idx + 1}`;
-               let eth = networkDataObj?.network?.ethernets?.[ifaceKey];
-               
-               // Fallback: try to find by MAC address if key lookup failed
-               if (!eth && iface.macAddress && networkDataObj?.network?.ethernets) {
-                  eth = Object.values(networkDataObj.network.ethernets).find((e: any) => 
-                      e?.match?.macaddress?.toLowerCase() === iface.macAddress.toLowerCase()
-                  );
-               }
+          let primaryForm: { netMode?: string; primaryNic?: any } = {};
+          if (interfaces.length > 0) {
+            const iface = interfaces[0];
+            const net = networks.find((n: any) => n.name === iface.name);
+            const networkName = net?.multus?.networkName || '';
+            const subnetName =
+              networkName && String(networkName).includes('/')
+                ? String(networkName).split('/').pop()
+                : networkName;
+            let type = 'bridge';
+            if (String(iface?.binding?.name ?? '').toLowerCase() === 'managedtap') type = 'managedtap';
+            else if (iface.masquerade) type = 'masquerade';
+            else if (iface.sriov) type = 'sriov';
+            else if (iface.macvtap) type = 'macvtap';
+            const targetSubnet = (loadedSubnets || []).find((s: any) => s?.metadata?.name === subnetName);
+            const subnetType = String(targetSubnet?.metadata?.annotations?.['tower.io/subnet-type'] || '')
+              .trim()
+              .toLowerCase();
+            const isVpc = subnetType === 'vpc';
+            const netMode =
+              type === 'managedtap'
+                ? 'flat_subnet'
+                : type === 'sriov' || type === 'macvtap'
+                  ? 'passthrough'
+                  : isVpc
+                    ? 'vpc'
+                    : 'flat';
+            let eth = networkDataObj?.network?.ethernets?.['nic-0'] || networkDataObj?.network?.ethernets?.['nic0'];
+            if (!eth && iface.macAddress && networkDataObj?.network?.ethernets) {
+              eth = Object.values(networkDataObj.network.ethernets).find(
+                (e: any) => e?.match?.macaddress?.toLowerCase() === iface.macAddress.toLowerCase(),
+              );
+            }
+            let ipAddress = undefined;
+            let gateway = undefined;
+            let dns = undefined;
+            if (eth) {
+              if (eth.addresses && eth.addresses.length > 0) ipAddress = eth.addresses[0];
+              if (eth.gateway4) gateway = eth.gateway4;
+              if (eth.nameservers?.addresses) dns = eth.nameservers.addresses.join(', ');
+            }
+            primaryForm = {
+              netMode,
+              primaryNic: {
+                name: networkName,
+                type,
+                model: iface.model || 'virtio',
+                macAddress: iface.macAddress,
+                vpc: netMode === 'vpc' ? targetSubnet?.spec?.vpc : netMode === 'flat_subnet' ? 'ovn-cluster' : undefined,
+                subnet: subnetName,
+                ipAddress,
+                gateway,
+                dns,
+              },
+            };
+          }
 
-               let ipAddress = undefined;
-               let gateway = undefined;
-               let dns = undefined;
-
-               if (eth) {
-                   if (eth.addresses && eth.addresses.length > 0) ipAddress = eth.addresses[0];
-                   if (eth.gateway4) gateway = eth.gateway4;
-                   if (eth.nameservers?.addresses) dns = eth.nameservers.addresses.join(', ');
-               }
-
-               return {
-                 mode: isVpc ? 'vpc' : 'flat',
-                 name: networkName,
-                 type,
-                 model: iface.model || 'virtio',
-                 macAddress: iface.macAddress,
-                 vpc: targetSubnet?.spec?.vpc,
-                 subnet: networkName,
-                 ipAddress,
-                 gateway,
-                 dns
-               };
-            });
-            form.setFieldsValue({ secondaryNics: secondaries });
+          const secondaries = interfaces.slice(1).map((iface: any, idx: number) => {
+            const net = networks.find((n: any) => n.name === iface.name);
+            const networkName = net?.multus?.networkName || '';
+            const subnetName =
+              networkName && String(networkName).includes('/')
+                ? String(networkName).split('/').pop()
+                : networkName;
+            let type = 'bridge';
+            if (String(iface?.binding?.name ?? '').toLowerCase() === 'managedtap') type = 'managedtap';
+            else if (iface.masquerade) type = 'masquerade';
+            else if (iface.sriov) type = 'sriov';
+            else if (iface.macvtap) type = 'macvtap';
+            const targetSubnet = (loadedSubnets || []).find((s: any) => s?.metadata?.name === subnetName);
+            const subnetType = String(targetSubnet?.metadata?.annotations?.['tower.io/subnet-type'] || '')
+              .trim()
+              .toLowerCase();
+            const isVpc = subnetType === 'vpc';
+            const mode =
+              type === 'managedtap'
+                ? 'flat_subnet'
+                : type === 'sriov' || type === 'macvtap'
+                  ? 'passthrough'
+                  : isVpc
+                    ? 'vpc'
+                    : 'flat';
+            const ifaceKey = `nic-${idx + 1}`;
+            let eth = networkDataObj?.network?.ethernets?.[ifaceKey];
+            if (!eth && iface.macAddress && networkDataObj?.network?.ethernets) {
+              eth = Object.values(networkDataObj.network.ethernets).find(
+                (e: any) => e?.match?.macaddress?.toLowerCase() === iface.macAddress.toLowerCase(),
+              );
+            }
+            let ipAddress = undefined;
+            let gateway = undefined;
+            let dns = undefined;
+            if (eth) {
+              if (eth.addresses && eth.addresses.length > 0) ipAddress = eth.addresses[0];
+              if (eth.gateway4) gateway = eth.gateway4;
+              if (eth.nameservers?.addresses) dns = eth.nameservers.addresses.join(', ');
+            }
+            return {
+              mode,
+              name: networkName,
+              type,
+              model: iface.model || 'virtio',
+              macAddress: iface.macAddress,
+              vpc: mode === 'vpc' ? targetSubnet?.spec?.vpc : mode === 'flat_subnet' ? 'ovn-cluster' : undefined,
+              subnet: subnetName,
+              ipAddress,
+              gateway,
+              dns,
+            };
+          });
+          form.setFieldsValue({ ...primaryForm, secondaryNics: secondaries });
         })();
         break;
       }
@@ -1977,6 +2055,32 @@ export const useVmReconfigure = (props: any) => {
                  } else {
                     pNetName = '';
                  }
+              } else if (netMode === 'flat_subnet') {
+                 const raw = nic.name || '';
+                 const subnetName =
+                    nic.subnet ||
+                    (raw && String(raw).includes('/') ? String(raw).split('/').pop() : raw) ||
+                    '';
+                 if ((!pNetName || !String(pNetName).includes('/')) && subnetName) {
+                    const subnet = subnets.find((s: any) => s?.metadata?.name === subnetName);
+                    let ns = subnet?.metadata?.namespace;
+                    if (!ns && subnet?.spec?.provider) {
+                       const parts = String(subnet.spec.provider).split('.');
+                       if (parts.length >= 2) ns = parts[parts.length - 2];
+                    }
+                    if (ns) {
+                       pNetName = `${ns}/${subnetName}`;
+                    } else {
+                       const nad = nads.find((n: any) => n?.metadata?.name === subnetName);
+                       if (nad?.metadata?.namespace) {
+                          pNetName = `${nad.metadata.namespace}/${subnetName}`;
+                       } else {
+                          pNetName = subnetName;
+                       }
+                    }
+                 } else if (!subnetName) {
+                    pNetName = '';
+                 }
               } else if (netMode === 'flat') {
                  // Flat network: NAD name (namespace/name format)
                  if (!pNetName) {
@@ -2021,7 +2125,12 @@ export const useVmReconfigure = (props: any) => {
                     multus: { networkName: pNetName }
                  };
               }
-              
+
+              if (hasDuplicateFlatSubnetsInNetworks(networks, subnets)) {
+                message.error('同一扁平子网在同一云主机内只能使用一次');
+                return;
+              }
+
               const payload: any = { networks, interfaces };
 
               // --- Static IP Handling (NetworkData) ---
@@ -2134,6 +2243,10 @@ export const useVmReconfigure = (props: any) => {
                   const found = nads.find((n: any) => n.metadata.name === sNetName);
                   if (found) sNetName = `${found.metadata.namespace}/${found.metadata.name}`;
               }
+              if (nic.mode === 'passthrough' && sNetName && !sNetName.includes('/')) {
+                  const found = nads.find((n: any) => n.metadata.name === sNetName);
+                  if (found) sNetName = `${found.metadata.namespace}/${found.metadata.name}`;
+              }
               // Handle VPC network name (subnet name -> NAD name)
               // For Kube-OVN VPC, subnet name should match NAD name, but networkName needs namespace/name format
               if (nic.mode === 'vpc') {
@@ -2150,6 +2263,31 @@ export const useVmReconfigure = (props: any) => {
                               sNetName = `${nad.metadata.namespace}/${subnetName}`;
                           } else {
                               // Last resort: use subnet name only (may fail if NAD not found)
+                              sNetName = subnetName;
+                          }
+                      }
+                  }
+              }
+              if (nic.mode === 'flat_subnet') {
+                  const raw = nic.name || '';
+                  const subnetName =
+                      nic.subnet ||
+                      (raw && String(raw).includes('/') ? String(raw).split('/').pop() : raw) ||
+                      '';
+                  if ((!sNetName || !String(sNetName).includes('/')) && subnetName) {
+                      const subnet = subnets.find((s: any) => s?.metadata?.name === subnetName);
+                      let ns = subnet?.metadata?.namespace;
+                      if (!ns && subnet?.spec?.provider) {
+                          const parts = String(subnet.spec.provider).split('.');
+                          if (parts.length >= 2) ns = parts[parts.length - 2];
+                      }
+                      if (ns) {
+                          sNetName = `${ns}/${subnetName}`;
+                      } else {
+                          const nad = nads.find((n: any) => n?.metadata?.name === subnetName);
+                          if (nad?.metadata?.namespace) {
+                              sNetName = `${nad.metadata.namespace}/${subnetName}`;
+                          } else {
                               sNetName = subnetName;
                           }
                       }
@@ -2187,6 +2325,11 @@ export const useVmReconfigure = (props: any) => {
                   }
               }
            });
+
+           if (hasDuplicateFlatSubnetsInNetworks(newNetworks, subnets)) {
+               message.error('同一扁平子网在同一云主机内只能使用一次');
+               return;
+           }
 
            // Clean up removed secondary NICs from networkData (e.g. if we had nic-2 and now only have nic-1)
            // Logic: Iterate keys in ethernets, if key starts with 'nic-' and index > secondaryNics.length, delete it.

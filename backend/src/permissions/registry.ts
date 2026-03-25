@@ -157,14 +157,21 @@ export class PermissionRegistry {
         const resourcePart = parts.find(p => p === 'resources');
         if (resourcePart && parts.indexOf(resourcePart) < parts.length - 1) {
           const resourceType = parts[parts.indexOf(resourcePart) + 1];
-          // /api/clouds/:id/resources/ecs -> clouds.ecs
           if (resourceType === 'ecs') {
-            permissionBase = 'clouds.ecs';
+            // 回收站写操作（restore/force）使用独立权限，其他 ECS 路径保持 clouds.ecs
+            const isRecycleBinAction = parts.includes('restore') || parts.includes('force');
+            permissionBase = isRecycleBinAction ? 'clouds.recycle-bin' : 'clouds.ecs';
           } else if (resourceType === 'vpcs') {
             permissionBase = 'clouds.vpcs';
           } else if (resourceType === 'subnets') {
-            // subnets 是 VPC 的子资源，使用 clouds.vpcs 权限（适用于公有云和 Harvester OVN）
-            permissionBase = 'clouds.vpcs';
+            // 子网独立权限 clouds.subnets；中间件对读/写同时接受 clouds.vpcs（兼容仅授 VPC 权限的旧角色）
+            permissionBase = 'clouds.subnets';
+          } else if (resourceType === 'kube-ovn-security-groups') {
+            // Harvester/CloudMap 扁平子网安全组（Tower DB），与公有云 security-groups 共用 clouds.security-groups
+            permissionBase = 'clouds.security-groups';
+          } else if (resourceType === 'services' || resourceType === 'ippools') {
+            // Harvester/CloudMap 场景：LB(Service) 与 IPPool 归入 NAD 网络能力权限
+            permissionBase = 'clouds.nads';
           } else if (resourceType === 'harvester') {
             // /api/clouds/:id/resources/harvester/... -> 需要检查 harvester 后面的资源类型
             // 路径格式：/api/clouds/:id/resources/harvester/{resourceType}/...
@@ -195,29 +202,35 @@ export class PermissionRegistry {
               } else if (actualResourceType === 'snapshots') {
                 permissionBase = 'clouds.snapshots';
               } else if (actualResourceType === 'loadbalancers' || actualResourceType === 'load-balancers') {
-                permissionBase = 'clouds.load-balancers';
+                // Harvester 负载均衡归入 NAD 网络能力权限
+                permissionBase = 'clouds.nads';
               } else if (actualResourceType === 'storage-classes') {
-                // storage-classes 用于创建虚拟机时选择存储，使用 clouds.ecs 权限
-                permissionBase = 'clouds.ecs';
+                permissionBase = 'clouds.storage-classes';
               } else if (actualResourceType === 'nodes') {
-                // nodes 用于创建虚拟机时选择节点，使用 clouds.ecs 权限
-                permissionBase = 'clouds.ecs';
+                permissionBase = 'clouds.cluster-nodes';
               } else if (actualResourceType === 'gpus' || actualResourceType === 'gpu' || actualResourceType === 'gpu-claims') {
-                // gpus、gpu、gpu-claims 用于创建虚拟机时选择GPU，使用 clouds.ecs 权限
-                permissionBase = 'clouds.ecs';
-              } else if (actualResourceType === 'usb-devices' || actualResourceType === 'usb' || actualResourceType === 'pci-devices') {
-                // usb-devices、usb、pci-devices 用于创建虚拟机时选择USB/PCI设备，使用 clouds.ecs 权限
-                permissionBase = 'clouds.ecs';
+                permissionBase = 'clouds.gpus';
+              } else if (actualResourceType === 'usb-devices' || actualResourceType === 'usb') {
+                permissionBase = 'clouds.usb-devices';
+              } else if (actualResourceType === 'pci-devices') {
+                permissionBase = 'clouds.pci-devices';
+              } else if (actualResourceType === 'cluster-networks') {
+                permissionBase = 'clouds.cluster-networks';
               } else if (actualResourceType === 'backups' || actualResourceType === 'schedulevmbackups' ||
                          actualResourceType === 'virtualmachinebackups' || actualResourceType === 'virtualmachinerestores') {
                 // VM 备份/快照与定时策略统一使用独立备份权限
                 permissionBase = 'clouds.backups';
-              } else if (actualResourceType === 'services' || 
-                         actualResourceType === 'templates' || actualResourceType === 'cloud-inits' || 
-                         actualResourceType === 'migrations' || actualResourceType === 'migrations-direct' ||
-                         actualResourceType === 'health' || actualResourceType === 'capabilities' || 
+              } else if (actualResourceType === 'templates') {
+                permissionBase = 'clouds.templates';
+              } else if (actualResourceType === 'cloud-inits') {
+                permissionBase = 'clouds.cloudinits';
+              } else if (actualResourceType === 'migrations' || actualResourceType === 'migrations-direct') {
+                permissionBase = 'clouds.migrations';
+              } else if (actualResourceType === 'services') {
+                permissionBase = 'clouds.cluster-services';
+              } else if (actualResourceType === 'health' || actualResourceType === 'capabilities' ||
                          actualResourceType === 'proxy') {
-                // 这些资源类型用于创建虚拟机或查看集群信息，使用 clouds.ecs 权限
+                // 集群状态/代理等能力继续复用 ecs 权限
                 permissionBase = 'clouds.ecs';
               }
             }

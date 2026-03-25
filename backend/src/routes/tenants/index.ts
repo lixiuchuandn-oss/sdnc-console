@@ -656,6 +656,15 @@ router.delete('/organizations/:orgId', async (req, res) => {
 
     // 删除相关的资源池分配与租户用户
     await assignmentRepository.delete({ organizationId: In(toDeleteIds) });
+    const usersInOrgs = await userRepository.find({
+      where: { organizationId: In(toDeleteIds) },
+      select: { id: true },
+    });
+    const tenantUserIds = usersInOrgs.map((u) => u.id);
+    if (tenantUserIds.length > 0) {
+      const rbacAssignRepo = AppDataSource.getRepository(RoleAssignment);
+      await rbacAssignRepo.delete({ userType: 'tenant', userId: In(tenantUserIds) });
+    }
     await userRepository.delete({ organizationId: In(toDeleteIds) });
 
     // 删除组织本身
@@ -846,6 +855,8 @@ router.delete('/:tenantId/organizations/:orgId/users/:userId', async (req, res) 
       return res.status(404).json({ message: '用户不存在' });
     }
 
+    const rbacAssignRepo = AppDataSource.getRepository(RoleAssignment);
+    await rbacAssignRepo.delete({ userType: 'tenant', userId: userId });
     await userRepository.remove(user);
 
     res.json({ message: '用户删除成功' });

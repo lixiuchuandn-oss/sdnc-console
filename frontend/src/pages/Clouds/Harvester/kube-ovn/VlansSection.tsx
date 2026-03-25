@@ -75,6 +75,31 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, loading: loadingProp, o
     } catch {}
   };
 
+  const providerAliasMap = useMemo(() => {
+    const map = new Map<string, { display: string; alias: string }>();
+    (providers || []).forEach((p: any) => {
+      const name = String(p?.metadata?.name ?? '').trim();
+      if (!name) return;
+      const ann = p?.metadata?.annotations || {};
+      const alias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+      map.set(name, { display: alias || name, alias });
+    });
+    return map;
+  }, [providers]);
+
+  const providerFilterOptions = useMemo(
+    () =>
+      (providers || [])
+        .map((p: any) => {
+          const name = String(p?.metadata?.name ?? '').trim();
+          if (!name) return null;
+          const hit = providerAliasMap.get(name);
+          return { name, display: hit?.display || name };
+        })
+        .filter(Boolean) as { name: string; display: string }[],
+    [providers, providerAliasMap],
+  );
+
   useEffect(() => {
     if (!cloudId) return;
     if (!isControlled) {
@@ -215,7 +240,16 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, loading: loadingProp, o
           const provider = raw?.spec?.provider;
           const p = String(provider ?? '').trim();
           if (!p) return <span>—</span>;
-          return <Tag color="geekblue">{p}</Tag>;
+          const hit = providerAliasMap.get(p);
+          const alias = hit?.alias || '';
+          const display = hit?.display || p;
+          return alias && alias !== p ? (
+            <Tooltip title={`资源名: ${p}`}>
+              <Tag color="geekblue">{display}</Tag>
+            </Tooltip>
+          ) : (
+            <Tag color="geekblue">{display}</Tag>
+          );
         },
       },
       {
@@ -276,7 +310,7 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, loading: loadingProp, o
             },
           ]),
     ],
-    [canWriteVlan, openDrawer, handleDelete],
+    [canWriteVlan, openDrawer, handleDelete, providerAliasMap],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vlans_table');
@@ -299,9 +333,9 @@ const VlansSection: React.FC<Props> = ({ cloudId, vlans, loading: loadingProp, o
             value={providerFilter}
             onChange={setProviderFilter}
           >
-            {providers.map((p) => (
-              <Option key={p.metadata.name} value={p.metadata.name}>
-                {p.metadata.name}
+            {providerFilterOptions.map((p) => (
+              <Option key={p.name} value={p.name}>
+                {p.display}
               </Option>
             ))}
           </Select>

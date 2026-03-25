@@ -469,7 +469,7 @@ export async function harvesterSubnetDirectCreateHandler(
         ...(disableGatewayCheck !== undefined ? { disableGatewayCheck } : {}),
         ...(subnetPrivate !== undefined ? { private: !!subnetPrivate } : {}),
         natOutgoing: natOutgoingVal,
-        enableDhcp: allowDhcp !== undefined ? allowDhcp : true,
+        enableDHCP: allowDhcp !== undefined ? allowDhcp : true,
         ...(specAcls !== undefined ? { acls: specAcls } : {}),
         ...(Object.prototype.hasOwnProperty.call(req.body, 'allowEWTraffic')
           ? { allowEWTraffic: !!req.body.allowEWTraffic }
