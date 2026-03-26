@@ -13,7 +13,7 @@ const Login: React.FC = () => {
   const [form] = Form.useForm();
   const { login } = useAuth();
   const navigate = useNavigate();
-  const { settings, loading: settingsLoading } = useSettings();
+  const { settings } = useSettings();
 
   const backgroundColor = settings.loginBackgroundColor;
   const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
@@ -48,7 +48,7 @@ const Login: React.FC = () => {
   };
 
   const containerStyle: React.CSSProperties =
-    settingsLoading || (!backgroundColor && !useGradient)
+    (!backgroundColor && !useGradient)
       ? {}
       : {
           background: useGradient
@@ -60,8 +60,8 @@ const Login: React.FC = () => {
     <div className="login-container" style={containerStyle}>
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">{settingsLoading ? '' : renderMarkdownBold(settings.loginTitle ?? '')}</h1>
-          <p className="login-subtitle">{settingsLoading ? '' : (settings.loginSubtitle ?? '')}</p>
+          <h1 className="login-title">{renderMarkdownBold(settings.loginTitle ?? '')}</h1>
+          <p className="login-subtitle">{settings.loginSubtitle ?? ''}</p>
         </div>
         
         <Card className="login-card" variant="borderless">

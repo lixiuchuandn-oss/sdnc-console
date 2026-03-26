@@ -17,9 +17,9 @@ const AdminLogin: React.FC = () => {
   const [form] = Form.useForm();
   const { login } = useAuth();
   const navigate = useNavigate();
-  const { settings, loading: settingsLoading } = useSettings();
+  const { settings } = useSettings();
   const { hasFeature } = useLicense();
-  const enableParticleBackground = !settingsLoading && settings.loginEnableParticleBackground;
+  const enableParticleBackground = settings.loginEnableParticleBackground;
 
   const backgroundColor = settings.loginBackgroundColor;
   const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
@@ -186,7 +186,7 @@ const AdminLogin: React.FC = () => {
   }, [enableParticleBackground, gradientStart]);
 
   const containerStyle: React.CSSProperties =
-    settingsLoading || (!backgroundColor && !useGradient)
+    (!backgroundColor && !useGradient)
       ? {}
       : {
           background: useGradient
@@ -199,8 +199,8 @@ const AdminLogin: React.FC = () => {
       {enableParticleBackground && <canvas className="particle-canvas" ref={canvasRef} />}
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">{settingsLoading ? '' : renderMarkdownBold(settings.loginTitle ?? '')}</h1>
-          <p className="login-subtitle">{settingsLoading ? '' : (settings.loginSubtitle ?? '')}</p>
+          <h1 className="login-title">{renderMarkdownBold(settings.loginTitle ?? '')}</h1>
+          <p className="login-subtitle">{settings.loginSubtitle ?? ''}</p>
         </div>
         <Card className="login-card" variant="borderless" style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}>
           <Form
