@@ -19,11 +19,17 @@ export interface WorkloadFormModalProps {
   namespacesOptions: string[];
   imagePullSecrets: Array<{ metadata: { name: string; namespace: string } }>;
   secretsWithCredentials?: any[];  // 包含完整凭证信息的 Secret 列表（用于仓库浏览）
+  onRefreshImagePullSecrets?: () => void;  // 刷新镜像拉取凭证列表
   onSuccess: () => void;
   onCancel: () => void;
   defaultNamespace?: string;
   defaultType?: WorkloadType;
   editData?: any; // 编辑模式：传入现有的 workload 数据
+  // ConfigMap 和 Secret 列表（用于环境变量引入和存储卷挂载）
+  configMaps?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  secrets?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  // PVC 列表（用于存储卷挂载）
+  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
 }
 
 const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
@@ -32,11 +38,15 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
   namespacesOptions,
   imagePullSecrets,
   secretsWithCredentials,
+  onRefreshImagePullSecrets,
   onSuccess,
   onCancel,
   defaultNamespace,
   defaultType,
   editData,
+  configMaps,
+  secrets,
+  persistentVolumeClaims,
 }) => {
   const isEditMode = !!editData;
   
@@ -61,6 +71,7 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
         namespacesOptions={namespacesOptions}
         imagePullSecrets={imagePullSecrets}
         secretsWithCredentials={secretsWithCredentials}
+        onRefreshImagePullSecrets={onRefreshImagePullSecrets}
         onSuccess={() => {
           onSuccess();
           onCancel();
@@ -69,6 +80,9 @@ const WorkloadFormModal: React.FC<WorkloadFormModalProps> = ({
         defaultNamespace={defaultNamespace}
         defaultType={defaultType}
         editData={editData}
+        configMaps={configMaps}
+        secrets={secrets}
+        persistentVolumeClaims={persistentVolumeClaims}
       />
     </Modal>
   );

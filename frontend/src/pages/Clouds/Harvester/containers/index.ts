@@ -11,3 +11,4 @@ export { default as PDBSection } from './PDBSection';
 
 // 组件内子组件导出
 export { default as PDBForm } from './components/PDBForm';
+export { default as QuickCreateSecretModal } from './components/QuickCreateSecretModal';

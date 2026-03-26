@@ -321,7 +321,7 @@ export const registerHarvesterContainerRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { namespace } = req.query;
+        const { namespace, force } = req.query;
         
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
@@ -334,11 +334,11 @@ export const registerHarvesterContainerRoutes = (
         // 生成缓存 key
         const cacheKey = `pods:${id}:${namespace || 'all'}`;
         
-        // 尝试从缓存获取
-        let items = getCached<any[]>(cacheKey);
+        // 尝试从缓存获取（force=true 时跳过缓存）
+        let items = force === 'true' ? null : getCached<any[]>(cacheKey);
         
         if (!items) {
-          // 缓存未命中，从 K8s API 获取
+          // 缓存未命中或强制刷新，从 K8s API 获取
           if (namespace) {
             items = await getNamespacedResources(base, '/api/v1/pods', String(namespace), token, insecure);
           } else {
@@ -3183,6 +3183,164 @@ export const registerHarvesterContainerRoutes = (
         res.json({ message: '删除成功', data: result });
       } catch (error: any) {
         res.status(500).json({ message: '删除资源失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] 安全驱逐 Pod (Eviction)
+   * POST /:id/resources/harvester/containers/pods/:namespace/:name/evict
+   * 使用 Kubernetes Eviction API，会触发 PDB (PodDisruptionBudget) 保护机制
+   * 如果 PDB 不允许驱逐，将返回 429 错误
+   */
+  router.post(
+    '/:id/resources/harvester/containers/pods/:namespace/:name/evict',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        // 提取 origin（去除版本后缀）
+        const origin = extractOrigin(base);
+        
+        // Kubernetes Eviction API 路径
+        const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(name)}/eviction`;
+        
+        // Eviction 请求体
+        const evictionBody = {
+          apiVersion: 'policy/v1',
+          kind: 'Eviction',
+          metadata: {
+            name: name,
+            namespace: namespace,
+          },
+        };
+        
+        const result = await requestJson('POST', url, token, insecure, evictionBody, {
+          'Content-Type': 'application/json',
+        });
+        
+        // 清除 Pod 缓存
+        clearCacheByPrefix(`pods:${id}:`);
+        
+        res.json({ message: '驱逐成功', data: result });
+      } catch (error: any) {
+        // 429 Too Many Requests 表示 PDB 阻止了驱逐
+        if (error.status === 429) {
+          return res.status(429).json({ 
+            message: '驱逐被 PDB 阻止', 
+            error: error.message || 'PodDisruptionBudget 不允许此次驱逐操作',
+            pdbBlocked: true,
+          });
+        }
+        // 403 Forbidden 可能是权限问题
+        if (error.status === 403) {
+          return res.status(403).json({ 
+            message: '没有权限执行驱逐操作', 
+            error: error.message,
+          });
+        }
+        res.status(error.status || 500).json({ message: '驱逐 Pod 失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] 批量安全驱逐 Pod (Batch Eviction)
+   * POST /:id/resources/harvester/containers/pods/batch-evict
+   * Body: { pods: [{ namespace: string, name: string }, ...] }
+   * 使用 Kubernetes Eviction API，会触发 PDB (PodDisruptionBudget) 保护机制
+   */
+  router.post(
+    '/:id/resources/harvester/containers/pods/batch-evict',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { pods } = req.body;
+        
+        if (!Array.isArray(pods) || pods.length === 0) {
+          return res.status(400).json({ message: '缺少必要参数: pods 数组' });
+        }
+        
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+        
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        
+        // 提取 origin
+        const origin = extractOrigin(base);
+        
+        const results: { name: string; namespace: string; status: 'success' | 'blocked' | 'failed'; message?: string }[] = [];
+        
+        for (const pod of pods) {
+          const { namespace, name } = pod;
+          if (!namespace || !name) {
+            results.push({ name: name || 'unknown', namespace: namespace || 'unknown', status: 'failed', message: '缺少 namespace 或 name' });
+            continue;
+          }
+          
+          try {
+            const url = `${origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(name)}/eviction`;
+            const evictionBody = {
+              apiVersion: 'policy/v1',
+              kind: 'Eviction',
+              metadata: { name, namespace },
+            };
+            
+            await requestJson('POST', url, token, insecure, evictionBody, {
+              'Content-Type': 'application/json',
+            });
+            
+            results.push({ name, namespace, status: 'success' });
+          } catch (error: any) {
+            if (error.status === 429) {
+              results.push({ 
+                name, 
+                namespace, 
+                status: 'blocked', 
+                message: 'PDB 阻止了驱逐操作' 
+              });
+            } else {
+              results.push({ 
+                name, 
+                namespace, 
+                status: 'failed', 
+                message: error.message || '驱逐失败' 
+              });
+            }
+          }
+        }
+        
+        // 清除 Pod 缓存
+        clearCacheByPrefix(`pods:${id}:`);
+        
+        const successCount = results.filter(r => r.status === 'success').length;
+        const blockedCount = results.filter(r => r.status === 'blocked').length;
+        const failedCount = results.filter(r => r.status === 'failed').length;
+        
+        res.json({ 
+          message: `成功驱逐 ${successCount} 个，被 PDB 阻止 ${blockedCount} 个，失败 ${failedCount} 个`,
+          data: { 
+            results,
+            successCount,
+            blockedCount,
+            failedCount 
+          }
+        });
+      } catch (error: any) {
+        res.status(500).json({ message: '批量驱逐失败', error: error.message });
       }
     },
   );

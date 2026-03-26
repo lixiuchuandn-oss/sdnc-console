@@ -468,12 +468,12 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
           onSelect={handleSelect}
           selectedKeys={selectedTag ? [selectedTag] : []}
           style={{ marginTop: 8 }}
+          expandAction="click"
           titleRender={(node) => {
             const extNode = node as ExtendedTreeDataNode;
             
+            // 标签节点：显示复制按钮和选择状态
             if (extNode.nodeType === 'tag' && extNode.repository && extNode.tag) {
-              const imageRef = `${credential.server}/${extNode.repository}:${extNode.tag}`;
-              
               return (
                 <div 
                   style={{ 

@@ -76,3 +76,15 @@ export type { SecretFormValues, SecretFormProps } from './SecretForm';
 // PDB (PodDisruptionBudget) 表单组件
 export { default as PDBForm } from './PDBForm';
 export type { PDBFormValues, PDBFormProps } from './PDBForm';
+
+// 快速创建 ConfigMap 弹窗组件
+export { default as QuickCreateConfigMapModal } from './QuickCreateConfigMapModal';
+export type { QuickCreateConfigMapModalProps } from './QuickCreateConfigMapModal';
+
+// 快速创建 Secret 弹窗组件
+export { default as QuickCreateSecretModal } from './QuickCreateSecretModal';
+export type { QuickCreateSecretModalProps } from './QuickCreateSecretModal';
+
+// 快速创建镜像拉取凭证弹窗组件
+export { default as QuickCreateRegistrySecretModal } from './QuickCreateRegistrySecretModal';
+export type { QuickCreateRegistrySecretModalProps } from './QuickCreateRegistrySecretModal';

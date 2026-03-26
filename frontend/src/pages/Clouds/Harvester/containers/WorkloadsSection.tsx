@@ -42,6 +42,11 @@ type Props = {
   namespacesOptions: string[];
   imagePullSecrets: Array<{ metadata: { name: string; namespace: string } }>;
   secretsWithCredentials?: any[];  // 包含完整凭证信息的 Secret 列表（用于仓库浏览）
+  // ConfigMap 和 Secret 列表（用于环境变量引入和存储卷挂载）
+  configMaps?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  secrets?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  // PVC 列表（用于存储卷挂载）
+  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
   cloudId: string;
   nsValue?: string;
   onNsChange: (v?: string) => void;
@@ -384,6 +389,9 @@ const WorkloadsSection: React.FC<Props> = ({
   namespacesOptions,
   imagePullSecrets,
   secretsWithCredentials,
+  configMaps,
+  secrets,
+  persistentVolumeClaims,
   cloudId,
   nsValue,
   onNsChange,
@@ -528,6 +536,10 @@ const WorkloadsSection: React.FC<Props> = ({
         namespacesOptions={namespacesOptions}
         imagePullSecrets={imagePullSecrets}
         secretsWithCredentials={secretsWithCredentials}
+        configMaps={configMaps}
+        secrets={secrets}
+        persistentVolumeClaims={persistentVolumeClaims}
+        onRefreshImagePullSecrets={() => onRefresh(true)}
         defaultNamespace={nsValue}
         defaultType={createType}
         onSuccess={() => {
@@ -535,13 +547,17 @@ const WorkloadsSection: React.FC<Props> = ({
         }}
         onCancel={() => setCreateModalVisible(false)}
       />
-      
+
       <WorkloadFormModal
         visible={editModalVisible}
         cloudId={cloudId}
         namespacesOptions={namespacesOptions}
         imagePullSecrets={imagePullSecrets}
         secretsWithCredentials={secretsWithCredentials}
+        configMaps={configMaps}
+        secrets={secrets}
+        persistentVolumeClaims={persistentVolumeClaims}
+        onRefreshImagePullSecrets={() => onRefresh(true)}
         editData={editRecord}
         onSuccess={() => {
           setEditModalVisible(false);

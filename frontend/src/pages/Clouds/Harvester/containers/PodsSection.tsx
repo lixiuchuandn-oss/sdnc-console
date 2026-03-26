@@ -14,7 +14,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Table, Select, Button, Tag, Space, Modal, Input, App, Badge, Drawer, Descriptions, Tabs, Dropdown, Popconfirm } from 'antd';
-import { ReloadOutlined, DeleteOutlined, SearchOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, MoreOutlined, ConsoleSqlOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DeleteOutlined, SearchOutlined, EyeOutlined, FileTextOutlined, CodeOutlined, MoreOutlined, ConsoleSqlOutlined, ExportOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
@@ -26,6 +26,8 @@ import {
   fetchHarvesterPodLog,
   fetchHarvesterPodEvents,
   deleteHarvesterContainerResource,
+  evictHarvesterPod,
+  batchEvictHarvesterPods,
 } from '../../../../services/harvesterApi';
 import PodTerminal from './components/PodTerminal';
 
@@ -563,6 +565,158 @@ const PodsSection: React.FC<Props> = ({
     }
   }, [cloudId, message, onRefresh]);
   
+  // 安全驱逐 Pod (Eviction - 触发 PDB 保护)
+  const handleEvict = useCallback(async (pod: any) => {
+    const namespace = pod?.metadata?.namespace;
+    const name = pod?.metadata?.name;
+    
+    modal.confirm({
+      title: '安全驱逐 Pod',
+      content: (
+        <div>
+          <p>确定要安全驱逐 Pod <strong>{name}</strong> 吗？</p>
+          <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
+            驱逐操作会触发 PodDisruptionBudget (PDB) 保护机制。
+            如果 PDB 规则不允许此次驱逐，操作将被阻止。
+          </p>
+        </div>
+      ),
+      okText: '确定驱逐',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await evictHarvesterPod(cloudId, namespace, name);
+          message.success('驱逐成功');
+          onRefresh();
+        } catch (e: any) {
+          // 检查是否是 PDB 阻止
+          if (e?.status === 429 || e?.message?.includes('PDB') || e?.message?.includes('disruption')) {
+            modal.error({
+              title: '驱逐被 PDB 阻止',
+              content: (
+                <div>
+                  <p>Pod <strong>{name}</strong> 的驱逐操作被 PodDisruptionBudget 阻止。</p>
+                  <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
+                    这表明 PDB 规则正在保护此 Pod，以确保服务可用性。
+                    请检查相关的 PDB 配置或等待其他 Pod 恢复后再试。
+                  </p>
+                </div>
+              ),
+            });
+          } else {
+            message.error(e?.message || '驱逐失败');
+          }
+        }
+      },
+    });
+  }, [cloudId, message, modal, onRefresh]);
+  
+  // 批量删除 Pod
+  const handleBatchDelete = useCallback(() => {
+    const selectedPods = pods.filter((pod: any) => 
+      selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`)
+    );
+    
+    modal.confirm({
+      title: '批量删除确认',
+      content: `确定要删除选中的 ${selectedPods.length} 个 Pod 吗？删除后 Deployment 可能会自动重建这些 Pod。`,
+      okText: '确定',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const pod of selectedPods) {
+          try {
+            await deleteHarvesterContainerResource(
+              cloudId, 
+              '/api/v1/pods', 
+              pod?.metadata?.namespace, 
+              pod?.metadata?.name
+            );
+            successCount++;
+          } catch {
+            failCount++;
+          }
+        }
+        
+        setSelectedKeys([]);
+        
+        if (failCount === 0) {
+          message.success(`成功删除 ${successCount} 个 Pod`);
+        } else {
+          message.warning(`成功删除 ${successCount} 个，失败 ${failCount} 个`);
+        }
+        onRefresh();
+      },
+    });
+  }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
+  
+  // 批量安全驱逐 Pod (用于测试 PDB 规则)
+  const handleBatchEvict = useCallback(() => {
+    const selectedPods = pods.filter((pod: any) => 
+      selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`)
+    );
+    
+    modal.confirm({
+      title: '批量安全驱逐',
+      content: (
+        <div>
+          <p>确定要安全驱逐选中的 <strong>{selectedPods.length}</strong> 个 Pod 吗？</p>
+          <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
+            此操作会同时向 Kubernetes 发送驱逐请求，触发 PDB (PodDisruptionBudget) 保护机制。
+            如果 PDB 规则不允许同时驱逐这么多 Pod，部分驱逐将被阻止。
+          </p>
+        </div>
+      ),
+      okText: '确定驱逐',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const podList = selectedPods.map((pod: any) => ({
+            namespace: pod?.metadata?.namespace,
+            name: pod?.metadata?.name,
+          }));
+          
+          const result = await batchEvictHarvesterPods(cloudId, podList);
+          
+          setSelectedKeys([]);
+          
+          // 显示详细结果
+          const { successCount = 0, blockedCount = 0, failedCount = 0, results = [] } = result?.data || {};
+          
+          if (blockedCount > 0) {
+            modal.info({
+              title: '批量驱逐结果',
+              width: 600,
+              content: (
+                <div>
+                  <p>成功驱逐：<strong style={{ color: '#52c41a' }}>{successCount}</strong> 个</p>
+                  <p>被 PDB 阻止：<strong style={{ color: '#faad14' }}>{blockedCount}</strong> 个</p>
+                  {failedCount > 0 && <p>失败：<strong style={{ color: '#ff4d4f' }}>{failedCount}</strong> 个</p>}
+                  {blockedCount > 0 && (
+                    <p style={{ color: '#666', fontSize: 12, marginTop: 12 }}>
+                      PDB 保护机制已生效，阻止了部分驱逐操作以确保服务可用性。
+                    </p>
+                  )}
+                </div>
+              ),
+            });
+          } else if (failedCount > 0) {
+            message.warning(`成功 ${successCount} 个，失败 ${failedCount} 个`);
+          } else {
+            message.success(`成功驱逐 ${successCount} 个 Pod`);
+          }
+          
+          onRefresh();
+        } catch (e: any) {
+          message.error(e?.message || '批量驱逐失败');
+        }
+      },
+    });
+  }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
+  
   // 打开终端
   const handleOpenTerminal = useCallback((pod: any) => {
     const containerStatuses = pod?.status?.containerStatuses || [];
@@ -657,6 +811,13 @@ const PodsSection: React.FC<Props> = ({
             icon: <CodeOutlined />,
             onClick: () => handleOpenTerminal(record),
           },
+          // 安全驱逐功能 - PDB 规则验证完成后隐藏入口
+          // {
+          //   key: 'evict',
+          //   label: '安全驱逐',
+          //   icon: <ExportOutlined />,
+          //   onClick: () => handleEvict(record),
+          // },
           {
             key: 'delete',
             label: '删除',
@@ -676,7 +837,7 @@ const PodsSection: React.FC<Props> = ({
         return <ResourceActionsDropdown items={items} />;
       },
     },
-  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleDelete, modal]);
+  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleEvict, handleDelete, modal]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -723,6 +884,26 @@ const PodsSection: React.FC<Props> = ({
             ]}
           />
         </Space>
+      }
+      toolbarRight={
+        selectedKeys.length > 0 && (
+          <Space>
+            {/* 批量驱逐功能 - PDB 规则验证完成后隐藏入口 */}
+            {/* <Button
+              icon={<ExportOutlined />}
+              onClick={handleBatchEvict}
+            >
+              批量驱逐 ({selectedKeys.length})
+            </Button> */}
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              onClick={handleBatchDelete}
+            >
+              批量删除 ({selectedKeys.length})
+            </Button>
+          </Space>
+        )
       }
       onRefresh={onRefresh}
     >

@@ -1218,11 +1218,22 @@ export const fetchHarvesterDaemonSets = async (cloudId: string, namespace?: stri
  * 获取 Pod 列表
  * @param cloudId 云环境 ID
  * @param namespace 命名空间 (可选)
+ * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchHarvesterPods = async (cloudId: string, namespace?: string) => {
-  const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/pods${query}`);
+export const fetchHarvesterPods = async (cloudId: string, namespace?: string, force?: boolean) => {
+  const params: string[] = [];
+  if (namespace) {
+    params.push(`namespace=${encodeURIComponent(namespace)}`);
+  }
+  if (force) {
+    params.push('force=true');
+  }
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/containers/pods${query}`,
+    force ? { skipCache: true } : undefined
+  );
 };
 
 /**
@@ -1316,6 +1327,30 @@ export const updateHarvesterContainerResource = async (cloudId: string, apiPath:
  */
 export const deleteHarvesterContainerResource = async (cloudId: string, apiPath: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/delete`, { apiPath, namespace, name });
+};
+
+/**
+ * 安全驱逐 Pod (Eviction)
+ * 使用 Kubernetes Eviction API，会触发 PDB (PodDisruptionBudget) 保护机制
+ * 如果 PDB 不允许驱逐，将返回 429 错误
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Pod 名称
+ * @returns Promise<any>
+ */
+export const evictHarvesterPod = async (cloudId: string, namespace: string, name: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/evict`, {});
+};
+
+/**
+ * 批量安全驱逐 Pod (Batch Eviction)
+ * 同时驱逐多个 Pod，用于测试 PDB 规则
+ * @param cloudId 云环境 ID
+ * @param pods Pod 列表 [{ namespace: string, name: string }, ...]
+ * @returns Promise<any>
+ */
+export const batchEvictHarvesterPods = async (cloudId: string, pods: { namespace: string; name: string }[]) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/pods/batch-evict`, { pods });
 };
 
 /**
@@ -2093,11 +2128,12 @@ export const updateHarvesterIngress = async (cloudId: string, namespace: string,
  * 获取 PodDisruptionBudget 列表
  * @param cloudId 云环境 ID
  * @param namespace 命名空间 (可选，不传则返回所有命名空间)
+ * @param force 是否强制刷新缓存
  * @returns Promise<any>
  */
-export const fetchHarvesterPDBs = async (cloudId: string, namespace?: string) => {
+export const fetchHarvesterPDBs = async (cloudId: string, namespace?: string, force?: boolean) => {
   const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : '';
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets${query}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/poddisruptionbudgets${query}`, { skipCache: force });
 };
 
 /**

@@ -46,12 +46,19 @@ import {
   CodeOutlined,
   FormOutlined,
   FolderOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
+import { Dropdown } from 'antd';
 import yaml from 'js-yaml';
 import { createHarvesterContainerResource, updateHarvesterContainerResource } from '../../../../../services/harvesterApi';
 import LinedTextArea from '../../../../../components/LinedTextArea';
 import YamlEditor from '../../../../../components/YamlEditor';
-import { RegistryBrowserDrawer } from './index';
+import { 
+  RegistryBrowserDrawer, 
+  QuickCreateRegistrySecretModal,
+  QuickCreateConfigMapModal,
+  QuickCreateSecretModal,
+} from './index';
 
 // ============================================================
 // 类型定义
@@ -135,6 +142,40 @@ export interface Toleration {
   tolerationSeconds?: number;  // 容忍时间 (NoExecute 时可选)
 }
 
+// 存储卷类型
+export type VolumeType = 'configMap' | 'secret' | 'persistentVolumeClaim' | 'emptyDir' | 'hostPath';
+
+// 存储卷配置
+export interface VolumeConfig {
+  name: string;           // 卷名称
+  type: VolumeType;       // 卷类型
+  // ConfigMap
+  configMapName?: string;
+  configMapItems?: Array<{ key: string; path: string }>;
+  configMapOptional?: boolean;
+  // Secret
+  secretName?: string;
+  secretItems?: Array<{ key: string; path: string }>;
+  secretOptional?: boolean;
+  // PVC
+  claimName?: string;
+  readOnly?: boolean;
+  // EmptyDir
+  emptyDirMedium?: 'default' | 'Memory';
+  emptyDirSizeLimit?: string;
+  // HostPath
+  hostPath?: string;
+  hostPathType?: 'Directory' | 'File' | 'Socket' | 'CharDevice' | 'BlockDevice' | 'DirectoryOrCreate' | 'FileOrCreate';
+}
+
+// 卷挂载配置
+export interface VolumeMountConfig {
+  name: string;           // 卷名称（与 VolumeConfig.name 对应）
+  mountPath: string;      // 挂载路径
+  subPath?: string;       // 子路径
+  readOnly?: boolean;     // 只读
+}
+
 export interface WorkloadFormValues {
   // 基本信息
   name: string;
@@ -188,6 +229,10 @@ export interface WorkloadFormValues {
     initialDelaySeconds: number;
     periodSeconds: number;
   };
+  
+  // 存储卷配置
+  volumes?: VolumeConfig[];
+  volumeMounts?: VolumeMountConfig[];
 }
 
 export interface WorkloadFormProps {
@@ -195,11 +240,20 @@ export interface WorkloadFormProps {
   namespacesOptions: string[];
   imagePullSecrets: Array<{ metadata: { name: string; namespace: string } }>;
   secretsWithCredentials?: any[];  // 包含完整凭证信息的 Secret 列表（用于仓库浏览）
+  onRefreshImagePullSecrets?: () => void;  // 刷新镜像拉取凭证列表
   onSuccess: () => void;
   onCancel: () => void;
   defaultNamespace?: string;
   defaultType?: WorkloadType;
   editData?: any; // 编辑模式：传入现有的 workload 数据
+  // ConfigMap 和 Secret 相关 props（用于环境变量引入和存储卷挂载）
+  configMaps?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  secrets?: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  onRefreshConfigMaps?: () => void;
+  onRefreshSecrets?: () => void;
+  // PVC 相关 props（用于存储卷挂载）
+  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
+  onRefreshPVCs?: () => void;
 }
 
 // ============================================================
@@ -384,50 +438,896 @@ const PortsEditor: React.FC = () => (
 );
 
 // ============================================================
-// 子组件: 环境变量
+// 子组件: 环境变量（增强版，支持 ConfigMap/Secret 引入）
 // ============================================================
 
-const EnvEditor: React.FC = () => (
-  <Form.List name="env">
-    {(fields, { add, remove }) => (
-      <div>
-        <div style={{ marginBottom: 8 }}>
-          <Space>
-            <span style={{ fontWeight: 500 }}>环境变量</span>
-            <Button type="dashed" size="small" onClick={() => add()} icon={<PlusOutlined />}>
-              添加变量
-            </Button>
-          </Space>
+/** 环境变量类型 */
+type EnvVarType = 'keyValue' | 'configMapKeyRef' | 'secretKeyRef';
+
+/** 环境变量表单值 */
+interface EnvVarValue {
+  type: EnvVarType;
+  // 键值对
+  name?: string;
+  value?: string;
+  // ConfigMap 引入
+  configMapName?: string;
+  configMapKey?: string;
+  // Secret 引入
+  secretName?: string;
+  secretKey?: string;
+}
+
+interface EnvEditorProps {
+  cloudId: string;
+  namespacesOptions: string[];
+  selectedNamespace: string;
+  configMaps: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  secrets: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  onRefreshConfigMaps: () => void;
+  onRefreshSecrets: () => void;
+  onOpenQuickCreateConfigMap: () => void;
+  onOpenQuickCreateSecret: () => void;
+}
+
+const EnvEditor: React.FC<EnvEditorProps> = ({
+  cloudId,
+  namespacesOptions,
+  selectedNamespace,
+  configMaps,
+  secrets,
+  onRefreshConfigMaps,
+  onRefreshSecrets,
+  onOpenQuickCreateConfigMap,
+  onOpenQuickCreateSecret,
+}) => {
+  const form = Form.useFormInstance();
+  
+  // 本地 state 管理环境变量列表
+  const [envVars, setEnvVars] = useState<EnvVarValue[]>([]);
+  
+  // 使用 Form.useWatch 监听整个 env 数组，解决 key 下拉框禁用状态延迟问题
+  const envFormValues = Form.useWatch('env', form);
+  
+  // 按命名空间过滤 ConfigMap 和 Secret
+  const filteredConfigMaps = useMemo(() => {
+    if (!selectedNamespace) return configMaps || [];
+    return (configMaps || []).filter(cm => cm?.metadata?.namespace === selectedNamespace);
+  }, [configMaps, selectedNamespace]);
+  
+  const filteredSecrets = useMemo(() => {
+    if (!selectedNamespace) return secrets || [];
+    return (secrets || []).filter(s => s?.metadata?.namespace === selectedNamespace);
+  }, [secrets, selectedNamespace]);
+  
+  // 初始化时从 form 读取值
+  useEffect(() => {
+    const envValue = form.getFieldValue('env') || [];
+    // 兼容旧格式：如果没有 type 字段，默认为 keyValue
+    const normalized = envValue.map((env: any) => {
+      if (!env.type) {
+        return { type: 'keyValue', name: env.name, value: env.value };
+      }
+      return env;
+    });
+    setEnvVars(normalized);
+  }, [form]);
+
+  // 添加环境变量
+  const addEnvVar = (type: EnvVarType) => {
+    // 从 form 获取当前完整数据，避免覆盖已填写的值
+    const currentEnvValues = form.getFieldValue('env') || [];
+    const newEnv: EnvVarValue = { type };
+    // 保留已有行的完整数据，只添加新行
+    const updated = [...currentEnvValues, newEnv];
+    setEnvVars(updated);
+    form.setFieldsValue({ env: updated });
+  };
+
+  // 删除环境变量
+  const removeEnvVar = (index: number) => {
+    // 从 form 获取当前完整数据
+    const currentEnvValues = form.getFieldValue('env') || [];
+    const updated = currentEnvValues.filter((_: any, i: number) => i !== index);
+    setEnvVars(updated);
+    form.setFieldsValue({ env: updated });
+  };
+
+  // 获取 ConfigMap 的 keys
+  const getConfigMapKeys = (name: string): string[] => {
+    if (!name) return [];
+    const cm = filteredConfigMaps.find(c => c.metadata.name === name);
+    return cm?.data ? Object.keys(cm.data) : [];
+  };
+
+  // 获取 Secret 的 keys
+  const getSecretKeys = (name: string): string[] => {
+    if (!name) return [];
+    const secret = filteredSecrets.find(s => s.metadata.name === name);
+    return secret?.data ? Object.keys(secret.data) : [];
+  };
+
+  // Form.Item 样式：使用 CSS 类让错误提示使用绝对定位，不影响布局对齐
+  const formItemStyle = { marginBottom: 0 };
+
+  // 渲染单个环境变量行
+  const renderEnvVar = (envVar: EnvVarValue, index: number) => {
+    const basePath = ['env', index];
+    
+    if (envVar.type === 'keyValue') {
+      return (
+        <Row key={index} gutter={8} className="env-var-row" align="middle">
+          <Col span={2}>
+            <Tag color="green" style={{ marginTop: 4 }}>键值</Tag>
+          </Col>
+          <Col span={8}>
+            <Form.Item
+              name={[...basePath, 'name']}
+              rules={[{ required: true, message: '变量名必填' }]}
+              style={formItemStyle}
+            >
+              <Input placeholder="变量名 (如: ENV_KEY)" />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item
+              name={[...basePath, 'value']}
+              rules={[{ required: true, message: '变量值必填' }]}
+              style={formItemStyle}
+            >
+              <Input placeholder="变量值" />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <span style={{ color: '#999' }}>-</span>
+          </Col>
+          <Col span={2}>
+            <Button
+              type="text"
+              danger
+              icon={<MinusCircleOutlined />}
+              onClick={() => removeEnvVar(index)}
+            />
+          </Col>
+        </Row>
+      );
+    }
+    
+    if (envVar.type === 'configMapKeyRef') {
+      // 使用 envFormValues 获取最新值，解决禁用状态延迟问题
+      const selectedCM = envFormValues?.[index]?.configMapName;
+      const cmKeys = getConfigMapKeys(selectedCM);
+      
+      return (
+        <Row key={index} gutter={8} className="env-var-row" align="middle">
+          <Col span={2}>
+            <Tag color="blue">CM</Tag>
+          </Col>
+          <Col span={8}>
+            <Form.Item
+              name={[...basePath, 'configMapName']}
+              rules={[{ required: true, message: '请选择 ConfigMap' }]}
+              style={formItemStyle}
+            >
+              <Select
+                placeholder="选择 ConfigMap"
+                showSearch
+                optionFilterProp="label"
+                options={filteredConfigMaps.map(cm => ({
+                  label: cm.metadata.name,
+                  value: cm.metadata.name,
+                }))}
+                dropdownRender={(menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: '8px 0' }} />
+                    <Button
+                      type="link"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        onOpenQuickCreateConfigMap();
+                      }}
+                      style={{ width: '100%', textAlign: 'left' }}
+                    >
+                      快速创建 ConfigMap
+                    </Button>
+                  </>
+                )}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item
+              name={[...basePath, 'configMapKey']}
+              rules={[{ required: true, message: '请选择 Key' }]}
+              style={formItemStyle}
+            >
+              <Select
+                placeholder="选择 Key"
+                showSearch
+                options={cmKeys.map(k => ({ label: k, value: k }))}
+                disabled={!selectedCM}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item
+              name={[...basePath, 'name']}
+              style={formItemStyle}
+            >
+              <Input placeholder="别名 (可选)" />
+            </Form.Item>
+          </Col>
+          <Col span={2}>
+            <Button
+              type="text"
+              danger
+              icon={<MinusCircleOutlined />}
+              onClick={() => removeEnvVar(index)}
+            />
+          </Col>
+        </Row>
+      );
+    }
+    
+    if (envVar.type === 'secretKeyRef') {
+      // 使用 envFormValues 获取最新值，解决禁用状态延迟问题
+      const selectedSecret = envFormValues?.[index]?.secretName;
+      const secretKeys = getSecretKeys(selectedSecret);
+      
+      return (
+        <Row key={index} gutter={8} className="env-var-row" align="middle">
+          <Col span={2}>
+            <Tag color="orange">Secret</Tag>
+          </Col>
+          <Col span={8}>
+            <Form.Item
+              name={[...basePath, 'secretName']}
+              rules={[{ required: true, message: '请选择 Secret' }]}
+              style={formItemStyle}
+            >
+              <Select
+                placeholder="选择 Secret"
+                showSearch
+                optionFilterProp="label"
+                options={filteredSecrets.map(s => ({
+                  label: s.metadata.name,
+                  value: s.metadata.name,
+                }))}
+                dropdownRender={(menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: '8px 0' }} />
+                    <Button
+                      type="link"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        onOpenQuickCreateSecret();
+                      }}
+                      style={{ width: '100%', textAlign: 'left' }}
+                    >
+                      快速创建 Secret
+                    </Button>
+                  </>
+                )}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item
+              name={[...basePath, 'secretKey']}
+              rules={[{ required: true, message: '请选择 Key' }]}
+              style={formItemStyle}
+            >
+              <Select
+                placeholder="选择 Key"
+                showSearch
+                options={secretKeys.map(k => ({ label: k, value: k }))}
+                disabled={!selectedSecret}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item
+              name={[...basePath, 'name']}
+              style={formItemStyle}
+            >
+              <Input placeholder="别名 (可选)" />
+            </Form.Item>
+          </Col>
+          <Col span={2}>
+            <Button
+              type="text"
+              danger
+              icon={<MinusCircleOutlined />}
+              onClick={() => removeEnvVar(index)}
+            />
+          </Col>
+        </Row>
+      );
+    }
+    
+    return null;
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontWeight: 500 }}>环境变量</span>
+        <Space>
+          <Button
+            type="dashed"
+            size="small"
+            onClick={() => addEnvVar('keyValue')}
+            icon={<PlusOutlined />}
+          >
+            键值对
+          </Button>
+          <Button
+            type="dashed"
+            size="small"
+            onClick={() => addEnvVar('configMapKeyRef')}
+            icon={<PlusOutlined />}
+          >
+            从 ConfigMap 引入
+          </Button>
+          <Button
+            type="dashed"
+            size="small"
+            onClick={() => addEnvVar('secretKeyRef')}
+            icon={<PlusOutlined />}
+          >
+            从 Secret 引入
+          </Button>
+        </Space>
+      </div>
+
+      {/* 表头说明 */}
+      {envVars.length > 0 && (
+        <Row gutter={8} style={{ marginBottom: 0, paddingBottom: 22, color: '#999', fontSize: 12 }}>
+          <Col span={2}>类型</Col>
+          <Col span={8}>名称/来源</Col>
+          <Col span={6}>值/Key</Col>
+          <Col span={6}>别名</Col>
+          <Col span={2}>操作</Col>
+        </Row>
+      )}
+
+      {envVars.length === 0 && (
+        <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+          暂无环境变量，点击上方按钮添加
         </div>
-        {fields.map(({ key, name: index, ...restField }) => (
-          <Row key={key} gutter={8} style={{ marginBottom: 8 }}>
-            <Col span={10}>
+      )}
+
+      {/* 环境变量列表 */}
+      {envVars.map((env, index) => renderEnvVar(env, index))}
+    </div>
+  );
+};
+
+// ============================================================
+// 子组件: 存储卷配置（支持快速创建 ConfigMap/Secret）
+// ============================================================
+
+// 存储卷类型选项
+const VOLUME_TYPE_OPTIONS = [
+  { value: 'configMap', label: 'ConfigMap', desc: '挂载配置数据' },
+  { value: 'secret', label: 'Secret', desc: '挂载敏感数据' },
+  { value: 'persistentVolumeClaim', label: 'PVC', desc: '持久化存储卷' },
+  { value: 'emptyDir', label: 'EmptyDir', desc: '临时存储' },
+  { value: 'hostPath', label: 'HostPath', desc: '节点路径' },
+];
+
+// HostPath 类型选项
+const HOST_PATH_TYPE_OPTIONS = [
+  { value: 'Directory', label: 'Directory (目录)' },
+  { value: 'DirectoryOrCreate', label: 'DirectoryOrCreate (目录，不存在则创建)' },
+  { value: 'File', label: 'File (文件)' },
+  { value: 'FileOrCreate', label: 'FileOrCreate (文件，不存在则创建)' },
+  { value: 'Socket', label: 'Socket (套接字)' },
+  { value: 'CharDevice', label: 'CharDevice (字符设备)' },
+  { value: 'BlockDevice', label: 'BlockDevice (块设备)' },
+];
+
+// EmptyDir 存储介质选项
+const EMPTY_DIR_MEDIUM_OPTIONS = [
+  { value: 'default', label: '默认 (节点磁盘)' },
+  { value: 'Memory', label: 'Memory (内存临时存储)' },
+];
+
+interface VolumesEditorProps {
+  cloudId: string;
+  namespacesOptions: string[];
+  selectedNamespace: string;
+  configMaps: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  secrets: Array<{ metadata: { name: string; namespace: string }; data?: Record<string, string> }>;
+  persistentVolumeClaims?: Array<{ metadata: { name: string; namespace: string } }>;
+  onRefreshConfigMaps: () => void;
+  onRefreshSecrets: () => void;
+  onOpenQuickCreateConfigMap: () => void;
+  onOpenQuickCreateSecret: () => void;
+}
+
+const VolumesEditor: React.FC<VolumesEditorProps> = ({
+  cloudId,
+  namespacesOptions,
+  selectedNamespace,
+  configMaps,
+  secrets,
+  persistentVolumeClaims = [],
+  onRefreshConfigMaps,
+  onRefreshSecrets,
+  onOpenQuickCreateConfigMap,
+  onOpenQuickCreateSecret,
+}) => {
+  const form = Form.useFormInstance();
+  
+  // 按命名空间过滤资源
+  const filteredConfigMaps = useMemo(() => {
+    if (!selectedNamespace) return configMaps || [];
+    return (configMaps || []).filter(cm => cm?.metadata?.namespace === selectedNamespace);
+  }, [configMaps, selectedNamespace]);
+  
+  const filteredSecrets = useMemo(() => {
+    if (!selectedNamespace) return secrets || [];
+    return (secrets || []).filter(s => s?.metadata?.namespace === selectedNamespace);
+  }, [secrets, selectedNamespace]);
+  
+  const filteredPVCs = useMemo(() => {
+    if (!selectedNamespace) return persistentVolumeClaims || [];
+    return (persistentVolumeClaims || []).filter(pvc => pvc?.metadata?.namespace === selectedNamespace);
+  }, [persistentVolumeClaims, selectedNamespace]);
+  
+  // 本地 state 管理卷列表和挂载列表
+  const [volumes, setVolumes] = useState<VolumeConfig[]>([]);
+  const [volumeMounts, setVolumeMounts] = useState<VolumeMountConfig[]>([]);
+  
+  // 初始化时从 form 读取值
+  useEffect(() => {
+    const volValue = form.getFieldValue('volumes') || [];
+    const mountValue = form.getFieldValue('volumeMounts') || [];
+    setVolumes(volValue);
+    setVolumeMounts(mountValue);
+  }, [form]);
+
+  // 添加卷
+  const addVolume = (type: VolumeType) => {
+    const newVolume: VolumeConfig = { name: '', type };
+    const updated = [...volumes, newVolume];
+    setVolumes(updated);
+    form.setFieldsValue({ volumes: updated });
+  };
+
+  // 删除卷
+  const removeVolume = (index: number) => {
+    const volName = volumes[index]?.name;
+    const updated = volumes.filter((_, i) => i !== index);
+    setVolumes(updated);
+    form.setFieldsValue({ volumes: updated });
+    
+    // 同时删除对应的挂载
+    if (volName) {
+      const updatedMounts = volumeMounts.filter(m => m.name !== volName);
+      setVolumeMounts(updatedMounts);
+      form.setFieldsValue({ volumeMounts: updatedMounts });
+    }
+  };
+
+  // 添加挂载
+  const addVolumeMount = () => {
+    const newMount: VolumeMountConfig = { name: '', mountPath: '' };
+    const updated = [...volumeMounts, newMount];
+    setVolumeMounts(updated);
+    form.setFieldsValue({ volumeMounts: updated });
+  };
+
+  // 删除挂载
+  const removeVolumeMount = (index: number) => {
+    const updated = volumeMounts.filter((_, i) => i !== index);
+    setVolumeMounts(updated);
+    form.setFieldsValue({ volumeMounts: updated });
+  };
+
+  // 获取可用的卷名称列表（用于挂载选择）
+  const availableVolumeNames = volumes.filter(v => v.name).map(v => v.name);
+
+  // 获取 ConfigMap 的 keys
+  const getConfigMapKeys = (name: string): string[] => {
+    if (!name) return [];
+    const cm = configMaps.find(c => c.metadata.name === name);
+    return cm?.data ? Object.keys(cm.data) : [];
+  };
+
+  // 获取 Secret 的 keys
+  const getSecretKeys = (name: string): string[] => {
+    if (!name) return [];
+    const secret = secrets.find(s => s.metadata.name === name);
+    return secret?.data ? Object.keys(secret.data) : [];
+  };
+
+  // 渲染单个卷配置
+  const renderVolume = (volume: VolumeConfig, index: number) => {
+    const basePath = ['volumes', index];
+    
+    return (
+      <Card 
+        key={index} 
+        size="small" 
+        style={{ marginBottom: 12 }}
+        title={
+          <Space>
+            <Tag color={volume.type === 'configMap' ? 'blue' : volume.type === 'secret' ? 'orange' : 'green'}>
+              {VOLUME_TYPE_OPTIONS.find(o => o.value === volume.type)?.label || volume.type}
+            </Tag>
+            <span style={{ fontSize: 12, color: '#999' }}>
+              {VOLUME_TYPE_OPTIONS.find(o => o.value === volume.type)?.desc}
+            </span>
+          </Space>
+        }
+        extra={
+          <Button
+            type="text"
+            danger
+            size="small"
+            icon={<MinusCircleOutlined />}
+            onClick={() => removeVolume(index)}
+          >
+            删除
+          </Button>
+        }
+      >
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              name={[...basePath, 'name']}
+              label="卷名称"
+              rules={[{ required: true, message: '请输入卷名称' }]}
+            >
+              <Input placeholder="如: config-volume" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item
+              name={[...basePath, 'type']}
+              label="卷类型"
+              rules={[{ required: true, message: '请选择卷类型' }]}
+            >
+              <Select
+                options={VOLUME_TYPE_OPTIONS}
+                onChange={(newType) => {
+                  // 类型变更时重置该卷配置
+                  const updated = [...volumes];
+                  const currentName = updated[index]?.name;
+                  updated[index] = { name: currentName || '', type: newType };
+                  setVolumes(updated);
+                  form.setFieldsValue({ volumes: updated });
+                }}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        {/* ConfigMap 类型 */}
+        {volume.type === 'configMap' && (
+          <>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name={[...basePath, 'configMapName']}
+                  label="ConfigMap"
+                  rules={[{ required: true, message: '请选择 ConfigMap' }]}
+                >
+                  <Select
+                    placeholder="选择 ConfigMap"
+                    showSearch
+                    optionFilterProp="label"
+                    options={filteredConfigMaps.map(cm => ({
+                      label: cm.metadata.name,
+                      value: cm.metadata.name,
+                    }))}
+                    dropdownRender={(menu) => (
+                      <>
+                        {menu}
+                        <Divider style={{ margin: '8px 0' }} />
+                        <Button
+                          type="link"
+                          icon={<PlusOutlined />}
+                          onClick={() => {
+                            onOpenQuickCreateConfigMap();
+                          }}
+                          style={{ width: '100%', textAlign: 'left' }}
+                        >
+                          快速创建 ConfigMap
+                        </Button>
+                      </>
+                    )}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name={[...basePath, 'configMapOptional']}
+                  label="可选"
+                  valuePropName="checked"
+                >
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 8 }}
+              message="ConfigMap 的所有 key 将挂载为文件，文件名为 key 名称"
+            />
+          </>
+        )}
+
+        {/* Secret 类型 */}
+        {volume.type === 'secret' && (
+          <>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name={[...basePath, 'secretName']}
+                  label="Secret"
+                  rules={[{ required: true, message: '请选择 Secret' }]}
+                >
+                                <Select
+                                  placeholder="选择 Secret"
+                                  showSearch
+                                  optionFilterProp="label"
+                                  options={filteredSecrets.map(s => ({
+                                    label: s.metadata.name,
+                                    value: s.metadata.name,
+                                  }))}                    dropdownRender={(menu) => (
+                      <>
+                        {menu}
+                        <Divider style={{ margin: '8px 0' }} />
+                        <Button
+                          type="link"
+                          icon={<PlusOutlined />}
+                          onClick={() => {
+                            onOpenQuickCreateSecret();
+                          }}
+                          style={{ width: '100%', textAlign: 'left' }}
+                        >
+                          快速创建 Secret
+                        </Button>
+                      </>
+                    )}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name={[...basePath, 'secretOptional']}
+                  label="可选"
+                  valuePropName="checked"
+                >
+                  <Switch size="small" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 8 }}
+              message="Secret 的所有 key 将挂载为文件，文件名为 key 名称"
+            />
+          </>
+        )}
+
+        {/* PVC 类型 */}
+        {volume.type === 'persistentVolumeClaim' && (
+          <Row gutter={16}>
+            <Col span={12}>
               <Form.Item
-                {...restField}
-                name={[index, 'name']}
-                rules={[{ required: true, message: '变量名必填' }]}
+                name={[...basePath, 'claimName']}
+                label="PVC 名称"
+                rules={[{ required: true, message: '请选择 PVC' }]}
               >
-                <Input placeholder="变量名 (如: ENV_KEY)" />
+                <Select
+                  placeholder="选择 PVC"
+                  showSearch
+                  optionFilterProp="label"
+                  options={filteredPVCs.map(pvc => ({
+                    label: pvc.metadata.name,
+                    value: pvc.metadata.name,
+                  }))}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
-                {...restField}
-                name={[index, 'value']}
-                rules={[{ required: true, message: '变量值必填' }]}
+                name={[...basePath, 'readOnly']}
+                label="只读"
+                valuePropName="checked"
               >
-                <Input placeholder="变量值" />
+                <Switch size="small" />
               </Form.Item>
             </Col>
-            <Col span={2}>
-              <MinusCircleOutlined onClick={() => remove(index)} style={{ marginTop: 8 }} />
+          </Row>
+        )}
+
+        {/* EmptyDir 类型 */}
+        {volume.type === 'emptyDir' && (
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name={[...basePath, 'emptyDirMedium']}
+                label="存储介质"
+                initialValue="default"
+              >
+                <Select options={EMPTY_DIR_MEDIUM_OPTIONS} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name={[...basePath, 'emptyDirSizeLimit']}
+                label="大小限制"
+              >
+                <Input placeholder="如: 1Gi" />
+              </Form.Item>
             </Col>
           </Row>
-        ))}
+        )}
+
+        {/* HostPath 类型 */}
+        {volume.type === 'hostPath' && (
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name={[...basePath, 'hostPath']}
+                label="节点路径"
+                rules={[{ required: true, message: '请输入节点路径' }]}
+              >
+                <Input placeholder="如: /var/data" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name={[...basePath, 'hostPathType']}
+                label="路径类型"
+              >
+                <Select options={HOST_PATH_TYPE_OPTIONS} allowClear placeholder="自动检测" />
+              </Form.Item>
+            </Col>
+          </Row>
+        )}
+      </Card>
+    );
+  };
+
+  // 渲染单个挂载配置
+  const renderVolumeMount = (mount: VolumeMountConfig, index: number) => {
+    const basePath = ['volumeMounts', index];
+    
+    return (
+      <Row key={index} gutter={8} style={{ marginBottom: 8 }} align="middle">
+        <Col span={6}>
+          <Form.Item
+            name={[...basePath, 'name']}
+            rules={[{ required: true, message: '请选择卷' }]}
+            style={{ marginBottom: 0 }}
+          >
+            <Select
+              placeholder="选择卷"
+              showSearch
+              options={availableVolumeNames.map(name => ({ label: name, value: name }))}
+            />
+          </Form.Item>
+        </Col>
+        <Col span={8}>
+          <Form.Item
+            name={[...basePath, 'mountPath']}
+            rules={[{ required: true, message: '请输入挂载路径' }]}
+            style={{ marginBottom: 0 }}
+          >
+            <Input placeholder="挂载路径 (如: /etc/config)" />
+          </Form.Item>
+        </Col>
+        <Col span={4}>
+          <Form.Item
+            name={[...basePath, 'subPath']}
+            style={{ marginBottom: 0 }}
+          >
+            <Input placeholder="子路径" />
+          </Form.Item>
+        </Col>
+        <Col span={4}>
+          <Form.Item
+            name={[...basePath, 'readOnly']}
+            valuePropName="checked"
+            style={{ marginBottom: 0 }}
+          >
+            <Switch size="small" /> 只读
+          </Form.Item>
+        </Col>
+        <Col span={2}>
+          <Button
+            type="text"
+            danger
+            icon={<MinusCircleOutlined />}
+            onClick={() => removeVolumeMount(index)}
+          />
+        </Col>
+      </Row>
+    );
+  };
+
+  // 存储卷类型下拉菜单
+  const volumeTypeMenuItems = VOLUME_TYPE_OPTIONS.map(opt => ({
+    key: opt.value,
+    label: (
+      <span>
+        <Tag color={opt.value === 'configMap' ? 'blue' : opt.value === 'secret' ? 'orange' : 'green'} style={{ marginRight: 4 }}>
+          {opt.label}
+        </Tag>
+        <span style={{ color: '#999', fontSize: 12 }}>{opt.desc}</span>
+      </span>
+    ),
+    onClick: () => addVolume(opt.value as VolumeType),
+  }));
+
+  return (
+    <div>
+      {/* 存储卷定义 */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 500 }}>存储卷定义</span>
+          <Dropdown menu={{ items: volumeTypeMenuItems }} trigger={['click']}>
+            <Button type="dashed" size="small" icon={<PlusOutlined />}>
+              添加存储卷 <DownOutlined />
+            </Button>
+          </Dropdown>
+        </div>
+        
+        {volumes.length === 0 && (
+          <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+            暂无存储卷，点击上方按钮添加
+          </div>
+        )}
+        
+        {volumes.map((vol, index) => renderVolume(vol, index))}
       </div>
-    )}
-  </Form.List>
-);
+
+      {/* 卷挂载配置 */}
+      <div>
+        <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 500 }}>卷挂载配置</span>
+          <Button
+            type="dashed"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={addVolumeMount}
+            disabled={availableVolumeNames.length === 0}
+          >
+            添加挂载
+          </Button>
+        </div>
+        
+        {volumeMounts.length > 0 && (
+          <Row gutter={8} style={{ marginBottom: 8, color: '#999', fontSize: 12 }}>
+            <Col span={6}>卷名称</Col>
+            <Col span={8}>挂载路径</Col>
+            <Col span={4}>子路径</Col>
+            <Col span={4}>只读</Col>
+            <Col span={2}>操作</Col>
+          </Row>
+        )}
+        
+        {volumeMounts.length === 0 && availableVolumeNames.length > 0 && (
+          <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
+            已定义 {availableVolumeNames.length} 个卷，点击添加挂载
+          </div>
+        )}
+        
+        {volumeMounts.map((mount, index) => renderVolumeMount(mount, index))}
+      </div>
+    </div>
+  );
+};
 
 // ============================================================
 // 子组件: 健康检查配置
@@ -1832,11 +2732,20 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   namespacesOptions,
   imagePullSecrets,
   secretsWithCredentials,
+  onRefreshImagePullSecrets,
   onSuccess,
   onCancel,
   defaultNamespace,
   defaultType = 'deployment',
   editData,
+  // ConfigMap 和 Secret 相关 props
+  configMaps = [],
+  secrets = [],
+  onRefreshConfigMaps,
+  onRefreshSecrets,
+  // PVC 相关 props
+  persistentVolumeClaims = [],
+  onRefreshPVCs,
 }) => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
@@ -1852,6 +2761,13 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 仓库浏览器状态
   const [browserVisible, setBrowserVisible] = useState(false);
   const [browserCredential, setBrowserCredential] = useState<any>(null);
+  
+  // 快速创建镜像凭证弹窗状态
+  const [showQuickCreateRegistry, setShowQuickCreateRegistry] = useState(false);
+  
+  // 快速创建 ConfigMap/Secret 弹窗状态
+  const [showQuickCreateConfigMap, setShowQuickCreateConfigMap] = useState(false);
+  const [showQuickCreateSecret, setShowQuickCreateSecret] = useState(false);
 
   /**
    * 加载 localStorage 中的仓库列表
@@ -2244,6 +3160,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       tolerations,
       livenessProbe,
       readinessProbe,
+      volumes,
+      volumeMounts,
     } = values;
     
     // 构建标签
@@ -2254,11 +3172,36 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       }
     });
     
-    // 构建环境变量
-    const envList = (env || []).map((item) => ({
-      name: item.name,
-      value: item.value,
-    }));
+    // 构建环境变量（支持三种类型：键值对、ConfigMap 引用、Secret 引用）
+    const envList = (env || []).map((item: any) => {
+      const envVar: any = {};
+      
+      if (item.type === 'configMapKeyRef') {
+        // 从 ConfigMap 引入
+        envVar.name = item.name || item.configMapKey; // 别名或使用 key
+        envVar.valueFrom = {
+          configMapKeyRef: {
+            name: item.configMapName,
+            key: item.configMapKey,
+          },
+        };
+      } else if (item.type === 'secretKeyRef') {
+        // 从 Secret 引入
+        envVar.name = item.name || item.secretKey; // 别名或使用 key
+        envVar.valueFrom = {
+          secretKeyRef: {
+            name: item.secretName,
+            key: item.secretKey,
+          },
+        };
+      } else {
+        // 键值对（默认类型）
+        envVar.name = item.name;
+        envVar.value = item.value;
+      }
+      
+      return envVar;
+    }).filter((item: any) => item.name); // 过滤掉没有名称的环境变量
     
     // 构建端口
     const portsList = (ports || []).map((item) => ({
@@ -2319,7 +3262,57 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       args: args?.length ? args : undefined,
       livenessProbe: buildProbe(livenessProbe),
       readinessProbe: buildProbe(readinessProbe),
+      volumeMounts: (volumeMounts || []).length > 0 ? (volumeMounts || []).map((m) => ({
+        name: m.name,
+        mountPath: m.mountPath,
+        subPath: m.subPath,
+        readOnly: m.readOnly,
+      })) : undefined,
     };
+    
+    // 构建存储卷定义
+    const buildVolumes = () => {
+      return (volumes || []).map((vol) => {
+        const volume: any = { name: vol.name };
+        
+        switch (vol.type) {
+          case 'configMap':
+            volume.configMap = {
+              name: vol.configMapName,
+              optional: vol.configMapOptional,
+            };
+            break;
+          case 'secret':
+            volume.secret = {
+              secretName: vol.secretName,
+              optional: vol.secretOptional,
+            };
+            break;
+          case 'persistentVolumeClaim':
+            volume.persistentVolumeClaim = {
+              claimName: vol.claimName,
+              readOnly: vol.readOnly,
+            };
+            break;
+          case 'emptyDir':
+            volume.emptyDir = {
+              medium: vol.emptyDirMedium === 'Memory' ? 'Memory' : undefined,
+              sizeLimit: vol.emptyDirSizeLimit,
+            };
+            break;
+          case 'hostPath':
+            volume.hostPath = {
+              path: vol.hostPath,
+              type: vol.hostPathType,
+            };
+            break;
+        }
+        
+        return volume;
+      });
+    };
+    
+    const volumesList = buildVolumes();
     
     // 构建节点选择器
     const nodeSelectorMap: Record<string, string> = {};
@@ -2643,6 +3636,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             nodeSelector: Object.keys(nodeSelectorMap).length > 0 ? nodeSelectorMap : undefined,
             affinity: Object.keys(affinity).length > 0 ? affinity : undefined,
             tolerations: tolerationsList.length > 0 ? tolerationsList : undefined,
+            volumes: volumesList.length > 0 ? volumesList : undefined,
           },
         },
       },
@@ -3040,7 +4034,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           'ports', 'env', 'resources', 'command', 'args',
           'replicas', 'imagePullSecrets', 'nodeSelector',
           'nodeAffinity', 'nodeAntiAffinity', 'tolerations',
-          'livenessProbe', 'readinessProbe'
+          'livenessProbe', 'readinessProbe',
+          'volumes', 'volumeMounts'
         ]);
         
         resource = buildK8sResource(values);
@@ -3243,7 +4238,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             <PortsEditor />
             
             <Divider orientation="left">环境变量</Divider>
-            <EnvEditor />
+            <EnvEditor
+              cloudId={cloudId}
+              namespacesOptions={namespacesOptions}
+              selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
+              configMaps={configMaps}
+              secrets={secrets}
+              onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
+              onRefreshSecrets={() => onRefreshSecrets?.()}
+              onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
+              onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+            />
             
             <Divider orientation="left">资源限制</Divider>
             <Row gutter={16}>
@@ -3337,24 +4342,34 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 </Space>
               }
             >
-              <Select
-                mode="multiple"
-                placeholder={imagePullSecrets.length === 0 ? "暂无可用的镜像凭证" : "选择镜像拉取凭证"}
-                allowClear
-                disabled={imagePullSecrets.length === 0}
-                options={imagePullSecrets.map((secret) => ({
-                  label: `${secret.metadata.name} (${secret.metadata.namespace})`,
-                  value: secret.metadata.name,
-                }))}
-                notFoundContent={
-                  <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                    <div style={{ color: '#999' }}>暂无镜像拉取凭证</div>
-                    <div style={{ fontSize: 12, color: '#bbb', marginTop: 4 }}>
-                      请创建类型为 kubernetes.io/dockerconfigjson 的 Secret
+              <Space.Compact style={{ width: '100%' }}>
+                <Select
+                  mode="multiple"
+                  style={{ width: 'calc(100% - 120px)' }}
+                  placeholder={imagePullSecrets.length === 0 ? "暂无可用的镜像凭证" : "选择镜像拉取凭证"}
+                  allowClear
+                  disabled={imagePullSecrets.length === 0}
+                  options={imagePullSecrets.map((secret) => ({
+                    label: `${secret.metadata.name} (${secret.metadata.namespace})`,
+                    value: secret.metadata.name,
+                  }))}
+                  notFoundContent={
+                    <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                      <div style={{ color: '#999' }}>暂无镜像拉取凭证</div>
+                      <div style={{ fontSize: 12, color: '#bbb', marginTop: 4 }}>
+                        请创建类型为 kubernetes.io/dockerconfigjson 的 Secret
+                      </div>
                     </div>
-                  </div>
-                }
-              />
+                  }
+                />
+                <Button
+                  type="dashed"
+                  icon={<PlusOutlined />}
+                  onClick={() => setShowQuickCreateRegistry(true)}
+                >
+                  创建凭证
+                </Button>
+              </Space.Compact>
             </Form.Item>
             
             <Divider orientation="left">调度策略</Divider>
@@ -3375,6 +4390,20 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             
             <Divider orientation="left">污点容忍</Divider>
             <TolerationsEditor />
+            
+            <Divider orientation="left">存储卷配置</Divider>
+            <VolumesEditor
+              cloudId={cloudId}
+              namespacesOptions={namespacesOptions}
+              selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
+              configMaps={configMaps}
+              secrets={secrets}
+              persistentVolumeClaims={persistentVolumeClaims}
+              onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
+              onRefreshSecrets={() => onRefreshSecrets?.()}
+              onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
+              onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+            />
             
             <Divider orientation="left">健康检查</Divider>
             <ProbeEditor name="livenessProbe" label="存活探针 (Liveness Probe)" />
@@ -3473,6 +4502,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               resources: { requests: {}, limits: {} },
               livenessProbe: { enabled: false, type: 'httpGet' as const, initialDelaySeconds: 30, periodSeconds: 10 },
               readinessProbe: { enabled: false, type: 'httpGet' as const, initialDelaySeconds: 5, periodSeconds: 10 },
+              volumes: [],
+              volumeMounts: [],
             }}
           >
             {renderStepContent()}
@@ -3527,6 +4558,61 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           setBrowserVisible(false);
           message.success(`已选择镜像: ${image}`);
         }}
+      />
+
+      {/* 快速创建镜像拉取凭证弹窗 */}
+      <QuickCreateRegistrySecretModal
+        cloudId={cloudId}
+        namespacesOptions={namespacesOptions}
+        defaultNamespace={form.getFieldValue('namespace') || defaultNamespace}
+        visible={showQuickCreateRegistry}
+        onSuccess={(secret) => {
+          setShowQuickCreateRegistry(false);
+          // 刷新凭证列表
+          if (onRefreshImagePullSecrets) {
+            onRefreshImagePullSecrets();
+          }
+          // 自动选中新创建的凭证
+          const currentSecrets = form.getFieldValue('imagePullSecrets') || [];
+          if (!currentSecrets.includes(secret.name)) {
+            form.setFieldsValue({ imagePullSecrets: [...currentSecrets, secret.name] });
+          }
+        }}
+        onCancel={() => setShowQuickCreateRegistry(false)}
+      />
+
+      {/* 快速创建 ConfigMap 弹窗 */}
+      <QuickCreateConfigMapModal
+        cloudId={cloudId}
+        namespacesOptions={namespacesOptions}
+        defaultNamespace={form.getFieldValue('namespace') || defaultNamespace}
+        visible={showQuickCreateConfigMap}
+        onSuccess={(configMap) => {
+          setShowQuickCreateConfigMap(false);
+          // 刷新 ConfigMap 列表
+          if (onRefreshConfigMaps) {
+            onRefreshConfigMaps();
+          }
+          message.success(`ConfigMap "${configMap.name}" 创建成功，请在下拉列表中选择`);
+        }}
+        onCancel={() => setShowQuickCreateConfigMap(false)}
+      />
+
+      {/* 快速创建 Secret 弹窗 */}
+      <QuickCreateSecretModal
+        cloudId={cloudId}
+        namespacesOptions={namespacesOptions}
+        defaultNamespace={form.getFieldValue('namespace') || defaultNamespace}
+        visible={showQuickCreateSecret}
+        onSuccess={(secret) => {
+          setShowQuickCreateSecret(false);
+          // 刷新 Secret 列表
+          if (onRefreshSecrets) {
+            onRefreshSecrets();
+          }
+          message.success(`Secret "${secret.name}" 创建成功，请在下拉列表中选择`);
+        }}
+        onCancel={() => setShowQuickCreateSecret(false)}
       />
     </div>
   );
